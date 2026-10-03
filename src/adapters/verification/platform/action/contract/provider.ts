@@ -7,6 +7,8 @@ import {
 
 export const CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA =
   'sec-verification-action-terminal-artifact-v2' as const;
+export const CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA =
+  'sec-verification-action-terminal-artifact-v3' as const;
 
 export const CI_GITHUB_ACTIONS_IDENTITY_POLICY = Object.freeze({
   schema: 'sec-ci-github-actions-identity-policy-v1' as const,

@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
-import { uniqueSorted } from '../../../../contracts/canonical.ts';
+import { rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../../contracts/exact-json.ts';
 import {
   observeExecutionProgressPhase
 } from '../../../../execution/execution-progress.ts';
@@ -15,6 +16,8 @@ import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
+import { withGitHubApiVerificationSession } from '../../../providers/github-api/operation-session.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
@@ -34,8 +37,8 @@ import {
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/runner/contract.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
 import {
   writeVerificationActionStartMarkerV2Atomic,
@@ -51,6 +54,7 @@ import {
   type CodexDevelopmentVerificationGateEvidenceV4,
   type TrustedRuntimeSourceProgramActionRecord
 } from './contract/evidence.ts';
+import { hostedSutCapabilityComplete, parseHostedSutCapabilityObservation } from './contract/hosted-sut-observation.ts';
 import {
   assertCiExpectedHead,
   CodexDevelopmentBuildVerificationPlan, type CodexDevelopmentVerificationPlanProfile
@@ -74,6 +78,7 @@ import {
   CodexDevelopmentTestImpactSourceProviderFromSnapshot,
   type CodexDevelopmentChangedPathSnapshot
 } from './runtime/ci-orchestration-core.ts';
+import { assertAuthenticatedHostedJobRuntimeReceipt, readAuthenticatedHostedJobRuntimeReceipt, type AuthenticatedHostedJobRuntimeReceipt } from './runtime/hosted-job-runtime-provenance.ts';
 import {
   ensureVerificationActionGitHubProviderTransaction
 } from './runtime/verification-action-github-provider.ts';
@@ -1399,14 +1404,51 @@ async function runObserveActionProvider(argv: string[]): Promise<string | null> 
   });
 }
 
-async function runPrepareStartMarkerProvider(argv: string[]): Promise<string | null> {
+export type HostedActionCliContext = Readonly<{ origin: AuthenticatedGitHubJobOrigin }>;
+
+/** Read immutable SUT transport in the caller's original authenticated job lifetime. */
+async function readHostedActionRuntimeProof(input: Readonly<{
+  context: HostedActionCliContext | undefined;
+  resolution: CodexDevelopmentHostedActionResolution;
+  artifactId: string | undefined;
+  phase: 'prepare-start-marker' | 'assemble-hosted-action-terminal';
+}>): Promise<AuthenticatedHostedJobRuntimeReceipt> {
+  if (input.context === undefined || input.artifactId === undefined || !/^[1-9][0-9]{0,19}$/u.test(input.artifactId)) {
+    throw new Error('Per-job hosted Action requires a live job origin and exact native artifact ID.');
+  }
+  const origin = input.context.origin;
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  const producer = currentHostedActionProducer();
+  const preflight = input.phase === 'prepare-start-marker';
+  if (observed.workflowPath !== CI_VERIFICATION_WORKFLOW_PATH || observed.role !== 'trusted'
+    || observed.policyJobId !== (preflight ? 'claim-verification-action' : 'assemble-verification-action-terminal')
+    || observed.phase !== input.phase || observed.workflowSha !== input.resolution.artifactInput.baseSha
+    || observed.trustedSourceTreeSha !== input.resolution.artifactInput.baseTreeSha
+    || observed.repository !== producer.repository || observed.repositoryId !== String(producer.repositoryId)
+    || observed.runId !== producer.runId || observed.runAttempt !== producer.runAttempt) {
+    throw new Error('Per-job hosted Action origin differs from the actual claim/assembler phase and source.');
+  }
+  const proof = await withGitHubApiVerificationSession({
+    repositoryRoot: observed.trustedDriverRoot, repository: observed.repository, effect: 'verification-read',
+    deadlineAtUnixMs: observed.originalDeadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin),
+    operation: capability => readAuthenticatedHostedJobRuntimeReceipt({ capability, repository: observed.repository,
+      artifactId: input.artifactId!, runId: observed.runId, runAttempt: observed.runAttempt,
+      policyJobId: preflight ? 'preflight-verification-action-sut' : 'execute-verification-action-sut',
+      phase: preflight ? 'self-test-hosted-action-sandbox' : 'execute-hosted-action-sut',
+      actionKey: input.resolution.actionPlan.action.actionKey })
+  });
+  assertAuthenticatedGitHubJobOriginCurrent(origin);
+  return proof;
+}
+
+async function runPrepareStartMarkerProvider(argv: string[], context?: HostedActionCliContext): Promise<string | null> {
   if (argv[0] !== 'ensure-hosted-action-provider' ||
       hostedActionSelectedProviderIntent(argv) !== 'prepare-start-marker') return null;
   const args = hostedActionCliArgs(argv, [
     '--intent', '--provider-envelope', '--envelope', '--resolution',
     '--prepared-candidate-archive', '--base-dependency-closure-digest',
     '--authenticated-git-closure-digest', '--output'
-  ]);
+  ], ['--sandbox-capability-artifact-id']);
   const authority = hostedActionChildAuthority({
     providerEnvelopePath: args.get('--provider-envelope')!,
     envelopePath: args.get('--envelope')!,
@@ -1420,9 +1462,35 @@ async function runPrepareStartMarkerProvider(argv: string[]): Promise<string | n
     authenticatedGitClosureDigest:
       args.get('--authenticated-git-closure-digest')! as VerificationActionKeyDigest
   });
-  const sandboxCapability = await CodexDevelopmentProbeHostedSutSandboxCapability({
-    actionKey: authority.resolution.actionPlan.action.actionKey
-  });
+  let sandboxCapability: Awaited<ReturnType<typeof CodexDevelopmentProbeHostedSutSandboxCapability>>;
+  if (authority.resolution.executionEnvironment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT) {
+    const proof = await readHostedActionRuntimeProof({ context, resolution: authority.resolution,
+      artifactId: args.get('--sandbox-capability-artifact-id'), phase: 'prepare-start-marker' });
+    const output = hostedActionRecord(parseExactJson(proof.outputSource), 'authenticated SUT capability');
+    const observation = parseHostedSutCapabilityObservation(output.observation);
+    if (Object.keys(output).sort().join(',') !== 'actionKey,observation,policyDigest,schema,status'
+      || output.schema !== 'sec-verification-action-sut-capability-v2'
+      || output.actionKey !== authority.resolution.actionPlan.action.actionKey
+      || output.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
+      || !['supported', 'unsupported', 'invalidated'].includes(String(output.status))
+      || (output.status === 'supported') !== hostedSutCapabilityComplete(observation)) {
+      throw new Error('Authenticated preflight output has no complete closed capability observation.');
+    }
+    const producer = currentHostedActionProducer();
+    assertAuthenticatedHostedJobRuntimeReceipt(proof, {
+      repository: producer.repository, repositoryId: String(producer.repositoryId),
+      workflowSha: authority.resolution.artifactInput.baseSha, runId: producer.runId, runAttempt: producer.runAttempt,
+      policyJobId: 'preflight-verification-action-sut', phase: 'self-test-hosted-action-sandbox',
+      actionKey: authority.resolution.actionPlan.action.actionKey, outputDigest: rawSha256(proof.outputSource),
+      sandboxObservationDigest: ciActionDigest(observation)
+    });
+    sandboxCapability = Object.freeze({ ...observation, state: output.status as 'supported' | 'unsupported' | 'invalidated' });
+  } else {
+    if (args.has('--sandbox-capability-artifact-id')) throw new Error('Legacy claim cannot adopt a per-job capability artifact.');
+    sandboxCapability = await CodexDevelopmentProbeHostedSutSandboxCapability({
+      actionKey: authority.resolution.actionPlan.action.actionKey
+    });
+  }
   if (sandboxCapability.state === 'unknown') {
     throw new Error(`Hosted Action sandbox pre-start capability is an ambiguous machine observation: ${
       sandboxCapability.diagnostic ?? 'no diagnostic'
@@ -1439,9 +1507,12 @@ async function runPrepareStartMarkerProvider(argv: string[]): Promise<string | n
   const marker = createVerificationActionStartMarkerV2({
     actionKey: authority.resolution.actionPlan.action.actionKey,
     candidateSha: authority.resolution.artifactInput.headSha,
-    executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    executionEnvironmentRevision: authority.resolution.executionEnvironment.executionEnvironmentRevision,
     producer: currentHostedActionProducer()
   });
+  if (authority.resolution.executionEnvironment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT) {
+    assertAuthenticatedGitHubJobOriginCurrent(context!.origin);
+  }
   writeVerificationActionStartMarkerV2Atomic(args.get('--output')!, marker);
   return JSON.stringify({
     status: 'marker-prepared',
@@ -1627,12 +1698,12 @@ async function runAnchorTerminalProvider(argv: string[]): Promise<string | null>
   });
 }
 
-async function runAssembleHostedActionTerminal(argv: string[]): Promise<string | null> {
+async function runAssembleHostedActionTerminal(argv: string[], context?: HostedActionCliContext): Promise<string | null> {
   if (argv[0] !== 'assemble-hosted-action-terminal') return null;
   const args = hostedActionCliArgs(argv, [
     '--provider-envelope', '--envelope', '--resolution', '--ticket', '--raw-result',
     '--expected-raw-result-digest', '--output'
-  ]);
+  ], ['--raw-artifact-id']);
   const authority = hostedActionChildAuthority({
     providerEnvelopePath: args.get('--provider-envelope')!,
     envelopePath: args.get('--envelope')!,
@@ -1642,9 +1713,12 @@ async function runAssembleHostedActionTerminal(argv: string[]): Promise<string |
   const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
     hostedActionTransportText(args.get('--ticket')!, 'hosted Action execution ticket')
   );
-  const rawResult = CodexDevelopmentParseHostedActionRawResult(
-    hostedActionTransportText(args.get('--raw-result')!, 'hosted Action raw result')
-  );
+  const rawResultSource = hostedActionTransportText(args.get('--raw-result')!, 'hosted Action raw result');
+  const rawResult = CodexDevelopmentParseHostedActionRawResult(rawResultSource);
+  const perJob = resolution.executionEnvironment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+  if (!perJob && args.has('--raw-artifact-id')) throw new Error('Legacy assembly cannot adopt a per-job runtime artifact.');
+  const runtimeProof = perJob ? await readHostedActionRuntimeProof({ context, resolution,
+    artifactId: args.get('--raw-artifact-id'), phase: 'assemble-hosted-action-terminal' }) : undefined;
   const observed = await ensureVerificationActionGitHubProviderTransaction({
     authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
     intent: { kind: 'coordinate' }
@@ -1680,8 +1754,9 @@ async function runAssembleHostedActionTerminal(argv: string[]): Promise<string |
     ticket,
     rawResult,
     expectedRawResultDigest: args.get('--expected-raw-result-digest')! as VerificationActionKeyDigest,
-    producer
+    producer, ...(runtimeProof === undefined ? {} : { runtimeProof, rawResultSource })
   });
+  if (perJob) assertAuthenticatedGitHubJobOriginCurrent(context!.origin);
   CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(args.get('--output')!, artifact);
   return JSON.stringify({
     status: artifact.result.status,
@@ -1692,14 +1767,14 @@ async function runAssembleHostedActionTerminal(argv: string[]): Promise<string |
   });
 }
 
-async function tryRunHostedActionProvider(argv: string[]): Promise<string | null> {
+async function tryRunHostedActionProvider(argv: string[], context?: HostedActionCliContext): Promise<string | null> {
   for (const handler of [
     runPrepareParentPlanProvider,
     runVerifyParentPlanProvider,
     runCoordinateSessionProvider,
     runObserveSessionProvider,
     runObserveActionProvider,
-    runPrepareStartMarkerProvider,
+    (argv: string[]) => runPrepareStartMarkerProvider(argv, context),
     runClaimStartProvider,
     runPrepareTerminalAnchorProvider,
     runAnchorTerminalProvider
@@ -1715,7 +1790,9 @@ async function tryRunHostedActionProvider(argv: string[]): Promise<string | null
   return null;
 }
 
-export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[]): Promise<string> {
+export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[], context?: HostedActionCliContext): Promise<string> {
+  argv = [...argv];
+  context = context === undefined ? undefined : Object.freeze({ origin: context.origin });
   const command = argv[0];
   if (command === 'execute-trusted-bootstrap-sut') {
     const args = hostedActionCliArgs(argv, [
@@ -1734,7 +1811,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     });
     return JSON.stringify(result);
   }
-  const providerResult = await tryRunHostedActionProvider(argv);
+  const providerResult = await tryRunHostedActionProvider(argv, context);
   if (providerResult !== null) return providerResult;
   if (command === 'prepare-hosted-action-inputs') {
     const args = hostedActionCliArgs(argv, [
@@ -1837,7 +1914,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       output: path.resolve(args.get('--output')!)
     });
   }
-  const terminalResult = await runAssembleHostedActionTerminal(argv);
+  const terminalResult = await runAssembleHostedActionTerminal(argv, context);
   if (terminalResult !== null) return terminalResult;
   if (command === 'compose-hosted-evidence') {
     const args = hostedActionCliArgs(argv, [

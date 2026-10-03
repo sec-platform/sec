@@ -12,6 +12,8 @@ import {
 import path from 'node:path';
 
 import { canonicalEquals, sha256 as canonicalSha256 } from '../../../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../../../contracts/exact-json.ts';
+import { assertHostedActionRuntimeExecutionBinding, parseHostedActionRuntimeExecution, type HostedActionRuntimeExecution } from './hosted-runtime-execution.ts';
 import {
   CodexDevelopmentReduceHostedSutObservation,
   type CodexDevelopmentHostedSutExecutionProof
@@ -30,8 +32,8 @@ import {
   type ScopeAuthorization
 } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan, type VerificationActionKey, type VerificationActionPlan } from '../../action/contract/action.ts';
-import { assertCiVerificationActionPlanClosureEqual, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationNormalizedOperation, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
+import { assertCiVerificationActionPlanClosureEqual, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationHostedExecutionEnvironment, parseCiVerificationNormalizedOperation, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { parseVerificationSession, type VerificationSession } from '../../session/contract/session.ts';
 import type { SourceProgramTransitionQualification, TrustedRuntimeSourceProgramAttemptEvidence } from '../../trusted-runtime/trusted-runtime-container.ts';
@@ -403,8 +405,7 @@ export type CodexDevelopmentVerificationActionArtifactInput = Readonly<{
 
 export type CodexDevelopmentVerificationActionArtifactProducer = VerificationActionProviderOrigin;
 
-export type CodexDevelopmentVerificationActionTerminalArtifact = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA;
+type HostedActionTerminalFields = Readonly<{
   actionPlan: VerificationActionPlan;
   normalizedOperation: CiVerificationNormalizedOperation;
   result: VerificationGateResult;
@@ -415,6 +416,11 @@ export type CodexDevelopmentVerificationActionTerminalArtifact = Readonly<{
   executionProof: CodexDevelopmentHostedSutExecutionProof;
   artifactDigest: string;
 }>;
+
+export type CodexDevelopmentVerificationActionTerminalArtifact = HostedActionTerminalFields & (
+  | Readonly<{ schema: typeof CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA }>
+  | Readonly<{ schema: typeof CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA; runtimeExecution: HostedActionRuntimeExecution }>
+);
 
 export function CodexDevelopmentVerificationActionCandidateBytesDigest(input: Readonly<{
   baseSha: string;
@@ -436,12 +442,18 @@ export function CodexDevelopmentVerificationActionCandidateBytesDigest(input: Re
   });
 }
 
+/** Construct historical data only. Production assembly additionally requires
+ * the private authenticated executing-job proof before producing the new wire. */
 export function CodexDevelopmentFinalizeVerificationActionTerminalArtifact(input: Omit<
-  CodexDevelopmentVerificationActionTerminalArtifact,
-  'schema' | 'artifactDigest'
->): CodexDevelopmentVerificationActionTerminalArtifact {
+  HostedActionTerminalFields, 'artifactDigest'
+> & Readonly<{ runtimeExecution?: HostedActionRuntimeExecution }>): CodexDevelopmentVerificationActionTerminalArtifact {
+  const environment = parseCiVerificationHostedExecutionEnvironment(input.executionEnvironment);
+  const perJob = environment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+  if (perJob !== Object.hasOwn(input, 'runtimeExecution')) {
+    throw new Error('Hosted terminal runtime execution data does not match its versioned profile.');
+  }
   const withoutDigest = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA,
+    schema: perJob ? CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA : CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA,
     ...input
   });
   const artifact = Object.freeze({
@@ -460,10 +472,13 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
   }> = {}
 ): asserts value is CodexDevelopmentVerificationActionTerminalArtifact {
   assertObject(value, 'VerificationAction terminal artifact V2');
-  if (value.schema !== CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA) {
-    throw new Error('VerificationAction terminal artifact V2 schema mismatch.');
+  if (value.schema !== CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA
+    && value.schema !== CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA) {
+    throw new Error('VerificationAction terminal artifact schema mismatch.');
   }
+  const perJob = value.schema === CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA;
   assertExactKeys(value, [
+    ...(perJob ? ['runtimeExecution'] : []),
     'schema', 'actionPlan', 'normalizedOperation', 'result', 'cleanup', 'executionEnvironment',
     'input', 'producer', 'executionProof', 'artifactDigest'
   ], 'VerificationAction terminal artifact V2');
@@ -488,18 +503,20 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
     'contractRevision', 'kind', 'os', 'arch', 'runnerImage', 'toolchainRevision',
     'executionEnvironmentRevision'
   ], 'VerificationAction artifact execution environment');
-  if (!canonicalEquals(value.executionEnvironment, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
-    throw new Error('VerificationAction terminal artifact must use the canonical hosted execution environment.');
+  const executionEnvironment = parseCiVerificationHostedExecutionEnvironment(value.executionEnvironment);
+  if (executionEnvironment !== (perJob ? CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT
+      : CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
+    throw new Error('VerificationAction terminal schema cannot relabel another hosted profile.');
   }
-  if (plan.action.environment.providerRevision !==
-      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision) {
+  if (plan.action.environment.providerRevision !== executionEnvironment.executionEnvironmentRevision
+    || (perJob && plan.action.environment.toolchainRevision !== executionEnvironment.toolchainRevision)) {
     throw new Error('VerificationAction artifact ActionKey does not bind the hosted execution environment.');
   }
   const environmentBinding = plan.action.operation.declaredEnvironment.find(
     (binding) => binding.name === 'SEC_EXECUTION_ENVIRONMENT_REVISION'
   );
   if (environmentBinding?.digest !== CodexDevelopmentVerificationDigest(
-    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+    executionEnvironment.executionEnvironmentRevision
   )) {
     throw new Error('VerificationAction artifact declared environment revision is missing or forged.');
   }
@@ -573,6 +590,15 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
       !canonicalEquals(replay.cleanup, value.cleanup)) {
     throw new Error('VerificationAction terminal artifact execution proof does not replay its Result and cleanup.');
   }
+  if (perJob) {
+    const runtimeExecution = parseHostedActionRuntimeExecution(value.runtimeExecution);
+    assertHostedActionRuntimeExecutionBinding(runtimeExecution, {
+      actionKey: plan.action.actionKey, repository: producer.repository, repositoryId: producer.repositoryId,
+      baseSha: artifactInput.baseSha, baseTreeSha: artifactInput.baseTreeSha,
+      runId: producer.runId, runAttempt: producer.runAttempt,
+      sandboxReceiptDigest: proof.observation.sandboxReceipt.receiptDigest
+    });
+  }
   if (expected.actionPlan !== undefined &&
       encodeVerificationActionData(plan) !== encodeVerificationActionData(expected.actionPlan)) {
     throw new Error('VerificationAction artifact plan differs from trusted reconstruction.');
@@ -591,7 +617,9 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
 export function CodexDevelopmentParseVerificationActionTerminalArtifact(
   source: string
 ): CodexDevelopmentVerificationActionTerminalArtifact {
-  const value = JSON.parse(source) as unknown;
+  const decoded = JSON.parse(source) as unknown;
+  const value = (decoded as { schema?: unknown } | null)?.schema === CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA
+    ? parseExactJson(source, 'Per-job Action terminal') : decoded;
   CodexDevelopmentAssertVerificationActionTerminalArtifact(value);
   return value;
 }

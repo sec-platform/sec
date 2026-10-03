@@ -4,17 +4,18 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../action/contract/action.ts';
-import { assertCiVerificationActionProviderEnvelopeMember, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, ciVerificationActionParentDispatchPlanPayloadDigest, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
+import { assertCiVerificationActionProviderEnvelopeMember, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, finalizeVerificationActionProviderStatusReadback, matchesCiCompilerWorkflowRunIdentity, parseVerificationActionProviderStartMarker, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderArtifactObservation, type VerificationActionProviderOrigin, type VerificationActionProviderStartMarker, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchor, type VerificationActionProviderTerminalObservation } from '../../action/contract/provider.ts';
 import {
   CodexDevelopmentParseVerificationActionTerminalArtifact
 } from '../contract/evidence.ts';
 import {
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
 } from '../contract/revision.ts';
+import { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
 
 const GITHUB_EXACT_COMMIT_STATUS_HISTORY_SCHEMA =
   'sec-github-exact-commit-status-history-v1' as const;
@@ -115,13 +116,14 @@ interface VerificationActionGitHubProviderTransport
   getArtifact(input: Readonly<{ repository: string; artifactId: string }>): Promise<unknown>;
   getRepository(input: Readonly<{ repository: string }>): Promise<unknown>;
   getWorkflow(input: Readonly<{ repository: string }>): Promise<unknown>;
+  getCompilerWorkflowSource(input: Readonly<{ repository: string; sha: string }>): Promise<string>;
   getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown>;
   listWorkflowJobsPage(input: Readonly<{
     repository: string;
     runId: string;
     runAttempt: number;
     page: number;
-  }>): Promise<GitHubProviderPage>;
+  }>): Promise<GitHubProviderPage & Readonly<{ totalCount: number }>>;
   downloadArtifact(input: Readonly<{
     repository: string;
     artifactId: string;
@@ -193,6 +195,24 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
       `/repos/${repository(input.repository)}/actions/workflows/compiler-pr-validation.yml`]);
   }
 
+  async getCompilerWorkflowSource(input: Readonly<{ repository: string; sha: string }>): Promise<string> {
+    if (!/^[0-9a-f]{40}$/u.test(input.sha)) fail('workflow source ref is invalid.');
+    const response = record(ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/contents/.github/workflows/compiler-pr-validation.yml?ref=${input.sha}`]),
+    'exact compiler workflow source');
+    if (response.type !== 'file' || response.path !== '.github/workflows/compiler-pr-validation.yml'
+      || response.encoding !== 'base64' || typeof response.content !== 'string'
+      || !Number.isSafeInteger(response.size) || Number(response.size) < 1 || Number(response.size) > 1024 * 1024
+      || typeof response.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(response.sha)) fail('workflow source is not one bounded blob.');
+    const encoded = response.content.replace(/\n/gu, '');
+    const bytes = Buffer.from(encoded, 'base64');
+    const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+    if (bytes.length !== response.size || bytes.toString('base64') !== encoded || blob !== response.sha) {
+      fail('workflow source bytes differ from the authenticated Git blob.');
+    }
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  }
+
   async getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown> {
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(input.login)) fail('principal login is invalid.');
     return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
@@ -204,7 +224,7 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     runId: string;
     runAttempt: number;
     page: number;
-  }>): Promise<GitHubProviderPage> {
+  }>): Promise<GitHubProviderPage & Readonly<{ totalCount: number }>> {
     if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1 ||
         !Number.isSafeInteger(input.page) || input.page < 1) fail('workflow job page request is invalid.');
     const response = record(ghJson([
@@ -212,8 +232,8 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
       `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
         `/attempts/${input.runAttempt}/jobs?per_page=100&page=${input.page}`
     ]), 'workflow job page');
-    if (!Array.isArray(response.jobs)) fail('workflow job page jobs are invalid.');
-    return Object.freeze({ records: response.jobs, hasNextPage: response.jobs.length === 100 });
+    if (!Array.isArray(response.jobs) || !Number.isSafeInteger(response.total_count) || Number(response.total_count) < 1) fail('workflow job page jobs are invalid.');
+    return Object.freeze({ records: response.jobs, totalCount: Number(response.total_count), hasNextPage: response.jobs.length === 100 });
   }
 
   async listArtifactsPage(input: Readonly<{
@@ -951,6 +971,85 @@ async function readVerificationActionArtifactInventory(
   return Object.freeze({ ...withoutDigest, inventoryDigest: digest(withoutDigest) });
 }
 
+/** Data binding only. Production invokes it only after authenticated whole-source readback. */
+export function assertPerJobHostedActionArtifactPublisher(input: Readonly<{
+  origin: VerificationActionProviderOrigin; slot: 'start' | 'terminal' | 'anchor';
+  jobs: readonly Readonly<{ records: readonly unknown[]; totalCount: number }>[];
+  artifact: unknown; archiveDigest: string;
+}>): void {
+  const jobId = input.slot === 'start' ? 'claim-verification-action' : 'assemble-verification-action-terminal';
+  const phaseName = input.slot === 'start' ? 'prepare-start-marker'
+    : input.slot === 'terminal' ? 'assemble-hosted-action-terminal' : 'prepare-terminal-anchor';
+  const policy = getCiVerificationPerJobHostedJobPolicy(input.origin.workflowPath, jobId);
+  if (policy === null) fail('artifact writer has no closed job policy.');
+  const phase = policy.stages.find(stage => stage.kind === 'phase' && stage.phase === phaseName);
+  const upload = policy.stages.find(stage => stage.kind === 'upload' && stage.slot === input.slot);
+  if (phase?.kind !== 'phase' || upload?.kind !== 'upload' || upload.producerStepId !== phase.stepId) {
+    fail('artifact writer has no closed phase/slot binding.');
+  }
+  const total = input.jobs[0]?.totalCount;
+  const jobs = input.jobs.flatMap(page => page.records.map(value => record(value, 'artifact writer job')));
+  if (!Number.isSafeInteger(total) || total! < 1 || total! > 200 || jobs.length !== total
+    || input.jobs.some(page => page.totalCount !== total || page.records.length > 100)
+    || new Set(jobs.map(job => job.id)).size !== jobs.length) fail('artifact writer job census is incomplete.');
+  const matches = jobs.filter(job => job.name === policy.jobName);
+  if (matches.length !== 1) fail('artifact writer job is not unique.');
+  const job = matches[0]!;
+  const timestamp = (value: unknown): number => {
+    const result = typeof value === 'string' ? Date.parse(value) : NaN;
+    if (!Number.isSafeInteger(result) || result < 1) fail('artifact writer timestamp is invalid.');
+    return result;
+  };
+  if (!Number.isSafeInteger(job.id) || Number(job.id) < 1 || String(job.run_id) !== input.origin.runId
+    || (job.run_attempt !== undefined && job.run_attempt !== input.origin.runAttempt)
+    || job.head_sha !== input.origin.workflowSha || !canonicalEquals(job.labels, [policy.runnerLabel])
+    || !((job.status === 'in_progress' && job.conclusion === null)
+      || (job.status === 'completed' && job.conclusion === 'success')) || !Array.isArray(job.steps)
+    || typeof job.check_run_url !== 'string'
+    || !job.check_run_url.startsWith(`https://api.github.com/repos/${input.origin.repository}/check-runs/`)
+    || !/^[1-9][0-9]*$/u.test(job.check_run_url.slice(`https://api.github.com/repos/${input.origin.repository}/check-runs/`.length))) {
+    fail('artifact writer is not the exact progressing or successful job.');
+  }
+  const steps = job.steps.map(value => record(value, 'artifact writer step'));
+  if (steps.length > 100 || new Set(steps.map(step => step.number)).size !== steps.length) fail('artifact writer steps are ambiguous.');
+  const successful = (name: string) => {
+    const matching = steps.filter(step => step.name === name);
+    if (matching.length !== 1 || matching[0]!.status !== 'completed' || matching[0]!.conclusion !== 'success'
+      || !Number.isSafeInteger(matching[0]!.number) || Number(matching[0]!.number) < 1) fail('artifact writer step is not uniquely successful.');
+    const step = matching[0]!;
+    const started = timestamp(step.started_at), completed = timestamp(step.completed_at);
+    if (completed < started) fail('artifact writer step time is reversed.');
+    return { number: Number(step.number), started, completed };
+  };
+  let previous = { number: 0, completed: timestamp(job.started_at) };
+  for (const name of ['Checkout exact trusted hosted launcher', 'Setup exact trusted bootstrap Bun',
+    'Verify exact bootstrap Bun bytes', 'Install exact trusted launcher dependencies', phase.stepName, upload.stepName]) {
+    const step = successful(name);
+    if (step.number <= previous.number || step.started < previous.completed) fail('artifact writer phase order differs.');
+    previous = step;
+  }
+  const uploaded = successful(upload.stepName), metadata = record(input.artifact, 'artifact writer metadata');
+  const workflowRun = record(metadata.workflow_run, 'artifact writer workflow run');
+  const created = timestamp(metadata.created_at), updated = timestamp(metadata.updated_at);
+  if (metadata.digest !== input.archiveDigest || !/^sha256:[0-9a-f]{64}$/u.test(input.archiveDigest)
+    || metadata.expired !== false || workflowRun.id !== Number(input.origin.runId)
+    || workflowRun.repository_id !== input.origin.repositoryId || workflowRun.head_repository_id !== input.origin.repositoryId
+    || workflowRun.head_sha !== input.origin.workflowSha || workflowRun.head_branch !== 'main'
+    || created < uploaded.started || updated < created || updated > uploaded.completed
+    || uploaded.completed > timestamp(job.started_at) + policy.maximumJobDurationMs
+    || (job.status === 'completed' && timestamp(job.completed_at) < uploaded.completed)) {
+    fail('artifact bytes or upload window differ from the exact native writer.');
+  }
+}
+
+function assertPerJobHostedActionArtifactSource(input: Parameters<typeof assertPerJobHostedActionArtifactPublisher>[0]
+  & Readonly<{ workflowSource: string }>): void {
+  assertCiVerificationPerJobHostedWholeWorkflowShape(input.workflowSource);
+  assertCiVerificationPerJobHostedWorkflowShape(input.workflowSource, input.slot === 'start'
+    ? 'claim-verification-action' : 'assemble-verification-action-terminal');
+  assertPerJobHostedActionArtifactPublisher(input);
+}
+
 async function readVerificationActionArtifactObservation<TPayload>(
   transport: VerificationActionGitHubProviderTransport,
   input: Readonly<{
@@ -961,6 +1060,7 @@ async function readVerificationActionArtifactObservation<TPayload>(
     expectedFileName: string;
     parsePayload: (source: unknown) => TPayload;
     producingOrigin: (payload: TPayload) => VerificationActionProviderOrigin;
+    perJobSlot?: 'start' | 'terminal' | 'anchor';
   }>
 ): Promise<VerificationActionProviderArtifactObservation<TPayload>> {
   if (!/^[1-9][0-9]*$/u.test(input.artifactId) ||
@@ -1012,6 +1112,18 @@ async function readVerificationActionArtifactObservation<TPayload>(
   if (!canonicalEquals(origin, payloadOrigin)) {
     fail('artifact payload producing origin differs from its exact attempt readback.');
   }
+  if (input.perJobSlot !== undefined) {
+    const pages: Array<Readonly<{ records: readonly unknown[]; totalCount: number }>> = [];
+    for (let page = 1; page <= 2; page += 1) {
+      const result = await transport.listWorkflowJobsPage({ repository: input.repository, runId: origin.runId,
+        runAttempt: origin.runAttempt, page });
+      pages.push(result);
+      if (pages.reduce((count, entry) => count + entry.records.length, 0) >= result.totalCount) break;
+    }
+    assertPerJobHostedActionArtifactSource({ workflowSource: await transport.getCompilerWorkflowSource({
+      repository: input.repository, sha: origin.workflowSha }), origin, slot: input.perJobSlot,
+      jobs: pages, artifact: metadata, archiveDigest: bytesDigest(download.archiveBytes) });
+  }
   return Object.freeze({
     originId: input.artifactId,
     artifactName: input.expectedArtifactName,
@@ -1023,6 +1135,7 @@ async function readVerificationActionArtifactObservation<TPayload>(
 }
 
 type VerificationActionGitHubProviderResolution = Readonly<{
+  executionEnvironmentRevision: string;
   repositoryId: number;
   repository: string;
   actionKey: VerificationActionKeyDigest;
@@ -1131,7 +1244,9 @@ async function authenticateVerificationActionAuthority(
   const closure = parseCiVerificationActionPlanClosure(
     encodeVerificationActionData(authority.actionPlanClosure)
   );
-  const request = record(envelope.proposal.sessionRequest, 'embedded Session request');
+  const request = parseVerificationSessionHostedRequest(encodeVerificationActionData(envelope.proposal.sessionRequest));
+  const executionEnvironment = request.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+    ? CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT : CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
   if (request.expectedActionPlanDigest !== closure.actionPlanDigest ||
       typeof request.expectedBaseSha !== 'string' || !/^[0-9a-f]{40}$/u.test(request.expectedBaseSha) ||
       !Number.isSafeInteger(request.prNumber) || Number(request.prNumber) < 1 ||
@@ -1145,6 +1260,10 @@ async function authenticateVerificationActionAuthority(
   if (matchingPlans.length !== 1) fail('proposal ActionKey is not one exact member of the Action closure.');
   const matchingOperation = closure.normalizedOperations[matchingPlans[0]!.index];
   if (matchingOperation === undefined) fail('proposal Action has no normalized operation member.');
+  if (matchingOperation.candidate.executionEnvironmentRevision !== executionEnvironment.executionEnvironmentRevision
+    || closure.actions.some(member => member.action.environment.providerRevision !== executionEnvironment.executionEnvironmentRevision)) {
+    fail('Session request version and Action provider profile differ.');
+  }
 
   const repositoryName = repository(requiredEnvironment('GITHUB_REPOSITORY'));
   const repositoryIdText = requiredEnvironment('GITHUB_REPOSITORY_ID');
@@ -1318,6 +1437,7 @@ async function authenticateVerificationActionAuthority(
     }
     return Object.freeze({
       resolution: Object.freeze({
+        executionEnvironmentRevision: executionEnvironment.executionEnvironmentRevision,
         repositoryId,
         repository: repositoryName,
         actionKey: envelope.proposal.proposedActionKey,
@@ -1385,6 +1505,7 @@ async function authenticateVerificationActionAuthority(
   });
   return Object.freeze({
     resolution: Object.freeze({
+      executionEnvironmentRevision: executionEnvironment.executionEnvironmentRevision,
       repositoryId,
       repository: repositoryName,
       actionKey: envelope.proposal.proposedActionKey,
@@ -1426,6 +1547,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         artifactId: entry.artifactId,
         expectedArtifactName: startName,
         expectedFileName: VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE,
+        ...(resolution.executionEnvironmentRevision === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision ? { perJobSlot: 'start' as const } : {}),
         parsePayload: parseVerificationActionProviderStartMarker,
         producingOrigin: (payload) => payload.producer
       }));
@@ -1436,6 +1558,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         artifactId: entry.artifactId,
         expectedArtifactName: terminalName,
         expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE,
+        ...(resolution.executionEnvironmentRevision === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision ? { perJobSlot: 'terminal' as const } : {}),
         parsePayload: (value) => CodexDevelopmentParseVerificationActionTerminalArtifact(
           encodeVerificationActionData(value)
         ),
@@ -1448,6 +1571,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         artifactId: entry.artifactId,
         expectedArtifactName: terminalAnchorName,
         expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE,
+        ...(resolution.executionEnvironmentRevision === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision ? { perJobSlot: 'anchor' as const } : {}),
         parsePayload: parseVerificationActionProviderTerminalAnchor,
         producingOrigin: (payload) => payload.anchorPublisherOrigin
       }));
@@ -1489,7 +1613,7 @@ function reduceVerificationActionGitHubProviderSnapshot(
     repository: resolution.repository,
     actionKey: resolution.actionKey,
     candidateSha: resolution.candidateSha,
-    executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    executionEnvironmentRevision: resolution.executionEnvironmentRevision,
     statusReadback: snapshot.statusReadback,
     startObservations: snapshot.startObservations,
     terminalObservations,

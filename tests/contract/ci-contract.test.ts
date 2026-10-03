@@ -360,6 +360,23 @@ test('independent workflow fixture admits only the pinned staged launcher and qu
   expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'sec/main-health')).toThrow();
 });
 
+test('per-job source exposes only exact native artifact IDs and digests to trusted consumers', () => {
+  const fixture = perJobPreflightWorkflowFixture();
+  const job = fixture.jobs['preflight-verification-action-sut'] as Record<string, unknown>;
+  job.outputs = { 'capability-artifact-id': '${{ steps.upload-capability.outputs.artifact-id }}',
+    'capability-artifact-digest': '${{ steps.upload-capability.outputs.artifact-digest }}' };
+  expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'preflight-verification-action-sut')).not.toThrow();
+  for (const [key, value] of [
+    ['other-artifact-id', '${{ steps.upload-capability.outputs.artifact-id }}'],
+    ['capability-artifact-id', '${{ steps.download-resolution.outputs.artifact-id }}'],
+    ['capability-token', '${{ steps.upload-capability.outputs.token }}'],
+    ['capability-artifact-id', '${{ steps.upload-raw.outputs.artifact-id }}']
+  ]) {
+    job.outputs = { [key!]: value };
+    expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'preflight-verification-action-sut')).toThrow();
+  }
+});
+
 async function completeBootstrapWorkflowFixture() {
   const authored = parseYaml(await readCompilerFile('.github/workflows/trusted-bootstrap.yml')) as Workflow;
   const setup = perJobPreflightWorkflowFixture().jobs['preflight-verification-action-sut'].steps.slice(0, 4);
