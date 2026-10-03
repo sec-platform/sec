@@ -30,7 +30,16 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_TRUST_ROOT.causalRuntimePaths.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
   expect(parsed.reviewedSutEdges).toEqual([]);
-  expect(parsed.reviewedBoundaryEdges).toEqual([]);
+  expect(parsed.reviewedBoundaryEdges).toEqual([
+    `src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> ${SEC_TCB_CLOSURE_RUNTIME_PATH}`,
+    `src/adapters/verification/platform/ci/runtime/hosted-bootstrap-checker.ts -> ${SEC_TCB_CLOSURE_RUNTIME_PATH}`
+  ]);
+  expect(parsed.runtimeEntrypoints).toContain('src/adapters/verification/platform/ci/runtime/hosted-job-runtime.ts');
+  for (const specifier of ['node:https', 'node:stream/promises', 'node:tls', 'node:zlib']) {
+    expect(parsed.reviewedExternalImports).toContain(
+      `src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> ${specifier}`
+    );
+  }
   expect(parsed.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );

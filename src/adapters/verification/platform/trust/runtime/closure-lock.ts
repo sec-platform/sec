@@ -80,6 +80,7 @@ const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
 const TCB_CLASSIFIED_EXTERNAL_IMPORTS = new Set([
   'bun',
   'node:child_process',
+  'node:https',
   'node:module',
   'node:worker_threads'
 ]);
@@ -127,6 +128,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([
+  'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts::function-declaration:download::node:https.request#1',
   'src/adapters/providers/github-api/hosted-job-origin.ts::function-declaration:jsonRequest::globalThis.fetch#1',
   'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:withProductionSession::globalThis.fetch#1'
 ]);
@@ -240,6 +242,7 @@ export function runtimeRelativeImportsFromSource(
   const bunProcessBindings = new Map<string, string>();
   const childProcessBindings = new Map<string, string>();
   const childProcessNamespaces = new Set<string>();
+  const httpsBindings = new Map<ts.Symbol, 'Agent' | 'request'>();
   const threadWorkerBindings = new Set<string>();
   const workerGlobalBindings = new Set<string>();
   const rejectUnmodeledLoader = (loader: string): never => {
@@ -298,6 +301,30 @@ export function runtimeRelativeImportsFromSource(
             }
             childProcessBindings.set(element.name.text, importedName);
           }
+          continue;
+        }
+        if (moduleSpecifier === 'node:https') {
+          const edge = `${repositoryPath} -> ${moduleSpecifier}`;
+          if (!SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports.includes(edge)) {
+            rejectUnmodeledLoader(`unreviewed node:https importer ${repositoryPath}`);
+          }
+          if (namespaceBindings.length > 0 || runtimeNamedImports.length === 0) {
+            rejectUnmodeledLoader('node:https import without classified runtime bindings');
+          }
+          for (const element of runtimeNamedImports) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (element.propertyName !== undefined) {
+              rejectUnmodeledLoader('aliased node:https binding');
+            }
+            if (importedName !== 'Agent' && importedName !== 'request') {
+              rejectUnmodeledLoader(`unclassified node:https binding ${importedName}`);
+            }
+            const symbol = localSymbol(element.name)
+              ?? rejectUnmodeledLoader('node:https import without a lexical binding');
+            httpsBindings.set(symbol, importedName === 'Agent' ? 'Agent' : 'request');
+          }
+          reviewedExternalImports.add(edge);
+          observedExternalImports.add(moduleSpecifier);
           continue;
         }
         if (moduleSpecifier === 'node:worker_threads') {
@@ -606,6 +633,34 @@ export function runtimeRelativeImportsFromSource(
   };
 
   function visitRuntimeLoaders(node: ts.Node): void {
+    if (
+      httpsBindings.size > 0
+      && ts.isIdentifier(node)
+      && !isImportBindingDeclaration(node)
+      && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
+    ) {
+      const symbol = localSymbol(node);
+      // Shorthand properties and local re-exports have their own public symbol.
+      // Resolve the value they expose so these forms cannot escape import review.
+      const reference = ts.isShorthandPropertyAssignment(node.parent)
+        ? lexicalChecker!.getShorthandAssignmentValueSymbol(node.parent)
+        : ts.isExportSpecifier(node.parent)
+          ? lexicalChecker!.getExportSpecifierLocalTargetSymbol(node.parent)
+          : symbol;
+      const httpsBinding = reference === undefined ? undefined : httpsBindings.get(reference);
+      if (httpsBinding === 'request') {
+        if (!ts.isCallExpression(node.parent) || node.parent.expression !== node
+            || node.parent.questionDotToken !== undefined) {
+          rejectUnmodeledLoader('indirect node:https request binding');
+        }
+        reviewNetworkDispatch(node.parent as ts.CallExpression, 'node:https.request');
+      } else if (httpsBinding === 'Agent') {
+        if (!ts.isNewExpression(node.parent) || node.parent.expression !== node) {
+          rejectUnmodeledLoader('indirect node:https Agent binding');
+        }
+      }
+    }
     if (
       ts.isIdentifier(node)
       && node.text === 'fetch'

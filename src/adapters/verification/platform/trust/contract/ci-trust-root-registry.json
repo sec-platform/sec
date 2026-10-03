@@ -47,6 +47,7 @@
     "src/adapters/verification/platform/ci/contract/core.ts",
     "src/adapters/verification/platform/ci/contract/evidence.ts",
     "src/adapters/verification/platform/ci/contract/plan.ts",
+    "src/adapters/verification/platform/ci/runtime/hosted-job-runtime.ts",
     "src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts",
     "src/adapters/verification/platform/ci/runtime/verification-session.ts",
     "src/adapters/verification/platform/ci/verification.ts",
@@ -64,10 +65,15 @@
   ],
   "reviewedSutEdges": [],
   "reviewedBoundaryEdges": [
-    "src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts"
+    "src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts",
+    "src/adapters/verification/platform/ci/runtime/hosted-bootstrap-checker.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts"
   ],
   "reviewedExternalImports": [
     "src/adapters/providers/docker/contract/windows-installation-profile.ts -> zod",
+    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:https",
+    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:stream/promises",
+    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:tls",
+    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:zlib",
     "src/adapters/providers/github-api/internal/artifact-member.ts -> yauzl",
     "src/adapters/providers/linux-verification/contract.ts -> zod",
     "src/adapters/providers/windows-control-cli/contract/environment.ts -> zod",
