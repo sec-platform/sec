@@ -431,7 +431,7 @@ type TrustedGitHubActionsWorkflowIdentity = Readonly<{
 }>;
 
 function inspectTrustedGitHubActionsWorkflowIdentity(
-  source: Readonly<NodeJS.ProcessEnv>, repository: string
+  source: Readonly<NodeJS.ProcessEnv>, repository: string, includeHostedBootstrap = false
 ): TrustedGitHubActionsWorkflowIdentity | null {
   const get = (key: string) => environmentValue(source, key);
   const workflowSha = get('GITHUB_WORKFLOW_SHA');
@@ -440,7 +440,9 @@ function inspectTrustedGitHubActionsWorkflowIdentity(
   const runAttempt = get('GITHUB_RUN_ATTEMPT');
   const workflow = workflowRef === `${repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`
     ? 'repository_dispatch'
-    : workflowRef === `${repository}/.github/workflows/merge-gate.yml@refs/heads/main` ? 'workflow_run' : null;
+    : workflowRef === `${repository}/.github/workflows/merge-gate.yml@refs/heads/main` ? 'workflow_run'
+      : includeHostedBootstrap && ['trusted-bootstrap.yml', 'compiler-release-validation.yml'].some(name =>
+        workflowRef === `${repository}/.github/workflows/${name}@refs/heads/main`) ? 'repository_dispatch' : null;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository) || workflow === null ||
       get('GITHUB_ACTIONS') !== 'true' || get('GITHUB_SERVER_URL') !== 'https://github.com' ||
       get('GITHUB_API_URL') !== 'https://api.github.com' || get('GITHUB_REPOSITORY') !== repository ||
@@ -455,7 +457,7 @@ function inspectTrustedGitHubActionsWorkflowIdentity(
 export function inspectGitHubActionsVerificationCredentialIdentity(
   source: Readonly<NodeJS.ProcessEnv>, repository: string
 ): TrustedGitHubActionsWorkflowIdentity | null {
-  const identity = inspectTrustedGitHubActionsWorkflowIdentity(source, repository);
+  const identity = inspectTrustedGitHubActionsWorkflowIdentity(source, repository, true);
   if (identity === null) return null;
   const token = environmentValue(source, 'GH_TOKEN');
   if (token === undefined) return null;

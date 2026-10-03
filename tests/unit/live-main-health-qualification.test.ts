@@ -86,6 +86,29 @@ test('live MainHealth expires exactly at the admitted deadline without renewing 
   expect(result.consumption.deadlineBoundaryRejected).toBe(true);
 });
 
+test('post-main assessment consumes the real live receipt and rejects subject, copied proof and expired-scope changes', () => {
+  const result = observe('post-main-health');
+  expect(result.failure).toBeNull();
+  expect(result.consumption).toMatchObject({ postMainAccepted: true, postMainMismatchRejected: true });
+  expect(result.retainedRevoked).toBe(true);
+});
+
+test('a parent deadline bounds both execution and live reuse without extending on observation', () => {
+  const result = observe('parent-budget');
+  expect(result.failure).toBeNull();
+  expect(result.consumption.deadlineBoundaryRejected).toBe(true);
+});
+
+for (const scenario of ['expired-parent', 'invalid-parent']) {
+  test(`MainHealth ${scenario} rejects before any Engine effect`, () => {
+    const result = observe(scenario);
+    expect(result.failure).toContain('parent operation deadline is invalid or expired');
+    expect(result.callbackCount).toBe(0);
+    expect(result.commands).toEqual([]);
+    expect(result.events).toEqual([]);
+  });
+}
+
 test('the same pathname with a replacement physical root cannot consume an issued receipt', () => {
   const result = observe('root-replaced');
   expect(result.failure).toBeNull();

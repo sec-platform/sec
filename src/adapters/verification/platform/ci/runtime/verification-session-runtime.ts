@@ -45,6 +45,7 @@ import {
   type MainHealthLedger,
   type MainHealthLedgerInput
 } from '../../../../self-hosting/control/main-health/contract.ts';
+import { assertTrustedRuntimeMainHealthPublication, type TrustedRuntimeMainHealthPublicationAdmission } from '../../../../self-hosting/control/main-health/live-admission.ts';
 import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, TRUSTED_RUNTIME_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
 import {
@@ -124,6 +125,37 @@ export function compilePostMainIssueDispositionHealthReadback(input: Readonly<{
     expiresAt,
     checks: input.checks
   }));
+  return requirePostMainIssueDispositionHealth({ ...input, ledger });
+}
+
+/** A live local producer may satisfy post-main read-only Issue assessment.
+ * This never creates an Issue mutation capability or a GitHub check origin. */
+export function compileTrustedRuntimePostMainIssueDispositionHealthReadback(input: Readonly<{
+  repository: string;
+  newMainSha: string;
+  newMainTreeSha: string;
+  observedAt: string;
+  ledger: MainHealthLedger;
+  admission: TrustedRuntimeMainHealthPublicationAdmission;
+}>): MainHealthLedger {
+  assertTrustedRuntimeMainHealthPublication({
+    admission: input.admission, ledger: input.ledger,
+    repository: input.repository,
+    mainSha: input.newMainSha,
+    mainTreeSha: input.newMainTreeSha,
+    now: new Date(Date.now()).toISOString()
+  });
+  return requirePostMainIssueDispositionHealth(input);
+}
+
+function requirePostMainIssueDispositionHealth(input: Readonly<{
+  repository: string;
+  newMainSha: string;
+  newMainTreeSha: string;
+  observedAt: string;
+  ledger: MainHealthLedger;
+}>): MainHealthLedger {
+  const ledger = input.ledger;
   const lane = resolveOrdinaryMainHealthLane({
     ledger,
     now: input.observedAt,

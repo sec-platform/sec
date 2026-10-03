@@ -7,6 +7,7 @@ import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   type SecLinuxVerificationEnvironmentAuthority
 } from '../../../../providers/linux-verification/contract.ts';
+import { CI_HOSTED_JOB_RUNTIME_POLICY, CI_HOSTED_JOB_RUNTIME_POLICY_DIGEST } from '../../ci/contract/hosted-job-runtime-policy.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../ci/contract/revision.ts';
 
 export const CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION =
@@ -72,12 +73,13 @@ export function createCiVerificationPerJobHostedProviderRevision(
     dockerCliProfileDigest: LINUX_DOCKER_CLI_PROFILE_DIGEST,
     hostedJobPolicyDigest: CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST,
     actionProducerRevision: 'sec-ci-verification-action-producer-v2',
-    outerJobContainerRevision: 'outer-job-container-v1'
+    outerJobContainerRevision: CI_HOSTED_JOB_RUNTIME_POLICY.revision,
+    outerJobContainerPolicyDigest: CI_HOSTED_JOB_RUNTIME_POLICY_DIGEST
   });
   // One canonical digest binds all required immutable inputs without exceeding
   // the existing 512-character Action environment revision transport bound.
   return `github-actions:github-hosted:ubuntu-${authority.ubuntu.version}:x64:per-job-v1:`
-    + `execution-policy-${executionPolicyDigest}:action-producer-v2:sandbox-v7:outer-job-container-v1`;
+    + `execution-policy-${executionPolicyDigest}:action-producer-v2:sandbox-v7:${CI_HOSTED_JOB_RUNTIME_POLICY.revision}`;
 }
 
 export const CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION =

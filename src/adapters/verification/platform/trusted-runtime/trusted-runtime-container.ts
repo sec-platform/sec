@@ -1234,6 +1234,20 @@ async function ensureImage(
   }));
 }
 
+/** Data-only materialization within the caller's already-owned setup scope.
+ * The caller must obtain its session from the genuine Engine owner; this
+ * observation cannot issue a hosted-runtime, origin, or MainHealth capability. */
+export async function ensureTrustedRuntimeContainerImageMaterialization(input: Readonly<{
+  repositoryRoot: string;
+  containerEngineSession: ContainerEngineSession;
+}>): Promise<TrustedRuntimeContainerImageObservation> {
+  if (!path.isAbsolute(input.repositoryRoot)
+      || path.resolve(input.repositoryRoot) !== input.repositoryRoot) {
+    fail('trusted image materialization repository root is noncanonical');
+  }
+  return await ensureImage(input.repositoryRoot, input.containerEngineSession);
+}
+
 async function ensureTrustedRuntimeDependencyCacheVolume(input: Readonly<{
   session: ContainerEngineSession;
   endpointDigest: Digest;
@@ -2543,10 +2557,19 @@ export async function withTrustedRuntimeMainHealthQualification<T>(input: Readon
   repository: string;
   mainSha: string;
   mainTreeSha: string;
+  /** Parent budget may only shorten this operation; it never renews on reads. */
+  deadlineAtUnixMs?: number;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
+  if (input.deadlineAtUnixMs !== undefined
+      && (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now())) {
+    fail('MainHealth parent operation deadline is invalid or expired');
+  }
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const physicalRoot = inspectNoFollowDirectoryChain(repositoryRoot, 'MainHealth repository root').target;
-  const deadlineAtUnixMs = Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs;
+  const deadlineAtUnixMs = Math.min(
+    Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs,
+    input.deadlineAtUnixMs ?? Number.POSITIVE_INFINITY
+  );
   const receipt = await executeTrustedRuntimeMainHealth({ ...input, repositoryRoot, deadlineAtUnixMs });
   // The workspace has completed setup, execution, cleanup and settlement.
   assertSameNoFollowDirectoryIdentity(physicalRoot, 'MainHealth settled repository root');
