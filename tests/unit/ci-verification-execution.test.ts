@@ -83,6 +83,35 @@ import type { VerificationResultStatus } from '../../src/assurance/verification/
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
+test('production SUT entrypoints reject structural supervisors before candidate reads or execution', async () => {
+  const forged = { run: async () => { throw new Error('must not execute'); }, close: () => ({}) };
+  const supervisor = forged as unknown as import('../../src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts').HostedSutSupervisor;
+  await expect(CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: RAW, supervisor })).rejects.toThrow(/owner-issued/u);
+  await expect(CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: RAW, supervisor,
+    runSandboxProcess: forged.run })).rejects.toThrow(/mixed/u);
+  await expect(CodexDevelopmentExecuteHostedActionSut({ supervisor } as Parameters<typeof CodexDevelopmentExecuteHostedActionSut>[0]))
+    .rejects.toThrow(/owner-issued/u);
+});
+
+test('only three SUT CLI entries accept a strictly bounded absolute deadline data field', async () => {
+  for (const value of ['0', '-1', '01', '1.2', '1e15', 'Infinity', '9007199254740992', '1']) {
+    for (const argv of [
+      ['self-test-hosted-action-sandbox', '--resolution', '/not-read'],
+      ['execute-hosted-action-sut', '--resolution', '/not-read', '--ticket', '/not-read',
+        '--prepared-candidate-archive', '/not-read', '--output', '/not-written'],
+      ['execute-trusted-bootstrap-sut', '--base-root', '/not-read', '--candidate-root', '/not-read',
+        '--output-directory', '/not-written', '--base-sha', BASE, '--head-sha', HEAD, '--tree-sha', TREE,
+        '--manifest-path', MANIFEST_PATH]
+    ]) {
+      await expect(CodexDevelopmentCiVerificationHostedActionCli([...argv, '--sandbox-deadline-at-unix-ms', value]))
+        .rejects.toThrow(/deadline must be/u);
+    }
+  }
+  await expect(CodexDevelopmentCiVerificationHostedActionCli(['resolve-hosted-action',
+    '--provider-envelope', '/not-read', '--envelope', '/not-read', '--output', '/not-written',
+    '--sandbox-deadline-at-unix-ms', '9999999999999999'])).rejects.toThrow(/Unknown/u);
+});
+
 test('original SUT entrypoints remain exact projections of their pure plan owner', () => {
   expect(CodexDevelopmentAssertHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentAssertHostedSutSandboxCommandPlan);
   expect(CodexDevelopmentBuildHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentBuildHostedSutSandboxCommandPlan);
@@ -1041,6 +1070,16 @@ test('inner SUT projection binds the selected closed profile without granting an
       normalizedArgv: authorization.normalizedArgv, candidateEnvironment: environment,
       executionAuthorization: authorization
     });
+    // An authorized execution Probe uses the ticket root, never its legacy
+    // nonce fallback. The outer AppArmor owner needs that one exact root.
+    for (const unitNonce of ['first-probe', 'cap-12345-67890']) {
+      const probe = hostedSutPlanOwner.hostedSutCapabilityCommandPlan({
+        actionKey: resolution.actionPlan.action.actionKey, bunExecutable: '/trusted/tool/bun',
+        unitNonce, executionAuthorization: authorization
+      });
+      expect(probe.unitName).toBe(authorization.physicalCommand.unitName);
+      expect(probe.unitName).toBe(plan.unitName);
+    }
     expect(plan.argv).toContain(`SEC_EXECUTION_ENVIRONMENT_REVISION=${resolution.executionEnvironment.executionEnvironmentRevision}`);
     expect(() => CodexDevelopmentBuildHostedSutSandboxCommandPlan({
       actionKey: resolution.actionPlan.action.actionKey, candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,

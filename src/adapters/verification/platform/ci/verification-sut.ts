@@ -9,6 +9,7 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
 import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
 import {
@@ -31,6 +32,7 @@ import {
 import {
   CodexDevelopmentFailureTail
 } from './runtime/ci-orchestration-core.ts';
+import { assertHostedSutSupervisorLive, type HostedSutSupervisor } from './runtime/hosted-sut-supervisor.ts';
 import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedSutSandboxCommandPlan, CodexDevelopmentHostedSutSandboxProcess, CodexDevelopmentHostedSutSandboxProcessObservation } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionArchiveInventory, CodexDevelopmentPreparedTrustedBootstrapSutInputs, CodexDevelopmentRetainedHostedSutArchive } from './verification-materialization.ts';
@@ -57,6 +59,19 @@ export {
   CodexDevelopmentTrustedBootstrapSutHarness,
   CodexDevelopmentTrustedBootstrapSutSubjectDigest
 } from './contract/hosted-sut-command-plan.ts';
+
+/** Only the production observer's private live handle selects its process path.
+ * The legacy injected process remains an explicit test seam, never admission. */
+function selectedHostedSutProcess(supervisor: HostedSutSupervisor | undefined,
+  testProcess?: CodexDevelopmentHostedSutSandboxProcess): CodexDevelopmentHostedSutSandboxProcess | undefined {
+  if (supervisor === undefined) return testProcess;
+  if (testProcess !== undefined) throw new Error('Hosted SUT production supervisor cannot be mixed with an injected process.');
+  assertHostedSutSupervisorLive(supervisor);
+  return async (plan, archive) => {
+    assertHostedSutSupervisorLive(supervisor);
+    return await supervisor.run(plan, archive);
+  };
+}
 
 function defaultHostedSutSandboxProcess(
   plan: CodexDevelopmentHostedSutSandboxCommandPlan,
@@ -239,11 +254,16 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
   treeSha: string;
   manifestPath: string;
   unitNonce?: string;
+  supervisor?: HostedSutSupervisor;
 }>): Promise<Readonly<{
   status: 'passed' | 'failed';
   bootstrapDigest: VerificationActionKeyDigest;
   receiptDigest: VerificationActionKeyDigest;
 }>> {
+  const supervisor = input.supervisor;
+  const runSandbox = selectedHostedSutProcess(supervisor) ?? defaultHostedSutSandboxProcess;
+  const bunExecutable = supervisor === undefined ? process.execPath
+    : SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutablePath;
   if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
     throw new Error('Trusted bootstrap SUT manifest path is invalid.');
   }
@@ -252,7 +272,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
     CodexDevelopmentHostedSutSandboxRoot({ subjectDigest: unitSubjectDigest, unitNonce: input.unitNonce });
   }
   const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
-    actionKey: unitSubjectDigest, unitNonce: input.unitNonce
+    actionKey: unitSubjectDigest, unitNonce: input.unitNonce, supervisor, bunExecutable
   });
   if (capability.state !== 'supported') {
     throw new Error(`Trusted bootstrap SUT cannot start: ${capability.diagnostic ?? capability.state}`);
@@ -311,17 +331,17 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
         bootstrapDigest,
         ...(input.unitNonce === undefined ? {} : { unitSubjectDigest }),
         candidateArchiveDigest: retainedArchive.archiveDigest,
-        bunExecutable: realpathSync.native(process.execPath),
+        bunExecutable: realpathSync.native(bunExecutable),
         baseSha: input.baseSha,
         headSha: input.headSha,
         candidateEnvironment,
         unitNonce: input.unitNonce ?? `${process.pid}-${Date.now()}`.slice(0, 32)
       });
       try {
-        execution = await defaultHostedSutSandboxProcess(commandPlan, retainedArchive);
+        execution = await runSandbox(commandPlan, retainedArchive);
       } finally {
         try {
-          teardown = await defaultHostedSutSandboxProcess(hostedSutTeardownCommandPlan({
+          teardown = await runSandbox(hostedSutTeardownCommandPlan({
             actionKey: bootstrapDigest,
             unitName: commandPlan.unitName
           }));
@@ -433,8 +453,10 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
   platform?: NodeJS.Platform;
   /** In-process test seam; production selects only its installed physical owner. */
   runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
+  supervisor?: HostedSutSupervisor;
 }>): Promise<HostedSutSandboxCapabilityObservation> {
-  if ((input.platform ?? process.platform) !== 'linux' || input.runSandboxProcess === undefined) {
+  const run = selectedHostedSutProcess(input.supervisor, input.runSandboxProcess);
+  if ((input.platform ?? process.platform) !== 'linux' || run === undefined) {
     const diagnostic = (input.platform ?? process.platform) !== 'linux'
       ? 'Hosted SUT sandbox requires the native ubuntu-24.04 Linux runner.'
       : HOSTED_SUT_UNSUPPORTED_SOURCE_DIAGNOSTIC;
@@ -447,7 +469,6 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
       cleanup: hostedSutCleanupNotAttempted(), diagnostic
     });
   }
-  const run = input.runSandboxProcess;
   const plan = hostedSutCapabilityCommandPlan({
     actionKey: input.actionKey,
     bunExecutable: input.bunExecutable ?? process.execPath,
@@ -566,7 +587,10 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
   bunExecutable?: string;
   unitNonce?: string;
   runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
+  supervisor?: HostedSutSupervisor;
 }>): Promise<CodexDevelopmentHostedActionRawResult> {
+  const supervisor = input.supervisor;
+  const selectedProcess = selectedHostedSutProcess(supervisor, input.runSandboxProcess);
   const resolution = CodexDevelopmentParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
@@ -610,14 +634,14 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
   const startedAt = now();
   const actionKey = resolution.actionPlan.action.actionKey;
   const unitNonce = input.unitNonce ?? `${process.pid}-${startedAt.getTime()}`;
-  const runSandboxProcess = input.runSandboxProcess ?? defaultHostedSutSandboxProcess;
+  const runSandboxProcess = selectedProcess ?? defaultHostedSutSandboxProcess;
   const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
     actionKey,
     executionAuthorization,
     bunExecutable: input.bunExecutable,
     unitNonce: `cap-${unitNonce}`.slice(0, 32),
     platform: input.platform,
-    runSandboxProcess: input.runSandboxProcess
+    runSandboxProcess: input.runSandboxProcess, supervisor
   });
   if (capability.state !== 'supported') {
     const finishedAt = now();

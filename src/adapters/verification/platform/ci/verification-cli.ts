@@ -1,12 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
-import { rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
+import { rawSha256, sha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
 import {
   observeExecutionProgressPhase
 } from '../../../../execution/execution-progress.ts';
+import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../execution/operation/semantic.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
   withAuthorityGitReadOperation,
@@ -19,6 +22,7 @@ import {
 import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import { withGitHubApiVerificationSession } from '../../../providers/github-api/operation-session.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
@@ -28,6 +32,7 @@ import {
   retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageAcceptsObservedBase,
@@ -79,6 +84,7 @@ import {
   type CodexDevelopmentChangedPathSnapshot
 } from './runtime/ci-orchestration-core.ts';
 import { assertAuthenticatedHostedJobRuntimeReceipt, readAuthenticatedHostedJobRuntimeReceipt, type AuthenticatedHostedJobRuntimeReceipt } from './runtime/hosted-job-runtime-provenance.ts';
+import { createHostedSutSupervisor, HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST, HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID, HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS, type HostedSutSupervisor } from './runtime/hosted-sut-supervisor.ts';
 import {
   ensureVerificationActionGitHubProviderTransaction
 } from './runtime/verification-action-github-provider.ts';
@@ -92,7 +98,7 @@ import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentH
 import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, ciActionDigest, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, hostedActionProviderIndexFromSnapshot, INVALIDATION_RULES, parseHostedEnvelope, VERIFICATION_EVIDENCE_PATH } from './verification-hosted-action-contract.ts';
 import { CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentMaterializeHostedActionCandidate, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
-import { CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentExecuteTrustedBootstrapSut, CodexDevelopmentProbeHostedSutSandboxCapability, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
+import { CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentExecuteTrustedBootstrapSut, CodexDevelopmentProbeHostedSutSandboxCapability, CodexDevelopmentTrustedBootstrapSutSubjectDigest, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
 function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
   mode: 'github-actions' | 'trusted-runtime';
@@ -901,6 +907,54 @@ function hostedSandboxUnitNonce(args: ReadonlyMap<string, string>): string | und
     throw new Error('Hosted sandbox unit nonce must be exactly 32 hexadecimal characters.');
   }
   return nonce;
+}
+
+function hostedSandboxDeadline(args: ReadonlyMap<string, string>): number | undefined {
+  const value = args.get('--sandbox-deadline-at-unix-ms');
+  if (value === undefined) return undefined;
+  if (!/^[1-9][0-9]{0,15}$/u.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) <= Date.now()) {
+    throw new Error('Hosted sandbox deadline must be an unexpired canonical safe-positive decimal integer.');
+  }
+  return Number(value);
+}
+
+/** Internal credential-free SUT process lifetime. The deadline is an outer
+ * trusted-launcher data projection, never a recreated GitHub origin. The live
+ * outer Engine scope independently stops the entire container at its original
+ * deadline. This inner scope can only narrow that absolute budget. */
+async function withHostedSandboxSupervisor<T>(input: Readonly<{
+  deadlineAtUnixMs: number | undefined; phase: string; subjectDigest: string;
+}>, use: (supervisor: HostedSutSupervisor | undefined) => Promise<T>): Promise<T> {
+  if (input.deadlineAtUnixMs === undefined) return await use(undefined);
+  const duration = HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS[0]!.maximum;
+  const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs, Date.now() + duration);
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) throw new Error('Hosted sandbox original deadline has expired.');
+  const intentDigest = sha256({ phase: input.phase, subjectDigest: input.subjectDigest,
+    deadlineAtUnixMs }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({ operation: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID,
+    intentDigest, decisionDigest: HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST, deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: intentDigest }),
+    aggregateBudgets: HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS,
+    requirements: [{ id: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID, contractDigest: HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST,
+      effectKinds: ['process', 'provider'], failureKinds: ['provider.cancelled', 'provider.deadline-exhausted',
+        'provider.drift', 'provider.execution-failed', 'provider.unavailable', 'provider.unverified'] }] });
+  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID, contractDigest: HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST,
+    providerIdentityDigest: sha256({ owner: 'hosted-sut-kernel-supervisor',
+      contract: HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST }) as SecOperationDigest })]);
+  return await withAcquiredResource<HostedSutSupervisor, T>({ operationLabel: 'Hosted SUT closed phase', resourceLabel: 'Hosted SUT original process session',
+    acquire: () => createHostedSutSupervisor({ operation,
+      requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+        requirementId: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID, resourceCeilings: HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS,
+        absoluteDeadlineAtUnixMs: deadlineAtUnixMs }),
+      trustedSourceRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..') }),
+    use,
+    release: supervisor => {
+      const receipt = supervisor.close();
+      assertProcessResourceSessionReceipt(receipt, { operationIdentityDigest: operation.plan.identity.identityDigest,
+        boundAttemptDigest: operation.boundAttemptDigest, requirementId: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID });
+    }
+  });
 }
 
 function hostedActionRecord(value: unknown, label: string): Record<string, unknown> {
@@ -1798,8 +1852,14 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     const args = hostedActionCliArgs(argv, [
       '--base-root', '--candidate-root', '--output-directory', '--base-sha',
       '--head-sha', '--tree-sha', '--manifest-path'
-    ], ['--sandbox-unit-nonce']);
-    const result = await CodexDevelopmentExecuteTrustedBootstrapSut({
+    ], ['--sandbox-unit-nonce', '--sandbox-deadline-at-unix-ms']);
+    const deadlineAtUnixMs = hostedSandboxDeadline(args);
+    const unitNonce = hostedSandboxUnitNonce(args);
+    if (deadlineAtUnixMs !== undefined && unitNonce === undefined) throw new Error('Production bootstrap SUT requires its fixed sandbox nonce.');
+    const subject = { baseSha: args.get('--base-sha')!, headSha: args.get('--head-sha')!,
+      treeSha: args.get('--tree-sha')!, manifestPath: args.get('--manifest-path')! };
+    const result = await withHostedSandboxSupervisor({ deadlineAtUnixMs, phase: command,
+      subjectDigest: CodexDevelopmentTrustedBootstrapSutSubjectDigest(subject) }, supervisor => CodexDevelopmentExecuteTrustedBootstrapSut({
       baseRoot: args.get('--base-root')!,
       candidateRoot: args.get('--candidate-root')!,
       outputDirectory: args.get('--output-directory')!,
@@ -1807,8 +1867,8 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       headSha: args.get('--head-sha')!,
       treeSha: args.get('--tree-sha')!,
       manifestPath: args.get('--manifest-path')!,
-      unitNonce: hostedSandboxUnitNonce(args)
-    });
+      unitNonce, supervisor
+    }));
     return JSON.stringify(result);
   }
   const providerResult = await tryRunHostedActionProvider(argv, context);
@@ -1837,15 +1897,21 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     });
   }
   if (command === 'self-test-hosted-action-sandbox') {
-    const args = hostedActionCliArgs(argv, ['--resolution'], ['--sandbox-unit-nonce']);
+    const args = hostedActionCliArgs(argv, ['--resolution'], ['--sandbox-unit-nonce', '--sandbox-deadline-at-unix-ms']);
     const unitNonce = hostedSandboxUnitNonce(args);
+    const deadlineAtUnixMs = hostedSandboxDeadline(args);
     const resolution = CodexDevelopmentParseHostedActionResolution(
       hostedActionTransportText(args.get('--resolution')!, 'hosted Action resolution')
     );
-    const observation = await CodexDevelopmentProbeHostedSutSandboxCapability({
+    const perJob = resolution.executionEnvironment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+    if (perJob !== (deadlineAtUnixMs !== undefined)) throw new Error('Hosted SUT deadline presence differs from the exact profile.');
+    if (perJob && unitNonce === undefined) throw new Error('Production preflight SUT requires its fixed sandbox nonce.');
+    const observation = await withHostedSandboxSupervisor({ deadlineAtUnixMs, phase: command,
+      subjectDigest: resolution.resolutionDigest }, supervisor => CodexDevelopmentProbeHostedSutSandboxCapability({
       actionKey: resolution.actionPlan.action.actionKey,
-      unitNonce
-    });
+      unitNonce, supervisor,
+      ...(supervisor === undefined ? {} : { bunExecutable: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutablePath })
+    }));
     if (observation.state === 'unknown') {
       throw new Error(`Hosted Action sandbox capability is a retryable unknown machine observation: ${
         observation.diagnostic ?? 'no diagnostic'
@@ -1884,7 +1950,8 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
   if (command === 'execute-hosted-action-sut') {
     const args = hostedActionCliArgs(argv, [
       '--resolution', '--ticket', '--prepared-candidate-archive', '--output'
-    ]);
+    ], ['--sandbox-deadline-at-unix-ms']);
+    const deadlineAtUnixMs = hostedSandboxDeadline(args);
     const resolution = CodexDevelopmentParseHostedActionResolution(
       hostedActionTransportText(args.get('--resolution')!, 'hosted Action resolution')
     );
@@ -1897,16 +1964,22 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         ticket.candidateBytesDigest !== resolution.artifactInput.candidateBytesDigest) {
       throw new Error('Hosted Action SUT ticket differs from the trusted resolution.');
     }
-    const archiveInventory = CodexDevelopmentMaterializeHostedActionCandidate({
-      resolution,
-      ticket,
-      preparedCandidateArchive: args.get('--prepared-candidate-archive')!
-    });
-    const rawResult = await CodexDevelopmentExecuteHostedActionSut({
-      resolution,
-      ticket,
-      candidateArchive: args.get('--prepared-candidate-archive')!,
-      archiveInventory
+    const perJob = resolution.executionEnvironment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+    if (perJob !== (deadlineAtUnixMs !== undefined)) throw new Error('Hosted SUT deadline presence differs from the exact profile.');
+    const rawResult = await withHostedSandboxSupervisor({ deadlineAtUnixMs, phase: command,
+      subjectDigest: ticket.ticketDigest }, async supervisor => {
+      const archiveInventory = CodexDevelopmentMaterializeHostedActionCandidate({
+        resolution,
+        ticket,
+        preparedCandidateArchive: args.get('--prepared-candidate-archive')!
+      });
+      return await CodexDevelopmentExecuteHostedActionSut({
+        resolution,
+        ticket,
+        candidateArchive: args.get('--prepared-candidate-archive')!,
+        archiveInventory, supervisor,
+        ...(supervisor === undefined ? {} : { bunExecutable: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutablePath })
+      });
     });
     writeHostedActionJson(args.get('--output')!, rawResult);
     return JSON.stringify({
