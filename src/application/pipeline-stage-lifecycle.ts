@@ -1,6 +1,5 @@
 import type { LockFile } from '../compiler/contract.ts';
 import type { PassId } from '../compiler/contract/pass-status.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import { getPipelineStageDefinition } from '../compiler/pipeline/stage-definitions.ts';
 import {
   pipelineStageBlockers,
@@ -8,6 +7,7 @@ import {
   type PipelineStageTransition
 } from '../compiler/pipeline/stage-state.ts';
 import type { PipelineStageId } from '../compiler/pipeline/stages.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import {
   describePipelineFailure,
   settlePipelineFailure
@@ -85,7 +85,7 @@ function assertStageRequirements(
 ): void {
   if (requires.length === 0) return;
   if (!lock) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PIPELINE-BLOCKED-001',
       `Pipeline stage "${stageId}" requires an existing graph lock`,
       { stageId, requires }
@@ -93,7 +93,7 @@ function assertStageRequirements(
   }
   const blockers = pipelineStageBlockers(lock.passStatus, requires);
   if (blockers.length > 0) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PIPELINE-BLOCKED-002',
       `Pipeline stage "${stageId}" has unsatisfied pass dependencies`,
       { stageId, blockers }

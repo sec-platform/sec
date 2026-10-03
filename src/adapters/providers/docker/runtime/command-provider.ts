@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import type { PhysicalDirectoryIdentity, RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
@@ -51,7 +51,7 @@ export interface DockerCommandProviderObservation {
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly retainedOwners?: readonly RetainedRuntimeStateDirectory[];
   readonly platform: NodeJS.Platform;
-  readonly providerContractDigest: SecOperationDigest;
+  readonly providerContractDigest: OperationDigest;
   readonly workingDirectory: PhysicalDirectoryIdentity;
 }
 
@@ -64,11 +64,11 @@ export interface ClaimedDockerCommandProvider {
   readonly linuxEndpoint?: LinuxDockerEndpoint;
   readonly privateState?: LinuxDockerRuntimeState;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
-  readonly environmentDigest: SecOperationDigest;
+  readonly environmentDigest: OperationDigest;
   readonly retainedOwners: readonly RetainedRuntimeStateDirectory[];
   readonly executable: string;
   readonly platform: NodeJS.Platform;
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
   readonly workingDirectory: PhysicalDirectoryIdentity;
 }
 
@@ -265,7 +265,7 @@ export function issueDockerCommandProviderCapability(
   const environmentDigest = sha256({
     domain: 'sec.docker.command-provider.environment',
     entries: Object.entries(environment)
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const executableDigest = observation.boundary.executable.digest();
   const providerIdentityDigest = sha256({
     domain: 'sec.docker.command-provider',
@@ -297,7 +297,7 @@ export function issueDockerCommandProviderCapability(
     platform: observation.platform,
     providerContractDigest: observation.providerContractDigest,
     workingDirectory: observation.workingDirectory
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const capability = Object.freeze({
     executable,
     commandProtocol,

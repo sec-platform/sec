@@ -1,4 +1,4 @@
-import type { SecBoundSemanticOperation } from '../operation/semantic.ts';
+import type { BoundSemanticOperation } from '../operation/semantic.ts';
 export const ENVIRONMENT_SETTLEMENT_SCHEMA = 'sec-environment-settlement-v1' as const;
 export const WORKSPACE_ENVIRONMENT_SETTLEMENT_OPERATION = 'runtime-state.workspace-environment-settlement' as const;
 export const WORKSPACE_GIT_STATUS_REQUIREMENT = 'runtime-state.workspace-git-status';
@@ -18,4 +18,4 @@ export type WorkspaceGitStatusObservation =
       reason: WorkspaceGitStatusFailureReason;
       detailDigest: string;
     }>;
-export interface WorkspaceGitStatusBackend { observe(input: Readonly<{ workspaceRoot: string; operation: SecBoundSemanticOperation; deadlineAtUnixMs: number; signal?: AbortSignal }>): Promise<WorkspaceGitStatusObservation>; }
+export interface WorkspaceGitStatusBackend { observe(input: Readonly<{ workspaceRoot: string; operation: BoundSemanticOperation; deadlineAtUnixMs: number; signal?: AbortSignal }>): Promise<WorkspaceGitStatusObservation>; }

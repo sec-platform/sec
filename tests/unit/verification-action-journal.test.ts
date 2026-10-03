@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import type { VerificationActionKeyInput } from '../../src/execution/verification/action.ts';
 
-import { PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
+import { observePhysicalJournalMutationEntry, PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName } from '../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
@@ -151,11 +151,13 @@ function withStateRoot<T extends object>(root: string, input: T) {
   return { ...input, fs: journalFs(root) };
 }
 
-test('journal mutation lease reclaims only an identity-stable owner proven dead', () => {
+test('legacy journal mutation lease remains unqualified despite dead PID observation and expired TTL', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-lease-recovery-'));
   try {
     const filePath = path.join(root, 'journals', 'action.jsonl');
     mkdirSync(path.dirname(filePath), { recursive: true });
+    const originalData = Buffer.from('legacy journal bytes\n', 'utf8');
+    writeFileSync(filePath, originalData);
     const lockPath = path.join(
       path.dirname(filePath),
       runtimeStateJournalMutationLeaseName(root, filePath)
@@ -170,7 +172,8 @@ test('journal mutation lease reclaims only an identity-stable owner proven dead'
       expiresAtMs: 30_001
     })}\n`, 'utf8');
 
-    const recovered = createRuntimeStateJournalFileSystem(
+    const originalLease = readFileSync(lockPath);
+    const observer = createRuntimeStateJournalFileSystem(
       inspectNoFollowDirectoryChain(root, 'VerificationAction journal recovery test root').target,
       {
         now: () => 40_000,
@@ -180,23 +183,10 @@ test('journal mutation lease reclaims only an identity-stable owner proven dead'
         processNonce: '33333333-3333-4333-8333-333333333333'
       }
     );
-    recovered.replaceFsync(filePath, 'recovered\n');
-    expect(readFileSync(filePath, 'utf8')).toBe('recovered\n');
-    expect(existsSync(lockPath)).toBe(false);
-
-    writeFileSync(lockPath, `${JSON.stringify({
-      schema: PHYSICAL_MUTATION_LEASE_SCHEMA,
-      host: 'journal-test-host',
-      pid: 22003,
-      processNonce: '44444444-4444-4444-8444-444444444444',
-      token: '55555555-5555-4555-8555-555555555555',
-      createdAtMs: 40_000,
-      expiresAtMs: 70_000
-    })}\n`, 'utf8');
-    expect(() => recovered.replaceFsync(filePath, 'must-not-publish\n'))
-      .toThrow('Runtime State journal mutation is contended.');
-    expect(readFileSync(filePath, 'utf8')).toBe('recovered\n');
-    expect(existsSync(lockPath)).toBe(true);
+    expect(() => observer.replaceFsync(filePath, 'must-not-publish\n'))
+      .toThrow('Journal mutation resource is legacy or unqualified; original state is preserved.');
+    expect(readFileSync(filePath)).toEqual(originalData);
+    expect(readFileSync(lockPath)).toEqual(originalLease);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -645,10 +635,64 @@ test('machine cutover rejects malformed and foreign auxiliary-only static eviden
           schema: 'foreign-static-closure'
         })}\n`, 'utf8');
       }
-      expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
-        .toThrow(candidate === 'malformed-pointer'
-          ? 'legacy static pointer digest mismatch'
-          : 'legacy static closure schema is unknown');
+      const originalPointerBytes = readFileSync(auxiliary.pointerPath);
+      const originalClosureBytes = readFileSync(auxiliary.closurePath);
+      const attemptCutover = (): unknown => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
+      if (candidate === 'malformed-pointer') {
+        let failure: unknown;
+        try { attemptCutover(); } catch (error) { failure = error; }
+        expect(failure).toBeInstanceOf(AggregateError);
+        const errors = Object.getOwnPropertyDescriptor(failure as object, 'errors')?.value;
+        expect(Array.isArray(errors)).toBe(true);
+        expect(errors).toHaveLength(2);
+        expect(errors[0]).toBeInstanceOf(VerificationActionJournalError);
+        expect(errors[0].kind).toBe('corrupt-journal');
+        expect(errors[0].message).toBe('VerificationAction journal legacy static pointer digest mismatch.');
+        expect(errors[1]).toBeInstanceOf(Error);
+        expect(errors[1].message).toBe('Journal first-data publication is unresolved; initialization residue is preserved.');
+        expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
+        expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
+        const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
+        const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), 'Rejected cutover control readback').target;
+        const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
+        const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
+        expect(control).toMatchObject({
+          leaseName,
+          resourceName: VERIFICATION_ACTION_MACHINE_CUTOVER_FILE,
+          state: 'initializing'
+        });
+        expect(existsSync(path.join(receiptParent.path, control!.anchorName))).toBe(true);
+      } else {
+        let failure: unknown;
+        try { attemptCutover(); } catch (error) { failure = error; }
+        expect(failure).toBeInstanceOf(AggregateError);
+        const errors = Object.getOwnPropertyDescriptor(failure as object, 'errors')?.value;
+        expect(Array.isArray(errors)).toBe(true);
+        expect(errors).toHaveLength(2);
+        expect(errors[0]).toBeInstanceOf(VerificationActionJournalError);
+        expect(errors[0].kind).toBe('corrupt-journal');
+        expect(errors[0].message).toBe('VerificationAction journal legacy static closure schema is unknown.');
+        expect(errors[1]).toBeInstanceOf(Error);
+        expect(errors[1].message).toBe('Journal first-data publication is unresolved; initialization residue is preserved.');
+        expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
+        expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
+        const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
+        const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), 'Rejected foreign closure control readback').target;
+        const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
+        const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
+        expect(control).toMatchObject({
+          leaseName,
+          resourceName: VERIFICATION_ACTION_MACHINE_CUTOVER_FILE,
+          state: 'initializing'
+        });
+        expect(existsSync(path.join(receiptParent.path, control!.anchorName))).toBe(true);
+        const record = JSON.parse(readFileSync(path.join(receiptParent.path, leaseName), 'utf8'));
+        expect(record.phase).toBe('initializing');
+        expect(record.activeOwner.pid).toBe(process.pid);
+        expect(record.activeOwner.host).toBe(hostname());
+        expect(record.recoveryOwner).toBeNull();
+        expect(record.binding.material.effectDomain).toBe('direct-canonical-journal-records');
+      }
       expect(existsSync(path.join(
         stateRoot,
         VERIFICATION_ACTION_JOURNAL_DIRECTORY,
@@ -669,37 +713,57 @@ test('machine cutover consolidates identical workspace Action chains before glob
     const secondWorkspace = machineWorkspaceRoot(stateRoot, '2');
     const firstLegacy = writeLegacyJournal(firstWorkspace, key, terminal(key.actionKey));
     const secondLegacy = writeLegacyJournal(secondWorkspace, key, terminal(key.actionKey));
-
-    const retainedReads: string[] = [];
+    const firstLegacyBytes = readFileSync(firstLegacy);
+    const secondLegacyBytes = readFileSync(secondLegacy);
     const physical = journalFs(stateRoot);
-    const instrumented = {
-      ...physical,
-      observeTextRetained: (
-        filePath: string,
-        bounds: Parameters<typeof physical.observeTextRetained>[1]
-      ) => {
-        retainedReads.push(normalizeTestInventoryPath(path.relative(stateRoot, filePath)));
-        return physical.observeTextRetained(filePath, bounds);
-      }
-    };
-    const receipt = ensureVerificationActionMachineGlobalCutover(instrumented);
+    const receipt = ensureVerificationActionMachineGlobalCutover(physical);
     expect(receipt).toMatchObject({
       sourceRecordCount: 2,
       targetActionCount: 1,
       legacyEvidenceDisposition: 'retained-until-owner-authorized-retirement'
     });
-    expect(retainedReads).toEqual([
-      `${VERIFICATION_ACTION_JOURNAL_DIRECTORY}/${VERIFICATION_ACTION_MACHINE_CUTOVER_FILE}`
-    ]);
     expect(readVerificationActionJournal(journalFs(stateRoot), key.actionKey)).toMatchObject({
       latestState: 'terminal',
       terminal: terminal(key.actionKey)
     });
-    expect(readFileSync(firstLegacy, 'utf8')).toContain('journal-event-v2');
-    expect(readFileSync(secondLegacy, 'utf8')).toContain('journal-event-v2');
+    expect(readFileSync(firstLegacy)).toEqual(firstLegacyBytes);
+    expect(readFileSync(secondLegacy)).toEqual(secondLegacyBytes);
 
     const reusedReceipt = ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
     expect(reusedReceipt.receiptDigest).toBe(receipt.receiptDigest);
+  } catch (error) {
+    // Preserve the original error and fixture payloads before this case's cleanup.
+    const describeFailure = (failure: unknown): unknown => {
+      if (!(failure instanceof Error)) return { value: String(failure) };
+      const nested = Object.getOwnPropertyDescriptor(failure, 'errors')?.value;
+      return {
+        name: failure.name,
+        message: failure.message,
+        stack: failure.stack,
+        ...(Array.isArray(nested) ? { errors: nested.map(describeFailure) } : {})
+      };
+    };
+    const payloads: { path: string; bytes: string }[] = [];
+    const readFixture = (directory: string): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const child = path.join(directory, entry.name);
+        if (entry.isDirectory()) readFixture(child);
+        else if (entry.isFile()) payloads.push({
+          path: normalizeTestInventoryPath(path.relative(stateRoot, child)),
+          bytes: readFileSync(child).toString('base64')
+        });
+      }
+    };
+    try {
+      readFixture(stateRoot);
+      console.error(JSON.stringify({
+        consolidationFailure: describeFailure(error),
+        fixturePayloadReadback: payloads
+      }));
+    } catch (diagnosticError) {
+      console.error('Consolidation fixture readback failed:', diagnosticError);
+    }
+    throw error;
   } finally {
     rmSync(stateRoot, { recursive: true, force: true });
   }

@@ -1,5 +1,5 @@
 import type { CommitFence } from '../contracts/commit-fence.ts';
-import { SecError } from '../contracts/failure.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 
 export const RUNTIME_DEPENDENCY_INSTALL_MODES = Object.freeze(['allow', 'offline-copy-only', 'prebound-only'] as const);
 export type RuntimeDependencyInstallMode = (typeof RUNTIME_DEPENDENCY_INSTALL_MODES)[number];
@@ -18,7 +18,7 @@ export function isRuntimeDependencyInstallMode(value: unknown): value is Runtime
 }
 /** Capture each public decision once, retaining the original receiver. */
 export function captureRuntimeDependencyInstallRequest(input: Readonly<RuntimeDependencyInstallRequest>): Readonly<RuntimeDependencyInstallRequest> {
-  if (input === null || typeof input !== 'object') throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency request must be an object');
+  if (input === null || typeof input !== 'object') throw new CodedFailure('RUNTIME-DEPS-003', 'Runtime dependency request must be an object');
   const { beforeCommit, deadlineAtUnixMs, installMode, lockTimeoutMs, rematerialize, signal } = input;
   assertCapturedRuntimeDependencyInstallRequest({ beforeCommit, deadlineAtUnixMs, installMode, lockTimeoutMs, rematerialize, signal });
   return Object.freeze({ beforeCommit: beforeCommit === undefined ? undefined : () => Reflect.apply(beforeCommit, input, []),
@@ -26,9 +26,9 @@ export function captureRuntimeDependencyInstallRequest(input: Readonly<RuntimeDe
 }
 export function assertCapturedRuntimeDependencyInstallRequest(input: Readonly<RuntimeDependencyInstallRequest>): void {
   const { beforeCommit, installMode, rematerialize } = input;
-  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency commit fence must be callable');
-  if (installMode !== undefined && !isRuntimeDependencyInstallMode(installMode)) throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
+  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') throw new CodedFailure('RUNTIME-DEPS-003', 'Runtime dependency commit fence must be callable');
+  if (installMode !== undefined && !isRuntimeDependencyInstallMode(installMode)) throw new CodedFailure('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
   for (const [field, value] of [['rematerialize', rematerialize]] as const) {
-    if (value !== undefined && typeof value !== 'boolean') throw new SecError('RUNTIME-DEPS-003', `Runtime dependency ${field} must be boolean`);
+    if (value !== undefined && typeof value !== 'boolean') throw new CodedFailure('RUNTIME-DEPS-003', `Runtime dependency ${field} must be boolean`);
   }
 }

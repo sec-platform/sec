@@ -1,7 +1,7 @@
 import { fstatSync } from 'node:fs';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
@@ -19,7 +19,7 @@ import { DOCKER_LINUX_INSTALLATION_PROFILE as profile } from '../contract/linux-
 
 /** One exclusive, credential-free configuration and temporary-state lifetime. */
 export interface LinuxDockerRuntimeState {
-  readonly identityDigest: SecOperationDigest;
+  readonly identityDigest: OperationDigest;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   assertCurrent(): void;
   close(): void;
@@ -124,7 +124,7 @@ export function openLinuxDockerRuntimeState(): LinuxDockerRuntimeState {
         domain: 'sec.docker.linux-private-runtime',
         directories: retained.map(({ identity }) => identity),
         environment
-      }) as SecOperationDigest,
+      }) as OperationDigest,
       environment, assertCurrent, close
     });
     issued.add(state);

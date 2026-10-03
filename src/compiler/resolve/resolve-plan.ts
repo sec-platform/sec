@@ -1,9 +1,9 @@
+import { CodedFailure } from '../../contracts/failure.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { assertManifestStackCompatibility, isManifestStackCompatible } from '../align/align-interfaces.ts';
 import type { LockFile, ManifestEntry, PlanFile } from '../contract.ts';
 import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
-import { CompilerError } from '../errors.ts';
 import { resolveManifestGraph } from './manifest-graph.ts';
 
 type InstallOwnership = Readonly<Pick<LockFile['installPlan'][number], 'blockId' | 'action' | 'to'>>;
@@ -20,7 +20,7 @@ function assertInstallTargetOwnership(installPlan: readonly InstallOwnership[]):
     if (group.length <= 1) continue;
     const target = group[0]!.to;
     if (group.every((step) => step.action === 'merge-prisma' && step.to === target)) continue;
-    throw new CompilerError(
+    throw new CodedFailure(
       'RESOLVE-CONFLICT-006',
       `Install target "${target}" has multiple owners without an explicit composition strategy`,
       {

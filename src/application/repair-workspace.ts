@@ -1,7 +1,7 @@
 import type { VerificationReport } from '../assurance/verification/contract/types.ts';
 import type { LockFile } from '../compiler/contract.ts';
 import { assertPassStatus } from '../compiler/contract/lock-schema.ts';
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { RepairPlan } from '../semantics/repair/types.ts';
 import { publishRepairPlanResult } from './repair-plan-publication.ts';
 
@@ -58,12 +58,12 @@ export async function repairWorkspaceResult(
     lock,
     'verify',
     'pending',
-    new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair'),
+    new CodedFailure('REPAIR-BLOCKED-002', 'verify must run before repair'),
     'differs'
   );
   const report = readVerification.call(operations);
   if (report === null) {
-    throw new CompilerError('REPAIR-BLOCKED-002', 'verification-report.json is missing');
+    throw new CodedFailure('REPAIR-BLOCKED-002', 'verification-report.json is missing');
   }
   const repairPlan = buildPlan.call(operations, report);
   if (request.mode === 'preview') return { lock, repairPlan };

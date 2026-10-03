@@ -1,12 +1,12 @@
 /** One default per-test deadline for every canonical test lane. */
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type SemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
   repositoryChangeObserverBinding,
@@ -99,7 +99,7 @@ export type FastTestBatchExecutionAdmission = Readonly<{
   logicalDeadlineAtUnixMs: number;
   revalidationDeadlineAtUnixMs: number;
   childDeadlineAtUnixMs: number;
-  attempt: SecSemanticOperationAttemptContext;
+  attempt: SemanticOperationAttemptContext;
 }>;
 
 const issuedTestSuiteExecutionPolicies = new WeakSet<object>();
@@ -270,7 +270,7 @@ export function admitFastTestBatchExecutionPolicy(
     logicalDeadlineAtUnixMs,
     revalidationDeadlineAtUnixMs,
     childDeadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as OperationDigest })
   });
   issuedFastTestBatchExecutionAdmissions.add(admission);
   return admission;
@@ -279,16 +279,16 @@ export function admitFastTestBatchExecutionPolicy(
 export function bindFastTestBatchExecutionAdmission(
   admission: FastTestBatchExecutionAdmission,
   observer: PreparedRepositoryChangeObserver
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   assertIssuedFastTestBatchExecutionAdmission(admission);
   if (boundFastTestBatchExecutionAdmissions.has(admission)) {
     throw new Error('Fast test batch execution admission was already bound.');
   }
   const providerBinding = repositoryChangeObserverBinding(observer);
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
-    intentDigest: admission.policy.policyDigest as SecOperationDigest,
-    decisionDigest: admission.policy.policyDigest as SecOperationDigest,
+    intentDigest: admission.policy.policyDigest as OperationDigest,
+    decisionDigest: admission.policy.policyDigest as OperationDigest,
     deadlineAtUnixMs: admission.logicalDeadlineAtUnixMs,
     attempt: admission.attempt,
     aggregateBudgets: [{ resource: 'duration-ms', maximum: admission.policy.logicalRunTimeoutMs }],
@@ -300,7 +300,7 @@ export function bindFastTestBatchExecutionAdmission(
     }]
   });
   boundFastTestBatchExecutionAdmissions.add(admission);
-  return bindSecSemanticOperation(operationPlan, [providerBinding]);
+  return bindSemanticOperation(operationPlan, [providerBinding]);
 }
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalEquals, canonicalJson, compareCodeUnits } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStatePhysicalIdentity } from '../../../../execution/generated-state/contract.ts';
 import type { GeneratedStateWorktreeRetirementProvider } from "../../../../execution/generated-state/lifecycle-port.ts";
 import { consumeGeneratedStateWorktreeRetirementEffectAuthority } from '../../../../execution/generated-state/provider-effect.ts';
@@ -296,9 +296,9 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
       try {
         return await validateCompilerDependencyLocatorPlan(plan, requireLocator);
       } catch (error) {
-        if (error instanceof SecError) throw error;
+        if (error instanceof CodedFailure) throw error;
         const cause = error instanceof Error ? error.message : String(error);
-        throw new SecError(
+        throw new CodedFailure(
           'IMPORT-AUTHORITY-004',
           `Compiler dependency locator retirement validation failed: ${cause}`,
           { cause, consumerRoot: plan.consumerRoot }
@@ -312,7 +312,7 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
         path.join(plan.consumerRoot, plan.relativePath),
         'Compiler dependency locator retirement absence readback'
       ).state !== 'absent') {
-        throw new SecError(
+        throw new CodedFailure(
           'IMPORT-AUTHORITY-004',
           'Compiler dependency locator retirement found an occupied non-locator path.',
           { consumerRoot: plan.consumerRoot, relativePath: plan.relativePath }

@@ -4,9 +4,9 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import type {
-  SecRepositoryModuleGraph,
-  SecRepositoryModuleGraphImport,
-  SecRepositoryModuleGraphImportObservation
+  RepositoryModuleGraph,
+  RepositoryModuleGraphImport,
+  RepositoryModuleGraphImportObservation
 } from '../architecture/contract.ts';
 import {
   normalizeSecRepositoryPath
@@ -21,7 +21,7 @@ import type {
   SourceProgramFileInput
 } from './contract.ts';
 import {
-  assembleSecRepositoryModuleGraph
+  assembleRepositoryModuleGraph
 } from './module-graph.ts';
 import type {
   TypeScriptSourceProgramFileIdentity
@@ -38,27 +38,27 @@ import {
 } from './typescript-workspace.ts';
 
 /** Canonical TypeScript module observation orchestration; graph assembly remains compiler-independent. */
-export type SecRepositoryModuleGraphInput = Readonly<{
+export type SourceProgramRepositoryModuleGraphInput = Readonly<{
   readonly files: readonly string[];
   /** Return null when the exact snapshot has no bytes for the address. */
   readonly readSource: (moduleFile: string) => string | null;
   /** Non-TypeScript embedded-language facts issued by their own frontend. */
-  readonly readImports?: (
+  readonly readEmbeddedLanguageImports?: (
     moduleFile: string,
     source: string
-  ) => readonly SecRepositoryModuleGraphImport[];
+  ) => readonly RepositoryModuleGraphImport[];
   readonly unresolvedFiles?: readonly string[];
   readonly operation?: SourceProgramCompilationOperation;
 }>;
 
 /**
- * The only ordinary TypeScript/JavaScript module-graph frontend.  It reuses
- * the process Language Service and feeds typed observations to the pure graph
- * assembler; downstream consumers never parse source bytes themselves.
+ * Source Program module-graph orchestration. Ordinary TypeScript/JavaScript
+ * imports come from the process Language Service; embedded-language imports
+ * come from their frontend. The pure assembler consumes both observations.
  */
-export function compileSecRepositoryModuleGraph(
-  input: SecRepositoryModuleGraphInput
-): SecRepositoryModuleGraph {
+export function compileSourceProgramRepositoryModuleGraph(
+  input: SourceProgramRepositoryModuleGraphInput
+): RepositoryModuleGraph {
   const operation = resolveSourceProgramCompilationOperation(input.operation);
   const files = Object.freeze([...new Set(input.files.map(normalizeSecRepositoryPath))]
     .sort(compareCodeUnits));
@@ -82,7 +82,7 @@ export function compileSecRepositoryModuleGraph(
       rawFileDigest: sourceProgramFileSnapshotDigest(file, contentDigest)
     }));
   }
-  const imports: SecRepositoryModuleGraphImportObservation[] = [];
+  const imports: RepositoryModuleGraphImportObservation[] = [];
   if (typeScriptFiles.size > 0) {
     const observations = typeScriptModuleImportFacts(
       compileExactTypeScriptProgram(typeScriptFiles, identities, operation)
@@ -90,11 +90,11 @@ export function compileSecRepositoryModuleGraph(
     imports.push(...observations.imports);
     for (const file of observations.unresolvedFiles) unresolvedFiles.add(file);
   }
-  if (input.readImports !== undefined) {
+  if (input.readEmbeddedLanguageImports !== undefined) {
     for (const [repositoryPathValue, source] of sourceByPath) {
       if (SOURCE_EXTENSION.test(repositoryPathValue)) continue;
       try {
-        imports.push(...input.readImports(repositoryPathValue, source).map((observation) => (
+        imports.push(...input.readEmbeddedLanguageImports(repositoryPathValue, source).map((observation) => (
           Object.freeze({ ...observation, from: repositoryPathValue })
         )));
       } catch {
@@ -102,7 +102,7 @@ export function compileSecRepositoryModuleGraph(
       }
     }
   }
-  return assembleSecRepositoryModuleGraph({
+  return assembleRepositoryModuleGraph({
     files,
     imports: Object.freeze(imports),
     unresolvedFiles: Object.freeze([...unresolvedFiles])

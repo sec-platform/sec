@@ -1,4 +1,5 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { linkWorkspaceSemanticContracts } from '../../semantics/definitions/link.ts';
 import type { LoadedSemanticContract } from '../../semantics/definitions/types.ts';
 import { type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
@@ -7,7 +8,6 @@ import { assertEngineeringIRPredicateSignatures } from '../../semantics/engineer
 import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
 import type { PolicyRule } from '../../semantics/policies/types.ts';
 import type { BlockManifest, ResolvedBlock } from '../contract.ts';
-import { CompilerError } from '../errors.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
@@ -77,7 +77,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
 
   const resolvedBlockIds = new Set(input.resolvedBlocks.map((block) => block.id));
   for (const entry of [...input.manifests].sort((left, right) => compareCodeUnits(left.blockId, right.blockId))) {
-    if (!resolvedBlockIds.has(entry.blockId)) throw new CompilerError('IR-IDENTITY-002', `Manifest input references unresolved block "${entry.blockId}"`);
+    if (!resolvedBlockIds.has(entry.blockId)) throw new CodedFailure('IR-IDENTITY-002', `Manifest input references unresolved block "${entry.blockId}"`);
     const blockId = `block:${entry.blockId}`;
     const provenance = manifestProvenance(entry);
 
@@ -116,7 +116,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   for (const flow of orderedFlows) {
     const sourceId = capabilityEntityId(flow.sourceCapability);
     if (!entities.has(sourceId)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IR-FACT-002',
         `Observed flow references missing source capability "${flow.sourceCapability}"`
       );
@@ -148,7 +148,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     input.policyDeclarations.map((policy) => policy.id)
   );
   for (const contract of linkedContracts) {
-    if (!resolvedBlockIds.has(contract.blockId)) throw new CompilerError('IR-IDENTITY-005', `Semantic contract "${contract.contract.id}" references unresolved block "${contract.blockId}"`);
+    if (!resolvedBlockIds.has(contract.blockId)) throw new CodedFailure('IR-IDENTITY-005', `Semantic contract "${contract.contract.id}" references unresolved block "${contract.blockId}"`);
     appendSemanticContract(contract, sink);
   }
 
@@ -161,12 +161,12 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
         candidate.blockId === entry.blockId && candidate.contract.id === declaration.contract
       );
       if (contractMatches.length !== 1) {
-        throw new CompilerError('GENERATOR-PLAN-001', `Unknown semantic contract "${declaration.contract}"`);
+        throw new CodedFailure('GENERATOR-PLAN-001', `Unknown semantic contract "${declaration.contract}"`);
       }
       const loaded = contractMatches[0]!;
       const state = loaded.contract.states.find((candidate) => candidate.id === declaration.state);
       if (!state) {
-        throw new CompilerError('GENERATOR-PLAN-002', `Unknown semantic state "${declaration.state}"`);
+        throw new CodedFailure('GENERATOR-PLAN-002', `Unknown semantic state "${declaration.state}"`);
       }
 
       const generatorId = generatorEntityId(entry.blockId, declaration.id);

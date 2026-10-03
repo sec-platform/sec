@@ -1,8 +1,8 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticFact, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
 import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewBadge, type ViewEdge, type ViewNode, type ViewReference } from '../../semantics/projection/types.ts';
-import { CompilerError } from '../errors.ts';
 import { indexValidatedEngineeringIR } from '../ir/index-engineering-ir.ts';
 import {
   buildProvenanceOverlay,
@@ -50,7 +50,7 @@ export function projectScenarioView(
   const index = indexValidatedEngineeringIR(snapshot);
   const scenario = index.entityById.get(scenarioId);
   if (!scenario || scenario.kind !== 'scenario') {
-    throw new CompilerError('VIEW-SCENARIO-001', `Unknown scenario "${scenarioId}"`);
+    throw new CodedFailure('VIEW-SCENARIO-001', `Unknown scenario "${scenarioId}"`);
   }
 
   const containsFacts = (index.outgoingFactsBySubject.get(scenarioId) ?? []).filter((fact) =>

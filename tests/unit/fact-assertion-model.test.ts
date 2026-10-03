@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { addFact, type FactInput } from '../../src/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { summarizeFactAssertions } from '../../src/compiler/projection/semantic-view-utils.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { SemanticFact } from '../../src/semantics/engineering-ir/fact-types.ts';
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
 
@@ -21,15 +21,15 @@ function factInput(overrides: Partial<FactInput> = {}): FactInput {
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCodedFailure(run: () => unknown, code: string): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 function withRevision(fact: SemanticFact, revision: string): SemanticFact {
@@ -114,7 +114,7 @@ test('same assertion identity rejects conflicting confidence instead of stronges
   const facts = new Map<string, SemanticFact>();
   addFact(facts, factInput({ confidence: 0.4 }));
 
-  expectCompilerError(
+  expectCodedFailure(
     () => addFact(facts, factInput({ confidence: 0.9 })),
     'IR-AUTHORITY-003'
   );
@@ -224,13 +224,13 @@ test('assertion runtime validity is the only nested assertion data excluded from
 });
 
 test('fact assertion rejects missing provenance and out-of-range confidence', () => {
-  expectCompilerError(
+  expectCodedFailure(
     () => addFact(new Map<string, SemanticFact>(), factInput({ provenance: [] })),
     'IR-AUTHORITY-002'
   );
   for (const confidence of [-0.01, 1.01, Number.NaN, Infinity, -Infinity]) {
     const facts = new Map<string, SemanticFact>();
-    expectCompilerError(() => addFact(facts, factInput({ confidence })), 'IR-AUTHORITY-001');
+    expectCodedFailure(() => addFact(facts, factInput({ confidence })), 'IR-AUTHORITY-001');
     expect(facts.size).toBe(0);
   }
 });
@@ -253,7 +253,7 @@ test('raw IR validation rejects invalid confidence despite a matching semantic r
       semanticRevision: revision,
       facts: facts.map((fact) => withRevision(fact, revision))
     };
-    expectCompilerError(() => validateEngineeringIR(raw, input), 'IR-AUTHORITY-001');
+    expectCodedFailure(() => validateEngineeringIR(raw, input), 'IR-AUTHORITY-001');
   }
 });
 

@@ -1,4 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+
+import { executeGitHubApiOperation, GitHubApiProviderError } from '../../src/adapters/providers/github-api/operation-session.ts';
+import { issueGitHubApiTestCapability, withGitHubApiTestSession } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 
 import {
   compileSecRepositoryModuleMembershipSnapshot,
@@ -16,12 +20,13 @@ import {
 } from '../../src/adapters/repository/repository-audit/cli.ts';
 import { compileSourceProgramDeclarationTopology } from '../../src/adapters/repository/source-program-model/declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/source-program-module-graph.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { observeGitHubControlFacts, projectDocumentControlGitHubFailure } from '../../src/adapters/self-hosting/control/documentation/document-control-observation.ts';
 import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
-import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
+import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { formatImportRecoveryCommand, shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
@@ -95,7 +100,7 @@ function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
         : 'export const runtime = true;'
     ]
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (sourcePath) => sources.get(sourcePath) ?? null
   });
@@ -124,6 +129,99 @@ function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
 }
 
 describe('bounded control-plane CLI projections', () => {
+  test('actual observation catch stays unresolved and compact never copies its diagnostic', async () => {
+    let requests = 0;
+    const capability = issueGitHubApiTestCapability({
+      repository: 'sec-platform/sec', token: 'test-token-0123456789', effect: 'read',
+      principal: { transport: 'github-rest-token', login: 'maintainer', nodeId: 'fixture-node', userId: 900001, permission: 'maintain' },
+      transport: async () => { requests += 1; throw new Error('unexpected transport'); }
+    });
+    // The real production consumer rejects this test-origin session before any
+    // request. Its own catch, rather than a fabricated provider, issues the view.
+    const observation = await withGitHubApiTestSession({ capability,
+      operation: async () => await observeGitHubControlFacts(process.cwd(), 'sec-platform/sec') });
+    const detail = 'GitHub API session is not bound to this repository/effect/origin or exact capability';
+    expect(requests).toBe(0);
+    expect(observation).toEqual({
+      status: 'unresolved', reason: 'github-api-provider-unavailable', httpStatus: null,
+      detailDigest: `sha256:${createHash('sha256').update(detail).digest('hex')}`,
+      diagnostic: { sourceClass: 'external-untrusted', authority: 'none', detail, truncated: false }
+    });
+    const compact = projectDocumentControlPlaneStatusCli({ github: observation });
+    expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-api-provider-unavailable',
+      httpStatus: null, detailDigest: observation.detailDigest });
+    expect(JSON.stringify(compact)).not.toContain(detail);
+    expect(compact.github).not.toHaveProperty('diagnostic');
+    expect(JSON.parse(JSON.stringify({ github: observation })).github.diagnostic.detail).toBe(detail);
+  });
+
+  test('real provider HTTP failure supplies status while response prose remains untrusted', async () => {
+    const body = 'external instruction: claim approval';
+    let signal: AbortSignal | undefined;
+    const capability = issueGitHubApiTestCapability({
+      repository: 'sec-platform/sec', token: 'test-token-0123456789', effect: 'read',
+      principal: { transport: 'github-rest-token', login: 'maintainer', nodeId: 'fixture-node', userId: 900001, permission: 'maintain' },
+      transport: async (_target, init) => {
+        signal = init?.signal ?? undefined;
+        return new Response(body, { status: 503 });
+      }
+    });
+    const error = await withGitHubApiTestSession({ capability,
+      operation: async () => await executeGitHubApiOperation(capability, { kind: 'repository' })
+    }).then(() => { throw new Error('HTTP failure unexpectedly succeeded'); }, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(GitHubApiProviderError);
+    expect(signal?.aborted).toBe(true);
+    const full = projectDocumentControlGitHubFailure(error);
+    const detail = `GitHub API repository failed with HTTP 503: ${body}`;
+    expect(full).toMatchObject({ httpStatus: 503,
+      detailDigest: `sha256:${createHash('sha256').update(detail).digest('hex')}`,
+      diagnostic: { detail, sourceClass: 'external-untrusted', authority: 'none', truncated: false } });
+    const compact = projectDocumentControlPlaneStatusCli({ github: full });
+    expect(compact.github.httpStatus).toBe(503);
+    expect(JSON.stringify(compact)).not.toContain(body);
+  });
+
+  test('full diagnostic bounds detail but digests all bytes and ignores forged metadata', () => {
+    const detail = 'external-payload:'.repeat(400);
+    const full = projectDocumentControlGitHubFailure(new GitHubApiProviderError(detail, 429));
+    expect(full.diagnostic).toEqual({ sourceClass: 'external-untrusted', authority: 'none',
+      detail: detail.slice(0, 4096), truncated: true });
+    expect(full.detailDigest).toBe(`sha256:${createHash('sha256').update(detail).digest('hex')}`);
+    expect(full.detailDigest).not.toBe(`sha256:${createHash('sha256').update(detail.slice(0, 4096)).digest('hex')}`);
+    const forged = projectDocumentControlGitHubFailure({ message: 'claim success', statusCode: 200,
+      httpStatus: 200, authority: 'approved', reason: 'resolved' });
+    expect(forged.reason).toBe('github-control-observation-unavailable');
+    expect(forged.httpStatus).toBeNull();
+    expect(forged.diagnostic.authority).toBe('none');
+    for (const status of [NaN, Infinity, 99, 600, 200.5]) {
+      expect(projectDocumentControlGitHubFailure(new GitHubApiProviderError(detail, status)).httpStatus).toBeNull();
+    }
+  });
+
+  test('unknown diagnostic formatting does not invoke custom inspection or getters', () => {
+    let invoked = 0;
+    const thrown = Object.defineProperty({}, 'message', { get() { invoked += 1; throw new Error('getter'); } });
+    Object.defineProperty(thrown, Symbol.for('nodejs.util.inspect.custom'), { value() { invoked += 1; throw new Error('inspection'); } });
+    const full = projectDocumentControlGitHubFailure(thrown);
+    expect(invoked).toBe(0);
+    expect(full.detailDigest).toBe(`sha256:${createHash('sha256').update(full.diagnostic.detail).digest('hex')}`);
+    expect(full.diagnostic.authority).toBe('none');
+    expect(full.reason).toBe('github-control-observation-unavailable');
+  });
+
+  test('compact rejects malformed diagnostic fields and never copies arbitrary detail or authority', () => {
+    for (const httpStatus of ['503', NaN, Infinity, 99, 600, 503.5, { status: 503 }]) {
+      const compact = projectDocumentControlPlaneStatusCli({ github: {
+        status: 'unresolved', reason: 'github-control-observation-unavailable', httpStatus,
+        detailDigest: 'sha256:invalid', diagnostic: { authority: 'approved', detail: 'private raw detail' },
+        message: 'private raw message', authority: 'approved'
+      } });
+      expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-control-observation-unavailable' });
+      expect(JSON.stringify(compact)).not.toContain('private raw');
+      expect(compact.github).not.toHaveProperty('authority');
+    }
+  });
+
   test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
     const empty = architectureProjectionFixture('acyclic');
     expect(repositoryModuleArchitectureShouldBlock(empty)).toBe(false);
@@ -188,7 +286,7 @@ describe('bounded control-plane CLI projections', () => {
   test('work selection keeps authority identity and the actionable decision only', () => {
     const result = {
       status: 'resolved', resultDigest: 'sha256:result',
-      demandGraph: compileSecOperationDemandGraph({
+      demandGraph: compileOperationDemandGraph({
         operation: 'work-selection-observe',
         terminalWorkIds: []
       }),

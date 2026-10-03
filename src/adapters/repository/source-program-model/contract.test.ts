@@ -39,6 +39,7 @@ import {
   compileSourceProgramResponsibilityEvidence,
   summarizeSourceProgramTopology
 } from './repository.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import {
   adoptSourceProgramTestAuthorDecision,
   assessSourceProgramTestAuthorDecision,
@@ -55,7 +56,6 @@ import {
   reconcileSourceProgramTestValueWithSupersession
 } from './test-value.ts';
 import {
-  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
   observeSourceProgramDurableWorkerInput,
@@ -336,7 +336,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     files,
     moduleMembership: membership
   });
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (path) => sources.get(path) ?? null
   });
@@ -448,7 +448,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
       reason: 'validated'
     })
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: [sourcePath],
     readSource: () => source
   });
@@ -1233,7 +1233,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     moduleMembership,
     typescriptModel: typeScriptModel
   });
-  const moduleGraph = compileSecRepositoryModuleGraph({
+  const moduleGraph = compileSourceProgramRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (repositoryPath) => sources.get(repositoryPath) ?? null
   });

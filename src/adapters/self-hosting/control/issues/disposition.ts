@@ -266,7 +266,7 @@ function parseWorkPackageLocatorForDisposition(body: string): string {
   return match[1]!;
 }
 
-export function renderPullRequestBodyV1(input: Readonly<{
+export function renderPullRequestBody(input: Readonly<{
   summary: string;
   manifestPath: string;
   mode: IssueDispositionMode;
@@ -440,7 +440,7 @@ export function compileIssueDisposition(input: Readonly<{
   return Object.freeze({ ...receipt, receiptDigest: hash(receipt) });
 }
 
-export function parseIssueDispositionV1(source: string): IssueDisposition {
+export function parseIssueDisposition(source: string): IssueDisposition {
   const value = record(JSON.parse(source) as unknown, 'disposition');
   exactKeys(value, ['schema', 'dispositionId', 'operationId', 'planDigest', 'planMode', 'repository', 'prNumber',
     'issueNumber', 'manifestPath', 'manifestDigest', 'currentSpecRevision', 'acceptanceIds', 'newMainSha',

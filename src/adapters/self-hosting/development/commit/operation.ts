@@ -3,16 +3,16 @@ import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import {
-  consumeSecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingContext,
-  type SecOperationResourceCeiling
+  consumeOperationRequirementBindingContext,
+  type OperationRequirementBindingContext,
+  type OperationResourceCeiling
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  compileSecProviderSettlementSet,
-  issueSecNormalDomainReadbackReceipt,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementSet
+  compileProviderSettlementSet,
+  issueNormalDomainReadbackReceipt,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementSet
 } from '../../../../execution/operation/semantic.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
@@ -93,18 +93,18 @@ export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST
     'complete-exact-ref-journal-classification-before-cas',
     'owner-issued-plan-and-acknowledgement'
   ]
-}) as SecOperationDigest;
+}) as OperationDigest;
 export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST = sha256({
   domain: 'development.commit.closed-absent-journal-retirement-provider',
   provider: 'development.commit'
-}) as SecOperationDigest;
+}) as OperationDigest;
 export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS = Object.freeze([
   Object.freeze({ resource: 'duration-ms' as const, maximum: 30_000 }),
   Object.freeze({ resource: 'input-bytes' as const, maximum: 65_536 }),
   Object.freeze({ resource: 'output-bytes' as const, maximum: 67_108_864 }),
   Object.freeze({ resource: 'processes' as const, maximum: 64 }),
   Object.freeze({ resource: 'records' as const, maximum: 256 })
-]) satisfies readonly SecOperationResourceCeiling[];
+]) satisfies readonly OperationResourceCeiling[];
 export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING = 8;
 
 type DevelopmentCommitDisposition = 'applied' | 'not-applied' | 'unknown';
@@ -123,21 +123,21 @@ export type DevelopmentCommitResult = Readonly<{
 
 export type DevelopmentCommitReadbackReceipt = Readonly<{
   readonly disposition: DevelopmentCommitDisposition;
-  readonly operation: SecOperationDigest;
-  readonly attempt: SecOperationDigest;
-  readonly readbackReceiptDigest: SecOperationDigest;
+  readonly operation: OperationDigest;
+  readonly attempt: OperationDigest;
+  readonly readbackReceiptDigest: OperationDigest;
 }>;
 
 type DevelopmentCommitRecovery = Readonly<{
   readonly result: DevelopmentCommitResult;
-  readonly readbackReceiptDigest: SecOperationDigest;
+  readonly readbackReceiptDigest: OperationDigest;
 }>;
 
 type DevelopmentCommitRecoveryDetails = Readonly<{
   readonly result: DevelopmentCommitResult;
   readonly readback: DevelopmentCommitReadbackReceipt;
   readonly commonDirectory: string;
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
   readonly journalSource: string;
 }>;
 
@@ -153,8 +153,8 @@ const ISSUED_DEVELOPMENT_COMMIT_RESULTS = new WeakMap<object, Readonly<{
 
 type Journal = Readonly<{
   readonly schema: typeof JOURNAL_SCHEMA;
-  readonly operation: SecOperationDigest;
-  readonly attempt: SecOperationDigest;
+  readonly operation: OperationDigest;
+  readonly attempt: OperationDigest;
   readonly ref: string;
   readonly preimage: string;
   readonly target: string;
@@ -417,9 +417,9 @@ export async function readDevelopmentCommitOutcome(input: Readonly<{
   commonDirectory: string;
   journal: Journal;
   normal: null | Readonly<{
-    operation: SecBoundSemanticOperation;
-    settlement: SecProviderSettlementSet;
-    contractDigest: SecOperationDigest;
+    operation: BoundSemanticOperation;
+    settlement: ProviderSettlementSet;
+    contractDigest: OperationDigest;
   }>;
 }>): Promise<DevelopmentCommitReadbackReceipt> {
   const disposition = await (async (session: GitReadSession) => {
@@ -456,10 +456,10 @@ export async function readDevelopmentCommitOutcome(input: Readonly<{
     return 'unknown';
   })(input.session);
   if (input.normal !== null) {
-    issueSecNormalDomainReadbackReceipt(input.normal.operation, input.normal.settlement, {
+    issueNormalDomainReadbackReceipt(input.normal.operation, input.normal.settlement, {
       readbackContractDigest: input.normal.contractDigest,
-      readbackReferenceDigest: sha256({ ref: input.journal.ref, target: input.journal.target, disposition }) as SecOperationDigest,
-      currentPhysicalEpochDigest: sha256({ preimage: input.journal.preimage, target: input.journal.target, tree: input.journal.tree }) as SecOperationDigest,
+      readbackReferenceDigest: sha256({ ref: input.journal.ref, target: input.journal.target, disposition }) as OperationDigest,
+      currentPhysicalEpochDigest: sha256({ preimage: input.journal.preimage, target: input.journal.target, tree: input.journal.tree }) as OperationDigest,
       disposition
     });
   }
@@ -476,7 +476,7 @@ export async function readDevelopmentCommitOutcome(input: Readonly<{
       target: input.journal.target,
       tree: input.journal.tree,
       disposition
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   ISSUED_DEVELOPMENT_COMMIT_READBACKS.add(receipt);
   return receipt;
@@ -566,7 +566,7 @@ async function execute(
           gitReadSession: resolution.session,
           contract
         });
-        const providerSettlementSet: SecProviderSettlementSet = compileSecProviderSettlementSet(operation, [
+        const providerSettlementSet: ProviderSettlementSet = compileProviderSettlementSet(operation, [
           settleGitDevelopmentCommitOperation(operation, refSettlement)
         ]);
         try {
@@ -791,7 +791,7 @@ type DurableLocalRefRetirementPlan = Readonly<{
   preparedRefState: 'present' | 'absent';
   journals: readonly Readonly<{
     journalName: string;
-    sourceDigest: SecOperationDigest;
+    sourceDigest: OperationDigest;
   }>[];
 }>;
 
@@ -817,11 +817,11 @@ type LocalRefRetirementDetails = Readonly<{
 const ISSUED_LOCAL_REF_RETIREMENT_PLANS =
   new WeakMap<object, LocalRefRetirementDetails>();
 
-function journalSourceDigest(source: string): SecOperationDigest {
+function journalSourceDigest(source: string): OperationDigest {
   return sha256({
     domain: 'development.commit.local-ref-retirement.journal-source',
     source
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 function localRefRetirementPlanPath(
@@ -883,7 +883,7 @@ function parseLocalRefRetirementPlan(source: string): DurableLocalRefRetirementP
     }
     return Object.freeze({
       journalName: record.journalName,
-      sourceDigest: record.sourceDigest as SecOperationDigest
+      sourceDigest: record.sourceDigest as OperationDigest
     });
   });
   if (journals.length > MAXIMUM_REF_JOURNALS
@@ -1331,8 +1331,8 @@ type ClosedAbsentRetirementDetails = Readonly<{
 }>;
 const ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS = new WeakMap<object, ClosedAbsentRetirementDetails>();
 
-function assertClosedAbsentRetirementBinding(context: SecOperationRequirementBindingContext): void {
-  const projection = consumeSecOperationRequirementBindingContext(context);
+function assertClosedAbsentRetirementBinding(context: OperationRequirementBindingContext): void {
+  const projection = consumeOperationRequirementBindingContext(context);
   if (projection.requirementId !== CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID
       || projection.requirementContractDigest !== CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST
       || projection.providerIdentityDigest !== CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST
@@ -1434,7 +1434,7 @@ export async function prepareClosedAbsentDevelopmentCommitJournalRetirement(inpu
   ref: string;
   capability: GitHubApiCapability;
   pullRequestNumber: number;
-  requirementBindingContext: SecOperationRequirementBindingContext;
+  requirementBindingContext: OperationRequirementBindingContext;
 }>): Promise<DevelopmentCommitJournalRetirementPlan> {
   if (!Number.isSafeInteger(input.pullRequestNumber) || input.pullRequestNumber <= 0) {
     throw new Error('Closed-absent commit journal retirement PR number is invalid.');
@@ -1627,7 +1627,7 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
   result: DevelopmentCommitResult;
   readback: DevelopmentCommitReadbackReceipt;
   commonDirectory: string;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   journalSource: string;
 }>> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -1666,7 +1666,7 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
           result,
           readback,
           commonDirectory,
-          providerIdentityDigest: sha256(session.providerIdentity) as SecOperationDigest,
+          providerIdentityDigest: sha256(session.providerIdentity) as OperationDigest,
           journalSource
         });
       });

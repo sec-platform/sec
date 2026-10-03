@@ -9,7 +9,7 @@ import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createAuthorityGitReadSession, type GitReadSession } from '../../../providers/git-read/runtime/session.ts';
 import {
@@ -46,8 +46,8 @@ import { selectSlowTestRiskClosure } from '../../../verification/platform/test-i
 import { compilerRoot } from "../../../workspace-context.ts";
 import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
 import {
-  compileSecOperationDemandGraph,
-  type SecOperationKind
+  compileOperationDemandGraph,
+  type OperationKind
 } from '../../control/operation/demand.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
@@ -586,12 +586,12 @@ type OperationDependencyContext = {
 };
 
 async function withOperationDependencies<T>(
-  operation: Exclude<SecOperationKind, 'dependency-setup' | 'work-selection-observe'>,
+  operation: Exclude<OperationKind, 'dependency-setup' | 'work-selection-observe'>,
   callback: (context: OperationDependencyContext) => Promise<T>,
   prepared?: OperationDependencyBootstrapResult,
   bootstrap: OperationDependencyBootstrapOptions = {}
 ): Promise<T> {
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation,
     terminalWorkIds: []
   });
@@ -1151,7 +1151,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   preparedGitSelection?: IssuedAffectedGitSelectionSource;
   expectedSelectionDigest?: `sha256:${string}`;
   dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   /** Borrowed process ledger owned by the surrounding repository fence. */
   processSession?: ProcessResourceSession;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
@@ -1412,7 +1412,7 @@ export async function runAffectedTests(
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
   args: string[] = [],
   options: Readonly<{
-    operation?: SecBoundSemanticOperation;
+    operation?: BoundSemanticOperation;
     processSession?: ProcessResourceSession;
     dependencyBootstrap?: OperationDependencyBootstrapOptions;
   }> = {}
@@ -1733,7 +1733,7 @@ export async function prepareSlowTestSuiteExecutions(
     files.push(file);
     filesBySuite.set(selectedOwner[0]!, files);
   }
-  const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+  const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'test-slow',
     terminalWorkIds: []
   }), bootstrap);

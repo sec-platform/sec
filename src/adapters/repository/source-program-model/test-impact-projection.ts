@@ -8,7 +8,7 @@ import {
   uniqueSorted
 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
 import type {
   SourceProgramEntrypointKind,
@@ -279,7 +279,7 @@ function assertProjectionInputsIssued(input: Readonly<{
           || projectGeneration.snapshotDigest !== workspaceSnapshot.snapshotDigest
           || projectGeneration.moduleMembershipDigest !== workspaceSnapshot.moduleMembershipDigest
           || projectGeneration.moduleGraphDigest !== workspaceSnapshot.moduleGraphDigest))) {
-    throw new SecError(
+    throw new CodedFailure(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact projection requires snapshot-issued TypeScript and test observations',
       { kind: 'projection-input-unissued' }
@@ -438,7 +438,7 @@ export function assertIssuedTestImpactProjection(
   projection: TestImpactProjectionReceipt | undefined
 ): asserts projection is IssuedTestImpactProjection {
   if (projection === undefined || !issuedProjections.has(projection)) {
-    throw new SecError(
+    throw new CodedFailure(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact requires an owner-issued compact Source Program projection',
       { kind: 'projection-unissued' }

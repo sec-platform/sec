@@ -2,8 +2,8 @@ import path from 'node:path';
 import type { BranchLifecycleInventory, BranchPullRequestObservation, PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
@@ -103,8 +103,8 @@ const MAX_COMMENT_PAGES = 20;
 const COMMENTS_PER_PAGE = 100;
 const LOCAL_EFFECT_DURATION_MS = 120_000;
 const LOCAL_EFFECT_REQUIREMENT = 'branch-lifecycle.closed-unmerged.ref-delete';
-const LOCAL_EFFECT_CONTRACT = sha256({ owner: 'control.branch-lifecycle', operation: 'closed-unmerged-ref-delete', effect: 'one-exact-native-git-ref-cas' }) as SecOperationDigest;
-const LOCAL_EFFECT_PROVIDER = sha256({ owner: 'external-capabilities.git', provider: 'git-physical-provider' }) as SecOperationDigest;
+const LOCAL_EFFECT_CONTRACT = sha256({ owner: 'control.branch-lifecycle', operation: 'closed-unmerged-ref-delete', effect: 'one-exact-native-git-ref-cas' }) as OperationDigest;
+const LOCAL_EFFECT_PROVIDER = sha256({ owner: 'external-capabilities.git', provider: 'git-physical-provider' }) as OperationDigest;
 const COMPILE_FIXED_SESSION_COUNT = 3;
 const COMPLETED_PREPARATION_OBSERVATION_COUNT = 1;
 const EXECUTION_INVENTORY_COUNT = 6;
@@ -546,15 +546,15 @@ async function publishMarked<T extends { operationId: string }>(input: Readonly<
 }
 
 function compileLocalRefDeleteOperation(
-  operationId: SecOperationDigest,
+  operationId: OperationDigest,
   localEntry?: Readonly<{ ref: string; expectedOldSha: string }>
 ) {
   const deadlineAtUnixMs = Date.now() + LOCAL_EFFECT_DURATION_MS;
   const localEntries = localEntry === undefined ? undefined : [localEntry];
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-ref-delete', intentDigest: operationId,
     decisionDigest: LOCAL_EFFECT_CONTRACT, deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: operationId }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: operationId }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS },
       { resource: 'input-bytes', maximum: localEntries === undefined
@@ -569,13 +569,13 @@ function compileLocalRefDeleteOperation(
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({ requirementId: LOCAL_EFFECT_REQUIREMENT,
+  return bindSemanticOperation(plan, [compileCapabilityBinding({ requirementId: LOCAL_EFFECT_REQUIREMENT,
     contractDigest: LOCAL_EFFECT_CONTRACT, providerIdentityDigest: LOCAL_EFFECT_PROVIDER })]);
 }
 
 async function deleteLocalGitRef(input: Readonly<{
   repositoryRoot: string;
-  operationId: SecOperationDigest;
+  operationId: OperationDigest;
   ref: string;
   expectedOldSha: string;
   coordinatedLease?: WorkspaceWriteLeaseToken;
@@ -588,7 +588,7 @@ async function deleteLocalGitRef(input: Readonly<{
     input.operationId, input.coordinatedLease === undefined ? undefined : entry
   );
   const processSession = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
       requirementId: LOCAL_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let disposition: 'deleted' | 'already-absent' | undefined;
   let localReceipt: GitLocalRefDeleteBatchReceipt | null = null;

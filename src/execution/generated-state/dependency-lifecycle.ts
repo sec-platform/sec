@@ -1,4 +1,4 @@
-import { SecError } from '../../contracts/failure.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type {
   GeneratedStateCleanupContinuationReceipt,
   GeneratedStateCleanupProfile,
@@ -105,14 +105,14 @@ export function captureRuntimeDependencyLifecycle<K extends keyof RuntimeDepende
   const source = input.generatedStateLifecycle;
   if (source === undefined) return undefined;
   if (source === null || (typeof source !== 'object' && typeof source !== 'function')) {
-    throw new SecError('IMPORT-AUTHORITY-004', 'Dependency lifecycle must be an operation capability object');
+    throw new CodedFailure('IMPORT-AUTHORITY-004', 'Dependency lifecycle must be an operation capability object');
   }
   const entries = new Map<K, unknown>();
   for (const key of keys) {
     if (entries.has(key)) continue;
     const method = source[key];
     if (method !== undefined && typeof method !== 'function') {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Dependency lifecycle method is not callable', { method: key });
+      throw new CodedFailure('IMPORT-AUTHORITY-004', 'Dependency lifecycle method is not callable', { method: key });
     }
     entries.set(key, method === undefined ? undefined :
       (...args: unknown[]) => Reflect.apply(method, source, args));

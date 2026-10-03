@@ -509,7 +509,7 @@ export type GitHubObservationFailureClassification =
  * cannot be reached is absence; bytes that were reached but violate the
  * provider contract are invalid Evidence and must remain fail-closed.
  */
-export function classifyGitHubObservationFailureV1(
+export function classifyGitHubObservationFailure(
   error: unknown
 ): GitHubObservationFailureClassification {
   if (error instanceof GitHubProviderResponseShapeError) {

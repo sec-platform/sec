@@ -2,7 +2,7 @@ import { closeSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
 import {
   linuxOpenLeafAt, linuxRaiseDescriptorFloor, linuxRetainUnixSocketPeer,
@@ -19,7 +19,7 @@ import { DockerCommandProviderUnavailableError } from '../contract/command-provi
 export interface LinuxDockerEndpoint {
   readonly endpointHost: string;
   readonly transportHost: string;
-  readonly identityDigest: SecOperationDigest;
+  readonly identityDigest: OperationDigest;
   assertCurrent(): void;
   close(): void;
 }
@@ -107,7 +107,7 @@ export function openLinuxDockerEndpoint(input: Readonly<{
     assertCurrent();
     const endpoint = Object.freeze({
       endpointHost: input.endpointHost, transportHost,
-      identityDigest: sha256({ domain: 'sec.docker.linux-retained-endpoint', endpointHost: input.endpointHost, identity }) as SecOperationDigest,
+      identityDigest: sha256({ domain: 'sec.docker.linux-retained-endpoint', endpointHost: input.endpointHost, identity }) as OperationDigest,
       assertCurrent, close
     });
     issued.add(endpoint);

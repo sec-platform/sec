@@ -8,7 +8,7 @@ import {
   settleRetiredCompilerDependencyGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from "../../src/execution/generated-state/dependency-lifecycle.ts";
 
 const physical = Object.freeze({ device: 'dev', inode: 'inode', objectId: 'object' });
@@ -140,7 +140,7 @@ test('hostile failure values do not replace a lifecycle domain failure', async (
 });
 
 test('an existing typed retirement blocker is preserved without wrapping', async () => {
-  const failure = new SecError('IMPORT-AUTHORITY-004', 'owned failure');
+  const failure = new CodedFailure('IMPORT-AUTHORITY-004', 'owned failure');
   await assert.rejects(bindAndRetireCompilerDependencyPreimage({ generatedStateLifecycle: {
     bind: async () => { throw failure; }, retired: async () => {}
   } }, physical, 'replace'), (error) => error === failure);

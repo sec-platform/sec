@@ -10,7 +10,7 @@ import { assertGitPhysicalProviderCurrentInternal, assertGitPhysicalProviderRece
 import { runObservedCommand } from '../../src/adapters/runtime-state/physical/runtime/observed-process.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import { settleResourcesAsync, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -20,7 +20,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 function parent(root: string) {
   const operation = issueGitReadAuthorityOperation({ cwd: root, budget: {} });
   const requirement = operation.plan.execution.requirements.find(value => value.effectKinds.includes('process'))!;
-  const session = openProcessResourceSession({ operation, requirementBindingContext: issueSecOperationRequirementBindingContext({
+  const session = openProcessResourceSession({ operation, requirementBindingContext: issueOperationRequirementBindingContext({
     operation, requirementId: requirement.id,
     resourceCeilings: operation.plan.execution.aggregateBudgets.filter(({ resource }) =>
       resource === 'duration-ms' || resource === 'processes' || resource === 'input-bytes' || resource === 'output-bytes')

@@ -1,7 +1,7 @@
 import { canonicalEquals, compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
 import type { ManifestEntry } from '../contract/plan-manifest.ts';
-import { CompilerError } from '../errors.ts';
 import { KIND_PRIORITY } from '../registry/kind-priority.ts';
 
 type Providers = Map<string, ManifestEntry[]>;
@@ -68,12 +68,12 @@ function orderManifests(entries: readonly ManifestEntry[], providers: Providers)
     for (const requirement of new Set(entry.manifest.requires)) {
       const candidates = providers.get(requirement);
       if (candidates === undefined || candidates.length === 0) {
-        throw new CompilerError('RESOLVE-MISSING-001', `Missing provider for capability "${requirement}"`);
+        throw new CodedFailure('RESOLVE-MISSING-001', `Missing provider for capability "${requirement}"`);
       }
       for (const provider of candidates) {
         const predecessor = rankById.get(provider.manifest.id);
         if (predecessor === undefined) {
-          throw new CompilerError('RESOLVE-INTERNAL-001', `Missing adjacency for "${provider.manifest.id}"`);
+          throw new CodedFailure('RESOLVE-INTERNAL-001', `Missing adjacency for "${provider.manifest.id}"`);
         }
         if (predecessor === rank || adjacency[predecessor]!.has(rank)) continue;
         adjacency[predecessor]!.add(rank);
@@ -92,7 +92,7 @@ function orderManifests(entries: readonly ManifestEntry[], providers: Providers)
     }
   }
   if (ordered.length !== ranked.length) {
-    throw new CompilerError('RESOLVE-CYCLE-003', 'Dependency cycle detected', {
+    throw new CodedFailure('RESOLVE-CYCLE-003', 'Dependency cycle detected', {
       // Unscheduled vertices may include descendants of a cycle; this is not
       // labelled a minimal cycle witness or a proof that every listed node cycles.
       blockedBlockIds: ranked.filter((_entry, rank) => indegree[rank]! > 0).map(entry => entry.manifest.id)
@@ -122,7 +122,7 @@ export function resolveManifestGraph(
     const selected = byId.get(entry.manifest.id);
     if (selected === undefined) select(entry);
     else if (!canonicalEquals(selected, entry)) {
-      throw new CompilerError('RESOLVE-CONFLICT-004', `Conflicting explicit selections for block "${entry.manifest.id}"`, {
+      throw new CodedFailure('RESOLVE-CONFLICT-004', `Conflicting explicit selections for block "${entry.manifest.id}"`, {
         selectedVersion: selected.manifest.version, requestedVersion: entry.manifest.version,
         selectedSource: selected.registrySourceId, requestedSource: entry.registrySourceId
       });
@@ -136,10 +136,10 @@ export function resolveManifestGraph(
       if (selectedProviders.has(requirement)) continue;
       const candidates = catalogProviders.get(requirement) ?? [];
       if (candidates.length === 0) {
-        throw new CompilerError('RESOLVE-MISSING-001', `Missing provider for capability "${requirement}"`);
+        throw new CodedFailure('RESOLVE-MISSING-001', `Missing provider for capability "${requirement}"`);
       }
       if (candidates.length > 1) {
-        throw new CompilerError('RESOLVE-CONFLICT-004',
+        throw new CodedFailure('RESOLVE-CONFLICT-004',
           `Ambiguous providers for capability "${requirement}": ${candidates.map(provider => provider.manifest.id).join(', ')}`);
       }
       const provider = candidates[0]!;
@@ -148,7 +148,7 @@ export function resolveManifestGraph(
         // The catalog can offer a newer version of an explicitly selected ID.
         // Its capability does not exist in the selected version; do not silently
         // skip it and manufacture a lock with an unsatisfied requirement.
-        throw new CompilerError('RESOLVE-CONFLICT-004',
+        throw new CodedFailure('RESOLVE-CONFLICT-004',
           `Selected block "${provider.manifest.id}" does not provide required capability "${requirement}"`, {
             requiredBy: entry.manifest.id, requirement, selectedVersion: alreadySelected.manifest.version,
             candidateVersion: provider.manifest.version
@@ -160,10 +160,10 @@ export function resolveManifestGraph(
   for (const entry of queue) {
     for (const conflict of entry.manifest.conflicts) {
       if (byId.has(conflict)) {
-        throw new CompilerError('RESOLVE-CONFLICT-002', `Block "${entry.manifest.id}" conflicts with "${conflict}"`);
+        throw new CodedFailure('RESOLVE-CONFLICT-002', `Block "${entry.manifest.id}" conflicts with "${conflict}"`);
       }
       if (selectedProviders.has(conflict)) {
-        throw new CompilerError('RESOLVE-CONFLICT-003', `Block "${entry.manifest.id}" conflicts with provided capability "${conflict}"`);
+        throw new CodedFailure('RESOLVE-CONFLICT-003', `Block "${entry.manifest.id}" conflicts with provided capability "${conflict}"`);
       }
     }
   }

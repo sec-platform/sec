@@ -3,11 +3,11 @@ import path from 'node:path';
 import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isDigest } from '../../../contracts/digest.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   PhysicalNoFollowError,
@@ -41,7 +41,7 @@ export type ContentAddressedWorkspaceCacheFailureKind =
   | 'foreign-residue'
   | 'physical-replacement';
 
-export class ContentAddressedWorkspaceCacheError extends SecError {
+export class ContentAddressedWorkspaceCacheError extends CodedFailure {
   readonly kind: ContentAddressedWorkspaceCacheFailureKind;
 
   constructor(kind: ContentAddressedWorkspaceCacheFailureKind, message: string, cause?: unknown) {
@@ -93,20 +93,20 @@ interface ContentAddressedWorkspaceCacheNamespace {
 }
 
 type ContentAddressedWorkspaceCacheSessionReceipt = Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   deadlineAtUnixMs: number;
   records: number;
   readBytes: number;
   writeBytes: number;
   writes: number;
   failedOperations: number;
-  receiptDigest: SecOperationDigest;
+  receiptDigest: OperationDigest;
 }>;
 
 export interface ContentAddressedWorkspaceCacheSession {
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
   readonly deadlineAtMonotonicMs: number;
   readonly signal: AbortSignal;
@@ -455,7 +455,7 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
 }
 
 function operationBudget(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'records',
   ceiling: number
 ): number {
@@ -473,12 +473,12 @@ function operationBudget(
  * pass paths or create independent deadlines and ledgers.
  */
 export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
   repository: PhysicalDirectoryIdentity;
   signal?: AbortSignal;
 }>): ContentAddressedWorkspaceCacheSession {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements
     .find(({ id }) => id === input.requirementId);
   if (requirement === undefined || !requirement.effectKinds.includes('filesystem')) {
@@ -611,7 +611,7 @@ export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
       });
       receipt = Object.freeze({
         ...unsigned,
-        receiptDigest: sha256(unsigned) as SecOperationDigest
+        receiptDigest: sha256(unsigned) as OperationDigest
       });
       controller.abort(new Error('Content-addressed cache session closed'));
       return receipt;

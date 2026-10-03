@@ -1,10 +1,10 @@
 import { isSecRepositoryTestModulePath, SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
+  RepositoryModuleGraph,
   SecModuleCausalRelation,
   SecModuleOperationObligation,
   SecModuleOperationRole,
-  SecRepositoryModuleGraph,
   SecRepositoryModuleMembership
 } from '../architecture/contract.ts';
 
@@ -97,7 +97,7 @@ export type SourceProgramCompilationMatchInput = Readonly<{
 export interface SourceProgramCompilation {
   readonly identityDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
-  readonly moduleGraph: SecRepositoryModuleGraph;
+  readonly moduleGraph: RepositoryModuleGraph;
   file(repositoryPath: string): SourceProgramFileInput | null;
   assertMatches(input: SourceProgramCompilationMatchInput): void;
 }

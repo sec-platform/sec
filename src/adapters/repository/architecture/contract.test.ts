@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { compilerRoot } from "../../workspace-context.ts";
-import { compileSecRepositoryModuleGraph } from '../source-program-model/typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
   assertSecRepositoryModuleArchitectureBoundaries,
   assertSecRepositoryModuleImportBoundaries,
@@ -441,7 +441,7 @@ test('repository architecture rejects omitted authority roles and same-owner iss
       }]
     }, 'src/authority/module.json');
     const files = ['src/authority/issuer.ts'];
-    const graph = compileSecRepositoryModuleGraph({
+    const graph = compileSourceProgramRepositoryModuleGraph({
       files: files,
       readSource: () => operations.map((name) => `export function ${name}(): void {}`).join('\n')
     });
@@ -565,7 +565,7 @@ test('repository module compiler prevents production from importing test authori
     ['tests/unit/example-provider.ts', 'export const provider = true;']
   ]);
 
-  expect(() => compileSecRepositoryModuleGraph({
+  expect(() => compileSourceProgramRepositoryModuleGraph({
     files,
     readSource: (file) => sources.get(file) ?? null
   })).toThrow('production repository module imports test-only module');
@@ -580,7 +580,7 @@ test('repository module compiler does not infer visibility from directory names'
     ['src/consumer/index.ts', "export { effect } from '../provider/runtime/effect.ts';"],
     ['src/provider/runtime/effect.ts', 'export const effect = true;']
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => sources.get(file) ?? null
   });
@@ -609,7 +609,7 @@ test('edit-loop topology and full semantic architecture share one exact owner gr
     moduleRoots: ['src/alpha', 'src/beta'],
     moduleForPath: (file: string) => file.startsWith('src/alpha/') ? alpha : beta
   };
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => sources.get(file) ?? null
   });
@@ -657,7 +657,7 @@ test('repository topology projects same-owner file cycles from the canonical gra
     moduleForPath: () => descriptor
   };
   const compile = (orderedFiles: readonly string[]) => compileSecRepositoryModuleTopologyProjection(
-    compileSecRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null }),
+    compileSourceProgramRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null }),
     membership
   );
   const topology = compile(files);
@@ -706,7 +706,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
     moduleForPath: (file: string) => file.startsWith('src/consumer/') ? consumer : provider
   };
 
-  const publicGraph = compileSecRepositoryModuleGraph({
+  const publicGraph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => file === 'src/consumer/use.ts'
       ? "export type { Contract } from '../provider/contract.ts';"
@@ -716,7 +716,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
   });
   expect(() => assertSecRepositoryModuleImportBoundaries(publicGraph, membership)).not.toThrow();
 
-  const aggregateGraph = compileSecRepositoryModuleGraph({
+  const aggregateGraph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => file === 'src/consumer/use.ts'
       ? "export type { Contract } from '../provider/public.ts';"
@@ -755,7 +755,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
   ))
     .toThrow('[cross-package-aggregate-surface]');
 
-  const implementationGraph = compileSecRepositoryModuleGraph({
+  const implementationGraph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => file === 'src/consumer/use.ts'
       ? "export { effect } from '../provider/runtime/effect.ts';"
@@ -778,7 +778,7 @@ test('pre-dependency entrypoints cannot import an unavailable package', () => {
     externalEntrypoints: ['src/bootstrap/cli.ts'],
     preDependencyBootstrap: true
   }, 'src/bootstrap/module.json');
-  const graph = compileSecRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "import 'unmaterialized-package';" });
+  const graph = compileSourceProgramRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "import 'unmaterialized-package';" });
   expect(() => assertSecRepositoryModuleImportBoundaries(graph, {
     descriptors: [descriptor],
     graphRoots: ['src/bootstrap'],
@@ -786,7 +786,7 @@ test('pre-dependency entrypoints cannot import an unavailable package', () => {
     moduleForPath: () => descriptor
   })).toThrow('[pre-dependency-bootstrap-unavailable-package]');
 
-  const postBootstrapGraph = compileSecRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "void import('materialized-after-bootstrap');" });
+  const postBootstrapGraph = compileSourceProgramRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "void import('materialized-after-bootstrap');" });
   expect(() => assertSecRepositoryModuleImportBoundaries(postBootstrapGraph, {
     descriptors: [descriptor],
     graphRoots: ['src/bootstrap'],
@@ -797,7 +797,7 @@ test('pre-dependency entrypoints cannot import an unavailable package', () => {
 
 test('repository module admission rejects retired src/apps and src/modules roots', () => {
   for (const retiredRoot of ['src/apps', 'src/modules']) {
-    expect(() => compileSecRepositoryModuleGraph({ files: [`${retiredRoot}/legacy.ts`], readSource: () => 'export {};' })).toThrow('retired repository root');
+    expect(() => compileSourceProgramRepositoryModuleGraph({ files: [`${retiredRoot}/legacy.ts`], readSource: () => 'export {};' })).toThrow('retired repository root');
 
     expect(() => parseSecModuleDescriptor({
       importGraph: 'runtime',
@@ -809,7 +809,7 @@ test('repository module admission rejects retired src/apps and src/modules roots
 test('repository module boundary compiler does not turn internal path spelling into policy', () => {
   const consumer = repositoryModuleTestDescriptor('src/consumer');
   const provider = repositoryModuleTestDescriptor('src/provider');
-  const graph = compileSecRepositoryModuleGraph({ files: [
+  const graph = compileSourceProgramRepositoryModuleGraph({ files: [
     'src/consumer/index.ts',
     'src/provider/index.ts',
     'src/provider/internal/private.ts',
@@ -842,7 +842,7 @@ test('repository module dependency cycles exclude test observation edges', () =>
       ? first
       : file.startsWith('src/second/') ? second : tests
   };
-  const observationGraph = compileSecRepositoryModuleGraph({ files: [
+  const observationGraph = compileSourceProgramRepositoryModuleGraph({ files: [
     'src/first/index.ts',
     'src/second/index.ts',
     'src/second/reverse.spec.ts',
@@ -857,7 +857,7 @@ test('repository module dependency cycles exclude test observation edges', () =>
   expect(collectSecRepositoryModuleBoundaryViolations(observationGraph, membership)
     .some(({ code }) => code === 'module-dependency-cycle')).toBe(false);
 
-  const productionCycleGraph = compileSecRepositoryModuleGraph({ files: ['src/first/index.ts', 'src/second/index.ts'], readSource: (file) => file === 'src/first/index.ts'
+  const productionCycleGraph = compileSourceProgramRepositoryModuleGraph({ files: ['src/first/index.ts', 'src/second/index.ts'], readSource: (file) => file === 'src/first/index.ts'
     ? "import '../second/index.ts';"
     : "import '../first/index.ts';" });
   expect(collectSecRepositoryModuleBoundaryViolations(productionCycleGraph, membership)
@@ -890,7 +890,7 @@ test('repository architecture projects stable SCC witnesses, reciprocal pairs, a
     entrypointClosures: []
   };
   const compile = (orderedFiles: readonly string[]) => {
-    const graph = compileSecRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null });
+    const graph = compileSourceProgramRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null });
     return compileSecRepositoryModuleArchitectureProjection(graph, membership, facts);
   };
   const projection = compile(files);
@@ -1019,7 +1019,7 @@ test('repository architecture derives one node responsibility and rejects revers
     capabilities: []
   };
   const compile = (sourceForContract: string) => compileSecRepositoryModuleArchitectureProjection(
-    compileSecRepositoryModuleGraph({
+    compileSourceProgramRepositoryModuleGraph({
       files: files,
       readSource: (file) => file === 'src/contracts/types.ts'
         ? sourceForContract : sources.get(file) ?? null
@@ -1053,7 +1053,7 @@ test('package role claims cannot change node responsibility authority', () => {
     externalEntrypoints: [],
     capabilityProviders: [{ capability: 'example-provider', operations: ['run'] }]
   }, 'src/example/module.json');
-  const graph = compileSecRepositoryModuleGraph({ files: ['src/example/value.ts'], readSource: () => 'export const value = 1;' });
+  const graph = compileSourceProgramRepositoryModuleGraph({ files: ['src/example/value.ts'], readSource: () => 'export const value = 1;' });
   const facts = {
     files: [{
       path: 'src/example/value.ts',
@@ -1154,10 +1154,9 @@ test('pre-dependency evaluation excludes erased type imports without exempting r
   };
   for (const source of [
     "import type { Shape } from 'unmaterialized-package'; export type View = Shape;",
-    "import { type Shape } from 'unmaterialized-package'; export type View = Shape;",
     "import type { Shape } from './lazy.ts'; export type View = Shape;"
   ]) {
-    const graph = compileSecRepositoryModuleGraph({
+    const graph = compileSourceProgramRepositoryModuleGraph({
       files: ['src/bootstrap/cli.ts', 'src/bootstrap/lazy.ts'],
       readSource: file => file.endsWith('/cli.ts') ? source
         : "import 'unmaterialized-package'; export interface Shape { readonly id: string; }"
@@ -1166,10 +1165,11 @@ test('pre-dependency evaluation excludes erased type imports without exempting r
       .filter(({ code }) => code === 'pre-dependency-bootstrap-unavailable-package')).toEqual([]);
   }
   for (const source of [
+    "import { type Shape } from 'unmaterialized-package'; export type View = Shape;",
     "import { value, type Shape } from 'unmaterialized-package'; console.log(value);",
     "import { value } from './lazy.ts'; console.log(value);"
   ]) {
-    const graph = compileSecRepositoryModuleGraph({
+    const graph = compileSourceProgramRepositoryModuleGraph({
       files: ['src/bootstrap/cli.ts', 'src/bootstrap/lazy.ts'],
       readSource: file => file.endsWith('/cli.ts') ? source
         : "import 'unmaterialized-package'; export const value = 1;"

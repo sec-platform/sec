@@ -43,6 +43,7 @@ import {
 } from './embedded-programs.ts';
 import { indexOwnerIntentInputs } from './owner-intent-index.ts';
 import { indexResponsibilityEvidenceInputs } from './responsibility-evidence-index.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import {
   compileSourceProgramTestObservations,
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
@@ -50,7 +51,6 @@ import {
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import {
-  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,
@@ -1078,10 +1078,10 @@ function compileRepositorySourceProgramModelInternal(
     || compareCodeUnits(left.detail, right.detail)
   );
   const sourceByPath = new Map(input.files.map((file) => [file.path, file.source] as const));
-  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSourceProgramRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null,
-    readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
+    readEmbeddedLanguageImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
   });
   const entrypointByAddress = new Map(entrypoints.map((entrypoint) => [
     entrypointAddress(entrypoint.kind, entrypoint.path, entrypoint.name),

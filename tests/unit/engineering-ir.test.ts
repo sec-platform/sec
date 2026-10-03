@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import type { BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildEngineeringIR } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { indexEngineeringIR } from '../../src/compiler/ir/index-engineering-ir.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 function fixture(): BuildEngineeringIRInput {
   return {
@@ -64,15 +64,15 @@ function fixture(): BuildEngineeringIRInput {
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCodedFailure(run: () => unknown, code: string): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test('buildEngineeringIR creates stable semantic entities, facts, and revision domains', () => {
@@ -152,7 +152,7 @@ test('buildEngineeringIR preserves distinct assertions for the same semantic tri
 
 test('buildEngineeringIR rejects a manifest for an unresolved block', () => {
   const input = fixture();
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR({
       ...input,
       manifests: [...input.manifests, {
@@ -166,7 +166,7 @@ test('buildEngineeringIR rejects a manifest for an unresolved block', () => {
 
 test('buildEngineeringIR rejects a missing app id without falling back to app name', () => {
   const input = fixture();
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR({
       ...input,
       app: { id: '', name: 'ticket-app' }

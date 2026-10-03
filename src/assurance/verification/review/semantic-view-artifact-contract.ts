@@ -1,11 +1,11 @@
 import type { LockFile } from '../../../compiler/contract.ts';
 import { requireSemanticViewSetSchema } from "../../../compiler/contract/lock-schema.ts";
-import { CompilerError } from '../../../compiler/errors.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import type { ExplainGraph } from '../../../semantics/projection/explain.ts';
 import type { SemanticViewSet } from '../../../semantics/projection/types.ts';
 
 function invalidSemanticViews(message: string, details: Record<string, unknown> = {}): never {
-  throw new CompilerError('EXPLAIN-BLOCKED-005', message, details);
+  throw new CodedFailure('EXPLAIN-BLOCKED-005', message, details);
 }
 
 function requireCanonicalSemanticViewSet(
@@ -57,14 +57,14 @@ export function semanticViewArtifactsAreCurrent(lock: LockFile, graph: ExplainGr
     return graphViews.inputRevision === lockViews.inputRevision &&
       graphViews.semanticRevision === lockViews.semanticRevision;
   } catch (error) {
-    if (error instanceof CompilerError && error.code === 'EXPLAIN-BLOCKED-005') return false;
+    if (error instanceof CodedFailure && error.code === 'EXPLAIN-BLOCKED-005') return false;
     throw error;
   }
 }
 
 export function assertSemanticViewArtifactsAreCurrent(lock: LockFile, graph: ExplainGraph): void {
   if (semanticViewArtifactsAreCurrent(lock, graph)) return;
-  throw new CompilerError(
+  throw new CodedFailure(
     'EXPLAIN-BLOCKED-006',
     'ExplainGraph semantic projection does not match the current graph lock revision',
     {

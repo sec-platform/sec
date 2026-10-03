@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import {
   assembleTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramFactShard,
@@ -13,7 +14,6 @@ import {
   TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
 } from './typescript-profile.ts';
 import {
-  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   releaseTypeScriptSourceProgramWorkspace,
   sourceProgramTypeScriptCompilerIdentity
@@ -50,7 +50,7 @@ for (const [name, source, hasDependency, unresolved] of cases) {
         { path: 'src/b.ts', source: 'export const value = 1;', contentDigest: rawSha256('export const value = 1;') }
       ];
       const model = compileTypeScriptSourceProgramModel({ sourceRevision: rawSha256(source), files, moduleMembership });
-      const graph = compileSecRepositoryModuleGraph({ files: files.map(({ path }) => path),
+      const graph = compileSourceProgramRepositoryModuleGraph({ files: files.map(({ path }) => path),
         readSource: (path) => files.find((file) => file.path === path)?.source ?? null });
       const references = model.references.filter((reference) => reference.kind === 'import'
         && reference.targetPath === 'src/b.ts');

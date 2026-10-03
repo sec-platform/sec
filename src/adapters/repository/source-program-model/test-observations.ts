@@ -5,7 +5,7 @@ import ts from 'typescript';
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import {
-  type SecRepositoryModuleGraph,
+  type RepositoryModuleGraph,
   type SecRepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
@@ -27,10 +27,10 @@ import {
   type SourceProgramSpan,
   type SourceProgramUnknown
 } from './contract.ts';
-import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
+import { resolveRepositoryModuleImportCandidates } from './module-graph.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { typeScriptSemanticDependencyScopeFromSourceFile } from './typescript-syntax.ts';
 import {
-  compileSecRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
   sourceProgramTypeScriptCompilerIdentity,
   sourceProgramTypeScriptIdentifierInitializer,
@@ -246,7 +246,7 @@ function graphTarget(
 }
 
 function graphTargetIndex(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   operation: SourceProgramCompilationOperation
 ): ReadonlyMap<string, string | null> {
   const targets = new Map<string, string | null>();
@@ -1093,7 +1093,7 @@ export function observeSourceProgramTestContractCensus(
   const relativeSpecifier = (value: string): boolean =>
     value.startsWith('./') || value.startsWith('../');
   const liveRelativeConsumer = (specifier: string): boolean => (
-    resolveSecRepositoryModuleImportCandidates(repositoryPath, specifier)
+    resolveRepositoryModuleImportCandidates(repositoryPath, specifier)
       .some((candidate) => candidatePaths.has(candidate))
   );
   const importedNames = (statement: ts.ImportDeclaration): readonly string[] => {
@@ -1315,7 +1315,7 @@ function compileTestDefinitionInputs(input: Readonly<{
   files: readonly SourceProgramFileInput[];
   model: SourceProgramModel;
   moduleMembership: SecRepositoryModuleMembership;
-  graph: SecRepositoryModuleGraph;
+  graph: RepositoryModuleGraph;
   testPaths: readonly string[];
   resourceReads: readonly SourceProgramTestSourceReadObservation[];
   definitionReads: readonly SourceProgramTestDefinitionRead[];
@@ -1607,7 +1607,7 @@ function compileSourceProgramTestObservationsInternal(
   }
   const productionFiles = new Map([...compiledFiles].filter(([, file]) => file.surface === 'production'));
   const sourceByPath = new Map(files.map((file) => [file.path, file.source] as const));
-  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileSourceProgramRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });

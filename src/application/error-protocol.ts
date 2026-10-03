@@ -1,5 +1,5 @@
 import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
-import { getErrorCode } from '../compiler/errors.ts';
+import { getErrorCode } from '../contracts/failure-inspection.ts';
 import { posixPath } from '../contracts/relative-path.ts';
 import { overridesRelativePath, workspaceConfigRelativePath } from '../workspace/paths.ts';
 

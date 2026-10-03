@@ -22,15 +22,15 @@ import {
   type CompilerPackageEntrypointBinding
 } from '../../adapters/toolchain/runtime.ts';
 import { digest, sha256 } from '../../contracts/canonical.ts';
-import { SecError } from '../../contracts/failure.ts';
-import { issueSecOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
+import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../execution/resource-settlement.ts';
 import {
@@ -61,7 +61,7 @@ export function assertReleaseBunRuntimeRequirement(
   observedVersion: string | null = process.versions.bun ?? null
 ): void {
   if (observedVersion !== requirement.version) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-LAYOUT-001',
       observedVersion === null
         ? 'SEC release artifact requires the canonical Bun host runtime'
@@ -127,8 +127,8 @@ function compileReleaseBuilderOperation(input: Readonly<{
   deadlineAtUnixMs: number;
   environment: Readonly<Record<string, string>>;
   maximumStdoutBytes: number;
-  providerIdentityDigest: SecOperationDigest;
-}>): SecBoundSemanticOperation {
+  providerIdentityDigest: OperationDigest;
+}>): BoundSemanticOperation {
   const remainingDurationMs = input.deadlineAtUnixMs - Date.now();
   if (!Number.isSafeInteger(input.deadlineAtUnixMs)
       || !Number.isSafeInteger(remainingDurationMs)
@@ -147,8 +147,8 @@ function compileReleaseBuilderOperation(input: Readonly<{
     maximumDurationMs: RELEASE_BUILDER_MAX_DURATION_MS,
     maximumStdoutBytes: input.maximumStdoutBytes,
     maximumStderrBytes: RELEASE_BUILDER_MAX_STDERR_BYTES
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: RELEASE_BUILDER_OPERATION,
     intentDigest: sha256({
       args: input.args,
@@ -156,10 +156,10 @@ function compileReleaseBuilderOperation(input: Readonly<{
       cwd: input.cwd,
       environment: input.environment,
       providerIdentityDigest: input.providerIdentityDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -187,7 +187,7 @@ function compileReleaseBuilderOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: RELEASE_BUILDER_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -196,7 +196,7 @@ function compileReleaseBuilderOperation(input: Readonly<{
 
 function assertReleaseBuilderReceipt(
   receipt: ProcessResourceSessionReceipt,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   completed: boolean
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
@@ -232,7 +232,7 @@ async function runReleaseBuilderCommand(
   let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
   let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let session: ProcessResourceSession | undefined;
-  let operation: SecBoundSemanticOperation | undefined;
+  let operation: BoundSemanticOperation | undefined;
   let completed = false;
   let executionFailure: { readonly error: unknown } | undefined;
   let result: Awaited<ReturnType<ProcessResourceSession['run']>> | undefined;
@@ -260,7 +260,7 @@ async function runReleaseBuilderCommand(
         size: executable.size
       },
       workingDirectory: workingDirectoryChain.target
-    }) as SecOperationDigest;
+    }) as OperationDigest;
     const environment = exactReleaseBuilderEnvironment();
     operation = compileReleaseBuilderOperation({
       args,
@@ -273,7 +273,7 @@ async function runReleaseBuilderCommand(
     });
     session = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: RELEASE_BUILDER_REQUIREMENT,
         resourceCeilings: operation.plan.execution.aggregateBudgets

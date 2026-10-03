@@ -39,7 +39,7 @@ import {
   ensureCompilerDepsReady,
   observeCompilerDependencyExecutionGenerationAuthority
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { createGeneratedStateCleanupOperationSession } from '../../src/execution/generated-state/cleanup-budget.ts';
 import { generatedStateDigest } from "../../src/execution/generated-state/contract.ts";
 import type { GeneratedStateProducerHookSet, GeneratedStateProducerQuarantineHook, GeneratedStateWorktreeRetirementEffectAuthority } from "../../src/execution/generated-state/lifecycle-port.ts";
@@ -1558,7 +1558,7 @@ describe('compiler dependency installation', () => {
           sourceGeneration, bindingDigest: sourceGeneration.bindingDigest, options
         });
         abandoned = await markDependencyTransitionFailure(abandoned,
-          new SecError('RUNTIME-DEPS-004', 'Project transition journal targets a foreign canonical path'), options);
+          new CodedFailure('RUNTIME-DEPS-004', 'Project transition journal targets a foreign canonical path'), options);
         await expect(settleAbandonedLegacyProjection(abandoned, ownerRoot, canonicalTarget, options))
           .rejects.toThrow('physical residue');
         expect((await fs.lstat(stage)).isDirectory()).toBe(true);
@@ -1583,7 +1583,7 @@ describe('compiler dependency installation', () => {
           phase: 'published'
         }, options);
         published = await markDependencyTransitionFailure(published,
-          new SecError('RUNTIME-DEPS-004', 'Project transition journal targets a foreign canonical path'), options);
+          new CodedFailure('RUNTIME-DEPS-004', 'Project transition journal targets a foreign canonical path'), options);
         abandoned = published;
       }, 'engineering-project-published-fixture-');
       await expect(settleAbandonedLegacyProjection(abandoned!, ownerRoot, canonicalTarget, options))
@@ -1656,7 +1656,7 @@ describe('compiler dependency installation', () => {
           phase: 'published'
         }, options);
         transition = await markDependencyTransitionFailure(transition,
-          new SecError('IMPORT-AUTHORITY-004', 'Compiler transition journal targets a foreign canonical path'),
+          new CodedFailure('IMPORT-AUTHORITY-004', 'Compiler transition journal targets a foreign canonical path'),
           options);
         await expect(ensureCompilerDepsReady(operation, root)).rejects.toMatchObject({
           code: 'IMPORT-AUTHORITY-004',

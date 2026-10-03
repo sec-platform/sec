@@ -1,5 +1,5 @@
 import type { LockFile } from '../compiler/contract.ts';
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { RepairPlan } from '../semantics/repair/types.ts';
 
 export interface RepairPlanPublicationOperations {
@@ -18,7 +18,7 @@ export async function publishRepairPlanResult(
   if (typeof publish !== 'function' || typeof recordFailure !== 'function') {
     throw new TypeError('Repair plan publishers must be callable');
   }
-  const blocked = repairPlan.status === 'blocked' ? new CompilerError(
+  const blocked = repairPlan.status === 'blocked' ? new CodedFailure(
     'REPAIR-BLOCKED-001',
     repairPlan.blockers?.[0]?.reason ?? 'Repair is blocked for current verification failure',
     { blockers: repairPlan.blockers ?? [] }

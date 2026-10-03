@@ -9,8 +9,8 @@ import type { GeneratedStateProducerHookSet } from '../../../../execution/genera
 import { assertGeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/lifecycle-evidence.ts';
 import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, type RetainedNoFollowChildProcessDirectory } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
-import { CompilerError } from '../../../../compiler/errors.ts';
 import { canonicalEquals, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import { relativePosixPath } from '../../../../contracts/relative-path.ts';
 import { ensureDir } from "../../../filesystem/files.ts";
 import { compilerRoot } from "../../../workspace-context.ts";
@@ -456,7 +456,7 @@ function selectStagedEntries(
 ): readonly StagedIndexEntry[] {
   const unresolved = entries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
   if (unresolved) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'IMPORT-PARTIAL-STAGE-CONFLICT',
       `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
       { path: unresolved.path }
@@ -465,7 +465,7 @@ function selectStagedEntries(
   const selected = targetPaths.map((targetPath) => {
     const matches = entries.filter((entry) => entry.path === targetPath);
     if (matches.length !== 1 || matches[0]!.stage !== 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-ENTRY-UNAVAILABLE',
         `TypeScript staged entry is unavailable or ambiguous: ${targetPath}`,
         { path: targetPath }
@@ -473,7 +473,7 @@ function selectStagedEntries(
     }
     const entry = matches[0]!;
     if (entry.mode !== '100644' && entry.mode !== '100755') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-NOT-ORDINARY',
         `TypeScript staged entry is not an ordinary file: ${targetPath}`,
         { path: targetPath, mode: entry.mode }
@@ -908,7 +908,7 @@ async function computeStagedImportUpdates(
   if (targetPaths.length === 0) {
     const unresolved = indexEntries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
     if (unresolved) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-PARTIAL-STAGE-CONFLICT',
         `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
         { path: unresolved.path }
@@ -1079,7 +1079,7 @@ async function assertSynchronizedWorktreePreimages(
         throw new Error('worktree preimage changed during retained read');
       }
     } catch (error) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-WORKTREE-DIVERGED',
         `Cannot synchronize staged imports because the worktree preimage is unavailable or changed: ${update.entry.path}`,
         { path: update.entry.path, cause: String(error) }
@@ -1148,7 +1148,7 @@ export async function runSynchronizedStagedImportOrganizer(
     );
     forwardJournalPath = forward.journalPath;
     if (forward.status !== 'accepted') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
         `Synchronized staged import worktree publication did not reach accepted: ${forward.status}`,
         { journalPath: forward.journalPath, reasonCode: forward.reasonCode }
@@ -1159,7 +1159,7 @@ export async function runSynchronizedStagedImportOrganizer(
       await indexPublication.commit();
     } catch (error) {
       if (indexPublication.isPublished()) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
           'Synchronized staged import index publication crossed its atomic rename but exact readback failed.',
           { forwardJournalPath, cause: String(error) }
@@ -1170,7 +1170,7 @@ export async function runSynchronizedStagedImportOrganizer(
         synchronizedWorktreeWrites(computed.updates, 'rollback')
       );
       if (rollback.status !== 'accepted') {
-        throw new CompilerError(
+        throw new CodedFailure(
           'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
           'Synchronized staged import publication and rollback require owner recovery.',
           {
@@ -1182,7 +1182,7 @@ export async function runSynchronizedStagedImportOrganizer(
           }
         );
       }
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-SYNC-ROLLED-BACK',
         'Synchronized staged import publication failed before index commit and was rolled back exactly.',
         { forwardJournalPath, rollbackJournalPath: rollback.journalPath, cause: String(error) }
@@ -1191,7 +1191,7 @@ export async function runSynchronizedStagedImportOrganizer(
     for (const update of computed.updates) {
       const worktreeBytes = await fs.readFile(absoluteRepositoryPath(projectRoot, update.entry.path));
       if (!worktreeBytes.equals(update.normalizedBytes)) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
           `Synchronized staged import worktree readback drifted: ${update.entry.path}`,
           { path: update.entry.path, forwardJournalPath }

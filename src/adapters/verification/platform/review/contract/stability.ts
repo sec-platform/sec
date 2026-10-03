@@ -277,7 +277,7 @@ export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt):
     + `revision=${current.reviewRevision} threads=${current.snapshot.threadCount} unresolved=0`;
 }
 
-export function assertMergeTrailerLinesV1(
+export function assertMergeTrailerLines(
   lines: readonly string[],
   receipt: ReviewStabilityReceipt
 ): void {

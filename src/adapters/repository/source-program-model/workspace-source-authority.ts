@@ -20,11 +20,11 @@ import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
+import type { RepositoryModuleGraph } from '../architecture/contract.ts';
 import { compileSecRepositoryModuleMembershipSnapshot, normalizeSecRepositoryPath, type SecRepositoryModuleMembership } from '../architecture/contract.ts';
 import { isSourceProgramInputPath, type SourceProgramCompilation, type SourceProgramCompilationMatchInput, type SourceProgramFileInput } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { canonicalFiles, sourceGeneration, type WorkspaceSourceFile, type WorkspaceSourceFileMode } from './workspace-source-content.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -248,7 +248,7 @@ function membershipDigest(
   }) as `sha256:${string}`;
 }
 
-function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
+function graphDigest(graph: RepositoryModuleGraph): `sha256:${string}` {
   return sha256({
     files: graph.files,
     references: graph.references,
@@ -281,17 +281,17 @@ function issueWorkspaceSourceSnapshot(
   const sourceByPath = new Map(files.map((file) => [file.path, file] as const));
   const subjectDigest = sha256(subject) as `sha256:${string}`;
   let semanticProjection: Readonly<{
-    moduleGraph: SecRepositoryModuleGraph;
+    moduleGraph: RepositoryModuleGraph;
     moduleGraphDigest: `sha256:${string}`;
     snapshotDigest: `sha256:${string}`;
     identityDigest: `sha256:${string}`;
   }> | null = null;
   const requireSemanticProjection = () => {
     if (semanticProjection !== null) return semanticProjection;
-    const moduleGraph = compileSecRepositoryModuleGraph({
+    const moduleGraph = compileSourceProgramRepositoryModuleGraph({
       files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
       readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
-      readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
+      readEmbeddedLanguageImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
     });
     const moduleGraphDigest = graphDigest(moduleGraph);
     const snapshotDigest = sha256({

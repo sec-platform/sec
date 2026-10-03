@@ -5,8 +5,8 @@ import {
   finalizeProvenanceArtifacts
 } from '../../assurance/verification/provenance/build-provenance.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import { type CommitFence } from '../../contracts/commit-fence.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { isPathInside, isSafeRelativePath, posixPath, resolvePathInside } from '../../contracts/relative-path.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
@@ -58,7 +58,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
     const artifactPath = artifact.path;
     const normalizedPath = posixPath(artifactPath);
     if (normalizedPath !== artifactPath || !isSafeRelativePath(artifactPath)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PROVENANCE-PATH-001',
         `Provenance artifact path "${artifactPath}" is not canonical`
       );
@@ -71,7 +71,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
         ? resolvePathInside(workspaceRoot, artifactPath)
         : null;
     if (!absolutePath || !isPathInside(workspaceRoot, absolutePath)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PROVENANCE-PATH-001',
         `Provenance artifact path "${artifactPath}" is outside the native workspace layout`
       );

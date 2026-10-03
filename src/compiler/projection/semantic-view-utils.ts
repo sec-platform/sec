@@ -1,9 +1,9 @@
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
 import type { SemanticAuthority, SemanticFact, SemanticPredicate, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
 import { INSPECTOR_SECTION_IDS, type AuthorityOverlayStatus, type InspectorItem, type InspectorSection, type ViewBadge, type ViewEdge, type ViewNode, type ViewOverlay, type ViewReference } from '../../semantics/projection/types.ts';
-import { CompilerError } from '../errors.ts';
 import { indexValidatedEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
 
 export { uniqueSorted };
@@ -24,7 +24,7 @@ export function summarizeFactAssertions(fact: SemanticFact): FactAssertionSummar
   const authorities = [...new Set(fact.assertions.map((assertion) => assertion.authority))]
     .sort(compareCodeUnits);
   if (authorities.length === 0) {
-    throw new CompilerError('IR-AUTHORITY-004', `Semantic fact "${fact.id}" must include at least one assertion`);
+    throw new CodedFailure('IR-AUTHORITY-004', `Semantic fact "${fact.id}" must include at least one assertion`);
   }
 
   const hasConflict = false;
@@ -97,7 +97,7 @@ export function buildViewNode(
   } = {}
 ): ViewNode {
   const entity = index.entityById.get(entityId);
-  if (!entity) throw new CompilerError('VIEW-PROJECTION-001', `Unknown semantic entity "${entityId}"`);
+  if (!entity) throw new CodedFailure('VIEW-PROJECTION-001', `Unknown semantic entity "${entityId}"`);
   const role = entityAttribute(index, entityId, 'role');
   const facts = options.facts ?? [];
   const badges = [...(options.badges ?? [])];
@@ -143,7 +143,7 @@ export function buildSemanticInspector(
 ): InspectorSection[] {
   const index = indexValidatedEngineeringIR(snapshot);
   const entity = index.entityById.get(subjectId);
-  if (!entity) throw new CompilerError('VIEW-INSPECTOR-001', `Unknown inspector subject "${subjectId}"`);
+  if (!entity) throw new CodedFailure('VIEW-INSPECTOR-001', `Unknown inspector subject "${subjectId}"`);
   const outgoing = index.outgoingFactsBySubject.get(subjectId) ?? [];
   const incoming = index.incomingFactsByEntityObject.get(subjectId) ?? [];
   const allFacts = [...outgoing, ...incoming].sort((left, right) => compareCodeUnits(left.id, right.id));

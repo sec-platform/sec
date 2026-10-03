@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import { sha256 } from '../contracts/canonical.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { isCanonicalPortableLogicalPath } from '../contracts/logical-path.ts';
 import { workspaceConfigRelativePath } from '../workspace/paths.ts';
 
@@ -23,7 +23,7 @@ export interface WorkspaceCreateIntent {
 }
 
 function invalid(reason: string): never {
-  throw new CompilerError('WORKSPACE-INIT-003', 'Workspace creation requires lifecycle recovery; existing objects were preserved', { reason });
+  throw new CodedFailure('WORKSPACE-INIT-003', 'Workspace creation requires lifecycle recovery; existing objects were preserved', { reason });
 }
 
 /** Pure contract owner: each consumer receives its own byte snapshot. No

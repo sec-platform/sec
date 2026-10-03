@@ -1,5 +1,5 @@
-import type { SecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import type { SecBoundSemanticOperation, SecCapabilityBinding } from '../../../../execution/operation/semantic.ts';
+import type { OperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import type { BoundSemanticOperation, CapabilityBinding } from '../../../../execution/operation/semantic.ts';
 import {
   armPreparedWindowsRepositoryChangeObserver,
   armWindowsRepositoryChangeObserver,
@@ -21,7 +21,7 @@ const observerBrand: unique symbol = Symbol('repository-change-observer');
 
 export interface PreparedRepositoryChangeObserver {
   readonly [preparedBrand]: never;
-  readonly providerBinding: SecCapabilityBinding;
+  readonly providerBinding: CapabilityBinding;
   readonly rootIdentityDigest: `sha256:${string}`;
 }
 
@@ -86,7 +86,7 @@ export function prepareRepositoryChangeObserver(input: Readonly<{
 /** Caller fields cannot select or reconstruct the physical provider binding. */
 export function repositoryChangeObserverBinding(
   prepared: PreparedRepositoryChangeObserver
-): SecCapabilityBinding {
+): CapabilityBinding {
   const state = preparedProviders.get(prepared);
   if (state === undefined || state.disposed) {
     throw new Error('Repository observation requires a live owner-issued prepared capability.');
@@ -106,8 +106,8 @@ export async function armRepositoryChangeObserver(input: Readonly<{
 
 export async function armPreparedRepositoryChangeObserver(input: Readonly<{
   prepared: PreparedRepositoryChangeObserver;
-  operation: SecBoundSemanticOperation;
-  requirementBindingContext: SecOperationRequirementBindingContext;
+  operation: BoundSemanticOperation;
+  requirementBindingContext: OperationRequirementBindingContext;
 }>): Promise<RepositoryChangeObserverResolution> {
   const state = preparedProviders.get(input.prepared);
   if (state === undefined || state.disposed) return unavailable('invalid-input');

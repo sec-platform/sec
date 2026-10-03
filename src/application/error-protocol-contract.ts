@@ -1,5 +1,5 @@
-import type { CompilerErrorDetails } from '../compiler/errors.ts';
 import { uniqueSorted } from '../contracts/canonical.ts';
+import type { CodedFailureDetails } from '../contracts/failure.ts';
 import { srcRelativePath } from '../workspace/paths.ts';
 import { buildErrorProtocol, type ErrorProtocol } from './error-protocol.ts';
 
@@ -10,7 +10,7 @@ type ErrorProtocolExample = {
   input: {
     code?: string;
     message: string;
-    details?: CompilerErrorDetails;
+    details?: CodedFailureDetails;
   };
   output: ErrorProtocol;
 };

@@ -3,8 +3,8 @@ import { closeSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
@@ -177,16 +177,16 @@ type WindowsLegacySealedDirectoryRelocationProof = Readonly<{
 const windowsLegacyRelocationCapabilities = new WeakMap<
   object,
   Readonly<{
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     proof: WindowsLegacySealedDirectoryRelocationProof;
   }>
 >();
 
 function assertWindowsLegacyRelocationOperation(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   expectedIdentityDigest?: `sha256:${string}`
 ): void {
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
   if (operation.plan.attempt.deadlineAtUnixMs <= Date.now() ||
       (expectedIdentityDigest !== undefined &&
         operation.plan.identity.identityDigest !== expectedIdentityDigest)) {
@@ -340,7 +340,7 @@ export function prepareWindowsLegacySealedDirectoryRelocation(input: Readonly<{
   directory: PhysicalDirectoryIdentity;
   destinationParent: PhysicalDirectoryIdentity;
   destinationName: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
 }>): WindowsLegacySealedDirectoryRelocationCapability {
   if (process.platform !== 'win32') {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation is unavailable on this platform.');
@@ -416,7 +416,7 @@ export function prepareWindowsLegacySealedDirectoryRelocation(input: Readonly<{
 }
 
 export function openWindowsLegacySealedDirectoryRelocation(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   recoveryProofText: string;
 }>): WindowsLegacySealedDirectoryRelocationCapability {
   assertWindowsLegacyRelocationOperation(input.operation);

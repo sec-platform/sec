@@ -121,7 +121,7 @@ function sessionDigest(value: Record<string, unknown>): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
 
-export function parseVerificationFreezeSessionV1(source: string): VerificationFreezeSession {
+export function parseLegacyVerificationFreezeSession(source: string): VerificationFreezeSession {
   const parsed = freezeSession.parse(JSON.parse(source) as unknown);
   const { sessionDigest: _sessionDigest, ...withoutDigest } = parsed;
   const expectedDigest = sessionDigest(withoutDigest);

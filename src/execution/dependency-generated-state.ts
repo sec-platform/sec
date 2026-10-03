@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { compareCodeUnits } from '../contracts/canonical.ts';
-import { SecError } from '../contracts/failure.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { generatedStateDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity } from './generated-state/contract.ts';
 export const COMPILER_STAGING_LIFECYCLE_RULE = 'compiler-dependency-staging' as const;
 export const COMPILER_STAGING_LIFECYCLE_OWNER = 'compiler-dependency-runtime' as const;
@@ -49,11 +49,11 @@ export function planCompilerDependencyGeneratedStateSettlement(input: Readonly<{
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot);
   if (input.inventory.repositoryRoot !== repositoryRoot) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency generated-state inventory belongs to another repository');
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency generated-state inventory belongs to another repository');
   }
   const workspaceIdentity = input.workspaceIdentity;
   if (!sameGeneratedStateIdentity(workspaceIdentity, input.inventory.workspace)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency generated-state workspace identity changed before planning');
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency generated-state workspace identity changed before planning');
   }
   const selected = Object.freeze(input.inventory.entries
     .filter((entry) => entry.ruleId === COMPILER_STAGING_LIFECYCLE_RULE &&

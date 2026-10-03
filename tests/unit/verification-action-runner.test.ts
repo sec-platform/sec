@@ -41,14 +41,14 @@ import {
   VerificationActionRunner
 } from '../../src/adapters/verification/platform/action/runner.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
@@ -72,7 +72,7 @@ function issuedSettlement(
   if (terminalClass === 'recovery-required') {
     throw new Error('Operation requires owner recovery before terminal projection.');
   }
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: 'verification.action-runner-test',
     intentDigest: action.actionKey,
     decisionDigest: DIGEST_A,
@@ -84,28 +84,28 @@ function issuedSettlement(
       effectKinds: ['process'],
       failureKinds: ['process.failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: DIGEST_A
     })
   });
-  const bound = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
+  const bound = bindSemanticOperation(operationPlan, [compileCapabilityBinding({
     requirementId: 'verification.test-effect',
     contractDigest: DIGEST_A,
     providerIdentityDigest: DIGEST_A
   })]);
-  const provider = issueSecProviderSettlementReceipt(bound, {
+  const provider = issueProviderSettlementReceipt(bound, {
     requirementId: 'verification.test-effect',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: terminalClass === 'completed' ? DIGEST_B : DIGEST_C
   });
-  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
-  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+  const providerSet = compileProviderSettlementSet(bound, [provider]);
+  const readback = issueNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: DIGEST_A,
     readbackReferenceDigest: DIGEST_B,
     currentPhysicalEpochDigest: DIGEST_C,
     disposition: 'applied'
   });
-  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
     bound,
     providerSet,
     readback,
@@ -308,7 +308,7 @@ function root(): string {
 function diagnosticReadOperation() {
   const requirementId = 'verification.action-diagnostic-readback';
   const contractDigest = DIGEST_C;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.action-diagnostic-readback',
     intentDigest: DIGEST_A,
     decisionDigest: DIGEST_B,
@@ -323,11 +323,11 @@ function diagnosticReadOperation() {
       effectKinds: ['filesystem'],
       failureKinds: ['diagnostic.readback-failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
   return {
     requirementId,
-    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId,
       contractDigest,
       providerIdentityDigest: DIGEST_B

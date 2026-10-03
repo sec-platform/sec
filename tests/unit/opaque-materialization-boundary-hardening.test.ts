@@ -1,15 +1,15 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { CompilerError } from '../../src/compiler/errors.ts';
 import {
   OPAQUE_MODULE_MATERIALIZATION_MODES,
   opaqueModuleMaterializationEnvironment,
   resolveOpaqueModuleMaterializationMode,
   type OpaqueModuleMaterializationMode
 } from '../../src/compiler/target-materialization.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 const invalid = (error: unknown): boolean =>
-  error instanceof CompilerError && error.code === 'OPAQUE-MODULE-004';
+  error instanceof CodedFailure && error.code === 'OPAQUE-MODULE-004';
 
 test('explicit materialization input rejects values forged past TypeScript', () => {
   for (const value of ['', 'production', 'BUILD-COPY', false, null, 0, {}, []]) {

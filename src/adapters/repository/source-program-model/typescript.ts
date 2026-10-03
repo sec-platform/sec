@@ -38,12 +38,6 @@ export {
   isCompiledTypeScriptModel as isCompiledTypeScriptSourceProgramModel, workspaceSnapshotIdentityForTypeScriptModel as workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript-model-assembly.ts';
 export {
-  compileSecRepositoryModuleGraph
-} from './typescript-module-graph.ts';
-export type {
-  SecRepositoryModuleGraphInput as CompileTypeScriptRepositoryModuleGraphInput
-} from './typescript-module-graph.ts';
-export {
   observeTypeScriptPerformanceForTests as observeTypeScriptSourceProgramPerformanceForTests
 } from './typescript-performance.ts';
 export type {

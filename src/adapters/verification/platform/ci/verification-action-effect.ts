@@ -2,16 +2,16 @@ import { createHash } from 'node:crypto';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../../../assurance/verification/contract/revision.ts";
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../execution/verification/action.ts';
 import type { VerificationEvidence, VerificationGateEvidence } from '../../../../execution/verification/session.ts';
@@ -54,7 +54,7 @@ export type CodexDevelopmentCiVerificationTestOptions = {
   runGate?: (
     step: { id: string; argv: string[]; env: NodeJS.ProcessEnv },
     execution: Readonly<{
-      operation: SecBoundSemanticOperation;
+      operation: BoundSemanticOperation;
       requirementId: string;
     }>
   ) => Promise<CodexDevelopmentGateProcessSettlement>;
@@ -95,24 +95,24 @@ function bindCiActionEffect(
   plan: VerificationActionPlan,
   operation: CiVerificationActionPlanClosure['normalizedOperations'][number],
   deadlineAtUnixMs: number
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const processContractDigest = CodexDevelopmentVerificationDigest({
     schema: 'sec-ci-action-effect-contract-v1',
     actionKey: plan.action.actionKey,
     operation
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const diagnosticContractDigest = CodexDevelopmentVerificationDigest({
     schema: 'sec-ci-action-combined-diagnostic-contract-v1',
     actionKey: plan.action.actionKey
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const authorityGrantDigest = CodexDevelopmentVerificationDigest({
     processContractDigest,
     diagnosticContractDigest
-  }) as SecOperationDigest;
-  const semanticPlan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const semanticPlan = compileSemanticOperationPlan({
     operation: 'verification.hosted-ci',
-    intentDigest: plan.action.actionKey as SecOperationDigest,
-    decisionDigest: operation.semanticDigest as SecOperationDigest,
+    intentDigest: plan.action.actionKey as OperationDigest,
+    decisionDigest: operation.semanticDigest as OperationDigest,
     deadlineAtUnixMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumDurationMs },
@@ -133,24 +133,24 @@ function bindCiActionEffect(
       effectKinds: ['filesystem'],
       failureKinds: ['diagnostic.incomplete-object', 'diagnostic.resource-exhausted']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest })
   });
-  return bindSecSemanticOperation(semanticPlan, [
-    compileSecCapabilityBinding({
+  return bindSemanticOperation(semanticPlan, [
+    compileCapabilityBinding({
       requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
       contractDigest: processContractDigest,
       providerIdentityDigest: CodexDevelopmentVerificationDigest({
         schema: 'sec-ci-action-provider-binding-v1',
         environment: plan.action.environment,
         declaredEnvironment: plan.action.operation.declaredEnvironment
-      }) as SecOperationDigest
+      }) as OperationDigest
     }),
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
       contractDigest: diagnosticContractDigest,
       providerIdentityDigest: CodexDevelopmentVerificationDigest(
         'runtime-state.process-diagnostics'
-      ) as SecOperationDigest
+      ) as OperationDigest
     })
   ]);
 }
@@ -158,7 +158,7 @@ function bindCiActionEffect(
 async function issueCiActionEffectSettlement(input: Readonly<{
   runner: VerificationActionRunner;
   repositoryRoot: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   plan: VerificationActionPlan;
   gateId: string;
   settlement: CodexDevelopmentGateProcessSettlement;
@@ -178,7 +178,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       || !/^sha256:[0-9a-f]{64}$/u.test(result.rawOutputDigest)) {
     throw new Error('CI Action process settlement is not canonical.');
   }
-  const processSettlement = issueSecProviderSettlementReceipt(operation, {
+  const processSettlement = issueProviderSettlementReceipt(operation, {
     requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest({
@@ -188,7 +188,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       exitCode: result.code,
       rawOutputDigest: result.rawOutputDigest,
       processResourceReceiptDigest: processResourceReceipt.receiptDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   const diagnosticObjects = await input.runner.publishBoundProcessDiagnostics({
     repositoryRoot: input.repositoryRoot,
@@ -200,7 +200,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       bytes: new TextEncoder().encode(result.failureTail)
     }]
   });
-  const diagnosticSettlement = issueSecProviderSettlementReceipt(operation, {
+  const diagnosticSettlement = issueProviderSettlementReceipt(operation, {
     requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest(
@@ -208,18 +208,18 @@ async function issueCiActionEffectSettlement(input: Readonly<{
         objectDigest: receipt.objectDigest,
         readbackDigest: readback.readbackDigest
       }))
-    ) as SecOperationDigest
+    ) as OperationDigest
   });
-  const providerSettlementSet = compileSecProviderSettlementSet(
+  const providerSettlementSet = compileProviderSettlementSet(
     operation,
     [processSettlement, diagnosticSettlement]
   );
   const failureTailDigest = CodexDevelopmentVerificationDigest(result.failureTail);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+  const readback = issueNormalDomainReadbackReceipt(operation, providerSettlementSet, {
     readbackContractDigest: CodexDevelopmentVerificationDigest({
       schema: 'sec-ci-action-domain-readback-contract-v1',
       resultSchemaRevision: plan.action.resultSchemaRevision
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     readbackReferenceDigest: CodexDevelopmentVerificationDigest({
       schema: 'sec-ci-action-domain-readback-reference-v1',
       actionKey: plan.action.actionKey,
@@ -227,16 +227,16 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       exitCode: result.code,
       rawOutputDigest: result.rawOutputDigest,
       failureTailDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     currentPhysicalEpochDigest: CodexDevelopmentVerificationDigest({
       schema: 'sec-ci-action-physical-epoch-v1',
       actionKey: plan.action.actionKey,
       gateId,
       rawOutputDigest: result.rawOutputDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     disposition: 'applied'
   });
-  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
     operation,
     providerSettlementSet,
     readback,
@@ -244,7 +244,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       ownerTerminalContractDigest: CodexDevelopmentVerificationDigest({
         schema: 'sec-verification-action-terminal-contract-v1',
         resultSchemaRevision: plan.action.resultSchemaRevision
-      }) as SecOperationDigest,
+      }) as OperationDigest,
       ownerTerminalReferenceDigest: CodexDevelopmentVerificationDigest({
         schema: 'sec-ci-action-owner-terminal-reference-v1',
         actionKey: plan.action.actionKey,
@@ -252,7 +252,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
         exitCode: result.code,
         rawOutputDigest: result.rawOutputDigest,
         failureTailDigest
-      }) as SecOperationDigest
+      }) as OperationDigest
     }
   );
   const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
@@ -281,7 +281,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
   readonly runGate: (
     step: { id: string; argv: string[]; env: NodeJS.ProcessEnv },
     execution: Readonly<{
-      operation: SecBoundSemanticOperation;
+      operation: BoundSemanticOperation;
       requirementId: string;
     }>
   ) => Promise<CodexDevelopmentGateProcessSettlement>;

@@ -1,6 +1,6 @@
 import type { LockFile } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { compareCodeUnits, uniqueSorted } from '../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { validateProvenanceFile } from '../../../semantics/provenance/authority.ts';
 import {
   PROVENANCE_FORMAT_VERSION,
@@ -31,7 +31,7 @@ function buildSemanticArtifact(
     (task.status === 'generated' || task.status === 'verified') &&
     !task.artifactBinding
   ) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PROVENANCE-SEMANTIC-001',
       `Generated semantic task "${task.id}" is missing its IR/transaction artifact binding`
     );

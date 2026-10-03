@@ -1,8 +1,8 @@
 import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { createMainHealthRepairWorkPackagePath } from '../main-health/contract.ts';
 import {
-  compileSecOperationDemandGraph,
-  type SecOperationDemandGraph
+  compileOperationDemandGraph,
+  type OperationDemandGraph
 } from '../operation/demand.ts';
 import {
   SEC_WORK_PRIORITY_CLASSES,
@@ -100,7 +100,7 @@ export interface SecRoadmapTerminalCompactionCandidate {
 }
 
 export interface SecWorkSelectionTerminalProjection {
-  readonly demandGraph: SecOperationDemandGraph;
+  readonly demandGraph: OperationDemandGraph;
   readonly catalog: SecRoadmapWorkCatalog;
   readonly currentSpecs: readonly SecWorkCurrentSpecObservation[];
   readonly roadmapRevision: SecWorkDigest;
@@ -284,7 +284,7 @@ export type SecWorkSelectionLiveResult = Readonly<
     reasonCodes: readonly [];
     blockerRefs: readonly [];
     receipt: SecWorkDecisionReceipt;
-    demandGraph: SecOperationDemandGraph;
+    demandGraph: OperationDemandGraph;
     terminalCompaction: SecRoadmapTerminalCompaction | null;
     resultDigest: SecWorkDigest;
   }
@@ -752,7 +752,7 @@ export function compileSecRoadmapTerminalCompaction(input: {
     fail('terminal compaction requires one or more unique completed work ids.');
   }
   const retired = new Set(retiredWorkIds);
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: retiredWorkIds
   });
@@ -807,7 +807,7 @@ export function compileSecWorkSelectionTerminalProjection(input: {
   const terminalSpecs = currentSpecs
     .filter(({ providerState }) => providerState === 'closed')
     .sort((left, right) => compareCodeUnits(left.workId, right.workId));
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: terminalSpecs.map(({ workId }) => workId)
   });
@@ -1883,7 +1883,7 @@ function liveResultDigest(value: unknown): SecWorkDigest {
 
 export function resolvedSecWorkSelectionLiveResult(
   receipt: SecWorkDecisionReceipt,
-  demandGraph: SecOperationDemandGraph,
+  demandGraph: OperationDemandGraph,
   terminalCompaction: SecRoadmapTerminalCompaction | null = null
 ): SecWorkSelectionLiveResult {
   const withoutDigest = deepFreeze({

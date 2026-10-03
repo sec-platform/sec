@@ -1,8 +1,8 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
 import type { SemanticFact, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 import type { ScenarioDefinition, ScenarioStepDefinition } from '../../semantics/engineering-ir/scenario-types.ts';
-import { CompilerError } from '../errors.ts';
 
 function entityObjectId(fact: SemanticFact): string | undefined {
   return fact.object.kind === 'entity' ? fact.object.entityId : undefined;
@@ -10,7 +10,7 @@ function entityObjectId(fact: SemanticFact): string | undefined {
 
 function singleFact(facts: readonly SemanticFact[], description: string): SemanticFact {
   if (facts.length !== 1) {
-    throw new CompilerError('IR-SCENARIO-001', `${description} requires exactly one canonical Fact`, {
+    throw new CodedFailure('IR-SCENARIO-001', `${description} requires exactly one canonical Fact`, {
       factIds: facts.map((fact) => fact.id)
     });
   }
@@ -27,7 +27,7 @@ function retryMaxAttempts(value: SemanticValue, stepId: string): number {
     !Number.isInteger(value.maxAttempts) ||
     (value.maxAttempts as number) < 1
   ) {
-    throw new CompilerError('IR-SCENARIO-002', `Scenario step "${stepId}" RETRIES value must be { maxAttempts: positive integer }`);
+    throw new CodedFailure('IR-SCENARIO-002', `Scenario step "${stepId}" RETRIES value must be { maxAttempts: positive integer }`);
   }
   return value.maxAttempts as number;
 }
@@ -67,7 +67,7 @@ export function deriveScenarioDefinitions(
       );
       const entryEntityId = entityObjectId(entryFact)!;
       if (entityById.get(entryEntityId)?.kind !== 'operation') {
-        throw new CompilerError('IR-SCENARIO-003', `Scenario "${scenarioEntity.id}" entry must reference an operation`);
+        throw new CodedFailure('IR-SCENARIO-003', `Scenario "${scenarioEntity.id}" entry must reference an operation`);
       }
 
       const stepEntities = scenarioFacts
@@ -93,7 +93,7 @@ export function deriveScenarioDefinitions(
         }
       }
       if (crossingFact !== undefined) {
-        throw new CompilerError('IR-SCENARIO-004', `Scenario relation Fact "${crossingFact.id}" crosses the contained step boundary`);
+        throw new CodedFailure('IR-SCENARIO-004', `Scenario relation Fact "${crossingFact.id}" crosses the contained step boundary`);
       }
 
       const steps: ScenarioStepDefinition[] = stepEntities.map((stepEntity) => {
@@ -104,16 +104,16 @@ export function deriveScenarioDefinitions(
         );
         const operationEntityId = entityObjectId(invokeFact)!;
         if (entityById.get(operationEntityId)?.kind !== 'operation') {
-          throw new CompilerError('IR-SCENARIO-003', `Scenario step "${stepEntity.id}" must invoke an operation`);
+          throw new CodedFailure('IR-SCENARIO-003', `Scenario step "${stepEntity.id}" must invoke an operation`);
         }
 
         const awaitFacts = stepFacts.filter((fact) => fact.predicate === 'AWAITS');
         if (awaitFacts.length > 1 || (awaitFacts[0] && entityObjectId(awaitFacts[0]) !== operationEntityId)) {
-          throw new CompilerError('IR-SCENARIO-005', `Scenario step "${stepEntity.id}" AWAITS must reference its invoked operation`);
+          throw new CodedFailure('IR-SCENARIO-005', `Scenario step "${stepEntity.id}" AWAITS must reference its invoked operation`);
         }
         const retryFacts = stepFacts.filter((fact) => fact.predicate === 'RETRIES');
         if (retryFacts.length > 1 || (retryFacts[0] && retryFacts[0].object.kind !== 'value')) {
-          throw new CompilerError('IR-SCENARIO-002', `Scenario step "${stepEntity.id}" requires at most one value RETRIES Fact`);
+          throw new CodedFailure('IR-SCENARIO-002', `Scenario step "${stepEntity.id}" requires at most one value RETRIES Fact`);
         }
         const incoming = incomingRelations.get(stepEntity.id) ?? [];
         const afterStepIds = incoming
@@ -122,7 +122,7 @@ export function deriveScenarioDefinitions(
           .sort((left, right) => compareCodeUnits(left, right));
         const handlerFacts = incoming.filter((fact) => fact.predicate === 'HANDLES');
         if (handlerFacts.length > 1) {
-          throw new CompilerError('IR-SCENARIO-006', `Scenario step "${stepEntity.id}" has multiple error handlers`);
+          throw new CodedFailure('IR-SCENARIO-006', `Scenario step "${stepEntity.id}" has multiple error handlers`);
         }
 
         return {

@@ -1,4 +1,4 @@
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { isAffectedSelectionFailClosed } from '../../../verification/platform/test-impact/contract/selection-boundary.ts';
@@ -21,7 +21,7 @@ import {
 } from './test-runner.ts';
 
 interface LocalAffectedCheckExecutionOptions {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly preparedGitSelection?: IssuedAffectedGitSelectionSource;
   readonly expectedSelectionDigest?: `sha256:${string}`;
   /** Borrowed by the repository fence; no selector may open a second ledger. */
@@ -31,7 +31,7 @@ interface LocalAffectedCheckExecutionOptions {
 
 
 export interface PreparedLocalAffectedCheck {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly selection: IssuedAffectedGitSelectionSource;
   readonly selectionDigest: `sha256:${string}`;
   readonly needsDependencies: boolean;
@@ -39,7 +39,7 @@ export interface PreparedLocalAffectedCheck {
 
 /** Git-only discovery settles its zero-write fence before dependency effects. */
 export async function prepareLocalAffectedCheck(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   expectedSelectionDigest?: `sha256:${string}`;
 }>): Promise<PreparedLocalAffectedCheck | null> {
   const { operation, expectedSelectionDigest } = input;

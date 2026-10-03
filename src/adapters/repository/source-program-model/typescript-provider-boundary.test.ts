@@ -7,7 +7,6 @@ test('TypeScript provider exports only the current public runtime operations', (
   "adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot",
   "assertSourceProgramTypeScriptCompilerIdentity",
   "assertSourceProgramTypeScriptRequiredApiClosure",
-  "compileSecRepositoryModuleGraph",
   "compileSourceProgramTypeScriptDiagnosticSnapshot",
   "compileTypeScriptSourceProgramModel",
   "compileTypeScriptSourceProgramModelFromWorkspaceSnapshot",

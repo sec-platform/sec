@@ -26,8 +26,8 @@ import {
 } from '../assurance/verification/project/report.ts';
 import type { LockFile } from '../compiler/contract.ts';
 import { addGeneratedPaths, assertPassStatus } from '../compiler/contract/lock-schema.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import type { PipelineExecutionBoundary } from '../compiler/pipeline/execution-boundaries.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { throwIfNativeAborted } from '../contracts/native-abort.ts';
 import { observeOptionalDiagnostic } from '../execution/optional-diagnostic.ts';
 import type { PolicyReport } from '../semantics/policies/types.ts';
@@ -124,8 +124,8 @@ function applyVerificationReportToLock(
 function verificationFailure(
   report: VerificationReport,
   fastFailure: unknown | undefined
-): CompilerError {
-  return new CompilerError(
+): CodedFailure {
+  return new CodedFailure(
     'VERIFY-ACCEPTANCE-003',
     'Project verification failed',
     { verificationReport: report },
@@ -193,7 +193,7 @@ export async function executeProductVerification<StagedProof>(
   const assertSubjectCurrent = (): void => {
     throwIfNativeAborted(options.signal);
     if (productVerificationSubjectRevision(lock) !== subjectRevision) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-SUBJECT-001',
         'Verification subject changed after invocation admission'
       );
@@ -222,7 +222,7 @@ export async function executeProductVerification<StagedProof>(
     lock,
     'compose',
     'succeeded',
-    new CompilerError(
+    new CodedFailure(
       'VERIFY-BLOCKED-001',
       'compose must succeed before verify'
     )
@@ -350,7 +350,7 @@ export async function executeProductVerification<StagedProof>(
   });
   applyVerificationReportToLock(lock, report);
 
-  const primaryFailure = (): CompilerError => verificationFailure(
+  const primaryFailure = (): CodedFailure => verificationFailure(
     report,
     fastResult.failure?.reason
   );

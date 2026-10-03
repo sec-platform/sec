@@ -3,8 +3,8 @@ import type { Dirent, Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { CompilerError } from '../../../../compiler/errors.ts';
 import { canonicalJson, digest } from '../../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../../../workspace/contract/local-state.ts';
 import { ensureDir } from "../../../filesystem/files.ts";
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
@@ -108,14 +108,14 @@ class ImportTransformTransactionFailure extends Error {
 function containedFile(workspaceRoot: string, relativePath: string): string {
   const normalized = relativePath.replaceAll('\\', '/');
   if (normalized.length === 0 || path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) {
-    throw new CompilerError('IMPORT-TRANSFORM-003', `Import transform path escapes the workspace: ${relativePath}`, {
+    throw new CodedFailure('IMPORT-TRANSFORM-003', `Import transform path escapes the workspace: ${relativePath}`, {
       relativePath
     });
   }
   const absolutePath = path.resolve(workspaceRoot, ...normalized.split('/'));
   const relative = path.relative(path.resolve(workspaceRoot), absolutePath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new CompilerError('IMPORT-TRANSFORM-003', `Import transform path escapes the workspace: ${relativePath}`, {
+    throw new CodedFailure('IMPORT-TRANSFORM-003', `Import transform path escapes the workspace: ${relativePath}`, {
       relativePath
     });
   }
@@ -1534,7 +1534,7 @@ async function prepareWrites(
   for (const write of writes) {
     const relativePath = write.relativePath.replaceAll('\\', '/');
     if (seen.has(relativePath)) {
-      throw new CompilerError('IMPORT-TRANSFORM-003', `Duplicate import transform target: ${relativePath}`, {
+      throw new CodedFailure('IMPORT-TRANSFORM-003', `Duplicate import transform target: ${relativePath}`, {
         relativePath
       });
     }
@@ -1543,7 +1543,7 @@ async function prepareWrites(
     await assertOrdinaryContainedTargetChain(workspaceRoot, absolutePath);
     const metadata = await fs.lstat(absolutePath);
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      throw new CompilerError('IMPORT-TRANSFORM-002', `Transform target is not a regular file: ${absolutePath}`, {
+      throw new CodedFailure('IMPORT-TRANSFORM-002', `Transform target is not a regular file: ${absolutePath}`, {
         filePath: absolutePath
       });
     }
@@ -1625,10 +1625,10 @@ export async function publishImportTransformTransaction(
   testHooks: ImportTransformTransactionTestHooks = {}
 ): Promise<ImportTransformTransactionOutcome> {
   if (writes.length === 0) {
-    throw new CompilerError('IMPORT-TRANSFORM-003', 'Import transform transaction requires a non-empty write set');
+    throw new CodedFailure('IMPORT-TRANSFORM-003', 'Import transform transaction requires a non-empty write set');
   }
   if (writes.length * 2 + 4 > IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS) {
-    throw new CompilerError('IMPORT-TRANSFORM-003', 'Import transform transaction exceeds the bounded record limit', {
+    throw new CodedFailure('IMPORT-TRANSFORM-003', 'Import transform transaction exceeds the bounded record limit', {
       writeCount: writes.length,
       maximumRecords: IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS
     });

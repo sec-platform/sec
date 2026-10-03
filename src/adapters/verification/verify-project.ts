@@ -9,8 +9,9 @@ import type { ProductVerificationGateObservation } from '../../assurance/verific
 import { createSkippedFastLane } from '../../assurance/verification/project/report.ts';
 import { CodexDevelopmentSnapshotVerificationData } from '../../assurance/verification/result/contract/result.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import { canonicalEquals, compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
+import { formatFailure } from '../../contracts/failure-format.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { Logger } from '../../contracts/logging.ts';
 import { isNativeAborted, throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
@@ -149,7 +150,7 @@ export async function runFastVerification(
     throwFastCancellation(signal, error);
     lane.build.status = 'failed';
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(error);
+    lane.logs.stderr = formatFailure(error);
     return { lane, failure: { reason: error } };
   }
 
@@ -162,7 +163,7 @@ export async function runFastVerification(
     throwFastCancellation(signal, error);
     lane.unit.status = 'failed';
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(error);
+    lane.logs.stderr = formatFailure(error);
     return { lane, failure: { reason: error } };
   }
 
@@ -181,7 +182,7 @@ export async function runFastVerification(
       ? []
       : [relativePosixPath(acceptanceRoot, failedFile)];
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(error);
+    lane.logs.stderr = formatFailure(error);
     return { lane, failure: { reason: error } };
   }
 
@@ -202,14 +203,14 @@ export async function runFastVerification(
 
   if (policyReport.status === 'failed') {
     failure = {
-      reason: new CompilerError(
+      reason: new CodedFailure(
         'VERIFY-POLICY-001',
         'Policy gate failed',
         policyReport.violations
       )
     };
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(failure.reason);
+    lane.logs.stderr = formatFailure(failure.reason);
     return { lane, failure };
   }
 

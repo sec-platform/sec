@@ -1,7 +1,7 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticEntityId } from '../../semantics/engineering-ir/entity-types.ts';
 import type { EvidenceReference, FactAssertion, FactProvenance, SemanticAuthority, SemanticFact, SemanticFactObject, SemanticPredicate } from '../../semantics/engineering-ir/fact-types.ts';
-import { CompilerError } from '../errors.ts';
 import { factIdentity } from './ir-identity.ts';
 import { normalizeEvidence, normalizeFactObject, normalizeProvenance } from './ir-normalization.ts';
 import { digest } from './ir-revision.ts';
@@ -19,7 +19,7 @@ export interface FactInput {
 function assertFactInput(input: FactInput): void {
   const confidence = input.confidence ?? 1;
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-    throw new CompilerError('IR-AUTHORITY-001', 'Semantic fact assertion confidence must be between 0 and 1', {
+    throw new CodedFailure('IR-AUTHORITY-001', 'Semantic fact assertion confidence must be between 0 and 1', {
       subject: input.subject,
       predicate: input.predicate,
       object: input.object,
@@ -27,7 +27,7 @@ function assertFactInput(input: FactInput): void {
     });
   }
   if (input.provenance.length === 0) {
-    throw new CompilerError('IR-AUTHORITY-002', 'Semantic fact assertion must include provenance', {
+    throw new CodedFailure('IR-AUTHORITY-002', 'Semantic fact assertion must include provenance', {
       subject: input.subject,
       predicate: input.predicate,
       object: input.object
@@ -76,10 +76,10 @@ function mergeAssertion(existing: FactAssertion, incoming: FactAssertion): FactA
     existing.authority !== incoming.authority ||
     JSON.stringify(existing.provenance) !== JSON.stringify(incoming.provenance)
   ) {
-    throw new CompilerError('IR-AUTHORITY-003', `Fact assertion id "${existing.id}" collides across different assertion identities`);
+    throw new CodedFailure('IR-AUTHORITY-003', `Fact assertion id "${existing.id}" collides across different assertion identities`);
   }
   if (existing.confidence !== incoming.confidence) {
-    throw new CompilerError('IR-AUTHORITY-003', `Fact assertion "${existing.id}" has conflicting confidence`, {
+    throw new CodedFailure('IR-AUTHORITY-003', `Fact assertion "${existing.id}" has conflicting confidence`, {
       existingConfidence: existing.confidence,
       incomingConfidence: incoming.confidence
     });
@@ -93,7 +93,7 @@ function mergeAssertion(existing: FactAssertion, incoming: FactAssertion): FactA
 
 function appendFactAssertions(existing: SemanticFact, incoming: SemanticFact): SemanticFact {
   if (factIdentity(existing) !== factIdentity(incoming)) {
-    throw new CompilerError('IR-FACT-001', `Semantic fact id "${existing.id}" collides across different triples`, {
+    throw new CodedFailure('IR-FACT-001', `Semantic fact id "${existing.id}" collides across different triples`, {
       existing: { subject: existing.subject, predicate: existing.predicate, object: existing.object },
       incoming: { subject: incoming.subject, predicate: incoming.predicate, object: incoming.object }
     });

@@ -3,8 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileSemanticOperationPlan, issueSemanticOperationAttemptContext } from '../../../../execution/operation/semantic.ts';
 import {
   armPreparedRepositoryChangeObserver,
   armRepositoryChangeObserver,
@@ -74,12 +74,12 @@ test.skipIf(process.platform !== 'win32')(
       expect(binding.contractDigest).toBe(RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST);
       const copiedCapability = { ...prepared.prepared };
       expect(() => repositoryChangeObserverBinding(copiedCapability)).toThrow('owner-issued');
-      const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
+      const operation = bindSemanticOperation(compileSemanticOperationPlan({
         operation: 'verification.repository-observer-dispatch',
         intentDigest: binding.contractDigest,
         decisionDigest: binding.contractDigest,
         deadlineAtUnixMs: Date.now() + 10_000,
-        attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: binding.contractDigest }),
+        attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: binding.contractDigest }),
         aggregateBudgets: [{ resource: 'duration-ms', maximum: 10_000 }],
         requirements: [{
           id: binding.requirementId,
@@ -91,7 +91,7 @@ test.skipIf(process.platform !== 'win32')(
       const resolution = await armPreparedRepositoryChangeObserver({
         prepared: prepared.prepared,
         operation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation,
           requirementId: binding.requirementId,
           resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]

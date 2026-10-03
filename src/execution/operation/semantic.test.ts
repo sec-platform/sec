@@ -2,38 +2,38 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { sha256 } from '../../contracts/canonical.ts';
 import {
-  assertSecDomainReadbackReceipt,
-  assertSecOwnerTerminalJoinReceipt,
-  assertSecProviderSettlementReceipt,
-  assertSecRecoveredRetryAdmission,
-  assertSecSemanticOperationPlan,
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  consumeSecRecoveredRetryAdmission,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecRecoveredDomainReadbackReceipt,
-  issueSecRecoveredOwnerTerminalJoinReceipt,
-  issueSecRecoveredRetryAdmission,
-  issueSecSemanticOperationAttemptContext,
-  projectSecCapabilityDiagnostic,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertDomainReadbackReceipt,
+  assertOwnerTerminalJoinReceipt,
+  assertProviderSettlementReceipt,
+  assertRecoveredRetryAdmission,
+  assertSemanticOperationPlan,
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  consumeRecoveredRetryAdmission,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueRecoveredDomainReadbackReceipt,
+  issueRecoveredOwnerTerminalJoinReceipt,
+  issueRecoveredRetryAdmission,
+  issueSemanticOperationAttemptContext,
+  projectCapabilityDiagnostic,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from './semantic.ts';
 
-const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 
 function plan(
   deadlineAtUnixMs = 1_900_000_000_000,
   durationMs = 120_000,
-  attempt = issueSecSemanticOperationAttemptContext({
+  attempt = issueSemanticOperationAttemptContext({
     authorityGrantDigest: digest('verification-typecheck-authority-grant')
   })
 ) {
-  return compileSecSemanticOperationPlan({
+  return compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest({ target: 'candidate' }),
     decisionDigest: digest({ noEmit: true }),
@@ -54,12 +54,12 @@ function plan(
 }
 
 function multiPlan(
-  attempt = issueSecSemanticOperationAttemptContext({
+  attempt = issueSemanticOperationAttemptContext({
     authorityGrantDigest: digest('repository-publish-authority-grant')
   }),
   operation = 'repository.publish'
 ) {
-  return compileSecSemanticOperationPlan({
+  return compileSemanticOperationPlan({
     operation,
     intentDigest: digest({ target: 'candidate-ref' }),
     decisionDigest: digest({ mode: 'fast-forward' }),
@@ -87,14 +87,14 @@ function multiPlan(
 }
 
 function recoveryOperation(authority = 'repository-recovery-authority', epoch = 'resume-epoch') {
-  return bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+  return bindMultiPlan(multiPlan(issueSemanticOperationAttemptContext({
     authorityGrantDigest: digest(authority),
     runIdDigest: digest('recovery-run'),
     resumeEpochDigest: digest(epoch)
   })));
 }
 
-function predecessorReference(operation: SecBoundSemanticOperation) {
+function predecessorReference(operation: BoundSemanticOperation) {
   return Object.freeze({
     operationIdentityDigest: operation.plan.identity.identityDigest,
     executionPlanDigest: operation.plan.execution.executionPlanDigest,
@@ -110,9 +110,9 @@ function predecessorReference(operation: SecBoundSemanticOperation) {
 function bindMultiPlan(
   operationPlan = multiPlan(),
   providerSuffix = 'canonical'
-): SecBoundSemanticOperation {
-  return bindSecSemanticOperation(operationPlan, operationPlan.execution.requirements.map(
-    (requirement) => compileSecCapabilityBinding({
+): BoundSemanticOperation {
+  return bindSemanticOperation(operationPlan, operationPlan.execution.requirements.map(
+    (requirement) => compileCapabilityBinding({
       requirementId: requirement.id,
       contractDigest: requirement.contractDigest,
       providerIdentityDigest: digest(`${requirement.id}:${providerSuffix}`)
@@ -121,11 +121,11 @@ function bindMultiPlan(
 }
 
 function providerSettlement(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   requirementId: string,
   reference: string
 ) {
-  return issueSecProviderSettlementReceipt(operation, {
+  return issueProviderSettlementReceipt(operation, {
     requirementId,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: digest(reference)
@@ -134,13 +134,13 @@ function providerSettlement(
 
 test('caller-compiled attempts and provider bindings remain pure correlation projections', () => {
   const firstPlan = plan();
-  const first = bindSecSemanticOperation(firstPlan, [compileSecCapabilityBinding({
+  const first = bindSemanticOperation(firstPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('caller-selected-provider')
   })]);
   const secondPlan = plan();
-  const second = bindSecSemanticOperation(secondPlan, [compileSecCapabilityBinding({
+  const second = bindSemanticOperation(secondPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: secondPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('different-caller-selected-provider')
@@ -150,30 +150,30 @@ test('caller-compiled attempts and provider bindings remain pure correlation pro
   expect(first.bindingSetIdentityDigest).not.toBe(second.bindingSetIdentityDigest);
   expect(first.boundAttemptDigest).not.toBe(second.boundAttemptDigest);
 
-  const foreignRequirement = compileSecCapabilityBinding({
+  const foreignRequirement = compileCapabilityBinding({
     requirementId: 'git.ref-update',
     contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('caller-selected-provider')
   });
-  expect(() => bindSecSemanticOperation(firstPlan, [foreignRequirement]))
+  expect(() => bindSemanticOperation(firstPlan, [foreignRequirement]))
     .toThrow('not exactly bound');
 });
 
 test('semantic plan remains provider-neutral while exact bindings are replaceable', () => {
   const operationPlan = plan();
-  const native = compileSecCapabilityBinding({
+  const native = compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
-  const remote = compileSecCapabilityBinding({
+  const remote = compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('remote-checker')
   });
 
-  const nativeOperation = bindSecSemanticOperation(operationPlan, [native]);
-  const remoteOperation = bindSecSemanticOperation(operationPlan, [remote]);
+  const nativeOperation = bindSemanticOperation(operationPlan, [native]);
+  const remoteOperation = bindSemanticOperation(operationPlan, [remote]);
   expect(nativeOperation.plan.identity.identityDigest).toBe(remoteOperation.plan.identity.identityDigest);
   expect(nativeOperation.bindingSetIdentityDigest).not.toBe(remoteOperation.bindingSetIdentityDigest);
 });
@@ -188,7 +188,7 @@ test('operation identity excludes the attempt deadline while the attempt remains
 });
 
 test('budget narrowing and attempt lineage never manufacture a new OperationKey', () => {
-  const lineage = issueSecSemanticOperationAttemptContext({
+  const lineage = issueSemanticOperationAttemptContext({
     authorityGrantDigest: digest('verification-typecheck-authority-grant'),
     runIdDigest: digest('run-1'),
     resumeEpochDigest: digest('resume-1')
@@ -206,7 +206,7 @@ test('budget narrowing and attempt lineage never manufacture a new OperationKey'
 });
 
 test('semantic budgets represent static ceilings and allow only an explicit zero input ceiling', () => {
-  const zeroInput = compileSecSemanticOperationPlan({
+  const zeroInput = compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest('zero-input-operation'),
     decisionDigest: digest('zero-input-decision'),
@@ -223,7 +223,7 @@ test('semantic budgets represent static ceilings and allow only an explicit zero
       effectKinds: ['process'],
       failureKinds: ['provider.unavailable']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: digest('zero-input-grant')
     })
   });
@@ -232,7 +232,7 @@ test('semantic budgets represent static ceilings and allow only an explicit zero
     maximum: 0
   });
 
-  expect(() => compileSecSemanticOperationPlan({
+  expect(() => compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest('zero-output-operation'),
     decisionDigest: digest('zero-output-decision'),
@@ -244,12 +244,12 @@ test('semantic budgets represent static ceilings and allow only an explicit zero
       effectKinds: ['process'],
       failureKinds: ['provider.unavailable']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: digest('zero-output-grant')
     })
   })).toThrow('aggregate budget is not canonical');
 
-  expect(() => compileSecSemanticOperationPlan({
+  expect(() => compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest('runtime-ledger-operation'),
     decisionDigest: digest('runtime-ledger-decision'),
@@ -265,18 +265,18 @@ test('semantic budgets represent static ceilings and allow only an explicit zero
       effectKinds: ['process'],
       failureKinds: ['provider.unavailable']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: digest('runtime-ledger-grant')
     })
   })).toThrow('aggregate budget is not canonical');
 });
 
 test('attempt context is compiler-local correlation rather than serializable authority', () => {
-  const issued = issueSecSemanticOperationAttemptContext({
+  const issued = issueSemanticOperationAttemptContext({
     authorityGrantDigest: digest('verification-typecheck-authority-grant')
   });
   const structural = structuredClone(issued);
-  expect(() => compileSecSemanticOperationPlan({
+  expect(() => compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest({ target: 'candidate' }),
     decisionDigest: digest({ noEmit: true }),
@@ -294,41 +294,41 @@ test('attempt context is compiler-local correlation rather than serializable aut
 
 test('binding rejects missing, duplicate and semantic-contract mismatches', () => {
   const operationPlan = plan();
-  const wrong = compileSecCapabilityBinding({
+  const wrong = compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: digest('different-semantics'),
     providerIdentityDigest: digest('native-checker')
   });
-  expect(() => bindSecSemanticOperation(operationPlan, [])).toThrow(/exactly one binding/u);
-  expect(() => bindSecSemanticOperation(operationPlan, [wrong])).toThrow(/not exactly bound/u);
-  expect(() => bindSecSemanticOperation(operationPlan, [wrong, wrong])).toThrow(/exactly one binding/u);
+  expect(() => bindSemanticOperation(operationPlan, [])).toThrow(/exactly one binding/u);
+  expect(() => bindSemanticOperation(operationPlan, [wrong])).toThrow(/not exactly bound/u);
+  expect(() => bindSemanticOperation(operationPlan, [wrong, wrong])).toThrow(/exactly one binding/u);
 });
 
 test('binding rejects a structural copy that bypasses the foundation compiler', () => {
   const operationPlan = plan();
-  const binding = compileSecCapabilityBinding({
+  const binding = compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
 
-  expect(() => assertSecSemanticOperationPlan(operationPlan)).not.toThrow();
+  expect(() => assertSemanticOperationPlan(operationPlan)).not.toThrow();
   const structuralPlan = structuredClone(operationPlan);
-  expect(() => assertSecSemanticOperationPlan(structuralPlan))
+  expect(() => assertSemanticOperationPlan(structuralPlan))
     .toThrow('requires a foundation-compiled operation plan');
-  expect(() => bindSecSemanticOperation(structuralPlan, [binding]))
+  expect(() => bindSemanticOperation(structuralPlan, [binding]))
     .toThrow('requires a foundation-compiled operation plan');
 });
 
 test('provider diagnostics expose typed identity and digest without raw evidence', () => {
   const operationPlan = plan();
-  const binding = compileSecCapabilityBinding({
+  const binding = compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
   const raw = 'C:\\secret\\workspace --token visible-only-to-provider';
-  const diagnostic = projectSecCapabilityDiagnostic({
+  const diagnostic = projectCapabilityDiagnostic({
     bindingDigest: binding.bindingDigest,
     code: 'typescript.provider-unverified',
     failureKind: 'provider.unverified',
@@ -349,8 +349,8 @@ test('provider settlement set is permutation-invariant and exact before normal r
     'object-write-settlement'
   );
   const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update-settlement');
-  const forward = compileSecProviderSettlementSet(operation, [objectWrite, refUpdate]);
-  const reverse = compileSecProviderSettlementSet(operation, [refUpdate, objectWrite]);
+  const forward = compileProviderSettlementSet(operation, [objectWrite, refUpdate]);
+  const reverse = compileProviderSettlementSet(operation, [refUpdate, objectWrite]);
 
   expect(forward.providerSettlementSetDigest).toBe(reverse.providerSettlementSetDigest);
   expect(forward.settlements.map(({ requirementId }) => requirementId)).toEqual([
@@ -358,13 +358,13 @@ test('provider settlement set is permutation-invariant and exact before normal r
     'git.ref-update'
   ]);
 
-  const readback = issueSecNormalDomainReadbackReceipt(operation, reverse, {
+  const readback = issueNormalDomainReadbackReceipt(operation, reverse, {
     readbackContractDigest: digest('repository-ref-readback-contract'),
     readbackReferenceDigest: digest('exact-ref-and-object-readback'),
     currentPhysicalEpochDigest: digest('repository-physical-epoch'),
     disposition: 'applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(operation, forward, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(operation, forward, readback, {
     ownerTerminalContractDigest: digest('repository-publication-terminal-contract'),
     ownerTerminalReferenceDigest: digest('repository-publication-terminal-reference')
   });
@@ -374,9 +374,9 @@ test('provider settlement set is permutation-invariant and exact before normal r
   expect(JSON.stringify(join)).not.toMatch(/status|success|failed|completed/u);
   // These are canonical correlation projections, deliberately serializable
   // and cloneable; a domain Effect owner must require its own opaque receipt.
-  expect(() => assertSecProviderSettlementReceipt({ ...objectWrite })).not.toThrow();
-  expect(() => assertSecDomainReadbackReceipt({ ...readback })).not.toThrow();
-  expect(() => assertSecOwnerTerminalJoinReceipt({ ...join })).not.toThrow();
+  expect(() => assertProviderSettlementReceipt({ ...objectWrite })).not.toThrow();
+  expect(() => assertDomainReadbackReceipt({ ...readback })).not.toThrow();
+  expect(() => assertOwnerTerminalJoinReceipt({ ...join })).not.toThrow();
 });
 
 test('provider settlement set rejects missing duplicate extra foreign attempts and bindings', () => {
@@ -385,20 +385,20 @@ test('provider settlement set rejects missing duplicate extra foreign attempts a
   const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
   const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
 
-  expect(() => compileSecProviderSettlementSet(operation, [objectWrite])).toThrow(
+  expect(() => compileProviderSettlementSet(operation, [objectWrite])).toThrow(
     'exactly one receipt per requirement'
   );
-  expect(() => compileSecProviderSettlementSet(operation, [objectWrite, objectWrite])).toThrow(
+  expect(() => compileProviderSettlementSet(operation, [objectWrite, objectWrite])).toThrow(
     'exactly one receipt per requirement'
   );
-  expect(() => compileSecProviderSettlementSet(
+  expect(() => compileProviderSettlementSet(
     operation,
     [objectWrite, refUpdate, objectWrite]
   )).toThrow('exactly one receipt per requirement');
 
   const otherAttempt = bindMultiPlan(multiPlan());
   const foreignAttemptRef = providerSettlement(otherAttempt, 'git.ref-update', 'foreign-attempt');
-  expect(() => compileSecProviderSettlementSet(
+  expect(() => compileProviderSettlementSet(
     operation,
     [objectWrite, foreignAttemptRef]
   )).toThrow('does not bind the exact requirement attempt');
@@ -407,7 +407,7 @@ test('provider settlement set rejects missing duplicate extra foreign attempts a
   const foreignBindingRef = providerSettlement(otherBinding, 'git.ref-update', 'foreign-binding');
   expect(otherBinding.plan.attempt.attemptDigest).toBe(operation.plan.attempt.attemptDigest);
   expect(otherBinding.bindings[1]!.bindingDigest).not.toBe(operation.bindings[1]!.bindingDigest);
-  expect(() => compileSecProviderSettlementSet(
+  expect(() => compileProviderSettlementSet(
     operation,
     [objectWrite, foreignBindingRef]
   )).toThrow('does not bind the exact requirement attempt');
@@ -416,7 +416,7 @@ test('provider settlement set rejects missing duplicate extra foreign attempts a
 test('recovered readback joins owner terminal without manufacturing provider settlement', () => {
   const predecessor = bindMultiPlan();
   const operation = recoveryOperation();
-  const recovered = issueSecRecoveredDomainReadbackReceipt(operation, {
+  const recovered = issueRecoveredDomainReadbackReceipt(operation, {
     predecessor: predecessorReference(predecessor),
     durableObservationDigest: digest('durable-attempt-observation'),
     readbackContractDigest: digest('repository-ref-readback-contract'),
@@ -424,7 +424,7 @@ test('recovered readback joins owner terminal without manufacturing provider set
     currentPhysicalEpochDigest: digest('repository-epoch-after-lost-handle'),
     disposition: 'applied'
   });
-  const join = issueSecRecoveredOwnerTerminalJoinReceipt(operation, recovered, {
+  const join = issueRecoveredOwnerTerminalJoinReceipt(operation, recovered, {
     ownerTerminalContractDigest: digest('repository-publication-terminal-contract'),
     ownerTerminalReferenceDigest: digest('recovered-publication-terminal-reference')
   });
@@ -433,12 +433,12 @@ test('recovered readback joins owner terminal without manufacturing provider set
   expect(recovered.providerSettlementSetDigest).toBeNull();
   expect(join.recoveryMode).toBe('recovered');
   expect(join.providerSettlementSetDigest).toBeNull();
-  expect(() => assertSecOwnerTerminalJoinReceipt(join)).not.toThrow();
+  expect(() => assertOwnerTerminalJoinReceipt(join)).not.toThrow();
 
   const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
   const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
-  const settlementSet = compileSecProviderSettlementSet(operation, [objectWrite, refUpdate]);
-  expect(() => issueSecNormalOwnerTerminalJoinReceipt(
+  const settlementSet = compileProviderSettlementSet(operation, [objectWrite, refUpdate]);
+  expect(() => issueNormalOwnerTerminalJoinReceipt(
     operation,
     settlementSet,
     recovered as never,
@@ -453,20 +453,20 @@ test('retry correlation is recovered-only and cannot authorize a foreign operati
   const operation = bindMultiPlan();
   const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
   const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
-  const settlementSet = compileSecProviderSettlementSet(operation, [objectWrite, refUpdate]);
-  const normal = issueSecNormalDomainReadbackReceipt(operation, settlementSet, {
+  const settlementSet = compileProviderSettlementSet(operation, [objectWrite, refUpdate]);
+  const normal = issueNormalDomainReadbackReceipt(operation, settlementSet, {
     readbackContractDigest: digest('readback-contract'),
     readbackReferenceDigest: digest('normal-not-applied-readback'),
     currentPhysicalEpochDigest: digest('physical-epoch'),
     disposition: 'not-applied'
   });
-  expect(() => issueSecRecoveredRetryAdmission(operation, normal as never)).toThrow(
+  expect(() => issueRecoveredRetryAdmission(operation, normal as never)).toThrow(
     'conclusive recovered not-applied'
   );
 
   for (const disposition of ['applied', 'unknown'] as const) {
     const recovery = recoveryOperation(`recovery-${disposition}`, `epoch-${disposition}`);
-    const inconclusive = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    const inconclusive = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor: predecessorReference(operation),
       durableObservationDigest: digest(`durable-${disposition}`),
       readbackContractDigest: digest('readback-contract'),
@@ -474,13 +474,13 @@ test('retry correlation is recovered-only and cannot authorize a foreign operati
       currentPhysicalEpochDigest: digest('physical-epoch'),
       disposition
     });
-    expect(() => issueSecRecoveredRetryAdmission(recovery, inconclusive)).toThrow(
+    expect(() => issueRecoveredRetryAdmission(recovery, inconclusive)).toThrow(
       'conclusive recovered not-applied'
     );
   }
 
   const recovery = recoveryOperation();
-  const notApplied = issueSecRecoveredDomainReadbackReceipt(recovery, {
+  const notApplied = issueRecoveredDomainReadbackReceipt(recovery, {
     predecessor: predecessorReference(operation),
     durableObservationDigest: digest('durable-not-applied'),
     readbackContractDigest: digest('readback-contract'),
@@ -488,55 +488,55 @@ test('retry correlation is recovered-only and cannot authorize a foreign operati
     currentPhysicalEpochDigest: digest('physical-epoch'),
     disposition: 'not-applied'
   });
-  const admission = issueSecRecoveredRetryAdmission(recovery, notApplied);
-  expect(() => issueSecRecoveredRetryAdmission(recovery, notApplied)).toThrow('already consumed');
-  expect(() => assertSecRecoveredRetryAdmission({ ...admission })).toThrow('projection is invalid');
+  const admission = issueRecoveredRetryAdmission(recovery, notApplied);
+  expect(() => issueRecoveredRetryAdmission(recovery, notApplied)).toThrow('already consumed');
+  expect(() => assertRecoveredRetryAdmission({ ...admission })).toThrow('projection is invalid');
   const foreignSuccessor = bindMultiPlan(multiPlan(
-    issueSecSemanticOperationAttemptContext({
+    issueSemanticOperationAttemptContext({
       authorityGrantDigest: digest('repository-repair-authority')
     }),
     'repository.repair'
   ));
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, foreignSuccessor, notApplied.currentPhysicalEpochDigest
   )).toThrow(
     'does not authorize this successor attempt'
   );
 
-  const successor = bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+  const successor = bindMultiPlan(multiPlan(issueSemanticOperationAttemptContext({
     authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
     runIdDigest: digest('successor-run'),
     resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest
   })));
-  const authorityDriftSuccessor = bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+  const authorityDriftSuccessor = bindMultiPlan(multiPlan(issueSemanticOperationAttemptContext({
     authorityGrantDigest: digest('foreign-recovery-authority'),
     runIdDigest: digest('authority-drift-run'),
     resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest
   })));
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, authorityDriftSuccessor, notApplied.currentPhysicalEpochDigest
   )).toThrow('does not authorize');
-  const epochDriftSuccessor = bindMultiPlan(multiPlan(issueSecSemanticOperationAttemptContext({
+  const epochDriftSuccessor = bindMultiPlan(multiPlan(issueSemanticOperationAttemptContext({
     authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
     runIdDigest: digest('epoch-drift-run'),
     resumeEpochDigest: digest('foreign-resume-epoch')
   })));
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, epochDriftSuccessor, notApplied.currentPhysicalEpochDigest
   )).toThrow('does not authorize');
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, successor, digest('foreign-physical-epoch')
   )).toThrow('does not authorize');
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, successor, notApplied.currentPhysicalEpochDigest
   )).not.toThrow();
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, bindMultiPlan(multiPlan()), notApplied.currentPhysicalEpochDigest
   ))
     .toThrow();
-  expect(() => consumeSecRecoveredRetryAdmission(
+  expect(() => consumeRecoveredRetryAdmission(
     admission, successor, notApplied.currentPhysicalEpochDigest
   )).toThrow('already consumed');
-  expect(() => issueSecRecoveredRetryAdmission(recovery, { ...notApplied }))
+  expect(() => issueRecoveredRetryAdmission(recovery, { ...notApplied }))
     .toThrow('conclusive recovered not-applied');
 });

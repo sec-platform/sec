@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import { createPipelineSemanticContext } from '../../compiler/pipeline/semantic-context.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
+import { formatFailure } from '../../contracts/failure-format.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isPathInside, resolvePathInside } from "../../contracts/relative-path.ts";
 import type { DependencyProjectOperationFactory } from '../../execution/dependency-materialization.ts';
 import { composeProject } from '../compilation/compose/compose-project.ts';
@@ -40,11 +41,11 @@ export async function validateResolvedTemplates(
     const sourceRoot = typeof block.registryPath === 'string'
       ? resolvePathInside(workspaceRoot, block.registryPath) : null;
     if (sourceRoot === null) {
-      throw new CompilerError('TEMPLATE-BUILD-002', 'Workspace registry source escapes its validated workspace',
+      throw new CodedFailure('TEMPLATE-BUILD-002', 'Workspace registry source escapes its validated workspace',
         { registryPath: block.registryPath });
     }
     if (isolated && isPathInside(sourceRoot, sourcePaths.workspaceRoot)) {
-      throw new CompilerError('TEMPLATE-BUILD-002',
+      throw new CodedFailure('TEMPLATE-BUILD-002',
         'Workspace registry source cannot contain the template validation root', { registryPath: block.registryPath });
     }
     registryCopies.set(block.registryPath, sourceRoot);
@@ -65,7 +66,7 @@ export async function validateResolvedTemplates(
   try {
     for (const [registryPath, sourceRoot] of registryCopies) {
       if (isPathInside(sourceRoot, validationRoot)) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'TEMPLATE-BUILD-002',
           'Workspace registry source cannot contain the template validation root',
           { registryPath }
@@ -76,7 +77,7 @@ export async function validateResolvedTemplates(
     for (const [registryPath, sourceRoot] of registryCopies) {
       const targetRoot = resolvePathInside(validationRoot, registryPath);
       if (targetRoot === null) {
-        throw new CompilerError('TEMPLATE-BUILD-002', 'Template registry destination escapes its temporary workspace',
+        throw new CodedFailure('TEMPLATE-BUILD-002', 'Template registry destination escapes its temporary workspace',
           { registryPath });
       }
       await copyRecursive(sourceRoot, targetRoot, commitFence);
@@ -118,7 +119,7 @@ export async function validateResolvedTemplates(
     // cleanup through revoked authority or delete any other workspace.
     await removeDir(validationRoot, commitFence);
   } catch (cleanupError) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'TEMPLATE-BUILD-003',
       'Template validation workspace cleanup did not complete',
       { validationRoot, validationCompleted: failure === undefined },
@@ -132,9 +133,9 @@ export async function validateResolvedTemplates(
 
 function templateValidationFailure(error: unknown): unknown {
   try {
-    if (error instanceof WorkspaceWriteLeaseError || (error instanceof CompilerError &&
+    if (error instanceof WorkspaceWriteLeaseError || (error instanceof CodedFailure &&
         ['TEMPLATE-BUILD-002', 'VERIFY-ISOLATION-003'].includes(error.code))) return error;
   } catch { /* A hostile or revoked thrown object is still the original cause. */ }
-  return new CompilerError('TEMPLATE-BUILD-001',
-    'Resolved block templates failed validation before compose', formatCompilerFailure(error), { cause: error });
+  return new CodedFailure('TEMPLATE-BUILD-001',
+    'Resolved block templates failed validation before compose', formatFailure(error), { cause: error });
 }

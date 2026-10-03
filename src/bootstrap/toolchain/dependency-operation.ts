@@ -7,7 +7,7 @@ import { RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES, RUNTIME_DEPENDENCY_SOURCE_MAXI
 import { compilerRoot } from '../../adapters/workspace-context.ts';
 import { settleCompilerDependencyGeneratedState } from '../../application/dependency-generated-state.ts';
 import { ensureProjectDependencyEnvironment } from '../../application/project-dependency-preparation.ts';
-import { SecError } from '../../contracts/failure.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { planCompilerDependencyGeneratedStateSettlement, type CompilerDependencyGeneratedStateSettlementPlan } from '../../execution/dependency-generated-state.ts';
 import { captureRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../../execution/dependency-install-request.ts';
 import type { DependencyProjectLifecycleAdmission } from '../../execution/dependency-materialization.ts';
@@ -96,7 +96,7 @@ export async function ensureProjectDependencyOperation(projectRoot:string, optio
       verifyIsolatedSource: native.verifyIsolatedProjectDependencySource,
       publishTarget: source => {
         const lifecycle = operationOptions.generatedStateLifecycle ?? operationOptions.generatedStateLifecycleFactory?.forWorkspace(projectRoot);
-        if (lifecycle === undefined) throw new SecError('IMPORT-AUTHORITY-004', 'Project dependency target operation has no bound producer lifecycle');
+        if (lifecycle === undefined) throw new CodedFailure('IMPORT-AUTHORITY-004', 'Project dependency target operation has no bound producer lifecycle');
         return native.ensureProjectDependencies(projectRoot, runtimeDependencyOperationOptions({ ...operationOptions,
           generatedStateLifecycle: lifecycle }), source);
       }

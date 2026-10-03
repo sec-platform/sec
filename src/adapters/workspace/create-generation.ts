@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { CompilerError } from '../../compiler/errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { settleResources } from '../../execution/resource-settlement.ts';
 import { snapshotWorkspaceCreateRequest, type WorkspaceCreateIntent, type WorkspaceCreateSession, type WorkspaceCreateTemplate, type WorkspaceTemplateBlueprint } from '../../execution/workspace-create.ts';
@@ -44,7 +44,7 @@ interface Journal {
   entries: readonly Entry[];
 }
 function conflict(reason: string): never {
-  throw new CompilerError('WORKSPACE-INIT-003', 'Workspace creation requires lifecycle recovery; existing objects were preserved', { reason });
+  throw new CodedFailure('WORKSPACE-INIT-003', 'Workspace creation requires lifecycle recovery; existing objects were preserved', { reason });
 }
 function identity(value: Identity): Identity { return { device: value.device, inode: value.inode }; }
 function sameIdentity(left: Identity, right: Identity): boolean { return left.device === right.device && left.inode === right.inode; }
@@ -292,7 +292,7 @@ export async function openWorkspaceCreateSession(input: Readonly<{
       // until the application accepts this exact request and recovery scope.
       try { guard = prepareRuntimeStateJournalMutation(fs, journalPath); }
       catch (error) {
-        throw new CompilerError('WORKSPACE-INIT-003', 'Workspace journal admission is unproven; existing objects were preserved', { reason: 'unqualified-journal' }, { cause: error });
+        throw new CodedFailure('WORKSPACE-INIT-003', 'Workspace journal admission is unproven; existing objects were preserved', { reason: 'unqualified-journal' }, { cause: error });
       }
       if (guard === null) conflict('journal-contended');
       const guarded = fs.observeTextRetained(journalPath, { deadlineAtMonotonicMs: performance.now() + 30_000, maximumBytes: 2 * 1024 * 1024 });

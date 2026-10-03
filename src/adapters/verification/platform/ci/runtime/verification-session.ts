@@ -30,7 +30,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { readJson, readSessionArtifactBytes, readSessionArtifactText, writeCanonicalDurable, writeDurable } from './session-artifact-files.ts';
 
-import { CompilerError } from '../../../../../compiler/errors.ts';
+import { CodedFailure } from '../../../../../contracts/failure.ts';
 
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../../filesystem/write-lease.ts';
 import { compileIssueDisposition, createIssueAcceptanceId, createIssueDispositionPlan, parseGitHubClosingKeywordOccurrences } from '../../../../self-hosting/control/issues/disposition.ts';
@@ -2365,7 +2365,7 @@ async function ensureMaintainerReviewWakeup(
     observedAt: providerNow
   }));
   if (providerAvailability.status === 'unavailable') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PROVIDER-UNAVAILABLE-NOT-RETRIED',
       'Provider codex-review is unavailable and must not be retried without an exact target-bound revalidation receipt.',
       {
@@ -2379,7 +2379,7 @@ async function ensureMaintainerReviewWakeup(
     );
   }
   if (providerAvailability.status === 'unresolved') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PROVIDER-AVAILABILITY-UNRESOLVED',
       `Provider codex-review availability census is unresolved: ${providerAvailability.reason}.`,
       {
@@ -2398,7 +2398,7 @@ async function ensureMaintainerReviewWakeup(
     observedAt: effectBoundaryNow
   }));
   if (effectBoundaryAvailability.status === 'unavailable') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PROVIDER-UNAVAILABLE-NOT-RETRIED',
       'Provider codex-review became unavailable before wake-up publication; a new target-bound revalidation receipt is required.',
       {
@@ -2413,7 +2413,7 @@ async function ensureMaintainerReviewWakeup(
   }
   if (effectBoundaryAvailability.status === 'unresolved'
       || effectBoundaryAvailability.censusDigest !== providerAvailability.censusDigest) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PROVIDER-AVAILABILITY-UNRESOLVED',
       'Provider codex-review availability changed before wake-up publication.',
       {
@@ -2628,7 +2628,7 @@ async function executeReviewProviderRevalidation(input: Readonly<{
   } as const;
   const before = (await github.observeReviewProviderAvailability({ ...target, observedAt: input.now() }));
   if (before.status === 'unresolved') {
-    throw new CompilerError('PROVIDER-AVAILABILITY-UNRESOLVED',
+    throw new CodedFailure('PROVIDER-AVAILABILITY-UNRESOLVED',
       `Provider codex-review availability census is unresolved: ${before.reason}.`,
       { capability: 'codex-review', reason: before.reason, censusDigest: before.censusDigest });
   }

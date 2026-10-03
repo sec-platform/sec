@@ -1,8 +1,8 @@
 import { mkdir, open, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { getErrorCode } from '../../../compiler/errors.ts';
 import { sortedKeys } from '../../../compiler/semantic-mutation/canonical.ts';
+import { getErrorCode } from '../../../contracts/failure-inspection.ts';
 
 const SEMANTIC_MUTATION_ISOLATED_PHASE_TELEMETRY_FORMAT =
   'semantic-mutation-isolated-phase-telemetry-v1' as const;

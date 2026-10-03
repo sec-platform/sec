@@ -2,12 +2,12 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
 import {
@@ -41,7 +41,7 @@ interface CensusOptions {
 }
 
 type TextByteCensusOperationEnvelope = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   budget: GitReadSessionBudget;
   deadlineAtUnixMs: number;
 }>;
@@ -78,17 +78,17 @@ function compileTextByteCensusOperation(
     operation: TEXT_BYTE_CENSUS_OPERATION,
     resultSchema: TEXT_BYTE_CENSUS_SCHEMA,
     observation: 'exact-commit-blob-bytes-and-text-attributes'
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const providerIdentityDigest = sha256({
     provider: 'external-capabilities.git-read',
     capability: 'exact-repository-observation'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: TEXT_BYTE_CENSUS_OPERATION,
-    intentDigest: sha256({ repositoryRoot }) as SecOperationDigest,
+    intentDigest: sha256({ repositoryRoot }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -116,7 +116,7 @@ function compileTextByteCensusOperation(
     }]
   });
   return Object.freeze({
-    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: TEXT_BYTE_CENSUS_REQUIREMENT,
       contractDigest,
       providerIdentityDigest

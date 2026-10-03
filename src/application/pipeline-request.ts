@@ -1,7 +1,7 @@
 import { isVerificationLane, VERIFICATION_LANES, type VerificationLane } from '../assurance/verification/contract/lanes.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import { requirePipelineSource, type PipelineSource } from '../compiler/pipeline/source.ts';
 import { PIPELINE_STAGE_IDS, type PipelineStageId } from '../compiler/pipeline/stages.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 
 export interface PipelineCompileRequest {
   source?: PipelineSource;
@@ -23,7 +23,7 @@ const PIPELINE_VERIFICATION_LANE_DESCRIPTION = VERIFICATION_LANES.map((lane, ind
 ).join(', ');
 
 export function rejectPipelineOutputIssue(message: string): never {
-  throw new CompilerError('PIPELINE-USAGE-003', message);
+  throw new CodedFailure('PIPELINE-USAGE-003', message);
 }
 
 export function bindPipelineCliInvocation(input: Readonly<{
@@ -34,7 +34,7 @@ export function bindPipelineCliInvocation(input: Readonly<{
   const selection = selectPipelineStageRange(input.from, input.through);
   const configured = input.verificationLane;
   if (!isVerificationLane(configured)) {
-    throw new CompilerError('PIPELINE-USAGE-002', `--lane must be ${PIPELINE_VERIFICATION_LANE_DESCRIPTION}`);
+    throw new CodedFailure('PIPELINE-USAGE-002', `--lane must be ${PIPELINE_VERIFICATION_LANE_DESCRIPTION}`);
   }
   return Object.freeze({
     source: 'cli' as const,
@@ -47,7 +47,7 @@ export function bindPipelineCliInvocation(input: Readonly<{
 function stage(value: unknown, field: 'from' | 'through'): PipelineStageId | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || !PIPELINE_STAGE_IDS.includes(value as PipelineStageId)) {
-    throw new CompilerError('PIPELINE-USAGE-001', `--${field} must be one of: ${PIPELINE_STAGE_IDS.join(', ')}`);
+    throw new CodedFailure('PIPELINE-USAGE-001', `--${field} must be one of: ${PIPELINE_STAGE_IDS.join(', ')}`);
   }
   return value as PipelineStageId;
 }
@@ -60,7 +60,7 @@ export function selectPipelineStageRange(fromValue: unknown, throughValue: unkno
   const fromIndex = from === undefined ? 0 : PIPELINE_STAGE_IDS.indexOf(from);
   const throughIndex = through === undefined ? PIPELINE_STAGE_IDS.length - 1 : PIPELINE_STAGE_IDS.indexOf(through);
   if (fromIndex > throughIndex) {
-    throw new CompilerError('PIPELINE-USAGE-001', `Invalid pipeline stage range: ${from} -> ${through}`);
+    throw new CodedFailure('PIPELINE-USAGE-001', `Invalid pipeline stage range: ${from} -> ${through}`);
   }
   const selected = PIPELINE_STAGE_IDS.slice(fromIndex, throughIndex + 1);
   const stages: readonly PipelineStageId[] = Object.freeze(
@@ -79,7 +79,7 @@ export function bindPipelineCompileRequest(input: Readonly<PipelineCompileReques
     const configured = input.verificationLane;
     if (configured !== undefined) {
       if (!isVerificationLane(configured)) {
-        throw new CompilerError('PIPELINE-USAGE-002', `--lane must be one of: ${VERIFICATION_LANES.join(', ')}`);
+        throw new CodedFailure('PIPELINE-USAGE-002', `--lane must be one of: ${VERIFICATION_LANES.join(', ')}`);
       }
       verificationLane = configured;
     }

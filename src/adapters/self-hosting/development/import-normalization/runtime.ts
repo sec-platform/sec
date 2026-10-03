@@ -1,14 +1,14 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import type { VerificationActionKeyInput } from '../../../../execution/verification/action.ts';
 import {
@@ -168,7 +168,7 @@ async function settleNormalizationObservation(
     executionSubjectDigest: subject.subjectDigest,
     readbackSubjectDigest
   }) as CandidateNormalizationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'development.import-normalization',
     intentDigest: action.actionKey,
     decisionDigest: subject.subjectDigest,
@@ -184,29 +184,29 @@ async function settleNormalizationObservation(
       effectKinds: ['filesystem', 'process'],
       failureKinds: ['candidate-normalization-noncanonical']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: subject.subjectDigest
     })
   });
-  const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const bound = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'candidate-normalization-observation',
     contractDigest: subject.normalizationContractDigest,
     providerIdentityDigest: subject.producerClosureDigest
   })]);
-  const provider = issueSecProviderSettlementReceipt(bound, {
+  const provider = issueProviderSettlementReceipt(bound, {
     requirementId: 'candidate-normalization-observation',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: observationDigest
   });
-  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
+  const providerSet = compileProviderSettlementSet(bound, [provider]);
   const passed = status === 'canonical';
-  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+  const readback = issueNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: subject.resultContractDigest,
     readbackReferenceDigest: observationDigest,
     currentPhysicalEpochDigest: readbackSubjectDigest,
     disposition: passed ? 'applied' : 'not-applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
     ownerTerminalContractDigest: subject.resultContractDigest,
     ownerTerminalReferenceDigest: observationDigest
   });

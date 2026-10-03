@@ -1,4 +1,4 @@
-import { CompilerError } from '../errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 
 export interface PrismaBlock {
   type: string;
@@ -7,7 +7,7 @@ export interface PrismaBlock {
 }
 
 function prismaParseError(message: string): never {
-  throw new CompilerError('COMPOSE-PRISMA-002', message);
+  throw new CodedFailure('COMPOSE-PRISMA-002', message);
 }
 
 /** Scan the block delimiters used by the supported line-oriented merge subset.

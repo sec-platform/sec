@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import type { ManifestEntry } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
 import {
   decodeExactAuthorityUtf8,
@@ -17,7 +17,7 @@ interface ManifestResourceFileBytes {
 function resourceCandidate(root: string, resourcePath: string): string {
   const candidate = resolvePathInside(root, resourcePath);
   if (!candidate) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'MANIFEST-SCHEMA-006',
       `Manifest resource path "${resourcePath}" escapes its resource root`
     );

@@ -1,4 +1,4 @@
-import { SecError } from '../contracts/failure.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { RuntimeDependencyInstallMode } from '../execution/dependency-install-request.ts';
 export async function ensureProjectDependencyEnvironment<Binding extends { readonly manifestHash: string },
   Source extends { readonly ownerRoot: string; readonly sourcePath: string }>(input: Readonly<{
@@ -41,7 +41,7 @@ export async function prepareProjectDependencySource<Binding extends { readonly 
   if (input.isolated) {
     const ready = await input.observeCompilerReady();
     if (ready === null || ready.kind === 'incompatible-bridge' || ready.binding.runtimeMaterialization === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler dependency readiness is unavailable');
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Canonical compiler dependency readiness is unavailable');
     }
     binding = ready.binding.runtimeMaterialization;
     compilerSource = ready.sourceGeneration ?? await input.readSourceGeneration(binding,
@@ -50,14 +50,14 @@ export async function prepareProjectDependencySource<Binding extends { readonly 
     const ready = await input.ensureCompilerReady();
     const material = ready.runtimeMaterialization;
     if (material === null || material === undefined || material.manifestHash !== input.manifestHash) {
-      throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable');
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable');
     }
     binding = material;
     compilerSource = ready.sourceGeneration ?? await input.readSourceGeneration(binding, input.compilerDependencyRoot, ready.nodeModulesPath);
   }
   const sourceGeneration = await input.readSourceGeneration(binding, compilerSource.ownerRoot, compilerSource.sourcePath);
   if (input.isolated && !await input.verifyIsolatedSource(binding, sourceGeneration.sourcePath)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable for isolated verification');
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable for isolated verification');
   }
   return Object.freeze({ binding, sourceGeneration, sourceNodeModulesPath: sourceGeneration.sourcePath,
     compilerDependencyRoot: input.compilerDependencyRoot });

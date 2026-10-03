@@ -4,7 +4,7 @@ import type { VerificationReport } from '../assurance/verification/contract/type
 import type { ReviewSummary } from '../assurance/verification/review/contract/types.ts';
 import type { LockFile } from '../compiler/contract.ts';
 import { assertPassStatus } from '../compiler/contract/lock-schema.ts';
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { ExplainGraph } from '../semantics/projection/explain.ts';
 import type { ProvenanceFile } from '../semantics/provenance/types.ts';
 
@@ -29,7 +29,7 @@ export async function explainWorkspaceResult(operations: ExplanationOperations) 
     throw new TypeError('Explanation operations must be callable');
   }
   const lock = readLock.call(operations);
-  assertPassStatus(lock, 'lock', 'succeeded', new CompilerError('EXPLAIN-BLOCKED-001', 'lock must succeed before explain'));
+  assertPassStatus(lock, 'lock', 'succeeded', new CodedFailure('EXPLAIN-BLOCKED-001', 'lock must succeed before explain'));
   const provenance = await readProvenance.call(operations, 'Provenance report');
   const { verificationReport: report, acceptanceCoverage: coverage } = readVerification.call(operations);
   const graph = await publishGraph.call(operations, lock, provenance);

@@ -1,7 +1,7 @@
 import type {
-  SecBoundSemanticOperation,
-  SecOperationDigest,
-  SecProviderSettlementReceipt
+  BoundSemanticOperation,
+  OperationDigest,
+  ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import type { DockerCommandProviderCapability } from './command-provider.ts';
 import type { DockerEndpointIdentity } from './daemon.ts';
@@ -55,9 +55,9 @@ export interface ContainerEngineSession {
   readonly supportedOperations: readonly ContainerEngineOperation['kind'][];
   readonly deadlineAtUnixMs: number;
   /** Runtime-issued identity of the retained executable/cwd/endpoint provider. */
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
   openOperationScope(input: Readonly<{
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     requirementId: string;
   }>): ContainerEngineOperationScope;
   /** Independent exact endpoint/daemon readback outside any Effect scope. */
@@ -72,14 +72,14 @@ export interface ContainerEngineSession {
 }
 
 export interface ContainerEngineOperationScope {
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
-  settle(): SecProviderSettlementReceipt;
+  settle(): ProviderSettlementReceipt;
 }
 
 export interface OpenContainerEngineSessionInput {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly provider: DockerCommandProviderCapability;
   readonly signal?: AbortSignal;
   readonly cwd: string;

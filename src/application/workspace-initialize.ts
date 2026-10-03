@@ -1,6 +1,6 @@
 import { LOCK_FILE_FORMAT_VERSION, type LockFile, type PlanFile } from '../compiler/contract.ts';
 import { PASS_INITIAL_STATES } from '../compiler/contract/pass-status.ts';
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { withAcquiredResource } from '../execution/resource-settlement.ts';
 import { freezeWorkspaceCreateBlueprint, snapshotWorkspaceCreateRequest, type WorkspaceCreateSession, type WorkspaceCreateTemplate, type WorkspaceTemplateBlueprint } from '../execution/workspace-create.ts';
 import type { PreparedWorkspaceCreate } from './workspace-create.ts';
@@ -12,7 +12,7 @@ export interface WorkspaceInitializationOperations {
 }
 
 function invalid(reason: string): never {
-  throw new CompilerError('WORKSPACE-INIT-003', 'Workspace creation requires lifecycle recovery; existing objects were preserved', { reason });
+  throw new CodedFailure('WORKSPACE-INIT-003', 'Workspace creation requires lifecycle recovery; existing objects were preserved', { reason });
 }
 
 /** Application owns blueprint construction and Create's phase/recovery choices.

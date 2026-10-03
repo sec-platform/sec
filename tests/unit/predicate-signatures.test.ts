@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { type SemanticEntity, type SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
 import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../src/semantics/engineering-ir/fact-types.ts';
 import {
@@ -40,15 +40,15 @@ function fact(
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): CompilerError {
+function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
-    return error as CompilerError;
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
+    return error as CodedFailure;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test("predicate registry owns every SemanticPredicate with a valid signature", () => {
@@ -66,7 +66,7 @@ test("the policy predicate accepts only capability-to-artifact facts", () => {
     [capability, artifact],
     [fact('fact:tenant-flow', capability.id, predicate, { kind: 'entity', entityId: artifact.id })]
   )).not.toThrow();
-  expectCompilerError(
+  expectCodedFailure(
     () => assertEngineeringIRPredicateSignatures(
       [entity('block:tenant', 'block'), artifact],
       [fact('fact:invalid-tenant-flow', 'block:tenant', predicate, { kind: 'entity', entityId: artifact.id })]
@@ -131,12 +131,12 @@ test("entity-object signatures accept legal kinds and reject illegal kinds deter
     kind: "entity",
     entityId: "operation:ticket:create",
   });
-  const first = expectCompilerError(
+  const first = expectCodedFailure(
     () =>
       assertEngineeringIRPredicateSignatures(entities, [invalidZ, invalidA]),
     "IR-PREDICATE-004",
   );
-  const second = expectCompilerError(
+  const second = expectCodedFailure(
     () =>
       assertEngineeringIRPredicateSignatures(entities, [invalidA, invalidZ]),
     "IR-PREDICATE-004",
@@ -206,7 +206,7 @@ test("Scenario predicate variants authorize only the canonical step graph shapes
     ]),
   ).not.toThrow();
 
-  const invalidRetry = expectCompilerError(
+  const invalidRetry = expectCodedFailure(
     () =>
       assertEngineeringIRPredicateSignatures(entities, [
         fact("fact:retry", firstStepId, "RETRIES", {
@@ -245,7 +245,7 @@ test("value-object signatures enforce exact schema and embedded entity-reference
     ]),
   ).not.toThrow();
 
-  const wrongReferenceKind = expectCompilerError(
+  const wrongReferenceKind = expectCodedFailure(
     () =>
       assertEngineeringIRPredicateSignatures(entities, [
         fact("fact:transition", "state:ticket:status", "TRANSITIONS_TO", {
@@ -272,7 +272,7 @@ test("value-object signatures enforce exact schema and embedded entity-reference
     ],
   });
 
-  const extraField = expectCompilerError(
+  const extraField = expectCodedFailure(
     () =>
       assertEngineeringIRPredicateSignatures(entities, [
         fact("fact:transition", "state:ticket:status", "TRANSITIONS_TO", {
@@ -298,7 +298,7 @@ test("value-object signatures enforce exact schema and embedded entity-reference
 });
 
 test("reserved predicates hard fail with stable fact context", () => {
-  const reserved = expectCompilerError(
+  const reserved = expectCodedFailure(
     () =>
       assertEngineeringIRPredicateSignatures(
         [

@@ -13,7 +13,7 @@ import {
 } from '../assurance/verification/project/report.ts';
 import type { LockFile } from '../compiler/contract.ts';
 import { addGeneratedPaths } from '../compiler/contract/lock-schema.ts';
-import { formatCompilerFailure } from '../compiler/errors.ts';
+import { formatFailure } from '../contracts/failure-format.ts';
 import type { PolicyReport } from '../semantics/policies/types.ts';
 
 type BlockedVerificationArtifactSet = Readonly<{
@@ -55,7 +55,7 @@ export async function executeBlockedVerificationSnapshot(
     lane,
     policyReport,
     runtime,
-    message: formatCompilerFailure(failure),
+    message: formatFailure(failure),
     observations: productVerificationObservationBindings(lock, lane, 'service')
   });
   const acceptanceCoverage = await operations.buildCoverage.call(

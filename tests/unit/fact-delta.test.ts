@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
@@ -73,15 +73,15 @@ function context(
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): CompilerError {
+function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
-    return error as CompilerError;
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
+    return error as CodedFailure;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 function expectDeepFrozen(value: unknown): void {
@@ -226,14 +226,14 @@ test('canonicalized declaration order produces byte-stable Fact Delta', () => {
 test('endpoint, lineage, and unsupported validity failures use stable diagnostics', () => {
   const before = buildValidatedEngineeringIR(input());
   const otherApp = buildValidatedEngineeringIR(input('other-app'));
-  expectCompilerError(
+  expectCodedFailure(
     () => buildFactDelta(
       { ...context(before, 'tx:before'), semanticRevision: 'sha256:stale' },
       context(before, 'tx:after')
     ),
     'FACT-DELTA-001'
   );
-  expectCompilerError(
+  expectCodedFailure(
     () => buildFactDelta(context(before, 'tx:before'), context(otherApp, 'tx:after')),
     'FACT-DELTA-002'
   );
@@ -242,7 +242,7 @@ test('endpoint, lineage, and unsupported validity failures use stable diagnostic
   const closed = resign(source, (ir) => {
     ir.facts[0]!.assertions[0]!.validToRevision = 'sha256:closed';
   });
-  expectCompilerError(
+  expectCodedFailure(
     () => buildFactDelta(context(before, 'tx:before'), context(closed, 'tx:closed')),
     'FACT-DELTA-006'
   );

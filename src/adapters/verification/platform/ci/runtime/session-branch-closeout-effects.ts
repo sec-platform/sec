@@ -7,8 +7,8 @@
  * bridge; neither serialized journal state nor this module creates authority.
  */
 import { sha256 } from '../../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../../execution/operation/semantic.ts';
 import type { BranchCloseoutAttempt, BranchCloseoutEffect, BranchCloseoutOperationReceipt, BranchCloseoutPreparation, BranchLifecycleInventory, PreparedBranchCloseoutEnvelope } from '../../../../../execution/verification/branch-closeout.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
@@ -30,9 +30,9 @@ import { requireCommand, runVerificationSessionCommand, type VerificationSession
 
 const HOSTED_LOCAL_REF_REQUIREMENT = 'verification-session.hosted-closeout.local-ref-delete';
 
-const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as SecOperationDigest;
+const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as OperationDigest;
 
-const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as SecOperationDigest;
+const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as OperationDigest;
 
 function closeoutAttempt(
   attempts: BranchCloseoutAttempt[],
@@ -79,17 +79,17 @@ export async function deleteHostedLocalRefCas(
   preparation: BranchCloseoutPreparation,
   attempts: BranchCloseoutAttempt[],
   coordinatedLease: WorkspaceWriteLeaseToken,
-  closeoutOperationId: SecOperationDigest
+  closeoutOperationId: OperationDigest
 ): Promise<BranchCloseoutAttempt> {
   const expected = preparation.expectedLocalSha ?? preparation.expectedHeadSha;
   const localEntry = Object.freeze({ ref: `refs/heads/${preparation.branch}`, expectedOldSha: expected });
   const durationMs = 120_000;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification-session.hosted-closeout-local-ref-delete',
     intentDigest: closeoutOperationId,
     decisionDigest: HOSTED_LOCAL_REF_CONTRACT,
     deadlineAtUnixMs: Date.now() + durationMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: measureExactLocalGitRefDeleteBatchAggregateInputBytes([localEntry]) },
@@ -102,12 +102,12 @@ export async function deleteHostedLocalRefCas(
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven',
         'process.unavailable'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: HOSTED_LOCAL_REF_REQUIREMENT, contractDigest: HOSTED_LOCAL_REF_CONTRACT,
     providerIdentityDigest: HOSTED_LOCAL_REF_PROVIDER
   })]);
   const processSession = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
       requirementId: HOSTED_LOCAL_REF_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let primaryError: unknown;
   try {
@@ -413,7 +413,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
       await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
       const localAttempt = await deleteHostedLocalRefCas(preparation, attempts,
-        input.coordinatedLease, input.binding.closeoutOperationId as SecOperationDigest);
+        input.coordinatedLease, input.binding.closeoutOperationId as OperationDigest);
       await updateJournal({ local: closeoutEffect(localAttempt) });
     } else {
       closeoutAttempt(

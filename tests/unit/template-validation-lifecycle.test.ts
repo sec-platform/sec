@@ -6,7 +6,7 @@ import path from 'node:path';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import { validateResolvedTemplates } from '../../src/adapters/verification/validate-resolved-templates.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 // Native execution keeps real workspace providers. Interruption fences stop at
 // the first temporary-workspace effect; fs.mkdtemp is wrapped only to observe
@@ -66,7 +66,7 @@ test('initial admission failure creates no temporary root and preserves its exac
 }));
 
 test('a special validation failure survives successful cleanup unchanged', async () => using(async (root, allocated) => {
-  const reason = new CompilerError('VERIFY-ISOLATION-003', 'selected refusal'); let refused = false;
+  const reason = new CodedFailure('VERIFY-ISOLATION-003', 'selected refusal'); let refused = false;
   await assert.rejects(validateResolvedTemplates(root, lock(), async () => {
     if (allocated.length && !refused) { refused = true; throw reason; }
   }), error => error === reason);
@@ -74,7 +74,7 @@ test('a special validation failure survives successful cleanup unchanged', async
 }));
 
 test('input changes inside the first fence cannot move clone work outside the protected scope', async () => using(async (root, allocated) => {
-  const input = lock(), reason = new CompilerError('VERIFY-ISOLATION-003', 'expected'); let refused = false;
+  const input = lock(), reason = new CodedFailure('VERIFY-ISOLATION-003', 'expected'); let refused = false;
   await assert.rejects(validateResolvedTemplates(root, input, async () => {
     if (allocated.length === 0) Object.assign(input, { laterFunction() {} });
     else if (!refused) { refused = true; throw reason; }
@@ -90,7 +90,7 @@ for (const primary of [undefined, null, false, 0, Object.freeze({ failed: 'valid
       if (!refused) { refused = true; throw primary; }
       throw cleanup;
     }), error => {
-      const e = error as CompilerError;
+      const e = error as CodedFailure;
       assert.equal(e.code, 'TEMPLATE-BUILD-003');
       assert.ok(e.cause instanceof AggregateError);
       assert.deepEqual(e.cause.errors, [primary, cleanup]); assert.equal(e.cause.cause, primary);
@@ -106,7 +106,7 @@ test('hostile thrown values are preserved as causes after successful cleanup', a
   await assert.rejects(validateResolvedTemplates(root, lock(), async () => {
     if (allocated.length && !refused) { refused = true; throw proxy; }
   }), error => {
-    assert.equal((error as CompilerError).code, 'TEMPLATE-BUILD-001');
+    assert.equal((error as CodedFailure).code, 'TEMPLATE-BUILD-001');
     assert.equal((error as Error).cause, proxy); return true;
   });
   assert.equal(await absent(allocated[0]!), true);
@@ -115,6 +115,6 @@ test('hostile thrown values are preserved as causes after successful cleanup', a
 test('isolated validation rejects a registry containing its temporary-root namespace before setup', async () => using(async (root, allocated) => {
   process.env[ISOLATED_VERIFICATION_ENV_KEY] = '1';
   await assert.rejects(validateResolvedTemplates(root, lock('.'), async () => assert.fail('invalid isolated setup')),
-    error => (error as CompilerError).code === 'TEMPLATE-BUILD-002');
+    error => (error as CodedFailure).code === 'TEMPLATE-BUILD-002');
   assert.deepEqual(allocated, []);
 }));

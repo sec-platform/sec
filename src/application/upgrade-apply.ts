@@ -1,10 +1,10 @@
 import type { LockFile, PlanFile } from '../compiler/contract.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import { compileUpgradeExecutionTerminal } from '../compiler/upgrade/execution-terminal.ts';
 import {
   upgradeFailureWithSecondaryFailures,
   withRollbackDiagnostics
 } from '../compiler/upgrade/failure.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import {
   createUpgradeExecutionAttempt,
   createUpgradePlan,
@@ -160,7 +160,7 @@ type UpgradeRecoverySnapshotLocator = Readonly<{
 type UpgradeRollbackResolution = Readonly<{
   settlement: UpgradeExecutionTerminal['settlement'];
   retainBackupForRecovery: boolean;
-  diagnosticFailure: CompilerError;
+  diagnosticFailure: CodedFailure;
 }>;
 
 interface UpgradeRollbackOperations {
@@ -187,7 +187,7 @@ async function resolveUpgradeRollback(
 
   let settlement: UpgradeExecutionTerminal['settlement'] = 'rolled-back';
   let rollbackFailure: unknown = input.appliedTerminalCommitUnknown
-    ? new CompilerError(
+    ? new CodedFailure(
         'UPGRADE-BLOCKED-005',
         'Upgrade applied terminal publication could not be resolved as committed or absent'
       )
@@ -206,9 +206,9 @@ async function resolveUpgradeRollback(
     settlement = 'recovery-required';
   }
 
-  const failure = input.applyFailure instanceof CompilerError
+  const failure = input.applyFailure instanceof CodedFailure
     ? withRollbackDiagnostics(input.applyFailure)
-    : new CompilerError(
+    : new CodedFailure(
         'UPGRADE-BLOCKED-005',
         `Upgrade apply failed: ${
           input.applyFailure instanceof Error
@@ -224,7 +224,7 @@ async function resolveUpgradeRollback(
 
   const diagnosticFailure = rollbackFailure === null
     ? failure
-    : new CompilerError(
+    : new CodedFailure(
         'UPGRADE-BLOCKED-005',
         `Upgrade recovery is required: ${
           rollbackFailure instanceof Error
@@ -268,7 +268,7 @@ function buildUpgradeCommittedFailure(input: Readonly<{
     ? input.failure
     : new Error(String(input.failure));
   const postCommitFailure = input.durabilityUncertain
-    ? new CompilerError(
+    ? new CodedFailure(
         'UPGRADE-BLOCKED-005',
         `Upgrade applied terminal is externally visible but its durability did not settle: ${primary.message}`,
         {
@@ -343,7 +343,7 @@ export interface UpgradeApplyLifecycleOperations<TBackup> {
   publishDiagnostics(input: Readonly<{
     phase: 'apply' | 'recovery';
     terminal: UpgradeExecutionTerminal;
-    failure: CompilerError;
+    failure: CodedFailure;
     resultLock: LockFile | null;
   }>): Promise<void>;
   retireBackup(backup: TBackup, primaryFailure: Error | null): Promise<void>;
@@ -418,7 +418,7 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
       postCommitFailures.push(terminalPublication.publicationFailure);
     }
     if (terminal.settlement !== 'applied') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'UPGRADE-BLOCKED-005',
         'Upgrade execution did not settle as applied'
       );

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { runSuiteFiles } from '../helpers/run-suite-files.ts';
 
 type FixtureState = {
@@ -121,7 +121,7 @@ test('invalid suite exports preserve the typed failure and stop later entries', 
     const invalid = await module('invalid.mjs', `export const runSuite = true;`);
     const later = await module('later.mjs', `state.evaluations++; export function runSuite() {}`);
     await assert.rejects(runSuiteFiles([invalid, later]), (error: unknown) =>
-      error instanceof CompilerError && error.code === 'VERIFY-BUILD-002' && error.message.includes(invalid));
+      error instanceof CodedFailure && error.code === 'VERIFY-BUILD-002' && error.message.includes(invalid));
     assert.equal(state.evaluations, 0);
   });
 });
@@ -130,7 +130,7 @@ test('a missing suite export is rejected', async () => {
   await fixture(async ({ module }) => {
     const file = await module('missing-export.mjs', `export const unrelated = 1;`);
     await assert.rejects(runSuiteFiles([file]), (error: unknown) =>
-      error instanceof CompilerError && error.code === 'VERIFY-BUILD-002');
+      error instanceof CodedFailure && error.code === 'VERIFY-BUILD-002');
   });
 });
 

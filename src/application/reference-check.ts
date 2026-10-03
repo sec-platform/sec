@@ -1,4 +1,4 @@
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 
 type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
 type ReferenceCheckFailedStage = 'none' | 'refresh' | 'diff';
@@ -127,5 +127,5 @@ const REFERENCE_DRIFT_CODES: Record<Exclude<ReferenceCheckStatus, 'clean'>, {
 export function assertReferenceCheckClean(report: ReferenceCheckReport): void {
   if (report.status === 'clean') return;
   const { code, message } = REFERENCE_DRIFT_CODES[report.status];
-  throw new CompilerError(code, message, report);
+  throw new CodedFailure(code, message, report);
 }

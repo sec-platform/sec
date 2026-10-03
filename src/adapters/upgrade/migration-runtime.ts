@@ -2,7 +2,6 @@ import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 
 import type { UpgradeMigration } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import {
   isEmptyDiagnosticsDetails,
   isPlainObjectDetails,
@@ -32,6 +31,7 @@ import {
 import { collectJsonShapeEvidence, type UpgradePreflightEvidence } from '../../compiler/upgrade/planning.ts';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import type { CommitFence } from '../../contracts/commit-fence.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { resolvePathInside } from '../../contracts/relative-path.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
@@ -72,7 +72,7 @@ async function detectOverrideConflicts(
   );
 
   if (conflictingOverride) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-CONFLICT-001',
       `Override "${conflictingOverride.id}" conflicts with upgrade of "${blockId}"`,
       { override: conflictingOverride }
@@ -82,8 +82,8 @@ async function detectOverrideConflicts(
   return uniqueSorted(manifest.overrides.map((entry) => entry.id));
 }
 
-function unsupportedMigrationKindError(entry: { kind: string }): CompilerError {
-  return new CompilerError('UPGRADE-MIGRATION-006', `Unsupported migration kind "${entry.kind}"`);
+function unsupportedMigrationKindError(entry: { kind: string }): CodedFailure {
+  return new CodedFailure('UPGRADE-MIGRATION-006', `Unsupported migration kind "${entry.kind}"`);
 }
 
 function validateMigrationEntry(entry: UpgradeMigrationEntry, entryPath: string): void {
@@ -110,7 +110,7 @@ export async function loadMigrationEntries(
   for (const migration of migrations) {
     const existingEntry = seenMigrationEntries.get(migration.id);
     if (existingEntry !== undefined) {
-      throw new CompilerError('UPGRADE-MIGRATION-029', `Migration "${migration.id}" is declared more than once`, {
+      throw new CodedFailure('UPGRADE-MIGRATION-029', `Migration "${migration.id}" is declared more than once`, {
         ...migrationManifestDetails(migration),
         entries: [existingEntry, migration.entry]
       });
@@ -129,7 +129,7 @@ export async function loadMigrationEntries(
       `Migration entry ${migration.id}`
     );
     if (retainedEntry === null) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'UPGRADE-MIGRATION-002',
         `Migration entry "${migration.entry}" for "${blockId}@${targetVersion}" is missing`,
         migrationManifestDetails(migration)
@@ -139,13 +139,13 @@ export async function loadMigrationEntries(
     try {
       validateMigrationEntry(entry, migration.entry);
     } catch (error) {
-      if (error instanceof CompilerError) {
+      if (error instanceof CodedFailure) {
         throw withMigrationManifestDetails(migration, error);
       }
       throw error;
     }
     if (entry.id !== migration.id || entry.kind !== migration.kind) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'UPGRADE-MIGRATION-003',
         `Migration entry "${migration.entry}" does not match manifest metadata`,
         {
@@ -183,7 +183,7 @@ function migrationPathDetails(
 function resolveWorkspaceMigrationPath(workspaceRoot: string, relativePath: string, context: MigrationPathContext = {}): string {
   const resolvedPath = resolvePathInside(workspaceRoot, relativePath);
   if (!resolvedPath) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-MIGRATION-004',
       `Migration path "${relativePath}" escapes project root`,
       migrationPathDetails('migration-targets', relativePath, 'project', context)
@@ -195,7 +195,7 @@ function resolveWorkspaceMigrationPath(workspaceRoot: string, relativePath: stri
 function resolveManifestPath(manifestRoot: string, relativePath: string, context: MigrationPathContext = {}): string {
   const resolvedPath = resolvePathInside(manifestRoot, relativePath);
   if (!resolvedPath) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-MIGRATION-005',
       `Migration source "${relativePath}" escapes manifest root`,
       migrationPathDetails('migration-file-operations', relativePath, 'manifest', context)
@@ -233,18 +233,18 @@ function migrationErrorDetails(entry: UpgradeMigrationEntry): Record<string, unk
   };
 }
 
-function withMigrationErrorDetails(entry: UpgradeMigrationEntry, error: CompilerError): CompilerError {
+function withMigrationErrorDetails(entry: UpgradeMigrationEntry, error: CodedFailure): CodedFailure {
   const details = migrationErrorDetails(entry);
   if (isEmptyDiagnosticsDetails(error.details)) {
-    return new CompilerError(error.code, error.message, details);
+    return new CodedFailure(error.code, error.message, details);
   }
   if (isPlainObjectDetails(error.details)) {
-    return new CompilerError(error.code, error.message, {
+    return new CodedFailure(error.code, error.message, {
       ...details,
       ...error.details
     });
   }
-  return new CompilerError(error.code, error.message, {
+  return new CodedFailure(error.code, error.message, {
     ...details,
     causeDetails: normalizeCauseDetails(error.details)
   });
@@ -336,7 +336,7 @@ function ensureMigrationPathImpacted(
   if (impacts.includes(relativePath)) {
     return;
   }
-  throw new CompilerError(
+  throw new CodedFailure(
     'UPGRADE-MIGRATION-007',
     `Migration ${role} "${relativePath}" is outside upgrade impacts`,
     migrationPathDetails('migration-targets', relativePath, 'project', {
@@ -358,7 +358,7 @@ async function applyManifestFileMigration(context: ManifestFileMigrationContext)
   await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
   await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
   const source = readNoFollowMigrationFile(targetManifestRoot, sourcePath, `${entry.kind} manifest source ${entry.source}`);
-  if (source === null) throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
+  if (source === null) throw new CodedFailure('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
   await updateNoFollowMigrationFile({
     root: workspaceRoot,
     targetPath,
@@ -380,7 +380,7 @@ async function applyTextReplaceMigration(context: TextReplaceMigrationContext): 
     commitFence,
     createParents: false,
     update: (current) => {
-      if (current === null) throw new CompilerError('UPGRADE-MIGRATION-016', `text-replace target "${entry.target}" is missing`);
+      if (current === null) throw new CodedFailure('UPGRADE-MIGRATION-016', `text-replace target "${entry.target}" is missing`);
       return Buffer.from(applyTextReplace(Buffer.from(current.bytes).toString('utf8'), entry), 'utf8');
     }
   });
@@ -419,7 +419,7 @@ function assertDbExpandContractCopyJobPreimage(
 ): void {
   const current = readNoFollowMigrationFile(workspaceRoot, job.path, `db-expand-contract job ${entry.id}`);
   if (current !== null && !Buffer.from(current.bytes).equals(job.bytes)) {
-    throw new CompilerError('UPGRADE-MIGRATION-020',
+    throw new CodedFailure('UPGRADE-MIGRATION-020',
       `Database copy job target for migration "${entry.id}" already exists with different content`);
   }
 }
@@ -436,12 +436,12 @@ async function applyDbExpandContractMigration(context: MigrationApplyContext<'db
     commitFence,
     createParents: false,
     update: (current) => {
-      if (current === null) throw new CompilerError('UPGRADE-MIGRATION-016', `db-expand-contract target "${entry.target}" is missing`);
+      if (current === null) throw new CodedFailure('UPGRADE-MIGRATION-016', `db-expand-contract target "${entry.target}" is missing`);
       let content = Buffer.from(current.bytes).toString('utf8');
       const modelStart = content.indexOf(`model ${entry.entity} {`);
-      if (modelStart === -1) throw new CompilerError('UPGRADE-MIGRATION-031', `Target database model "${entry.entity}" not found in schema "${entry.target}"`);
+      if (modelStart === -1) throw new CodedFailure('UPGRADE-MIGRATION-031', `Target database model "${entry.entity}" not found in schema "${entry.target}"`);
       const modelEnd = content.indexOf('}', modelStart);
-      if (modelEnd === -1) throw new CompilerError('UPGRADE-MIGRATION-031', `Invalid schema structure for model "${entry.entity}" in "${entry.target}"`);
+      if (modelEnd === -1) throw new CodedFailure('UPGRADE-MIGRATION-031', `Invalid schema structure for model "${entry.entity}" in "${entry.target}"`);
       const modelContent = content.substring(modelStart, modelEnd);
       let updatedModelContent = modelContent;
       if (!modelContent.includes(entry.expandField)) updatedModelContent = modelContent.trim() + `\n  ${entry.expandField}\n`;
@@ -466,7 +466,7 @@ async function applyDbExpandContractMigration(context: MigrationApplyContext<'db
       createParents: true,
       update: (current) => {
         if (current !== null && !Buffer.from(current.bytes).equals(job.bytes)) {
-          throw new CompilerError('UPGRADE-MIGRATION-020',
+          throw new CodedFailure('UPGRADE-MIGRATION-020',
             `Database copy job target for migration "${entry.id}" changed before write`);
         }
         return job.bytes;
@@ -502,7 +502,7 @@ export async function applyMigrationEntries(
     try {
       await applyMigrationEntry(workspaceRoot, targetManifestRoot, impacts, entry, commitFence);
     } catch (error) {
-      if (error instanceof CompilerError) {
+      if (error instanceof CodedFailure) {
         throw withMigrationErrorDetails(entry, error);
       }
       throw error;
@@ -543,7 +543,7 @@ async function statOptionalMigrationPath(targetPath: string): Promise<MigrationP
   }
 }
 
-async function statExistingMigrationPath(targetPath: string, missingError: CompilerError): Promise<MigrationPathStats> {
+async function statExistingMigrationPath(targetPath: string, missingError: CodedFailure): Promise<MigrationPathStats> {
   const stats = await statOptionalMigrationPath(targetPath);
   if (!stats) {
     throw missingError;
@@ -572,10 +572,10 @@ async function statFileMigrationTarget(
     if (options.allowMissing) {
       return 'missing';
     }
-    throw new CompilerError('UPGRADE-MIGRATION-016', `${kind} target "${target}" is missing`);
+    throw new CodedFailure('UPGRADE-MIGRATION-016', `${kind} target "${target}" is missing`);
   }
   if (!stats.isFile()) {
-    throw new CompilerError('UPGRADE-MIGRATION-017', `${kind} target "${target}" must be a file`);
+    throw new CodedFailure('UPGRADE-MIGRATION-017', `${kind} target "${target}" must be a file`);
   }
   return 'file';
 }
@@ -602,9 +602,9 @@ async function appendTextMigrationTarget(
 }
 
 async function statDirectoryMigrationTarget(targetPath: string, target: string): Promise<void> {
-  const stats = await statExistingMigrationPath(targetPath, new CompilerError('UPGRADE-MIGRATION-025', `Delete-directory target "${target}" is missing`));
+  const stats = await statExistingMigrationPath(targetPath, new CodedFailure('UPGRADE-MIGRATION-025', `Delete-directory target "${target}" is missing`));
   if (!stats.isDirectory()) {
-    throw new CompilerError('UPGRADE-MIGRATION-026', `Delete-directory target "${target}" must be a directory`);
+    throw new CodedFailure('UPGRADE-MIGRATION-026', `Delete-directory target "${target}" must be a directory`);
   }
 }
 
@@ -614,21 +614,21 @@ async function statCreateDirectoryMigrationTarget(targetPath: string, target: st
     return;
   }
   if (!stats.isDirectory()) {
-    throw new CompilerError('UPGRADE-MIGRATION-028', `Create-directory target "${target}" must be a directory when it already exists`);
+    throw new CodedFailure('UPGRADE-MIGRATION-028', `Create-directory target "${target}" must be a directory when it already exists`);
   }
 }
 
 async function statRenameMigrationSource(sourcePath: string, source: string): Promise<void> {
-  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`));
+  const stats = await statExistingMigrationPath(sourcePath, new CodedFailure('UPGRADE-MIGRATION-018', `Rename-file source "${source}" is missing`));
   if (!stats.isFile()) {
-    throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
+    throw new CodedFailure('UPGRADE-MIGRATION-019', `Rename-file source "${source}" must be a file`);
   }
 }
 
 async function statRenameDirectoryMigrationSource(sourcePath: string, source: string): Promise<void> {
-  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-018', `Rename-directory source "${source}" is missing`));
+  const stats = await statExistingMigrationPath(sourcePath, new CodedFailure('UPGRADE-MIGRATION-018', `Rename-directory source "${source}" is missing`));
   if (!stats.isDirectory()) {
-    throw new CompilerError('UPGRADE-MIGRATION-019', `Rename-directory source "${source}" must be a directory`);
+    throw new CodedFailure('UPGRADE-MIGRATION-019', `Rename-directory source "${source}" must be a directory`);
   }
 }
 
@@ -637,16 +637,16 @@ async function statManifestFileMigrationSource(
   source: string,
   kind: ManifestFileMigrationKind
 ): Promise<void> {
-  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
+  const stats = await statExistingMigrationPath(sourcePath, new CodedFailure('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
   if (!stats.isFile()) {
-    throw new CompilerError('UPGRADE-MIGRATION-024', `${kind} source "${source}" must be a file`);
+    throw new CodedFailure('UPGRADE-MIGRATION-024', `${kind} source "${source}" must be a file`);
   }
 }
 
 async function statCopyDirectoryMigrationSource(sourcePath: string, source: string): Promise<void> {
-  const stats = await statExistingMigrationPath(sourcePath, new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
+  const stats = await statExistingMigrationPath(sourcePath, new CodedFailure('UPGRADE-MIGRATION-008', `Migration source "${source}" is missing`));
   if (!stats.isDirectory()) {
-    throw new CompilerError('UPGRADE-MIGRATION-023', `Copy-directory source "${source}" must be a directory`);
+    throw new CodedFailure('UPGRADE-MIGRATION-023', `Copy-directory source "${source}" must be a directory`);
   }
 }
 
@@ -656,7 +656,7 @@ async function statCopyDirectoryMigrationTarget(targetPath: string, target: stri
     return;
   }
   if (!stats.isDirectory()) {
-    throw new CompilerError('UPGRADE-MIGRATION-027', `Copy-directory target "${target}" must be a directory when it already exists`);
+    throw new CodedFailure('UPGRADE-MIGRATION-027', `Copy-directory target "${target}" must be a directory when it already exists`);
   }
 }
 
@@ -667,7 +667,7 @@ async function collectManifestFileOperationEvidence(
   const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
   await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
   if (readNoFollowMigrationFile(targetManifestRoot, sourcePath, `${entry.kind} evidence source ${entry.source}`) === null) {
-    throw new CompilerError('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
+    throw new CodedFailure('UPGRADE-MIGRATION-008', `Migration source "${entry.source}" is missing`);
   }
   await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
   return [
@@ -714,7 +714,7 @@ async function prepareRenameMigrationTarget(
   const sourcePath = resolveWorkspaceMigrationSource(workspaceRoot, entry);
   await statSource(sourcePath, entry.source);
   if (await pathExists(targetPath)) {
-    throw new CompilerError('UPGRADE-MIGRATION-020', `${label} target "${entry.target}" already exists`);
+    throw new CodedFailure('UPGRADE-MIGRATION-020', `${label} target "${entry.target}" already exists`);
   }
   return sourcePath;
 }
@@ -766,7 +766,7 @@ async function applyJsonTargetMigration(
     commitFence,
     createParents: createMissing,
     update: (current) => {
-      if (current === null && !createMissing) throw new CompilerError('UPGRADE-MIGRATION-016', `${entry.kind} target "${entry.target}" is missing`);
+      if (current === null && !createMissing) throw new CodedFailure('UPGRADE-MIGRATION-016', `${entry.kind} target "${entry.target}" is missing`);
       const config = update(current === null ? {} : JSON.parse(Buffer.from(current.bytes).toString('utf8')));
       return Buffer.from(formatJsonFile(config), 'utf8');
     }
@@ -801,7 +801,7 @@ const migrationOperationSpecs = {
         commitFence,
         createParents: false,
         update: (current) => {
-          if (current === null) throw new CompilerError('UPGRADE-MIGRATION-016', `config-rewrite target "${entry.target}" is missing`);
+          if (current === null) throw new CodedFailure('UPGRADE-MIGRATION-016', `config-rewrite target "${entry.target}" is missing`);
           return Buffer.from(formatJsonFile(applyConfigUpdates(JSON.parse(Buffer.from(current.bytes).toString('utf8')), entry.updates)), 'utf8');
         }
       });
@@ -942,7 +942,7 @@ function assertJsonParentPath(config: unknown, pathSegments: string[], errorCode
     }
     const next = readOwnJsonMutationValue(current, segment);
     if (next !== undefined && !isJsonObject(next)) {
-      throw new CompilerError(errorCode, message);
+      throw new CodedFailure(errorCode, message);
     }
     current = next;
   }
@@ -961,7 +961,7 @@ async function collectTextPatternEvidence(
     });
     await statFileMigrationTarget(targetPath, entry.target, entry.kind);
     const retained = readNoFollowMigrationFile(workspaceRoot, targetPath, `Text evidence target ${entry.target}`);
-    if (retained === null) throw new CompilerError('UPGRADE-MIGRATION-016', `text-replace target "${entry.target}" is missing`);
+    if (retained === null) throw new CodedFailure('UPGRADE-MIGRATION-016', `text-replace target "${entry.target}" is missing`);
     applyTextReplace(Buffer.from(retained.bytes).toString('utf8'), entry);
     evidence.push(`${entry.id}:literal:${entry.search.length}`);
   }
@@ -982,7 +982,7 @@ async function collectJsonStructureEvidence(
     if (entry.kind === 'config-rewrite') {
       await statFileMigrationTarget(targetPath, entry.target, entry.kind);
       const retained = readNoFollowMigrationFile(workspaceRoot, targetPath, `Config evidence target ${entry.target}`);
-      if (retained === null) throw new CompilerError('UPGRADE-MIGRATION-016', `config-rewrite target "${entry.target}" is missing`);
+      if (retained === null) throw new CodedFailure('UPGRADE-MIGRATION-016', `config-rewrite target "${entry.target}" is missing`);
       ensureJsonObject(JSON.parse(Buffer.from(retained.bytes).toString('utf8')), 'Config rewrite preflight');
       evidence.push(`${entry.id}:target:object`);
       continue;
@@ -993,13 +993,13 @@ async function collectJsonStructureEvidence(
       continue;
     }
     const retained = readNoFollowMigrationFile(workspaceRoot, targetPath, `JSON evidence target ${entry.target}`);
-    if (retained === null) throw new CompilerError('UPGRADE-MIGRATION-016', `${entry.kind} target "${entry.target}" is missing`);
+    if (retained === null) throw new CodedFailure('UPGRADE-MIGRATION-016', `${entry.kind} target "${entry.target}" is missing`);
     const config = JSON.parse(Buffer.from(retained.bytes).toString('utf8'));
     if (entry.kind === 'json-array-append' || entry.kind === 'json-array-remove') {
       assertJsonParentPath(config, entry.path, 'UPGRADE-MIGRATION-012', `JSON array migration parent must be an object for "${entry.target}"`);
       const target = readJsonPath(config, entry.path);
       if (target !== undefined && !Array.isArray(target)) {
-        throw new CompilerError('UPGRADE-MIGRATION-012', `JSON array migration target must be an array for "${entry.target}"`);
+        throw new CodedFailure('UPGRADE-MIGRATION-012', `JSON array migration target must be an array for "${entry.target}"`);
       }
       evidence.push(`${entry.id}:target:${target === undefined ? 'missing' : 'array'}`);
       continue;
@@ -1007,7 +1007,7 @@ async function collectJsonStructureEvidence(
     assertJsonParentPath(config, entry.path, 'UPGRADE-MIGRATION-013', `JSON object merge parent must be an object for "${entry.target}"`);
     const target = readJsonPath(config, entry.path);
     if (target !== undefined && !isJsonObject(target)) {
-      throw new CompilerError('UPGRADE-MIGRATION-013', `JSON object merge target must be an object for "${entry.target}"`);
+      throw new CodedFailure('UPGRADE-MIGRATION-013', `JSON object merge target must be an object for "${entry.target}"`);
     }
     evidence.push(`${entry.id}:target:${target === undefined ? 'missing' : 'object'}`);
   }

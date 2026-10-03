@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
-import { sha256 } from '../../../../contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { failureMessage } from '../../../../contracts/failure-inspection.ts';
 import {
   type CodexDevelopmentExactGitTreeEntry,
   CodexDevelopmentReadExactGitBlobBytesBatchFromSession,
@@ -17,7 +18,7 @@ import {
   type GitScratchIndexTreeFailureReason,
   isolatedGitReadEnvironment
 } from '../../../providers/git-read/runtime/session.ts';
-import { type GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
+import { type GitHubApiCapability, GitHubApiProviderError } from '../../../providers/github-api/operation-session.ts';
 import { type ByteCommandResult, runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import {
@@ -708,6 +709,34 @@ export function unresolvedGitHubObservation(reason: string): Readonly<{
   return Object.freeze({ status: 'unresolved', reason });
 }
 
+/** Diagnostic data only. The bounded full view never promotes provider prose
+ * to a reason code, HTTP status, instruction or provider receipt. */
+export function projectDocumentControlGitHubFailure(error: unknown) {
+  const detail = failureMessage(error);
+  let providerFailure = false;
+  let httpStatus: number | null = null;
+  try {
+    providerFailure = error instanceof GitHubApiProviderError;
+    if (providerFailure) {
+      const descriptor = Object.getOwnPropertyDescriptor(error, 'statusCode');
+      const status: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+      if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) httpStatus = status;
+    }
+  } catch { /* Unknown thrown values remain unresolved diagnostic data. */ }
+  return Object.freeze({
+    status: 'unresolved' as const,
+    reason: providerFailure ? 'github-api-provider-unavailable' as const : 'github-control-observation-unavailable' as const,
+    httpStatus,
+    detailDigest: rawSha256(detail),
+    diagnostic: Object.freeze({
+      sourceClass: 'external-untrusted' as const,
+      authority: 'none' as const,
+      detail: detail.slice(0, 4_096),
+      truncated: detail.length > 4_096
+    })
+  });
+}
+
 function githubCommandFailure(label: string, result: CommandResult): string | null {
   if (result.code === 0) return null;
   return `${label} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
@@ -759,7 +788,7 @@ export async function observeGitHubControlFacts(
       });
       return Object.freeze({ status: 'resolved', ...inventory });
     } catch (error) {
-      return unresolvedGitHubObservation(error instanceof Error ? error.message : String(error));
+      return projectDocumentControlGitHubFailure(error);
     }
   }
   const countBeforeResult = await run(
@@ -768,7 +797,7 @@ export async function observeGitHubControlFacts(
     repositoryRoot
   );
   const countBeforeFailure = githubCommandFailure('GitHub open inventory count', countBeforeResult);
-  if (countBeforeFailure !== null) return unresolvedGitHubObservation(countBeforeFailure);
+  if (countBeforeFailure !== null) return projectDocumentControlGitHubFailure(new Error(countBeforeFailure));
 
   try {
     const counts = parseGitHubOpenInventoryCounts(countBeforeResult.stdout);
@@ -794,7 +823,7 @@ export async function observeGitHubControlFacts(
       githubCommandFailure('GitHub open issue inventory', issuesResult),
       githubCommandFailure('GitHub review-thread inventory', reviewThreadsResult)
     ].filter((reason): reason is string => reason !== null).join(' | ');
-    if (commandFailure.length > 0) return unresolvedGitHubObservation(commandFailure);
+    if (commandFailure.length > 0) return projectDocumentControlGitHubFailure(new Error(commandFailure));
 
     const openPullRequests = parseExactGitHubNumberedInventory(
       pullRequestsResult.stdout,
@@ -822,7 +851,7 @@ export async function observeGitHubControlFacts(
         `GitHub pull request ${pullRequestNumber} review-thread pagination`,
         result
       );
-      if (failure !== null) return unresolvedGitHubObservation(failure);
+      if (failure !== null) return projectDocumentControlGitHubFailure(new Error(failure));
       replacements.set(
         pullRequestNumber,
         parseGitHubPullRequestReviewThreadPages(result.stdout, pullRequestNumber)
@@ -842,7 +871,7 @@ export async function observeGitHubControlFacts(
       'GitHub open inventory count readback',
       countAfterResult
     );
-    if (countAfterFailure !== null) return unresolvedGitHubObservation(countAfterFailure);
+    if (countAfterFailure !== null) return projectDocumentControlGitHubFailure(new Error(countAfterFailure));
     const countReadback = parseGitHubOpenInventoryCounts(countAfterResult.stdout);
     if (
       countReadback.pullRequests !== counts.pullRequests
@@ -860,7 +889,7 @@ export async function observeGitHubControlFacts(
       reviewThreads
     });
   } catch (error) {
-    return unresolvedGitHubObservation(error instanceof Error ? error.message : String(error));
+    return projectDocumentControlGitHubFailure(error);
   }
 }
 

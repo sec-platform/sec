@@ -41,8 +41,8 @@ import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
 import {
-  writeVerificationActionStartMarkerV2Atomic,
-  writeVerificationActionTerminalStatusAnchorV2Atomic
+  writeVerificationActionProviderStartMarkerAtomic,
+  writeVerificationActionProviderTerminalAnchorAtomic
 } from '../action/journal.ts';
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
@@ -1429,7 +1429,7 @@ async function runPrepareStartMarkerProvider(argv: string[]): Promise<string | n
     executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
     producer: currentHostedActionProducer()
   });
-  writeVerificationActionStartMarkerV2Atomic(args.get('--output')!, marker);
+  writeVerificationActionProviderStartMarkerAtomic(args.get('--output')!, marker);
   return JSON.stringify({
     status: 'marker-prepared',
     actionKey: marker.actionKey,
@@ -1559,7 +1559,7 @@ async function runPrepareTerminalAnchorProvider(argv: string[]): Promise<string 
     terminalAssemblerOrigin: terminalObservation.artifact.producer,
     anchorPublisherOrigin: currentHostedActionProducer()
   });
-  writeVerificationActionTerminalStatusAnchorV2Atomic(args.get('--output')!, anchor);
+  writeVerificationActionProviderTerminalAnchorAtomic(args.get('--output')!, anchor);
   return JSON.stringify({
     status: 'anchor-prepared',
     actionKey: anchor.actionKey,

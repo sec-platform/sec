@@ -1,8 +1,8 @@
 import path from 'node:path';
 import type { PlanFile } from '../../../compiler/contract.ts';
 import { normalizePlan, validatePlan } from '../../../compiler/contract/plan-validation.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { failureMessage } from '../../../contracts/failure-inspection.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { posixPath } from '../../../contracts/relative-path.ts';
 import { parseYamlValue } from '../../formats/yaml.ts';
 import { getWorkspacePaths, officialRegistryRelativePath, privateRegistryRelativePath } from "../../workspace-context.ts";
@@ -22,7 +22,7 @@ function decodePlanUtf8(bytes: Uint8Array, planPath: string): string {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PLAN-VALIDATION-023',
       `Plan at "${planPath}" is not exact UTF-8`,
       { cause: failureMessage(error) },
@@ -43,7 +43,7 @@ function parsePlanSource(raw: string): PlanFile {
       maximumInputBytes: PLAN_YAML_MAX_INPUT_BYTES,
       stringKeys: true, maximumAliasCount: PLAN_YAML_MAX_ALIAS_COUNT });
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PLAN-VALIDATION-022',
       `Plan YAML is invalid: ${failureMessage(error)}`, {}, { cause: error }
     );

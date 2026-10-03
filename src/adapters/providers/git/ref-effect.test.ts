@@ -6,13 +6,13 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { withWorkspaceWriteLease } from '../../filesystem/write-lease.ts';
 import { openProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
@@ -36,7 +36,7 @@ import {
   measureExactLocalGitRefDeleteBatchInputBytes
 } from './ref-effect.ts';
 
-const CONTRACT = sha256({ test: 'git-ref-effect' }) as SecOperationDigest;
+const CONTRACT = sha256({ test: 'git-ref-effect' }) as OperationDigest;
 const REQUIREMENT = 'git.ref-effect.process';
 
 function git(root: string, args: readonly string[]): string {
@@ -57,12 +57,12 @@ function fixture(): string {
 }
 
 function testOperation() {
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'external-capabilities.git.ref-effect.test',
     intentDigest: CONTRACT,
     decisionDigest: CONTRACT,
     deadlineAtUnixMs: Date.now() + 10_000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 10_000 },
       { resource: 'input-bytes', maximum: MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES },
@@ -76,7 +76,7 @@ function testOperation() {
       failureKinds: ['filesystem.write-failed', 'process.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT,
     contractDigest: CONTRACT,
     providerIdentityDigest: CONTRACT
@@ -87,7 +87,7 @@ function openProvider(root: string) {
   const operation = testOperation();
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets

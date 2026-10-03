@@ -5,12 +5,12 @@ import nodePath from 'node:path';
 import { compileClosedDirectedGraphStrongComponents } from '../../../contracts/directed-graph.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../../../execution/operation/identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from '../../../execution/operation/identity.ts';
 import {
-  isCanonicalSecOperationBudgetMaximum,
-  SEC_OPERATION_BUDGET_RESOURCES,
-  SEC_PROCESS_OPERATION_BUDGET_RESOURCES,
-  type SecOperationBudgetResource
+  isCanonicalOperationBudgetMaximum,
+  OPERATION_BUDGET_RESOURCES,
+  PROCESS_OPERATION_BUDGET_RESOURCES,
+  type OperationBudgetResource
 } from '../../../execution/operation/semantic.ts';
 
 /**
@@ -145,7 +145,7 @@ export type SecModuleOperationObligation = Readonly<{
   readonly resources: Readonly<{
     /** Static ceilings only; physical workers own runtime accounting and settlement. */
     readonly aggregateBudgets: readonly Readonly<{
-      readonly resource: SecOperationBudgetResource;
+      readonly resource: OperationBudgetResource;
       readonly maximum: number;
     }>[];
   }>;
@@ -159,29 +159,29 @@ export type SecModuleOperationObligation = Readonly<{
  * Program owns observation and assembly; this package owns only the shape it
  * can evaluate, so architecture never imports the Brownfield compiler.
  */
-export type SecModuleImportKind = 'static' | 'dynamic' | 'require';
+export type RepositoryModuleImportKind = 'static' | 'dynamic' | 'require';
 
-export type SecRepositoryModuleGraphImport = Readonly<{
-  readonly kind: SecModuleImportKind;
+export type RepositoryModuleGraphImport = Readonly<{
+  readonly kind: RepositoryModuleImportKind;
   readonly specifier: string;
   readonly typeOnly: boolean;
 }>;
 
-export type SecRepositoryModuleGraphImportObservation =
-  SecRepositoryModuleGraphImport & Readonly<{ readonly from: string }>;
+export type RepositoryModuleGraphImportObservation =
+  RepositoryModuleGraphImport & Readonly<{ readonly from: string }>;
 
-export type SecRepositoryModuleGraphReference = Readonly<{
+export type RepositoryModuleGraphReference = Readonly<{
   readonly from: string;
-  readonly kind: SecModuleImportKind;
+  readonly kind: RepositoryModuleImportKind;
   readonly specifier: string;
   readonly typeOnly: boolean;
   readonly candidateTargets: readonly string[];
   readonly resolvedTarget: string | null;
 }>;
 
-export type SecRepositoryModuleGraph = Readonly<{
+export type RepositoryModuleGraph = Readonly<{
   readonly files: readonly string[];
-  readonly references: readonly SecRepositoryModuleGraphReference[];
+  readonly references: readonly RepositoryModuleGraphReference[];
   readonly unresolvedFiles: readonly string[];
   readonly directConsumers: (modulePath: string) => readonly string[];
   readonly directDependencies: (modulePath: string) => readonly string[];
@@ -339,7 +339,7 @@ type SecRepositoryNodeResponsibilityProjection = Readonly<{
 export type SecRepositoryModuleEdgeWitness = Readonly<{
   readonly fromPath: string;
   readonly toPath: string;
-  readonly kind: SecModuleImportKind;
+  readonly kind: RepositoryModuleImportKind;
   readonly specifier: string;
 }>;
 
@@ -477,7 +477,7 @@ function descriptorCausalRelations(
     const subject = descriptorString(
       record.subject,
       `${field}.subject`,
-      SEC_SEMANTIC_OPERATION_ID_PATTERN
+      SEMANTIC_OPERATION_ID_PATTERN
     );
     const relation = descriptorEnum(
       record.relation,
@@ -516,14 +516,14 @@ function descriptorCausalRelations(
       semanticOperation: descriptorString(
         operationRecord.semanticOperation,
         `${field}.operation.semanticOperation`,
-        SEC_SEMANTIC_OPERATION_ID_PATTERN
+        SEMANTIC_OPERATION_ID_PATTERN
       ),
       requirementId: operationRecord.requirementId === null
         ? null
         : descriptorString(
             operationRecord.requirementId,
             `${field}.operation.requirementId`,
-            SEC_SEMANTIC_OPERATION_ID_PATTERN
+            SEMANTIC_OPERATION_ID_PATTERN
           )
     });
     return Object.freeze({ subject, relation, symbol, operation });
@@ -656,14 +656,14 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
       const semanticOperation = descriptorString(
         roleRecord.semanticOperation,
         `${roleField}.semanticOperation`,
-        SEC_SEMANTIC_OPERATION_ID_PATTERN
+        SEMANTIC_OPERATION_ID_PATTERN
       );
       const requirementId = roleRecord.requirementId === null
         ? null
         : descriptorString(
             roleRecord.requirementId,
             `${roleField}.requirementId`,
-            SEC_SEMANTIC_OPERATION_ID_PATTERN
+            SEMANTIC_OPERATION_ID_PATTERN
           );
       const requirementBoundRole = role === 'binding-issuer'
         || role === 'provider-settlement-issuer'
@@ -697,7 +697,7 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
         semanticOperation: descriptorString(
           recoveryRecord.semanticOperation,
           `${roleField}.recovery.semanticOperation`,
-          SEC_SEMANTIC_OPERATION_ID_PATTERN
+          SEMANTIC_OPERATION_ID_PATTERN
         )
       });
       if (role !== 'durable-worker' && recovery !== null) {
@@ -917,9 +917,9 @@ function descriptorOperationObligations(
       const resource = descriptorEnum(
         budgetRecord.resource,
         `${field}.resources.aggregateBudgets[${budgetIndex}].resource`,
-        SEC_OPERATION_BUDGET_RESOURCES
+        OPERATION_BUDGET_RESOURCES
       );
-      if (!isCanonicalSecOperationBudgetMaximum(resource, budgetRecord.maximum as number)) {
+      if (!isCanonicalOperationBudgetMaximum(resource, budgetRecord.maximum as number)) {
         descriptorError(
           `${field}.resources.aggregateBudgets[${budgetIndex}].maximum`,
           'expected a canonical static aggregate ceiling'
@@ -931,7 +931,7 @@ function descriptorOperationObligations(
       descriptorError(`${field}.resources.aggregateBudgets`, 'resource entries must be unique');
     }
     if (effectKinds.includes('process')) {
-      const missingProcessResources = SEC_PROCESS_OPERATION_BUDGET_RESOURCES.filter(
+      const missingProcessResources = PROCESS_OPERATION_BUDGET_RESOURCES.filter(
         (resource) => !aggregateBudgets.some((budget) => budget.resource === resource)
       );
       if (missingProcessResources.length > 0) {
@@ -1120,7 +1120,7 @@ function isCanonicalSecRepositoryModulePath(value: string): boolean {
 }
 
 /** Canonical consumer-side address policy shared by graph producers. */
-export function assertSecRepositoryModuleGraphPath(value: string): string {
+export function assertRepositoryModuleGraphPath(value: string): string {
   const normalized = normalizeSecRepositoryPath(value);
   if (isRetiredRepositoryRootPath(normalized)) {
     throw new Error(`repository module graph path uses a retired repository root: ${value}`);
@@ -1140,7 +1140,7 @@ function repositoryModuleOwnerEdgeKey(fromOwner: string, toOwner: string): strin
 }
 
 function compileRepositoryModuleOwnerEdges(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership
 ): readonly SecRepositoryModuleOwnerEdge[] {
   const witnessesByEdge = new Map<string, SecRepositoryModuleEdgeWitness[]>();
@@ -1216,7 +1216,7 @@ function compileRepositoryModuleStrongComponents(
 }
 
 function compileRepositoryModuleFileStrongComponents(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership
 ): readonly SecRepositoryModuleFileStrongComponent[] {
   const edgesByOwner = new Map<string, SecRepositoryModuleEdgeWitness[]>();
@@ -1348,7 +1348,7 @@ function compileRepositoryModuleFeedbackCuts(
  * exact witnesses and never guesses semantic roles or aggregate facades.
  */
 export function compileSecRepositoryModuleTopologyProjection(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership
 ): SecRepositoryModuleTopologyProjection {
   const ownerEdges = compileRepositoryModuleOwnerEdges(graph, membership);
@@ -1418,7 +1418,7 @@ function canonicalSourceModule(value: RepositorySourceAddress): SecCanonicalSour
 }
 
 function collectRepositoryImportPolicyViolations(
-  reference: SecRepositoryModuleGraphReference,
+  reference: RepositoryModuleGraphReference,
   membership?: SecRepositoryModuleMembership
 ): readonly SecRepositoryModuleBoundaryViolation[] {
   if (isTestOnlyRepositoryModulePath(reference.from)) return Object.freeze([]);
@@ -1472,7 +1472,7 @@ function collectRepositoryImportPolicyViolations(
 }
 
 export function collectSecCanonicalSourceBoundaryViolations(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership?: SecRepositoryModuleMembership
 ): readonly SecRepositoryModuleBoundaryViolation[] {
   const violations = graph.references.flatMap((reference) =>
@@ -1502,7 +1502,7 @@ function membershipDeclaresSec086CanonicalPackages(
  * TypeScript symbol fact compiled by the Source Program Model.
  */
 export function collectSecRepositoryModuleBoundaryViolations(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership
 ): readonly SecRepositoryModuleBoundaryViolation[] {
   const violations: SecRepositoryModuleBoundaryViolation[] = [];
@@ -1634,7 +1634,7 @@ function classifyRepositoryModuleAggregateSurface(
 }
 
 function compileRepositoryNodeResponsibilities(
-  _graph: SecRepositoryModuleGraph,
+  _graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
   facts: SecRepositoryModuleSourceProgramFacts
 ): readonly SecRepositoryNodeResponsibilityProjection[] {
@@ -1849,7 +1849,7 @@ function compileRepositoryModuleAuthorityRoleViolations(
  * roles from paths, or turns missing semantic facts into an allow decision.
  */
 export function compileSecRepositoryModuleArchitectureProjection(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
   facts: SecRepositoryModuleSourceProgramFacts
 ): SecRepositoryModuleArchitectureProjection {
@@ -1937,7 +1937,7 @@ export function compileSecRepositoryModuleArchitectureProjection(
 }
 
 export function assertSecRepositoryModuleArchitectureBoundaries(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
   facts: SecRepositoryModuleSourceProgramFacts
 ): void {
@@ -2072,7 +2072,7 @@ export function assertSecRepositoryModuleSourceProgramBoundaries(
 }
 
 export function assertSecRepositoryModuleImportBoundaries(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership
 ): void {
   const violations = collectSecRepositoryModuleBoundaryViolations(graph, membership);

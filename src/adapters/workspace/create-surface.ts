@@ -1,7 +1,7 @@
 import { lstat, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { CompilerError } from '../../compiler/errors.ts';
 import type { CommitFence } from '../../contracts/commit-fence.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { WorkspaceTemplateBlueprint } from '../../execution/workspace-create.ts';
 import { ensureDir } from '../filesystem/files.ts';
 import { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
@@ -107,7 +107,7 @@ export async function assertWorkspaceCreateSurfaceEmpty(
     }
     const entries = directWorkspaceEntries(root);
     if (entries.length === 0) return;
-    throw new CompilerError(
+    throw new CodedFailure(
       'WORKSPACE-INIT-001',
       'Workspace initialization requires an empty root; existing content must be adopted or managed by an explicit lifecycle operation',
       { entries: entries.map((entry) => entry.relativePath).sort() }
@@ -128,7 +128,7 @@ export async function assertWorkspaceCreateSurfaceEmpty(
     localState === null ||
     !samePhysicalEntry(localStateEntry, localState)
   ) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'WORKSPACE-INIT-001',
       'Workspace initialization with an existing writer lease requires an otherwise empty root',
       { entries: entries.map((entry) => entry.relativePath).sort() }
@@ -142,7 +142,7 @@ export async function assertWorkspaceCreateSurfaceEmpty(
     leaseEntry?.relativePath !== WORKSPACE_WRITE_LEASE_DIRECTORY_NAME ||
     leaseEntry.kind !== 'directory'
   ) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'WORKSPACE-INIT-001',
       'Workspace initialization cannot overwrite existing local/control state',
       { localStateEntries: localStateEntries.map((entry) => entry.relativePath).sort() }

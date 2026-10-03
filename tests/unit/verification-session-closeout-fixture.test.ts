@@ -9,7 +9,7 @@ import { authorizeBranchCloseout } from '../../src/adapters/self-hosting/control
 import { collectBranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import { deleteHostedLocalRefCas } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import type { SecOperationDigest } from '../../src/execution/operation/semantic.ts';
+import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
 import type { BranchCloseoutAttempt } from '../../src/execution/verification/branch-closeout.ts';
 import {
   compileCloseoutCliProviderShims, prepareCloseoutCliScenario,
@@ -62,7 +62,7 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       const attempts: BranchCloseoutAttempt[] = [];
       const result = await withWorkspaceWriteLease(path.join(prepared.root, '.git'), undefined,
         async lease => await deleteHostedLocalRefCas(prepared.rehydratedPrepared.preparation,
-          attempts, lease, `sha256:${'c'.repeat(64)}` as SecOperationDigest));
+          attempts, lease, `sha256:${'c'.repeat(64)}` as OperationDigest));
       expect(result).toMatchObject({ status: 'success' });
       expect(readCloseoutCliHarnessState(prepared.statePath)).toMatchObject({
         localPresent: false, localDeleteCount: 1, localRefObservationCount: 2,

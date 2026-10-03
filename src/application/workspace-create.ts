@@ -1,7 +1,7 @@
 import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { PlanFile } from '../compiler/contract.ts';
 import { SUPPORTED_STACK } from '../compiler/contract.ts';
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { posixPath } from '../contracts/relative-path.ts';
 import { privateRegistryRelativePath } from '../workspace/paths.ts';
 
@@ -27,7 +27,7 @@ const REFERENCE_ACCEPTANCE: readonly PlanFile['acceptance'][number][] = Object.f
 function resolveWorkspaceCreateTemplate(value: unknown): WorkspaceCreateTemplate {
   if (value === undefined) return 'minimal';
   if (value === 'minimal' || value === 'reference-customer') return value;
-  throw new CompilerError(
+  throw new CodedFailure(
     'WORKSPACE-INIT-002',
     `Unsupported workspace create template "${String(value)}"`,
     { supportedTemplates: ['minimal', 'reference-customer'] }

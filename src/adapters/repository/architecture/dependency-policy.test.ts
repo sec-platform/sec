@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import nodePath from 'node:path';
 
-import { compileSecRepositoryModuleGraph } from '../source-program-model/typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
   collectSecCanonicalSourceBoundaryViolations,
   collectSecRepositoryModuleBoundaryViolations,
@@ -33,7 +33,7 @@ function importSpecifier(from: string, to: string): string {
 }
 
 function violationsForEdge([from, to]: readonly [from: string, to: string]) {
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: [from, to],
     readSource: (path) => path === from
       ? `import ${JSON.stringify(importSpecifier(from, to))};`
@@ -97,7 +97,7 @@ test('the actual current source graph has no forbidden canonical-module edge', (
     }
   }
   files.sort();
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files,
     readSource: (repositoryPath) => readFileSync(nodePath.join(repositoryRoot, repositoryPath), 'utf8')
   });
@@ -111,7 +111,7 @@ test('the actual current source graph has no forbidden canonical-module edge', (
 });
 
 test('canonical repository graph still rejects unresolved local imports and circular source relations', () => {
-  const unresolved = compileSecRepositoryModuleGraph({
+  const unresolved = compileSourceProgramRepositoryModuleGraph({
     files: ['src/compiler/feature/source.ts'],
     readSource: () => "import './missing.ts';"
   });
@@ -121,7 +121,7 @@ test('canonical repository graph still rejects unresolved local imports and circ
       from: 'src/compiler/feature/source.ts'
     }));
 
-  const circular = compileSecRepositoryModuleGraph({
+  const circular = compileSourceProgramRepositoryModuleGraph({
     files: ['src/compiler/feature/a.ts', 'src/compiler/feature/b.ts'],
     readSource: (path) => path.endsWith('/a.ts')
       ? "import './b.ts';"
@@ -136,7 +136,7 @@ test('pure computation roots reject direct host IO imports, including type-only 
     for (const specifier of ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi']) {
       for (const prefix of ['import', 'import type']) {
         const source = `src/${domain}/example.ts`;
-        const graph = compileSecRepositoryModuleGraph({
+        const graph = compileSourceProgramRepositoryModuleGraph({
           files: [source],
           readSource: () => `${prefix} { HostHandle } from ${JSON.stringify(specifier)};`
         });
@@ -146,7 +146,7 @@ test('pure computation roots reject direct host IO imports, including type-only 
     }
   }
   const source = 'src/contracts/canonical.ts';
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: [source], readSource: () => "import { createHash } from 'node:crypto';"
   });
   expect(collectSecCanonicalSourceBoundaryViolations(graph))
@@ -166,7 +166,7 @@ test('fine-grained descriptor cycles stay diagnostic inside one canonical packag
     moduleRoots: [first.root, second.root],
     moduleForPath: (file: string) => file.startsWith('src/adapters/first/') ? first : second
   };
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: ['src/adapters/first/index.ts', 'src/adapters/second/index.ts'],
     readSource: (file) => file.includes('/first/')
       ? "import '../second/index.ts'; export const first = true;"

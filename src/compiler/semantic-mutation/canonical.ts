@@ -1,6 +1,6 @@
 import { canonicalEquals, canonicalJson, cloneAndDeepFreeze, compareCodeUnits, isPlainObject, rawSha256, sortedKeys } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticFactSelector, SemanticMutationDiagnostic, SemanticMutationDiagnosticOrigin, SemanticMutationDiagnosticStage, VerificationRequirement } from '../../semantics/mutation/types.ts';
-import { CompilerError } from '../errors.ts';
 
 const STAGE_ORDER: readonly SemanticMutationDiagnosticStage[] = [
   'request',
@@ -29,7 +29,7 @@ const ORIGIN_ORDER: readonly SemanticMutationDiagnosticOrigin[] = [
 
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
-export class SemanticMutationContractError extends CompilerError {
+export class SemanticMutationContractError extends CodedFailure {
   readonly diagnostic: SemanticMutationDiagnostic;
 
   constructor(diagnostic: SemanticMutationDiagnostic) {
@@ -207,14 +207,14 @@ export function nestedDiagnostic(
   origin: Exclude<SemanticMutationDiagnosticOrigin, 'semantic-mutation'>,
   stage: SemanticMutationDiagnosticStage
 ): SemanticMutationDiagnostic {
-  const trustedMessage = error instanceof CompilerError
+  const trustedMessage = error instanceof CodedFailure
     ? TRUSTED_NESTED_PRODUCER_MESSAGES[error.code]
     : undefined;
   const trustedProducerCode = trustedMessage !== undefined && (
-    (origin === 'fact-delta' && error instanceof CompilerError && error.code.startsWith('FACT-DELTA-')) ||
-    (origin === 'impact' && error instanceof CompilerError && error.code.startsWith('IMPACT-'))
+    (origin === 'fact-delta' && error instanceof CodedFailure && error.code.startsWith('FACT-DELTA-')) ||
+    (origin === 'impact' && error instanceof CodedFailure && error.code.startsWith('IMPACT-'))
   );
-  if (trustedProducerCode && error instanceof CompilerError) {
+  if (trustedProducerCode && error instanceof CodedFailure) {
     const details = redactedNestedProducerDetails(origin, error.code, error.details);
     return {
       origin,

@@ -528,7 +528,7 @@ function retainNoFollowFile(
         WINDOWS_GENERIC_READ,
         WINDOWS_FILE_OPEN,
         label,
-        false,
+        true,
         WINDOWS_SHARE_READ,
         false,
         role === 'executable'

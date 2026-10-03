@@ -1,14 +1,14 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { withAcquiredResource } from '../../../execution/resource-settlement.ts';
 import { resolveLinuxEffectiveUserHome } from '../../runtime-state/physical/runtime/linux-user-home.ts';
@@ -53,7 +53,7 @@ const GITHUB_CREDENTIAL_CONTRACT_DIGEST = sha256({
   credentialOutput: 'ascii-token',
   maximumTokenBytes: MAX_TOKEN_BYTES,
   maximumErrorBytes: MAX_ERROR_BYTES
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 export class GitHubCredentialUnavailableError extends Error {
   readonly code = 'github-credential-unavailable' as const;
@@ -220,14 +220,14 @@ function compileGitHubCredentialOperation(input: Readonly<{
   deadlineAtUnixMs: number;
   environmentIdentity: Readonly<NodeJS.ProcessEnv>;
   credentialSource: GitHubCredentialSource;
-  providerIdentityDigest: SecOperationDigest;
-}>): SecBoundSemanticOperation {
+  providerIdentityDigest: OperationDigest;
+}>): BoundSemanticOperation {
   const durationMs = input.deadlineAtUnixMs - Date.now();
   if (!Number.isSafeInteger(durationMs) || durationMs < 1
       || durationMs > MAX_CREDENTIAL_LIFETIME_MS) {
     throw new GitHubCredentialUnavailableError('deadline');
   }
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: GITHUB_CREDENTIAL_OPERATION,
     intentDigest: sha256({
       cwd: input.cwd,
@@ -235,10 +235,10 @@ function compileGitHubCredentialOperation(input: Readonly<{
       environment: input.environmentIdentity,
       credentialSource: input.credentialSource,
       providerIdentityDigest: input.providerIdentityDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: GITHUB_CREDENTIAL_CONTRACT_DIGEST,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: GITHUB_CREDENTIAL_CONTRACT_DIGEST
     }),
     aggregateBudgets: [
@@ -262,7 +262,7 @@ function compileGitHubCredentialOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: GITHUB_CREDENTIAL_REQUIREMENT,
     contractDigest: GITHUB_CREDENTIAL_CONTRACT_DIGEST,
     providerIdentityDigest: input.providerIdentityDigest
@@ -271,7 +271,7 @@ function compileGitHubCredentialOperation(input: Readonly<{
 
 function assertGitHubCredentialReceipt(
   receipt: ProcessResourceSessionReceipt,
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
     operationIdentityDigest: operation.plan.identity.identityDigest,
@@ -359,7 +359,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
               },
               workingDirectory: workingDirectoryChain.target,
               credentialStoreIdentity: store?.identityDigest ?? null
-            }) as SecOperationDigest;
+            }) as OperationDigest;
             const operation = compileGitHubCredentialOperation({
               cwd,
               deadlineAtUnixMs: deadlineAt,
@@ -374,7 +374,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
                 const session = openProcessResourceSession({
                   operation,
                   ...(input.signal === undefined ? {} : { signal: input.signal }),
-                  requirementBindingContext: issueSecOperationRequirementBindingContext({
+                  requirementBindingContext: issueOperationRequirementBindingContext({
                     operation,
                     requirementId: GITHUB_CREDENTIAL_REQUIREMENT,
                     resourceCeilings: operation.plan.execution.aggregateBudgets

@@ -6,8 +6,8 @@ import { parseYamlValue } from '../../formats/yaml.ts';
 
 import type { BlockManifest, ManifestEntry, PlanRegistrySource, ResolvedBlock } from '../../../compiler/contract.ts';
 import { assertManifestDefinitionConsistency, validateManifest, validateRegistrySource } from '../../../compiler/contract/manifest-validation.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { compareCodeUnits, rawSha256 } from '../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import type { RegistryKind, RegistryLocation } from '../../../contracts/registry-source.ts';
 import { posixPath, resolvePathInside } from "../../../contracts/relative-path.ts";
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../../semantics/identity/block.ts';
@@ -65,7 +65,7 @@ function parseManifestSource(source: ManifestSourceBytes): BlockManifest {
       maximumInputBytes: MANIFEST_YAML_MAX_INPUT_BYTES,
       stringKeys: true, maximumAliasCount: MANIFEST_YAML_MAX_ALIAS_COUNT }) as BlockManifest;
   } catch (error) {
-    throw new CompilerError('MANIFEST-SCHEMA-001',
+    throw new CodedFailure('MANIFEST-SCHEMA-001',
       `Manifest YAML is invalid: ${source.path}: ${failureMessage(error)}`,
       { manifestPath: source.path }, { cause: error });
   }
@@ -147,7 +147,7 @@ function manifestEntryFromPath(
 
 function assertRequestedManifestIdentity(manifest: BlockManifest, requestedBlockId: string, manifestPath: string): void {
   if (manifest.id !== requestedBlockId) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'MANIFEST-SCHEMA-011',
       `Manifest at "${manifestPath}" declares id "${manifest.id}" but was addressed as "${requestedBlockId}"`
     );
@@ -162,7 +162,7 @@ function assertRegistryDirectoryIdentity(
 ): void {
   const expectedDirectory = blockDirName(manifest.id);
   if (directoryName !== expectedDirectory) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'MANIFEST-SCHEMA-012',
       `Registry "${registrySource.id}" manifest "${manifest.id}" must live in directory "${expectedDirectory}", not "${directoryName}" (${manifestPath})`
     );
@@ -171,13 +171,13 @@ function assertRegistryDirectoryIdentity(
 
 function assertRequestedManifestLocator(blockId: string, version: string | undefined): void {
   if (!isCanonicalBlockId(blockId)) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'MANIFEST-SCHEMA-015',
       `Manifest block id "${blockId}" is not one canonical lowercase namespace/name identity`
     );
   }
   if (version !== undefined && !isCanonicalRegistryVersion(version)) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'MANIFEST-SCHEMA-015',
       `Manifest version "${version}" is not one canonical registry version`
     );
@@ -192,14 +192,14 @@ export async function resolveManifestResource(
   for (const root of roots) {
     const candidate = resolvePathInside(root, resourcePath);
     if (!candidate) {
-      throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+      throw new CodedFailure('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
     }
     if (await pathExists(candidate)) return { root, path: candidate };
   }
   const root = roots[0] ?? entry.manifestRoot;
   const candidate = resolvePathInside(root, resourcePath);
   if (!candidate) {
-    throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
+    throw new CodedFailure('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
   }
   return { root, path: candidate };
 }
@@ -229,7 +229,7 @@ function loadManifestFromSource(
       validateManifest(manifest);
       assertRequestedManifestIdentity(manifest, blockId, manifestPath);
       if (manifest.version !== version) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'MANIFEST-SCHEMA-022',
           `Versioned manifest at "${manifestPath}" declares version "${manifest.version}" but was addressed as "${version}"`
         );
@@ -271,7 +271,7 @@ export function loadManifestById(blockId: string, options: ManifestLoadOptions =
   assertManifestDefinitionConsistency(candidates);
   if (candidates[0] !== undefined) return candidates[0];
 
-  throw new CompilerError(
+  throw new CodedFailure(
     'MANIFEST-SCHEMA-004',
     version ? `Unknown block "${blockId}" version "${version}"` : `Unknown block "${blockId}"`
   );
@@ -319,7 +319,7 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
       const manifestPath = path.join(registryRoot.path, entry.name, 'block.manifest.yaml');
       const source = tryReadManifestSource(manifestPath);
       if (!source) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'MANIFEST-SCHEMA-013',
           `Registry "${registrySource.id}" directory "${entry.name}" is missing block.manifest.yaml`
         );

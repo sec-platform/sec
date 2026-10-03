@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { observeOptionalDiagnostic } from '../../../../execution/optional-diagnostic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import {
@@ -33,7 +33,7 @@ export type RepositoryMutationFenceExecutionContext = Readonly<{
 }>;
 
 export interface RepositoryMutationFenceOptions {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly repositoryRoot?: string;
   readonly report?: (message: string) => void;
   /** Narrows the native observer window when an outer owner has one. */
@@ -100,7 +100,7 @@ const PROCESS_RESOURCE_CEILINGS = new Set([
 ]);
 
 function openRepositoryProcessResourceSession(
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): ProcessResourceSession {
   const processRequirements = operation.plan.execution.requirements.filter(({ effectKinds }) => (
     effectKinds.includes('process')
@@ -111,7 +111,7 @@ function openRepositoryProcessResourceSession(
   const requirement = processRequirements[0]!;
   return openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: requirement.id,
       resourceCeilings: operation.plan.execution.aggregateBudgets.filter(({ resource }) => (
@@ -123,7 +123,7 @@ function openRepositoryProcessResourceSession(
 
 function closeRepositoryProcessResourceSession(
   processSession: ProcessResourceSession,
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): void {
   const receipt = processSession.close();
   assertProcessResourceSessionReceipt(receipt, {
@@ -281,7 +281,7 @@ export async function runRepositoryZeroWriteOperation(
       batchObserverResolution = await armPreparedRepositoryChangeObserver({
         prepared: preparedObserver!,
         operation: batchOperation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation: batchOperation,
           requirementId: preparedObserver!.providerBinding.requirementId,
           resourceCeilings: [{ resource: 'duration-ms', maximum: remainingDurationMs }],

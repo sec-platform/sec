@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { InstallPlanStep, LockFile } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import type { CommitFence } from "../../../contracts/commit-fence.ts";
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { assertCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
@@ -28,7 +28,7 @@ function resolveSourcePath(step: InstallPlanStep, context: InstallContext): stri
   const sourceRoot = resolvePathInside(registryRoot, step.sourceRoot, { allowEmpty: true });
   const sourcePath = sourceRoot ? resolvePathInside(sourceRoot, step.from) : null;
   if (!sourcePath) {
-    throw new CompilerError('COMPOSE-PATH-003', `Install source path "${step.from}" escapes registry source root`);
+    throw new CodedFailure('COMPOSE-PATH-003', `Install source path "${step.from}" escapes registry source root`);
   }
   return sourcePath;
 }
@@ -37,7 +37,7 @@ function canonicalInstallTarget(step: InstallPlanStep): string {
   try {
     return assertCanonicalPortableLogicalPath(step.to, 'Install target path');
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'COMPOSE-PATH-004',
       `Install target path "${step.to}" is not one canonical portable logical path`,
       { cause: error instanceof Error ? error.message : String(error) }
@@ -51,7 +51,7 @@ function resolveTargetPath(step: InstallPlanStep, context: InstallContext): stri
     ? resolveWorkspaceArtifactPath(context.workspaceRoot, target)
     : resolvePathInside(context.workspaceRoot, target);
   if (!targetPath) {
-    throw new CompilerError('COMPOSE-PATH-004', `Install target path "${step.to}" escapes workspace root`);
+    throw new CodedFailure('COMPOSE-PATH-004', `Install target path "${step.to}" escapes workspace root`);
   }
   return targetPath;
 }
@@ -121,7 +121,7 @@ export class InstallStrategyRegistry {
   resolve(step: InstallPlanStep): InstallStrategy {
     const strategy = this.strategies.find((candidate) => candidate.canHandle(step));
     if (!strategy) {
-      throw new CompilerError('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
+      throw new CodedFailure('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
     }
     return strategy;
   }
@@ -141,7 +141,7 @@ export class InstallStrategyRegistry {
     const prepared = capturedSteps.map(step => {
       const target = resolveTargetPath(step, base);
       const selected = strategies.find(strategy => strategy.accepts(step));
-      if (!selected) throw new CompilerError('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
+      if (!selected) throw new CodedFailure('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
       return { step, target, execute: selected.execute };
     });
     const groups = groupInstallTargets(prepared);

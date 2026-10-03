@@ -5,10 +5,10 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -29,9 +29,9 @@ const testIssuer = issueExternalProviderCoordinationLeaseTestIssuerForTests();
 
 function providerOperation(providerIdentityDigest = digest('a')) {
   const contractDigest = sha256({ contract: requirementId }) as `sha256:${string}`;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     aggregateBudgets: [{ resource: 'duration-ms', maximum: 300_000 }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     deadlineAtUnixMs: Date.now() + 300_000,
     decisionDigest: sha256({ decision: requirementId }) as `sha256:${string}`,
     intentDigest: sha256({ intent: requirementId }) as `sha256:${string}`,
@@ -43,7 +43,7 @@ function providerOperation(providerIdentityDigest = digest('a')) {
       id: requirementId
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     contractDigest,
     providerIdentityDigest,
     requirementId

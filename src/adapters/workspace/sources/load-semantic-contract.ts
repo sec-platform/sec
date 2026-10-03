@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { ManifestEntry } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { isSafeRelativePath, posixPath } from '../../../contracts/relative-path.ts';
 import { normalizeSemanticContract } from '../../../semantics/definitions/normalize.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../../semantics/definitions/types.ts';
@@ -22,16 +22,16 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
 
   for (const reference of [...entry.manifest.contracts].sort((left, right) => compareCodeUnits(left.path, right.path))) {
     if (!reference?.path || !isSafeRelativePath(reference.path)) {
-      throw new CompilerError('CONTRACT-SEMANTIC-015', `Manifest "${entry.manifest.id}" contract paths must stay inside the block root`);
+      throw new CodedFailure('CONTRACT-SEMANTIC-015', `Manifest "${entry.manifest.id}" contract paths must stay inside the block root`);
     }
     if (seenPaths.has(reference.path)) {
-      throw new CompilerError('CONTRACT-SEMANTIC-016', `Manifest "${entry.manifest.id}" repeats contract path "${reference.path}"`);
+      throw new CodedFailure('CONTRACT-SEMANTIC-016', `Manifest "${entry.manifest.id}" repeats contract path "${reference.path}"`);
     }
     seenPaths.add(reference.path);
 
     const source = readManifestResourceFileUtf8(entry, reference.path);
     if (source === null) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-015',
         `Manifest "${entry.manifest.id}" contract resource "${reference.path}" is absent`
       );
@@ -45,7 +45,7 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
       });
     } catch (error) {
       if (!isYamlParseFailure(error)) throw error;
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-023',
         `Manifest "${entry.manifest.id}" contract resource "${reference.path}" is not valid bounded YAML`,
         { yamlFailureCode: error.code, yamlFailureKind: error.kind },

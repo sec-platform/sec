@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { describePipelineFailure, PipelineSettlementFailure, settlePipelineFailure } from '../../src/application/pipeline-failure.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 for (const reason of [undefined, null, false, 0, 'failure', Symbol('reason')]) {
   test(`settled failure preserves ${String(reason)} without converting it to success`, async () => {
@@ -36,14 +36,14 @@ test('a refused commit fence is never bypassed by the settlement helper', async 
 });
 
 test('failure descriptions retain known compiler codes and ordinary messages', () => {
-  assert.deepEqual(describePipelineFailure(new CompilerError('TEST-001', 'message')), { code: 'TEST-001', message: 'message' });
+  assert.deepEqual(describePipelineFailure(new CodedFailure('TEST-001', 'message')), { code: 'TEST-001', message: 'message' });
   assert.deepEqual(describePipelineFailure(new Error('message')), { code: 'UNEXPECTED', message: 'message' });
   assert.deepEqual(describePipelineFailure(undefined), { code: 'UNEXPECTED', message: 'undefined' });
 });
 
 test('revoked proxies and hostile accessors do not prevent failure settlement', async () => {
   const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
-  const hostile = Object.defineProperties(new CompilerError('ORIGINAL', 'message'), {
+  const hostile = Object.defineProperties(new CodedFailure('ORIGINAL', 'message'), {
     code: { get() { throw new Error('code getter'); } }, message: { get() { throw new Error('message getter'); } }
   });
   for (const reason of [proxy, hostile]) {

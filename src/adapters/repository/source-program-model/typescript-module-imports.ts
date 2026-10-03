@@ -3,8 +3,8 @@ import { createTypeScriptModuleLoadObserver } from './typescript-module-loader.t
 
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
 import type {
-  SecModuleImportKind,
-  SecRepositoryModuleGraphImportObservation
+  RepositoryModuleGraphImportObservation,
+  RepositoryModuleImportKind
 } from '../architecture/contract.ts';
 
 type TypeScriptModuleProgram = Readonly<{
@@ -18,7 +18,7 @@ type TypeScriptModuleProgram = Readonly<{
  * unresolved; callers must not interpret their absent edges as a closed graph.
  */
 export type TypeScriptModuleImportFacts = Readonly<{
-  imports: readonly SecRepositoryModuleGraphImportObservation[];
+  imports: readonly RepositoryModuleGraphImportObservation[];
   unresolvedFiles: readonly string[];
 }>;
 
@@ -26,10 +26,10 @@ export function typeScriptModuleImportFacts(exact: TypeScriptModuleProgram): Typ
   if (exact.program.getCompilerOptions().verbatimModuleSyntax !== true) {
     throw new Error('Module import observations require the canonical verbatimModuleSyntax compiler profile.');
   }
-  const observations: SecRepositoryModuleGraphImportObservation[] = [];
+  const observations: RepositoryModuleGraphImportObservation[] = [];
   const unresolvedFiles = new Set<string>();
   const observeModuleLoad = createTypeScriptModuleLoadObserver(exact.program.getTypeChecker());
-  const add = (from: string, kind: SecModuleImportKind, specifier: string, typeOnly = false): void => {
+  const add = (from: string, kind: RepositoryModuleImportKind, specifier: string, typeOnly = false): void => {
     observations.push(Object.freeze({ from, kind, specifier, typeOnly }));
   };
   for (const sourceFile of exact.sourceFiles) {
@@ -68,7 +68,7 @@ export function typeScriptModuleImportFacts(exact: TypeScriptModuleProgram): Typ
       ts.forEachChild(node, (child) => { pending.push(child); });
     }
   }
-  const unique = new Map<string, SecRepositoryModuleGraphImportObservation>();
+  const unique = new Map<string, RepositoryModuleGraphImportObservation>();
   for (const observation of observations) {
     const key = `${observation.from}\0${observation.kind}\0${observation.specifier}`;
     const existing = unique.get(key);

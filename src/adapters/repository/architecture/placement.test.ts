@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { compileSecRepositoryModuleGraph } from '../source-program-model/typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
   type SecModuleDescriptor,
   type SecModuleOperationObligation,
@@ -75,7 +75,7 @@ function fixture(input: Readonly<{
     [contractPath, `${input.reverseContractImport ? "import { run } from '../example-alpha/run.ts';\n" : ''}export interface Contract { value: string; }`],
     [unknownPath, 'export function publicUnknown() {}\nfunction effectUnknown() {}']
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files,
     readSource: (path) => source.get(path) ?? null
   });

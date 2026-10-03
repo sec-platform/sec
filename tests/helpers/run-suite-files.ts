@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { throwIfNativeAborted } from '../../src/contracts/native-abort.ts';
 
 interface SuiteModule {
@@ -43,7 +43,7 @@ export async function runSuiteFiles(
     const testModule = (await import(specifier)) as SuiteModule;
     throwIfNativeAborted(signal);
     const execute = testModule.runSuite;
-    if (typeof execute !== 'function') throw new CompilerError('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
+    if (typeof execute !== 'function') throw new CodedFailure('VERIFY-BUILD-002', `Test file "${file}" must export runSuite()`);
     await Reflect.apply(execute, testModule, []);
     throwIfNativeAborted(signal);
     await onSuitePassed?.(file);

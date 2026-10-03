@@ -16,7 +16,7 @@ import {
   cleanDependencyEnvironment,
   getDoctorReport
 } from '../../src/bootstrap/toolchain/dependency-environment.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import {
   generatedStateDigest,
   generatedStateLegacyRetirementRuleForPath
@@ -201,7 +201,7 @@ test('unregistered legacy shared dependencies remain physically intact with a ty
       observed = error;
     }
 
-    expect(observed).toBeInstanceOf(SecError);
+    expect(observed).toBeInstanceOf(CodedFailure);
     expect(observed).toMatchObject({
       code: 'IMPORT-AUTHORITY-004',
       cause: expect.objectContaining({ code: 'GENERATED_STATE_PROVENANCE_BLOCKED' })

@@ -10,7 +10,7 @@ import {
   digest,
   sortedKeys
 } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
@@ -97,7 +97,7 @@ async function observeStableRuntimeExecutablePath(
   executableInputPath: string
 ): Promise<RuntimeExecutableIdentity> {
   if (!path.isAbsolute(executableInputPath) || executableInputPath.includes('\0')) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-001',
       'Bun runtime executable source path must be one absolute NUL-free path'
     );
@@ -111,7 +111,7 @@ async function observeStableRuntimeExecutablePath(
       || metadata.dev !== pathBefore.dev || metadata.ino !== pathBefore.ino
       || metadata.mode !== pathBefore.mode || metadata.size !== pathBefore.size
       || metadata.mtimeNs !== pathBefore.mtimeNs) {
-      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one stable physical file');
+      throw new CodedFailure('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one stable physical file');
     }
     const signature = [
       executablePath,
@@ -135,7 +135,7 @@ async function observeStableRuntimeExecutablePath(
       pathAfter.mtimeNs !== metadata.mtimeNs ||
       !sameHostPath(physicalPathAfter, executablePath) ||
       !sameHostPath(inputPathAfter, executablePath)) {
-      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
+      throw new CodedFailure('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
     }
     return Object.freeze({
       path: executablePath,
@@ -159,7 +159,7 @@ export async function currentRuntimeExecutableIdentity(
         && process.execPath.startsWith('/memfd:sec-retained-executable')) {
       const sourcePath = process.env[RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY];
       if (sourcePath === undefined) {
-        throw new SecError(
+        throw new CodedFailure(
           'IMPORT-AUTHORITY-001',
           'Sealed Bun runtime is missing its owner-issued executable source provenance'
         );
@@ -211,10 +211,10 @@ export async function compilerDependencyIdentity(root: string): Promise<Compiler
     platform: process.platform
   };
   if (runtime.bunVersion === 'unknown') {
-    throw new SecError('IMPORT-AUTHORITY-001', 'Compiler dependency bootstrap must run under Bun');
+    throw new CodedFailure('IMPORT-AUTHORITY-001', 'Compiler dependency bootstrap must run under Bun');
   }
   if (runtime.declaredBunVersion !== canonicalBunVersion || runtime.bunVersion !== canonicalBunVersion) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-001',
       `Bun runtime identity mismatch: canonical=${canonicalBunVersion}, packageManager=${runtime.declaredBunVersion}, actual=${runtime.bunVersion}`
     );
@@ -335,7 +335,7 @@ export function assertCompilerDependencyInputsCurrent(
     const entry = inspectNoFollowOrdinaryFileEntry(sourceRoot, name);
     if (entry === null) return null;
     if (entry.kind !== 'file' || entry.bytes === null) {
-      throw new SecError(
+      throw new CodedFailure(
         'IMPORT-AUTHORITY-001',
         `Compiler dependency input ${name} is not an ordinary no-follow file`
       );
@@ -349,7 +349,7 @@ export function assertCompilerDependencyInputsCurrent(
       lockBytes === null || digest(lockBytes) !== expected.lockSha256 ||
       (configBytes !== null) !== expected.installConfigPresent ||
       compilerInstallConfigSha256(configBytes) !== expected.installConfigSha256) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-001',
       'Compiler dependency source inputs changed around materialization'
     );
@@ -360,14 +360,14 @@ export function assertCompilerDependencyInputsCurrent(
     const versionBytes = readNoFollowOrdinaryFile(sourceRoot, '.bun-version');
     version = versionBytes === null ? '' : compilerInputText(versionBytes, 'Compiler Bun version marker').trim();
   } catch (error) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-001',
       'Compiler dependency version marker is not an ordinary no-follow file',
       { versionPath, cause: error instanceof Error ? error.message : String(error) }
     );
   }
   if (version !== expected.bunVersion) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-001',
       'Compiler dependency Bun version marker changed around materialization'
     );

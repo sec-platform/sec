@@ -1,30 +1,30 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
-  consumeSecOperationRequirementBindingContext,
-  issueSecOperationRequirementBindingContext,
-  SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
-  type SecOperationRequirementBindingContext
+  consumeOperationRequirementBindingContext,
+  issueOperationRequirementBindingContext,
+  OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
+  type OperationRequirementBindingContext
 } from './requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from './semantic.ts';
 
-function digest(value: string): SecOperationDigest {
+function digest(value: string): OperationDigest {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
 function operation(
   provider: string,
   inputMaximum: number | null = 4_096
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const requirementContractDigest = digest('typescript-project-check-contract');
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'typecheck.project-check',
     intentDigest: digest('exact-project-input'),
     decisionDigest: digest('typecheck-decision'),
@@ -43,11 +43,11 @@ function operation(
       effectKinds: ['process'],
       failureKinds: ['provider.unavailable', 'resource.exhausted']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: digest('typecheck-effect-grant')
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: requirementContractDigest,
     providerIdentityDigest: digest(provider)
@@ -56,7 +56,7 @@ function operation(
 
 test('foundation context binds one exact attempt requirement provider and narrowed ceiling', () => {
   const bound = operation('typescript-native-provider');
-  const context = issueSecOperationRequirementBindingContext({
+  const context = issueOperationRequirementBindingContext({
     operation: bound,
     requirementId: 'typescript.project-check',
     resourceCeilings: [
@@ -65,9 +65,9 @@ test('foundation context binds one exact attempt requirement provider and narrow
       { resource: 'output-bytes', maximum: 2_048 }
     ]
   });
-  const projection = consumeSecOperationRequirementBindingContext(context);
+  const projection = consumeOperationRequirementBindingContext(context);
 
-  expect(projection.issuerRole).toBe(SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
+  expect(projection.issuerRole).toBe(OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
   expect(projection.operationIdentityDigest).toBe(bound.plan.identity.identityDigest);
   expect(projection.executionPlanDigest).toBe(bound.plan.execution.executionPlanDigest);
   expect(projection.boundAttemptDigest).toBe(bound.boundAttemptDigest);
@@ -86,8 +86,8 @@ test('foundation context binds one exact attempt requirement provider and narrow
 test('foundation context binds a fixed child deadline and rejects attempt widening', () => {
   const narrowedOperation = operation('child-deadline-provider');
   const childDeadlineAtUnixMs = narrowedOperation.plan.attempt.deadlineAtUnixMs - 10_000;
-  const narrowed = consumeSecOperationRequirementBindingContext(
-    issueSecOperationRequirementBindingContext({
+  const narrowed = consumeOperationRequirementBindingContext(
+    issueOperationRequirementBindingContext({
       operation: narrowedOperation,
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'duration-ms', maximum: 30_000 }],
@@ -97,7 +97,7 @@ test('foundation context binds a fixed child deadline and rejects attempt wideni
   expect(narrowed.absoluteDeadlineAtUnixMs).toBe(childDeadlineAtUnixMs);
 
   const widenedOperation = operation('widened-child-deadline-provider');
-  expect(() => issueSecOperationRequirementBindingContext({
+  expect(() => issueOperationRequirementBindingContext({
     operation: widenedOperation,
     requirementId: 'typescript.project-check',
     resourceCeilings: [{ resource: 'duration-ms', maximum: 30_000 }],
@@ -106,65 +106,65 @@ test('foundation context binds a fixed child deadline and rejects attempt wideni
 });
 
 test('structural copies serialization and caller flags cannot recreate the context', () => {
-  const context = issueSecOperationRequirementBindingContext({
+  const context = issueOperationRequirementBindingContext({
     operation: operation('typescript-native-provider'),
     requirementId: 'typescript.project-check',
     resourceCeilings: [{ resource: 'processes', maximum: 1 }]
   });
-  const structural = structuredClone(context) as SecOperationRequirementBindingContext;
-  const serialized = JSON.parse(JSON.stringify(context)) as SecOperationRequirementBindingContext;
+  const structural = structuredClone(context) as OperationRequirementBindingContext;
+  const serialized = JSON.parse(JSON.stringify(context)) as OperationRequirementBindingContext;
 
-  expect(() => consumeSecOperationRequirementBindingContext(structural))
+  expect(() => consumeOperationRequirementBindingContext(structural))
     .toThrow('operation-foundation-issued');
-  expect(() => consumeSecOperationRequirementBindingContext(serialized))
+  expect(() => consumeOperationRequirementBindingContext(serialized))
     .toThrow('operation-foundation-issued');
-  expect(() => consumeSecOperationRequirementBindingContext(
-    true as unknown as SecOperationRequirementBindingContext
+  expect(() => consumeOperationRequirementBindingContext(
+    true as unknown as OperationRequirementBindingContext
   )).toThrow('operation-foundation-issued');
 });
 
 test('context rejects foreign requirements and ceiling widening while identity follows attempts', () => {
   const first = operation('typescript-native-provider');
-  expect(() => issueSecOperationRequirementBindingContext({
+  expect(() => issueOperationRequirementBindingContext({
     operation: first,
     requirementId: 'git.ref-update',
     resourceCeilings: [{ resource: 'processes', maximum: 1 }]
   })).toThrow('not present in the exact operation');
-  expect(() => issueSecOperationRequirementBindingContext({
+  expect(() => issueOperationRequirementBindingContext({
     operation: first,
     requirementId: 'typescript.project-check',
     resourceCeilings: [{ resource: 'processes', maximum: 3 }]
   })).toThrow('not narrowed from its operation');
 
-  const narrow = consumeSecOperationRequirementBindingContext(
-    issueSecOperationRequirementBindingContext({
+  const narrow = consumeOperationRequirementBindingContext(
+    issueOperationRequirementBindingContext({
       operation: first,
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]
     })
   );
-  expect(() => issueSecOperationRequirementBindingContext({
+  expect(() => issueOperationRequirementBindingContext({
     operation: first,
     requirementId: 'typescript.project-check',
     resourceCeilings: [{ resource: 'duration-ms', maximum: 5_000 }]
   })).toThrow('already has a different issued resource-ceiling context');
-  expect(() => consumeSecOperationRequirementBindingContext(
-    issueSecOperationRequirementBindingContext({
+  expect(() => consumeOperationRequirementBindingContext(
+    issueOperationRequirementBindingContext({
       operation: first,
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]
     })
   )).toThrow('already been consumed');
   const narrowerOperation = operation('typescript-native-provider');
-  const narrower = consumeSecOperationRequirementBindingContext(
-    issueSecOperationRequirementBindingContext({
+  const narrower = consumeOperationRequirementBindingContext(
+    issueOperationRequirementBindingContext({
       operation: narrowerOperation,
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'duration-ms', maximum: 5_000 }]
     })
   );
-  const nextAttempt = consumeSecOperationRequirementBindingContext(
-    issueSecOperationRequirementBindingContext({
+  const nextAttempt = consumeOperationRequirementBindingContext(
+    issueOperationRequirementBindingContext({
       operation: operation('typescript-native-provider'),
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]
@@ -179,8 +179,8 @@ test('context rejects foreign requirements and ceiling widening while identity f
 });
 
 test('requirement binding narrows an explicitly declared zero input ceiling and never creates one', () => {
-  const explicitZero = consumeSecOperationRequirementBindingContext(
-    issueSecOperationRequirementBindingContext({
+  const explicitZero = consumeOperationRequirementBindingContext(
+    issueOperationRequirementBindingContext({
       operation: operation('zero-input-provider', 0),
       requirementId: 'typescript.project-check',
       resourceCeilings: [{ resource: 'input-bytes', maximum: 0 }]
@@ -190,13 +190,13 @@ test('requirement binding narrows an explicitly declared zero input ceiling and 
     { resource: 'input-bytes', maximum: 0 }
   ]);
 
-  expect(() => issueSecOperationRequirementBindingContext({
+  expect(() => issueOperationRequirementBindingContext({
     operation: operation('absent-input-provider', null),
     requirementId: 'typescript.project-check',
     resourceCeilings: [{ resource: 'input-bytes', maximum: 0 }]
   })).toThrow('input-bytes is not narrowed from its operation');
 
-  expect(() => issueSecOperationRequirementBindingContext({
+  expect(() => issueOperationRequirementBindingContext({
     operation: operation('runtime-ledger-provider', 0),
     requirementId: 'typescript.project-check',
     resourceCeilings: [{

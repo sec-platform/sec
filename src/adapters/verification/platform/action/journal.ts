@@ -75,7 +75,7 @@ export {
   ensureVerificationActionMachineGlobalCutover, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
 } from './journal-machine-cutover.ts';
 
-export function writeVerificationActionStartMarkerV2Atomic(
+export function writeVerificationActionProviderStartMarkerAtomic(
   filePath: string,
   marker: VerificationActionProviderStartMarker
 ): void {
@@ -102,7 +102,7 @@ export function writeVerificationActionStartMarkerV2Atomic(
   }
 }
 
-export function writeVerificationActionTerminalStatusAnchorV2Atomic(
+export function writeVerificationActionProviderTerminalAnchorAtomic(
   filePath: string,
   anchor: VerificationActionProviderTerminalAnchor
 ): void {

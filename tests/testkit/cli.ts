@@ -7,7 +7,7 @@ import {
   registerCommands,
   type CliCommandDomainLoaders
 } from '../../src/bootstrap/cli/register-commands.ts';
-import type { CompilerErrorDetails } from '../../src/compiler/errors.ts';
+import type { CodedFailureDetails } from '../../src/contracts/failure.ts';
 
 function normalizeCliStderr(stderr: string): string {
   return stderr
@@ -212,7 +212,7 @@ export async function runCliInProcess(
       await program.parseAsync(args, { from: 'user' });
       return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
     } catch (error: unknown) {
-      const failure = error as { code?: string; message?: string; details?: CompilerErrorDetails };
+      const failure = error as { code?: string; message?: string; details?: CodedFailureDetails };
       if (failure.code === 'commander.help' || failure.code === 'commander.helpDisplayed') {
         return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
       }

@@ -1,13 +1,13 @@
 import path from 'node:path';
 import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import {
@@ -37,19 +37,19 @@ const GIT_READ_AUTHORITY_CONTRACT_DIGEST = sha256({
   provider: 'host-local-git-v1',
   commandPolicy: 'canonical-read-only-git-command-set',
   retainedBoundary: 'cwd-and-executable-physical-identity-v1'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const GIT_READ_AUTHORITY_PROVIDER_DIGEST = sha256({
   provider: 'external-capabilities.git-read',
   route: 'host-local-git-v1',
   retainedBoundary: 'cwd-and-executable-physical-identity-v1'
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 type AuthorityGitReadSessionInput = Omit<
   Parameters<typeof createAuthorityGitReadSession>[0],
   'operation' | 'physicalProvider'
 > & Readonly<{
   /** A broader caller-owned operation may share its already-frozen process budget. */
-  operation?: SecBoundSemanticOperation;
+  operation?: BoundSemanticOperation;
 }>;
 
 /** Compile the canonical read-only Git operation for an enclosing observer.
@@ -59,7 +59,7 @@ type AuthorityGitReadSessionInput = Omit<
 export function issueGitReadAuthorityOperation(
   input: Omit<AuthorityGitReadSessionInput, 'operation'>,
   parentDeadlineAtUnixMs?: number
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const budget = resolveGitReadSessionBudget(input.budget);
   const startedAtUnixMs = Date.now();
   const deadlineAtUnixMs = parentDeadlineAtUnixMs ?? startedAtUnixMs + budget.deadlineMs;
@@ -70,16 +70,16 @@ export function issueGitReadAuthorityOperation(
       'Git read authority operation deadline is exhausted or invalid.'
     );
   }
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: GIT_READ_AUTHORITY_OPERATION,
     intentDigest: sha256({
       cwd: input.cwd,
       environment: input.environment ?? {},
       budget
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: GIT_READ_AUTHORITY_CONTRACT_DIGEST,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: GIT_READ_AUTHORITY_CONTRACT_DIGEST
     }),
     aggregateBudgets: [
@@ -106,7 +106,7 @@ export function issueGitReadAuthorityOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: GIT_READ_AUTHORITY_REQUIREMENT,
     contractDigest: GIT_READ_AUTHORITY_CONTRACT_DIGEST,
     providerIdentityDigest: GIT_READ_AUTHORITY_PROVIDER_DIGEST
@@ -193,7 +193,7 @@ export async function withAuthorityGitReadOperation<T>(
   const boundOperation = issueGitReadAuthorityOperation(input, deadlineAtUnixMs);
   const processSession: ProcessResourceSession = openProcessResourceSession({
     operation: boundOperation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation: boundOperation,
       requirementId: GIT_READ_AUTHORITY_REQUIREMENT,
       resourceCeilings: boundOperation.plan.execution.aggregateBudgets.filter(({ resource }) => (

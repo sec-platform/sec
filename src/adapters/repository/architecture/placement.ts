@@ -4,8 +4,8 @@ import {
   compileSecRepositoryModuleTopologyProjection,
   isSecRepositoryNodeDependencyAllowed,
   normalizeSecRepositoryPath,
+  type RepositoryModuleGraph,
   type SecRepositoryModuleBoundaryViolation,
-  type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership,
   type SecRepositoryModuleSourceProgramFacts,
   type SecRepositoryNodeResponsibility
@@ -410,7 +410,7 @@ function publicOperationClosure(
 }
 
 function placementMetrics(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
   facts: PlacementFacts,
   frontier: readonly SecRepositoryDeclarationResponsibilityProjection[],
@@ -480,7 +480,7 @@ function placementMetrics(
  * subject before any migration transaction may be admitted.
  */
 export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
-  readonly graph: SecRepositoryModuleGraph;
+  readonly graph: RepositoryModuleGraph;
   readonly membership: SecRepositoryModuleMembership;
   readonly facts: PlacementFacts;
 }>): SecRepositoryModulePlacementAdmission {

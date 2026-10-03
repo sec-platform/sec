@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { deriveScenarioDefinition } from "../../src/compiler/ir/scenario-facts.ts";
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
@@ -107,15 +107,15 @@ function contract(): LoadedSemanticContract {
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCodedFailure(run: () => unknown, code: string): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test("Scenario execution semantics have canonical Entity and Fact identity with provenance", () => {
@@ -264,7 +264,7 @@ test("invalid Scenario step references and retry schemas fail deterministically"
   invalidReference.contract.scenarios[0]!.steps.find(
     (step) => step.id === "finish",
   )!.after = ["missing"];
-  expectCompilerError(
+  expectCodedFailure(
     () =>
       buildEngineeringIR({
         ...baseInput(),
@@ -277,7 +277,7 @@ test("invalid Scenario step references and retry schemas fail deterministically"
   invalidRetry.contract.scenarios[0]!.steps.find(
     (step) => step.id === "finish",
   )!.retryMaxAttempts = 0;
-  expectCompilerError(
+  expectCodedFailure(
     () =>
       buildEngineeringIR({ ...baseInput(), semanticContracts: [invalidRetry] }),
     "IR-SCENARIO-002",
@@ -316,8 +316,8 @@ test('Scenario indexes still reject value relations and multiple contained error
   const scenarioId = 'scenario:flow:run-flow';
   const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
   const invalid = { ...precedes, object: { kind: 'value' as const, value: null } };
-  expectCompilerError(() => deriveScenarioDefinition(ir.entities, [...ir.facts, invalid], scenarioId), 'IR-SCENARIO-004');
+  expectCodedFailure(() => deriveScenarioDefinition(ir.entities, [...ir.facts, invalid], scenarioId), 'IR-SCENARIO-004');
   const handles = ir.facts.find((fact) => fact.predicate === 'HANDLES')!;
   const duplicate = { ...handles, id: 'second-handler', subject: `${scenarioId}#step:start` };
-  expectCompilerError(() => deriveScenarioDefinition(ir.entities, [...ir.facts, duplicate], scenarioId), 'IR-SCENARIO-006');
+  expectCodedFailure(() => deriveScenarioDefinition(ir.entities, [...ir.facts, duplicate], scenarioId), 'IR-SCENARIO-006');
 });

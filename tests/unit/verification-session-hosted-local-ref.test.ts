@@ -11,7 +11,7 @@ import { createBranchCloseoutPreparation } from '../../src/adapters/self-hosting
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 
 import { deleteHostedLocalRefCas } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import type { SecOperationDigest } from '../../src/execution/operation/semantic.ts';
+import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
@@ -49,7 +49,7 @@ test('hosted local ref consumer admits the native Git delete transaction', async
       worktreePathsAtPreparation: []
     });
     const attempts: BranchCloseoutAttempt[] = [];
-    const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as SecOperationDigest;
+    const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as OperationDigest;
     const result = await withWorkspaceWriteLease(commonDir, undefined, async (lease) =>
       (await deleteHostedLocalRefCas(preparation, attempts, lease, operationId)));
     expect(result).toMatchObject({ operation: 'local-delete', status: 'success' });

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, digest, sortedKeys } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { generatedRuntimeDependencyCapabilityNames } from './dependency-capability-contract.ts';
@@ -159,7 +159,7 @@ export function parseRuntimeDependencyPackageReference(
 }
 
 function materializationBindingError(message: string): never {
-  throw new SecError('RUNTIME-DEPS-000', message);
+  throw new CodedFailure('RUNTIME-DEPS-000', message);
 }
 
 function canonicalPackagePath(value: string, label: string): string {
@@ -485,13 +485,13 @@ export function isRuntimeDependencyPackageManifest(
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {
   const version = rootPackage.dependencies?.[dependencyName] ?? rootPackage.devDependencies?.[dependencyName];
   if (!version) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-DEPS-000',
       `Root package.json is missing required runtime dependency "${dependencyName}"`
     );
   }
   if (parseRuntimeDependencyPackageReference(dependencyName, version) === null) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-DEPS-000',
       `Root package.json must pin runtime dependency "${dependencyName}" to one exact numeric release or exact npm alias`
     );
@@ -559,7 +559,7 @@ export function loadRuntimeDependencySpec(
     'Runtime dependency root package manifest'
   );
   if (rootPackage === null) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-DEPS-000',
       `Root package.json is missing: ${packageJsonPath}`
     );
