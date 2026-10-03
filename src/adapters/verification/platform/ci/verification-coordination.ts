@@ -1,8 +1,8 @@
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+import { rawSha256 } from '../../../../contracts/canonical.ts';
 import { encodeVerificationActionData, isVerificationActionRunnable, type VerificationActionDependencyResolution, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationActionPlanClosure } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
+import { CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionPlanClosure } from '../action/contract/ci.ts';
 import { reduceVerificationActionProviderState, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
 import {
   aggregateV4Status,
@@ -13,16 +13,18 @@ import {
   type CodexDevelopmentVerificationActionTerminalArtifact,
   type CodexDevelopmentVerificationEvidenceV4
 } from './contract/evidence.ts';
+import { parseHostedActionRuntimeExecution, type HostedActionRuntimeExecution } from './contract/hosted-runtime-execution.ts';
 import {
   CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentReduceHostedSutObservation,
   CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2,
   type CodexDevelopmentHostedActionRawResult
 } from './contract/hosted-sut-observation.ts';
+import { assertAuthenticatedHostedJobRuntimeReceipt, type AuthenticatedHostedJobRuntimeReceipt } from './runtime/hosted-job-runtime-provenance.ts';
 import {
   type VerificationSessionHostedEnvelope
 } from './runtime/verification-session-runtime.ts';
-import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, ciActionDigest, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedActionStartObservation, CodexDevelopmentHostedActionTerminalAnchorObservation } from './verification-hosted-action-contract.ts';
+import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import { hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
 export function CodexDevelopmentParseHostedActionRawResult(
@@ -37,6 +39,8 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
   rawResult: CodexDevelopmentHostedActionRawResult;
   expectedRawResultDigest: VerificationActionKeyDigest;
   producer: CodexDevelopmentVerificationActionArtifactProducer;
+  runtimeProof?: AuthenticatedHostedJobRuntimeReceipt;
+  rawResultSource?: string;
 }>): CodexDevelopmentVerificationActionTerminalArtifact {
   const resolution = CodexDevelopmentParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
@@ -61,6 +65,24 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
       ticket.candidateBytesDigest !== resolution.artifactInput.candidateBytesDigest ||
       encodeVerificationActionData(input.producer) !== encodeVerificationActionData(ticket.producer)) {
     throw new Error('Hosted Action assembler inputs differ from the original trusted execution ticket.');
+  }
+  let runtimeExecution: HostedActionRuntimeExecution | undefined;
+  if (resolution.executionEnvironment === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT) {
+    if (input.runtimeProof === undefined || input.rawResultSource === undefined) {
+      throw new Error('Per-job Action assembler requires its authenticated executing-job runtime proof and exact raw bytes.');
+    }
+    if (encodeVerificationActionData(CodexDevelopmentParseHostedActionRawResult(input.rawResultSource))
+      !== encodeVerificationActionData(rawResult)) throw new Error('Per-job raw bytes differ from the parsed SUT result.');
+    const authenticated = assertAuthenticatedHostedJobRuntimeReceipt(input.runtimeProof, {
+      repository: input.producer.repository, repositoryId: String(input.producer.repositoryId),
+      workflowSha: resolution.artifactInput.baseSha, runId: input.producer.runId,
+      runAttempt: input.producer.runAttempt, policyJobId: 'execute-verification-action-sut',
+      phase: 'execute-hosted-action-sut', actionKey: resolution.actionPlan.action.actionKey,
+      outputDigest: rawSha256(input.rawResultSource), sandboxObservationDigest: rawResult.sandboxReceipt.receiptDigest
+    });
+    runtimeExecution = parseHostedActionRuntimeExecution({ receipt: authenticated.receipt, transport: authenticated.provenance });
+  } else if (input.runtimeProof !== undefined) {
+    throw new Error('Legacy Action assembly cannot be relabeled with a per-job runtime proof.');
   }
   const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
     resolutionDigest: resolution.resolutionDigest,
@@ -89,10 +111,11 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
     normalizedOperation,
     result: terminal.result,
     cleanup: terminal.cleanup,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment: resolution.executionEnvironment,
     input: resolution.artifactInput,
     producer: input.producer,
-    executionProof: terminal.proof
+    executionProof: terminal.proof,
+    ...(runtimeExecution === undefined ? {} : { runtimeExecution })
   });
 }
 
@@ -181,7 +204,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
       const member = membersByKey.get(actionKey)!;
       CodexDevelopmentAssertVerificationActionTerminalArtifact(observation.artifact, {
         actionPlan: member,
-        executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
+        executionEnvironmentRevision: resolveCiVerificationHostedExecutionEnvironment(member.action.environment.providerRevision).executionEnvironmentRevision
       });
       if (provider.payload === null || provider.payload.payloadDigest !== observation.artifact.artifactDigest ||
           provider.payload.actionKey !== actionKey || provider.payload.candidateSha !== envelope.session.headSha ||
@@ -235,7 +258,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
       repository: envelope.scopeAuthorization.repository,
       actionKey,
       candidateSha: envelope.session.headSha,
-      executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+      executionEnvironmentRevision: resolveCiVerificationHostedExecutionEnvironment(member.action.environment.providerRevision).executionEnvironmentRevision,
       statusReadback: statusReadbacksByKey.get(actionKey)!,
       startObservations: startsByKey.has(actionKey) ? [startsByKey.get(actionKey)!] : [],
       terminalObservations: terminalsByKey.has(actionKey)

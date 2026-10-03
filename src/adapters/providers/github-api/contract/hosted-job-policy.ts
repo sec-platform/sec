@@ -454,8 +454,12 @@ export function assertCiVerificationPerJobHostedWorkflowShape(
     for (const [key, value] of Object.entries(outputs)) {
       const match = typeof value === 'string'
         ? /^\$\{\{ steps\.([a-z][a-z0-9-]*)\.outputs\.([a-z][a-z0-9-]*) \}\}$/u.exec(value) : null;
-      if (!/^[a-z][a-z0-9-]*$/u.test(key) || match === null || !phaseIds.includes(match[1]!)) {
-        throw new Error('Hosted workflow shape: job output is not a closed launcher data output.');
+      const nativeArtifactOutput = match !== null && policy.stages.some(stage => stage.kind === 'upload'
+        && stage.stepId === match[1] && ['artifact-id', 'artifact-digest'].includes(match[2]!)
+        && key === `${stage.slot}-${match[2]}`);
+      if (!/^[a-z][a-z0-9-]*$/u.test(key) || match === null
+        || (!phaseIds.includes(match[1]!) && !nativeArtifactOutput)) {
+        throw new Error('Hosted workflow shape: job output is not a closed launcher or native artifact data output.');
       }
     }
   }

@@ -21,7 +21,8 @@ for (const changedPath of ['package.json', 'bun.lock', '.github/workflows/merge-
   'src/adapters/self-hosting/development/runner/typecheck-feedback.ts',
   'src/adapters/providers/linux-verification/contract.ts',
   'src/adapters/providers/github-api/hosted-job-origin.ts',
-  'src/adapters/providers/docker/runtime/container-engine-session.ts']) {
+  'src/adapters/providers/docker/runtime/container-engine-session.ts',
+  'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py']) {
   test(`loaded MainHealth plan rejects changes to ${changedPath}`, () => {
     expect(() => assertMainHealthDriverPlanApplicable([changedPath], trustRoot)).toThrow('plan-changed');
     // The original Git owner disables rename detection, so the deletion of a

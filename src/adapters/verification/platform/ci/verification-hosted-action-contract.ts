@@ -1,6 +1,5 @@
 import { encodeVerificationActionData, parseVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, type CiVerificationActionPlanClosure, type CiVerificationActionProposal } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionPlanClosure, type CiVerificationActionProposal } from '../action/contract/ci.ts';
 import { parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
 import {
   CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest,
@@ -12,7 +11,7 @@ import {
   type CodexDevelopmentHostedSutInventoryClosure, type CodexDevelopmentHostedSutProcessLifecycle
 } from './contract/hosted-sut-observation.ts';
 import {
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
+  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
 } from './contract/revision.ts';
 import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
 import {
@@ -322,7 +321,10 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
     throw new Error('Hosted Action proposed key is not one exact canonical plan member.');
   }
   const actionPlan = parseVerificationActionPlan(encodeVerificationActionData(matches[0]));
-  if (actionPlan.action.environment.providerRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION) {
+  const executionEnvironment = sessionRequest.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+    ? CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT : CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
+  if (envelope.actionPlanClosure.actions.some(member => member.action.environment.providerRevision
+      !== executionEnvironment.executionEnvironmentRevision)) {
     throw new Error('Hosted Action member does not bind the canonical hosted execution environment.');
   }
   const artifactInput = Object.freeze({
@@ -350,7 +352,7 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
     actionPlan,
     actionPlanClosure: envelope.actionPlanClosure,
     artifactInput,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
+    executionEnvironment
   });
   return Object.freeze({ ...withoutDigest, resolutionDigest: ciActionDigest(withoutDigest) });
 }
@@ -378,10 +380,10 @@ export function CodexDevelopmentParseHostedActionResolution(
       encodeVerificationActionData(actionPlan)) {
     throw new Error('Hosted Action resolution plan is not one exact closure member.');
   }
+  const executionEnvironment = parseCiVerificationHostedExecutionEnvironment(value.executionEnvironment);
   if (value.actionKeyHex !== actionPlan.action.actionKey.slice(7) ||
-      actionPlan.action.environment.providerRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
-      encodeVerificationActionData(value.executionEnvironment) !==
-        encodeVerificationActionData(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
+      executionEnvironment !== resolveCiVerificationHostedExecutionEnvironment(actionPlan.action.environment.providerRevision) ||
+      actionPlanClosure.actions.some(member => member.action.environment.providerRevision !== executionEnvironment.executionEnvironmentRevision)) {
     throw new Error('Hosted Action resolution environment or key projection mismatch.');
   }
   const artifactInput = value.artifactInput as CodexDevelopmentVerificationActionArtifactInput;
@@ -400,7 +402,7 @@ export function CodexDevelopmentParseHostedActionResolution(
     actionPlan,
     actionPlanClosure,
     artifactInput,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
+    executionEnvironment
   });
   if (value.resolutionDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted Action resolution digest mismatch.');
@@ -427,7 +429,7 @@ export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonl
   const expectedName = verificationActionStartMarkerNameV2(resolution.actionPlan.action.actionKey);
   if (marker.actionKey !== resolution.actionPlan.action.actionKey ||
       marker.candidateSha !== resolution.artifactInput.headSha ||
-      marker.executionEnvironmentRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
+      marker.executionEnvironmentRevision !== resolution.executionEnvironment.executionEnvironmentRevision ||
       observation.expired || observation.payload === null || observation.archiveDigest === null ||
       observation.referencedOrigin === null || observation.artifactName !== expectedName ||
       observation.payload.markerDigest !== marker.markerDigest ||
@@ -595,7 +597,7 @@ export function CodexDevelopmentReduceHostedActionProviderIndex(input: Readonly<
     repository: input.repository,
     actionKey,
     candidateSha: resolution.artifactInput.headSha,
-    executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    executionEnvironmentRevision: resolution.executionEnvironment.executionEnvironmentRevision,
     statusReadback: readbacks[0]!,
     startObservations: input.index.startObservations.filter(
       (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerNameV2(actionKey)
