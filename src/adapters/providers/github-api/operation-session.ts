@@ -19,3 +19,5 @@ export {
   type GitHubApiOperation,
   type GitHubApiPrincipal
 } from './internal/operation-session-runtime.ts';
+
+export { HostedArtifactProjectionDataError } from './contract/hosted-bootstrap-artifacts.ts';
