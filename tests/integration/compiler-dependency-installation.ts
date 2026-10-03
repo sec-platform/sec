@@ -14,10 +14,12 @@ import {
   type GeneratedStateWorktreeRetirementEffectAuthority
 } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import {
+  assertPhysicalGenerationRetirementReceipt,
   inspectNoFollowDirectoryChain,
   inspectNoFollowLinkEntry,
   materializeRetainedNoFollowProvenDirectoryGeneration,
-  scanNoFollowDirectoryTreeInventory
+  scanNoFollowDirectoryTreeInventory,
+  type RetainedNoFollowProvenDirectoryGeneration
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import {
@@ -34,13 +36,15 @@ import { dependencyTransitionNamespacePaths, observeDependencyTransitionSlot } f
 import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 import {
+  ensureCompilerDepsReadyFromRetainedContent,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   settleAbandonedLegacyProjection
 } from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import {
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES, runtimeDependencySourceGeneration
+  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES, runtimeDependencySourceGeneration,
+  runtimeDependencyTreeIdentity
 } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
@@ -297,6 +301,44 @@ async function writeCompilerDependencyRoot(
     fs.writeFile(path.join(root, 'bun.lock'), lockfile, 'utf8'),
     fs.writeFile(path.join(root, '.bun-version'), `${bunVersion}\n`, 'utf8')
   ]);
+}
+
+async function withRetainedCompilerContentFixture(
+  deadlineAtUnixMs: number,
+  run: (content: RetainedNoFollowProvenDirectoryGeneration, contentRoot: string) => Promise<void>
+): Promise<void> {
+  const contentRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-cdep-content-'));
+  let content: RetainedNoFollowProvenDirectoryGeneration | undefined;
+  await settleWorkspaceCallback(async () => {
+    await writeCompilerDependencyRoot(contentRoot);
+    await installCompilerDependencyFixture(contentRoot, 'transported-content');
+    // An obsolete transport binding is data, never target-runtime authority.
+    await fs.writeFile(path.join(contentRoot, 'node_modules', '.sec-compiler-deps-binding-v5.json'),
+      '{"untrusted":"old-host-binding"}\n');
+    const root = inspectNoFollowDirectoryChain(contentRoot, 'Compiler content fixture').target;
+    const inventory = scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + deadlineAtUnixMs - Date.now(),
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
+    });
+    const tree = runtimeDependencyTreeIdentity(inventory);
+    const retained = await materializeRetainedNoFollowProvenDirectoryGeneration({
+      root,
+      inventory,
+      binding: {
+        ...tree,
+        generationDigest: generatedStateDigest({ root, ...tree, purpose: 'transport-content-fixture' })
+      },
+      proofText: null,
+      releaseMode: 'restore-owner-write',
+      deadlineAtUnixMs
+    });
+    content = retained.generation;
+    await run(content, contentRoot);
+  }, async () => {
+    if (content !== undefined) assertPhysicalGenerationRetirementReceipt(await content.retire());
+    await fs.rm(contentRoot, { recursive: true, force: true });
+  });
 }
 
 async function prepareLinkedWorktreeEpochTransition(
@@ -898,6 +940,79 @@ describe('compiler dependency installation', () => {
 
   }
   if (shard === 'external') {
+  effectfulCompilerTest(
+    'retained dependency content is requalified through the original stage without an installer',
+    'sec-cdep-content-target-',
+    async (consumerRoot, operation) => {
+      await writeCompilerDependencyRoot(consumerRoot);
+      await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
+        const ready = await ensureCompilerDepsReadyFromRetainedContent(content, {
+          ...operation,
+          installMode: 'prebound-only'
+        }, consumerRoot);
+        expect(ready.source).toBe('existing');
+        expect(ready.requiresFreshProcess).toBeTrue();
+        expect(await fs.realpath(ready.nodeModulesPath)).not.toBe(path.join(contentRoot, 'node_modules'));
+        expect(await fs.readFile(path.join(ready.nodeModulesPath, 'typescript', 'lib', 'typescript.js'), 'utf8'))
+          .toBe('transported-content:typescript\n');
+        const binding = await readJson<Record<string, unknown>>(
+          path.join(ready.nodeModulesPath, '.sec-compiler-deps-binding-v5.json')
+        );
+        expect(binding.formatVersion).toBe('compiler-deps-binding-v5');
+        expect(binding.bunExecutablePath).toBe(await fs.realpath(process.execPath));
+        expect(binding.manifestHash).toBe(ready.manifestHash);
+        expect(binding.untrusted).toBeUndefined();
+        const inventory = await operation.generatedStateLifecycle.inspect(['node_modules']);
+        expect(inventory.entries[0]!.registrationState).toBe('active');
+        const observed = await observeCompilerDependencyExecutionGenerationAuthority({
+          deadlineAtUnixMs: operation.deadlineAtUnixMs,
+          signal: operation.signal
+        }, consumerRoot);
+        expect(observed?.generationDigest).toBe(ready.executionGenerationAuthority.generationDigest);
+        // The borrower never closes or retires the publisher's capability.
+        content.assertCurrent();
+        await content.assertAuthorityCurrent();
+        await expect(ensureCompilerDepsReadyFromRetainedContent(content, {
+          ...operation,
+          installMode: 'prebound-only'
+        }, consumerRoot)).rejects.toThrow('absent consumer locator');
+      });
+    });
+
+  effectfulCompilerTest(
+    'retained dependency content rejects forged expired disposed retired incompatible and overlapping inputs before effects',
+    'sec-cdep-content-reject-',
+    async (consumerRoot, operation) => {
+      await writeCompilerDependencyRoot(consumerRoot);
+      await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
+        const options = { ...operation, installMode: 'prebound-only' as const };
+        await expect(ensureCompilerDepsReadyFromRetainedContent(
+          { ...content }, options, consumerRoot
+        )).rejects.toThrow('physical');
+        await expect(ensureCompilerDepsReadyFromRetainedContent(
+          content, { ...options, deadlineAtUnixMs: Date.now() - 1 }, consumerRoot
+        )).rejects.toThrow();
+        await expect(ensureCompilerDepsReadyFromRetainedContent(
+          content, options, contentRoot
+        )).rejects.toThrow('physically disjoint');
+        await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'different-transport-lock\n');
+        await expect(ensureCompilerDepsReadyFromRetainedContent(
+          content, options, consumerRoot
+        )).rejects.toThrow('content input differs: bun.lock');
+        await writeCompilerDependencyRoot(consumerRoot);
+        content.dispose();
+        await expect(ensureCompilerDepsReadyFromRetainedContent(
+          content, options, consumerRoot
+        )).rejects.toThrow('disposed');
+        assertPhysicalGenerationRetirementReceipt(await content.retire());
+        await expect(ensureCompilerDepsReadyFromRetainedContent(
+          content, options, consumerRoot
+        )).rejects.toThrow();
+        await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+      });
+    });
+
   effectfulCompilerTest(
     'explicit public generation reuse registers a foreign compiler target with its canonical owner',
     'sec-cdep-explicit-target-',
