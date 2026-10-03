@@ -1716,6 +1716,41 @@ function assertExactOptionKeys(
   }
 }
 
+/** Closed same-invocation entry for the authenticated hosted launcher.
+ * This only selects the original owners; it does not grant source, actor,
+ * candidate or publication authority and cannot dispatch a new request. */
+export async function runHostedAgentOperationActivation(argv: readonly string[]): Promise<string> {
+  const [subcommand, ...args] = argv;
+  if (subcommand !== 'produce-hosted' && subcommand !== 'publish-hosted') {
+    unavailable('activation-issuer-unavailable', 'hosted entry accepts only produce-hosted or publish-hosted');
+  }
+  const options = parseOptions(args);
+  if (subcommand === 'produce-hosted') {
+    assertExactOptionKeys(options, ['runtime-root', 'candidate-root', 'request', 'output', 'json']);
+    const result = await produceHosted({
+      runtimeRoot: requiredOption(options, 'runtime-root'),
+      candidateRoot: requiredOption(options, 'candidate-root'),
+      requestPath: requiredOption(options, 'request'),
+      outputPath: requiredOption(options, 'output')
+    });
+    return JSON.stringify(result, null, 2);
+  }
+  if (subcommand === 'publish-hosted') {
+    assertExactOptionKeys(options, [
+      'runtime-root', 'request', 'payload', 'artifact-id', 'artifact-digest', 'json'
+    ]);
+    const result = publishHosted({
+      runtimeRoot: requiredOption(options, 'runtime-root'),
+      requestPath: requiredOption(options, 'request'),
+      payloadPath: requiredOption(options, 'payload'),
+      artifactId: positiveId(requiredOption(options, 'artifact-id'), 'activation-issuer-unavailable'),
+      artifactDigest: requiredOption(options, 'artifact-digest') as `sha256:${string}`
+    });
+    return JSON.stringify(result, null, 2);
+  }
+  unavailable('activation-issuer-unavailable', 'hosted activation phase is invalid');
+}
+
 async function main(): Promise<void> {
   const [subcommand, ...args] = process.argv.slice(2);
   const options = parseOptions(args);
@@ -1811,29 +1846,8 @@ async function main(): Promise<void> {
     }, null, options.json === true ? 2 : 0)}\n`);
     return;
   }
-  if (subcommand === 'produce-hosted') {
-    assertExactOptionKeys(options, ['runtime-root', 'candidate-root', 'request', 'output', 'json']);
-    const result = await produceHosted({
-      runtimeRoot: requiredOption(options, 'runtime-root'),
-      candidateRoot: requiredOption(options, 'candidate-root'),
-      requestPath: requiredOption(options, 'request'),
-      outputPath: requiredOption(options, 'output')
-    });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return;
-  }
-  if (subcommand === 'publish-hosted') {
-    assertExactOptionKeys(options, [
-      'runtime-root', 'request', 'payload', 'artifact-id', 'artifact-digest', 'json'
-    ]);
-    const result = publishHosted({
-      runtimeRoot: requiredOption(options, 'runtime-root'),
-      requestPath: requiredOption(options, 'request'),
-      payloadPath: requiredOption(options, 'payload'),
-      artifactId: positiveId(requiredOption(options, 'artifact-id'), 'activation-issuer-unavailable'),
-      artifactDigest: requiredOption(options, 'artifact-digest') as `sha256:${string}`
-    });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (subcommand === 'produce-hosted' || subcommand === 'publish-hosted') {
+    process.stdout.write(`${await runHostedAgentOperationActivation([subcommand, ...args])}\n`);
     return;
   }
   unavailable('activation-issuer-unavailable',

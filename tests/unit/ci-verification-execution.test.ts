@@ -34,7 +34,7 @@ import type { VerificationSessionHostedRequest } from '../../src/adapters/verifi
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
-import { observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
+import { CodexDevelopmentHostedSutSandboxRoot, CodexDevelopmentTrustedBootstrapSutSubjectDigest, observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
 import {
   CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
   CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
@@ -49,6 +49,7 @@ import {
   CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan,
   CodexDevelopmentCandidateProcessEnvironment,
   CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot,
+  CodexDevelopmentCiVerificationHostedActionCli,
   CodexDevelopmentCiVerificationMainForTests,
   CodexDevelopmentComposeHostedEvidence,
   CodexDevelopmentCoordinateHostedActions,
@@ -1124,6 +1125,50 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('reader.cancel(error)');
   expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('Promise.allSettled([stdoutCollection, stderrCollection, exitPromise])');
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
+});
+
+test('bootstrap subject root and nonce are exact path data without replacing the full operation', async () => {
+  const subject = { baseSha: BASE, headSha: HEAD, treeSha: TREE, manifestPath: MANIFEST_PATH };
+  const unitSubjectDigest = CodexDevelopmentTrustedBootstrapSutSubjectDigest(subject);
+  const unitNonce = 'a'.repeat(32);
+  const expectedRoot = CodexDevelopmentHostedSutSandboxRoot({ subjectDigest: unitSubjectDigest, unitNonce });
+  const probeRoots: string[] = [];
+  await CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: unitSubjectDigest,
+    unitNonce, platform: 'linux', runSandboxProcess: async plan => {
+      probeRoots.push(`/tmp/${plan.unitName}`);
+      return sandboxObservation(0, plan.phase === 'capability-self-test' ? '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__' : '');
+    } });
+  expect(probeRoots).toEqual([expectedRoot, expectedRoot]);
+  const input = { bootstrapDigest: digest('b'), candidateArchiveDigest: digest('c'),
+    bunExecutable: '/trusted/tool/bun', baseSha: BASE, headSha: HEAD,
+    candidateEnvironment: CodexDevelopmentCandidateProcessEnvironment({}), unitNonce, unitSubjectDigest };
+  const plan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input);
+  expect(`/tmp/${plan.unitName}`).toBe(expectedRoot);
+  expect(plan.argv).toContain(`sec-hosted-sut:${input.bootstrapDigest}`);
+  expect(plan.argv).toContain(input.candidateArchiveDigest);
+  for (const change of [{ bootstrapDigest: digest('d') }, { candidateArchiveDigest: digest('e') }]) {
+    const changed = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({ ...input, ...change });
+    expect(changed.unitName).toBe(plan.unitName);
+    expect(changed.planDigest).not.toBe(plan.planDigest);
+  }
+  for (const change of [{ unitNonce: 'b'.repeat(32) }, {
+    unitSubjectDigest: CodexDevelopmentTrustedBootstrapSutSubjectDigest({ ...subject, headSha: 'e'.repeat(40) })
+  }]) {
+    const changed = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({ ...input, ...change });
+    expect(`/tmp/${changed.unitName}`).not.toBe(expectedRoot);
+    expect(changed.planDigest).not.toBe(plan.planDigest);
+  }
+  for (const nonce of ['../foreign', 'g'.repeat(32), 'a'.repeat(31), 'a'.repeat(33)]) {
+    expect(() => CodexDevelopmentHostedSutSandboxRoot({ subjectDigest: unitSubjectDigest, unitNonce: nonce })).toThrow();
+    expect(() => CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({ ...input, unitNonce: nonce })).toThrow();
+    await expect(CodexDevelopmentCiVerificationHostedActionCli([
+      'self-test-hosted-action-sandbox', '--resolution', 'not-opened.json', '--sandbox-unit-nonce', nonce
+    ])).rejects.toThrow('32 hexadecimal');
+  }
+  const unavailable = await CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: unitSubjectDigest,
+    unitNonce, platform: 'linux' });
+  expect(unavailable.state).toBe('unsupported');
+  expect(unavailable.lifecycle.observationGap).toBe('unsupported-source');
 });
 
 test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {
