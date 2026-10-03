@@ -20,19 +20,53 @@ export type ReferenceCheckReport = {
   recommendedAction: string;
 };
 
-export function projectReferenceCheckReport(input: Readonly<{
+type ReferenceCheckContext = Readonly<{
   root: string;
   runnerCommand: string;
   refreshCommand: string;
   diffCommand: string;
   untrackedScanCommand: string;
+}>;
+
+type ReferenceDriftObservation = Readonly<{
+  exitCode: number;
+  trackedExitCode: number;
+  untrackedExitCode: number;
+  changedPaths: readonly string[];
+}>;
+
+export interface ReferenceCheckOperations {
+  refresh(): Promise<number>;
+  scanDrift(): Promise<ReferenceDriftObservation>;
+}
+
+/** Refresh before observing drift. A failed refresh cannot authorize a scan
+ * or yield a clean result; operational rejections retain their original cause
+ * and are never retried by this use case. */
+export async function executeReferenceCheck(
+  context: ReferenceCheckContext,
+  operations: ReferenceCheckOperations
+): Promise<ReferenceCheckReport> {
+  const { refresh, scanDrift } = operations;
+  if (typeof refresh !== 'function' || typeof scanDrift !== 'function') {
+    throw new TypeError('Reference check operations must be callable');
+  }
+  const reportContext = { ...context };
+  const refreshExitCode = await refresh.call(operations);
+  const drift = refreshExitCode === 0
+    ? await scanDrift.call(operations)
+    : {
+        exitCode: -1,
+        trackedExitCode: -1,
+        untrackedExitCode: -1,
+        changedPaths: []
+      };
+  return projectReferenceCheckReport({ ...reportContext, refreshExitCode, drift });
+}
+
+export function projectReferenceCheckReport(input: ReferenceCheckContext & Readonly<{
   refreshExitCode: number;
-  drift: Readonly<{
-    exitCode: number;
-    trackedExitCode: number;
-    untrackedExitCode: number;
-    changedPaths: readonly string[];
-  }>;
+  drift: ReferenceDriftObservation;
 }>): ReferenceCheckReport {
   const status: ReferenceCheckStatus = input.refreshExitCode !== 0
     ? 'refresh-failed'
