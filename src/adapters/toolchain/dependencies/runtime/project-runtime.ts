@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleepMs } from 'node:timers/promises';
 import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys, uniqueSorted } from '../../../../contracts/canonical.ts';
@@ -4164,6 +4165,50 @@ async function migrateCompilerDependencyCoordination(
         CompilerDependencyConsumerRecord
       >>>();
       const migratedRecords = new Map<string, Buffer>();
+      const retainConsumerRecord = (name: string, bytes: Buffer): void => {
+        if (name.includes('/')) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler consumer namespace contains nested residue');
+        }
+        const existingBytes = migratedRecords.get(name);
+        if (existingBytes !== undefined) {
+          if (!existingBytes.equals(bytes)) {
+            throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
+          }
+          return;
+        }
+        migratedRecords.set(name, Buffer.from(bytes));
+        if (name.startsWith('zero-')) {
+          parseCompilerDependencyConsumerZeroReceipt(bytes, name);
+          return;
+        }
+        const record = parseCompilerDependencyConsumerRecord(bytes, name);
+        const chain = phases.get(record.leaseId) ?? {};
+        if (chain[record.phase] !== undefined) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer chain has a duplicate phase');
+        }
+        chain[record.phase] = record;
+        phases.set(record.leaseId, chain);
+      };
+      // Runtime State may already hold records published by an earlier
+      // interrupted cutover. They are part of the migration preimage, not
+      // foreign residue. Admit their exact bytes and validate them before
+      // unioning legacy records under the same lock and physical authority.
+      const existingTargetInventory = scanNoFollowDirectoryTreeInventory(targetConsumers, {
+        deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
+        maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+        maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+        signal: runtimeDependencyOperationContext(operationOptions).signal
+      });
+      for (const entry of existingTargetInventory) {
+        if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+          throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer namespace contains unknown residue');
+        }
+        const bytes = readNoFollowOrdinaryFile(targetConsumers, entry.relativePath);
+        if (bytes === null) {
+          throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer record disappeared');
+        }
+        retainConsumerRecord(entry.relativePath, Buffer.from(bytes));
+      }
       if (legacyConsumers !== null) {
         const inventory = scanNoFollowDirectoryTreeInventory(legacyConsumers, {
           deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
@@ -4177,18 +4222,7 @@ async function migrateCompilerDependencyCoordination(
           }
           const bytes = readNoFollowOrdinaryFile(legacyConsumers, entry.relativePath);
           if (bytes === null) throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer record disappeared');
-          migratedRecords.set(entry.relativePath, Buffer.from(bytes));
-          if (entry.relativePath.startsWith('zero-')) {
-            parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath);
-          } else {
-            const record = parseCompilerDependencyConsumerRecord(bytes, entry.relativePath);
-            const chain = phases.get(record.leaseId) ?? {};
-            if (chain[record.phase] !== undefined) {
-              throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer chain has a duplicate phase');
-            }
-            chain[record.phase] = record;
-            phases.set(record.leaseId, chain);
-          }
+          retainConsumerRecord(entry.relativePath, Buffer.from(bytes));
           const existing = readNoFollowOrdinaryFile(targetConsumers, entry.relativePath);
           if (existing !== null) {
             if (!Buffer.from(existing).equals(Buffer.from(bytes))) {
@@ -9417,13 +9451,18 @@ async function relocateLegacyCompilerDependencyPreimage(
 }
 
 const COMPILER_DEPENDENCY_CONSUMER_SCHEMA = 'sec-compiler-dependency-consumer-v1' as const;
-const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS = Object.freeze([
+const COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 = 'sec-compiler-dependency-consumer-v2' as const;
+const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V1 = Object.freeze([
   'generationDigest', 'generationPhysical', 'generationPath', 'leaseId',
   'phase', 'previousRecordDigest', 'recordDigest', 'schema'
 ]);
+const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V2 = Object.freeze([
+  ...COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V1,
+  'ownerHost', 'ownerPid'
+]);
 
 interface CompilerDependencyConsumerRecord {
-  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA;
+  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA | typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2;
   readonly recordDigest: `sha256:${string}`;
   readonly previousRecordDigest: `sha256:${string}` | null;
   readonly leaseId: `sha256:${string}`;
@@ -9431,6 +9470,9 @@ interface CompilerDependencyConsumerRecord {
   readonly generationPath: string;
   readonly generationPhysical: GeneratedStatePhysicalIdentity;
   readonly phase: 'acquired' | 'released';
+  readonly ownerHost?: string;
+  readonly ownerPid?: number;
+  readonly ownerProcessNonce?: string;
 }
 
 type CompilerDependencyConsumerUnsigned = Omit<CompilerDependencyConsumerRecord, 'recordDigest'>;
@@ -9457,16 +9499,29 @@ function parseCompilerDependencyConsumerRecord(
       cause: error instanceof Error ? error.message : String(error)
     });
   }
-  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS)) {
+  const recordSchema = value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>).schema
+    : undefined;
+  const expectedKeys = recordSchema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA
+    ? COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V1
+    : recordSchema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2
+      ? COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V2
+      : null;
+  if (expectedKeys === null || !hasExactObjectKeys(value, expectedKeys)) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record has noncanonical keys');
   }
   const record = value as unknown as CompilerDependencyConsumerRecord;
-  if (record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA ||
+  if ((record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA &&
+       record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2) ||
       !isSha256Digest(record.recordDigest) ||
       (!isSha256Digest(record.previousRecordDigest) && record.previousRecordDigest !== null) ||
       !isSha256Digest(record.leaseId) || !isSha256Digest(record.generationDigest) ||
       !isCanonicalAbsolutePath(record.generationPath) ||
       !isCanonicalGeneratedStatePhysicalIdentity(record.generationPhysical) ||
+      (record.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 && (
+        typeof record.ownerHost !== 'string' || record.ownerHost.length === 0 ||
+        !Number.isSafeInteger(record.ownerPid) || (record.ownerPid ?? 0) <= 0
+      )) ||
       (record.phase !== 'acquired' && record.phase !== 'released')) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record fields are invalid');
   }
@@ -9483,6 +9538,18 @@ function parseCompilerDependencyConsumerRecord(
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer filename differs from its lease');
   }
   return Object.freeze(record);
+}
+
+function compilerDependencyConsumerOwnerDefinitelyAbsent(
+  record: CompilerDependencyConsumerRecord
+): boolean {
+  // PID liveness is used only as negative evidence: a dead local PID cannot
+  // still hold dependency handles. A live, remote, or unobservable owner is
+  // always retained. Legacy v1 records have no owner identity and therefore
+  // remain protected for explicit owner recovery.
+  return record.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 &&
+    record.ownerHost === hostname() &&
+    !processIsAlive(record.ownerPid!);
 }
 
 async function compilerDependencyConsumerRoot(
@@ -9504,13 +9571,15 @@ async function acquireCompilerDependencyConsumer(
     nonce: crypto.randomUUID()
   }));
   const record = compilerDependencyConsumerRecord({
-    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
+    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2,
     previousRecordDigest: null,
     leaseId,
     generationDigest: sourceGeneration.epoch,
     generationPath: path.resolve(sourceGeneration.sourcePath),
     generationPhysical: sourceGeneration.physical,
-    phase: 'acquired'
+    phase: 'acquired',
+    ownerHost: hostname(),
+    ownerPid: process.pid
   });
   const name = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
   const recordBytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
@@ -9550,13 +9619,17 @@ async function publishCompilerDependencyConsumerReleaseUnderLease(
 ): Promise<CompilerDependencyConsumerRecord> {
   const consumers = await compilerDependencyConsumerRoot(options);
   const released = compilerDependencyConsumerRecord({
-    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
+    schema: acquired.schema,
     previousRecordDigest: acquired.recordDigest,
     leaseId: acquired.leaseId,
     generationDigest: acquired.generationDigest,
     generationPath: acquired.generationPath,
     generationPhysical: acquired.generationPhysical,
-    phase: 'released'
+    phase: 'released',
+    ...(acquired.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 ? {
+      ownerHost: acquired.ownerHost,
+      ownerPid: acquired.ownerPid
+    } : {})
   });
   const name = `consumer-${acquired.leaseId.slice('sha256:'.length)}-released.json`;
   const existing = inspectNoFollowOrdinaryFileEntry(consumers, name);
@@ -9876,9 +9949,13 @@ function readCompilerDependencyConsumerCensus(
     const acquired = phases.acquired;
     const released = phases.released;
     if (acquired === undefined || (released !== undefined &&
-        (released.previousRecordDigest !== acquired.recordDigest ||
+        (released.schema !== acquired.schema ||
+          released.previousRecordDigest !== acquired.recordDigest ||
           released.generationDigest !== acquired.generationDigest ||
           released.generationPath !== acquired.generationPath ||
+          (acquired.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 && (
+            released.ownerHost !== acquired.ownerHost || released.ownerPid !== acquired.ownerPid
+          )) ||
           !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)))) {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer lease chain is partial or foreign', {
         leaseId
@@ -10014,6 +10091,25 @@ async function collectReleasedCompilerDependencyGenerations(
       }
       consumerRecords.push(parseCompilerDependencyConsumerRecord(bytes, entry.relativePath));
     }
+  }
+  const consumerPhases = new Map<string, Partial<Record<'acquired' | 'released', CompilerDependencyConsumerRecord>>>();
+  for (const record of consumerRecords) {
+    const phases = consumerPhases.get(record.leaseId) ?? {};
+    if (phases[record.phase] !== undefined) {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer lease has duplicate phase records');
+    }
+    phases[record.phase] = record;
+    consumerPhases.set(record.leaseId, phases);
+  }
+  for (const phases of consumerPhases.values()) {
+    const acquired = phases.acquired;
+    if (acquired === undefined || phases.released !== undefined ||
+        !compilerDependencyConsumerOwnerDefinitelyAbsent(acquired)) continue;
+    // Recovery is serialized with acquisition/release by the shared compiler
+    // coordination lease. Publish the same terminal record as normal release;
+    // no timeout, PID reuse, remote owner, or legacy record grants retirement.
+    const released = await publishCompilerDependencyConsumerReleaseUnderLease(acquired, options);
+    consumerRecords.push(released);
   }
   const legacyRelocations = inspectNoFollowDirectoryChild(
     namespace.backupRoot,

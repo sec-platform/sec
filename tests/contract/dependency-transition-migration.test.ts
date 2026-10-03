@@ -708,6 +708,61 @@ test('coordination cutover preserves an active legacy consumer on both sides', a
   }
 });
 
+test('coordination cutover unions valid Runtime State consumers with legacy records', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-preexisting-state-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  try {
+    const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
+    const runtimeConsumers = path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'v1',
+      'consumers'
+    );
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    await mkdir(legacyConsumers);
+    await mkdir(runtimeConsumers, { recursive: true });
+    const identity = inspectNoFollowDirectoryChain(root, 'preexisting consumer fixture generation').target;
+    const makeAcquired = (subject: string) => {
+      const leaseId = generatedStateDigest(subject);
+      const unsigned = Object.freeze({
+        schema: 'sec-compiler-dependency-consumer-v1',
+        previousRecordDigest: null,
+        leaseId,
+        generationDigest: generatedStateDigest(`${subject}-generation`),
+        generationPath: root,
+        generationPhysical: Object.freeze({
+          device: identity.device,
+          inode: identity.inode,
+          objectId: identity.objectId
+        }),
+        phase: 'acquired' as const
+      });
+      const record = Object.freeze({
+        ...unsigned,
+        recordDigest: generatedStateDigest(canonicalJson(unsigned))
+      });
+      return Object.freeze({
+        name: `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`,
+        bytes: Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8')
+      });
+    };
+    const runtimeRecord = makeAcquired('runtime-state-preexisting-consumer');
+    const legacyRecord = makeAcquired('legacy-consumer-during-cutover');
+    await writeFile(path.join(runtimeConsumers, runtimeRecord.name), runtimeRecord.bytes);
+    await writeFile(path.join(legacyConsumers, legacyRecord.name), legacyRecord.bytes);
+
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+
+    expect(await readFile(path.join(runtimeConsumers, runtimeRecord.name))).toEqual(runtimeRecord.bytes);
+    expect(await readFile(path.join(runtimeConsumers, legacyRecord.name))).toEqual(legacyRecord.bytes);
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('coordination cutover rejects a released-only legacy consumer chain', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));
   const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });

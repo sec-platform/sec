@@ -6,7 +6,7 @@ import { isFileNotFoundError, pathExists, removeDir } from "../../../filesystem/
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from "../../../workspace-context.ts";
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
-import { classifyDependencyEnvironment, observeDependencyEntry, type DependencyEntryStatus, type DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
+import { classifyDependencyEnvironment, observeDependencyEntry, sameObservedDependencyDirectory, type DependencyEntryStatus, type DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 import { sameHostPath } from '../runtime/host-path.ts';
 import type { RuntimeDependencyGeneratedStateLifecycle } from '../runtime/lifecycle-capabilities.ts';
 import {
@@ -218,7 +218,15 @@ export async function getDependencyEnvironmentStatus(
     projectNodeModules: projectNodeModules.entry,
     bunCache: bunCache.entry
   };
-  const mode = classifyDependencyEnvironment(statusWithoutMode, rootNodeModules, projectNodeModules);
+  // The compiler workspace is itself the dependency-generation owner. Its
+  // node_modules locator is the compiler generation, not a project bridge,
+  // and therefore has no project projection stamp to validate.
+  const mode = sameHostPath(targetWorkspaceRoot, compilerRoot)
+    ? compilerAuthority !== null &&
+        sameObservedDependencyDirectory(rootNodeModules, projectNodeModules)
+      ? 'warm-project'
+      : classifyDependencyEnvironment(statusWithoutMode, rootNodeModules, projectNodeModules)
+    : classifyDependencyEnvironment(statusWithoutMode, rootNodeModules, projectNodeModules);
 
   return {
     ...statusWithoutMode,
@@ -299,7 +307,14 @@ export async function relinkProjectDependencies(
   workspaceRoot = path.resolve(cwd, workspaceRoot);
   const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
   const selected = environmentExecutionOptions(options, cwd);
-  await ensureProjectDependencies(targetWorkspaceRoot, { ...selected, rematerialize: true });
+  if (sameHostPath(targetWorkspaceRoot, compilerRoot)) {
+    // A compiler-root relink is a compiler-generation reconciliation. Calling
+    // the project projection path here would demand a project stamp for the
+    // compiler owner's own locator and reject a valid generation.
+    await ensureCompilerDepsReady(selected);
+  } else {
+    await ensureProjectDependencies(targetWorkspaceRoot, { ...selected, rematerialize: true });
+  }
   return getDependencyEnvironmentStatus(workspaceRoot, selected);
 }
 
