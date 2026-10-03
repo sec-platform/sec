@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -140,6 +140,82 @@ test('publication and returned bindings use one captured task/transaction genera
     assert.equal(emitted.artifactBinding?.semanticRevision, 'semantic');
   }
   assert.deepEqual(result.tasks[1]!.stateValues, ['open', 'closed']);
+}));
+
+test('semantic lowering no-op preserves exact bytes, mtime, inode and mode while returning current bindings', async () => fixture(async root => {
+  const value = task(), input = context([value]), target = path.join(root, value.target);
+  const source = renderStateTransitionMapSource(value);
+  writeFileSync(target, source);
+  if (process.platform !== 'win32') chmodSync(target, 0o640);
+  utimesSync(target, new Date('2000-01-01T00:00:00Z'), new Date('2000-01-01T00:00:00Z'));
+  const before = statSync(target, { bigint: true });
+  Object.assign(input, { transactionId: 'tx:no-op' });
+  let fences = 0;
+  const result = await lowerSemanticTasks(root, input, async () => { fences++; });
+  const after = statSync(target, { bigint: true });
+  assert.equal(readFileSync(target, 'utf8'), source);
+  assert.equal(after.mtimeNs, before.mtimeNs); assert.equal(after.ctimeNs, before.ctimeNs);
+  assert.equal(after.ino, before.ino); assert.equal(after.mode, before.mode);
+  assert.ok(fences > 0); assert.deepEqual(result.generatedPaths, ['src/one.ts']);
+  assert.equal(result.tasks[0]!.status, 'generated');
+  assert.equal(result.tasks[0]!.artifactBinding?.compilationTransactionId, 'tx:no-op');
+}));
+
+test('semantic lowering still writes changed and missing targets with ordinary file modes', async () => fixture(async root => {
+  const changed = task('changed'), added = { ...task('added'), target: 'src/NewDirectory/added.ts' };
+  const target = path.join(root, changed.target);
+  writeFileSync(target, 'previous generation');
+  if (process.platform !== 'win32') chmodSync(target, 0o640);
+  const mode = statSync(target).mode;
+  await lowerSemanticTasks(root, context([changed, added]));
+  assert.equal(readFileSync(target, 'utf8'), renderStateTransitionMapSource(changed));
+  assert.equal(statSync(target).mode, mode);
+  const addedTarget = path.join(root, added.target);
+  assert.equal(readFileSync(addedTarget, 'utf8'), renderStateTransitionMapSource(added));
+  if (process.platform !== 'win32') assert.equal(statSync(addedTarget).mode & 0o777, 0o666 & ~process.umask());
+}));
+
+test('semantic lowering detaches equal-byte hardlinks rather than accepting a foreign alias as no-op', async () => fixture(async root => {
+  const value = task(), target = path.join(root, value.target), peer = path.join(root, 'peer.ts');
+  const source = renderStateTransitionMapSource(value);
+  writeFileSync(peer, source); linkSync(peer, target);
+  await lowerSemanticTasks(root, context([value]));
+  assert.equal(statSync(target).nlink, 1); assert.equal(statSync(peer).nlink, 1);
+  assert.notEqual(statSync(target).ino, statSync(peer).ino);
+  writeFileSync(peer, 'foreign change');
+  assert.equal(readFileSync(target, 'utf8'), source);
+}));
+
+test('semantic lowering refuses target mutation during its no-op fence and releases retention', async () => fixture(async root => {
+  const value = task(), target = path.join(root, value.target);
+  writeFileSync(target, renderStateTransitionMapSource(value));
+  await assert.rejects(lowerSemanticTasks(root, context([value]), async () => {
+    writeFileSync(target, 'foreign change');
+  }));
+  // Windows retention may reject the competing write itself; neither outcome
+  // may become successful no-op completion or leave the target pinned.
+  if (process.platform !== 'win32') assert.equal(readFileSync(target, 'utf8'), 'foreign change');
+  writeFileSync(target, 'after failure');
+  assert.equal(readFileSync(target, 'utf8'), 'after failure');
+}));
+
+test('semantic lowering no-op preserves semantic fence failure and releases retention', async () => fixture(async root => {
+  const value = task(), input = context([value]), target = path.join(root, value.target);
+  const source = renderStateTransitionMapSource(value);
+  writeFileSync(target, source);
+  await assert.rejects(lowerSemanticTasks(root, input, async () => {
+    Object.assign(input.snapshot.ir, { semanticRevision: 'next' });
+  }), /revision changed/);
+  assert.equal(readFileSync(target, 'utf8'), source);
+  writeFileSync(target, 'after failure');
+}));
+
+test('semantic lowering refuses an equal-byte symbolic target instead of treating it as no-op', async () => fixture(async root => {
+  const value = task(), target = path.join(root, value.target), peer = path.join(root, 'peer.ts');
+  const source = renderStateTransitionMapSource(value);
+  writeFileSync(peer, source); symlinkSync(peer, target, 'file');
+  await assert.rejects(lowerSemanticTasks(root, context([value])));
+  assert.equal(readFileSync(peer, 'utf8'), source);
 }));
 
 test('returned task data is independently owned and remains mutable for its next lifecycle', async () => fixture(async root => {
