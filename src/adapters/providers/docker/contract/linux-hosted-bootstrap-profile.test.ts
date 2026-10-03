@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { rawSha256 } from '../../../../contracts/canonical.ts';
-import { canonicalHostedSandboxRoots, compileHostedSutAppArmorProfile, LINUX_HOSTED_BOOTSTRAP_PROFILE } from './linux-hosted-bootstrap-profile.ts';
+import { canonicalHostedSandboxRoots, compileHostedMainHealthAppArmorProfile, compileHostedSutAppArmorProfile, LINUX_HOSTED_BOOTSTRAP_PROFILE } from './linux-hosted-bootstrap-profile.ts';
 
 const profileName = `sec-sut-${'1'.repeat(32)}`;
 const root = `/tmp/sec-sut-${'2'.repeat(16)}-${'3'.repeat(32)}`;
@@ -20,6 +20,18 @@ test('bootstrap policy is exact and phase reuse does not restart an already-enab
   Object.defineProperty(accessor, '0', { get() { calls++; return root; } });
   expect(() => canonicalHostedSandboxRoots(accessor)).toThrow();
   expect(calls).toBe(0);
+});
+
+test('MainHealth profile permits only its exact readonly superblock remount', () => {
+  const profile = compileHostedMainHealthAppArmorProfile(profileName);
+  expect(profile.roots).toEqual([]);
+  expect(profile.digest).toBe(rawSha256(Buffer.from(profile.bytes)));
+  expect(profile.bytes).toContain('mount options=(ro,remount,nosuid,nodev,noexec) -> /sec-runtime/,');
+  expect(profile.bytes).not.toContain('options=(rw,');
+  expect(profile.bytes).not.toContain('bind');
+  expect(profile.bytes).not.toContain('/tmp/');
+  expect(profile.bytes).not.toContain('\n  umount');
+  expect(profile.bytes).toContain('deny /proc/sysrq-trigger rwklx,');
 });
 test('SUT profile keeps Docker restrictions and grants only exact mount destinations', () => {
   const profile = compileHostedSutAppArmorProfile({ profileName, sandboxRoots: [root] });

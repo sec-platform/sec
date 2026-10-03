@@ -3,6 +3,7 @@ import type { AuthenticatedGitHubJobOrigin } from '../../github-api/hosted-job-o
 import {
   applyHostedBootstrapProcess, assertHostedBootstrapProcessCurrent,
   observeHostedBootstrapProcess, prepareHostedBootstrapProcess,
+  requireHostedMainHealthInputProfile,
   retireHostedBootstrapProcess, type HostedBootstrapProcess
 } from './linux-hosted-bootstrap-process.ts';
 
@@ -37,6 +38,12 @@ export async function applyAuthenticatedLinuxHostedBootstrap(handle: Authenticat
 
 export async function assertAuthenticatedLinuxHostedBootstrapCurrent(handle: AuthenticatedLinuxHostedBootstrap): Promise<void> {
   await assertHostedBootstrapProcessCurrent(handle);
+}
+
+export async function requireAuthenticatedMainHealthInputProfile(handle: AuthenticatedLinuxHostedBootstrap,
+  originIdentityDigest: string): Promise<Readonly<{ profileName: string; profileDigest: `sha256:${string}` }>> {
+  await assertHostedBootstrapProcessCurrent(handle);
+  return requireHostedMainHealthInputProfile(handle, originIdentityDigest);
 }
 
 /**

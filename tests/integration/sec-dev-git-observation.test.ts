@@ -352,7 +352,9 @@ test.skipIf(process.platform === 'win32')(
       expect(called).toBe(false);
       expect(diagnostics).toHaveLength(1);
       expect(diagnostics[0]).toContain('strict-zero-write-unproven');
-      expect(diagnostics[0]).toContain('unsupported-platform');
+      // Qualified Linux can protect real immutable inputs, but this newly
+      // created mutable fixture still has no admissible physical root.
+      expect(diagnostics[0]).toMatch(/\((?:unsupported-platform|root-unavailable)\)/u);
       expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
         .toBe('export const committed = true;\n');
     } finally {

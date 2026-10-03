@@ -144,6 +144,21 @@ test('TCB closure models direct OS identity reads without admitting identity mut
     'synthetic-effective-user.ts',
     "export const effectiveUserId = process['geteuid']();"
   )).toThrow('computed process member');
+  for (const source of ['export const realUserId = process.getuid();', 'export const realUserId = process.getuid?.();']) {
+    expect(() => runtimeRelativeImportsFromSource('synthetic-real-user.ts', source)).not.toThrow();
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-user.ts',
+    'process.setuid(0);'
+  )).toThrow('unclassified process member setuid');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-user.ts',
+    "export const realUserId = process['getuid']();"
+  )).toThrow('computed process member');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-user.ts',
+    'export const realUserId = process.getRealUserId();'
+  )).toThrow('unclassified process member getRealUserId');
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-parent-process.ts',
     'export const issuerProcessId = process.parentPid;'

@@ -45,6 +45,7 @@ import {
 import {
   openDockerCommandProvider
 } from '../../../providers/docker/runtime/installed-command-provider.ts';
+import { requireAuthenticatedMainHealthInputProfile, type AuthenticatedLinuxHostedBootstrap } from '../../../providers/docker/runtime/linux-hosted-bootstrap.ts';
 import { claimQualifiedContainerEngineOciExporter, consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../providers/docker/runtime/linux-oci-exporter.ts';
 import {
   assertGitCandidateBundleReceipt,
@@ -68,6 +69,7 @@ import {
   parseGitObjectIdReply
 } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
+import { compileLinuxRepositoryNamespaceFence } from '../../../runtime-state/physical/runtime/physical-no-follow-native.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
@@ -174,6 +176,11 @@ export const TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC =
 const TRUSTED_RUNTIME_TRUSTED_TREE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/output`;
+export const TRUSTED_RUNTIME_OUTPUT_TMPFS_SPEC =
+  `${TRUSTED_RUNTIME_OUTPUT}:rw,noexec,nosuid,nodev,size=4g,mode=0700,uid=1000,gid=1000` as const;
+const MAIN_HEALTH_SETUP_CAPABILITIES = Object.freeze(['SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN']);
+const MAIN_HEALTH_UNPRIVILEGED_PREFIX = Object.freeze(['/usr/bin/setpriv', '--reuid=1000', '--regid=1000',
+  '--clear-groups', '--no-new-privs', '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all']);
 const TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND = Object.freeze([
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   'run',
@@ -852,6 +859,7 @@ export interface TrustedRuntimeContainerIdentity {
   readonly executableTestTmpfs: true;
   readonly nonExecutableMutableTmpfs: true;
   readonly dependencyCacheVolumeName: string | null;
+  readonly immutableInputProfile?: string;
 }
 
 export function composeTrustedRuntimeContainerLabels(
@@ -878,7 +886,7 @@ function localProcessLiveness(pid: number): 'alive' | 'dead' | 'unknown' {
   }
 }
 
-function assertCanonicalTmpfs(hostConfig: Readonly<Record<string, unknown>>): void {
+function assertCanonicalTmpfs(hostConfig: Readonly<Record<string, unknown>>, immutableInput = false): void {
   const tmpfs = hostConfig.Tmpfs;
   if (tmpfs === null || typeof tmpfs !== 'object' || Array.isArray(tmpfs)) {
     fail('Docker tmpfs policy is invalid');
@@ -887,7 +895,9 @@ function assertCanonicalTmpfs(hostConfig: Readonly<Record<string, unknown>>): vo
     [TRUSTED_RUNTIME_TEST_TMPFS_TARGET]:
       TRUSTED_RUNTIME_TEST_TMPFS_SPEC.slice(TRUSTED_RUNTIME_TEST_TMPFS_TARGET.length + 1),
     [TRUSTED_RUNTIME_MUTABLE_ROOT]:
-      TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC.slice(TRUSTED_RUNTIME_MUTABLE_ROOT.length + 1)
+      TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC.slice(TRUSTED_RUNTIME_MUTABLE_ROOT.length + 1),
+    ...(immutableInput ? { [TRUSTED_RUNTIME_OUTPUT]:
+      TRUSTED_RUNTIME_OUTPUT_TMPFS_SPEC.slice(TRUSTED_RUNTIME_OUTPUT.length + 1) } : {})
   });
   const observed = tmpfs as Record<string, unknown>;
   const expectedTargets = Object.keys(expected).sort();
@@ -935,7 +945,27 @@ export function parseTrustedRuntimeContainerIdentity(
       || !Array.isArray(mounts)) {
     fail('Docker container identity is invalid');
   }
-  assertCanonicalTmpfs(hostConfig as Record<string, unknown>);
+  const host = hostConfig as Record<string, unknown>;
+  const immutableInput = host.Tmpfs !== null && typeof host.Tmpfs === 'object'
+    && Object.hasOwn(host.Tmpfs, TRUSTED_RUNTIME_OUTPUT);
+  assertCanonicalTmpfs(host, immutableInput);
+  let immutableInputProfile: string | undefined;
+  if (immutableInput) {
+    const capAdd = host.CapAdd;
+    const security = host.SecurityOpt;
+    if (!Array.isArray(capAdd) || !Array.isArray(security) || capAdd.length !== MAIN_HEALTH_SETUP_CAPABILITIES.length
+        || [...capAdd].sort().join(',') !== [...MAIN_HEALTH_SETUP_CAPABILITIES].sort().join(',')
+        || !Array.isArray(host.CapDrop) || host.CapDrop.length !== 1 || host.CapDrop[0] !== 'ALL'
+        || host.Privileged !== false || host.PidMode !== '' || host.UsernsMode !== ''
+        || security.length !== 2 || !security.includes('no-new-privileges:true')) {
+      fail('Immutable MainHealth setup has unexpected privilege or namespace configuration');
+    }
+    const selected = security.find(value => typeof value === 'string' && /^apparmor=sec-sut-[0-9a-f]{32}$/u.test(value));
+    if (typeof selected !== 'string' || record.AppArmorProfile !== selected.slice('apparmor='.length)) {
+      fail('Immutable MainHealth setup has no exact AppArmor binding');
+    }
+    immutableInputProfile = selected.slice('apparmor='.length);
+  }
   const candidateBundleMounts = mounts.filter((entry) => entry !== null
     && typeof entry === 'object'
     && !Array.isArray(entry)
@@ -964,6 +994,11 @@ export function parseTrustedRuntimeContainerIdentity(
     }
     dependencyCacheVolumeName = cacheMount.Name;
   }
+  if (immutableInput && (dependencyCacheVolumeName !== null || mounts.some(value => {
+    const entry = value as Record<string, unknown>;
+    return entry.Destination !== TRUSTED_RUNTIME_CANDIDATE_BUNDLE
+      && ![TRUSTED_RUNTIME_TEST_TMPFS_TARGET, TRUSTED_RUNTIME_MUTABLE_ROOT, TRUSTED_RUNTIME_OUTPUT].includes(String(entry.Destination));
+  }))) fail('Immutable MainHealth must not expose an extra writable input or shared volume');
   const rawLabels = (config as Record<string, unknown>).Labels;
   if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
     fail('Docker container labels are invalid');
@@ -984,7 +1019,8 @@ export function parseTrustedRuntimeContainerIdentity(
     initProcess: true,
     executableTestTmpfs: true,
     nonExecutableMutableTmpfs: true,
-    dependencyCacheVolumeName
+    dependencyCacheVolumeName,
+    ...(immutableInputProfile === undefined ? {} : { immutableInputProfile })
   });
 }
 
@@ -1000,6 +1036,7 @@ function sameContainerIdentity(
     && left.executableTestTmpfs === right.executableTestTmpfs
     && left.nonExecutableMutableTmpfs === right.nonExecutableMutableTmpfs
     && left.dependencyCacheVolumeName === right.dependencyCacheVolumeName
+    && left.immutableInputProfile === right.immutableInputProfile
     && encodeVerificationActionData(left.labels) === encodeVerificationActionData(right.labels);
 }
 
@@ -1332,11 +1369,30 @@ const READ_CANDIDATE_BUNDLE_IDENTITY_SCRIPT = [
   'printf \'sha256:%s\\n\' "$actual"'
 ].join('\n');
 
+const MAIN_HEALTH_DEPENDENCY_BRIDGE_SCRIPT = [
+  `const owner = await import('${TRUSTED_RUNTIME_TRUSTED_TREE}/src/adapters/toolchain/dependencies/runtime.ts');`,
+  'const deadlineAtUnixMs = Number(process.argv.at(-1));',
+  'if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) throw new Error("expired MainHealth dependency setup");',
+  'const options = { installMode: "prebound-only", deadlineAtUnixMs };',
+  `const source = await owner.observeCompilerDependencyExecutionGenerationAuthority(options, '${TRUSTED_RUNTIME_TRUSTED_TREE}');`,
+  'if (source === null) throw new Error("MainHealth setup has no original dependency authority");',
+  `const ready = await owner.ensureCompilerDepsReadyFromGeneration(source, options, '${TRUSTED_RUNTIME_WORKSPACE}');`,
+  `const readback = await owner.observeCompilerDependencyExecutionGenerationAuthority(options, '${TRUSTED_RUNTIME_WORKSPACE}');`,
+  'if (readback === null || ready.executionGenerationAuthority.generationDigest !== readback.generationDigest) throw new Error("MainHealth dependency readback differs");',
+  'const fs = await import("node:fs");',
+  `const sourcePath = fs.realpathSync('${TRUSTED_RUNTIME_TRUSTED_TREE}/node_modules');`,
+  `const targetPath = fs.realpathSync('${TRUSTED_RUNTIME_WORKSPACE}/node_modules');`,
+  `if (sourcePath !== targetPath || !sourcePath.startsWith('${TRUSTED_RUNTIME_TRUSTED_TREE}/.tmp/dependency-installs/compiler-backups/generation-') || fs.statSync(sourcePath).dev !== fs.statSync('${TRUSTED_RUNTIME_TRUSTED_TREE}').dev) throw new Error('MainHealth dependency generation is outside the source superblock');`
+].join('\n');
+const MAIN_HEALTH_DEPENDENCY_BRIDGE_SHELL_ARGUMENT = `'${MAIN_HEALTH_DEPENDENCY_BRIDGE_SCRIPT.replaceAll("'", "'\\''")}'`;
+
 export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT = [
   'set -euo pipefail',
   'base="$1"',
   'head="$2"',
   'mode="$3"',
+  'immutable_input="${4:-0}"',
+  '[ "$immutable_input" = "0" ] || [ "$immutable_input" = "1" ]',
   '[ "$mode" = "full" ] || [ "$mode" = "lifecycle-canary" ] || [ "$mode" = "dependency-canary" ]',
   `mkdir -p ${TRUSTED_RUNTIME_TRUSTED_TREE} ${TRUSTED_RUNTIME_WORKSPACE} ${TRUSTED_RUNTIME_OUTPUT}`,
   `git init --quiet ${TRUSTED_RUNTIME_TRUSTED_TREE}`,
@@ -1353,16 +1409,107 @@ export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT = [
   `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE} rev-parse refs/remotes/origin/main)" = "$base" ]`,
   'if [ "$mode" != "lifecycle-canary" ]; then',
   `  cd ${TRUSTED_RUNTIME_TRUSTED_TREE}`,
-  `  CI=1 SEC_CACHE_HOME=/tmp/sec-hosted-dependency-home ${TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND.join(' ')}`,
+  '  if [ "$immutable_input" = "1" ]; then',
+  `    CI=1 ${TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND.join(' ')}`,
+  '  else',
+  `    CI=1 SEC_CACHE_HOME=/tmp/sec-hosted-dependency-home ${TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND.join(' ')}`,
+  '  fi',
   '  if [ "$mode" = "full" ]; then',
-  `    rm -rf ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
-  `    ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE}/node_modules ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
+  '    if [ "$immutable_input" = "1" ]; then',
+  `      ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} --no-env-file -e ${MAIN_HEALTH_DEPENDENCY_BRIDGE_SHELL_ARGUMENT} "$5"`,
+  '    else',
+  `      rm -rf ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
+  `      ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE}/node_modules ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
+  '    fi',
   '  else',
   `    [ ! -e ${TRUSTED_RUNTIME_WORKSPACE}/node_modules ]`,
   '  fi',
   'fi',
-  `chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE}`
+  // Re-chmodding a generated dependency changes its ctime-bound proof even
+  // when its numeric mode is unchanged. The new full-superblock freeze needs
+  // no recursive metadata mutation. The old path keeps its existing policy.
+  `if [ "$immutable_input" = "0" ]; then chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE}; fi`
 ].join('\n');
+
+/** Root setup freezes the entire source superblock. No readonly bind fallback.
+ * The dependency owner's descendant identities/proofs remain untouched. */
+export const TRUSTED_RUNTIME_MAIN_HEALTH_FREEZE_SCRIPT = String.raw`
+import ctypes, os, sys, time
+if len(sys.argv) != 2 or os.getresuid() != (0,0,0): raise RuntimeError('immutable-input-freeze-credentials')
+deadline=int(sys.argv[1])/1000
+libc=ctypes.CDLL(None,use_errno=True)
+libc.mount.argtypes=[ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_ulong,ctypes.c_void_p]
+libc.mount.restype=ctypes.c_int
+if deadline <= time.time(): raise RuntimeError('immutable-input-freeze-deadline')
+# Exactly MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC|MS_REMOUNT. A mount
+# utility may merge additional flags; this call matches the fixed profile.
+if libc.mount(None,b'${TRUSTED_RUNTIME_MUTABLE_ROOT}',None,47,None) != 0:
+    error=ctypes.get_errno()
+    raise OSError(error,os.strerror(error))
+`;
+
+/** The original container owner executes this fixed program after setpriv.
+ * It checks real kernel state before the first command instruction, installs
+ * the same native namespace fence, and execs the existing five-check argv in
+ * place. No candidate code is loaded by a root setup process. */
+export const TRUSTED_RUNTIME_MAIN_HEALTH_EXEC_SCRIPT = String.raw`
+import os, sys, ctypes, platform, time, signal
+if platform.machine() != 'x86_64' or len(sys.argv) < 5: raise RuntimeError('immutable-input-arguments')
+deadline=int(sys.argv[1])/1000
+expected_profile=sys.argv[2]
+if deadline <= time.time(): raise RuntimeError('immutable-input-deadline')
+if os.getresuid() != (1000,1000,1000) or os.getresgid() != (1000,1000,1000) or os.getgroups(): raise RuntimeError('immutable-input-credentials')
+with open('/proc/self/status') as stream: status=dict(line.split(':',1) for line in stream)
+if any(int(status[key],16) for key in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb')) or int(status['NoNewPrivs']) != 1: raise RuntimeError('immutable-input-capabilities')
+with open('/proc/self/attr/current') as stream:
+    if stream.read().strip() != expected_profile+' (enforce)': raise RuntimeError('immutable-input-profile')
+for name in ('uid_map','gid_map'):
+    with open('/proc/self/'+name) as stream:
+        if stream.read().split() != ['0','0','4294967295']: raise RuntimeError('immutable-input-userns')
+class StatFS(ctypes.Structure):
+    _fields_=[('type',ctypes.c_long),('bsize',ctypes.c_long),('blocks',ctypes.c_ulong),('bfree',ctypes.c_ulong),('bavail',ctypes.c_ulong),('files',ctypes.c_ulong),('ffree',ctypes.c_ulong),('fsid',ctypes.c_int*2),('namelen',ctypes.c_long),('frsize',ctypes.c_long),('flags',ctypes.c_long),('spare',ctypes.c_long*4)]
+libc=ctypes.CDLL(None,use_errno=True)
+libc.fstatfs.argtypes=[ctypes.c_int,ctypes.POINTER(StatFS)]
+libc.fstatfs.restype=ctypes.c_int
+with open('/proc/self/mountinfo') as stream: rows=[line.rstrip().split(' ') for line in stream]
+source_devices=set()
+for root in ('/sec-runtime/trusted','/sec-runtime/workspace'):
+    fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        native=StatFS()
+        if libc.fstatfs(fd,ctypes.byref(native)) != 0 or native.type != 0x01021994 or not native.flags & 1: raise RuntimeError('immutable-input-filesystem')
+        source_devices.add(os.fstat(fd).st_dev)
+        with open('/proc/self/fdinfo/'+str(fd)) as stream: info=dict(line.split(':',1) for line in stream)
+        selected=[row for row in rows if row[0] == info['mnt_id'].strip()]
+        if len(selected)!=1: raise RuntimeError('immutable-input-mount')
+        row=selected[0]; separator=row.index('-')
+        if row[3]!='/' or row[4]!='/sec-runtime' or separator!=6 or row[separator+1]!='tmpfs' or 'ro' not in row[5].split(',') or 'ro' not in row[separator+3].split(','): raise RuntimeError('immutable-input-superblock')
+        if any(other[4]==root or other[4].startswith(root+'/') for other in rows): raise RuntimeError('immutable-input-covering-mount')
+        for ancestor in ('/','/sec-runtime',root):
+            observed=os.stat(ancestor,follow_symlinks=False)
+            if observed.st_dev not in source_devices and (observed.st_uid!=0 or observed.st_mode&0o022): raise RuntimeError('immutable-input-ancestor')
+    finally: os.close(fd)
+for name in os.listdir('/proc/self/fd'):
+    fd=int(name)
+    try: observed=os.fstat(fd)
+    except OSError: continue
+    if fd>2 or observed.st_dev in source_devices: raise RuntimeError('immutable-input-inherited-fd')
+for writable in ('/tmp','/sec-runtime/output'):
+    if os.stat(writable).st_dev in source_devices or os.statvfs(writable).f_flag & os.ST_RDONLY: raise RuntimeError('immutable-input-output-overlap')
+if os.getcwd() != '/sec-runtime/workspace': raise RuntimeError('immutable-input-cwd')
+program_bytes=bytes.fromhex('${Buffer.from(compileLinuxRepositoryNamespaceFence()).toString('hex')}')
+class Filter(ctypes.Structure): _fields_=[('code',ctypes.c_ushort),('jt',ctypes.c_ubyte),('jf',ctypes.c_ubyte),('k',ctypes.c_uint)]
+class Program(ctypes.Structure): _fields_=[('length',ctypes.c_ushort),('filters',ctypes.POINTER(Filter))]
+filters=(Filter*(len(program_bytes)//8)).from_buffer_copy(program_bytes)
+program=Program(len(filters),filters)
+libc.syscall.restype=ctypes.c_long
+if deadline <= time.time(): raise RuntimeError('immutable-input-deadline-before-tsync')
+if libc.syscall(ctypes.c_long(317),ctypes.c_long(1),ctypes.c_long(1),ctypes.byref(program)) != 0: raise RuntimeError('immutable-input-tsync')
+remaining=deadline-time.time()
+if remaining <= 0: raise RuntimeError('immutable-input-expired')
+signal.setitimer(signal.ITIMER_REAL,remaining)
+os.execve(${JSON.stringify(SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH)},[${JSON.stringify(SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH)}]+sys.argv[3:],dict(os.environ))
+`;
 
 function formalEnvironment(input: Readonly<{
   envelope: VerificationSessionHostedEnvelope;
@@ -1470,6 +1617,7 @@ interface TrustedRuntimeWorkspace {
   readonly containerEngineSession: ContainerEngineSession;
   readonly dockerEndpoint: DockerEndpointIdentity;
   readonly dependencyCacheKey: Digest | null;
+  readonly immutableInputProfile?: string;
 }
 
 async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
@@ -1484,6 +1632,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   /** Fresh authority consumers never mount a cache writable by candidate execution. */
   dependencyCachePolicy?: 'shared-sut' | 'private-authority';
   qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap?: AuthenticatedLinuxHostedBootstrap;
   observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
   execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
 }>): Promise<T> {
@@ -1498,6 +1647,20 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     if (!Number.isSafeInteger(deadlineAtUnixMs) || remaining <= 0) fail('workspace inherited deadline is exhausted or invalid');
     return remaining;
   };
+  let immutableInputProfile: string | undefined;
+  const assertImmutableInputSetupCurrent = async (): Promise<void> => {
+    if (input.immutableInputBootstrap === undefined) return;
+    if (input.qualifiedEngineExporter === undefined || input.dependencyCachePolicy !== 'private-authority'
+        || input.setupMode !== 'full' || input.baseSha !== input.headSha) {
+      fail('Immutable MainHealth requires its exact-main private authority setup');
+    }
+    await consumeQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
+    const profile = await requireAuthenticatedMainHealthInputProfile(input.immutableInputBootstrap,
+      input.qualifiedEngineExporter.originIdentityDigest);
+    if (immutableInputProfile !== undefined && immutableInputProfile !== profile.profileName) fail('Immutable MainHealth profile changed');
+    immutableInputProfile = profile.profileName;
+  };
+  await assertImmutableInputSetupCurrent();
   remainingMs();
   const repositoryRoot = path.resolve(input.repositoryRoot);
   if (!path.isAbsolute(input.repositoryRoot) || repositoryRoot !== input.repositoryRoot) {
@@ -1696,6 +1859,10 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         arguments: ['--name', containerName,
         ...Object.entries(containerLabels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+        ...(immutableInputProfile === undefined ? [] : [
+          ...MAIN_HEALTH_SETUP_CAPABILITIES.flatMap(value => ['--cap-add', value]),
+          '--security-opt', `apparmor=${immutableInputProfile}`
+        ]),
         '--init',
         '--read-only',
         '--pids-limit', String(ENVIRONMENT.runtime.resources.trusted.pids),
@@ -1703,6 +1870,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         '--memory', `${ENVIRONMENT.runtime.resources.trusted.memoryGiB}g`,
         '--tmpfs', TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
         '--tmpfs', TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
+        ...(immutableInputProfile === undefined ? [] : ['--tmpfs', TRUSTED_RUNTIME_OUTPUT_TMPFS_SPEC]),
         '--mount', `type=bind,source=${candidateBundle.bundlePath},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE},readonly`,
         ...(dependencyCacheVolume === null ? [] : [
           '--mount', `type=volume,source=${dependencyCacheVolume.spec.name},target=${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH}`
@@ -1729,6 +1897,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           || createdIdentity.nonExecutableMutableTmpfs !== true
           || createdIdentity.dependencyCacheVolumeName
             !== (dependencyCacheVolume?.spec.name ?? null)
+          || createdIdentity.immutableInputProfile !== immutableInputProfile
           || encodeVerificationActionData(createdIdentity.labels)
             !== encodeVerificationActionData(containerLabels)) {
         fail('Docker container creation readback differs from the retained attempt identity');
@@ -1760,11 +1929,21 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         arguments: ['--user', '1000:1000', containerTarget, '/bin/mkdir', '-p', TRUSTED_RUNTIME_OUTPUT]
       });
       await containerEngineOutput(session, {
-        kind: 'container-exec', arguments: ['--user', '1000:1000',
+        kind: 'container-exec', arguments: ['--user', immutableInputProfile === undefined ? '1000:1000' : '0:0',
         ...createTrustedRuntimeCommandEnvironmentArgs({ HOME: '/home/ubuntu' }),
-        containerTarget, '/bin/bash', '-lc', TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, '--',
-        baseSha, headSha, input.setupMode]
+        containerTarget, ...(immutableInputProfile === undefined ? [] : MAIN_HEALTH_UNPRIVILEGED_PREFIX),
+        '/bin/bash', '-lc', TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, '--',
+        baseSha, headSha, input.setupMode, immutableInputProfile === undefined ? '0' : '1', String(deadlineAtUnixMs)]
       });
+      if (immutableInputProfile !== undefined) {
+        // The setup above runs only trusted base code as uid 1000. These are
+        // the only root-owned source effects; candidate code is never involved.
+        await requireAuthenticatedMainHealthInputProfile(input.immutableInputBootstrap!,
+          input.qualifiedEngineExporter!.originIdentityDigest);
+        await containerEngineOutput(session, { kind: 'container-exec',
+          arguments: ['--user', '0:0', containerTarget, '/usr/bin/python3', '-I', '-S', '-c',
+            TRUSTED_RUNTIME_MAIN_HEALTH_FREEZE_SCRIPT, String(deadlineAtUnixMs)] });
+      }
       if (dependencyCacheMarkerFileDigest !== null) {
         const readbackDigest = digest(await containerEngineOutput(session, {
           kind: 'container-exec',
@@ -1810,7 +1989,8 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         image,
         containerEngineSession: session,
         dockerEndpoint,
-        dependencyCacheKey: dependencyCacheMarker?.cacheKey ?? null
+        dependencyCacheKey: dependencyCacheMarker?.cacheKey ?? null,
+        ...(immutableInputProfile === undefined ? {} : { immutableInputProfile })
       }));
     } catch (error) {
       workspacePrimary = Object.freeze({ label: 'trusted-runtime-workspace', error });
@@ -2432,6 +2612,7 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
   qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap?: AuthenticatedLinuxHostedBootstrap;
   selectedCommand?: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
 }>) {
   if (input.selectedCommand !== undefined && !TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.selectedCommand)) {
@@ -2456,6 +2637,7 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     signal: input.signal,
     qualifiedEngineExporter: input.qualifiedEngineExporter,
+    immutableInputBootstrap: input.immutableInputBootstrap,
     dependencyCachePolicy: 'private-authority',
     observeSettlement,
     execute: async ({
@@ -2463,7 +2645,8 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
       image,
       containerEngineSession,
       dockerEndpoint,
-      dependencyCacheKey
+      dependencyCacheKey,
+      immutableInputProfile
     }) => {
       if (dependencyCacheKey !== null) {
         fail('MainHealth authority workspace mounted a candidate-writable dependency cache');
@@ -2513,10 +2696,20 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
           const actionResults: Array<Readonly<{ command: string; resultDigest: Digest }>> = [];
           for (const command of commands) {
             const argv = trustedRuntimeMainHealthCommandArgv(command);
+            if (immutableInputProfile !== undefined) {
+              const profile = await requireAuthenticatedMainHealthInputProfile(input.immutableInputBootstrap!,
+                input.qualifiedEngineExporter!.originIdentityDigest);
+              if (profile.profileName !== immutableInputProfile) fail('MainHealth execution profile changed');
+            }
             const result = await containerEngineOperationResult(containerEngineSession, {
               kind: 'container-exec',
-              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-                ...environmentArgs, containerName, ...argv]
+              arguments: ['--user', immutableInputProfile === undefined ? '1000:1000' : '0:0', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
+                ...environmentArgs, containerName,
+                ...(immutableInputProfile === undefined ? argv : [
+                  ...MAIN_HEALTH_UNPRIVILEGED_PREFIX, '/usr/bin/python3', '-I', '-S', '-c',
+                  TRUSTED_RUNTIME_MAIN_HEALTH_EXEC_SCRIPT, String(containerEngineSession.deadlineAtUnixMs),
+                  immutableInputProfile, ...argv.slice(1)
+                ])]
             }, {
               maxStdoutBytes: 16 * 1024 * 1024,
               maxStderrBytes: 16 * 1024 * 1024
@@ -2525,6 +2718,10 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
               command,
               resultDigest: digestValue(Object.freeze({
                 command,
+                ...(immutableInputProfile === undefined ? {} : { inputProtection: Object.freeze({
+                  method: 'tmpfs-superblock-ro-and-kernel-namespace-fence',
+                  launcherDigest: digestBytes(TRUSTED_RUNTIME_MAIN_HEALTH_EXEC_SCRIPT)
+                }) }),
                 exitCode: result.code,
                 stdoutDigest: digestBytes(result.stdout),
                 stderrDigest: digestBytes(result.stderr)
@@ -2584,6 +2781,7 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
   qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap?: AuthenticatedLinuxHostedBootstrap;
 }>): Promise<TrustedRuntimeMainHealthReceipt> {
   return createTrustedRuntimeMainHealthReceipt(await executeTrustedRuntimeMainHealthCommands(input));
 }
@@ -2599,11 +2797,13 @@ export async function executeTrustedRuntimeMainHealthCheck(input: Readonly<{
   deadlineAtUnixMs: number;
   signal?: AbortSignal;
   qualifiedEngineExporter: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap?: AuthenticatedLinuxHostedBootstrap;
 }>) {
   input = Object.freeze({ repositoryRoot: input.repositoryRoot, repository: input.repository,
     mainSha: input.mainSha, mainTreeSha: input.mainTreeSha, command: input.command,
     deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
-    qualifiedEngineExporter: input.qualifiedEngineExporter });
+    qualifiedEngineExporter: input.qualifiedEngineExporter,
+    immutableInputBootstrap: input.immutableInputBootstrap });
   if (!TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.command)) {
     fail('MainHealth single-check selector is outside the closed command set');
   }
@@ -2631,6 +2831,7 @@ export async function withTrustedRuntimeMainHealthQualification<T>(input: Readon
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
   qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap?: AuthenticatedLinuxHostedBootstrap;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   if (input.deadlineAtUnixMs !== undefined
       && (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now())) {

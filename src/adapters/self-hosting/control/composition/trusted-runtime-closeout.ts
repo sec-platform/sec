@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import {
+  assertAuthenticatedLinuxHostedBootstrapCurrent, observeAuthenticatedLinuxHostedBootstrap,
+  type AuthenticatedLinuxHostedBootstrap
+} from '../../../providers/docker/runtime/linux-hosted-bootstrap.ts';
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -569,6 +573,7 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
   qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap?: AuthenticatedLinuxHostedBootstrap;
   assertSubjectCurrent(): Promise<void>;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -604,6 +609,7 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
         mainTreeSha: input.mainTreeSha,
         signal: input.signal,
         qualifiedEngineExporter: input.qualifiedEngineExporter,
+        immutableInputBootstrap: input.immutableInputBootstrap,
         ...(input.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: input.deadlineAtUnixMs })
       }, async (receipt) => {
         await input.assertSubjectCurrent();
@@ -636,6 +642,7 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
 export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
   origin: AuthenticatedGitHubJobOrigin;
   engineExporter: QualifiedContainerEngineOciExporter;
+  immutableInputBootstrap: AuthenticatedLinuxHostedBootstrap;
   plan: TrustedRuntimePostMergeMainHealthPlan;
   repositoryRoot: string;
   repository: string;
@@ -648,10 +655,17 @@ export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
   assertCurrent(): Promise<void>;
 }>) => Promise<T>): Promise<T> {
   input = Object.freeze({ origin: input.origin, engineExporter: input.engineExporter,
+    immutableInputBootstrap: input.immutableInputBootstrap,
     plan: input.plan, repositoryRoot: input.repositoryRoot, repository: input.repository,
     mainSha: input.mainSha, mainTreeSha: input.mainTreeSha });
   const assertSubjectCurrent = async (): Promise<void> => {
     const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
+    await assertAuthenticatedLinuxHostedBootstrapCurrent(input.immutableInputBootstrap);
+    const bootstrap = observeAuthenticatedLinuxHostedBootstrap(input.immutableInputBootstrap);
+    if (bootstrap.originIdentityDigest !== origin.identityDigest
+        || bootstrap.deadlineAtUnixMs > origin.originalDeadlineAtUnixMs) {
+      fail('post-merge MainHealth immutable-input bootstrap belongs to another operation');
+    }
     if (origin.repository !== input.repository || origin.trustedDriverRoot !== input.repositoryRoot
         || input.engineExporter.originIdentityDigest !== origin.identityDigest) {
       fail('post-merge MainHealth origin or qualified Engine belongs to another operation');
@@ -662,7 +676,9 @@ export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
   await assertSubjectCurrent();
   const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
   const engine = await consumeQualifiedContainerEngineOciExporter(input.engineExporter);
-  if (engine.cwd !== input.repositoryRoot || engine.deadlineAtUnixMs > origin.deadlineAtUnixMs) {
+  const bootstrap = observeAuthenticatedLinuxHostedBootstrap(input.immutableInputBootstrap);
+  if (engine.cwd !== input.repositoryRoot || engine.deadlineAtUnixMs > origin.deadlineAtUnixMs
+      || engine.deadlineAtUnixMs > bootstrap.deadlineAtUnixMs) {
     fail('MainHealth Engine working directory or original job budget differs');
   }
   return await withProducedTrustedRuntimeMainHealth({ ...input,

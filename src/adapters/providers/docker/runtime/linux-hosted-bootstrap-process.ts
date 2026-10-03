@@ -17,7 +17,7 @@ import {
 import { openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { issueRetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../github-api/hosted-job-origin.ts';
-import { canonicalHostedSandboxRoots, compileHostedSutAppArmorProfile, LINUX_HOSTED_BOOTSTRAP_PROFILE_DIGEST } from '../contract/linux-hosted-bootstrap-profile.ts';
+import { canonicalHostedSandboxRoots, compileHostedMainHealthAppArmorProfile, compileHostedSutAppArmorProfile, LINUX_HOSTED_BOOTSTRAP_PROFILE_DIGEST } from '../contract/linux-hosted-bootstrap-profile.ts';
 import { LINUX_HOSTED_BOOTSTRAP_HELPER } from './linux-hosted-bootstrap-helper.ts';
 
 declare const processBrand: unique symbol;
@@ -38,6 +38,7 @@ type Record = {
   deadline: number;
   roots: readonly string[];
   profile: ReturnType<typeof compileHostedSutAppArmorProfile> | null;
+  mainHealthInput: boolean;
   identityDigest: `sha256:${string}`;
   files: readonly RetainedNoFollowOrdinaryFile[];
   boundary: ReturnType<typeof issueRetainedCommandBoundary>;
@@ -128,7 +129,14 @@ export function prepareHostedBootstrapProcess(input: Readonly<{
   if ((origin.role === 'sut') !== (roots.length > 0)) unsupported('Bootstrap sandbox roots must match the authenticated job role.');
   if (process.platform !== 'linux' || process.arch !== 'x64' || (process.getuid?.() ?? 0) <= 0
       || !Number.isSafeInteger(deadline) || deadline <= Date.now() || deadline > origin.originalDeadlineAtUnixMs) unsupported('Authenticated hosted bootstrap platform or deadline is unavailable.');
-  const profile = roots.length === 0 ? null : compileHostedSutAppArmorProfile({ profileName: `sec-sut-${randomUUID().replaceAll('-', '')}`, sandboxRoots: roots });
+  const mainHealthInput = (origin.role === 'trusted' && origin.policyJobId === 'main-health'
+    && origin.workflowPath === '.github/workflows/compiler-pr-validation.yml'
+    && ['imports:check', 'typecheck:verified', 'audit', 'docs:doctor', 'test'].includes(origin.phase))
+    || (origin.role === 'control' && origin.policyJobId === 'integrate'
+      && origin.workflowPath === '.github/workflows/merge-gate.yml' && origin.phase === 'integrate-hosted');
+  const profileName = `sec-sut-${randomUUID().replaceAll('-', '')}`;
+  const profile = mainHealthInput ? compileHostedMainHealthAppArmorProfile(profileName)
+    : roots.length === 0 ? null : compileHostedSutAppArmorProfile({ profileName, sandboxRoots: roots });
   const files: RetainedNoFollowOrdinaryFile[] = [];
   let cwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   try {
@@ -154,7 +162,7 @@ export function prepareHostedBootstrapProcess(input: Readonly<{
       platformFiles: files.map(file => ({ path: file.path, physical: file.physical, ...file.digest() })) }) as `sha256:${string}`;
     const handle = Object.freeze({}) as HostedBootstrapProcess;
     issued.set(handle, { origin: originHandle, originIdentityDigest: origin.identityDigest, deadline,
-      roots, profile, files: Object.freeze(files), boundary, identityDigest, state: 'prepared', busy: false, localCloseAttempted: false });
+      roots, profile, mainHealthInput, files: Object.freeze(files), boundary, identityDigest, state: 'prepared', busy: false, localCloseAttempted: false });
     return handle;
   } catch (error) { settleResources({ primary: { label: 'bootstrap-prepare', error }, cleanup: [
     { label: 'bootstrap-cwd-close', settle: () => cwd?.dispose() },
@@ -168,6 +176,18 @@ export function observeHostedBootstrapProcess(handle: HostedBootstrapProcess) {
     deadlineAtUnixMs: value.deadline, roots: value.roots, profileName: value.profile?.name ?? null,
     inputProfileDigest: value.profile?.digest ?? null, state: value.state, physical: value.observation ?? null,
     settlement: value.settlement ?? null });
+}
+
+/** Live capability consumption, never restoration from the observation DTO. */
+export function requireHostedMainHealthInputProfile(handle: HostedBootstrapProcess,
+  originIdentityDigest: string): Readonly<{ profileName: string; profileDigest: `sha256:${string}` }> {
+  const value = record(handle);
+  live(value);
+  if (!value.mainHealthInput || value.originIdentityDigest !== originIdentityDigest
+      || value.state !== 'active' || value.profile === null || value.roots.length !== 0
+      || value.observation?.profileState !== 'enforce'
+      || value.observation.profile !== value.profile.name) unsupported('MainHealth input requires its live authenticated setup profile.');
+  return Object.freeze({ profileName: value.profile.name, profileDigest: value.profile.digest });
 }
 type RootProcess = Readonly<{ pid: number; group: number; start: string }>;
 function rootProcessObserved(value: RootProcess): void {

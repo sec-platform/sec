@@ -87,6 +87,15 @@ export function compileHostedSutAppArmorProfile(input: Readonly<{
   return Object.freeze({ name, roots, bytes, digest: rawSha256(Buffer.from(bytes)) });
 }
 
+/** Source-owned exact MainHealth setup exception. The authenticated original
+ * bootstrap selects this profile only for its real MainHealth job; this pure
+ * compiler never issues permission or proves that the kernel loaded it. */
+export function compileHostedMainHealthAppArmorProfile(profileName: string): ReturnType<typeof compileHostedSutAppArmorProfile> {
+  if (!/^sec-sut-[0-9a-f]{32}$/u.test(profileName)) throw new Error('MainHealth profile name is not owner-scoped.');
+  const bytes = `# SEC MainHealth: one source-superblock freeze; no writable remount or namespace setup.\nprofile ${profileName} flags=(attach_disconnected,mediate_deleted) {\n${restrictions}\n  signal (send,receive) peer=${profileName},\n  ptrace (trace,read,tracedby,readby) peer=${profileName},\n  mount options=(ro,remount,nosuid,nodev,noexec) -> /sec-runtime/,\n}\n`;
+  return Object.freeze({ name: profileName, roots: Object.freeze([]), bytes, digest: rawSha256(Buffer.from(bytes)) });
+}
+
 // Bind the actual emitted restriction/mount grammar as well as its declared
 // policy. These fixed canonical sample names do not grant runtime ownership.
 export const LINUX_HOSTED_BOOTSTRAP_PROFILE_DIGEST = sha256({
@@ -94,5 +103,6 @@ export const LINUX_HOSTED_BOOTSTRAP_PROFILE_DIGEST = sha256({
   appArmorGrammar: compileHostedSutAppArmorProfile({
     profileName: `sec-sut-${'0'.repeat(32)}`,
     sandboxRoots: [`/tmp/sec-sut-${'0'.repeat(16)}-${'0'.repeat(32)}`]
-  }).bytes
+  }).bytes,
+  mainHealthAppArmorGrammar: compileHostedMainHealthAppArmorProfile(`sec-sut-${'0'.repeat(32)}`).bytes
 });

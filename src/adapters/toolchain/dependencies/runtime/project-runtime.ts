@@ -428,9 +428,10 @@ export interface DependencyAuthorityPaths {
 
 async function bindCanonicalGeneratedStateLifecycle(
   options: RuntimeDependencyOperationOptions,
-  root: string
+  root: string,
+  explicitCompilerTarget = false
 ): Promise<RuntimeDependencyOperationOptions> {
-  if (!sameHostPath(root, compilerRoot)) return options;
+  if (!explicitCompilerTarget && !sameHostPath(root, compilerRoot)) return options;
   const {
     createGeneratedStateCleanupOperationSession,
     generatedStateProducerHooks: generatedStateProducerHooksV1
@@ -11293,6 +11294,10 @@ export async function ensureCompilerDepsReadyFromGeneration(
   const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
+  const targetRoot = inspectNoFollowDirectoryChain(
+    root,
+    'Explicit compiler dependency consumer root'
+  ).target;
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
   if (!canonicalEquals(identity, source.identity)) {
     throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
@@ -11313,10 +11318,21 @@ export async function ensureCompilerDepsReadyFromGeneration(
   let primary: RuntimeDependencyCapturedFailure | undefined;
   try {
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Explicit compiler dependency consumer before binding');
+    // The public facade accepts no lifecycle provider. Its explicit target
+    // still needs the canonical producer's birth/retirement obligation even
+    // when trusted code is executing from another compiler root. Internal
+    // fixture owners retain their existing isolated lifecycle and cleanup.
+    const targetOptions = operationOptions.generatedStateLifecycle === undefined
+      ? await bindCanonicalGeneratedStateLifecycle(operationOptions, root, true)
+      : operationOptions;
+    await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Explicit compiler dependency consumer before publication');
     // The fresh observation owns transition-capable source provenance; the
     // caller authority can contain a serialized publication projection.
-    ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
+    ready = await ensureCompilerDepsReadyInternal(targetOptions, root, currentSource);
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Explicit compiler dependency consumer after publication');
     await assertCompilerDependencyReadTransitionTerminal(source.sourceGeneration.ownerRoot, operationOptions);
     if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
       await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
