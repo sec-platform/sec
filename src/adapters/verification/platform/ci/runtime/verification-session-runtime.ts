@@ -1,8 +1,15 @@
+import { getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import { currentGitHubApiCapability, executeGitHubApiOperation, inspectGitHubApiCapability, type GitHubApiCapability, type GitHubApiOperation } from '../../../../providers/github-api/operation-session.ts';
+import { hostedCommentAuthorizationPrincipal, hostedPublisherMatches, issueCommentRecord, RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
+import { assertAuthenticatedSessionResumeAdmissionCurrent, authenticatedSessionResumeAuthorizationPrincipal, authenticatedSessionResumeDeadlineAtUnixMs, revalidateAuthenticatedSessionResumeAdmission, withAuthenticatedResumedSessionArtifact, type SessionResumeAdmission } from './verification-session-resume-authority.ts';
+export { createVerificationSessionPerJobHostedRequest, parseVerificationSessionHostedRequest } from '../contract/session-request.ts';
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
 import { createHash } from 'node:crypto';
 import { parseExactJson } from '../../../../../contracts/exact-json.ts';
 import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../trusted-runtime/trusted-runtime-container.ts';
+
+import { assertResumedSessionProducerBinding, isResumedSessionProducer, parseResumedSessionProducer, resumedSessionProducerRequest, type ResumedSessionProducer } from '../contract/resumed-session-producer.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import type { GitHubCheckObservation } from '../../../../providers/github-api/contract.ts';
@@ -15,7 +22,9 @@ import {
   type IntegrationAuthorization
 } from '../../../../self-hosting/control/integration/authorization.ts';
 import {
+  HOSTED_INTEGRATION_PHASE_JOB_NAMES, HOSTED_INTEGRATION_PHASE_STEP_NAMES,
   parseIntegrationAuthorizationOperationPublication,
+  parseIntegrationAuthorizationOperationPublicationComment,
   type IntegrationAuthorizationOperationPublication
 } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import {
@@ -28,14 +37,16 @@ import {
   createMergeGateProvenance,
   createTrustedRuntimeArtifactObservation,
   createTrustedRuntimeMergeGateProvenance,
+  mergeGateAuthorizationPrincipal,
+  RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA,
   type CodexDevelopmentHostedArtifactObservation,
   type CodexDevelopmentMergeGateCandidate,
   type CodexDevelopmentMergeGateInput,
-  type CodexDevelopmentMergeGateProvenance,
   type CodexDevelopmentMergeGateResult,
   type CodexDevelopmentTrustedRuntimeArtifactObservation,
   type CodexDevelopmentTrustedRuntimeMergeGateInput,
-  type CodexDevelopmentTrustedRuntimeMergeGateProvenance
+  type CodexDevelopmentTrustedRuntimeMergeGateProvenance,
+  type MergeGateProvenanceInput
 } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
   SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
@@ -60,7 +71,7 @@ import {
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, parseCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
@@ -69,6 +80,7 @@ import {
   CodexDevelopmentAssertVerificationSessionArtifact,
   CodexDevelopmentAssertVerificationSessionArtifactCurrent,
   CodexDevelopmentFinalizeVerificationSessionArtifact,
+  CodexDevelopmentParseVerificationSessionArtifact,
   CodexDevelopmentRefreshVerificationSessionArtifact,
   type CodexDevelopmentVerificationEvidenceProducer,
   type CodexDevelopmentVerificationEvidenceV4,
@@ -84,12 +96,12 @@ import {
 import {
   CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA,
   CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+  createVerificationSessionPerJobHostedRequest,
+  parseVerificationSessionHostedRequest,
   type VerificationSessionBoundLocalPreparationRequest,
   type VerificationSessionHostedRequest,
-  type VerificationSessionHostedRequestFields,
   type VerificationSessionLocalPreparationRequest, type VerificationSessionPendingHealthLocalPreparationRequest,
-  type VerificationSessionPendingHealthRequestPins,
-  type VerificationSessionPerJobHostedRequest
+  type VerificationSessionPendingHealthRequestPins
 } from '../contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
@@ -178,6 +190,7 @@ function requirePostMainIssueDispositionHealth(input: Readonly<{
 }
 export const VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA =
   'sec-verification-session-hosted-envelope-v1' as const;
+export const VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA = 'sec-verification-session-hosted-envelope-v2' as const;
 
 type Digest = `sha256:${string}`;
 
@@ -405,7 +418,8 @@ export function reconstructVerificationSessionHostedFacts(input: {
 }
 
 export interface VerificationSessionHostedEnvelope {
-  schema: typeof VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA;
+  schema: typeof VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA | typeof VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA;
+  resumedProducer?: ResumedSessionProducer;
   requestOperationId: Digest;
   scopeAuthorization: ScopeAuthorization;
   preGateReview: ReviewStabilityReceipt;
@@ -416,6 +430,7 @@ export interface VerificationSessionHostedEnvelope {
 }
 
 export interface VerificationSessionHostedFacts {
+  resumedProducer?: ResumedSessionProducer;
   repository: string;
   sessionId: string;
   createdAt: string;
@@ -460,7 +475,8 @@ export interface TrustedArtifactProvenance {
     runId: string;
     runAttempt: number;
     actorNodeId: string;
-    actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+    actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none' | 'workflow';
+    originalParentActor?: ResumedSessionProducer['originalParentActor'];
   };
 }
 
@@ -504,7 +520,7 @@ export function createTrustedHostedArtifactProvenance(input: {
   artifact: CodexDevelopmentVerificationSessionArtifact;
   artifactText: string;
   observation: GitHubActionsArtifactObservation;
-  actorPermission: TrustedArtifactProvenance['transport']['actorPermission'];
+  actorPermission: GitHubActionsArtifactObservation['actorPermission'];
 }): TrustedArtifactProvenance {
   const observation = createHostedArtifactObservation({ artifact: input.artifact,
     artifactText: input.artifactText, observation: input.observation });
@@ -514,7 +530,162 @@ export function createTrustedHostedArtifactProvenance(input: {
       workflowPath: input.observation.workflowPath, workflowRef: input.observation.workflowRef,
       workflowSha: input.observation.workflowSha, runId: input.observation.runId,
       runAttempt: input.observation.runAttempt, actorNodeId: input.observation.actorNodeId,
-      actorPermission: input.actorPermission }) });
+      actorPermission: isResumedSessionProducer(input.artifact.producer) ? 'workflow' : input.actorPermission,
+      ...(isResumedSessionProducer(input.artifact.producer) ? { originalParentActor: input.artifact.producer.originalParentActor } : {}) }) });
+}
+
+/** Read a resumed Session through the actual API owner and keep qualification
+ * inside its callback. Parsed files and copied transport DTOs never enter it. */
+export async function withAuthenticatedResumedSessionReadback<T>(input: Readonly<{
+  capability: GitHubApiCapability; artifactId: string;
+}>, operation: (readback: Readonly<{
+  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifactText: string;
+  metadata: GitHubActionsArtifactObservation;
+  origin: CodexDevelopmentHostedArtifactObservation;
+  transport: CodexDevelopmentHostedArtifactObservation;
+  admission: SessionResumeAdmission;
+}>) => Promise<T>): Promise<T> {
+  return await withAuthenticatedResumedSessionArtifact(input, async readback => {
+    const observation = createHostedArtifactObservation({ artifact: readback.artifact,
+      artifactText: readback.artifactText, observation: readback.metadata });
+    assertAuthenticatedSessionResumeAdmissionCurrent(readback.admission, readback);
+    const result = await operation(Object.freeze({ ...readback, origin: observation, transport: observation }));
+    assertAuthenticatedSessionResumeAdmissionCurrent(readback.admission, readback);
+    return result;
+  });
+}
+
+/** Historical comment readback is API-only. It neither issues a write permit
+ * nor routes the old unbudgeted Gh comment/effect implementation. */
+export async function observeAuthenticatedResumedSessionAuthorizationComment(input: Readonly<{
+  capability: GitHubApiCapability; artifact: CodexDevelopmentVerificationSessionArtifact;
+  admission: SessionResumeAdmission; commentId: number;
+}>) {
+  const { capability, artifact, admission, commentId } = input;
+  const current = () => {
+    assertAuthenticatedSessionResumeAdmissionCurrent(admission, { artifact });
+    const api = inspectGitHubApiCapability(capability);
+    if (api.origin !== 'production' || api.effect !== 'verification-read' || api.repository !== artifact.session.repository
+        || currentGitHubApiCapability(api.repository, 'verification-read') !== capability) {
+      throw new Error('Resumed comment requires the original current production API read capability.');
+    }
+  };
+  const read = async (operation: GitHubApiOperation): Promise<Record<string, any>> => {
+    current();
+    const raw = await executeGitHubApiOperation(capability, operation);
+    current();
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Resumed comment API response is not one object.');
+    return raw as Record<string, any>;
+  };
+  const raw = await read({ kind: 'issue-comment', commentId });
+  const commentIdentity = (value: Record<string, any>) => encodeVerificationActionData({
+    id: value.id, body: value.body, user: value.user, performed_via_github_app: value.performed_via_github_app,
+    issue_url: value.issue_url, created_at: value.created_at, updated_at: value.updated_at });
+  const originalCommentIdentity = commentIdentity(raw);
+  if (typeof raw.created_at !== 'string' || raw.updated_at !== raw.created_at) {
+    throw new Error('Resumed authorization comment is not an immutable publication.');
+  }
+  const readBackUnchangedComment = async () => {
+    const observed = await read({ kind: 'issue-comment', commentId });
+    if (commentIdentity(observed) !== originalCommentIdentity) {
+      throw new Error('Resumed authorization comment changed during API qualification.');
+    }
+  };
+  const comment = issueCommentRecord(raw, 'resumed comment');
+  const publication = parseIntegrationAuthorizationOperationPublicationComment(comment.body);
+  if (publication === null || !hostedPublisherMatches(comment) || comment.id !== commentId
+      || raw.issue_url !== `https://api.github.com/repos/${artifact.session.repository}/issues/${artifact.session.prNumber}`) {
+    throw new Error('Resumed comment is not one exact canonical App publication for this Session PR.');
+  }
+  const provenance = publication.provenance;
+  if (provenance.schema !== RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA
+      || encodeVerificationActionData(provenance.sourceProducer) !== encodeVerificationActionData(artifact.producer)
+      || provenance.workflowSha !== artifact.session.baseSha
+      || encodeVerificationActionData(provenance.authorizationPrincipal)
+        !== encodeVerificationActionData(authenticatedSessionResumeAuthorizationPrincipal(admission))) {
+    throw new Error('Resumed comment does not bind the admitted actual producer and original human.');
+  }
+  const artifactBytes = `${encodeVerificationActionData(artifact)}\n`;
+  if (publication.sessionRevision !== artifact.session.sessionRevision
+      || publication.result.hostedArtifactOrigin.artifactByteDigest !== `sha256:${createHash('sha256').update(artifactBytes).digest('hex')}`
+      || publication.result.hostedArtifactOrigin.artifactByteLength !== Buffer.byteLength(artifactBytes)) {
+    throw new Error('Resumed comment does not bind this exact Session artifact.');
+  }
+  // The dynamic composite integrate step owns the actual authorization POST.
+  const requiredPhase = 'closeoutMutation';
+  if (provenance.phase.phase !== requiredPhase
+      || provenance.phase.jobName !== HOSTED_INTEGRATION_PHASE_JOB_NAMES[requiredPhase]
+      || provenance.phase.stepName !== HOSTED_INTEGRATION_PHASE_STEP_NAMES[requiredPhase]) {
+    throw new Error('Resumed comment actual publication phase differs.');
+  }
+  const repository = await read({ kind: 'repository' });
+  if (String(repository.id) !== provenance.repositoryId || repository.full_name !== artifact.session.repository
+      || repository.default_branch !== 'main') throw new Error('Resumed comment repository identity differs.');
+  const run = await read({ kind: 'verification-workflow-run-attempt', runId: provenance.runId, runAttempt: provenance.runAttempt });
+  const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
+  const principalIsBot = (value: any) => value?.login === bot.login && value?.id === bot.id
+    && value?.node_id === bot.nodeId && value?.type === bot.type;
+  if (String(run.id) !== provenance.runId || run.run_attempt !== provenance.runAttempt
+      || run.event !== 'workflow_run' || run.path !== provenance.workflowPath || run.head_sha !== provenance.workflowSha
+      || String(run.repository?.id) !== provenance.repositoryId || run.repository?.full_name !== artifact.session.repository
+      || !matchesCiWorkflowRunIdentity({ workflowPath: run.path, eventName: run.event, displayTitle: run.display_title,
+        headSha: run.head_sha, expectedWorkflowPath: provenance.workflowPath, expectedEventName: 'workflow_run',
+        expectedDisplayTitle: `integrate compiler session run ${provenance.sourceProducer.runId} attempt ${provenance.sourceProducer.runAttempt}`,
+        expectedHeadSha: provenance.workflowSha }) || !principalIsBot(run.actor)
+      || !principalIsBot(run.triggering_actor) || provenance.runAttempt !== 1
+      || !(run.status === 'in_progress' && run.conclusion === null
+        || run.status === 'completed' && ['success', 'failure', 'cancelled', 'timed_out'].includes(run.conclusion))) {
+    throw new Error('Resumed comment actual merge run identity differs.');
+  }
+  const suite = await read({ kind: 'verification-check-suite', checkSuiteId: String(run.check_suite_id) });
+  const app = CI_GITHUB_ACTIONS_IDENTITY_POLICY.app;
+  if (String(suite.id) !== String(run.check_suite_id) || suite.head_sha !== provenance.workflowSha
+      || String(suite.repository?.id) !== provenance.repositoryId || suite.repository?.full_name !== artifact.session.repository
+      || suite.app?.id !== app.id || suite.app?.node_id !== app.nodeId || suite.app?.slug !== app.slug) {
+    throw new Error('Resumed comment actual merge check suite differs.');
+  }
+  const job = await read({ kind: 'verification-workflow-job', jobId: provenance.phase.jobId });
+  const steps = Array.isArray(job.steps) ? job.steps : [];
+  const matching = steps.filter((step: any) => step.name === provenance.phase.stepName);
+  const step = matching[0];
+  const startedAt = typeof step?.started_at === 'string' ? Date.parse(step.started_at) : NaN;
+  const createdAt = typeof raw.created_at === 'string' ? Date.parse(raw.created_at) : NaN;
+  const completedAt = typeof step?.completed_at === 'string' ? Date.parse(step.completed_at) : NaN;
+  const jobStartedAt = typeof job.started_at === 'string' ? Date.parse(job.started_at) : NaN;
+  const jobCompletedAt = typeof job.completed_at === 'string' ? Date.parse(job.completed_at) : NaN;
+  const runStartedAt = typeof run.run_started_at === 'string' ? Date.parse(run.run_started_at) : NaN;
+  const runUpdatedAt = typeof run.updated_at === 'string' ? Date.parse(run.updated_at) : NaN;
+  const observedAt = Date.now();
+  const policy = getCiVerificationPerJobHostedJobPolicy('.github/workflows/merge-gate.yml', 'integrate');
+  if (policy === null) throw new Error('Resumed comment merge job policy is unavailable.');
+  const latest = Math.min(observedAt, authenticatedSessionResumeDeadlineAtUnixMs(admission),
+    jobStartedAt + policy.maximumJobDurationMs);
+
+  if (String(job.id) !== provenance.phase.jobId || String(job.run_id) !== provenance.runId
+      || job.run_attempt !== provenance.runAttempt || job.head_sha !== provenance.workflowSha
+      || job.name !== provenance.phase.jobName || matching.length !== 1 || step.number !== provenance.phase.stepNumber
+      || run.status === 'completed' && (job.status !== 'completed' || !Number.isSafeInteger(runUpdatedAt)
+        || runUpdatedAt < jobCompletedAt || runUpdatedAt > observedAt)
+      || job.status === 'completed' && step.status !== 'completed'
+      || !Number.isSafeInteger(jobStartedAt) || !Number.isSafeInteger(runStartedAt)
+      || runStartedAt > jobStartedAt || jobStartedAt > startedAt
+      || !Number.isSafeInteger(startedAt) || !Number.isSafeInteger(createdAt) || createdAt < startedAt
+      || createdAt > latest || startedAt > latest
+      || !(job.status === 'in_progress' && job.conclusion === null && job.completed_at === null
+        || job.status === 'completed' && ['success', 'failure', 'cancelled', 'timed_out'].includes(job.conclusion)
+          && Number.isSafeInteger(jobCompletedAt) && jobCompletedAt >= createdAt && jobCompletedAt <= latest)
+      || !(step.status === 'in_progress' && step.conclusion === null && step.completed_at === null
+        || step.status === 'completed' && ['success', 'failure', 'cancelled', 'timed_out'].includes(step.conclusion)
+          && Number.isSafeInteger(completedAt) && completedAt >= createdAt && completedAt <= latest
+          && (job.status !== 'completed' || completedAt <= jobCompletedAt))) {
+    throw new Error('Resumed comment does not bind its actual publication step and time.');
+  }
+  await readBackUnchangedComment();
+  await revalidateAuthenticatedSessionResumeAdmission(admission);
+  await readBackUnchangedComment();
+  current();
+  return Object.freeze({ publication, commentId });
 }
 
 export function createTrustedRuntimeArtifactObservationFromDurableFile(input: {
@@ -588,7 +759,14 @@ export function createHostedArtifactObservation(input: {
 }): CodexDevelopmentHostedArtifactObservation {
   const canonicalBytes = `${encodeVerificationActionData(input.artifact)}\n`;
   if (input.artifactText !== canonicalBytes) throw new Error('Downloaded hosted artifact bytes are not canonical or do not match the parsed artifact.');
-  return CodexDevelopmentCreateHostedArtifactObservation({ artifactId: input.observation.artifactId,
+  const producer = input.artifact.producer;
+  if (isResumedSessionProducer(producer) && input.observation.actorNodeId !== producer.actorNodeId) {
+    throw new Error('Resumed Session transport does not bind its actual App actor.');
+  }
+  return CodexDevelopmentCreateHostedArtifactObservation({
+    ...(isResumedSessionProducer(producer) ? { schema: RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA,
+      originalParentActor: producer.originalParentActor } : {}),
+    artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: `sha256:${createHash('sha256').update(canonicalBytes).digest('hex')}`,
     artifactByteLength: Buffer.byteLength(canonicalBytes, 'utf8'), artifactExpired: false,
@@ -596,8 +774,8 @@ export function createHostedArtifactObservation(input: {
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
     runId: input.observation.runId, runAttempt: input.observation.runAttempt,
     eventName: input.observation.eventName as 'repository_dispatch', actorNodeId: input.observation.actorNodeId,
-    actorPermission: input.observation.actorPermission as 'maintain' | 'admin',
-    downloadTransport: 'github-actions-artifact-api' });
+    actorPermission: isResumedSessionProducer(producer) ? 'workflow' : input.observation.actorPermission as 'maintain' | 'admin',
+    downloadTransport: 'github-actions-artifact-api' } as CodexDevelopmentHostedArtifactObservation);
 }
 
 export function createTrustedIntegrationAuthorizationArtifact(input: {
@@ -1323,79 +1501,6 @@ export function assertVerificationSessionLocalPreparationCurrent(
   throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
 }
 
-export function createVerificationSessionPerJobHostedRequest(
-  fields: Readonly<Omit<VerificationSessionHostedRequestFields, 'requestOperationId'>>
-): VerificationSessionPerJobHostedRequest {
-  const semanticRequest = Object.freeze({ ...fields, schema: CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA,
-    placement: 'github-hosted-per-job-v1' as const });
-  const requestOperationId = createVerificationSessionOperationId({
-    sessionRevision: fields.expectedSessionRevision, operationKind: 'hosted-dispatch',
-    semanticInputDigest: hash(semanticRequest)
-  });
-  return parseVerificationSessionHostedRequest(JSON.stringify({ ...semanticRequest,
-    requestOperationId })) as VerificationSessionPerJobHostedRequest;
-}
-
-export function parseVerificationSessionHostedRequest(
-  source: string
-): VerificationSessionHostedRequest {
-  const decoded = JSON.parse(source) as Record<string, unknown>;
-  const value = decoded?.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
-    ? parseExactJson(source, 'hosted per-job request') as Record<string, unknown> : decoded;
-  if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
-      || value?.schema === CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
-    throw new Error('Local preparation-only request cannot be consumed by a hosted operation.');
-  }
-  // The exact legacy schema is hosted-only. It is accepted only at an explicitly
-  // selected hosted entry; absence of placement never selects that entry.
-  const expected = [
-    ...(value?.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA ? ['placement'] : []),
-    'schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
-    'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile',
-    'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision',
-    'reviewPolicyDigest', 'requestOperationId'
-  ].sort();
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Hosted request must be an object.');
-  }
-  const actual = Object.keys(value).sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    throw new Error(`Hosted request must contain exactly: ${expected.join(', ')}.`);
-  }
-  if (value.schema !== CI_VERIFICATION_SESSION_REQUEST_SCHEMA
-      && value.schema !== CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA) {
-    throw new Error('Hosted request schema mismatch.');
-  }
-  if (value.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
-      && value.placement !== 'github-hosted-per-job-v1') {
-    throw new Error('Hosted request placement mismatch.');
-  }
-  const shaFields = ['expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha', 'expectedHeadTreeSha'];
-  const digestFields = [
-    'manifestDigest', 'expectedScopeProposalDigest', 'expectedActionPlanDigest',
-    'expectedSessionRevision', 'reviewPolicyDigest', 'requestOperationId'
-  ];
-  for (const field of shaFields) if (typeof value[field] !== 'string' || !/^[0-9a-f]{40}$/u.test(value[field] as string)) {
-    throw new Error(`Hosted request ${field} is invalid.`);
-  }
-  for (const field of digestFields) if (typeof value[field] !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value[field] as string)) {
-    throw new Error(`Hosted request ${field} is invalid.`);
-  }
-  if (!Number.isSafeInteger(value.prNumber) || (value.prNumber as number) <= 0 ||
-      typeof value.manifestPath !== 'string' || typeof value.profile !== 'string') {
-    throw new Error('Hosted request scalar identity is invalid.');
-  }
-  if (value.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA) {
-    const { requestOperationId, ...semanticRequest } = value;
-    const expectedOperation = createVerificationSessionOperationId({
-      sessionRevision: value.expectedSessionRevision as Digest, operationKind: 'hosted-dispatch',
-      semanticInputDigest: hash(semanticRequest)
-    });
-    if (requestOperationId !== expectedOperation) throw new Error('Hosted per-job request operation identity mismatch.');
-  }
-  return Object.freeze(value as unknown as VerificationSessionHostedRequest);
-}
-
 export function prepareVerificationSessionHosted(input: {
   request: VerificationSessionHostedRequest;
   facts: VerificationSessionHostedFacts;
@@ -1411,6 +1516,13 @@ export function prepareVerificationSessionHosted(input: {
     if (facts.environmentDigest !== expectedEnvironmentDigest) {
       throw new Error('Hosted per-job request environment digest differs from its fixed placement.');
     }
+  }
+  const resumedProducer = facts.resumedProducer === undefined ? undefined : parseResumedSessionProducer(facts.resumedProducer);
+  if (resumedProducer !== undefined && (request.schema !== CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+      || resumedProducer.workflowSha !== request.expectedBaseSha
+      || facts.scopeIssuer.principalId !== resumedProducer.originalParentActor.nodeId
+      || facts.integrationPrincipalNodeId !== resumedProducer.originalParentActor.nodeId)) {
+    throw new Error('Resumed Session preparation differs from its original human request authority.');
   }
   const candidate = facts.candidate;
   const candidateChecks: readonly [unknown, unknown, string][] = [
@@ -1540,7 +1652,8 @@ export function prepareVerificationSessionHosted(input: {
     now: input.now ?? facts.createdAt
   });
   const withoutDigest = Object.freeze({
-    schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
+    schema: resumedProducer === undefined ? VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA : VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA,
+    ...(resumedProducer === undefined ? {} : { resumedProducer }),
     requestOperationId: request.requestOperationId,
     scopeAuthorization,
     preGateReview,
@@ -1548,7 +1661,55 @@ export function prepareVerificationSessionHosted(input: {
     session,
     actionPlanClosure
   });
-  return Object.freeze({ ...withoutDigest, envelopeDigest: hash(withoutDigest) });
+  return parseVerificationSessionHostedEnvelope({ ...withoutDigest, envelopeDigest: hash(withoutDigest) });
+}
+
+/** Closed data codec only. Current App/human authority is independently read
+ * by the hosted Session owner before production or integration effects. */
+export function parseVerificationSessionHostedEnvelope(value: unknown): VerificationSessionHostedEnvelope {
+  const parsed: unknown = parseExactJson(encodeVerificationActionData(value), 'Hosted Session envelope');
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Hosted Session envelope is not an object.');
+  const record = parsed as Record<string, unknown>;
+  const resumed = record.schema === VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA;
+  const keys = ['schema', 'requestOperationId', 'scopeAuthorization', 'preGateReview', 'mainHealth',
+    'session', 'actionPlanClosure', 'envelopeDigest', ...(resumed ? ['resumedProducer'] : [])];
+  if (Object.keys(record).sort().join(',') !== keys.sort().join(',')
+      || record.schema !== (resumed ? VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA : VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA)) {
+    throw new Error('Hosted Session envelope version or fields differ.');
+  }
+  const { envelopeDigest, ...fields } = record;
+  if (envelopeDigest !== hash(fields)) throw new Error('Hosted Session envelope digest mismatch.');
+  const actionPlanClosure = parseCiVerificationActionPlanClosure(encodeVerificationActionData(record.actionPlanClosure));
+  const session = record.session as Record<string, unknown>;
+  const sessionKeys = ['schema', 'sessionId', 'createdAt', 'repository', 'prNumber', 'baseSha', 'baseTreeSha', 'headSha',
+    'headTreeSha', 'manifestPath', 'manifestDigest', 'sessionProposalDigest', 'scopeAuthorizationRevision',
+    'scopeAuthorizationReceiptDigest', 'actionPlanClosureDigest', 'profile', 'environmentDigest', 'trustRevision',
+    'reviewPolicyDigest', 'evidenceRequirementDigest', 'integrationPolicyDigest', 'mainHealthRef', 'sessionRevision'];
+  if (session === null || typeof session !== 'object' || Array.isArray(session)
+      || Object.keys(session).sort().join(',') !== sessionKeys.sort().join(',')
+      || session.actionPlanClosureDigest !== actionPlanClosure.actionPlanDigest) {
+    throw new Error('Hosted Session envelope Action closure mismatch.');
+  }
+  const resumedProducer = resumed ? parseResumedSessionProducer(record.resumedProducer) : undefined;
+  if (resumedProducer !== undefined) {
+    if (record.requestOperationId !== resumedSessionProducerRequest(resumedProducer).requestOperationId) {
+      throw new Error('Resumed Session envelope request operation differs from its original cause.');
+    }
+    const scope = parseScopeAuthorization(encodeVerificationActionData(record.scopeAuthorization));
+    const currentSession = parseVerificationSession(encodeVerificationActionData(session));
+    assertResumedSessionProducerBinding({ producer: resumedProducer, session: currentSession, scope, actionPlan: actionPlanClosure });
+  }
+  return Object.freeze({ ...record, actionPlanClosure,
+    ...(resumedProducer === undefined ? {} : { resumedProducer }) }) as unknown as VerificationSessionHostedEnvelope;
+}
+
+export function assertVerificationSessionEnvelopeProducer(envelope: VerificationSessionHostedEnvelope,
+  producer: CodexDevelopmentVerificationEvidenceProducer): void {
+  const current = parseVerificationSessionHostedEnvelope(envelope);
+  if (current.resumedProducer === undefined ? isResumedSessionProducer(producer)
+    : encodeVerificationActionData(current.resumedProducer) !== encodeVerificationActionData(producer)) {
+    throw new Error('Hosted Session envelope and actual producer differ.');
+  }
 }
 
 function assertSourceProgramTransitionQualified(input: Readonly<{
@@ -1586,10 +1747,8 @@ export function finalizeVerificationSessionHostedArtifact(input: {
   const envelope = input.envelope;
   assertSourceProgramTransitionQualified({ actionPlan: envelope.actionPlanClosure, evidence: input.evidence,
     sessionRevision: envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
-  const { envelopeDigest, ...withoutDigest } = envelope;
-  if (envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA || hash(withoutDigest) !== envelopeDigest) {
-    throw new Error('prepare-hosted envelope digest mismatch.');
-  }
+  parseVerificationSessionHostedEnvelope(envelope);
+  assertVerificationSessionEnvelopeProducer(envelope, input.evidence.producer);
   if (input.evidence.actionPlan.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest) {
     throw new Error('finalize-hosted Evidence Action plan differs from prepared envelope.');
   }
@@ -1616,11 +1775,8 @@ export function refreshVerificationSessionHostedArtifact(input: {
 }): CodexDevelopmentVerificationSessionArtifact {
   assertSourceProgramTransitionQualified({ actionPlan: input.envelope.actionPlanClosure, evidence: input.previousArtifact.evidence,
     sessionRevision: input.envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
-  const { envelopeDigest, ...withoutDigest } = input.envelope;
-  if (input.envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
-    || hash(withoutDigest) !== envelopeDigest) {
-    throw new Error('prepare-hosted refresh envelope digest mismatch.');
-  }
+  parseVerificationSessionHostedEnvelope(input.envelope);
+  assertVerificationSessionEnvelopeProducer(input.envelope, input.producer);
   return CodexDevelopmentRefreshVerificationSessionArtifact({
     previousArtifact: input.previousArtifact,
     scopeAuthorization: input.envelope.scopeAuthorization,
@@ -1657,7 +1813,10 @@ function assertArtifactProvenance(
     provenance.artifactId.length === 0
     || provenance.artifactName !== `sec-verification-session-v2-pr-${session.prNumber}-session-${session.sessionRevision.slice(7)}-run-${provenance.transport.runId}-attempt-${provenance.transport.runAttempt}`
     || provenance.downloadTransport !== 'github-actions-artifact-api'
-    || provenance.transport.actorPermission !== 'admin' && provenance.transport.actorPermission !== 'maintain'
+    || (isResumedSessionProducer(producer)
+      ? provenance.transport.actorPermission !== 'workflow'
+        || encodeVerificationActionData(provenance.transport.originalParentActor) !== encodeVerificationActionData(producer.originalParentActor)
+      : provenance.transport.actorPermission !== 'admin' && provenance.transport.actorPermission !== 'maintain')
     || producer.sourceTransport !== 'github-actions'
     || producer.workflowPath !== '.github/workflows/compiler-pr-validation.yml'
     || producer.workflowSha !== session.trustRevision
@@ -1678,7 +1837,7 @@ export function prepareVerificationSessionMergeInput(input: {
   candidate: CodexDevelopmentMergeGateCandidate;
   hostedArtifactOrigin: CodexDevelopmentHostedArtifactObservation;
   hostedArtifactTransport: CodexDevelopmentHostedArtifactObservation;
-  provenance: Omit<CodexDevelopmentMergeGateProvenance, 'sourceDigest'>;
+  provenance: MergeGateProvenanceInput;
   mainHealth: MainHealthLedger;
   consumptionOperationId: Digest;
   issuedAt: string;
@@ -1776,7 +1935,7 @@ function verifyIntegrationArtifact(input: {
       || publication.provenance.workflowSha !== provenance.workflowSha
       || publication.provenance.runId !== provenance.sourceRunId
       || publication.provenance.runAttempt !== provenance.sourceRunAttempt
-      || publication.provenance.actorNodeId !== provenance.actorNodeId) {
+      || hostedCommentAuthorizationPrincipal(publication.provenance).nodeId !== mergeGateAuthorizationPrincipal(provenance).nodeId) {
       throw new Error('IntegrationAuthorization trusted remote comment provenance mismatch.');
     }
   }
@@ -1809,6 +1968,14 @@ function verifyIntegrationArtifact(input: {
  * Advances until the next external wait or terminal state. It never polls and
  * every mutation is preceded by one durable stable-operation claim.
  */
+export class ResumedSessionEffectUnavailableError extends Error {
+  readonly code = 'RESUMED_SESSION_EFFECT_OWNER_UNAVAILABLE' as const;
+  constructor() {
+    super('Resumed Session effects require their bounded same-scope authorization and effect owner.');
+    this.name = 'ResumedSessionEffectUnavailableError';
+  }
+}
+
 export async function resumeVerificationSession(input: {
   repositoryRoot: string;
   session: VerificationSession;
@@ -1820,6 +1987,15 @@ export async function resumeVerificationSession(input: {
   external: VerificationSessionRuntimeExternal;
   journalFs: VerificationSessionJournalFileSystem;
 }): Promise<VerificationSessionRuntimeOutcome> {
+  // Read once before journal or local/remote effects. New data-only transport
+  // support must not open the legacy effect path without its original budget.
+  const selectedHosted = input.external.hostedArtifact();
+  if (selectedHosted !== null && isResumedSessionProducer(selectedHosted.artifact.producer)) {
+    throw new ResumedSessionEffectUnavailableError();
+  }
+  const hosted = selectedHosted === null ? null : Object.freeze({
+    artifact: CodexDevelopmentParseVerificationSessionArtifact(encodeVerificationActionData(selectedHosted.artifact)),
+    provenance: structuredClone(selectedHosted.provenance) });
   const session = parseVerificationSession(encodeVerificationActionData(input.session));
   const scope = parseScopeAuthorization(encodeVerificationActionData(input.scopeAuthorization));
   const fs = input.journalFs;
@@ -1868,7 +2044,6 @@ export async function resumeVerificationSession(input: {
     append('actions-terminal', actions.resultDigest);
   }
 
-  const hosted = input.external.hostedArtifact();
   const preGateOperation = createVerificationSessionOperationId({ sessionRevision: session.sessionRevision, operationKind: 'pre-gate-review', semanticInputDigest: session.reviewPolicyDigest });
   if (journal.completedStageIndex < 2) {
     if (liveMerged) {
@@ -1940,7 +2115,7 @@ export async function resumeVerificationSession(input: {
   verifyIntegrationArtifact({ source: integrationSource, result: integrationResult,
     hosted: hosted.provenance, session });
   const authorizationPrincipal = (await input.github.observePrincipalByNodeId(session.repository,
-    integrationResult.provenance.actorNodeId));
+    mergeGateAuthorizationPrincipal(integrationResult.provenance).nodeId));
   if (authorizationPrincipal.permission !== 'admin' && authorizationPrincipal.permission !== 'maintain') {
     throw new Error('IntegrationAuthorization actor no longer has maintain/admin permission.');
   }

@@ -55,7 +55,7 @@ function compilerWorkflowFixture(): string {
   const prepared = (job: string) => download(job, 'prepared', 'claim-verification-action', 'Download exact prepared candidate ticket transport');
   const readControl = { actions: 'read', checks: 'read', contents: 'read', issues: 'read', 'pull-requests': 'read', statuses: 'read' };
   const readSut = { actions: 'read', contents: 'read' };
-  const writeStatus = { actions: 'write', checks: 'read', contents: 'read', statuses: 'write' };
+  const writeStatus = { actions: 'read', checks: 'read', contents: 'read', statuses: 'write' };
   const job = (minutes: number, permissions: Record<string, string>, steps: readonly unknown[], name?: string) => ({
     ...(name === undefined ? {} : { name }), 'runs-on': 'ubuntu-24.04', 'timeout-minutes': minutes,
     permissions: { ...permissions, 'id-token': 'write' }, steps: [...structuredClone(setup), ...steps]
@@ -137,7 +137,7 @@ function fixture() {
       engineProviderIdentityDigest: hash, ociExporterIdentityDigest: hash },
     container: { id: 'd'.repeat(64), name: 'fixture-owned-container', ownershipDigest: hash,
       creationReadbackDigest: hash, startedReadbackDigest: hash, terminalReadbackDigest: hash },
-    execution: { started: true, settled: true, exitCode: 0, stdoutBytes: Buffer.byteLength(outputSource), stderrBytes: 0,
+    execution: { started: true, settled: true, startedAtUnixMs: at + 51_000, settledAtUnixMs: at + 59_000, exitCode: 0, stdoutBytes: Buffer.byteLength(outputSource), stderrBytes: 0,
       outputDigest: rawSha256(outputSource), outputTruncated: false, sandboxObservationDigest: sha256(observation) },
     cleanup: { containerAbsent: true, providerScopeSettled: true, outputSettled: true, ownedSourcesReleased: true }
   });
@@ -198,6 +198,9 @@ test('test transport, test capability, and structural capability casts cannot mi
 test('current-default source, exact run attempt, signed producer fields and original lifetime cannot be caller replacements', () => {
   expect(() => decodeHostedJobRuntimeReceiptProvenance(fixture())).not.toThrow();
   const mutations: Array<(value: ReturnType<typeof fixture>) => void> = [
+    value => replaceReceipt(value, receipt => { receipt.execution.startedAtUnixMs = at + 49_000; }),
+    value => replaceReceipt(value, receipt => { receipt.execution.settledAtUnixMs = at + 61_000; }),
+    value => replaceReceipt(value, receipt => { receipt.execution.startedAtUnixMs = null; receipt.execution.settledAtUnixMs = null; }),
     value => { value.finalDefaultBranch.commit.sha = 'e'.repeat(40); },
     value => { value.finalRun.run_attempt = 2; },
     value => { value.jobs[0]!.jobs[0]!.check_run_url = 'https://api.github.com/repos/sec-platform/sec/check-runs/999'; },
@@ -272,6 +275,8 @@ function rawFixture() {
     receipt.origin.policyJobId = value.selection.policyJobId;
     receipt.origin.originalDeadlineAtUnixMs = at + 75 * 60_000;
     receipt.operation.phase = value.selection.phase;
+    receipt.execution.startedAtUnixMs = at + 60_000;
+    receipt.execution.settledAtUnixMs = at + 70_000;
     receipt.execution.outputDigest = rawSha256(value.outputSource);
     receipt.execution.sandboxObservationDigest = sandboxReceipt.receiptDigest;
     receipt.execution.stdoutBytes = Buffer.byteLength(value.outputSource);

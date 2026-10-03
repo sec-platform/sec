@@ -13,8 +13,8 @@ import {
 } from '../../action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../contract/revision.ts';
+import { parseVerificationSessionHostedRequest } from '../contract/session-request.ts';
 import type { GitHubActionsArtifactObservation } from './verification-session-github.ts';
-import { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
 
 type HostedCompilerDispatchPayload = Readonly<{ payload: unknown }>;
 
@@ -75,7 +75,7 @@ function assertGitHubIdentityRecord(input: unknown, expected: Readonly<{
   }
 }
 
-export function assertHostedCompilerInternalProvenance(input: {
+type HostedCompilerInternalProvenanceInput = {
   repository: string;
   repositoryId: string;
   request: ReturnType<typeof parseVerificationSessionHostedRequest>;
@@ -91,7 +91,18 @@ export function assertHostedCompilerInternalProvenance(input: {
   parentRun: Readonly<Record<string, any>>;
   parentPrincipal: Readonly<{ login: string; nodeId: string;
     permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none' }>;
-}): Readonly<{
+};
+
+export function assertHostedCompilerInternalProvenance(input: HostedCompilerInternalProvenanceInput): Readonly<{
+  parentPlan: CiVerificationActionParentDispatchPlan; parentActorNodeId: string;
+}> {
+  assertGitHubIdentityRecord(input.eventSender, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'Internal Action event sender');
+  return assertHostedCompilerActionReadbackProvenance(input);
+}
+
+/** Historical provider data only. Its caller must perform its own authenticated
+ * API reads; this comparison does not issue live execution or merge authority. */
+export function assertHostedCompilerActionReadbackProvenance(input: Omit<HostedCompilerInternalProvenanceInput, 'eventSender'>): Readonly<{
   parentPlan: CiVerificationActionParentDispatchPlan;
   parentActorNodeId: string;
 }> {
@@ -151,7 +162,6 @@ export function assertHostedCompilerInternalProvenance(input: {
   }
 
   const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
-  assertGitHubIdentityRecord(input.eventSender, bot, 'Internal Action event sender');
   assertGitHubIdentityRecord(input.currentRun.actor, bot, 'Internal Action current run actor');
   const currentRunId = String(input.currentRun.id ?? '');
   const currentRunAttempt = Number(input.currentRun.run_attempt);

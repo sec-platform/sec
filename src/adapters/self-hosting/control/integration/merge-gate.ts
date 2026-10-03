@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../verification/platform/action/contract/provider.ts';
+import { isResumedSessionProducer, parseResumedSessionProducer, type ResumedSessionProducer } from '../../../verification/platform/ci/contract/resumed-session-producer.ts';
+import { assertAuthenticatedSessionResumeAdmissionCurrent, assertAuthenticatedSessionResumeArtifactTransportCurrent, authenticatedSessionResumeAuthorizationPrincipal, revalidateAuthenticatedSessionResumeAdmission, type SessionResumeAdmission } from '../../../verification/platform/ci/runtime/verification-session-resume-authority.ts';
 import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
@@ -47,16 +50,31 @@ export const CodexDevelopmentMergeGateTerminalStatusContext =
 
 type MergeGateDigest = `sha256:${string}`;
 
-export interface CodexDevelopmentMergeGateProvenance {
+interface MergeGateProvenanceFields {
   readonly workflowPath: '.github/workflows/merge-gate.yml';
   readonly workflowRef: string;
   readonly workflowSha: string;
   readonly eventName: 'workflow_run';
   readonly sourceRunId: string;
   readonly sourceRunAttempt: number;
-  readonly actorNodeId: string;
-  readonly actorPermission: 'maintain' | 'admin';
   readonly sourceDigest: MergeGateDigest;
+}
+export const RESUMED_MERGE_GATE_PROVENANCE_SCHEMA = 'sec-resumed-merge-gate-provenance-v2' as const;
+export type CodexDevelopmentMergeGateProvenance = MergeGateProvenanceFields & (Readonly<{
+  schema?: never; actorNodeId: string; actorPermission: 'maintain' | 'admin';
+}> | Readonly<{
+  schema: typeof RESUMED_MERGE_GATE_PROVENANCE_SCHEMA;
+  authorizationPrincipal: ResumedSessionProducer['originalParentActor'];
+  sourceProducer: ResumedSessionProducer;
+}>);
+export type MergeGateProvenanceInput = CodexDevelopmentMergeGateProvenance extends infer T
+  ? T extends CodexDevelopmentMergeGateProvenance ? Omit<T, 'sourceDigest'> : never : never;
+
+/** A data projection only. Authorization issuance separately requires live admission. */
+export function mergeGateAuthorizationPrincipal(provenance: CodexDevelopmentMergeGateProvenance): Readonly<{ nodeId: string; permission: 'maintain' | 'admin' }> {
+  return provenance.schema === RESUMED_MERGE_GATE_PROVENANCE_SCHEMA
+    ? provenance.authorizationPrincipal
+    : Object.freeze({ nodeId: provenance.actorNodeId, permission: provenance.actorPermission });
 }
 
 export interface CodexDevelopmentTrustedRuntimeMergeGateProvenance {
@@ -91,7 +109,9 @@ interface CodexDevelopmentMergeGatePlatformObservation {
   readonly reason: string | null;
 }
 
-export interface CodexDevelopmentHostedArtifactObservation {
+export const RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA = 'sec-hosted-session-artifact-observation-v2' as const;
+
+interface HostedArtifactObservationFields {
   readonly artifactId: string;
   readonly artifactName: string;
   readonly artifactFileName: 'verification-session-artifact.json';
@@ -105,9 +125,14 @@ export interface CodexDevelopmentHostedArtifactObservation {
   readonly runAttempt: number;
   readonly eventName: 'repository_dispatch';
   readonly actorNodeId: string;
-  readonly actorPermission: 'maintain' | 'admin';
   readonly downloadTransport: 'github-actions-artifact-api';
 }
+export type CodexDevelopmentHostedArtifactObservation = HostedArtifactObservationFields & (Readonly<{
+  schema?: never; actorPermission: 'maintain' | 'admin'; originalParentActor?: never;
+}> | Readonly<{
+  schema: typeof RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA; actorPermission: 'workflow';
+  originalParentActor: ResumedSessionProducer['originalParentActor'];
+}>);
 
 export interface CodexDevelopmentTrustedRuntimeArtifactObservation {
   readonly artifactFileName: 'verification-session-artifact.json';
@@ -256,10 +281,7 @@ function exact(value: unknown, keys: readonly string[], label: string): Record<s
   return record;
 }
 
-export function createMergeGateProvenance(input: Omit<
-  CodexDevelopmentMergeGateProvenance,
-  'sourceDigest'
->): CodexDevelopmentMergeGateProvenance {
+export function createMergeGateProvenance(input: MergeGateProvenanceInput): CodexDevelopmentMergeGateProvenance {
   if (input.workflowPath !== '.github/workflows/merge-gate.yml') fail('workflowPath is not canonical.');
   const workflowSha = sha(input.workflowSha, 'provenance.workflowSha');
   const expectedRef = `.github/workflows/merge-gate.yml@${workflowSha}`;
@@ -268,6 +290,18 @@ export function createMergeGateProvenance(input: Omit<
     fail('authorization can only originate from the completed compiler workflow wakeup.');
   }
   if (!Number.isSafeInteger(input.sourceRunAttempt) || input.sourceRunAttempt < 1) fail('sourceRunAttempt is invalid.');
+  if (input.schema === RESUMED_MERGE_GATE_PROVENANCE_SCHEMA) {
+    const sourceProducer = parseResumedSessionProducer(input.sourceProducer);
+    if (sourceProducer.workflowSha !== workflowSha
+        || encodeVerificationActionData(input.authorizationPrincipal) !== encodeVerificationActionData(sourceProducer.originalParentActor)) {
+      fail('resumed provenance source or original authorization principal differs.');
+    }
+    const withoutDigest = Object.freeze({ schema: RESUMED_MERGE_GATE_PROVENANCE_SCHEMA,
+      workflowPath: input.workflowPath, workflowRef: input.workflowRef, workflowSha, eventName: input.eventName,
+      sourceRunId: text(input.sourceRunId, 'provenance.sourceRunId'), sourceRunAttempt: input.sourceRunAttempt,
+      authorizationPrincipal: sourceProducer.originalParentActor, sourceProducer });
+    return Object.freeze({ ...withoutDigest, sourceDigest: hash(withoutDigest) });
+  }
   if (input.actorPermission !== 'maintain' && input.actorPermission !== 'admin') fail('actor permission is insufficient.');
   const withoutDigest = Object.freeze({
     workflowPath: input.workflowPath,
@@ -312,9 +346,10 @@ function assertProvenance(
 ): CodexDevelopmentMergeGateProvenance {
   const parsed = exact(provenance, [
     'workflowPath', 'workflowRef', 'workflowSha', 'eventName', 'sourceRunId', 'sourceRunAttempt',
-    'actorNodeId', 'actorPermission', 'sourceDigest'
+    ...(provenance.schema === RESUMED_MERGE_GATE_PROVENANCE_SCHEMA
+      ? ['schema', 'authorizationPrincipal', 'sourceProducer'] : ['actorNodeId', 'actorPermission']), 'sourceDigest'
   ], 'provenance');
-  const rebuilt = createMergeGateProvenance(parsed as unknown as Omit<CodexDevelopmentMergeGateProvenance, 'sourceDigest'>);
+  const rebuilt = createMergeGateProvenance(parsed as unknown as MergeGateProvenanceInput);
   if (rebuilt.sourceDigest !== parsed.sourceDigest) fail('provenance source digest mismatch.');
   if (rebuilt.workflowSha !== currentBase) fail('candidate/runtime workflow cannot issue authorization; workflow SHA must equal live trusted base.');
   return rebuilt;
@@ -370,7 +405,9 @@ function canonicalPlatformObservation(
 export function CodexDevelopmentCreateHostedArtifactObservation(
   value: CodexDevelopmentHostedArtifactObservation
 ): CodexDevelopmentHostedArtifactObservation {
+  const resumed = value.schema === RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA;
   exact(value, [
+    ...(resumed ? ['schema', 'originalParentActor'] : []),
     'artifactId', 'artifactName', 'artifactFileName', 'artifactByteDigest', 'artifactByteLength',
     'artifactExpired', 'workflowPath', 'workflowRef', 'workflowSha', 'runId', 'runAttempt',
     'eventName', 'actorNodeId', 'actorPermission', 'downloadTransport'
@@ -385,9 +422,21 @@ export function CodexDevelopmentCreateHostedArtifactObservation(
   if (value.workflowRef !== `${value.workflowPath}@${workflowSha}`) fail('hosted artifact workflow ref is not exact.');
   if (!Number.isSafeInteger(value.runAttempt) || value.runAttempt < 1) fail('hosted artifact run attempt is invalid.');
   if (value.eventName !== 'repository_dispatch') fail('hosted artifact event is not the Session dispatch.');
-  if (value.actorPermission !== 'maintain' && value.actorPermission !== 'admin') fail('hosted artifact actor permission is insufficient.');
+  if (resumed) {
+    const actor = exact(value.originalParentActor, ['login', 'id', 'nodeId', 'type', 'permission'], 'hosted artifact original human');
+    if (value.actorPermission !== 'workflow' || value.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
+        || actor.type !== 'User' || !Number.isSafeInteger(actor.id) || Number(actor.id) < 1
+        || actor.permission !== 'maintain' && actor.permission !== 'admin'
+        || actor.nodeId === value.actorNodeId) fail('hosted artifact App/human identities differ.');
+    text(actor.login, 'hosted artifact original human login');
+    text(actor.nodeId, 'hosted artifact original human node id');
+  } else if (value.actorPermission !== 'maintain' && value.actorPermission !== 'admin') {
+    fail('hosted artifact actor permission is insufficient.');
+  }
   if (value.downloadTransport !== 'github-actions-artifact-api') fail('hosted artifact download transport is not canonical.');
   return Object.freeze({
+    ...(resumed ? { schema: RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA,
+      originalParentActor: Object.freeze({ ...value.originalParentActor }) } : {}),
     artifactId,
     artifactName: text(value.artifactName, 'hostedArtifactObservation.artifactName'),
     artifactFileName: value.artifactFileName,
@@ -403,7 +452,7 @@ export function CodexDevelopmentCreateHostedArtifactObservation(
     actorNodeId: text(value.actorNodeId, 'hostedArtifactObservation.actorNodeId'),
     actorPermission: value.actorPermission,
     downloadTransport: value.downloadTransport
-  });
+  }) as CodexDevelopmentHostedArtifactObservation;
 }
 
 export function createTrustedRuntimeArtifactObservation(
@@ -475,6 +524,14 @@ function assertHostedArtifactClosure(
     }
   }
   const producer = artifact.producer;
+  for (const observation of [origin, transport]) {
+    if (isResumedSessionProducer(producer)) {
+      if (observation.schema !== RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA
+          || encodeVerificationActionData(observation.originalParentActor) !== encodeVerificationActionData(producer.originalParentActor)) {
+        fail('resumed hosted artifact lost its independent original human authority.');
+      }
+    } else if (observation.schema !== undefined) fail('legacy artifact cannot use resumed transport provenance.');
+  }
   if (origin.workflowPath !== producer.workflowPath || origin.workflowRef !== producer.workflowRef ||
       origin.workflowSha !== producer.workflowSha || origin.runId !== producer.runId ||
       origin.runAttempt !== producer.runAttempt || origin.actorNodeId !== producer.actorNodeId) {
@@ -832,9 +889,42 @@ function assertHostedMainHealthProvenance(ledger: MainHealthLedger, candidate: C
   }
 }
 
+const resumedGateEvaluations = new WeakSet<object>();
+
+/** Copy only data through the original strict codec, preserving the separately
+ * authenticated artifact object. This helper itself never grants admission. */
+export function snapshotHostedMergeGateEvaluationInput(input: CodexDevelopmentMergeGateInput): CodexDevelopmentMergeGateInput {
+  const artifact = input.artifact;
+  const snapshot = parseInput(encodeVerificationActionData(input));
+  return Object.freeze({ ...snapshot, artifact });
+}
+
+
+/** The only resumed issuance entry: recheck the original human using the same
+ * live API scope, then evaluate synchronously before another await can intervene. */
+export async function evaluateAuthenticatedResumedSessionMergeGate(input: CodexDevelopmentMergeGateInput,
+  admission: SessionResumeAdmission): Promise<CodexDevelopmentMergeGateResult> {
+  assertAuthenticatedSessionResumeAdmissionCurrent(admission, { artifact: input.artifact });
+  const snapshot = snapshotHostedMergeGateEvaluationInput(input);
+  assertAuthenticatedSessionResumeArtifactTransportCurrent(admission, snapshot.hostedArtifactOrigin);
+  assertAuthenticatedSessionResumeArtifactTransportCurrent(admission, snapshot.hostedArtifactTransport);
+  await revalidateAuthenticatedSessionResumeAdmission(admission);
+  assertAuthenticatedSessionResumeAdmissionCurrent(admission, { artifact: snapshot.artifact });
+  resumedGateEvaluations.add(admission);
+  try { return CodexDevelopmentEvaluateMergeGate(snapshot, admission); }
+  finally { resumedGateEvaluations.delete(admission); }
+}
+
 export function CodexDevelopmentEvaluateMergeGate(
-  input: CodexDevelopmentMergeGateInput
+  input: CodexDevelopmentMergeGateInput,
+  resumeAdmission?: SessionResumeAdmission
 ): CodexDevelopmentMergeGateResult {
+  if (isResumedSessionProducer(input.artifact.producer)) {
+    if (resumeAdmission === undefined || !resumedGateEvaluations.has(resumeAdmission)) fail('resumed Session requires freshly revalidated private API admission.');
+    assertAuthenticatedSessionResumeAdmissionCurrent(resumeAdmission, { artifact: input.artifact });
+    assertAuthenticatedSessionResumeArtifactTransportCurrent(resumeAdmission, input.hostedArtifactOrigin);
+    assertAuthenticatedSessionResumeArtifactTransportCurrent(resumeAdmission, input.hostedArtifactTransport);
+  } else if (resumeAdmission !== undefined) fail('legacy Session cannot borrow resumed admission.');
   const record = exact(input, [
     'schema', 'provenance', 'candidate', 'artifact', 'hostedArtifactOrigin', 'hostedArtifactTransport', 'expectedActionPlan',
     'reviewReceipt', 'reviewSnapshotDigest', 'mainHealth', 'environmentDigest', 'trustRevision', 'platformObservation',
@@ -850,6 +940,18 @@ export function CodexDevelopmentEvaluateMergeGate(
     fail('the hosted merge route does not qualify trusted-runtime test transitions');
   }
   const provenance = assertProvenance(input.provenance, input.candidate.currentBaseSha);
+  let issuerPrincipalId = mergeGateAuthorizationPrincipal(provenance).nodeId;
+  if (isResumedSessionProducer(input.artifact.producer)) {
+    if (provenance.schema !== RESUMED_MERGE_GATE_PROVENANCE_SCHEMA
+        || encodeVerificationActionData(provenance.sourceProducer) !== encodeVerificationActionData(input.artifact.producer)) {
+      fail('resumed Gate provenance does not bind the actual Session producer.');
+    }
+    const livePrincipal = authenticatedSessionResumeAuthorizationPrincipal(resumeAdmission!);
+    if (encodeVerificationActionData(livePrincipal) !== encodeVerificationActionData(provenance.authorizationPrincipal)) {
+      fail('Gate authorization principal differs from the currently admitted original human.');
+    }
+    issuerPrincipalId = livePrincipal.nodeId;
+  } else if (provenance.schema !== undefined) fail('legacy Session cannot use resumed Gate provenance.');
   const hostedArtifactOrigin = CodexDevelopmentCreateHostedArtifactObservation(input.hostedArtifactOrigin);
   const hostedArtifactTransport = CodexDevelopmentCreateHostedArtifactObservation(input.hostedArtifactTransport);
   assertHostedArtifactClosure(
@@ -880,7 +982,7 @@ export function CodexDevelopmentEvaluateMergeGate(
     issuedAt: input.issuedAt,
     expiresAt: input.expiresAt,
     issuer: {
-      principalId: provenance.actorNodeId,
+      principalId: issuerPrincipalId,
       trustedRevision: provenance.workflowSha,
       sourceTransport: 'github-actions',
       sourceRunId: `${provenance.sourceRunId}:${provenance.sourceRunAttempt}`,
@@ -1040,12 +1142,26 @@ export function CodexDevelopmentParseMergeGateResult(
     authorization.baseSha
   );
   assertHostedArtifactResultClosure(authorization, hostedArtifactOrigin, hostedArtifactTransport);
+  if (provenance.schema === RESUMED_MERGE_GATE_PROVENANCE_SCHEMA) {
+    const producer = provenance.sourceProducer;
+    if (hostedArtifactOrigin.schema !== RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA
+        || hostedArtifactTransport.schema !== RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA
+        || producer.runId !== hostedArtifactOrigin.runId || producer.runAttempt !== hostedArtifactOrigin.runAttempt
+        || producer.workflowSha !== hostedArtifactOrigin.workflowSha || producer.actorNodeId !== hostedArtifactOrigin.actorNodeId
+        || encodeVerificationActionData(provenance.authorizationPrincipal) !== encodeVerificationActionData(hostedArtifactOrigin.originalParentActor)
+        || encodeVerificationActionData(provenance.authorizationPrincipal) !== encodeVerificationActionData(hostedArtifactTransport.originalParentActor)) {
+      fail('resumed Gate result producer/original human differs from its exact artifact origin.');
+    }
+  } else if (hostedArtifactOrigin.schema !== undefined || hostedArtifactTransport.schema !== undefined) {
+    fail('legacy Gate result cannot carry resumed artifact observations.');
+  }
+
   if (authorization.reviewRevision !== reviewReceipt.reviewRevision ||
       authorization.reviewReceiptDigest !== reviewReceipt.receiptDigest ||
       authorization.mainHealthRevision !== mainHealth.healthRevision ||
       authorization.mainHealthReceiptDigest !== mainHealth.ledgerDigest ||
       authorization.rulesetDigest !== platformObservation.rulesetDigest ||
-      authorization.issuer.principalId !== provenance.actorNodeId ||
+      authorization.issuer.principalId !== mergeGateAuthorizationPrincipal(provenance).nodeId ||
       authorization.issuer.producerIdentity !== CodexDevelopmentMergeGateProducerIdentity ||
       authorization.issuer.trustedRevision !== provenance.workflowSha ||
       authorization.issuer.sourceTransport !== 'github-actions' ||

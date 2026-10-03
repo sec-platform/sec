@@ -19,6 +19,8 @@ import {
   type CodexDevelopmentHostedSutExecutionProof
 } from './hosted-sut-observation.ts';
 
+import { assertResumedSessionProducerBinding, isResumedSessionProducer, parseResumedSessionProducer, type ResumedSessionProducer } from './resumed-session-producer.ts';
+
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentAssertVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
 import {
@@ -152,7 +154,7 @@ export function parseTrustedRuntimeSourceProgramActionRecord(value: unknown): Tr
   return Object.freeze(value) as unknown as TrustedRuntimeSourceProgramActionRecord;
 }
 
-export type CodexDevelopmentVerificationEvidenceProducer = Readonly<{
+export type LegacyVerificationEvidenceProducer = Readonly<{
   sourceTransport: 'github-actions' | 'local-dev-runner';
   workflowPath: string;
   workflowRef: string;
@@ -162,6 +164,8 @@ export type CodexDevelopmentVerificationEvidenceProducer = Readonly<{
   actorNodeId: string;
   sourceDigest: string;
 }>;
+
+export type CodexDevelopmentVerificationEvidenceProducer = LegacyVerificationEvidenceProducer | ResumedSessionProducer;
 
 export type CodexDevelopmentVerificationEvidenceV4 = Readonly<{
   schema: typeof CodexDevelopmentVerificationEvidenceSchemaV4;
@@ -206,9 +210,12 @@ const V4_STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = O
 });
 
 export function CodexDevelopmentCreateVerificationEvidenceProducer(input: Omit<
-  CodexDevelopmentVerificationEvidenceProducer,
+  LegacyVerificationEvidenceProducer,
   'sourceDigest'
->): CodexDevelopmentVerificationEvidenceProducer {
+>): LegacyVerificationEvidenceProducer {
+  if ('schema' in input || 'resumeSignal' in input || 'originalParentActor' in input) {
+    throw new Error('Legacy Verification producer cannot issue resumed Session provenance.');
+  }
   if (input.sourceTransport !== 'github-actions' && input.sourceTransport !== 'local-dev-runner') {
     throw new Error('Verification V4 producer transport is invalid.');
   }
@@ -224,6 +231,17 @@ export function CodexDevelopmentCreateVerificationEvidenceProducer(input: Omit<
   )) throw new Error('Verification V4 GitHub producer does not bind the canonical trusted workflow ref.');
   const withoutDigest = Object.freeze({ ...input });
   return Object.freeze({ ...withoutDigest, sourceDigest: CodexDevelopmentVerificationDigest(withoutDigest) });
+}
+
+export function parseVerificationEvidenceProducer(value: unknown): CodexDevelopmentVerificationEvidenceProducer {
+  if (isResumedSessionProducer(value)) return parseResumedSessionProducer(value);
+  assertObject(value, 'Verification producer');
+  assertExactKeys(value, ['sourceTransport', 'workflowPath', 'workflowRef', 'workflowSha',
+    'runId', 'runAttempt', 'actorNodeId', 'sourceDigest'], 'legacy Verification producer');
+  const { sourceDigest, ...input } = value as unknown as LegacyVerificationEvidenceProducer;
+  const producer = CodexDevelopmentCreateVerificationEvidenceProducer(input);
+  if (producer.sourceDigest !== sourceDigest) throw new Error('Verification producer digest mismatch.');
+  return producer;
 }
 
 export function aggregateV4Status(
@@ -302,15 +320,7 @@ export function CodexDevelopmentAssertVerificationEvidenceV4(
     }
   }
   if (value.profile !== 'quick' && value.profile !== 'full') throw new Error('Verification V4 evidence profile is invalid.');
-  assertObject(value.producer, 'Verification V4 evidence producer');
-  const producer = value.producer;
-  assertExactKeys(producer, [
-    'sourceTransport', 'workflowPath', 'workflowRef', 'workflowSha', 'runId', 'runAttempt', 'actorNodeId', 'sourceDigest'
-  ], 'Verification V4 evidence producer');
-  const { sourceDigest: observedSourceDigest, ...producerInput } =
-    producer as unknown as CodexDevelopmentVerificationEvidenceProducer;
-  const rebuiltProducer = CodexDevelopmentCreateVerificationEvidenceProducer(producerInput);
-  if (rebuiltProducer.sourceDigest !== observedSourceDigest) throw new Error('Verification V4 producer digest mismatch.');
+  parseVerificationEvidenceProducer(value.producer);
   if (!['passed', 'failed', 'not-run', 'unsupported', 'invalidated'].includes(String(value.status))) {
     throw new Error('Verification V4 evidence status is invalid.');
   }
@@ -661,6 +671,7 @@ export function CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(
 
 const CodexDevelopmentVerificationSessionArtifactSchema =
   'sec-verification-session-artifact-v2' as const;
+export const RESUMED_VERIFICATION_SESSION_ARTIFACT_SCHEMA = 'sec-verification-session-artifact-v3' as const;
 
 /** Historical accepted-attempt projection. Parsing never issues a live qualification. */
 export type SourceProgramTransitionAcceptanceRecord = Readonly<SourceProgramTransitionQualification>;
@@ -690,7 +701,7 @@ export function parseSourceProgramTransitionAcceptanceRecord(value: unknown): So
 }
 
 export type CodexDevelopmentVerificationSessionArtifact = Readonly<{
-  schema: typeof CodexDevelopmentVerificationSessionArtifactSchema;
+  schema: typeof CodexDevelopmentVerificationSessionArtifactSchema | typeof RESUMED_VERIFICATION_SESSION_ARTIFACT_SCHEMA;
   scopeAuthorization: ScopeAuthorization;
   session: VerificationSession;
   preGateReview: ReviewStabilityReceipt;
@@ -707,8 +718,9 @@ export function CodexDevelopmentFinalizeVerificationSessionArtifact(input: Omit<
   'schema' | 'artifactDigest'
 >): CodexDevelopmentVerificationSessionArtifact {
   const withoutDigest = Object.freeze({
-    schema: CodexDevelopmentVerificationSessionArtifactSchema,
-    ...input
+    ...input,
+    schema: isResumedSessionProducer(input.producer)
+      ? RESUMED_VERIFICATION_SESSION_ARTIFACT_SCHEMA : CodexDevelopmentVerificationSessionArtifactSchema
   });
   const artifact = Object.freeze({
     ...withoutDigest,
@@ -722,8 +734,10 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
   value: unknown
 ): asserts value is CodexDevelopmentVerificationSessionArtifact {
   assertObject(value, 'VerificationSession artifact V2');
-  if (value.schema !== CodexDevelopmentVerificationSessionArtifactSchema) {
-    throw new Error('VerificationSession artifact V2 schema mismatch.');
+  const resumed = isResumedSessionProducer(value.producer);
+  if (value.schema !== (resumed ? RESUMED_VERIFICATION_SESSION_ARTIFACT_SCHEMA
+    : CodexDevelopmentVerificationSessionArtifactSchema)) {
+    throw new Error('VerificationSession artifact schema and producer differ.');
   }
   assertExactKeys(value, [
     'schema', 'scopeAuthorization', 'session', 'preGateReview', 'mainHealth', 'evidence', 'producer', 'artifactDigest',
@@ -840,11 +854,11 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
       session.mainHealthRef.mainSha !== mainHealth.mainSha || session.mainHealthRef.mainTreeSha !== mainHealth.mainTreeSha) {
     throw new Error('VerificationSession artifact authority closure mismatch.');
   }
-  const { sourceDigest: observedProducerDigest, ...producerInput } =
-    value.producer as CodexDevelopmentVerificationEvidenceProducer;
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducer(producerInput);
-  if (producer.sourceDigest !== observedProducerDigest ||
-      !canonicalEquals(producer, evidenceProducer)) {
+  const producer = parseVerificationEvidenceProducer(value.producer);
+  if (isResumedSessionProducer(producer)) {
+    assertResumedSessionProducerBinding({ producer, session, scope, actionPlan: evidence.actionPlan });
+  }
+  if (!canonicalEquals(producer, evidenceProducer)) {
     throw new Error('VerificationSession artifact producer provenance mismatch.');
   }
   assertDigest(value.artifactDigest, 'VerificationSession artifact digest');
@@ -929,10 +943,7 @@ export function CodexDevelopmentRefreshVerificationSessionArtifact(
   const session = parseVerificationSession(encodeVerificationActionData(input.session));
   const review = parseReviewStabilityReceipt(encodeVerificationActionData(input.preGateReview));
   const mainHealth = parseMainHealthLedger(encodeVerificationActionData(input.mainHealth));
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducer((() => {
-    const { sourceDigest: _sourceDigest, ...producerInput } = input.producer;
-    return producerInput;
-  })());
+  const producer = parseVerificationEvidenceProducer(input.producer);
   if (!canonicalEquals(producer, input.producer)) {
     throw new Error('VerificationSession refresh producer provenance is forged.');
   }

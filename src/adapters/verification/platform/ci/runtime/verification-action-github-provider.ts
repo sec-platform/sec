@@ -4,18 +4,22 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { parseExactJson } from '../../../../../contracts/exact-json.ts';
 import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import type { HostedResumeSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
+import { currentGitHubApiCapability, executeGitHubApiOperation, inspectGitHubApiCapability, withGitHubApiVerificationSession, type GitHubApiCapability } from '../../../../providers/github-api/operation-session.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../action/contract/action.ts';
 import { assertCiVerificationActionProviderEnvelopeMember, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, finalizeVerificationActionProviderStatusReadback, matchesCiCompilerWorkflowRunIdentity, parseVerificationActionProviderStartMarker, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderArtifactObservation, type VerificationActionProviderOrigin, type VerificationActionProviderStartMarker, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchor, type VerificationActionProviderTerminalObservation } from '../../action/contract/provider.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA, finalizeVerificationActionProviderStatusReadback, matchesCiCompilerWorkflowRunIdentity, parseVerificationActionProviderStartMarker, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderArtifactObservation, type VerificationActionProviderOrigin, type VerificationActionProviderStartMarker, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchor, type VerificationActionProviderTerminalObservation } from '../../action/contract/provider.ts';
 import {
-  CodexDevelopmentParseVerificationActionTerminalArtifact
+  CodexDevelopmentParseVerificationActionTerminalArtifact, type CodexDevelopmentVerificationActionTerminalArtifact
 } from '../contract/evidence.ts';
 import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
 } from '../contract/revision.ts';
-import { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
+import { parseVerificationSessionHostedRequest } from '../contract/session-request.ts';
 
 const GITHUB_EXACT_COMMIT_STATUS_HISTORY_SCHEMA =
   'sec-github-exact-commit-status-history-v1' as const;
@@ -200,17 +204,7 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     const response = record(ghJson(['api', '-H', 'Accept: application/vnd.github+json',
       `/repos/${repository(input.repository)}/contents/.github/workflows/compiler-pr-validation.yml?ref=${input.sha}`]),
     'exact compiler workflow source');
-    if (response.type !== 'file' || response.path !== '.github/workflows/compiler-pr-validation.yml'
-      || response.encoding !== 'base64' || typeof response.content !== 'string'
-      || !Number.isSafeInteger(response.size) || Number(response.size) < 1 || Number(response.size) > 1024 * 1024
-      || typeof response.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(response.sha)) fail('workflow source is not one bounded blob.');
-    const encoded = response.content.replace(/\n/gu, '');
-    const bytes = Buffer.from(encoded, 'base64');
-    const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
-    if (bytes.length !== response.size || bytes.toString('base64') !== encoded || blob !== response.sha) {
-      fail('workflow source bytes differ from the authenticated Git blob.');
-    }
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return decodeCompilerWorkflowSource(response);
   }
 
   async getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown> {
@@ -350,6 +344,21 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
   }
+}
+
+function decodeCompilerWorkflowSource(value: unknown): string {
+  const response = record(value, 'exact compiler workflow source');
+  if (response.type !== 'file' || response.path !== '.github/workflows/compiler-pr-validation.yml'
+    || response.encoding !== 'base64' || typeof response.content !== 'string'
+    || !Number.isSafeInteger(response.size) || Number(response.size) < 1 || Number(response.size) > 1024 * 1024
+    || typeof response.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(response.sha)) fail('workflow source is not one bounded blob.');
+  const encoded = response.content.replace(/\n/gu, '');
+  const bytes = Buffer.from(encoded, 'base64');
+  const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+  if (bytes.length !== response.size || bytes.toString('base64') !== encoded || blob !== response.sha) {
+    fail('workflow source bytes differ from the authenticated Git blob.');
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function positiveId(value: string, label: string): string {
@@ -751,7 +760,7 @@ function parseRunTarget(targetUrl: string, expectedRepository: string): Readonly
 }
 
 async function readVerificationActionExactAttemptOrigin(
-  transport: VerificationActionGitHubProviderTransport,
+  transport: Pick<VerificationActionGitHubProviderTransport, 'getWorkflowRunAttempt' | 'getCheckSuite'>,
   input: Readonly<{
     repositoryId: number;
     repository: string;
@@ -971,6 +980,10 @@ async function readVerificationActionArtifactInventory(
   return Object.freeze({ ...withoutDigest, inventoryDigest: digest(withoutDigest) });
 }
 
+// Later anchor/status failure cannot retract an already authenticated immutable
+// artifact. Its exact producer and upload steps must still have succeeded.
+const SETTLED_ARTIFACT_RUN_CONCLUSIONS = Object.freeze(['success', 'failure', 'cancelled', 'timed_out']);
+
 /** Data binding only. Production invokes it only after authenticated whole-source readback. */
 export function assertPerJobHostedActionArtifactPublisher(input: Readonly<{
   origin: VerificationActionProviderOrigin; slot: 'start' | 'terminal' | 'anchor';
@@ -1004,11 +1017,12 @@ export function assertPerJobHostedActionArtifactPublisher(input: Readonly<{
     || (job.run_attempt !== undefined && job.run_attempt !== input.origin.runAttempt)
     || job.head_sha !== input.origin.workflowSha || !canonicalEquals(job.labels, [policy.runnerLabel])
     || !((job.status === 'in_progress' && job.conclusion === null)
-      || (job.status === 'completed' && job.conclusion === 'success')) || !Array.isArray(job.steps)
+      || (job.status === 'completed' && typeof job.conclusion === 'string'
+        && SETTLED_ARTIFACT_RUN_CONCLUSIONS.includes(job.conclusion))) || !Array.isArray(job.steps)
     || typeof job.check_run_url !== 'string'
     || !job.check_run_url.startsWith(`https://api.github.com/repos/${input.origin.repository}/check-runs/`)
     || !/^[1-9][0-9]*$/u.test(job.check_run_url.slice(`https://api.github.com/repos/${input.origin.repository}/check-runs/`.length))) {
-    fail('artifact writer is not the exact progressing or successful job.');
+    fail('artifact writer is not the exact progressing or settled job.');
   }
   const steps = job.steps.map(value => record(value, 'artifact writer step'));
   if (steps.length > 100 || new Set(steps.map(step => step.number)).size !== steps.length) fail('artifact writer steps are ambiguous.');
@@ -1097,7 +1111,9 @@ async function readVerificationActionArtifactObservation<TPayload>(
       typeof download.files[input.expectedFileName] !== 'string') {
     fail('artifact archive does not contain exactly the canonical payload file.');
   }
-  const payload = input.parsePayload(JSON.parse(download.files[input.expectedFileName]!));
+  const payloadSource = download.files[input.expectedFileName]!;
+  const payload = input.parsePayload(input.perJobSlot === undefined ? JSON.parse(payloadSource)
+    : parseExactJson(payloadSource, 'Per-job Action artifact'));
   const payloadOrigin = input.producingOrigin(payload);
   if (payloadOrigin.repositoryId !== input.repositoryId || payloadOrigin.repository !== input.repository
     || payloadOrigin.runId !== String(workflowRun.id)) {
@@ -1787,4 +1803,137 @@ export async function ensureVerificationActionGitHubProviderTransaction(input: R
     canonicalStatus,
     null
   );
+}
+
+/** Read-only production bridge for the Session owner. It authenticates the
+ * terminal's actual source and native writer; returned records are still data.
+ * The Session owner independently owns original human/cause admission. */
+export async function observeHostedResumeActionTerminal(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin;
+  completedAction: HostedResumeSignal['completedAction'];
+}>): Promise<Readonly<{
+  terminalArtifact: CodexDevelopmentVerificationActionTerminalArtifact;
+  terminalObservation: VerificationActionProviderTerminalObservation;
+}>> {
+  const origin = input.origin;
+  const current = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  const admittedPhases: Readonly<Record<string, readonly string[]>> = {
+    'coordinate-verification-session': ['prepare-parent-plan', 'coordinate-session', 'compose-hosted-evidence'],
+    authorize: ['prepare-integration-hosted', 'verify-integration-recovery'],
+    integrate: ['integrate-hosted', 'resume-verification-session']
+  };
+  const compiler = current.policyJobId === 'coordinate-verification-session';
+  if (current.workflowPath !== `.github/workflows/${compiler ? 'compiler-pr-validation' : 'merge-gate'}.yml`
+    || !admittedPhases[current.policyJobId]?.includes(current.phase) || current.role === 'sut') {
+    fail('Session resume terminal read is outside its actual trusted phase.');
+  }
+  const completedAction = JSON.parse(encodeVerificationActionData(input.completedAction)) as HostedResumeSignal['completedAction'];
+  const result = await withGitHubApiVerificationSession({ repositoryRoot: current.trustedDriverRoot,
+    repository: current.repository, effect: 'verification-read', deadlineAtUnixMs: current.originalDeadlineAtUnixMs,
+    signal: getAuthenticatedGitHubJobOriginSignal(origin), operation: capability =>
+      observeHostedResumeActionTerminalReadback({ capability, completedAction }) });
+  if (result.terminalArtifact.input.baseSha !== current.workflowSha
+    || result.terminalArtifact.input.baseTreeSha !== current.trustedSourceTreeSha) fail('Session resume current source differs.');
+  assertAuthenticatedGitHubJobOriginCurrent(origin);
+  return result;
+}
+
+/** Historical/API-only read path. A production capability authenticates the
+ * remote records; it never becomes OIDC, a host effect or a dispatch grant. */
+export async function observeHostedResumeActionTerminalReadback(input: Readonly<{
+  capability: GitHubApiCapability; completedAction: HostedResumeSignal['completedAction'];
+}>): Promise<Readonly<{
+  terminalArtifact: CodexDevelopmentVerificationActionTerminalArtifact;
+  terminalObservation: VerificationActionProviderTerminalObservation;
+}>> {
+  const capability = input.capability;
+  const identity = inspectGitHubApiCapability(capability);
+  if (identity.origin !== 'production' || identity.effect !== 'verification-read'
+    || currentGitHubApiCapability(identity.repository, 'verification-read') !== capability) {
+    fail('Session resume terminal needs the original live production read capability.');
+  }
+  const encoded = encodeVerificationActionData(input.completedAction);
+  if (Buffer.byteLength(encoded) > 32 * 1024) fail('Session resume cause exceeds its fixed transport bound.');
+  const completed = JSON.parse(encoded) as HostedResumeSignal['completedAction'];
+  if (Object.keys(completed).sort().join(',') !== 'providerEnvelope,runAttempt,runId,terminalArchiveDigest,terminalArtifactId,terminalArtifactName,terminalPayloadDigest') {
+    fail('Session resume cause fields differ.');
+  }
+  const envelope = parseCiVerificationActionProviderEnvelope(completed.providerEnvelope);
+  const request = parseVerificationSessionHostedRequest(encodeVerificationActionData(envelope.proposal.sessionRequest));
+  if (request.schema !== CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+    || completed.terminalArtifactName !== verificationActionProviderTerminalArtifactName(envelope.proposal.proposedActionKey)
+    || !Number.isSafeInteger(completed.runAttempt) || completed.runAttempt < 1 || completed.runAttempt > 1000
+    || !/^sha256:[0-9a-f]{64}$/u.test(completed.terminalArchiveDigest)
+    || !/^sha256:[0-9a-f]{64}$/u.test(completed.terminalPayloadDigest)) fail('Session resume cause source/profile differs.');
+  positiveId(completed.runId, 'completed Action run');
+  positiveId(completed.terminalArtifactId, 'completed Action artifact');
+  const repositoryFact = record(await executeGitHubApiOperation(capability, { kind: 'repository' }), 'resume repository');
+  if (repositoryFact.private !== false || !Number.isSafeInteger(repositoryFact.id) || Number(repositoryFact.id) < 1
+    || repositoryFact.full_name !== identity.repository || repositoryFact.default_branch !== 'main') fail('Session resume repository differs.');
+  const commit = record(await executeGitHubApiOperation(capability, { kind: 'git-commit', sha: request.expectedBaseSha }), 'resume source commit');
+  if (commit.sha !== request.expectedBaseSha || record(commit.tree, 'resume source tree').sha !== request.expectedBaseTreeSha) {
+    fail('Session resume source tree differs from its authenticated commit.');
+  }
+  const current = { repository: identity.repository, repositoryId: String(repositoryFact.id), workflowSha: request.expectedBaseSha };
+  const metadata = record(await executeGitHubApiOperation(capability, {
+    kind: 'verification-artifact', artifactId: completed.terminalArtifactId }), 'resume artifact');
+  if (String(metadata.id) !== completed.terminalArtifactId || metadata.name !== completed.terminalArtifactName
+    || metadata.expired !== false || metadata.digest !== completed.terminalArchiveDigest
+    || !Number.isSafeInteger(metadata.size_in_bytes) || Number(metadata.size_in_bytes) < 1
+    || Number(metadata.size_in_bytes) > 32 * 1024 * 1024) fail('Session resume terminal artifact metadata differs.');
+  const source = await executeGitHubApiOperation(capability, { kind: 'verification-artifact-text',
+    artifactId: completed.terminalArtifactId, artifactName: completed.terminalArtifactName,
+    runId: completed.runId, archiveDigest: completed.terminalArchiveDigest,
+    fileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE });
+  if (typeof source !== 'string') fail('Session resume terminal member is unavailable.');
+  const terminalArtifact = CodexDevelopmentParseVerificationActionTerminalArtifact(source);
+  if (terminalArtifact.schema !== CI_VERIFICATION_PER_JOB_ACTION_ARTIFACT_SCHEMA
+    || terminalArtifact.artifactDigest !== completed.terminalPayloadDigest
+    || terminalArtifact.actionPlan.action.actionKey !== envelope.proposal.proposedActionKey
+    || terminalArtifact.input.baseSha !== request.expectedBaseSha || terminalArtifact.input.baseTreeSha !== request.expectedBaseTreeSha
+    || terminalArtifact.input.headSha !== request.expectedHeadSha || terminalArtifact.input.headTreeSha !== request.expectedHeadTreeSha
+    || terminalArtifact.input.manifestPath !== request.manifestPath || terminalArtifact.input.manifestDigest !== request.manifestDigest) {
+    fail('Session resume terminal differs from the original Action subject.');
+  }
+  const producer = await readVerificationActionExactAttemptOrigin({
+    getWorkflowRunAttempt: selection => executeGitHubApiOperation(capability, {
+      kind: 'verification-workflow-run-attempt', runId: selection.runId, runAttempt: selection.runAttempt }),
+    getCheckSuite: selection => executeGitHubApiOperation(capability, {
+      kind: 'verification-check-suite', checkSuiteId: String(selection.checkSuiteId) })
+  }, { repository: current.repository, repositoryId: Number(current.repositoryId),
+    runId: completed.runId, runAttempt: completed.runAttempt });
+  if (!canonicalEquals(producer, terminalArtifact.producer)) fail('Session resume actual producing attempt differs.');
+  const run = record(await executeGitHubApiOperation(capability, { kind: 'workflow-run', runId: completed.runId }), 'completed Action run');
+  if (run.id !== Number(completed.runId) || run.run_attempt !== completed.runAttempt
+    || run.status !== 'completed' || typeof run.conclusion !== 'string'
+    || !SETTLED_ARTIFACT_RUN_CONCLUSIONS.includes(run.conclusion)
+    || run.head_sha !== current.workflowSha
+    || run.head_branch !== 'main' || run.path !== producer.workflowPath || run.event !== 'repository_dispatch') {
+    fail('Session resume Action run is not the exact settled producer.');
+  }
+  identityRecord(run.actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'completed Action actor');
+  identityRecord(run.triggering_actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'completed Action triggering actor');
+  const jobs: Array<Readonly<{ records: readonly unknown[]; totalCount: number }>> = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const response = record(await executeGitHubApiOperation(capability, {
+      kind: 'verification-workflow-jobs', runId: completed.runId, runAttempt: completed.runAttempt, page }), 'resume job page');
+    if (!Array.isArray(response.jobs) || !Number.isSafeInteger(response.total_count)) fail('Session resume job census is invalid.');
+    jobs.push({ records: response.jobs, totalCount: Number(response.total_count) });
+    if (jobs.reduce((sum, value) => sum + value.records.length, 0) >= Number(response.total_count)) break;
+  }
+  const workflowSource = decodeCompilerWorkflowSource(await executeGitHubApiOperation(capability, {
+    kind: 'verification-blob', ref: producer.workflowSha, path: producer.workflowPath }));
+  assertPerJobHostedActionArtifactSource({ workflowSource, origin: producer, slot: 'terminal',
+    jobs, artifact: metadata, archiveDigest: completed.terminalArchiveDigest });
+  const finalRun = record(await executeGitHubApiOperation(capability, { kind: 'workflow-run', runId: completed.runId }), 'final Action run');
+  if (!canonicalEquals(finalRun, run)) {
+    fail('Session resume run changed during authenticated readback.');
+  }
+  if (currentGitHubApiCapability(current.repository, 'verification-read') !== capability) fail('Session resume original read scope closed.');
+  return Object.freeze({ terminalArtifact, terminalObservation: Object.freeze({
+    originId: completed.terminalArtifactId, artifactName: completed.terminalArtifactName,
+    archiveDigest: completed.terminalArchiveDigest as VerificationActionKeyDigest, expired: false,
+    payload: Object.freeze({ actionKey: terminalArtifact.actionPlan.action.actionKey,
+      candidateSha: terminalArtifact.input.headSha, payloadDigest: terminalArtifact.artifactDigest as VerificationActionKeyDigest,
+      producer }), referencedOrigin: producer }) });
 }

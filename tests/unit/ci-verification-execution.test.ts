@@ -22,6 +22,10 @@ import { expect, test } from 'bun:test';
 
 import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../helpers/ci-verification-fixtures.ts';
 
+import type { HostedResumeSignal } from '../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
+import type { AuthenticatedGitHubJobOrigin } from '../../src/adapters/providers/github-api/hosted-job-origin.ts';
+import type { GitHubApiCapability } from '../../src/adapters/providers/github-api/operation-session.ts';
+import { issueGitHubApiTestCapability, withGitHubApiTestSession } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, createCiVerificationActionProposal, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
@@ -36,7 +40,7 @@ import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/c
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
 import type { AuthenticatedHostedJobRuntimeReceipt } from '../../src/adapters/verification/platform/ci/runtime/hosted-job-runtime-provenance.ts';
-import { assertPerJobHostedActionArtifactPublisher } from '../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts';
+import { assertPerJobHostedActionArtifactPublisher, observeHostedResumeActionTerminal, observeHostedResumeActionTerminalReadback } from '../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts';
 import {
   createVerificationSessionPerJobHostedRequest, VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
@@ -82,6 +86,48 @@ import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src
 import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
+
+test('resume terminal readers reject test or serialized authority before any transport', async () => {
+  const completedAction = {} as HostedResumeSignal['completedAction'];
+  let requests = 0;
+  const capability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', token: 'synthetic-fixture-token-only',
+    effect: 'verification-read', principal: { transport: 'github-rest-token', login: 'fixture', nodeId: 'FIXTURE',
+      userId: 1, permission: 'maintain' }, transport: async () => { requests += 1; throw new Error('Must not request'); } });
+  await expect(withGitHubApiTestSession({ capability, operation: () =>
+    observeHostedResumeActionTerminalReadback({ capability, completedAction }) })).rejects.toThrow(/production read capability/u);
+  await expect(observeHostedResumeActionTerminalReadback({ capability: {} as GitHubApiCapability, completedAction })).rejects.toThrow();
+  await expect(observeHostedResumeActionTerminal({ origin: {} as AuthenticatedGitHubJobOrigin, completedAction })).rejects.toThrow();
+  expect(requests).toBe(0);
+});
+
+test('production SUT entrypoints reject structural supervisors before candidate reads or execution', async () => {
+  const forged = { run: async () => { throw new Error('must not execute'); }, close: () => ({}) };
+  const supervisor = forged as unknown as import('../../src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts').HostedSutSupervisor;
+  await expect(CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: RAW, supervisor })).rejects.toThrow(/owner-issued/u);
+  await expect(CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: RAW, supervisor,
+    runSandboxProcess: forged.run })).rejects.toThrow(/mixed/u);
+  await expect(CodexDevelopmentExecuteHostedActionSut({ supervisor } as Parameters<typeof CodexDevelopmentExecuteHostedActionSut>[0]))
+    .rejects.toThrow(/owner-issued/u);
+});
+
+test('only three SUT CLI entries accept a strictly bounded absolute deadline data field', async () => {
+  for (const value of ['0', '-1', '01', '1.2', '1e15', 'Infinity', '9007199254740992', '1']) {
+    for (const argv of [
+      ['self-test-hosted-action-sandbox', '--resolution', '/not-read'],
+      ['execute-hosted-action-sut', '--resolution', '/not-read', '--ticket', '/not-read',
+        '--prepared-candidate-archive', '/not-read', '--output', '/not-written'],
+      ['execute-trusted-bootstrap-sut', '--base-root', '/not-read', '--candidate-root', '/not-read',
+        '--output-directory', '/not-written', '--base-sha', BASE, '--head-sha', HEAD, '--tree-sha', TREE,
+        '--manifest-path', MANIFEST_PATH]
+    ]) {
+      await expect(CodexDevelopmentCiVerificationHostedActionCli([...argv, '--sandbox-deadline-at-unix-ms', value]))
+        .rejects.toThrow(/deadline must be/u);
+    }
+  }
+  await expect(CodexDevelopmentCiVerificationHostedActionCli(['resolve-hosted-action',
+    '--provider-envelope', '/not-read', '--envelope', '/not-read', '--output', '/not-written',
+    '--sandbox-deadline-at-unix-ms', '9999999999999999'])).rejects.toThrow(/Unknown/u);
+});
 
 test('original SUT entrypoints remain exact projections of their pure plan owner', () => {
   expect(CodexDevelopmentAssertHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentAssertHostedSutSandboxCommandPlan);
@@ -1041,6 +1087,16 @@ test('inner SUT projection binds the selected closed profile without granting an
       normalizedArgv: authorization.normalizedArgv, candidateEnvironment: environment,
       executionAuthorization: authorization
     });
+    // An authorized execution Probe uses the ticket root, never its legacy
+    // nonce fallback. The outer AppArmor owner needs that one exact root.
+    for (const unitNonce of ['first-probe', 'cap-12345-67890']) {
+      const probe = hostedSutPlanOwner.hostedSutCapabilityCommandPlan({
+        actionKey: resolution.actionPlan.action.actionKey, bunExecutable: '/trusted/tool/bun',
+        unitNonce, executionAuthorization: authorization
+      });
+      expect(probe.unitName).toBe(authorization.physicalCommand.unitName);
+      expect(probe.unitName).toBe(plan.unitName);
+    }
     expect(plan.argv).toContain(`SEC_EXECUTION_ENVIRONMENT_REVISION=${resolution.executionEnvironment.executionEnvironmentRevision}`);
     expect(() => CodexDevelopmentBuildHostedSutSandboxCommandPlan({
       actionKey: resolution.actionPlan.action.actionKey, candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
@@ -2070,6 +2126,27 @@ test('new profile artifact writer data requires completed exact phases while per
           head_repository_id: hostedProducer.repositoryId, head_sha: BASE, head_branch: 'main' } }
     };
     expect(() => assertPerJobHostedActionArtifactPublisher(fixture)).not.toThrow();
+    // Commit-status/anchor work after upload may fail or be cancelled. The
+    // already completed producer/upload fact survives; its candidate Result
+    // remains whatever the authenticated terminal payload actually reports.
+    for (const conclusion of ['success', 'failure', 'cancelled', 'timed_out']) {
+      const settled = structuredClone(fixture) as any;
+      settled.jobs[0].records[0].status = 'completed';
+      settled.jobs[0].records[0].conclusion = conclusion;
+      settled.jobs[0].records[0].completed_at = stamp(70);
+      expect(() => assertPerJobHostedActionArtifactPublisher(settled)).not.toThrow();
+      settled.jobs[0].records[0].steps[5].conclusion = 'failure';
+      expect(() => assertPerJobHostedActionArtifactPublisher(settled)).toThrow();
+    }
+
+    for (const conclusion of [['success'], { value: 'success' }, 'unknown', null]) {
+      const malformed = structuredClone(fixture) as any;
+      malformed.jobs[0].records[0].status = 'completed';
+      malformed.jobs[0].records[0].conclusion = conclusion;
+      malformed.jobs[0].records[0].completed_at = stamp(70);
+      expect(() => assertPerJobHostedActionArtifactPublisher(malformed)).toThrow();
+    }
+
     const mutate: Array<(value: any) => void> = [
       value => { value.jobs[0].totalCount = 2; },
       value => { value.jobs[0].records.push(structuredClone(value.jobs[0].records[0])); value.jobs[0].totalCount = 2; },
@@ -2123,7 +2200,8 @@ function perJobTerminalDataFixture() {
       engineProviderIdentityDigest: digest('c'), ociExporterIdentityDigest: digest('d') },
     container: { id: 'd'.repeat(64), name: 'data-only-executing-job', ownershipDigest: digest('a'),
       creationReadbackDigest: digest('b'), startedReadbackDigest: digest('c'), terminalReadbackDigest: digest('d') },
-    execution: { started: true, settled: true, exitCode: 0, stdoutBytes: Buffer.byteLength(rawResultSource), stderrBytes: 0,
+    execution: { started: true, settled: true, startedAtUnixMs: Date.parse(rawResult.startedAt),
+      settledAtUnixMs: Date.parse(rawResult.finishedAt), exitCode: 0, stdoutBytes: Buffer.byteLength(rawResultSource), stderrBytes: 0,
       outputDigest: bytesDigest(rawResultSource), outputTruncated: false, sandboxObservationDigest: rawResult.sandboxReceipt.receiptDigest },
     cleanup: { containerAbsent: true, providerScopeSettled: true, outputSettled: true, ownedSourcesReleased: true }
   });
@@ -2148,6 +2226,9 @@ test('new terminal wire roundtrips complete executing-job data while preserving 
   const data = perJobTerminalDataFixture();
   expect(data.artifact.schema).toBe('sec-verification-action-terminal-artifact-v3');
   expect(CodexDevelopmentParseVerificationActionTerminalArtifact(JSON.stringify(data.artifact))).toEqual(data.artifact);
+  const duplicateNew = JSON.stringify(data.artifact).replace('"schema":"sec-verification-action-terminal-artifact-v3"',
+    '"schema":"sec-verification-action-terminal-artifact-v3","schema":"sec-verification-action-terminal-artifact-v3"');
+  expect(() => CodexDevelopmentParseVerificationActionTerminalArtifact(duplicateNew)).toThrow();
   const oldResolution = hostedResolution(), oldRaw = hostedRawResult(oldResolution, 'passed');
   const old = CodexDevelopmentAssembleHostedActionTerminal({ resolution: oldResolution, ticket: hostedTicket(oldResolution),
     rawResult: oldRaw, expectedRawResultDigest: oldRaw.rawResultDigest, producer: hostedProducer });

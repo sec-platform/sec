@@ -24,12 +24,13 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../../self-hosting/control/task/contract/work-package.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, type VerificationActionProviderOrigin } from '../action/contract/provider.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY
 } from './contract/revision.ts';
-import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution } from './verification-hosted-action-contract.ts';
+import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 
 export function hostedActionRepositoryIdentity(): Readonly<{
@@ -1007,6 +1008,21 @@ export function CodexDevelopmentRunBoundedDependencyMaterialization(
   }
 }
 
+/** Data location only. The caller must retain and verify the actual generation. */
+export function CodexDevelopmentHostedActionDependencySourceRoot(input: Readonly<{
+  executionEnvironmentRevision: string;
+  baseRoot: string;
+  candidateRoot: string;
+}>): string {
+  const source = input.executionEnvironmentRevision === CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION
+    ? input.baseRoot : input.executionEnvironmentRevision === CI_VERIFICATION_HOSTED_PROVIDER_REVISION
+      ? input.candidateRoot : null;
+  if (source === null || !path.isAbsolute(source) || path.resolve(source) !== source) {
+    throw new Error('Hosted Action dependency source has no exact admitted environment/root.');
+  }
+  return path.join(source, 'node_modules');
+}
+
 export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   resolution: CodexDevelopmentHostedActionResolution;
   baseRoot: string;
@@ -1084,7 +1100,14 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
     if (!(error instanceof Error && 'code' in error &&
         (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
   }
-  const dependencyRoot = path.resolve(candidateRoot, 'node_modules');
+  // The per-job lane projects the reviewed base installation directly. The
+  // original archive owner already supports a separate dependency snapshot;
+  // candidate source never acquires an installation or shared-state mutation.
+  // Historical profiles retain their original candidate-local dependency root.
+  const dependencyRoot = CodexDevelopmentHostedActionDependencySourceRoot({
+    executionEnvironmentRevision: resolution.executionEnvironment.executionEnvironmentRevision,
+    baseRoot, candidateRoot
+  });
   const dependencyPhysicalBefore = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(dependencyRoot);
   const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchive({
     candidateRoot,

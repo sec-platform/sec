@@ -210,6 +210,10 @@ export function decodeHostedJobRuntimeReceiptProvenance(input: Readonly<{
       || upload.number <= launcher.number || upload.started < launcher.completed || upload.completed > completed) {
     fail('canonical launcher/upload order differs');
   }
+  if (receipt.execution.startedAtUnixMs === null || receipt.execution.settledAtUnixMs === null
+      || receipt.execution.startedAtUnixMs < launcher.started || receipt.execution.settledAtUnixMs > launcher.completed) {
+    fail('runtime execution is outside its independently observed launcher window');
+  }
   const artifact = object(input.artifact), artifactRun = object(artifact.workflow_run);
   const artifactName = `${output.prefix}-${selected.actionKey.slice(7)}-run-${selected.runId}-attempt-${selected.runAttempt}`;
   const archiveDigest = digest(artifact.digest);
@@ -238,7 +242,7 @@ export function decodeHostedJobRuntimeReceiptProvenance(input: Readonly<{
     const raw = CodexDevelopmentParseHostedActionRawResult(input.outputSource);
     if (raw.sandboxReceipt.actionKey !== selected.actionKey
         || raw.sandboxReceipt.receiptDigest !== receipt.execution.sandboxObservationDigest
-        || timestamp(raw.startedAt) < launcher.started || timestamp(raw.finishedAt) > launcher.completed
+        || timestamp(raw.startedAt) < receipt.execution.startedAtUnixMs || timestamp(raw.finishedAt) > receipt.execution.settledAtUnixMs
         || timestamp(raw.finishedAt) > receipt.operation.deadlineAtUnixMs) fail('raw sandbox observation differs');
   } else {
     const capability = object(outputValue);

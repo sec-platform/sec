@@ -283,7 +283,8 @@ function terminalData(input: Readonly<{
       engineProviderIdentityDigest: sha256('engine'), ociExporterIdentityDigest: sha256('exporter') },
     container: { id: 'd'.repeat(64), name: 'data-only-executing-job', ownershipDigest: sha256('ownership'),
       creationReadbackDigest: sha256('creation'), startedReadbackDigest: sha256('started'), terminalReadbackDigest: sha256('terminal') },
-    execution: { started: true, settled: true, exitCode: 0, stdoutBytes: Buffer.byteLength(rawSource), stderrBytes: 0,
+    execution: { started: true, settled: true, startedAtUnixMs: Date.parse(observation.startedAt),
+      settledAtUnixMs: Date.parse(observation.finishedAt), exitCode: 0, stdoutBytes: Buffer.byteLength(rawSource), stderrBytes: 0,
       outputDigest: rawSha256(rawSource), outputTruncated: false, sandboxObservationDigest: sandboxReceipt.receiptDigest },
     cleanup: { containerAbsent: true, providerScopeSettled: true, outputSettled: true, ownedSourcesReleased: true }
   });

@@ -13,6 +13,13 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { GitHubApiCapability } from '../../src/adapters/providers/github-api/operation-session.ts';
+import { assertHostedCommentProvenanceLive, createResumedHostedWorkflowCommentProvenance, parseHostedWorkflowCommentProvenance } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
+import { createMergeGateProvenance, evaluateAuthenticatedResumedSessionMergeGate, RESUMED_MERGE_GATE_PROVENANCE_SCHEMA } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
+import { verificationActionProviderTerminalArtifactName } from '../../src/adapters/verification/platform/action/contract/provider.ts';
+import { assertHostedCompilerActionReadbackProvenance } from '../../src/adapters/verification/platform/ci/runtime/hosted-compiler-provenance.ts';
+import type { SessionResumeAdmission } from '../../src/adapters/verification/platform/ci/runtime/verification-session-resume-authority.ts';
+import { observeAuthenticatedResumedSessionAuthorizationComment } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 
 
 const CLOSEOUT_CLI_E2E_ENABLED = process.env.SEC_VERIFICATION_SESSION_CLOSEOUT_CLI_E2E === '1';
@@ -32,8 +39,10 @@ import {
 import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { createResumedSessionProducer } from '../../src/adapters/verification/platform/ci/contract/resumed-session-producer.ts';
+import { createCiVerificationSessionResumeSignal } from '../../src/adapters/verification/platform/ci/runtime/verification-session-resume-contract.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
@@ -74,7 +83,11 @@ import {
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
+  CodexDevelopmentCreateHostedArtifactObservation,
   CodexDevelopmentEvaluateMergeGate,
+  CodexDevelopmentMergeGateProducerIdentity,
+  CodexDevelopmentMergeGateResultSchema, CodexDevelopmentMergeGateTerminalStatusContext,
+  CodexDevelopmentParseMergeGateResult, RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA,
   type CodexDevelopmentMergeGateResult
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
@@ -144,6 +157,7 @@ import {
   createVerificationSessionLocalPreparationRequest,
   createVerificationSessionMergeOperationId,
   integrationAuthorizationMergeMarkers,
+  parseVerificationSessionHostedEnvelope,
   parseVerificationSessionHostedRequest,
   prepareLocalQuickVerificationActionPlan,
   prepareTrustedMainVerificationSession,
@@ -2993,6 +3007,10 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
     parentPlan: { parentDispatchPlanDigest: parentPlan.parentDispatchPlanDigest }
   });
 
+  const { eventSender: _sender, ...historicalInput } = input;
+  expect(assertHostedCompilerActionReadbackProvenance(historicalInput)).toMatchObject({ parentActorNodeId: 'INTEGRATOR' });
+  expect(() => assertHostedCompilerInternalProvenance({ ...input, eventSender: undefined })).toThrow('event sender');
+
   for (const [label, delta] of [
     ['human child sender', { eventSender: parentRun.actor }],
     ['human child run actor', { currentRun: { ...currentRun, actor: parentRun.actor } }],
@@ -3022,6 +3040,9 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
     ['noncanonical parent bytes', { parentPlanSource: `${parentPlanSource} ` }]
   ] as const) {
     expect(() => assertHostedCompilerInternalProvenance({ ...input, ...delta }), label).toThrow();
+    if (label !== 'human child sender') {
+      expect(() => assertHostedCompilerActionReadbackProvenance({ ...historicalInput, ...delta }), label).toThrow();
+    }
   }
 });
 
@@ -4814,6 +4835,184 @@ test('per-job preparation cannot downgrade its Action provider through a legacy 
   if (prepared.facts === null || !('placement' in prepared.request)) throw new Error('expected per-job preparation');
   expect(() => prepareVerificationSessionHosted({ request: prepared.request, facts: prepared.facts!,
     now: barrier.observedAt })).not.toThrow();
+  const request = prepared.request;
+  const originalParentActor = { login: 'integrator', id: 101, nodeId: 'INTEGRATOR', type: 'User', permission: 'maintain' } as const;
+  const proposal = createCiVerificationActionProposal({ sessionRequest: request,
+    proposedActionKey: prepared.facts.actionPlanClosure.actions[0]!.action.actionKey });
+  const parentPlan = createCiVerificationActionParentDispatchPlan({ repositoryId: '123', repository: candidate.repository,
+    parentRunId: '100', parentRunAttempt: 1, parentJobId: '150', parentWorkflowSha: BASE,
+    parentWorkflowRef: `${candidate.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+    parentActor: originalParentActor, proposals: [proposal] });
+  const providerEnvelope = createCiVerificationActionProviderEnvelope({ proposal, parentPlan,
+    parentDispatchPlanArtifactId: '500', parentDispatchPlanArchiveDigest: PAGE });
+  const resumeSignal = createCiVerificationSessionResumeSignal({ completedAction: { providerEnvelope,
+    runId: '201', runAttempt: 1, terminalArtifactId: '501',
+    terminalArtifactName: verificationActionProviderTerminalArtifactName(proposal.proposedActionKey),
+    terminalArchiveDigest: PAGE, terminalPayloadDigest: PAGE }, emitter: {
+    repositoryId: '123', repository: candidate.repository, workflowPath: '.github/workflows/merge-gate.yml',
+    workflowSha: BASE, runId: '300', runAttempt: 1, jobId: '350', checkRunId: '351', policyJobId: 'integrate',
+    phase: 'resume-verification-session', stepName: 'Resume canonical verification Session', stepNumber: 6 } });
+  const resumedProducer = createResumedSessionProducer({ workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
+    workflowSha: BASE, runId: '400', runAttempt: 1, originalParentActor, resumeSignal });
+  const resumed = prepareVerificationSessionHosted({ request, facts: { ...prepared.facts, resumedProducer }, now: barrier.observedAt });
+  expect(resumed.schema).toBe('sec-verification-session-hosted-envelope-v2');
+  expect(parseVerificationSessionHostedEnvelope(resumed).resumedProducer).toEqual(resumedProducer);
+  const digestData = (value: unknown) => `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  const { envelopeDigest: _digest, ...envelopeFields } = resumed;
+  const oldFields = { ...envelopeFields, schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA };
+  expect(() => parseVerificationSessionHostedEnvelope({ ...oldFields, envelopeDigest: digestData(oldFields) })).toThrow('version or fields');
+  const { resumedProducer: _producer, ...missingProducer } = envelopeFields;
+  expect(() => parseVerificationSessionHostedEnvelope({ ...missingProducer, envelopeDigest: digestData(missingProducer) })).toThrow();
+  expect(() => prepareVerificationSessionHosted({ request,
+    facts: { ...prepared.facts!, resumedProducer: { ...resumedProducer,
+      originalParentActor: { ...originalParentActor, nodeId: 'SOMEONE_ELSE' } } }, now: barrier.observedAt })).toThrow();
+  const gates = resumed.actionPlanClosure.actions.map(({ action }) => ({ action,
+    result: CodexDevelopmentBuildVerificationGateResult({ gateId: action.operation.identity,
+      gateRevision: action.operation.revision, owner: 'ci-verification-maintainer', requirementKey: `gate:${action.operation.identity}`,
+      subjectRevision: request.expectedHeadSha, inputDigest: action.actionKey, applicability: 'required',
+      status: 'passed', disposition: 'executed', reasonCode: 'executed-success',
+      requiredForClaims: [`gate:${action.operation.identity}`], supportedClaims: [`gate:${action.operation.identity}`],
+      environment: { runtime: 'fixture', os: 'linux', arch: 'x64', filesystem: null, capabilities: [],
+        toolchainRevision: action.environment.toolchainRevision, providerRevisions: [action.environment.providerRevision] },
+      execution: { argv: ['fixture'], startedAt: barrier.observedAt, finishedAt: barrier.observedAt,
+        durationMs: 0, exitCode: 0, outputDigest: PAGE, failureFingerprint: null },
+      evidenceRefs: [], invalidationRules: ['fixture only'], diagnostic: null }),
+    cleanup: { status: 'not-required' as const, evidenceRefs: [], diagnostic: null } }));
+  const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({ contractRevision: 'ci-verification-v19',
+    sessionRevision: resumed.session.sessionRevision, sessionProposalDigest: resumed.session.sessionProposalDigest,
+    scopeAuthorizationRevision: resumed.scopeAuthorization.authorizationRevision,
+    scopeAuthorizationDigest: resumed.scopeAuthorization.authorizationDigest, reviewReceiptDigest: resumed.preGateReview.receiptDigest,
+    mainHealthRevision: resumed.mainHealth.healthRevision, mainHealthDigest: resumed.mainHealth.ledgerDigest,
+    trustRevision: resumed.session.trustRevision, profile: 'quick', baseSha: request.expectedBaseSha,
+    baseTreeSha: request.expectedBaseTreeSha, headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
+    manifestPath: request.manifestPath, manifestDigest: request.manifestDigest, producer: resumedProducer,
+    actionPlan: resumed.actionPlanClosure, status: 'passed', startedAt: barrier.observedAt,
+    finishedAt: barrier.observedAt, gates, evidenceRefs: [], invalidationRules: ['fixture only'] });
+  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({ scopeAuthorization: resumed.scopeAuthorization,
+    session: resumed.session, preGateReview: resumed.preGateReview, mainHealth: resumed.mainHealth, evidence,
+    producer: resumedProducer });
+  expect(artifact.schema).toBe('sec-verification-session-artifact-v3');
+  const resumedGate = createMergeGateProvenance({ schema: RESUMED_MERGE_GATE_PROVENANCE_SCHEMA,
+    workflowPath: '.github/workflows/merge-gate.yml', workflowRef: `.github/workflows/merge-gate.yml@${BASE}`,
+    workflowSha: BASE, eventName: 'workflow_run', sourceRunId: '600', sourceRunAttempt: 1,
+    authorizationPrincipal: originalParentActor, sourceProducer: resumedProducer });
+  expect(resumedGate.schema).toBe(RESUMED_MERGE_GATE_PROVENANCE_SCHEMA);
+  const bytes = `${encodeVerificationActionData(artifact)}\n`;
+  const observation = CodexDevelopmentCreateHostedArtifactObservation({ schema: RESUMED_HOSTED_ARTIFACT_OBSERVATION_SCHEMA,
+    artifactId: '700', artifactName: `sec-verification-session-v2-pr-${request.prNumber}-session-${resumed.session.sessionRevision.slice(7)}-run-400-attempt-1`,
+    artifactFileName: 'verification-session-artifact.json',
+    artifactByteDigest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    artifactByteLength: Buffer.byteLength(bytes), artifactExpired: false,
+    workflowPath: '.github/workflows/compiler-pr-validation.yml', workflowRef: resumedProducer.workflowRef,
+    workflowSha: BASE, runId: '400', runAttempt: 1, eventName: 'repository_dispatch',
+    actorNodeId: resumedProducer.actorNodeId, actorPermission: 'workflow', originalParentActor,
+    downloadTransport: 'github-actions-artifact-api' });
+  // Content-integrity decoder fixture only. The live Gate rejects these bytes
+  // without original production admission, independently of every digest.
+  const authorization = createIntegrationAuthorization({ consumptionOperationId: PAGE,
+    repository: candidate.repository, prNumber: request.prNumber, sessionRevision: resumed.session.sessionRevision,
+    baseSha: BASE, baseTreeSha: request.expectedBaseTreeSha, headSha: request.expectedHeadSha,
+    headTreeSha: request.expectedHeadTreeSha, manifestDigest: request.manifestDigest,
+    scopeAuthorizationRevision: resumed.scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: resumed.scopeAuthorization.authorizationDigest,
+    actionClosureDigest: resumed.actionPlanClosure.actionPlanDigest, evidenceDigest: evidence.evidenceDigest as `sha256:${string}`,
+    reviewRevision: resumed.preGateReview.reviewRevision, reviewReceiptDigest: resumed.preGateReview.receiptDigest,
+    mainHealthRevision: resumed.mainHealth.healthRevision, mainHealthReceiptDigest: resumed.mainHealth.ledgerDigest,
+    trustRevision: BASE, rulesetDigest: PAGE, issuedAt: barrier.observedAt,
+    expiresAt: new Date(Date.parse(barrier.observedAt) + 60_000).toISOString(),
+    issuer: { principalId: originalParentActor.nodeId, producerIdentity: CodexDevelopmentMergeGateProducerIdentity,
+      trustedRevision: BASE, sourceTransport: 'github-actions', sourceRunId: '600:1',
+      sourceRef: resumedGate.workflowRef, sourceDigest: resumedGate.sourceDigest } });
+  const resultFields = { schema: CodexDevelopmentMergeGateResultSchema, status: 'authorized', authorization,
+    reviewReceipt: resumed.preGateReview, mainHealth: resumed.mainHealth,
+    platformObservation: { status: 'platform-enforcement-unavailable', rulesetDigest: PAGE, reason: 'fixture' },
+    hostedArtifactOrigin: observation, hostedArtifactTransport: observation, provenance: resumedGate,
+    terminalStatusContext: CodexDevelopmentMergeGateTerminalStatusContext };
+  const result = { ...resultFields, resultDigest: digestData(resultFields) };
+  expect(() => CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(result))).not.toThrow();
+  const wrongTransport = { ...resultFields, hostedArtifactTransport: { ...observation,
+    originalParentActor: { ...originalParentActor, nodeId: 'FOREIGN_HUMAN', login: 'foreign-human' } } };
+  expect(() => CodexDevelopmentParseMergeGateResult(encodeVerificationActionData({ ...wrongTransport,
+    resultDigest: digestData(wrongTransport) }))).toThrow('original human');
+
+  expect('actorNodeId' in resumedGate).toBe(false);
+  expect(() => createMergeGateProvenance({ ...resumedGate, schema: RESUMED_MERGE_GATE_PROVENANCE_SCHEMA,
+    authorizationPrincipal: { ...originalParentActor, nodeId: 'OTHER' }, sourceProducer: resumedProducer })).toThrow('principal');
+  const comment = createResumedHostedWorkflowCommentProvenance({ repositoryId: '123',
+    workflowPath: '.github/workflows/merge-gate.yml', workflowRef: `.github/workflows/merge-gate.yml@${BASE}`,
+    workflowSha: BASE, runId: '600', runAttempt: 1, eventName: 'workflow_run',
+    sourceRunId: resumedProducer.runId, sourceRunAttempt: resumedProducer.runAttempt,
+    authorizationPrincipal: originalParentActor, sourceProducer: resumedProducer,
+    phase: { jobId: '601', jobName: 'integrate', phase: 'closeoutMutation',
+      stepName: 'Close out exact integrated branch', stepNumber: 5 },
+    app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app });
+  expect(parseHostedWorkflowCommentProvenance(comment)).toEqual(comment);
+  expect(() => parseHostedWorkflowCommentProvenance({ ...comment,
+    schema: 'sec-hosted-workflow-comment-provenance-v1' })).toThrow();
+  expect(() => createResumedHostedWorkflowCommentProvenance({ ...comment,
+    sourceRunId: '999' })).toThrow('source producer');
+  // These genuine data objects must still fail before any old Gh effect or API
+  // read. Neither a canonical DTO nor an empty/copied handle grants admission.
+  expect(() => assertHostedCommentProvenanceLive('/absent-no-gh-effect', candidate.repository,
+    {} as Parameters<typeof assertHostedCommentProvenanceLive>[2], comment)).toThrow('RESUMED_COMMENT_API_ADMISSION_REQUIRED');
+  let hostedReads = 0, effects = 0;
+  const effectTrap = new Proxy({}, { get() { effects += 1; throw new Error('must reject before effects'); } });
+  await expect(resumeVerificationSession({ external: { hostedArtifact: () => {
+    hostedReads += 1; return { artifact, provenance: effectTrap }; } }, journalFs: effectTrap,
+    github: effectTrap } as unknown as Parameters<typeof resumeVerificationSession>[0]))
+    .rejects.toMatchObject({ code: 'RESUMED_SESSION_EFFECT_OWNER_UNAVAILABLE' });
+  expect(hostedReads).toBe(1);
+  expect(effects).toBe(0);
+  const unqualifiedInput = { artifact } as Parameters<typeof CodexDevelopmentEvaluateMergeGate>[0];
+  expect(() => CodexDevelopmentEvaluateMergeGate(unqualifiedInput)).toThrow('private API admission');
+  for (const admission of [{}, { ...{} }]) {
+    await expect(evaluateAuthenticatedResumedSessionMergeGate(unqualifiedInput, admission as SessionResumeAdmission))
+      .rejects.toThrow('not issued');
+    await expect(observeAuthenticatedResumedSessionAuthorizationComment({ artifact,
+      capability: {} as GitHubApiCapability, admission: admission as SessionResumeAdmission, commentId: 1 }))
+      .rejects.toThrow('not issued');
+  }
+
+  const { artifactDigest: _artifactDigest, ...artifactFields } = artifact;
+  const oldArtifact = { ...artifactFields, schema: 'sec-verification-session-artifact-v2' };
+  expect(() => CodexDevelopmentAssertVerificationSessionArtifact({ ...oldArtifact,
+    artifactDigest: digestData(oldArtifact) })).toThrow('schema and producer');
+  const invalidTop = { ...envelopeFields, requestOperationId: PAGE };
+  expect(() => parseVerificationSessionHostedEnvelope({ ...invalidTop,
+    envelopeDigest: digestData(invalidTop) })).toThrow('request operation');
+  const { placement: _nestedPlacement, ...legacyNestedPins } = request;
+  for (const nestedRequest of [
+    { ...request, addedField: true }, { ...request, requestOperationId: PAGE },
+    { ...legacyNestedPins, schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA }
+  ]) {
+    // Rebuild every surrounding digest so only the original nested request
+    // decoder/placement contract can reject this otherwise coherent fixture.
+    const changedProposal = createCiVerificationActionProposal({ sessionRequest: nestedRequest,
+      proposedActionKey: proposal.proposedActionKey });
+    const changedParent = createCiVerificationActionParentDispatchPlan({ repositoryId: '123', repository: candidate.repository,
+      parentRunId: '100', parentRunAttempt: 1, parentJobId: '150', parentWorkflowSha: BASE,
+      parentWorkflowRef: `${candidate.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+      parentActor: originalParentActor, proposals: [changedProposal] });
+    const changedProvider = createCiVerificationActionProviderEnvelope({ proposal: changedProposal,
+      parentPlan: changedParent, parentDispatchPlanArtifactId: '500', parentDispatchPlanArchiveDigest: PAGE });
+    const completedAction = { ...resumeSignal.completedAction, providerEnvelope: changedProvider };
+    const { signalDigest: _signalDigest, ...signalFields } = resumeSignal;
+    const changedSignalFields = { ...signalFields, completedAction,
+      wakeKey: digestData({ schema: 'sec-verification-session-wake-key-v1', completedAction }) };
+    const { sourceDigest: _sourceDigest, ...producerFields } = resumedProducer;
+    const changedProducerFields = { ...producerFields,
+      resumeSignal: { ...changedSignalFields, signalDigest: digestData(changedSignalFields) } };
+    const changedProducer = { ...changedProducerFields, sourceDigest: digestData(changedProducerFields) };
+    const changedEnvelope = { ...envelopeFields, resumedProducer: changedProducer };
+    expect(() => parseVerificationSessionHostedEnvelope({ ...changedEnvelope,
+      envelopeDigest: digestData(changedEnvelope) })).toThrow();
+    const { evidenceDigest: _evidenceDigest, ...evidenceFields } = evidence;
+    const changedEvidence = { ...evidenceFields, producer: changedProducer };
+    const changedArtifact = { ...artifactFields, producer: changedProducer,
+      evidence: { ...changedEvidence, evidenceDigest: digestData(changedEvidence) } };
+    expect(() => CodexDevelopmentAssertVerificationSessionArtifact({ ...changedArtifact,
+      artifactDigest: digestData(changedArtifact) })).toThrow();
+  }
   const { placement: _placement, ...pins } = prepared.request;
   const downgraded = { ...pins, schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA };
   expect(() => prepareVerificationSessionHosted({ request: downgraded, facts: prepared.facts!,

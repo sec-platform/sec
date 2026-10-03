@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { parseResumedSessionProducer, type ResumedSessionProducer } from '../../../verification/platform/ci/contract/resumed-session-producer.ts';
 
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
@@ -70,7 +71,7 @@ export const BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME =
 const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA =
   'sec-hosted-workflow-comment-provenance-v1' as const;
 
-export interface HostedWorkflowCommentProvenance {
+export interface LegacyHostedWorkflowCommentProvenance {
   schema: typeof HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA;
   repositoryId: string;
   workflowPath: '.github/workflows/merge-gate.yml';
@@ -90,6 +91,23 @@ export interface HostedWorkflowCommentProvenance {
     slug: string;
   };
   provenanceDigest: `sha256:${string}`;
+}
+
+export const RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA = 'sec-hosted-workflow-comment-provenance-v2' as const;
+export type ResumedHostedWorkflowCommentProvenance = Readonly<Omit<LegacyHostedWorkflowCommentProvenance,
+  'schema' | 'actorLogin' | 'actorNodeId' | 'actorPermission'> & {
+    schema: typeof RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA;
+    authorizationPrincipal: ResumedSessionProducer['originalParentActor'];
+    sourceProducer: ResumedSessionProducer;
+    phase: Readonly<{ jobId: string; jobName: string; phase: 'recoveryPreparation' | 'integration' | 'closeoutMutation' | 'closeoutPublication'; stepName: string; stepNumber: number }>;
+  }>;
+export type HostedWorkflowCommentProvenance = LegacyHostedWorkflowCommentProvenance | ResumedHostedWorkflowCommentProvenance;
+
+/** Serialized identity projection, never an API authorization or physical capability. */
+export function hostedCommentAuthorizationPrincipal(provenance: HostedWorkflowCommentProvenance): Readonly<{ login: string; nodeId: string; permission: 'maintain' | 'admin' }> {
+  return provenance.schema === RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA
+    ? provenance.authorizationPrincipal
+    : Object.freeze({ login: provenance.actorLogin, nodeId: provenance.actorNodeId, permission: provenance.actorPermission });
 }
 
 export interface BranchCloseoutOperationPublication {
@@ -266,16 +284,16 @@ function boundedIdentity(value: unknown, label: string): string {
 }
 
 function hostedWorkflowCommentProvenancePayload(input: Omit<
-  HostedWorkflowCommentProvenance,
+  LegacyHostedWorkflowCommentProvenance,
   'schema' | 'provenanceDigest'
->): Omit<HostedWorkflowCommentProvenance, 'provenanceDigest'> {
+>): Omit<LegacyHostedWorkflowCommentProvenance, 'provenanceDigest'> {
   return { schema: HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA, ...input };
 }
 
 export function createHostedWorkflowCommentProvenance(input: Omit<
-  HostedWorkflowCommentProvenance,
+  LegacyHostedWorkflowCommentProvenance,
   'schema' | 'provenanceDigest'
->): HostedWorkflowCommentProvenance {
+>): LegacyHostedWorkflowCommentProvenance {
   if (!/^[1-9][0-9]*$/u.test(input.repositoryId)
     || !/^[1-9][0-9]*$/u.test(input.runId)
     || !/^[1-9][0-9]*$/u.test(input.sourceRunId)) {
@@ -303,10 +321,53 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
   return Object.freeze({ ...payload, provenanceDigest: branchLifecycleDigest(payload) });
 }
 
+export function createResumedHostedWorkflowCommentProvenance(input: Omit<ResumedHostedWorkflowCommentProvenance, 'schema' | 'provenanceDigest'>): ResumedHostedWorkflowCommentProvenance {
+  const sourceProducer = parseResumedSessionProducer(input.sourceProducer);
+  assertRecord(input.phase, 'Resumed comment actual phase');
+  assertExactKeys(input.phase, ['jobId', 'jobName', 'phase', 'stepName', 'stepNumber'], 'Resumed comment actual phase');
+  if (!/^[1-9][0-9]*$/u.test(input.phase.jobId)
+      || !['recoveryPreparation', 'integration', 'closeoutMutation', 'closeoutPublication'].includes(input.phase.phase)) {
+    throw new Error('Resumed comment phase identity is invalid.');
+  }
+  boundedIdentity(input.phase.jobName, 'Resumed comment job name');
+  boundedIdentity(input.phase.stepName, 'Resumed comment step name');
+  positiveInteger(input.phase.stepNumber, 'Resumed comment step number');
+  if (sourceProducer.workflowSha !== input.workflowSha || sourceProducer.runId !== input.sourceRunId
+      || sourceProducer.runAttempt !== input.sourceRunAttempt
+      || encodeVerificationActionData(sourceProducer.originalParentActor) !== encodeVerificationActionData(input.authorizationPrincipal)) {
+    throw new Error('Resumed comment source producer or original authorization principal differs.');
+  }
+  // Reuse the unchanged legacy value validation, without inheriting its schema
+  // or confusing the actual App source with the human authorization principal.
+  const checked = createHostedWorkflowCommentProvenance({ repositoryId: input.repositoryId,
+    workflowPath: input.workflowPath, workflowRef: input.workflowRef, workflowSha: input.workflowSha,
+    runId: input.runId, runAttempt: input.runAttempt, eventName: input.eventName,
+    sourceRunId: input.sourceRunId, sourceRunAttempt: input.sourceRunAttempt,
+    actorLogin: sourceProducer.originalParentActor.login, actorNodeId: sourceProducer.originalParentActor.nodeId,
+    actorPermission: sourceProducer.originalParentActor.permission, app: input.app });
+  const payload = Object.freeze({ schema: RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA,
+    repositoryId: checked.repositoryId, workflowPath: checked.workflowPath, workflowRef: checked.workflowRef,
+    workflowSha: checked.workflowSha, runId: checked.runId, runAttempt: checked.runAttempt,
+    eventName: checked.eventName, sourceRunId: checked.sourceRunId, sourceRunAttempt: checked.sourceRunAttempt,
+    authorizationPrincipal: sourceProducer.originalParentActor, sourceProducer, phase: Object.freeze({ ...input.phase }), app: checked.app });
+  return Object.freeze({ ...payload, provenanceDigest: branchLifecycleDigest(payload) });
+}
+
 export function parseHostedWorkflowCommentProvenance(
   value: unknown
 ): HostedWorkflowCommentProvenance {
   assertRecord(value, 'Hosted workflow comment provenance');
+  if (value.schema === RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA) {
+    assertExactKeys(value, ['schema', 'repositoryId', 'workflowPath', 'workflowRef', 'workflowSha', 'runId',
+      'runAttempt', 'eventName', 'sourceRunId', 'sourceRunAttempt', 'authorizationPrincipal',
+      'sourceProducer', 'phase', 'app', 'provenanceDigest'], 'Resumed hosted comment provenance');
+    assertRecord(value.app, 'Hosted workflow comment app');
+    assertExactKeys(value.app, ['id', 'nodeId', 'slug'], 'Hosted workflow comment app');
+    const rebuilt = createResumedHostedWorkflowCommentProvenance(value as unknown as Omit<ResumedHostedWorkflowCommentProvenance, 'schema' | 'provenanceDigest'>);
+    if (rebuilt.provenanceDigest !== value.provenanceDigest) throw new Error('Resumed hosted comment provenance digest mismatch.');
+    return rebuilt;
+  }
+  if (value.schema !== HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA) throw new Error('Hosted comment provenance schema mismatch.');
   assertExactKeys(value, [
     'schema', 'repositoryId', 'workflowPath', 'workflowRef', 'workflowSha', 'runId',
     'runAttempt', 'eventName', 'sourceRunId', 'sourceRunAttempt', 'actorLogin',
@@ -1052,6 +1113,9 @@ export function assertHostedCommentProvenanceLive(
   comment: IssueCommentRecord,
   provenance: HostedWorkflowCommentProvenance
 ): void {
+  if (provenance.schema === RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA) {
+    throw new Error('RESUMED_COMMENT_API_ADMISSION_REQUIRED: resumed comment readback requires its bounded API admission owner.');
+  }
   if (!hostedPublisherMatches(comment)) {
     throw new Error(`comment ${comment.id} was not performed by the canonical GitHub Actions app`);
   }

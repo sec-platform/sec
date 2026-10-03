@@ -10,11 +10,13 @@ import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, Gi
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { matchesCiWorkflowRunIdentity } from '../../../verification/platform/action/contract/provider.ts';
 import {
-  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
   assertHostedCommentProvenanceLive,
+  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
+  hostedCommentAuthorizationPrincipal,
   hostedPublisherMatches,
   listIssueComments,
   parseHostedWorkflowCommentProvenance,
+  RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA,
   type HostedWorkflowCommentProvenance
 } from '../branch-lifecycle/branch-closeout-receipt.ts';
 import {
@@ -24,6 +26,8 @@ import {
 import { branchLifecycleDigest } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
   CodexDevelopmentParseMergeGateResult,
+  mergeGateAuthorizationPrincipal,
+  RESUMED_MERGE_GATE_PROVENANCE_SCHEMA,
   type CodexDevelopmentMergeGateResult
 } from './merge-gate.ts';
 
@@ -365,6 +369,12 @@ export function createIntegrationAuthorizationOperationPublication(input: {
     || !Number.isSafeInteger(recoveryArtifact.runAttempt) || recoveryArtifact.runAttempt < 1) {
     throw new Error('Integration authorization recovery artifact observation is invalid.');
   }
+  if (result.provenance.schema === RESUMED_MERGE_GATE_PROVENANCE_SCHEMA
+      ? provenance.schema !== RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA
+        || encodeVerificationActionData(result.provenance.sourceProducer) !== encodeVerificationActionData(provenance.sourceProducer)
+      : provenance.schema === RESUMED_HOSTED_COMMENT_PROVENANCE_SCHEMA) {
+    throw new Error('Integration authorization publication cannot downgrade or replace its resumed Session producer.');
+  }
   const authorization = result.authorization;
   const expectedRecoveryArtifactName = `sec-branch-closeout-recovery-v1-pr-${authorization.prNumber}`
     + `-session-${authorization.sessionRevision.slice(7)}-run-${provenance.runId}-attempt-${provenance.runAttempt}`;
@@ -374,7 +384,7 @@ export function createIntegrationAuthorizationOperationPublication(input: {
     || result.provenance.workflowSha !== provenance.workflowSha
     || result.provenance.sourceRunId !== provenance.runId
     || result.provenance.sourceRunAttempt !== provenance.runAttempt
-    || result.provenance.actorNodeId !== provenance.actorNodeId
+    || mergeGateAuthorizationPrincipal(result.provenance).nodeId !== hostedCommentAuthorizationPrincipal(provenance).nodeId
     || recoveryArtifact.runId !== provenance.runId
     || recoveryArtifact.runAttempt !== provenance.runAttempt
     || recoveryArtifact.artifactName !== expectedRecoveryArtifactName) {

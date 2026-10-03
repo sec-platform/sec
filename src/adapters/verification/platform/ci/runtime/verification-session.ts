@@ -1,10 +1,15 @@
 #!/usr/bin/env bun
 import { consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../../providers/docker/runtime/linux-oci-exporter.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/budget.ts';
-import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
 import type { MainHealthLedger } from '../../../../self-hosting/control/main-health/contract.ts';
 import type { TrustedRuntimeMainHealthPublicationAdmission } from '../../../../self-hosting/control/main-health/live-admission.ts';
 import { assertTrustedRuntimePostMergeMainHealthPlanCurrent, prepareTrustedRuntimePostMergeMainHealthPlan, type TrustedRuntimePostMergeMainHealthPlan } from '../../../../self-hosting/control/main-health/post-merge-plan.ts';
+import { type ResumedSessionProducer } from '../contract/resumed-session-producer.ts';
+import {
+  assertAuthenticatedSessionResumeProducerCurrent, authenticatedSessionResumeAuthorizationPrincipal, authenticatedSessionResumeDeadlineAtUnixMs,
+  revalidateAuthenticatedSessionResumeAdmission, type SessionResumeAdmission
+} from './verification-session-resume-authority.ts';
 /**
  * SEC canonical VerificationSession V2 operator CLI.
  *
@@ -60,6 +65,7 @@ import {
   createBranchCloseoutEffectStartPublication,
   createBranchCloseoutOperationPublication,
   createHostedWorkflowCommentProvenance,
+  hostedCommentAuthorizationPrincipal,
   hostedPublisherMatches,
   issueCommentRecord,
   observeBranchCloseoutEffectStartPublication,
@@ -105,7 +111,8 @@ import {
 import {
   CodexDevelopmentEvaluateMergeGate,
   CodexDevelopmentParseMergeGateResult,
-  assertCanonicalMergeMessage
+  assertCanonicalMergeMessage,
+  mergeGateAuthorizationPrincipal
 } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
   observeGitHubIssue,
@@ -2156,7 +2163,7 @@ async function evaluateFreshHostedIntegration(input: {
     manifestDigest: artifact.session.manifestDigest,
     tracking: manifest.tracking
   }));
-  const integrationPrincipalNodeId = provenance.actorNodeId;
+  const integrationPrincipalNodeId = hostedCommentAuthorizationPrincipal(provenance).nodeId;
   const barrier = (await github.observeReviewBarrier({ repository, prNumber: artifact.session.prNumber,
     headSha: artifact.session.headSha,
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, integrationPrincipalNodeId]) }));
@@ -2201,7 +2208,7 @@ async function evaluateFreshHostedIntegration(input: {
     provenance: { workflowPath: '.github/workflows/merge-gate.yml', workflowRef,
       workflowSha: artifact.session.baseSha, eventName: 'workflow_run',
       sourceRunId: provenance.runId, sourceRunAttempt: provenance.runAttempt,
-      actorNodeId: integrationPrincipalNodeId, actorPermission: provenance.actorPermission },
+      actorNodeId: integrationPrincipalNodeId, actorPermission: hostedCommentAuthorizationPrincipal(provenance).permission },
     mainHealth: freshMainHealth, platform: (await github.observePlatformEnforcement(repository)),
     consumptionOperationId, issuedAt, expiresAt: addSeconds(issuedAt, 300) });
   return Object.freeze({ result: CodexDevelopmentEvaluateMergeGate(mergeInput),
@@ -2825,9 +2832,37 @@ export interface VerificationSessionHostedRuntime {
   readonly engineExporter: QualifiedContainerEngineOciExporter;
 }
 
-export async function verificationSessionCli(argv: string[], hostedRuntime?: VerificationSessionHostedRuntime): Promise<string> {
-  if (hostedRuntime !== undefined) hostedRuntime = Object.freeze({
-    origin: hostedRuntime.origin, engineExporter: hostedRuntime.engineExporter });
+export interface VerificationSessionResumedContext {
+  readonly kind: 'resumed-session';
+  readonly origin: AuthenticatedGitHubJobOrigin;
+  readonly admission: SessionResumeAdmission;
+  readonly producer: ResumedSessionProducer;
+  readonly request: ReturnType<typeof parseVerificationSessionHostedRequest>;
+}
+
+function assertResumedSessionCommandCurrent(context: VerificationSessionResumedContext, command: string, repositoryRoot: string): void {
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(context.origin);
+  const allowed = command === 'observe-hosted' || command === 'prepare-hosted'
+    ? ['prepare-parent-plan', 'compose-hosted-evidence']
+    : command === 'finalize-hosted' ? ['compose-hosted-evidence'] : [];
+  if (observed.policyJobId !== 'coordinate-verification-session' || observed.role !== 'control'
+      || observed.workflowPath !== '.github/workflows/compiler-pr-validation.yml'
+      || observed.trustedDriverRoot !== repositoryRoot || !allowed.includes(observed.phase)
+      || observed.repository !== context.producer.resumeSignal.emitter.repository
+      || observed.runId !== context.producer.runId || observed.runAttempt !== context.producer.runAttempt
+      || observed.workflowSha !== context.producer.workflowSha) {
+    throw new Error('Resumed Session command does not bind its actual coordinator phase.');
+  }
+  assertAuthenticatedSessionResumeProducerCurrent(context.admission, context);
+}
+
+export async function verificationSessionCli(argv: string[], context?: VerificationSessionHostedRuntime | VerificationSessionResumedContext): Promise<string> {
+  const resumed = context !== undefined && 'kind' in context && context.kind === 'resumed-session'
+    ? Object.freeze({ kind: context.kind, origin: context.origin, admission: context.admission,
+        producer: context.producer, request: context.request }) : undefined;
+  const hostedRuntime = context !== undefined && 'engineExporter' in context
+    ? Object.freeze({ origin: context.origin, engineExporter: context.engineExporter }) : undefined;
+  if (context !== undefined && resumed === undefined && hostedRuntime === undefined) throw new Error('Unknown hosted Session context.');
   const command = argv[0];
   if (hostedRuntime !== undefined && command !== 'integrate-hosted') {
     throw new Error('Live hosted runtime context is restricted to same-invocation integration.');
@@ -2847,6 +2882,14 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
   }
   const repository = args.get('--repository') ?? 'sec-platform/sec';
   const repositoryRoot = process.cwd();
+  if (resumed !== undefined) {
+    if (repository !== resumed.producer.resumeSignal.emitter.repository) {
+      throw new Error('Resumed Session command repository differs from the admitted original cause.');
+    }
+    assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
+    await revalidateAuthenticatedSessionResumeAdmission(resumed.admission);
+    assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
+  }
   const environment = process.env;
   const now = () => new Date().toISOString();
   const execution = new Set(['prepare', 'status', 'resume']).has(command)
@@ -2890,6 +2933,10 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
     if (selectedHostedRequest === null) throw new Error(`${command} did not select a hosted request.`);
     return selectedHostedRequest;
   };
+  if (resumed !== undefined && selectedHostedRequest !== null
+      && encodeVerificationActionData(selectedHostedRequest) !== encodeVerificationActionData(resumed.request)) {
+    throw new Error('Resumed Session request file differs from the original admitted request.');
+  }
   let ctx = createVerificationSessionScope({ repositoryRoot });
   if (new Set([
     'prepare-integration-hosted',
@@ -2909,7 +2956,9 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
     }
     return runtimeJournalFs;
   };
-  const githubAdapter = () => createVerificationSessionGitHubClient(repositoryRoot, repository);
+  const githubAdapter = () => createVerificationSessionGitHubClient(repositoryRoot, repository, resumed === undefined ? {} : {
+    deadlineAtUnixMs: authenticatedSessionResumeDeadlineAtUnixMs(resumed.admission),
+    signal: getAuthenticatedGitHubJobOriginSignal(resumed.origin) });
   const event = () => githubEvent(environment);
   // CLI command routing selects one closed operation only. The selected
   // operation revalidates every authority/target/effect precondition internally.
@@ -3313,8 +3362,10 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
     const request = hostedRequest();
     const github = githubAdapter();
     const eventPayload = event();
-    const compilerIdentity = (await assertHostedCompilerIdentity({ ctx, github, repository,
-      event: eventPayload, request, environment, repositoryRoot }));
+    const compilerIdentity = resumed === undefined
+      ? (await assertHostedCompilerIdentity({ ctx, github, repository, event: eventPayload, request, environment, repositoryRoot }))
+      : Object.freeze({ actorNodeId: authenticatedSessionResumeAuthorizationPrincipal(resumed.admission).nodeId,
+          runId: resumed.producer.runId, runAttempt: resumed.producer.runAttempt });
     const candidate = (await github.observeCandidate(repository, request.prNumber));
     const candidateChecks: readonly [unknown, unknown, string][] = [
       [candidate.baseSha, request.expectedBaseSha, 'base'], [candidate.baseTreeSha, request.expectedBaseTreeSha, 'base tree'],
@@ -3347,6 +3398,11 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
       throw new Error(`observe-hosted Review barrier blocked: ${reviewBarrier.reason}`);
     }
     if (reviewBarrier.status === 'waiting') {
+      if (resumed !== undefined) {
+        assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
+        return JSON.stringify({ status: 'WAITING_REVIEW', sessionRevision: request.expectedSessionRevision,
+          reason: 'resumed Session review locator publication requires a bounded write owner', output: null }, null, 2);
+      }
       const operationId = createVerificationSessionOperationId({
         sessionRevision: request.expectedSessionRevision,
         operationKind: 'request-review', semanticInputDigest: request.requestOperationId
@@ -3364,7 +3420,7 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
     }
     if (reviewBarrier.status !== 'clear') throw new Error('observe-hosted Review barrier did not narrow to clear.');
     const observedAt = now();
-    const observedFacts = reconstructVerificationSessionHostedFacts({
+    const reconstructedFacts = reconstructVerificationSessionHostedFacts({
       request, repository, candidate, changedPaths,
       testImpactTransition: changedSelection.testImpactTransition,
       testImpactSourceProvider: changedSelection.testImpactSourceProvider,
@@ -3372,6 +3428,9 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
       producerPrincipalNodeId: compilerIdentity.actorNodeId, sourceRunId: compilerIdentity.runId,
       sourceRef: `.github/workflows/compiler-pr-validation.yml@${request.expectedBaseSha}`, observedAt, reviewBarrier,
       mainHealthChecks: (await github.observeChecks(repository, request.expectedBaseSha)), dependencyBlobs });
+    const observedFacts = resumed === undefined ? reconstructedFacts
+      : Object.freeze({ ...reconstructedFacts, resumedProducer: resumed.producer });
+    if (resumed !== undefined) assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
     // Facts are diagnostic/reconstruction input only. A Review receipt is
     // minted later by prepare-hosted from its own fresh private observation.
     writeDurable(required(args, '--output'), observedFacts);
@@ -3380,6 +3439,11 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
   if (command === 'prepare-hosted') {
     const request = hostedRequest();
     const facts = readJson<VerificationSessionHostedFacts>(required(args, '--facts'));
+    if (facts.resumedProducer !== undefined) {
+      if (resumed === undefined || encodeVerificationActionData(facts.resumedProducer) !== encodeVerificationActionData(resumed.producer)) {
+        throw new Error('Resumed hosted preparation requires its actual producer admission.');
+      }
+    } else if (resumed !== undefined) throw new Error('Resumed hosted preparation cannot downgrade its producer.');
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(facts.repository, request.prNumber));
     const reviewBarrier = (await github.observeReviewBarrier({ repository: facts.repository, prNumber: request.prNumber,
@@ -3390,6 +3454,7 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
     }
     const envelope = prepareVerificationSessionHosted({ request,
       facts: Object.freeze({ ...facts, candidate, reviewBarrier }), now: now() });
+    if (resumed !== undefined) assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
     writeDurable(required(args, '--output'), envelope);
     return JSON.stringify({ status: 'prepared', envelopeDigest: envelope.envelopeDigest, output: path.resolve(required(args, '--output')) }, null, 2);
   }
@@ -3406,6 +3471,11 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
       throw new Error('finalize-hosted requires exactly one of --evidence or --previous-artifact.');
     }
     const envelope = readJson<VerificationSessionHostedEnvelope>(required(args, '--envelope'));
+    if (envelope.resumedProducer !== undefined) {
+      if (resumed === undefined || encodeVerificationActionData(envelope.resumedProducer) !== encodeVerificationActionData(resumed.producer)) {
+        throw new Error('Resumed Session finalization requires the same live producer admission.');
+      }
+    } else if (resumed !== undefined) throw new Error('Resumed Session finalization cannot downgrade its envelope.');
     const artifact = evidencePath !== undefined
       ? finalizeVerificationSessionHostedArtifact({ envelope,
           evidence: readJson<Parameters<typeof finalizeVerificationSessionHostedArtifact>[0]['evidence']>(evidencePath) })
@@ -3413,6 +3483,10 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
           const previousArtifact = CodexDevelopmentParseVerificationSessionArtifact(
             readSessionArtifactText(previousArtifactPath!)
           );
+          if (resumed !== undefined) {
+            assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
+            return refreshVerificationSessionHostedArtifact({ envelope, previousArtifact, producer: resumed.producer, refreshedAt: now() });
+          }
           const eventPayload = event();
           const github = githubAdapter();
           const actor = (await github.observePrincipal(envelope.session.repository, hostedActorHandle(eventPayload)));
@@ -3430,6 +3504,7 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
           return refreshVerificationSessionHostedArtifact({ envelope, previousArtifact, producer,
             refreshedAt: now() });
         })();
+    if (resumed !== undefined) assertResumedSessionCommandCurrent(resumed, command, repositoryRoot);
     writeCanonicalDurable(required(args, '--output'), artifact);
     return JSON.stringify({ status: 'finalized', artifactDigest: artifact.artifactDigest, output: path.resolve(required(args, '--output')) }, null, 2);
   }
@@ -3706,7 +3781,7 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
       if (published.publication.provenance.runId !== hostedProvenance.runId
         || published.publication.provenance.runAttempt !== hostedProvenance.runAttempt
         || published.publication.provenance.workflowRef !== hostedProvenance.workflowRef
-        || published.publication.provenance.actorNodeId !== hostedProvenance.actorNodeId) {
+        || hostedCommentAuthorizationPrincipal(published.publication.provenance).nodeId !== hostedCommentAuthorizationPrincipal(hostedProvenance).nodeId) {
         throw new Error('AMBIGUOUS_SIDE_EFFECT: authorization start publication owner differs from this hosted invocation.');
       }
       selected = Object.freeze({ publication: published.publication, commentId: published.commentId });
@@ -3788,7 +3863,7 @@ export async function verificationSessionCli(argv: string[], hostedRuntime?: Ver
     };
     const reduce = async (journalFs: VerificationSessionJournalFileSystem) => (await resumeVerificationSession({ repositoryRoot,
       session: artifact.session, scopeAuthorization: artifact.scopeAuthorization, changedPaths,
-      integrationPrincipalNodeId: authorizationResult.provenance.actorNodeId, github, external, journalFs }));
+      integrationPrincipalNodeId: mergeGateAuthorizationPrincipal(authorizationResult.provenance).nodeId, github, external, journalFs }));
     let result = (await reduce(createEphemeralVerificationSessionJournalFs(durableJournalFs().rootPath)));
     let issueReconciliation: Readonly<Record<string, unknown>> = Object.freeze({
       status: 'not-observed', results: Object.freeze([])

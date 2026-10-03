@@ -76,3 +76,42 @@ test('the generic production verification entry does not accept the dedicated re
   }])).rejects.toThrow('Verification session effect is invalid');
   expect(invoked).toBe(false);
 });
+
+test('workflow run history is a closed unfiltered read on the exact workflow numeric ID', async () => {
+  const requests: string[] = [];
+  const capability = issueGitHubApiTestCapability({repository:'sec-platform/sec',effect:'verification-read',token:'fixture-no-secret',
+    principal:{transport:'github-rest-token',login:'fixture',nodeId:'FIXTURE',userId:1,permission:'maintain'},
+    transport:async target=>{requests.push(String(target));return new Response('{"total_count":0,"workflow_runs":[]}');}});
+  await withGitHubApiTestSession({capability,operation:async()=>{
+    await executeGitHubApiOperation(capability,{kind:'verification-workflow-run-history',workflowId:'123',page:2});
+    for(const workflowId of ['0','../runs','123?status=success']) await expect(executeGitHubApiOperation(capability,
+      {kind:'verification-workflow-run-history',workflowId,page:1})).rejects.toThrow();
+    await expect(executeGitHubApiOperation(capability,{kind:'verification-workflow-run-history',workflowId:'123',page:0})).rejects.toThrow();
+  }});
+  expect(requests).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/workflows/123/runs?per_page=100&page=2']);
+});
+
+test('resume provenance reads exact attempt, suite, workflow and job through closed numeric selectors', async () => {
+  const requests: string[] = [];
+  const capability = issueGitHubApiTestCapability({repository:'sec-platform/sec',effect:'verification-read',token:'fixture-no-secret',
+    principal:{transport:'github-rest-token',login:'fixture',nodeId:'FIXTURE',userId:1,permission:'maintain'},
+    transport:async target=>{requests.push(String(target));return new Response('{}');}});
+  await withGitHubApiTestSession({capability,operation:async()=>{
+    await executeGitHubApiOperation(capability,{kind:'verification-workflow-run-attempt',runId:'11',runAttempt:2});
+    await executeGitHubApiOperation(capability,{kind:'verification-check-suite',checkSuiteId:'12'});
+    await executeGitHubApiOperation(capability,{kind:'verification-workflow',workflowId:'13'});
+    await executeGitHubApiOperation(capability,{kind:'verification-workflow-job',jobId:'14'});
+    for (const id of ['0','../escape','12?branch=main']) {
+      await expect(executeGitHubApiOperation(capability,{kind:'verification-workflow-run-attempt',runId:id,runAttempt:1})).rejects.toThrow();
+      await expect(executeGitHubApiOperation(capability,{kind:'verification-check-suite',checkSuiteId:id})).rejects.toThrow();
+      await expect(executeGitHubApiOperation(capability,{kind:'verification-workflow',workflowId:id})).rejects.toThrow();
+      await expect(executeGitHubApiOperation(capability,{kind:'verification-workflow-job',jobId:id})).rejects.toThrow();
+    }
+    await expect(executeGitHubApiOperation(capability,{kind:'verification-workflow-run-attempt',runId:'11',runAttempt:0})).rejects.toThrow();
+  }});
+  expect(requests).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/actions/runs/11/attempts/2',
+    'https://api.github.com/repos/sec-platform/sec/check-suites/12',
+    'https://api.github.com/repos/sec-platform/sec/actions/workflows/13',
+    'https://api.github.com/repos/sec-platform/sec/actions/jobs/14']);
+});

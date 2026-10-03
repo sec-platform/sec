@@ -18,6 +18,7 @@ import {
   createTrustedRuntimeArtifactObservation,
   createTrustedRuntimeMergeGateProvenance,
   requireIssuedIntegrationGateResult,
+  snapshotHostedMergeGateEvaluationInput,
   type CodexDevelopmentMergeGateInput
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
@@ -1063,4 +1064,20 @@ test('valid pure Gate evaluation and parsing cannot mint direct status authority
     expect(() => requireIssuedIntegrationGateResult(candidate))
       .toThrow('actual trusted-runtime transition producer');
   }
+});
+
+
+test('asynchronous Gate preparation snapshots data while retaining the separately admitted artifact identity', async () => {
+  const input = JSON.parse(encodeVerificationActionData(fixture())) as CodexDevelopmentMergeGateInput;
+  const artifact = input.artifact;
+  const snapshot = snapshotHostedMergeGateEvaluationInput(input);
+  const expected = encodeVerificationActionData(snapshot);
+  await Promise.resolve();
+  Object.assign(input.candidate, { headSha: 'f'.repeat(40), changedPaths: ['replaced.ts'] });
+  Object.assign(input.provenance, { sourceRunId: '999' });
+  Object.assign(input.mainHealth, { status: 'unavailable' });
+  Object.assign(input.reviewReceipt.snapshot, { snapshotDigest: D('f') });
+  Object.assign(input, { issuedAt: '2099-01-01T00:00:00.000Z', expiresAt: '2099-01-02T00:00:00.000Z' });
+  expect(snapshot.artifact).toBe(artifact);
+  expect(encodeVerificationActionData(snapshot)).toBe(expected);
 });

@@ -21,8 +21,10 @@ import {
   type VerificationActionGitHubProviderSnapshot
 } from './runtime/verification-action-github-provider.ts';
 import {
+  parseVerificationSessionHostedEnvelope,
   parseVerificationSessionHostedRequest,
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
+  VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA,
   type VerificationSessionHostedEnvelope
 } from './runtime/verification-session-runtime.ts';
 import type { CodexDevelopmentRetainedHostedSutArchive } from './verification-materialization.ts';
@@ -257,6 +259,10 @@ export function CodexDevelopmentParseHostedActionRequest(
 }
 
 export function parseHostedEnvelope(value: unknown): VerificationSessionHostedEnvelope {
+  if (value !== null && typeof value === 'object' &&
+      Object.getOwnPropertyDescriptor(value, 'schema')?.value === VERIFICATION_SESSION_RESUMED_HOSTED_ENVELOPE_SCHEMA) {
+    return parseVerificationSessionHostedEnvelope(value);
+  }
   const envelope = exactObject(value, [
     'schema', 'requestOperationId', 'scopeAuthorization', 'preGateReview', 'mainHealth',
     'session', 'actionPlanClosure', 'envelopeDigest'

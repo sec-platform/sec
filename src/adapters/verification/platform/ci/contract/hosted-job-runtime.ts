@@ -35,7 +35,8 @@ const receiptSchema = z.object({
   container: z.object({ id: z.string().regex(/^[0-9a-f]{64}$/u), name: text,
     ownershipDigest: digest, creationReadbackDigest: digest,
     startedReadbackDigest: digest.nullable(), terminalReadbackDigest: digest.nullable() }).strict(),
-  execution: z.object({ started: z.boolean(), settled: z.boolean(), exitCode: z.number().int().min(0).max(255).nullable(),
+  execution: z.object({ started: z.boolean(), settled: z.boolean(),
+    startedAtUnixMs: z.number().int().positive().nullable(), settledAtUnixMs: z.number().int().positive().nullable(), exitCode: z.number().int().min(0).max(255).nullable(),
     stdoutBytes: z.number().int().nonnegative(), stderrBytes: z.number().int().nonnegative(),
     outputDigest: digest, outputTruncated: z.boolean(), sandboxObservationDigest: digest.nullable() }).strict(),
   cleanup: z.object({ containerAbsent: z.boolean(), providerScopeSettled: z.boolean(),
@@ -55,6 +56,12 @@ export function parseHostedJobRuntimeReceipt(value: unknown): HostedJobRuntimeRe
       || receipt.origin.trustedSourceSha !== receipt.origin.workflowSha
       || receipt.operation.deadlineAtUnixMs > receipt.origin.originalDeadlineAtUnixMs) {
     throw new Error('Hosted job runtime receipt has no exact source, job, role, phase or original deadline binding.');
+  }
+  const { startedAtUnixMs, settledAtUnixMs } = receipt.execution;
+  if ((settledAtUnixMs !== null && (startedAtUnixMs === null || settledAtUnixMs < startedAtUnixMs))
+      || (startedAtUnixMs !== null && startedAtUnixMs > receipt.operation.deadlineAtUnixMs)
+      || (settledAtUnixMs !== null && settledAtUnixMs > receipt.operation.deadlineAtUnixMs)) {
+    throw new Error('Hosted runtime execution timestamps exceed the original ordered operation window.');
   }
   const { receiptDigest, ...content } = receipt;
   if (receiptDigest !== sha256(content)) throw new Error('Hosted job runtime receipt digest mismatch.');
@@ -100,6 +107,7 @@ export function hostedJobRuntimeReceiptComplete(receipt: HostedJobRuntimeReceipt
   const parsed = parseHostedJobRuntimeReceipt(receipt);
   return parsed.container.startedReadbackDigest !== null && parsed.container.terminalReadbackDigest !== null
     && parsed.execution.started && parsed.execution.settled && parsed.execution.exitCode !== null
+    && parsed.execution.startedAtUnixMs !== null && parsed.execution.settledAtUnixMs !== null
     && !parsed.execution.outputTruncated
     && parsed.execution.stdoutBytes <= CI_HOSTED_JOB_RUNTIME_POLICY.outputBytesPerStream
     && parsed.execution.stderrBytes <= CI_HOSTED_JOB_RUNTIME_POLICY.outputBytesPerStream

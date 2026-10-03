@@ -1,3 +1,4 @@
+export { createVerificationSessionOperationId } from '../contract/session-operation.ts';
 /**
  * Durable, disposable run journal for VerificationSession V2.
  *
@@ -301,19 +302,6 @@ export function appendVerificationSessionJournalEvent(input: {
   const persisted = readback.events.at(-1);
   if (persisted?.eventDigest !== event.eventDigest) throw new Error('VerificationSession journal append readback mismatch.');
   return persisted;
-}
-
-export function createVerificationSessionOperationId(input: {
-  sessionRevision: `sha256:${string}`;
-  operationKind: string;
-  semanticInputDigest: `sha256:${string}`;
-}): `sha256:${string}` {
-  assertDigest(input.sessionRevision, 'sessionRevision');
-  assertDigest(input.semanticInputDigest, 'semanticInputDigest');
-  if (!/^[a-z][a-z0-9-]{1,63}$/u.test(input.operationKind)) {
-    throw new Error('operationKind must be a bounded lowercase identifier.');
-  }
-  return digest(input);
 }
 
 export function claimVerificationSessionOperation(input: {
