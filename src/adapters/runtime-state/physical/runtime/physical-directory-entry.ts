@@ -119,8 +119,15 @@ export function inspectNoFollowDirectoryLeaf(
 export function createExclusiveNoFollowDirectory(
   parentInput: PhysicalDirectoryIdentity,
   name: string,
-  testOnlyRaceActor?: LinuxNoFollowDirectoryCreateRaceActor
+  testOnlyRaceActor?: LinuxNoFollowDirectoryCreateRaceActor,
+  creationMode = 0o700
 ): PhysicalDirectoryIdentity {
+  // POSIX mode applies only to a newly created directory; the kernel retains
+  // its umask/default-ACL inheritance. Windows keeps its inherited ACL;
+  // this parameter never changes an existing object's permissions.
+  if (!Number.isSafeInteger(creationMode) || creationMode < 0 || creationMode > 0o777) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Exclusive no-follow directory creation mode is invalid.');
+  }
   // Random operation-owned names use the ordinary namespace's dot-bearing
   // prefixes (for example `c.staging-*`).  Keep one component validator for
   // both callers so the exclusive effect does not accidentally reject a
@@ -147,7 +154,7 @@ export function createExclusiveNoFollowDirectory(
         name,
         absolutePath,
         allowExisting: false,
-        creationMode: 0o700,
+        creationMode,
         label: 'Exclusive no-follow directory',
         testOnlyRaceActor
       });
