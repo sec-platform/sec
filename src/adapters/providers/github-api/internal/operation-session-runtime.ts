@@ -149,6 +149,10 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-artifacts'; runId?: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-runs'; headSha: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-run-history'; workflowId: string; page: number }>
+  | Readonly<{ kind: 'verification-workflow-run-attempt'; runId: string; runAttempt: number }>
+  | Readonly<{ kind: 'verification-check-suite'; checkSuiteId: string }>
+  | Readonly<{ kind: 'verification-workflow'; workflowId: string }>
+  | Readonly<{ kind: 'verification-workflow-job'; jobId: string }>
   | Readonly<{ kind: 'verification-workflow-jobs'; runId: string; runAttempt: number; page: number }>
   | Readonly<{ kind: 'verification-repository-comments'; page: number }>
   | Readonly<{ kind: 'verification-dispatch'; request: Readonly<Record<string, unknown>> }>
@@ -428,6 +432,10 @@ function compileOperation(
     case 'verification-artifact-archive': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}/zip`);
     case 'verification-artifact': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}`);
     case 'verification-artifacts': return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'verification-workflow-run-attempt': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}`);
+    case 'verification-check-suite': return read(`/repos/${repo}/check-suites/${positiveId(operation.checkSuiteId)}`);
+    case 'verification-workflow': return read(`/repos/${repo}/actions/workflows/${positiveId(operation.workflowId)}`);
+    case 'verification-workflow-job': return read(`/repos/${repo}/actions/jobs/${positiveId(operation.jobId)}`);
     case 'verification-workflow-run-history': return read(`/repos/${repo}/actions/workflows/${positiveId(operation.workflowId)}/runs?per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-runs': return read(`/repos/${repo}/actions/runs?head_sha=${sha(operation.headSha)}&per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-jobs': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
