@@ -452,9 +452,12 @@ async function materializeFrozenDependencies(
   sourceRoot: string,
   builder: ReleaseBuilderIdentity
 ): Promise<void> {
-  const packageFile = retainFrozenControlFile(sourceRoot, 'package.json', 'Frozen dependency package.json');
-  const lockFile = retainFrozenControlFile(sourceRoot, 'bun.lock', 'Frozen dependency bun.lock');
+  let packageFile: ReturnType<typeof retainFrozenControlFile> | undefined;
+  let lockFile: ReturnType<typeof retainFrozenControlFile> | undefined;
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
+    packageFile = retainFrozenControlFile(sourceRoot, 'package.json', 'Frozen dependency package.json');
+    lockFile = retainFrozenControlFile(sourceRoot, 'bun.lock', 'Frozen dependency bun.lock');
     const packageBefore = Buffer.from(packageFile.readBytes());
     const lockBefore = Buffer.from(lockFile.readBytes());
 
@@ -495,9 +498,25 @@ async function materializeFrozenDependencies(
     )) {
       throw new Error('Frozen dependency materialization escaped the frozen source root');
     }
+  } catch (error) {
+    primary = { label: 'frozen dependency materialization', error };
   } finally {
-    packageFile.dispose();
-    lockFile.dispose();
+    // Each successful retention immediately belongs to this invocation, even
+    // when acquiring the next control file fails. Attempt both releases in
+    // reverse acquisition order without replacing the original failure.
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [
+        ...(lockFile === undefined ? [] : [{
+          label: 'frozen dependency bun.lock dispose',
+          settle: () => lockFile!.dispose()
+        }]),
+        ...(packageFile === undefined ? [] : [{
+          label: 'frozen dependency package.json dispose',
+          settle: () => packageFile!.dispose()
+        }])
+      ]
+    });
   }
 }
 function isPathInside(root: string, candidate: string): boolean {
