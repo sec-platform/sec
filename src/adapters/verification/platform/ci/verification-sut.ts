@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { ciVerificationNormalizedOperationArgv, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationDevRunnerTarget, resolveCiVerificationHostedExecutionEnvironment } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import {
   CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
@@ -479,6 +479,60 @@ function finalizeHostedSutSandboxCommandPlan(input: Readonly<{
   return Object.freeze({ ...withoutDigest, planDigest: ciActionDigest(withoutDigest) });
 }
 
+function assertExactHostedSutScriptProjection(value: CodexDevelopmentHostedSutSandboxCommandPlan): void {
+  const argv = value.argv;
+  const equal = (left: unknown, right: unknown) => encodeVerificationActionData(left) === encodeVerificationActionData(right);
+  if (argv.some(argument => argument.includes('\0'))) throw new Error('Hosted SUT argv contains NUL.');
+  if (value.phase === 'teardown') {
+    if (!equal(argv, ['-ceu', HOSTED_SUT_TEARDOWN_SCRIPT, 'sec-hosted-teardown', value.unitName])
+      || value.candidateEnvironmentNames.length !== 0) {
+      throw new Error('Hosted SUT teardown is not the exact owned script and unit.');
+    }
+    return;
+  }
+  const prefix = ['--mount', '--pid', '--fork', '--kill-child=KILL', '--net', '/usr/bin/bash', '-ceu'];
+  if (!equal(argv.slice(0, prefix.length), prefix)) throw new Error('Hosted SUT namespace argv differs.');
+  if (value.phase === 'capability-self-test') {
+    if (argv.length !== 11 || argv[7] !== HOSTED_SUT_CAPABILITY_SCRIPT
+      || argv[8] !== 'sec-hosted-capability' || argv[9] !== value.unitName
+      || !path.posix.isAbsolute(argv[10]!) || value.candidateEnvironmentNames.length !== 0) {
+      throw new Error('Hosted SUT capability probe is not the exact trusted script and unit.');
+    }
+    return;
+  }
+  const shellName = argv[8];
+  const validShellName = shellName === 'sec-hosted-sut' || (value.phase === 'bootstrap-execute'
+    && typeof shellName === 'string' && /^sec-hosted-sut:sha256:[0-9a-f]{64}$/u.test(shellName));
+  if (argv[7] !== HOSTED_SUT_NAMESPACE_SCRIPT || !validShellName || argv[9] !== value.unitName
+    || argv[10] !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH || !/^sha256:[0-9a-f]{64}$/u.test(argv[11] ?? '')
+    || !path.posix.isAbsolute(argv[12] ?? '') || !/^[0-9a-f]{40}$/u.test(argv[13] ?? '')
+    || !/^[0-9a-f]{40}$/u.test(argv[14] ?? '') || !/^(?:0|[1-9][0-9]{0,2})$/u.test(argv[15] ?? '')) {
+    throw new Error('Hosted SUT execution is not the exact script, unit and retained input projection.');
+  }
+  const count = Number(argv[15]);
+  const environment = argv.slice(16, 16 + count);
+  const names = environment.map(entry => /^([A-Z][A-Z0-9_]*)=/u.exec(entry)?.[1]);
+  const fixed = { PATH: '/tool/bin:/usr/bin:/bin', HOME: '/home/sut', TMPDIR: '/tmp', LANG: 'C',
+    GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', SEC_FORMAL_HOSTED_MODE: '1' };
+  const allowed = new Set<string>([...Object.keys(fixed), 'SEC_EXECUTION_ENVIRONMENT_REVISION',
+    ...HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES]);
+  if (environment.length !== count || names.some(name => name === undefined || !allowed.has(name))
+    || new Set(names).size !== count || !equal(names, [...names].sort())
+    || !equal(names, value.candidateEnvironmentNames)) {
+    throw new Error('Hosted SUT execution environment projection is not exact.');
+  }
+  for (const [name, expected] of Object.entries(fixed)) {
+    if (!environment.includes(`${name}=${expected}`)) throw new Error(`Hosted SUT fixed ${name} differs.`);
+  }
+  const provider = environment.find(entry => entry.startsWith('SEC_EXECUTION_ENVIRONMENT_REVISION='));
+  resolveCiVerificationHostedExecutionEnvironment(provider?.slice('SEC_EXECUTION_ENVIRONMENT_REVISION='.length) ?? '');
+  const candidate = argv.slice(16 + count);
+  if (candidate[0] !== 'bun' || candidate.length < 2 || (value.phase === 'bootstrap-execute'
+    && !equal(candidate, ['bun', '-e', CodexDevelopmentTrustedBootstrapSutHarness]))) {
+    throw new Error('Hosted SUT candidate command or bootstrap harness differs.');
+  }
+}
+
 export function CodexDevelopmentAssertHostedSutSandboxCommandPlan(
   plan: CodexDevelopmentHostedSutSandboxCommandPlan
 ): void {
@@ -513,6 +567,9 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlan(
   if (planDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted SUT sandbox command plan digest mismatch.');
   }
+  // A re-hashed arbitrary shell program containing invariant words is still
+  // untrusted. Only these exact source-owned scripts may reach the supervisor.
+  assertExactHostedSutScriptProjection(plan);
   if (value.phase === 'execute' || value.phase === 'bootstrap-execute') {
     if (value.phase === 'execute' &&
         (value.executionAuthorizationDigest === null || value.physicalCommandProjectionDigest === null)) {
