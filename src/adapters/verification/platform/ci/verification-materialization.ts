@@ -982,6 +982,7 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
 
 export type CodexDevelopmentPreparedTrustedBootstrapSutInputs = Readonly<{
   preparedCandidateArchive: string;
+  baseTreeSha: string;
   archiveDigest: VerificationActionKeyDigest;
   archiveInventoryDigest: VerificationActionKeyDigest;
   dependencyClosureDigest: VerificationActionKeyDigest;
@@ -1041,13 +1042,15 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
   const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
   const baseHead = gitCandidateBytes(baseRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
     .toString('utf8').trim();
+  const baseTreeSha = gitCandidateBytes(baseRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])
+    .toString('utf8').trim();
   const candidateHead = gitCandidateBytes(candidateRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
     .toString('utf8').trim();
   const candidateTree = gitCandidateBytes(candidateRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])
     .toString('utf8').trim();
   const candidateParents = gitCandidateBytes(candidateRoot, ['rev-list', '--parents', '-n', '1', 'HEAD'])
     .toString('utf8').trim().split(/\s+/u);
-  if (baseHead !== input.baseSha || candidateHead !== input.headSha || candidateTree !== input.treeSha ||
+  if (!/^[0-9a-f]{40}$/u.test(baseTreeSha) || baseHead !== input.baseSha || candidateHead !== input.headSha || candidateTree !== input.treeSha ||
       candidateParents.length !== 2 || candidateParents[0] !== input.headSha ||
       candidateParents[1] !== input.baseSha) {
     throw new Error('Trusted bootstrap SUT checkouts are not the exact base and single-parent candidate.');
@@ -1148,6 +1151,7 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
     });
     return Object.freeze({
       preparedCandidateArchive,
+      baseTreeSha,
       archiveDigest: hostedActionFileDigest(preparedCandidateArchive),
       archiveInventoryDigest: validated.inventoryDigest,
       dependencyClosureDigest,

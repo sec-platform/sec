@@ -77,6 +77,31 @@ def numbers(status, key):
     return tuple(int(value) for value in status[key].split())
 
 
+def parse_process_start_identity(source, expected_pid):
+    """Pure /proc stat parser: comm may itself contain spaces and ')' bytes."""
+    if type(expected_pid) is not int or expected_pid < 1 or not isinstance(source, str):
+        raise ValueError('process start identity input is invalid')
+    end = source.rfind(')')
+    if not source.startswith(str(expected_pid) + ' (') or end < 0 or source[end + 1:end + 2] != ' ':
+        raise ValueError('process start identity PID or comm is invalid')
+    fields = source[end + 2:].split()
+    # The tail begins at field 3 (state); starttime is Linux stat field 22.
+    if (len(fields) < 20 or len(fields[0]) != 1 or not fields[19].isascii()
+            or not fields[19].isdecimal() or str(int(fields[19])) != fields[19]):
+        raise ValueError('process start identity stat fields are invalid')
+    return (expected_pid, fields[19])
+
+
+def assert_same_process_start_identity(retained, observed):
+    if retained != observed:
+        raise ValueError('retained namespace init process start identity changed')
+
+
+def process_start_identity(pid):
+    return parse_process_start_identity(
+        bounded_read('/proc/%d/stat' % pid, 65536).decode('utf-8', errors='strict'), pid)
+
+
 @contextlib.contextmanager
 def filesystem_credentials(uid, gid):
     """Observe actual /proc FSCREDS gates without granting CAP_SYS_PTRACE.
@@ -115,23 +140,58 @@ def namespaces(pid):
         raise
 
 
-def file_digest(fd):
+def file_digest(fd, maximum_bytes=512 * 1024 * 1024, assert_current=lambda: None):
     before = os.fstat(fd)
-    if not stat.S_ISREG(before.st_mode) or before.st_size > 512 * 1024 * 1024:
-        raise ValueError('candidate executable is not a bounded ordinary file')
+    if not stat.S_ISREG(before.st_mode) or before.st_size < 0 or before.st_size > maximum_bytes:
+        raise ValueError('observed input is not a bounded ordinary file')
     digest = hashlib.sha256()
     offset = 0
     while offset < before.st_size:
+        assert_current()
         chunk = os.pread(fd, min(1024 * 1024, before.st_size - offset), offset)
         if not chunk:
             raise ValueError('candidate executable changed during observation')
         digest.update(chunk)
         offset += len(chunk)
     after = os.fstat(fd)
+    assert_current()
     if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
             after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
         raise ValueError('candidate executable changed during observation')
     return digest.hexdigest()
+
+
+def process_vector(pid, name):
+    value = bounded_read('/proc/%d/%s' % (pid, name), MAX_REQUEST)
+    if not value or not value.endswith(b'\0'):
+        raise ValueError('process argument/environment vector is incomplete')
+    return [part.decode('utf-8', errors='strict') for part in value[:-1].split(b'\0')]
+
+
+def open_owned_member(root_fd, relative, directory=False):
+    """No-follow every component; the trusted root retains replacement control."""
+    parts = relative.split('/')
+    if not parts or any(part in ('', '.', '..') for part in parts):
+        raise ValueError('trusted member path is not fixed relative input')
+    current = os.dup(root_fd)
+    try:
+        for index, part in enumerate(parts):
+            is_directory = index < len(parts) - 1 or directory
+            child = os.open(part, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+                            | (os.O_DIRECTORY if is_directory else 0), dir_fd=current)
+            os.close(current)
+            current = child
+            value = os.fstat(current)
+            if value.st_uid != 0 or value.st_gid != 0 or value.st_mode & 0o022:
+                raise ValueError('trusted member is replaceable by isolated credentials')
+            if not is_directory and (not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or value.st_mode & 0o222):
+                raise ValueError('trusted member is not one root-owned read-only ordinary file')
+        result = current
+        current = None
+        return result
+    finally:
+        if current is not None:
+            os.close(current)
 
 
 class Capture:
@@ -195,13 +255,29 @@ def unit_is_settled(root_closed, tracees_empty, pending_empty, streams_eof,
             and gap is None)
 
 
+def preparation_is_settled(started, leader_succeeded, namespace_init_reaped,
+                           namespace_init_succeeded, launcher_succeeded,
+                           tracees, pending_empty, gap):
+    """Only nested PID-init terminal reap closes untraced/io-worker members.
+
+    Empty traced inventory, adapter output and TRACEEXIT cannot substitute for
+    that kernel boundary. The additional inventory still accounts for every
+    observer-owned stop before trusted setup may retire the archive/base.
+    """
+    return (started and leader_succeeded and namespace_init_reaped
+            and namespace_init_succeeded and launcher_succeeded
+            and not any(record.get('preparation', False) for record in tracees.values())
+            and pending_empty and gap is None)
+
+
 def read_request():
     raw = sys.stdin.buffer.read(MAX_REQUEST + 1)
     if len(raw) > MAX_REQUEST:
         raise ValueError('supervisor input exceeds limit')
     request = json.loads(raw)
     if set(request) != {'schema', 'operationIdentityDigest', 'boundAttemptDigest',
-                        'deadlineAtUnixMs', 'stopAtUnixMs', 'plan', 'archiveDescriptor', 'bunExecutableDigest'}:
+                        'deadlineAtUnixMs', 'stopAtUnixMs', 'plan', 'archiveDescriptor', 'bunExecutableDigest',
+                        'preparation'}:
         raise ValueError('supervisor request fields invalid')
     if request['schema'] != REQUEST_SCHEMA:
         raise ValueError('supervisor request schema invalid')
@@ -218,11 +294,32 @@ def read_request():
         raise ValueError('supervisor command differs from phase')
     if not isinstance(plan['argv'], list) or any(not isinstance(x, str) or '\0' in x for x in plan['argv']):
         raise ValueError('supervisor argv invalid')
+    preparation = request['preparation']
+    if consumes_archive != (preparation is not None):
+        raise ValueError('production execution requires its authenticated preparation binding')
+    if preparation is not None:
+        if set(preparation) != {'binding', 'argv', 'namespaceArgv', 'settlementArgv', 'moduleDigest',
+                                'archiveBytes', 'candidateArgv', 'candidateGuardArgv', 'environment'}:
+            raise ValueError('preparation observation fields invalid')
+        for name in ('argv', 'namespaceArgv', 'settlementArgv', 'candidateArgv', 'environment'):
+            vector = preparation[name]
+            if not isinstance(vector, list) or not vector or any(not isinstance(value, str) or '\0' in value for value in vector):
+                raise ValueError('preparation observation vector invalid')
+        guard = preparation['candidateGuardArgv']
+        if guard is not None and (not isinstance(guard, list) or not guard
+                                  or any(not isinstance(value, str) or '\0' in value for value in guard)):
+            raise ValueError('candidate guard observation vector invalid')
+        if (type(preparation['archiveBytes']) is not int or preparation['archiveBytes'] < 0
+                or preparation['binding']['deadlineAtUnixMs'] != request['deadlineAtUnixMs']
+                or preparation['binding']['archiveDigest'] != plan['argv'][11]
+                or preparation['argv'][-1] != plan['argv'][15]):
+            raise ValueError('preparation binding differs from original session or archive')
     return request
 
 
 def observe(request):
     plan = request['plan']
+    preparation = request['preparation']
     teardown = plan['phase'] == 'teardown'
     start_wall = time.time() * 1000
     start_mono = time.monotonic() * 1000
@@ -249,7 +346,7 @@ def observe(request):
         bun_path = plan['argv'][10] if plan['phase'] == 'capability-self-test' else plan['argv'][12]
         fd = os.open(bun_path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         try:
-            expected_bun_digest = file_digest(fd)
+            expected_bun_digest = file_digest(fd, assert_current=assert_execution_budget)
             if 'sha256:' + expected_bun_digest != request['bunExecutableDigest']:
                 raise ValueError('plan Bun differs from original trusted runtime authority')
         finally:
@@ -299,6 +396,7 @@ def observe(request):
     # fork is made by this parent. Never close guessed FD numbers here: an
     # absent archive slot could have been reused for a namespace handle.
     tracees = {root_pid: {'parent': None, 'initial': True}}
+    retained_init_records = {}
     pending = {}
     init_pid = None
     init_namespaces = {}
@@ -307,6 +405,20 @@ def observe(request):
     namespace_established = False
     sandbox_root_fd = None
     sandbox_executables = {}
+    preparation_launcher_pid = None
+    preparation_launcher_succeeded = False
+    preparation_init_pid = None
+    preparation_namespaces = {}
+    preparation_init_reaped = False
+    preparation_init_succeeded = False
+    preparation_pid = None
+    preparation_started = False
+    preparation_leader_succeeded = False
+    preparation_root_fd = None
+    settlement_pid = None
+    settlement_held = False
+    settlement_released = False
+    settlement_succeeded = False
     root_closed = False
     root_code = None
     root_signal = None
@@ -319,7 +431,7 @@ def observe(request):
         nonlocal killing
         killing = True
         # The init kill closes even untraced/nested descendants in the kernel.
-        for pid in dict.fromkeys([init_pid, root_pid] + list(tracees)):
+        for pid in dict.fromkeys([preparation_init_pid, init_pid, root_pid] + list(tracees)):
             if pid is not None and pid in tracees:
                 try:
                     os.kill(pid, signal.SIGKILL)
@@ -331,12 +443,34 @@ def observe(request):
 
     def inspect_initial(pid):
         nonlocal init_pid, init_namespaces, namespace_established
-        if teardown or init_pid is not None or pid == root_pid:
+        nonlocal preparation_init_pid, preparation_namespaces
+        if teardown or pid == root_pid:
+            return
+        nested = (preparation_launcher_pid is not None
+                  and tracees[pid]['parent'] == preparation_launcher_pid)
+        if init_pid is not None and not nested:
             return
         status = process_status(pid)
         observed = namespaces(pid)
         try:
             ids = {name: identity(fd) for name, fd in observed.items()}
+            if nested:
+                if preparation_init_pid is not None or init_pid is None or init_reaped:
+                    raise ValueError('preparation PID namespace init is repeated or orphaned')
+                outer_ids = {name: identity(fd) for name, fd in init_namespaces.items()}
+                if (any(ids[name] == outer_ids[name] for name in ('mnt', 'pid'))
+                        or any(ids[name] != outer_ids[name] for name in ('net', 'user'))
+                        or numbers(status, 'NSpid')[-1] != 1
+                        or numbers(status, 'Uid') != (0, 0, 0, 0)
+                        or numbers(status, 'Gid') != (0, 0, 0, 0)):
+                    raise ValueError('preparation namespace differs from exact nested unshare lineage')
+                preparation_init_pid = pid
+                tracees[pid]['initStartIdentity'] = process_start_identity(pid)
+                retained_init_records[pid] = tracees[pid]
+                preparation_namespaces = observed
+                observed = {}
+                tracees[pid]['preparation'] = True
+                return
             parent_ids = {name: identity(fd) for name, fd in parent_namespaces.items()}
             if ids['pid'] == parent_ids['pid']:
                 return
@@ -345,6 +479,8 @@ def observe(request):
             if any(ids[name] == parent_ids[name] for name in ('mnt', 'pid', 'net')) or ids['user'] != parent_ids['user']:
                 raise ValueError('namespace establishment differs from exact unshare plan')
             init_pid = pid
+            tracees[pid]['initStartIdentity'] = process_start_identity(pid)
+            retained_init_records[pid] = tracees[pid]
             init_namespaces = observed
             observed = {}
             namespace_established = True
@@ -352,21 +488,59 @@ def observe(request):
             for fd in observed.values():
                 os.close(fd)
 
+    def preparation_settled():
+        return preparation_is_settled(preparation_started, preparation_leader_succeeded,
+                                      preparation_init_reaped, preparation_init_succeeded,
+                                      preparation_launcher_succeeded, tracees, not pending,
+                                      observation_gap)
+
+    def assert_namespace_member(pid, retained_namespaces):
+        observed = namespaces(pid)
+        try:
+            if any(identity(observed[name]) != identity(retained_namespaces[name]) for name in NS_NAMES):
+                raise ValueError('isolated namespace differs from retained init')
+        finally:
+            for fd in observed.values():
+                os.close(fd)
+
+    def retained_init_record(pid):
+        retained = retained_init_records.get(pid)
+        if retained is None or tracees.get(pid) is not retained or retained.get('initStartIdentity') is None:
+            raise ValueError('namespace init lost its original unreaped ptrace identity')
+        return retained
+
+    def assert_live_init_identity(pid):
+        retained = retained_init_record(pid)
+        # Missing/denied procfs or start-time drift is an observation failure.
+        # Never search another PID or reconstruct an identity from its spelling.
+        assert_same_process_start_identity(retained['initStartIdentity'], process_start_identity(pid))
+
+    def assert_live_init(pid, retained_namespaces):
+        assert_live_init_identity(pid)
+        status = process_status(pid)
+        if (numbers(status, 'Uid') != (0, 0, 0, 0) or numbers(status, 'Gid') != (0, 0, 0, 0)
+                or numbers(status, 'NSpid')[-1] != 1):
+            raise ValueError('namespace init lost its root-owned settlement identity')
+        assert_namespace_member(pid, retained_namespaces)
+
     def inspect_exec(pid):
-        nonlocal candidate_started, sandbox_root_fd
+        nonlocal candidate_started, sandbox_root_fd, preparation_root_fd
+        nonlocal preparation_launcher_pid, preparation_pid, preparation_started
+        nonlocal settlement_pid, settlement_held
         if teardown or candidate_started:
-            return
-        # Retain the root before any isolated program runs. The trusted init
-        # still has its pre-chroot root; pathname spelling of /proc/PID/exe
-        # across mount namespaces is deliberately not treated as identity.
+            return True
+        # Root-owned setup is observed before any isolated program executes.
         if init_pid is not None and sandbox_root_fd is None:
             try:
                 candidate_root_path = '/proc/%d/root/tmp/%s' % (init_pid, plan['unitName'])
                 root_fd = os.open(candidate_root_path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
                 try:
-                    for name in ('tool/bin/bun', 'usr/bin/prlimit', 'usr/bin/env'):
-                        fd = os.open(name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=root_fd)
-                        sandbox_executables[name] = fd
+                    names = ['tool/bin/bun', 'usr/bin/prlimit', 'usr/bin/env']
+                    if preparation is not None:
+                        names += ['usr/bin/bash', preparation['namespaceArgv'][0].lstrip('/'),
+                                  preparation['settlementArgv'][0].lstrip('/')]
+                    for name in dict.fromkeys(names):
+                        sandbox_executables[name] = os.open(name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=root_fd)
                     sandbox_root_fd = root_fd
                 except BaseException:
                     os.close(root_fd)
@@ -379,69 +553,164 @@ def observe(request):
         status = process_status(pid)
         uid = numbers(status, 'Uid')
         gid = numbers(status, 'Gid')
+        record = tracees[pid]
         if uid == (0, 0, 0, 0) and gid == (0, 0, 0, 0):
-            if sandbox_root_fd is not None:
-                executed = os.stat('/proc/%d/exe' % pid)
-                if (executed.st_dev, executed.st_ino) == identity(sandbox_executables['tool/bin/bun']):
-                    raise ValueError('candidate Bun reached exec with root credentials')
-            return  # Only the admitted trusted setup has executed so far.
+            if sandbox_root_fd is None:
+                return True
+            executed = os.stat('/proc/%d/exe' % pid)
+            executable_identity = (executed.st_dev, executed.st_ino)
+            if executable_identity == identity(sandbox_executables['tool/bin/bun']):
+                raise ValueError('Bun reached exec with root credentials')
+            if preparation is not None:
+                argv = process_vector(pid, 'cmdline')
+                root = os.stat('/proc/%d/root' % pid)
+                is_sandbox_root = (root.st_dev, root.st_ino) == identity(sandbox_root_fd)
+                if executable_identity == identity(sandbox_executables[preparation['namespaceArgv'][0].lstrip('/')]):
+                    if argv != preparation['namespaceArgv'] or not is_sandbox_root or preparation_launcher_pid is not None:
+                        raise ValueError('preparation launcher differs from exact trusted namespace command')
+                    assert_live_init(init_pid, init_namespaces)
+                    assert_namespace_member(pid, init_namespaces)
+                    preparation_launcher_pid = pid
+                    record['preparation'] = True
+                    return True
+                if pid == preparation_init_pid:
+                    if (executable_identity != identity(sandbox_executables['usr/bin/bash'])
+                            or argv != preparation['namespaceArgv'][5:] or not is_sandbox_root
+                            or record.get('preparationInitExec', False)):
+                        raise ValueError('preparation namespace init differs from its fixed root shell')
+                    assert_live_init(preparation_init_pid, preparation_namespaces)
+                    record['preparationInitExec'] = True
+                    return True
+                if (executable_identity == identity(sandbox_executables[preparation['settlementArgv'][0].lstrip('/')])
+                        and argv == preparation['settlementArgv']):
+                    if (not preparation_started or settlement_pid is not None
+                            or record.get('preparation', False) or not is_sandbox_root):
+                        raise ValueError('preparation settlement rendezvous has invalid lineage')
+                    assert_live_init(init_pid, init_namespaces)
+                    assert_namespace_member(pid, init_namespaces)
+                    settlement_pid = pid
+                    settlement_held = True
+                    return False  # Hold at EXEC until actual nested-init terminal reap.
+                if preparation_started and not settlement_released and not record.get('preparation', False):
+                    raise ValueError('trusted setup advanced before preparation settlement rendezvous')
+            return True
         if uid != (65532, 65532, 65532, 65532) or gid != (65532, 65532, 65532, 65532):
             raise ValueError('unexpected credentials before candidate exec')
+        is_preparation = record.get('preparation', False)
         with filesystem_credentials(65532, 65532):
             if sandbox_root_fd is None:
                 raise ValueError('isolated exec lacks retained trusted root')
             executed = os.stat('/proc/%d/exe' % pid)
             executable_identity = (executed.st_dev, executed.st_ino)
-            # setpriv's fixed prlimit and env execs precede the Bun exec.
-            if executable_identity in (identity(sandbox_executables['usr/bin/prlimit']),
-                                       identity(sandbox_executables['usr/bin/env'])):
-                return
-            if executable_identity != identity(sandbox_executables['tool/bin/bun']):
-                raise ValueError('unexpected isolated executable before Bun')
-            if init_pid is None or init_reaped or not namespace_established:
-                raise ValueError('candidate exec has no live observed namespace init')
-            observed = namespaces(pid)
-            try:
-                if any(identity(observed[name]) != identity(init_namespaces[name]) for name in NS_NAMES):
-                    raise ValueError('candidate namespace differs from retained init')
-            finally:
-                for fd in observed.values():
-                    os.close(fd)
+            expected_namespaces = preparation_namespaces if is_preparation else init_namespaces
+            if not expected_namespaces:
+                raise ValueError('isolated exec lacks its observed namespace init')
+            assert_namespace_member(pid, expected_namespaces)
             for name in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'):
                 if int(status[name].strip(), 16) != 0:
-                    raise ValueError('candidate retained capabilities')
+                    raise ValueError('isolated process retained capabilities')
             if numbers(status, 'NoNewPrivs') != (1,) or numbers(status, 'Groups'):
-                raise ValueError('candidate no-new-privileges/groups mismatch')
-            candidate_root = os.stat('/proc/%d/root' % pid)
+                raise ValueError('isolated no-new-privileges/groups mismatch')
+            root = os.stat('/proc/%d/root' % pid)
+            if (root.st_dev, root.st_ino) != identity(sandbox_root_fd):
+                raise ValueError('isolated chroot differs from retained namespace root')
+            if executable_identity in (identity(sandbox_executables['usr/bin/prlimit']),
+                                       identity(sandbox_executables['usr/bin/env'])):
+                return True
+            # These are descendants of authenticated trusted-base code, never
+            # a candidate start. Even untraced children are settled by the
+            # nested PID init's eventual terminal reap, not this inventory.
+            if is_preparation and preparation_started:
+                if pid == preparation_pid:
+                    raise ValueError('trusted preparation leader unexpectedly replaced itself')
+                return True
+            if preparation is not None and not is_preparation:
+                if not settlement_succeeded or not preparation_settled():
+                    raise ValueError('candidate launcher preceded preparation terminal settlement')
+                guard = preparation['candidateGuardArgv']
+                if guard is not None and executable_identity == identity(sandbox_executables[guard[0].lstrip('/')]):
+                    if process_vector(pid, 'cmdline') != guard or record.get('candidateGuard') is not None:
+                        raise ValueError('candidate guard differs from the fixed trusted program')
+                    if {int(value) for value in os.listdir('/proc/%d/fd' % pid)} != {0, 1, 2}:
+                        raise ValueError('candidate guard inherited non-stream descriptors')
+                    filters = numbers(status, 'Seccomp_filters')
+                    if len(filters) != 1 or filters[0] < 0:
+                        raise ValueError('candidate guard lacks kernel filter observation')
+                    record['candidateGuard'] = filters[0]
+                    return True
+            if executable_identity != identity(sandbox_executables['tool/bin/bun']):
+                raise ValueError('unexpected isolated executable before Bun')
             executable_fd = os.open('/proc/%d/exe' % pid, os.O_RDONLY | os.O_CLOEXEC)
             try:
-                if file_digest(executable_fd) != expected_bun_digest:
-                    raise ValueError('candidate executable differs from trusted Bun bytes')
+                if file_digest(executable_fd, assert_current=assert_execution_budget) != expected_bun_digest:
+                    raise ValueError('isolated executable differs from trusted Bun bytes')
             finally:
                 os.close(executable_fd)
-            # Check every inherited descriptor while Bun remains at the kernel
-            # exec-stop; user code cannot race this inspection.
             inherited = {int(value) for value in os.listdir('/proc/%d/fd' % pid)}
-            if inherited != {0, 1, 2}:
-                raise ValueError('candidate inherited non-stream descriptors')
-        # Namespace init is still root, so inspect its trusted pre-chroot root
-        # only after restoring the parent's filesystem credentials.
-        if (candidate_root.st_dev, candidate_root.st_ino) != identity(sandbox_root_fd):
-            raise ValueError('candidate chroot differs from trusted namespace root')
-        if pid == init_pid or init_pid not in tracees:
-            raise ValueError('candidate must not replace the trusted namespace init')
-        init_status = process_status(init_pid)
-        if numbers(init_status, 'Uid') != (0, 0, 0, 0) or numbers(init_status, 'Gid') != (0, 0, 0, 0) or numbers(init_status, 'NSpid')[-1] != 1:
-            raise ValueError('namespace init lost its root-owned settlement identity')
-        observed_init = namespaces(init_pid)
-        try:
-            if any(identity(observed_init[name]) != identity(init_namespaces[name]) for name in NS_NAMES):
-                raise ValueError('namespace init identity changed before candidate start')
-        finally:
-            for fd in observed_init.values():
-                os.close(fd)
+            if is_preparation:
+                if preparation is None or preparation_started or pid == preparation_init_pid:
+                    raise ValueError('preparation Bun must be a unique child of its trusted namespace init')
+                if (process_vector(pid, 'cmdline') != preparation['argv']
+                        or sorted(process_vector(pid, 'environ')) != sorted(preparation['environment'])
+                        or inherited != {0, 1, 2, 3}):
+                    raise ValueError('preparation argv/environment/archive descriptor projection differs')
+                preparation_root_fd = open_owned_member(sandbox_root_fd, 'trusted-input-base', directory=True)
+                cwd = os.stat('/proc/%d/cwd' % pid)
+                if (cwd.st_dev, cwd.st_ino) != identity(preparation_root_fd):
+                    raise ValueError('preparation cwd differs from authenticated base')
+                module = open_owned_member(preparation_root_fd, 'src/adapters/verification/platform/ci/hosted-sut-dependency-preparation.ts')
+                try:
+                    if 'sha256:' + file_digest(module, assert_current=assert_execution_budget) != preparation['moduleDigest']:
+                        raise ValueError('preparation module differs from actually loaded trusted base source')
+                finally:
+                    os.close(module)
+                archive = os.open('/proc/%d/fd/3' % pid, os.O_RDONLY | os.O_CLOEXEC)
+                named_archive = None
+                try:
+                    named_archive = open_owned_member(sandbox_root_fd, 'authenticated-input/prepared-candidate.tar')
+                    metadata = os.fstat(archive)
+                    info = dict(line.split(':', 1) for line in bounded_read('/proc/%d/fdinfo/3' % pid, 65536).decode('ascii').splitlines() if ':' in line)
+                    if (identity(archive) != identity(named_archive) or metadata.st_uid != 0 or metadata.st_gid != 0
+                            or stat.S_IMODE(metadata.st_mode) != 0o444 or metadata.st_nlink != 1
+                            or metadata.st_size != preparation['archiveBytes'] or int(info['flags'].strip(), 8) & 3):
+                        raise ValueError('preparation archive is not the exact read-only retained ordinary file')
+                    if 'sha256:' + file_digest(archive, preparation['archiveBytes'], assert_execution_budget) != preparation['binding']['archiveDigest']:
+                        raise ValueError('preparation archive bytes differ from original retained input')
+                finally:
+                    os.close(archive)
+                    if named_archive is not None:
+                        os.close(named_archive)
+            else:
+                if inherited != {0, 1, 2}:
+                    raise ValueError('candidate inherited non-stream descriptors')
+                if preparation is not None:
+                    if process_vector(pid, 'cmdline') != preparation['candidateArgv']:
+                        raise ValueError('candidate argv differs from exact admitted plan')
+                    workspace = os.open('workspace', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=sandbox_root_fd)
+                    try:
+                        cwd = os.stat('/proc/%d/cwd' % pid)
+                        if (cwd.st_dev, cwd.st_ino) != identity(workspace):
+                            raise ValueError('candidate cwd differs from retained workspace')
+                    finally:
+                        os.close(workspace)
+                    if preparation['candidateGuardArgv'] is not None:
+                        before = record.get('candidateGuard')
+                        if before is None or numbers(status, 'Seccomp') != (2,) or numbers(status, 'Seccomp_filters') != (before + 1,):
+                            raise ValueError('candidate lacks same-process fixed guard filter installation')
+        # Namespace init is root; restore the observer's filesystem credentials
+        # before inspecting its identity. Neither Bun may replace PID 1.
+        required_init = preparation_init_pid if is_preparation else init_pid
+        required_namespaces = preparation_namespaces if is_preparation else init_namespaces
+        if pid == required_init:
+            raise ValueError('Bun must not replace the trusted namespace init')
+        assert_live_init(required_init, required_namespaces)
         assert_execution_budget()
-        candidate_started = True
+        if is_preparation:
+            preparation_pid = pid
+            preparation_started = True
+        else:
+            candidate_started = True
+        return True
 
     def resume(pid, forwarded_signal):
         # Cleanup must continue reaping after cancellation. Normal execution,
@@ -453,10 +722,16 @@ def observe(request):
 
     def handle(pid, status):
         nonlocal root_closed, root_code, root_signal, init_reaped, events
+        nonlocal preparation_init_reaped, preparation_init_succeeded, preparation_leader_succeeded
+        nonlocal preparation_launcher_succeeded, settlement_succeeded, settlement_held
         events += 1
         if events > MAX_EVENTS:
             raise ValueError('supervisor ptrace event budget exhausted')
         wait_kind = classify_wait_status(status)
+        if wait_kind in ('exec', 'exit-stop') and pid in retained_init_records:
+            # Both stops still expose the live kernel task. PTRACE_EVENT_EXIT
+            # is a last identity observation, never terminal settlement.
+            assert_live_init_identity(pid)
         if wait_kind == 'exec':
             # GETEVENTMSG supplies the former TID even when this EXEC takes a
             # previously reaped leader PID. Join before membership/pending.
@@ -467,8 +742,25 @@ def observe(request):
             pending[pid] = status
             return
         if wait_kind == 'terminal':
+            if pid in retained_init_records:
+                # waitpid has already reaped the task. /proc may now be absent
+                # (or eventually name a new task), so bind this terminal event
+                # to the original still-unreaped trace record instead of reading
+                # a replacement task by PID after the kernel's terminal cut.
+                retained_init_record(pid)
+            succeeded = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
             if pid == init_pid:
                 init_reaped = True  # A genuine terminal waitpid result only.
+            if pid == preparation_init_pid:
+                preparation_init_reaped = True
+                preparation_init_succeeded = succeeded
+            if pid == preparation_pid:
+                preparation_leader_succeeded = succeeded
+            if pid == preparation_launcher_pid:
+                preparation_launcher_succeeded = succeeded
+            if pid == settlement_pid:
+                settlement_succeeded = settlement_released and succeeded
+                settlement_held = False
             if pid == root_pid:
                 root_closed = True
                 root_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else None
@@ -492,11 +784,13 @@ def observe(request):
             child_pid = event_message(pid)
             if child_pid in tracees or len(tracees) >= MAX_TRACED:
                 raise ValueError('supervisor tracee budget/identity conflict')
-            tracees[child_pid] = {'parent': pid, 'initial': True}
+            tracees[child_pid] = {'parent': pid, 'initial': True,
+                                  'preparation': record.get('preparation', False)}
             if child_pid in pending:
                 handle(child_pid, pending.pop(child_pid))
         elif event == EVENT_EXEC and sig == signal.SIGTRAP:
-            inspect_exec(pid)
+            if not inspect_exec(pid):
+                return
         elif event == EVENT_EXIT and sig == signal.SIGTRAP:
             pass  # PRE-exit only. Never a settlement or a candidate-start fact.
         elif event != 0:
@@ -540,6 +834,12 @@ def observe(request):
                 if pid == 0:
                     break
                 handle(pid, status)
+            if settlement_held and not killing and preparation_settled():
+                # The root rendezvous is still before its first instruction.
+                # Only this kernel-derived cut releases archive/base cleanup.
+                resume(settlement_pid, 0)
+                settlement_held = False
+                settlement_released = True
     except BaseException as error:
         observation_gap = 'observation-lost'
         diagnostic = type(error).__name__ + ': ' + str(error)[:1024]
@@ -563,7 +863,10 @@ def observe(request):
             selector.unregister(key.fd)
             os.close(key.fd)
         selector.close()
-        for fd in list(parent_namespaces.values()) + list(init_namespaces.values()) + list(sandbox_executables.values()) + ([] if sandbox_root_fd is None else [sandbox_root_fd]):
+        for fd in (list(parent_namespaces.values()) + list(init_namespaces.values())
+                   + list(preparation_namespaces.values()) + list(sandbox_executables.values())
+                   + ([] if sandbox_root_fd is None else [sandbox_root_fd])
+                   + ([] if preparation_root_fd is None else [preparation_root_fd])):
             os.close(fd)
     complete_streams = all(capture.eof for capture in captures.values())
     terminal = root_closed and not tracees and not pending and complete_streams

@@ -1274,6 +1274,54 @@ test('bootstrap subject root and nonce are exact path data without replacing the
   expect(unavailable.lifecycle.observationGap).toBe('unsupported-source');
 });
 
+test('prepared SUT input protection follows the exact authorized command, not the phase label', () => {
+  const cases = [
+    { id: 'test-fast', phase: 'full' as const, args: ['run', 'test', '--', '--scope', 'fast'], immutable: true },
+    { id: 'affected', phase: 'quick' as const, args: ['run', 'test', '--', '--affected'], immutable: true },
+    { id: 'selection', phase: 'quick' as const, args: ['run', 'check', '--', '--affected', '--plan'], immutable: true },
+    { id: 'resolve', phase: 'workspace' as const, args: ['run', 'sec', '--', 'resolve'], immutable: false },
+    { id: 'reference-check', phase: 'workspace' as const, args: ['run', 'sec', '--', 'reference', 'check'], immutable: false },
+    { id: 'deps-warmup', phase: 'full' as const, args: ['run', 'sec', '--', 'deps', 'warmup'], immutable: false }
+  ];
+  for (const entry of cases) {
+    const resolution = hostedResolution([ciVerificationGateStep(entry)]);
+    const ticket = hostedTicket(resolution);
+    const normalizedOperation = resolution.actionPlanClosure.normalizedOperations[0]!;
+    const inventoryClosure = { archiveDigest: ticket.preparedCandidateArchiveDigest,
+      inventoryDigest: ticket.preparedCandidateInventoryDigest, entryCount: ticket.preparedCandidateEntryCount,
+      totalFileBytes: ticket.preparedCandidateTotalFileBytes, dependencyClosureDigest: ticket.baseDependencyClosureDigest,
+      gitBundleDigest: ticket.authenticatedGitClosureDigest };
+    const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+      resolutionDigest: resolution.resolutionDigest, ticketDigest: ticket.ticketDigest,
+      actionPlan: resolution.actionPlan, normalizedOperation, candidateSha: HEAD,
+      candidateBytesDigest: resolution.artifactInput.candidateBytesDigest as VerificationActionKeyDigest,
+      manifestPath: MANIFEST_PATH, inventoryClosure, producer: hostedProducer
+    });
+    const preparation = { schema: 'sec-hosted-sut-dependency-preparation-v1' as const,
+      baseSha: BASE, baseTreeSha: BASE_TREE, headSha: HEAD, headTreeSha: TREE,
+      ...inventoryClosure, deadlineAtUnixMs: 1_900_000_000_000 };
+    const plan = CodexDevelopmentBuildHostedSutSandboxCommandPlan({
+      actionKey: resolution.actionPlan.action.actionKey, candidateArchiveDigest: inventoryClosure.archiveDigest,
+      bunExecutable: '/trusted/tool/bun', baseSha: BASE, headSha: HEAD,
+      normalizedArgv: authorization.normalizedArgv,
+      candidateEnvironment: CodexDevelopmentHostedSutCandidateEnvironment({ normalizedOperation, manifestPath: MANIFEST_PATH }),
+      executionAuthorization: authorization, dependencyPreparation: preparation
+    });
+    expect(hostedSutPlanOwner.hostedSutDependencyPreparationFromPlan(plan)).toEqual(preparation);
+    expect(hostedSutPlanOwner.hostedSutCandidateArgv(plan)).toEqual(['/tool/bin/bun', ...authorization.normalizedArgv.slice(1)]);
+    expect(hostedSutPlanOwner.hostedSutPlanRequiresImmutableInput(plan)).toBe(entry.immutable);
+    expect(hostedSutPlanOwner.hostedSutCandidateGuardArgv(plan) !== null).toBe(entry.immutable);
+    expect(hostedSutPlanOwner.hostedSutPreparationNamespaceArgv(preparation).at(-1)).toBe(JSON.stringify(preparation));
+    for (const changed of [{ ...preparation, archiveDigest: digest('f') }, { ...preparation, baseSha: 'f'.repeat(40) },
+      { ...preparation, callerAllowsMutableInput: true }]) {
+      const argv = [...plan.argv]; argv[15] = JSON.stringify(changed);
+      const { planDigest: _digest, ...content } = { ...plan, argv };
+      expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan({ ...content,
+        planDigest: CodexDevelopmentVerificationDigest(content) as VerificationActionKeyDigest })).toThrow();
+    }
+  }
+});
+
 test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {
   if (process.platform !== 'linux') return;
   const root = mkdtempSync(path.join(tmpdir(), 'sec-sut-retained-archive-'));

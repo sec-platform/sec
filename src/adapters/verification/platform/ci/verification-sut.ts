@@ -32,7 +32,7 @@ import {
 import {
   CodexDevelopmentFailureTail
 } from './runtime/ci-orchestration-core.ts';
-import { assertHostedSutSupervisorLive, type HostedSutSupervisor } from './runtime/hosted-sut-supervisor.ts';
+import { assertHostedSutSupervisorLive, getHostedSutSupervisorDeadlineAtUnixMs, type HostedSutSupervisor } from './runtime/hosted-sut-supervisor.ts';
 import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedSutSandboxCommandPlan, CodexDevelopmentHostedSutSandboxProcess, CodexDevelopmentHostedSutSandboxProcessObservation } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionArchiveInventory, CodexDevelopmentPreparedTrustedBootstrapSutInputs, CodexDevelopmentRetainedHostedSutArchive } from './verification-materialization.ts';
@@ -335,6 +335,15 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
         baseSha: input.baseSha,
         headSha: input.headSha,
         candidateEnvironment,
+        ...(supervisor === undefined ? {} : { dependencyPreparation: {
+          schema: 'sec-hosted-sut-dependency-preparation-v1' as const,
+          baseSha: input.baseSha, baseTreeSha: prepared.baseTreeSha,
+          headSha: input.headSha, headTreeSha: input.treeSha,
+          archiveDigest: retainedArchive.archiveDigest, inventoryDigest: prepared.archiveInventoryDigest,
+          entryCount: prepared.entryCount, totalFileBytes: prepared.totalFileBytes,
+          dependencyClosureDigest: prepared.dependencyClosureDigest, gitBundleDigest: prepared.authenticatedGitClosureDigest,
+          deadlineAtUnixMs: getHostedSutSupervisorDeadlineAtUnixMs(supervisor)
+        } }),
         unitNonce: input.unitNonce ?? `${process.pid}-${Date.now()}`.slice(0, 32)
       });
       try {
@@ -699,7 +708,16 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     headSha: normalizedOperation.candidate.headSha,
     normalizedArgv: ciVerificationNormalizedOperationArgv(normalizedOperation),
     candidateEnvironment: env,
-    executionAuthorization
+    executionAuthorization,
+    ...(supervisor === undefined ? {} : { dependencyPreparation: {
+      schema: 'sec-hosted-sut-dependency-preparation-v1' as const,
+      baseSha: normalizedOperation.candidate.baseSha, baseTreeSha: normalizedOperation.candidate.baseTreeSha,
+      headSha: normalizedOperation.candidate.headSha, headTreeSha: normalizedOperation.candidate.headTreeSha,
+      archiveDigest: retainedArchive.archiveDigest, inventoryDigest: input.archiveInventory.inventoryDigest,
+      entryCount: input.archiveInventory.entryCount, totalFileBytes: input.archiveInventory.totalFileBytes,
+      dependencyClosureDigest: input.archiveInventory.dependencyClosureDigest, gitBundleDigest: input.archiveInventory.gitBundleDigest,
+      deadlineAtUnixMs: getHostedSutSupervisorDeadlineAtUnixMs(supervisor)
+    } })
   });
   const authorizedOperation = resolveCiVerificationDevRunnerTarget({
     plan: resolution.actionPlan,

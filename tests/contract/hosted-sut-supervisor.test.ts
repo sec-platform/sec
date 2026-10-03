@@ -11,6 +11,7 @@ import { settleResources } from '../../src/execution/resource-settlement.ts';
 import {
   assertHostedSutSupervisorLive,
   createHostedSutSupervisor,
+  getHostedSutSupervisorDeadlineAtUnixMs,
   parseHostedSutSupervisorReport,
   type HostedSutSupervisor
 } from '../../src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
@@ -38,6 +39,9 @@ test('strict report codec preserves bound facts without issuing a supervisor', (
   expect(report.lifecycle.candidateStarted).toBe(true);
   expect(() => assertHostedSutSupervisorLive(report as unknown as HostedSutSupervisor)).toThrow(/owner-issued/u);
   expect(() => assertHostedSutSupervisorLive({ run: async () => report } as unknown as HostedSutSupervisor)).toThrow(/owner-issued/u);
+  expect(() => getHostedSutSupervisorDeadlineAtUnixMs(report as unknown as HostedSutSupervisor)).toThrow(/owner-issued/u);
+  expect(() => getHostedSutSupervisorDeadlineAtUnixMs({ deadlineAtUnixMs: binding.deadlineAtUnixMs,
+    run: async () => report } as unknown as HostedSutSupervisor)).toThrow(/owner-issued/u);
   expect(() => createHostedSutSupervisor({ operation: {} } as Parameters<typeof createHostedSutSupervisor>[0])).toThrow();
 });
 
@@ -123,12 +127,14 @@ test.skipIf(process.platform !== 'linux')('pure production lineage transitions o
     "import ast,json,sys",
     "data=json.load(sys.stdin)",
     "tree=ast.parse(data['source'])",
-    "names={'classify_wait_status','join_exec_lineage','unit_is_settled'}",
+    "names={'classify_wait_status','join_exec_lineage','unit_is_settled','preparation_is_settled','parse_process_start_identity','assert_same_process_start_identity'}",
     "selected=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]",
     "assert len(selected)==len(names)",
     "scope={}",
     "exec(compile(ast.Module(body=selected,type_ignores=[]),'<pure-lineage>','exec'),scope)",
     "classify=scope['classify_wait_status']; join=scope['join_exec_lineage']; settled=scope['unit_is_settled']",
+    "prepared=scope['preparation_is_settled']",
+    "parse_start=scope['parse_process_start_identity']; same_start=scope['assert_same_process_start_identity']",
     "for vector in data['vectors']: assert classify(vector['status'])==vector['kind'],vector['label']",
     "leader={'parent':100,'initial':False}; thread={'parent':200,'initial':False}",
     // Sequence: leader+thread; terminal leader wait; real EXEC on old TGID.
@@ -149,6 +155,37 @@ test.skipIf(process.platform !== 'linux')('pure production lineage transitions o
     // but the separate candidate-start flag remains False.
     "assert settled(True,True,True,True,True,True,False,None)",
     "for values in [(False,True,True,True,True,True,True,None),(True,False,True,True,True,True,True,None),(True,True,False,True,True,True,True,None),(True,True,True,False,True,True,True,None),(True,True,True,True,True,True,True,'observation-lost')]: assert not settled(*values)",
+    // A successful trusted Bun and empty traced list still cannot settle an
+    // io_uring worker or CLONE_UNTRACED descendant in a live nested PID unit.
+    "assert not prepared(True,True,False,False,True,{},True,None)",
+    "assert not prepared(True,True,False,True,True,{},True,None)",
+    "assert prepared(True,True,True,True,True,{},True,None)",
+    "for index in range(5):",
+    " flags=[True]*5; flags[index]=False; assert not prepared(*flags,{},True,None)",
+    "assert not prepared(True,True,True,True,True,{300:{'preparation':True}},True,None)",
+    "assert prepared(True,True,True,True,True,{100:{'preparation':False}},True,None)",
+    "assert not prepared(True,True,True,True,True,{},False,None)",
+    "assert not prepared(True,True,True,True,True,{},True,'observation-lost')",
+    // Nonleader exec inherits the original membership record; PID renumbering
+    // cannot lose a live prelude descendant or fabricate a guard installation.
+    "thread={'parent':300,'initial':False,'preparation':True,'candidateGuard':2}",
+    "tracees={301:thread}; join(tracees,300,301)",
+    "assert tracees[300] is thread and not prepared(True,True,True,True,True,tracees,True,None)",
+    "del tracees[300]; assert prepared(True,True,True,True,True,tracees,True,None)",
+    // Linux stat field 22 is independent of PID and comm spelling. A reused
+    // PID with a different kernel starttime is never the retained init.
+    "stat_tail='S '+'0 '*18+'123456'",
+    "original=parse_start('300 (nested init) worker) '+stat_tail,300)",
+    "assert original==(300,'123456')",
+    "same_start(original,parse_start('300 (renamed init) '+stat_tail,300))",
+    "for observed in [(300,'123457'),(301,'123456'),None]:",
+    " try: same_start(original,observed)",
+    " except ValueError: pass",
+    " else: raise AssertionError('different or missing process start identity admitted')",
+    "for source in ['301 (init) '+stat_tail,'300 (init) S 0','300 init '+stat_tail,'300 (init) '+stat_tail.replace('123456','-1'),'300 (init) '+stat_tail.replace('123456','unknown')]:",
+    " try: parse_start(source,300)",
+    " except ValueError: pass",
+    " else: raise AssertionError('invalid namespace init stat identity admitted')",
     "print('pure-lineage-oracles-passed')"
   ].join('\n');
   const python = `/usr/bin/python${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version.split('.').slice(0, 2).join('.')}`;

@@ -40,6 +40,9 @@ test('SUT profile keeps Docker restrictions and grants only exact mount destinat
   expect(profile.bytes).toContain('deny /sys/kernel/security/** rwklx,');
   expect(profile.bytes).toContain(`peer=${profileName}`);
   expect(profile.bytes).toContain(` /dev/null -> ${root}/dev/null,`);
+  expect(profile.bytes).toContain(`mount options=(ro,remount,nosuid,nodev) -> ${root}/workspace/,`);
+  expect(profile.bytes).toContain('mount options=(ro,remount,nosuid,nodev) -> /workspace/,');
+  expect(profile.bytes).not.toContain('mount options=(rw,remount,nosuid,nodev)');
   expect(profile.bytes).not.toContain('deny mount,');
   expect(profile.bytes).not.toContain('\n  mount,');
   expect(profile.bytes).not.toContain('\n  umount,');

@@ -390,7 +390,9 @@ test('TCB closure lock is the sole causal-runtime identity consumed by the trust
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_CLOSURE_LOCK.modules).toContain(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
   expect(TCB_CLOSURE_LOCK.modules.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
-  expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([]);
+  expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([
+    'src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts'
+  ]);
 });
 
 test('TCB closure keeps Linux endpoint native effects in the reviewed physical owner', () => {

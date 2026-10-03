@@ -55,7 +55,7 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
     hostExtraction: false as const
   }),
   workspace: 'private-tmpfs-extract-inside-chroot' as const,
-  toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3' as const,
+  toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v4' as const,
   python: HOSTED_SANDBOX_PYTHON,
   runtimeBinaries: Object.freeze([
     '/usr/bin/awk',
@@ -99,6 +99,7 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
     '/usr/bin/tr',
     '/usr/bin/umount',
     '/usr/bin/uname',
+    '/usr/bin/unshare',
     '/usr/bin/wc',
     '/usr/bin/xargs'
   ] as const),

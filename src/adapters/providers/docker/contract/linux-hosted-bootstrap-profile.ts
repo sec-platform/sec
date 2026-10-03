@@ -71,6 +71,7 @@ export function compileHostedSutAppArmorProfile(input: Readonly<{
   const mounts = ['  mount options=(rw,rprivate) -> /,'];
   for (const root of roots) {
     for (const leaf of ['', '/workspace']) mounts.push(`  mount fstype=tmpfs options=(rw,nosuid,nodev) tmpfs -> ${root}${leaf}/,`);
+    mounts.push(`  mount options=(ro,remount,nosuid,nodev) -> ${root}/workspace/,`);
     for (const leaf of ['/tmp', '/home']) mounts.push(`  mount fstype=tmpfs options=(rw,nosuid,nodev,noexec) tmpfs -> ${root}${leaf}/,`);
     mounts.push(`  mount fstype=tmpfs options=(rw,nosuid,noexec) tmpfs -> ${root}/dev/,`);
     for (const device of ['null', 'zero', 'random', 'urandom']) {
@@ -83,6 +84,7 @@ export function compileHostedSutAppArmorProfile(input: Readonly<{
   // AppArmor path mediation after chroot may use the new root-relative alias.
   // Its only mount operation is the existing trusted proc setup, before uid/cap drop.
   mounts.push('  mount fstype=proc options=(rw,nosuid,nodev,noexec) proc -> /proc/,');
+  mounts.push('  mount options=(ro,remount,nosuid,nodev) -> /workspace/,');
   const bytes = `# SEC source-owned SUT profile; default-deny mount, exact exceptions only.\nprofile ${name} flags=(attach_disconnected,mediate_deleted) {\n${restrictions}\n  signal (send,receive) peer=${name},\n  ptrace (trace,read,tracedby,readby) peer=${name},\n${mounts.join('\n')}\n}\n`;
   return Object.freeze({ name, roots, bytes, digest: rawSha256(Buffer.from(bytes)) });
 }

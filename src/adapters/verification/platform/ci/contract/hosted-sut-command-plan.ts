@@ -1,11 +1,127 @@
 import path from 'node:path';
 
+import { compileLinuxRepositoryNamespaceFence } from '../../../../runtime-state/physical/runtime/physical-no-follow-native.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../action/contract/action.ts';
 import { parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
+import { captureHostedSutDependencyPreparationBinding, type HostedSutDependencyPreparationBinding } from '../hosted-sut-dependency-preparation.ts';
 import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest, exactObject, type CodexDevelopmentHostedSutSandboxCommandPlan } from '../verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, type CodexDevelopmentHostedSutExecutionAuthorization } from './hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from './revision.ts';
+
+const SUT_PYTHON = CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath;
+const SUT_UNPRIVILEGED_PREFIX = Object.freeze(['/usr/bin/setpriv', '--reuid=65532', '--regid=65532',
+  '--clear-groups', '--no-new-privs', '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all']);
+const SUT_PROCESS_LIMITS = Object.freeze(['/usr/bin/prlimit',
+  `--cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds}`,
+  `--as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes}`,
+  `--fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes}`,
+  `--nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.openFiles}`,
+  `--nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.processes}`, '--']);
+export const HOSTED_SUT_DEPENDENCY_PREPARATION_ENVIRONMENT = Object.freeze({
+  PATH: '/tool/bin:/usr/bin:/bin', HOME: '/home/sut', TMPDIR: '/tmp', LANG: 'C.UTF-8',
+  SEC_STATE_HOME: '/home/sut/.local/state/sec', SEC_CACHE_HOME: '/home/sut/.cache/sec',
+  GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0'
+});
+const SUT_DEPENDENCY_PREPARATION_SCRIPT = 'import { runHostedSutDependencyPreparationFromTrustedLauncher } from "/trusted-input-base/src/adapters/verification/platform/ci/hosted-sut-dependency-preparation.ts"; await runHostedSutDependencyPreparationFromTrustedLauncher(process.argv.at(-1));';
+
+/** Data only. The retained supervisor authenticates these bytes at EXEC stop. */
+export function hostedSutDependencyPreparationArgv(binding: HostedSutDependencyPreparationBinding): readonly string[] {
+  const captured = captureHostedSutDependencyPreparationBinding(JSON.stringify(binding));
+  return Object.freeze(['/tool/bin/bun', '--no-env-file', '-e', SUT_DEPENDENCY_PREPARATION_SCRIPT, JSON.stringify(captured)]);
+}
+
+const SUT_DEPENDENCY_INIT_SCRIPT = [
+  'set -euo pipefail',
+  'binding="$1"',
+  'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
+  'cd /trusted-input-base',
+  [...SUT_UNPRIVILEGED_PREFIX, ...SUT_PROCESS_LIMITS, '/usr/bin/env', '-i',
+    ...Object.entries(HOSTED_SUT_DEPENDENCY_PREPARATION_ENVIRONMENT).map(([key, value]) => `${key}=${value}`),
+    '/tool/bin/bun', '--no-env-file', '-e', SUT_DEPENDENCY_PREPARATION_SCRIPT].map(shellSingleQuote).join(' ') + ' "$binding"',
+  // Keep the trusted shell as namespace init. Its terminal reap, rather than
+  // the unshare parent's exit or a child marker, settles the preparation unit.
+  'exit 0'
+].join('\n');
+
+const SUT_DEPENDENCY_NAMESPACE_COMMAND = Object.freeze(['/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL',
+  '/usr/bin/bash', '-ceu', SUT_DEPENDENCY_INIT_SCRIPT, 'sec-hosted-dependency-init']);
+export function hostedSutPreparationNamespaceArgv(binding: HostedSutDependencyPreparationBinding): readonly string[] {
+  const captured = captureHostedSutDependencyPreparationBinding(JSON.stringify(binding));
+  return Object.freeze([...SUT_DEPENDENCY_NAMESPACE_COMMAND, JSON.stringify(captured)]);
+}
+
+export function hostedSutPreparationSettlementArgv(): readonly string[] {
+  return Object.freeze([SUT_PYTHON, '-I', '-S', '-c', 'pass']);
+}
+
+const SUT_IMMUTABLE_FREEZE_SCRIPT = String.raw`
+import ctypes, os, sys, time
+if len(sys.argv)!=2 or os.getresuid()!=(0,0,0): raise RuntimeError('sut-freeze-credentials')
+deadline=int(sys.argv[1])/1000
+libc=ctypes.CDLL(None,use_errno=True)
+libc.mount.argtypes=[ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_ulong,ctypes.c_void_p]
+libc.mount.restype=ctypes.c_int
+if deadline<=time.time(): raise RuntimeError('sut-freeze-deadline')
+# Preserve the original executable workspace mount: RDONLY|NOSUID|NODEV|REMOUNT.
+if libc.mount(None,b'/workspace',None,39,None)!=0:
+    error=ctypes.get_errno(); raise OSError(error,os.strerror(error))
+`;
+
+/** Fixed pre-candidate enforcement; the original physical owner still issues
+ * its private capability from retained kernel facts at the actual test fence. */
+const SUT_IMMUTABLE_EXEC_SCRIPT = String.raw`
+import os, sys, ctypes, platform, time, signal
+if platform.machine()!='x86_64' or len(sys.argv)<3: raise RuntimeError('sut-input-arguments')
+deadline=int(sys.argv[1])/1000
+if deadline<=time.time(): raise RuntimeError('sut-input-deadline')
+if os.getresuid()!=(65532,65532,65532) or os.getresgid()!=(65532,65532,65532) or os.getgroups(): raise RuntimeError('sut-input-credentials')
+with open('/proc/self/status') as stream: status=dict(line.split(':',1) for line in stream)
+if any(int(status[key],16) for key in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb')) or int(status['NoNewPrivs'])!=1: raise RuntimeError('sut-input-capabilities')
+for name in ('uid_map','gid_map'):
+    with open('/proc/self/'+name) as stream:
+        if stream.read().split()!=['0','0','4294967295']: raise RuntimeError('sut-input-userns')
+class StatFS(ctypes.Structure):
+    _fields_=[('type',ctypes.c_long),('bsize',ctypes.c_long),('blocks',ctypes.c_ulong),('bfree',ctypes.c_ulong),('bavail',ctypes.c_ulong),('files',ctypes.c_ulong),('ffree',ctypes.c_ulong),('fsid',ctypes.c_int*2),('namelen',ctypes.c_long),('frsize',ctypes.c_long),('flags',ctypes.c_long),('spare',ctypes.c_long*4)]
+libc=ctypes.CDLL(None,use_errno=True)
+libc.fstatfs.argtypes=[ctypes.c_int,ctypes.POINTER(StatFS)]; libc.fstatfs.restype=ctypes.c_int
+with open('/proc/self/mountinfo') as stream: rows=[line.rstrip().split(' ') for line in stream]
+fd=os.open('/workspace',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+try:
+    native=StatFS()
+    if libc.fstatfs(fd,ctypes.byref(native))!=0 or native.type!=0x01021994 or not native.flags&1: raise RuntimeError('sut-input-filesystem')
+    source_device=os.fstat(fd).st_dev
+    with open('/proc/self/fdinfo/'+str(fd)) as stream: info=dict(line.split(':',1) for line in stream)
+    selected=[row for row in rows if row[0]==info['mnt_id'].strip()]
+    if len(selected)!=1: raise RuntimeError('sut-input-mount')
+    row=selected[0]; separator=row.index('-')
+    if row[3]!='/' or row[4]!='/workspace' or separator!=6 or row[separator+1]!='tmpfs' or 'ro' not in row[5].split(',') or 'ro' not in row[separator+3].split(','): raise RuntimeError('sut-input-superblock')
+    for other in rows:
+        if other[0]!=row[0] and (other[4]=='/workspace' or other[4].startswith('/workspace/')): raise RuntimeError('sut-input-covering-mount')
+        if other[2]==row[2] and 'ro' not in other[other.index('-')+3].split(','): raise RuntimeError('sut-input-writable-alias')
+    ancestor=os.stat('/',follow_symlinks=False)
+    if ancestor.st_dev!=source_device and (ancestor.st_uid!=0 or ancestor.st_mode&0o022): raise RuntimeError('sut-input-ancestor')
+finally: os.close(fd)
+for name in os.listdir('/proc/self/fd'):
+    descriptor=int(name)
+    try: observed=os.fstat(descriptor)
+    except OSError: continue
+    if descriptor>2 or observed.st_dev==source_device: raise RuntimeError('sut-input-inherited-fd')
+for writable in ('/tmp','/home/sut'):
+    if os.stat(writable).st_dev==source_device or os.statvfs(writable).f_flag&os.ST_RDONLY: raise RuntimeError('sut-input-output-overlap')
+if os.getcwd()!='/workspace': raise RuntimeError('sut-input-cwd')
+program_bytes=bytes.fromhex('${Buffer.from(compileLinuxRepositoryNamespaceFence()).toString('hex')}')
+class Filter(ctypes.Structure): _fields_=[('code',ctypes.c_ushort),('jt',ctypes.c_ubyte),('jf',ctypes.c_ubyte),('k',ctypes.c_uint)]
+class Program(ctypes.Structure): _fields_=[('length',ctypes.c_ushort),('filters',ctypes.POINTER(Filter))]
+filters=(Filter*(len(program_bytes)//8)).from_buffer_copy(program_bytes); program=Program(len(filters),filters)
+libc.syscall.restype=ctypes.c_long
+if deadline<=time.time(): raise RuntimeError('sut-input-deadline-before-tsync')
+if libc.syscall(ctypes.c_long(317),ctypes.c_long(1),ctypes.c_long(1),ctypes.byref(program))!=0: raise RuntimeError('sut-input-tsync')
+remaining=deadline-time.time()
+if remaining<=0: raise RuntimeError('sut-input-expired')
+signal.setitimer(signal.ITIMER_REAL,remaining)
+os.execve('/tool/bin/bun',['/tool/bin/bun']+sys.argv[2:],dict(os.environ))
+`;
 
 const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES = Object.freeze([
   'SEC_ACTION_PLAN_DIGEST',
@@ -140,6 +256,8 @@ const HOSTED_SUT_CHROOT_EXECUTION_SCRIPT = [
   '[ "$(/usr/bin/git -C /workspace rev-parse refs/sec/base)" = "$base_sha" ]',
   '[ "$(/usr/bin/git -C /workspace rev-parse refs/sec/head)" = "$head_sha" ]',
   '/usr/bin/git -C /workspace reset --hard --quiet refs/sec/head',
+  // Only the exact bootstrap harness uses -e in the admitted plan grammar.
+  'if [ "$1" = "-e" ]; then /usr/bin/git -C /workspace update-ref refs/remotes/origin/main "$base_sha"; fi',
   'rm -rf -- /workspace/.sec-trusted-input',
   '[ -z "$(/usr/bin/git -C /workspace config --local --get-regexp \u0027^(credential\\.|remote\\.|http\\.|core\\.(worktree|sshCommand)|include)\u0027 || true)" ]',
   `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid} /workspace`,
@@ -191,6 +309,65 @@ const HOSTED_SUT_NAMESPACE_SCRIPT = [
   `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuote(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT)} sec-hosted-sut-root "$expected_archive_digest" "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
 ].join('\n');
 
+function replaceOwnedScriptPart(source: string, before: string, after: string): string {
+  if (source.split(before).length !== 2) throw new Error('Owned SUT script projection changed unexpectedly.');
+  return source.replace(before, after);
+}
+
+let preparedNamespaceScript: string | undefined;
+function hostedSutPreparedNamespaceScript(): string {
+  if (preparedNamespaceScript !== undefined) return preparedNamespaceScript;
+  const bootstrap = `[ "$1" = "-e" ] && [ "\${2-}" = ${shellSingleQuote(CodexDevelopmentTrustedBootstrapSutHarness)} ]`;
+  let chroot = replaceOwnedScriptPart(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT,
+    'environment_count="$4"\nshift 4', 'binding="$4"\nenvironment_count="$5"\nshift 5');
+  chroot = replaceOwnedScriptPart(chroot,
+    'rm -f /authenticated-input/prepared-candidate.tar\nrmdir /authenticated-input', '');
+  chroot = replaceOwnedScriptPart(chroot, 'rm -rf -- /workspace/.sec-trusted-input', [
+    'mkdir /trusted-input-base /dependency-content',
+    '/usr/bin/git -C /trusted-input-base init --quiet',
+    '/usr/bin/git -C /trusted-input-base -c protocol.file.allow=always fetch --quiet /workspace/.sec-trusted-input/candidate.bundle refs/sec/base:refs/sec/base',
+    '[ "$(/usr/bin/git -C /trusted-input-base rev-parse refs/sec/base)" = "$base_sha" ]',
+    '/usr/bin/git -C /trusted-input-base reset --hard --quiet refs/sec/base',
+    '[ -f /trusted-input-base/src/adapters/verification/platform/ci/hosted-sut-dependency-preparation.ts ]',
+    'ln -s /dependency-content/node_modules /trusted-input-base/node_modules',
+    'find /trusted-input-base -type d -exec chmod 0555 {} +',
+    'find /trusted-input-base -type f -exec chmod a-w {} +',
+    'chown 65532:65532 /dependency-content'
+  ].join('\n'));
+  chroot = replaceOwnedScriptPart(chroot, 'cd /workspace', [
+    'exec 3</authenticated-input/prepared-candidate.tar',
+    SUT_DEPENDENCY_NAMESPACE_COMMAND.map(shellSingleQuote).join(' ') + ' "$binding"',
+    // This exact root EXEC stop is held by the original retained supervisor
+    // until the nested namespace init has actually reached terminal reap.
+    hostedSutPreparationSettlementArgv().map(shellSingleQuote).join(' '),
+    'exec 3<&-',
+    'rm -rf -- /workspace/.sec-trusted-input /dependency-content /trusted-input-base',
+    'rm -f /authenticated-input/prepared-candidate.tar',
+    'rmdir /authenticated-input',
+    `deadline="$(${shellSingleQuote(SUT_PYTHON)} -I -S -c 'import json,sys; print(json.loads(sys.argv[1])["deadlineAtUnixMs"])' "$binding")"`,
+    'immutable_input=0',
+    `if [ "$1" = "test" ] || { [ "$1" = "run" ] && { [ "\${2-}" = "test" ] || [ "\${2-}" = "check" ]; }; } || { ${bootstrap}; }; then immutable_input=1; fi`,
+    `if [ "$immutable_input" = 1 ]; then ${[SUT_PYTHON, '-I', '-S', '-c', SUT_IMMUTABLE_FREEZE_SCRIPT].map(shellSingleQuote).join(' ')} "$deadline"; fi`,
+    'cd /workspace'
+  ].join('\n'));
+  const oldExec = HOSTED_SUT_CHROOT_EXECUTION_SCRIPT.split('\n').at(-1)!;
+  const guardedExec = replaceOwnedScriptPart(oldExec, '/tool/bin/bun "$@"',
+    [SUT_PYTHON, '-I', '-S', '-c', SUT_IMMUTABLE_EXEC_SCRIPT].map(shellSingleQuote).join(' ') + ' "$deadline" "$@"');
+  chroot = replaceOwnedScriptPart(chroot, oldExec,
+    `if [ "$immutable_input" = 1 ]; then ${guardedExec}; fi\n${oldExec}`);
+  let namespace = replaceOwnedScriptPart(HOSTED_SUT_NAMESPACE_SCRIPT,
+    'environment_count="$7"\nshift 7', 'binding="$7"\nenvironment_count="$8"\nshift 8');
+  namespace = replaceOwnedScriptPart(namespace,
+    '/usr/bin/chmod 0400 "$root/authenticated-input/prepared-candidate.tar"',
+    '/usr/bin/chmod 0444 "$root/authenticated-input/prepared-candidate.tar"');
+  namespace = replaceOwnedScriptPart(namespace, shellSingleQuote(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT), shellSingleQuote(chroot));
+  namespace = replaceOwnedScriptPart(namespace,
+    '"$expected_archive_digest" "$base_sha" "$head_sha" "${#environment[@]}"',
+    '"$expected_archive_digest" "$base_sha" "$head_sha" "$binding" "${#environment[@]}"');
+  preparedNamespaceScript = namespace;
+  return namespace;
+}
+
 const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/test-runner.test.ts',
@@ -198,7 +375,9 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/contract/merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/repository-audit.test.ts',
-  'tests/contract/documentation-authority.test.ts',
+  // The original locator named a file that never existed. This is the actual
+  // active-documentation owner already named by the trusted-bootstrap contract.
+  'tests/unit/active-documentation-contract.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/contract/ci-lanes.test.ts'
 ] as const);
@@ -268,14 +447,16 @@ export const CodexDevelopmentTrustedBootstrapSutHarness = [
   '  const parents = (await execute("identity-parents", ["git", "rev-list", "--parents", "-n", "1", "HEAD"])).stdoutTail.trim().split(/\\s+/u);',
   '  if (head !== expectedHead || tree !== expectedTree || parents.length !== 2 || parents[0] !== expectedHead || parents[1] !== baseSha) throw new Error("candidate-identity");',
   '  parentSha = parents[1];',
-  '  await execute("bind-origin-main", ["git", "update-ref", "refs/remotes/origin/main", baseSha]);',
+  '  if ((await execute("identity-origin-main", ["git", "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"])).stdoutTail.trim() !== baseSha) throw new Error("origin-main-identity");',
   '  await execute("imports", ["bun", "run", "imports:check"]);',
   '  await execute("docs-doctor", ["bun", "run", "docs:doctor"]);',
   '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);',
   '  await execute("diff-check", ["git", "diff", "--check", `${baseSha}..${expectedHead}`]);',
-  `  await execute("focused-tests", ${JSON.stringify([
-    'bun', 'test', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS
+  `  const focusedFast = await execute("focused-tests-fast", ${JSON.stringify([
+    'bun', 'run', 'test', '--', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS.filter(file => file !== 'tests/contract/ci-lanes.test.ts')
   ])});`,
+  '  const focusedSlow = await execute("focused-tests-ci-lanes", ["bun", "run", "test", "--", "--scope", "slow", "--suite", "contract-ci-lanes"]);',
+  '  results.push({ label: "focused-tests", chunks: [focusedFast, focusedSlow], exitCode: Math.max(focusedFast.exitCode, focusedSlow.exitCode), truncated: focusedFast.truncated || focusedSlow.truncated });',
   '  await execute("repository-audit", ["bun", "src/adapters/repository/repository-audit/cli.ts", "--json"]);',
   '  await execute("affected-plan", ["bun", "run", "check", "--", "--affected", "--plan"]);',
   '  await execute("affected-tests", ["bun", "run", "test", "--", "--affected"]);',
@@ -470,14 +651,22 @@ function assertExactHostedSutScriptProjection(value: CodexDevelopmentHostedSutSa
   const shellName = argv[8];
   const validShellName = shellName === 'sec-hosted-sut' || (value.phase === 'bootstrap-execute'
     && typeof shellName === 'string' && /^sec-hosted-sut:sha256:[0-9a-f]{64}$/u.test(shellName));
-  if (argv[7] !== HOSTED_SUT_NAMESPACE_SCRIPT || !validShellName || argv[9] !== value.unitName
+  const prepared = argv[7] === hostedSutPreparedNamespaceScript();
+  const countIndex = prepared ? 16 : 15;
+  if ((!prepared && argv[7] !== HOSTED_SUT_NAMESPACE_SCRIPT) || !validShellName || argv[9] !== value.unitName
     || argv[10] !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH || !/^sha256:[0-9a-f]{64}$/u.test(argv[11] ?? '')
     || !path.posix.isAbsolute(argv[12] ?? '') || !/^[0-9a-f]{40}$/u.test(argv[13] ?? '')
-    || !/^[0-9a-f]{40}$/u.test(argv[14] ?? '') || !/^(?:0|[1-9][0-9]{0,2})$/u.test(argv[15] ?? '')) {
+    || !/^[0-9a-f]{40}$/u.test(argv[14] ?? '') || !/^(?:0|[1-9][0-9]{0,2})$/u.test(argv[countIndex] ?? '')) {
     throw new Error('Hosted SUT execution is not the exact script, unit and retained input projection.');
   }
-  const count = Number(argv[15]);
-  const environment = argv.slice(16, 16 + count);
+  if (prepared) {
+    const binding = captureHostedSutDependencyPreparationBinding(argv[15]!);
+    if (binding.archiveDigest !== argv[11] || binding.baseSha !== argv[13] || binding.headSha !== argv[14]) {
+      throw new Error('Hosted SUT preparation differs from its retained archive and Git subject.');
+    }
+  }
+  const count = Number(argv[countIndex]);
+  const environment = argv.slice(countIndex + 1, countIndex + 1 + count);
   const names = environment.map(entry => /^([A-Z][A-Z0-9_]*)=/u.exec(entry)?.[1]);
   const fixed = { PATH: '/tool/bin:/usr/bin:/bin', HOME: '/home/sut', TMPDIR: '/tmp', LANG: 'C',
     GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', SEC_FORMAL_HOSTED_MODE: '1' };
@@ -493,11 +682,44 @@ function assertExactHostedSutScriptProjection(value: CodexDevelopmentHostedSutSa
   }
   const provider = environment.find(entry => entry.startsWith('SEC_EXECUTION_ENVIRONMENT_REVISION='));
   resolveCiVerificationHostedExecutionEnvironment(provider?.slice('SEC_EXECUTION_ENVIRONMENT_REVISION='.length) ?? '');
-  const candidate = argv.slice(16 + count);
+  const candidate = argv.slice(countIndex + 1 + count);
   if (candidate[0] !== 'bun' || candidate.length < 2 || (value.phase === 'bootstrap-execute'
     && !equal(candidate, ['bun', '-e', CodexDevelopmentTrustedBootstrapSutHarness]))) {
     throw new Error('Hosted SUT candidate command or bootstrap harness differs.');
   }
+}
+
+export function hostedSutDependencyPreparationFromPlan(plan: CodexDevelopmentHostedSutSandboxCommandPlan): HostedSutDependencyPreparationBinding | null {
+  CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan);
+  return plan.phase === 'execute' || plan.phase === 'bootstrap-execute'
+    ? plan.argv[7] === hostedSutPreparedNamespaceScript() ? captureHostedSutDependencyPreparationBinding(plan.argv[15]!) : null
+    : null;
+}
+
+export function hostedSutCandidateArgv(plan: CodexDevelopmentHostedSutSandboxCommandPlan): readonly string[] {
+  CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan);
+  if (plan.phase !== 'execute' && plan.phase !== 'bootstrap-execute') throw new Error('SUT plan has no candidate command.');
+  const countIndex = plan.argv[7] === hostedSutPreparedNamespaceScript() ? 16 : 15;
+  return Object.freeze(['/tool/bin/bun', ...plan.argv.slice(countIndex + 2 + Number(plan.argv[countIndex]))]);
+}
+
+/** Only the operation's exact authorized command chooses the stricter input
+ * boundary. Legitimate workspace-producing Actions retain their RW sandbox. */
+export function hostedSutPlanRequiresImmutableInput(plan: CodexDevelopmentHostedSutSandboxCommandPlan): boolean {
+  if (plan.phase !== 'execute' && plan.phase !== 'bootstrap-execute') {
+    CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan);
+    return false;
+  }
+  const argv = hostedSutCandidateArgv(plan);
+  return plan.phase === 'bootstrap-execute' || argv[1] === 'test'
+    || (argv[1] === 'run' && (argv[2] === 'test' || argv[2] === 'check'));
+}
+
+export function hostedSutCandidateGuardArgv(plan: CodexDevelopmentHostedSutSandboxCommandPlan): readonly string[] | null {
+  const binding = hostedSutDependencyPreparationFromPlan(plan);
+  if (binding === null || !hostedSutPlanRequiresImmutableInput(plan)) return null;
+  return Object.freeze([SUT_PYTHON, '-I', '-S', '-c', SUT_IMMUTABLE_EXEC_SCRIPT,
+    String(binding.deadlineAtUnixMs), ...hostedSutCandidateArgv(plan).slice(1)]);
 }
 
 export function CodexDevelopmentAssertHostedSutSandboxCommandPlan(
@@ -585,6 +807,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
   normalizedArgv: readonly string[];
   candidateEnvironment: NodeJS.ProcessEnv;
   executionAuthorization: CodexDevelopmentHostedSutExecutionAuthorization;
+  dependencyPreparation?: HostedSutDependencyPreparationBinding;
 }>): CodexDevelopmentHostedSutSandboxCommandPlan {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.actionKey) || input.normalizedArgv[0] !== 'bun' ||
       input.normalizedArgv.length < 2 || !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
@@ -626,6 +849,8 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
     throw new Error('Hosted SUT physical command differs from its Action-bound execution authorization.');
   }
   const unitName = authorization.physicalCommand.unitName;
+  const preparation = input.dependencyPreparation === undefined ? null
+    : captureHostedSutDependencyPreparationBinding(JSON.stringify(input.dependencyPreparation));
   const plan = finalizeHostedSutSandboxCommandPlan({
     phase: 'execute',
     command: '/usr/bin/unshare',
@@ -635,9 +860,10 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
     physicalCommandProjectionDigest: authorization.physicalCommand.projectionDigest,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT, 'sec-hosted-sut',
+      '/usr/bin/bash', '-ceu', preparation === null ? HOSTED_SUT_NAMESPACE_SCRIPT : hostedSutPreparedNamespaceScript(), 'sec-hosted-sut',
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, input.candidateArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
+      ...(preparation === null ? [] : [JSON.stringify(preparation)]),
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`), ...input.normalizedArgv
     ]
@@ -655,6 +881,7 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
   headSha: string;
   candidateEnvironment: NodeJS.ProcessEnv;
   unitNonce: string;
+  dependencyPreparation?: HostedSutDependencyPreparationBinding;
 }>): CodexDevelopmentHostedSutSandboxCommandPlan {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.bootstrapDigest) ||
       !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
@@ -665,6 +892,8 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
   const environment = Object.entries(input.candidateEnvironment)
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right));
+  const preparation = input.dependencyPreparation === undefined ? null
+    : captureHostedSutDependencyPreparationBinding(JSON.stringify(input.dependencyPreparation));
   const unitName = input.unitSubjectDigest === undefined
     ? hostedSutSandboxUnitName(input.bootstrapDigest, input.unitNonce)
     : path.posix.basename(CodexDevelopmentHostedSutSandboxRoot({
@@ -679,12 +908,13 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
     physicalCommandProjectionDigest: null,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT,
+      '/usr/bin/bash', '-ceu', preparation === null ? HOSTED_SUT_NAMESPACE_SCRIPT : hostedSutPreparedNamespaceScript(),
       // Keep the full operation in the exact shell argv ($0) when its
       // namespace path uses the separate pre-materialization subject.
       input.unitSubjectDigest === undefined ? 'sec-hosted-sut' : `sec-hosted-sut:${input.bootstrapDigest}`,
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, input.candidateArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
+      ...(preparation === null ? [] : [JSON.stringify(preparation)]),
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`),
       'bun', '-e', CodexDevelopmentTrustedBootstrapSutHarness

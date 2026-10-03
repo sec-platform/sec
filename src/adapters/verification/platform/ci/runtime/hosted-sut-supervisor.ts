@@ -32,7 +32,16 @@ import {
 import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR } from '../../../../runtime-state/physical/runtime/process.ts';
 import type { RetainedCommandBoundary } from '../../../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import type { VerificationActionKeyDigest } from '../../action/contract/action.ts';
-import { CodexDevelopmentAssertHostedSutSandboxCommandPlan } from '../contract/hosted-sut-command-plan.ts';
+import {
+  CodexDevelopmentAssertHostedSutSandboxCommandPlan,
+  HOSTED_SUT_DEPENDENCY_PREPARATION_ENVIRONMENT,
+  hostedSutCandidateArgv,
+  hostedSutCandidateGuardArgv,
+  hostedSutDependencyPreparationArgv,
+  hostedSutDependencyPreparationFromPlan,
+  hostedSutPreparationNamespaceArgv,
+  hostedSutPreparationSettlementArgv
+} from '../contract/hosted-sut-command-plan.ts';
 import { CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, type CodexDevelopmentHostedSutProcessLifecycle } from '../contract/hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../contract/revision.ts';
 import { ciActionDigest, exactObject, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, type CodexDevelopmentHostedSutSandboxCommandPlan, type CodexDevelopmentHostedSutSandboxProcess, type CodexDevelopmentHostedSutSandboxProcessObservation } from '../verification-hosted-action-contract.ts';
@@ -41,6 +50,7 @@ import { assertRetainedHostedSutArchive, type CodexDevelopmentRetainedHostedSutA
 const REQUEST_SCHEMA = 'sec-hosted-sut-supervisor-request-v1';
 const RESPONSE_SCHEMA = 'sec-hosted-sut-supervisor-response-v1';
 const HELPER_PATH = fileURLToPath(new URL('./hosted-sut-supervisor.py', import.meta.url));
+const PREPARATION_MODULE_PATH = fileURLToPath(new URL('../hosted-sut-dependency-preparation.ts', import.meta.url));
 const MODULE_ROOT = path.resolve(path.dirname(HELPER_PATH), '../../../../../..');
 const HELPER_DESCRIPTOR = 5;
 const ARCHIVE_DESCRIPTOR = 6;
@@ -62,7 +72,9 @@ export const HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST = sha256({
   python: PYTHON_EXECUTABLE,
   bunExecutableDigest: TRUSTED_BUN.bunExecutableDigest,
   interpreterArguments: ['-I', '-S', '/proc/self/fd/5'],
-  archiveDescriptor: ARCHIVE_DESCRIPTOR
+  archiveDescriptor: ARCHIVE_DESCRIPTOR,
+  preparation: 'trusted-base-nested-pid-init-terminal-reap-v1',
+  candidateGuard: 'same-process-fixed-program-exec-stop-v1'
 }) as SecOperationDigest;
 
 export const HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS = Object.freeze([
@@ -80,12 +92,21 @@ export type HostedSutSupervisor = Readonly<{
   readonly run: CodexDevelopmentHostedSutSandboxProcess;
   close(): ProcessResourceSessionReceipt;
 }>;
-const SUPERVISORS = new WeakMap<object, Readonly<{ assertLive(): void }>>();
+const SUPERVISORS = new WeakMap<object, Readonly<{ assertLive(): void; deadlineAtUnixMs: number }>>();
 
 export function assertHostedSutSupervisorLive(supervisor: HostedSutSupervisor): void {
   const state = supervisor !== null && typeof supervisor === 'object' ? SUPERVISORS.get(supervisor) : undefined;
   if (state === undefined) throw new Error('Hosted SUT requires its owner-issued production supervisor.');
   state.assertLive();
+}
+
+/** Correlation for the fixed launcher, read from its original retained session.
+ * A caller field, report, copied supervisor or fresh clock cannot issue it. */
+export function getHostedSutSupervisorDeadlineAtUnixMs(supervisor: HostedSutSupervisor): number {
+  const state = supervisor !== null && typeof supervisor === 'object' ? SUPERVISORS.get(supervisor) : undefined;
+  if (state === undefined) throw new Error('Hosted SUT requires its owner-issued production supervisor.');
+  state.assertLive();
+  return state.deadlineAtUnixMs;
 }
 
 type StreamReport = Readonly<{
@@ -279,11 +300,21 @@ export function createHostedSutSupervisor(input: Readonly<{
     if (active) throw new Error('Hosted SUT supervisor cannot admit overlapping plans.');
     CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan);
     const consumesArchive = plan.phase === 'execute' || plan.phase === 'bootstrap-execute';
+    const preparationBinding = hostedSutDependencyPreparationFromPlan(plan);
+    if (consumesArchive !== (preparationBinding !== null)) {
+      throw new Error('Hosted SUT production execution requires its authenticated preparation binding.');
+    }
+    if (preparationBinding !== null && preparationBinding.deadlineAtUnixMs !== session.deadlineAtUnixMs) {
+      throw new Error('Hosted SUT preparation deadline differs from its original supervisor session.');
+    }
     if (consumesArchive !== (archive !== undefined)) throw new Error('Hosted SUT plan archive presence mismatch.');
     if (archive !== undefined && (assertRetainedHostedSutArchive(archive) !== archive.archiveDigest
         || plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH).length !== 1
         || plan.argv.filter((entry) => entry === archive.archiveDigest).length !== 1)) {
       throw new Error('Hosted SUT plan differs from original retained archive.');
+    }
+    if (preparationBinding !== null && preparationBinding.archiveDigest !== archive?.archiveDigest) {
+      throw new Error('Hosted SUT preparation differs from its original retained archive.');
     }
     if (plan.phase !== 'teardown' && plan.argv[plan.phase === 'capability-self-test' ? 10 : 12] !== TRUSTED_BUN.bunExecutablePath) {
       throw new Error('Hosted SUT Bun locator differs from original trusted runtime authority.');
@@ -304,6 +335,20 @@ export function createHostedSutSupervisor(input: Readonly<{
       retained.push(helper);
       const archiveProjection = archive === undefined ? undefined : retainArchiveProjection(archive);
       if (archiveProjection !== undefined) retained.push(archiveProjection);
+      const preparationModule = preparationBinding === null ? undefined : retainFile(PREPARATION_MODULE_PATH, 7, 'ordinary-file');
+      if (preparationModule !== undefined) retained.push(preparationModule);
+      const preparation = preparationBinding === null ? null : Object.freeze({
+        binding: preparationBinding,
+        argv: hostedSutDependencyPreparationArgv(preparationBinding),
+        namespaceArgv: hostedSutPreparationNamespaceArgv(preparationBinding),
+        settlementArgv: hostedSutPreparationSettlementArgv(),
+        moduleDigest: preparationModule!.digest().byteDigest,
+        archiveBytes: archiveProjection!.size,
+        candidateArgv: hostedSutCandidateArgv(plan),
+        candidateGuardArgv: hostedSutCandidateGuardArgv(plan),
+        environment: Object.entries(HOSTED_SUT_DEPENDENCY_PREPARATION_ENVIRONMENT)
+          .map(([name, value]) => `${name}=${value}`)
+      });
       const boundary = issueRetainedCommandBoundary({ executable, workingDirectory,
         auxiliaryInputs: [{ kind: 'ordinary-file', capability: helper },
           ...(archiveProjection === undefined ? [] : [{ kind: 'ordinary-file' as const, capability: archiveProjection }])] });
@@ -314,7 +359,7 @@ export function createHostedSutSupervisor(input: Readonly<{
         operationIdentityDigest: expected.operationIdentityDigest, boundAttemptDigest: expected.boundAttemptDigest,
         deadlineAtUnixMs: expected.deadlineAtUnixMs, stopAtUnixMs: expected.stopAtUnixMs,
         plan, archiveDescriptor: consumesArchive ? ARCHIVE_DESCRIPTOR : null,
-        bunExecutableDigest: TRUSTED_BUN.bunExecutableDigest }), 'utf8');
+        bunExecutableDigest: TRUSTED_BUN.bunExecutableDigest, preparation }), 'utf8');
       if (request.byteLength > MAX_REQUEST_BYTES) throw new Error('Hosted SUT plan exceeds input bound.');
       const args = Object.freeze(['-I', '-S', helper.childPath]);
       const result = await session.run(boundary, args, { input: request, env: FIXED_ENVIRONMENT, envMode: 'replace',
@@ -370,6 +415,6 @@ export function createHostedSutSupervisor(input: Readonly<{
       return terminal;
     }
   });
-  SUPERVISORS.set(supervisor, Object.freeze({ assertLive }));
+  SUPERVISORS.set(supervisor, Object.freeze({ assertLive, deadlineAtUnixMs: session.deadlineAtUnixMs }));
   return supervisor as HostedSutSupervisor;
 }
