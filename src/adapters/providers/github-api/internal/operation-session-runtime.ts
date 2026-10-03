@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
-import { rawSha256 } from '../../../../contracts/canonical.ts';
+import { canonicalEquals, rawSha256 } from '../../../../contracts/canonical.ts';
 import { readArtifactMember } from './artifact-member.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
@@ -9,6 +9,7 @@ import { ResourceCompositeSettlementError } from '../../../../execution/resource
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import { HOSTED_RESUME_DISPATCH_EVENT, parseHostedResumeDispatchSignal, type HostedResumeEmitter } from '../contract/hosted-resume-dispatch.ts';
 import { currentGitHubCredentialStore } from '../credential-store.ts';
 import {
   GitHubCredentialUnavailableError,
@@ -16,6 +17,10 @@ import {
   inspectGitHubActionsRulesetAuditorCredentialIdentity,
   inspectGitHubActionsVerificationCredentialIdentity, readGitHubToken
 } from '../credential.ts';
+import {
+  assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal,
+  type AuthenticatedGitHubJobOrigin
+} from '../hosted-job-origin.ts';
 import { isRepositoryMaintenancePermission } from '../repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../repository-permission.ts';
 import { GITHUB_VERIFICATION_READ_QUERIES, isGitHubGraphQLSchemaFailure } from '../verification-queries.ts';
@@ -25,11 +30,27 @@ export type GitHubApiEffect =
   | 'ruleset-read'
   | 'verification-read'
   | 'verification-dispatch'
+  | 'verification-resume-dispatch'
   | 'status-write'
   | 'issue-comment-write'
   | 'merge-write'
   | 'runner-admin'
   | 'branch-closeout-write';
+
+const RESUME_DISPATCH_ATTEMPTS = new WeakSet<object>();
+function authenticatedResumeEmitter(origin: AuthenticatedGitHubJobOrigin): HostedResumeEmitter {
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  if (observed.workflowPath !== '.github/workflows/merge-gate.yml' || observed.policyJobId !== 'integrate'
+      || observed.role !== 'control' || observed.phase !== 'resume-verification-session'
+      || observed.stepName !== 'Resume canonical verification Session' || observed.runAttempt !== 1) {
+    throw new GitHubApiProviderError('Hosted resume requires the exact authenticated first-attempt receiver phase');
+  }
+  return Object.freeze({ repositoryId: observed.repositoryId, repository: observed.repository,
+    workflowPath: '.github/workflows/merge-gate.yml', workflowSha: observed.workflowSha,
+    runId: observed.runId, runAttempt: 1, jobId: observed.jobId, checkRunId: observed.checkRunId,
+    policyJobId: 'integrate', phase: 'resume-verification-session',
+    stepName: 'Resume canonical verification Session', stepNumber: observed.stepNumber });
+}
 
 export type GitHubApiTransport = (
   input: string | URL,
@@ -92,6 +113,7 @@ type GitHubApiOperationBudget = {
 type GitHubApiRequestSession = {
   capability: GitHubApiCapability | undefined;
   rulesetAuditorWorkflowIdentity?: NonNullable<ReturnType<typeof inspectGitHubActionsRulesetAuditorCredentialIdentity>>;
+  resumeOrigin?: AuthenticatedGitHubJobOrigin;
   readonly repository: string;
   readonly effect: GitHubApiEffect;
   readonly origin: 'production' | 'test';
@@ -126,6 +148,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-workflow-jobs'; runId: string; runAttempt: number; page: number }>
   | Readonly<{ kind: 'verification-repository-comments'; page: number }>
   | Readonly<{ kind: 'verification-dispatch'; request: Readonly<Record<string, unknown>> }>
+  | Readonly<{ kind: 'verification-resume-dispatch'; signalSource: string }>
   | Readonly<{ kind: 'current-user' }>
   | Readonly<{ kind: 'repository' }>
   | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
@@ -337,11 +360,15 @@ function compileOperation(
   }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
-  if (kind.startsWith('verification-') && effect !== 'verification-read' && effect !== 'verification-dispatch') {
+  if (kind.startsWith('verification-') && effect !== 'verification-read' && effect !== 'verification-dispatch'
+      && effect !== 'verification-resume-dispatch') {
     throw new GitHubApiProviderError('Verification operations require a verification session');
   }
   if (effect === 'verification-dispatch' && !['current-user', 'repository', 'collaborator-permission', 'verification-dispatch'].includes(kind)) {
     throw new GitHubApiProviderError('Verification dispatch permits only enrollment and exact dispatch');
+  }
+  if (effect === 'verification-resume-dispatch' && kind !== 'repository' && kind !== 'verification-resume-dispatch') {
+    throw new GitHubApiProviderError('Hosted resume authority permits only repository enrollment and one fixed signal');
   }
   const positiveId = (value: string): string => {
     if (!/^[1-9][0-9]*$/u.test(value)) throw new GitHubApiProviderError('GitHub numeric identity is invalid');
@@ -403,6 +430,11 @@ function compileOperation(
     case 'verification-dispatch': {
       if (effect !== 'verification-dispatch') throw new GitHubApiProviderError('Dispatch requires exact write authority');
       return read(`/repos/${repo}/dispatches`, { event_type:'sec-verify-session-v2', client_payload:{ payload:operation.request } });
+    }
+    case 'verification-resume-dispatch': {
+      if (effect !== 'verification-resume-dispatch') throw new GitHubApiProviderError('Hosted resume requires its exact effect authority');
+      return read(`/repos/${repo}/dispatches`, { event_type: HOSTED_RESUME_DISPATCH_EVENT,
+        client_payload: { payload: parseHostedResumeDispatchSignal(operation.signalSource) } });
     }
     case 'current-user': return read('/user');
     case 'repository': return read(`/repos/${repo}`);
@@ -871,6 +903,21 @@ async function executeWithToken<T>(
   // them. A deadline may reject its observer but must not debit inFlight early.
   const request = (async (): Promise<T> => {
     try {
+      if (compiled.kind === 'verification-resume-dispatch') {
+        const origin = session.resumeOrigin;
+        if (session.origin !== 'production' || origin === undefined || RESUME_DISPATCH_ATTEMPTS.has(origin)) {
+          throw new GitHubApiProviderError('Hosted resume requires its unused production job-origin scope');
+        }
+        const emitter = authenticatedResumeEmitter(origin);
+        const payload = (compiled.body as { client_payload: { payload: { emitter: HostedResumeEmitter } } }).client_payload.payload;
+        if (session.repository !== emitter.repository || !canonicalEquals(payload.emitter, emitter)) {
+          throw new GitHubApiProviderError('Hosted resume signal emitter differs from its actual active job phase');
+        }
+        // An attempted POST remains an attempted effect even when transport or
+        // response settlement becomes unknown. The original CI wake owner joins
+        // the provider's phase-start tombstone instead of blindly trying again.
+        RESUME_DISPATCH_ATTEMPTS.add(origin);
+      }
       let response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
         redirect: compiled.kind === 'verification-artifact-archive' ? 'manual' : 'error',
@@ -906,7 +953,8 @@ async function executeWithToken<T>(
       const acceptsDeleteNoContent = response.status === 204
         && response.ok
         && ((compiled.method === 'DELETE' && (compiled.kind === 'delete-repository-runner'
-          || compiled.kind === 'delete-issue-comment')) || compiled.kind === 'verification-dispatch');
+          || compiled.kind === 'delete-issue-comment')) || compiled.kind === 'verification-dispatch'
+          || compiled.kind === 'verification-resume-dispatch');
       if (response.body === null) {
         remaining(session);
         if (acceptsDeleteNoContent) return null as T;
@@ -1201,6 +1249,14 @@ async function readProductionToken(repositoryRoot: string, session: GitHubApiReq
 
 async function readVerificationProductionToken(repositoryRoot: string, session: GitHubApiRequestSession): Promise<string> {
   const identity = inspectGitHubActionsVerificationCredentialIdentity(process.env, session.repository);
+  if (session.effect === 'verification-resume-dispatch') {
+    if (session.resumeOrigin === undefined || identity === null) throw new GitHubApiProviderError('Hosted resume requires its exact workflow credential');
+    const emitter = authenticatedResumeEmitter(session.resumeOrigin);
+    if (identity.workflowSha !== emitter.workflowSha
+        || identity.workflowRef !== `${emitter.repository}/${emitter.workflowPath}@refs/heads/main`) {
+      throw new GitHubApiProviderError('Hosted resume workflow credential differs from its authenticated origin');
+    }
+  }
   if (identity === null) return await readProductionToken(repositoryRoot, session);
   if (currentGitHubCredentialStore(repositoryRoot) !== undefined) throw new GitHubApiProviderError('Multiple credential sources are selected');
   reserve(session, 0);
@@ -1278,13 +1334,13 @@ async function enroll(input: Readonly<{
     ? inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(process.env, input.repository)
     : null;
   const verificationWorkflowIdentity = input.origin === 'production' &&
-    (input.effect === 'verification-read' || input.effect === 'verification-dispatch')
+    (input.effect === 'verification-read' || input.effect === 'verification-dispatch' || input.effect === 'verification-resume-dispatch')
     ? inspectGitHubActionsVerificationCredentialIdentity(process.env, input.repository) : null;
   const workflowIdentity = verificationWorkflowIdentity ?? maintenanceWorkflowIdentity;
   if (workflowIdentity !== null) {
     if (input.effect !== 'read' && input.effect !== 'verification-read'
         && input.effect !== 'branch-closeout-write'
-        && input.effect !== 'issue-comment-write') {
+        && input.effect !== 'issue-comment-write' && input.effect !== 'verification-resume-dispatch') {
       throw new GitHubApiProviderError(
         'GitHub Actions repository-maintenance credential permits only read, branch-closeout-write, and issue-comment-write'
       );
@@ -1298,6 +1354,11 @@ async function enroll(input: Readonly<{
     if (repositoryValue === null || typeof repositoryValue !== 'object' || Array.isArray(repositoryValue)
         || (repositoryValue as Record<string, unknown>).full_name !== input.repository) {
       throw new GitHubApiProviderError('GitHub Actions token is not bound to this repository');
+    }
+    if (input.effect === 'verification-resume-dispatch'
+        && (session.resumeOrigin === undefined || String((repositoryValue as Record<string, unknown>).id)
+          !== authenticatedResumeEmitter(session.resumeOrigin).repositoryId)) {
+      throw new GitHubApiProviderError('Hosted resume repository identity changed during enrollment');
     }
     if (maintenanceWorkflowIdentity !== null) {
       const permissionValue = await executeWithToken<unknown>(
@@ -1313,7 +1374,10 @@ async function enroll(input: Readonly<{
         );
       }
     }
-    if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read') throw new GitHubApiProviderError('Verification workflow credentials are read-only');
+    if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read'
+        && !(input.effect === 'verification-resume-dispatch' && session.resumeOrigin !== undefined)) {
+      throw new GitHubApiProviderError('Verification workflow credentials are read-only outside the authenticated resume phase');
+    }
     const capability = issueCapability({
       repository: input.repository,
       token,
@@ -1396,6 +1460,7 @@ async function runSession<T>(input: Readonly<{
   now?: () => number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  resumeOrigin?: AuthenticatedGitHubJobOrigin;
 }>): Promise<T> {
   const current = requestSession.getStore();
   if (current !== undefined) {
@@ -1420,6 +1485,10 @@ async function runSession<T>(input: Readonly<{
     }
     input.budget.sessionCount += 1;
   }
+  if (input.resumeOrigin !== undefined) {
+    if (input.origin !== 'production' || input.effect !== 'verification-resume-dispatch') throw new GitHubApiProviderError('Resume origin cannot grant another API effect');
+    authenticatedResumeEmitter(input.resumeOrigin);
+  }
   const session = createSession({
     repository: input.repository,
     effect: input.effect,
@@ -1433,6 +1502,7 @@ async function runSession<T>(input: Readonly<{
         : Math.max(1, Math.ceil(input.budget.deadlineAt - input.budget.now()))
     )
   });
+  if (input.resumeOrigin !== undefined) session.resumeOrigin = input.resumeOrigin;
   const abort = () => session.abortController.abort();
   input.signal?.addEventListener('abort', abort);
   if (input.signal !== undefined && isNativeAborted(input.signal)) abort();
@@ -1455,9 +1525,11 @@ async function withProductionSession<T>(input: Readonly<{
   effect: GitHubApiEffect;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
+  resumeOrigin?: AuthenticatedGitHubJobOrigin;
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
-  const verification = input.effect === 'verification-read' || input.effect === 'verification-dispatch';
+  const verification = input.effect === 'verification-read' || input.effect === 'verification-dispatch'
+    || input.effect === 'verification-resume-dispatch';
   return await runSession({
     ...input,
     origin: 'production',
@@ -1482,6 +1554,39 @@ export async function withGitHubApiVerificationSession<T>(input: Readonly<{
 }>): Promise<T> {
   if (input.effect !== 'verification-read' && input.effect !== 'verification-dispatch') throw new GitHubApiProviderError('Verification session effect is invalid');
   return await withProductionSession(input);
+}
+
+/**
+ * One fixed repository-dispatch signal from the authenticated receiver phase.
+ * CI owns the original human request, Action/cause validation and provider
+ * deduplication. There is no caller transport, endpoint, event selector, scope
+ * callback, or generally reusable workflow-token write capability here.
+ */
+export async function dispatchAuthenticatedHostedJobResume(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin;
+  signalSource: string;
+}>): Promise<Readonly<{ status: 'submitted'; signalDigest: `sha256:${string}` }>> {
+  const origin = input.origin;
+  const emitter = authenticatedResumeEmitter(origin);
+  const signalSource = input.signalSource;
+  const signal = parseHostedResumeDispatchSignal(signalSource);
+  if (!canonicalEquals(signal.emitter, emitter) || RESUME_DISPATCH_ATTEMPTS.has(origin)) {
+    throw new GitHubApiProviderError('Hosted resume emitter differs or this origin already attempted dispatch');
+  }
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  return await withProductionSession({ repositoryRoot: observed.trustedDriverRoot,
+    repository: observed.repository, effect: 'verification-resume-dispatch', resumeOrigin: origin,
+    deadlineAtUnixMs: observed.originalDeadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin),
+    operation: async capability => {
+      const credential = inspectGitHubApiCapability(capability);
+      if (credential.origin !== 'production' || credential.principal.transport !== 'github-actions-token'
+          || credential.principal.workflowSha !== emitter.workflowSha
+          || credential.principal.workflowRef !== `${emitter.repository}/${emitter.workflowPath}@refs/heads/main`) {
+        throw new GitHubApiProviderError('Hosted resume has no exact production workflow credential');
+      }
+      await executeGitHubApiOperation(capability, { kind: 'verification-resume-dispatch', signalSource });
+      return Object.freeze({ status: 'submitted' as const, signalDigest: signal.signalDigest });
+    } });
 }
 
 export async function withGitHubApiReadSession<T>(input: Readonly<{
