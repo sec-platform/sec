@@ -10,9 +10,9 @@ export interface WorkspaceInitializationOperations {
   writePendingVerification(): void | PromiseLike<void>;
 }
 
-/** Initialize the already-selected author plan under the caller's write lease.
- * Effects remain serial and fenced by their implementations. Rejection stops
- * subsequent writes; partial creation is not advertised as rolled back. */
+/** Describe the already-selected initial generation through caller operations.
+ * The bootstrap collects this recipe before its generation owner stages and
+ * publishes it; serial callbacks do not confer live publication authority. */
 export async function initializePreparedWorkspace(
   prepared: PreparedWorkspaceCreate,
   operations: WorkspaceInitializationOperations

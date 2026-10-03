@@ -12,7 +12,7 @@ import {
   type NoFollowDirectoryTreeInventoryEntry
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { getWorkspacePaths } from '../workspace-context.ts';
-import { ensureCanonicalWorkspaceArtifactParents } from './project-base.ts';
+import { artifactParentDirectories, type WorkspaceTemplateBlueprint } from './project-base.ts';
 
 const WORKSPACE_CREATE_SURFACE_ENTRY_LIMIT = 100_000;
 const WORKSPACE_CREATE_SURFACE_CENSUS_MS = 30_000;
@@ -149,11 +149,8 @@ export async function assertWorkspaceCreateSurfaceEmpty(
   }
 }
 
-/** Materialize the minimal native surface under the caller's existing fence. */
-export async function materializeMinimalWorkspace(
-  workspaceRoot: string,
-  commitFence?: CommitFence
-): Promise<void> {
+/** The minimal create recipe shares the canonical workspace/artifact paths. */
+export function buildMinimalWorkspaceTemplate(workspaceRoot: string): WorkspaceTemplateBlueprint {
   const paths = getWorkspacePaths(workspaceRoot);
   const nativeWorkspaceDirectories = [
     paths.modelRoot,
@@ -169,8 +166,14 @@ export async function materializeMinimalWorkspace(
     paths.cacheRoot,
     paths.workspaceWriteLeaseRoot
   ];
-  for (const directory of nativeWorkspaceDirectories) {
-    await ensureDir(directory, commitFence);
+  return { files: [], directories: [...new Set([
+    ...nativeWorkspaceDirectories, ...artifactParentDirectories(paths.workspaceRoot)
+  ].map(directory => path.relative(paths.workspaceRoot, directory).split(path.sep).join('/')))] };
+}
+
+/** Materialize the minimal native surface under the caller's existing fence. */
+export async function materializeMinimalWorkspace(workspaceRoot: string, commitFence?: CommitFence): Promise<void> {
+  for (const relative of buildMinimalWorkspaceTemplate(workspaceRoot).directories) {
+    await ensureDir(path.join(workspaceRoot, relative), commitFence);
   }
-  await ensureCanonicalWorkspaceArtifactParents(workspaceRoot, commitFence);
 }

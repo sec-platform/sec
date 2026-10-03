@@ -1,14 +1,15 @@
 import path from 'node:path';
-import { writeJson } from '../../adapters/filesystem/files.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
+import YAML from 'yaml';
+import { withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import { getWorkspacePaths, officialRegistryRelativePath, resolveWorkspaceArtifactPath } from '../../adapters/workspace-context.ts';
-import { assertWorkspaceCreateSurfaceEmpty, ensureWorkspaceCreateRoot, materializeMinimalWorkspace } from '../../adapters/workspace/create-surface.ts';
-import { saveLock } from '../../adapters/workspace/lock.ts';
-import { ensureProjectBase } from '../../adapters/workspace/project-base.ts';
-import { writeYaml } from '../../adapters/workspace/yaml.ts';
+import { publishWorkspaceCreateGeneration } from '../../adapters/workspace/create-generation.ts';
+import { assertWorkspaceCreateSurfaceEmpty, buildMinimalWorkspaceTemplate, ensureWorkspaceCreateRoot } from '../../adapters/workspace/create-surface.ts';
+import { buildProjectBaseTemplate, type WorkspaceTemplateBlueprint, type WorkspaceTemplateFile } from '../../adapters/workspace/project-base.ts';
 import { prepareWorkspaceCreate, type WorkspaceCreateTemplate } from '../../application/workspace-create.ts';
 import { initializePreparedWorkspace } from '../../application/workspace-initialize.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { requireLockFileSchema } from '../../compiler/contract/lock-schema.ts';
+import { formatJsonFile } from '../../contracts/json-text.ts';
 
 export interface WorkspaceInitOptions {
   /** Explicit creation template. Ordinary init defaults to the minimal template. */
@@ -28,19 +29,23 @@ export async function initWorkspace(
     await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, undefined);
   }
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async token => {
-    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
     const { workspaceConfigPath: planPath } = getWorkspacePaths(workspaceRoot);
     const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-    const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
+    let blueprint: WorkspaceTemplateBlueprint = { directories: [], files: [] };
+    const initialFiles: WorkspaceTemplateFile[] = [];
     await initializePreparedWorkspace(prepared, {
-      assertEmpty: () => assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token),
-      materialize: template => template === 'reference-customer'
-        ? ensureProjectBase(workspaceRoot, commitFence)
-        : materializeMinimalWorkspace(workspaceRoot, commitFence),
-      writePlan: plan => writeYaml(planPath, plan, commitFence),
-      writeLock: lock => saveLock(workspaceRoot, lock, commitFence),
-      writePendingVerification: () => writeJson(verificationReportPath, { summary: { status: 'pending' } }, commitFence)
+      assertEmpty: () => {},
+      materialize: async template => {
+        blueprint = template === 'reference-customer'
+          ? await buildProjectBaseTemplate(workspaceRoot)
+          : buildMinimalWorkspaceTemplate(workspaceRoot);
+      },
+      writePlan: plan => { initialFiles.push({ relativePath: path.basename(planPath), bytes: Buffer.from(YAML.stringify(plan, { indent: 2 })) }); },
+      writeLock: lock => { initialFiles.push({ relativePath: CI_ARTIFACT_FILES.graphLock, creationMode: 0o600, bytes: Buffer.from(formatJsonFile(requireLockFileSchema(lock, 'workspace initializer'))) }); },
+      writePendingVerification: () => { initialFiles.push({ relativePath: CI_ARTIFACT_FILES.verificationReport, bytes: Buffer.from(formatJsonFile({ summary: { status: 'pending' } })) }); }
     });
+    await publishWorkspaceCreateGeneration({ workspaceRoot, template: prepared.template, token,
+      blueprint: { directories: blueprint.directories, files: [...blueprint.files, ...initialFiles] } });
     return { planPath, lockPath };
   });
 }
