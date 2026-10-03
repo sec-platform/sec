@@ -7,10 +7,6 @@ import {
   atomicPublishSemanticMutationSource,
   writeSemanticMutationTransactionArtifacts
 } from '../../src/adapters/mutation/atomic-source-publish.ts';
-import {
-  deriveStagedSemanticMutation,
-  type DerivedSemanticMutationTransaction
-} from '../../src/adapters/mutation/derive-staged-mutation.ts';
 import { appendSemanticMutationRecoveryRecord, loadSemanticMutationRecoveryRecords } from '../../src/adapters/mutation/mutation-recovery-record.ts';
 import { renderSemanticContractYamlEdit } from '../../src/adapters/mutation/semantic-contract-yaml-adapter.ts';
 import {
@@ -31,6 +27,10 @@ import {
   querySemanticMutationRequest,
   resolveWorkspace
 } from '../../src/bootstrap/engineering/cli.ts';
+import {
+  deriveStagedSemanticMutation,
+  type DerivedSemanticMutationTransaction
+} from '../../src/bootstrap/engineering/semantic-mutation-derivation.ts';
 import {
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies

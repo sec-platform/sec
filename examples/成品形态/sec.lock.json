@@ -20,11 +20,11 @@
     "structure": {
       "kind": "language",
       "subjectId": "sec.requirement-structure",
-      "revision": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+      "revision": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
       "content": {
         "algorithm": "sha256",
-        "digest": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
-        "byteLength": 33817,
+        "digest": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
+        "byteLength": 39570,
         "format": "markdown"
       },
       "locations": [

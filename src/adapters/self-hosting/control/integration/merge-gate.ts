@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
+import { assertSourceProgramTransitionQualification, assertTrustedRuntimeMainHealthQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
@@ -16,6 +16,8 @@ import {
   type MainHealthLedger
 } from '../main-health/contract.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../main-health/github-status-namespace.ts';
+import type { TrustedRuntimeMainHealthReceipt } from '../main-health/main-health-observation.ts';
+import { assertMainHealthPublicationLedger, type MainHealthPublicationAuthority } from '../main-health/work-selection-main-health.ts';
 import {
   assertScopeAuthorizationCurrent,
   type ScopeAuthorization
@@ -748,10 +750,7 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
   });
   if (!health.allowed || health.status !== 'healthy') fail(`ordinary lane is locked: ${health.reason}`);
   if (input.mainHealth.producer.identity !== DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY ||
-      input.mainHealth.producer.sourceTransport !== 'github-api' ||
-      input.mainHealth.producer.trustRevision !== trustRevision ||
-      input.mainHealth.producer.sourceRef
-        !== `github-check-runs:${candidate.repository}@${candidate.currentBaseSha}`) {
+      input.mainHealth.producer.trustRevision !== trustRevision) {
     fail('fresh MainHealth producer provenance is not bound to the trusted authorization runtime.');
   }
   CodexDevelopmentAssertVerificationEvidenceV4(evidence, {
@@ -825,6 +824,13 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
   });
 }
 
+function assertHostedMainHealthProvenance(ledger: MainHealthLedger, candidate: CodexDevelopmentMergeGateCandidate): void {
+  if (ledger.producer.sourceTransport !== 'github-api'
+      || ledger.producer.sourceRef !== `github-check-runs:${candidate.repository}@${candidate.currentBaseSha}`) {
+    fail('fresh MainHealth producer provenance is not bound to the trusted authorization runtime.');
+  }
+}
+
 export function CodexDevelopmentEvaluateMergeGate(
   input: CodexDevelopmentMergeGateInput
 ): CodexDevelopmentMergeGateResult {
@@ -858,6 +864,7 @@ export function CodexDevelopmentEvaluateMergeGate(
       evidence.producer.workflowRef !== `.github/workflows/compiler-pr-validation.yml@${input.candidate.currentBaseSha}`) {
     fail('Evidence artifact was not produced by the trusted current-base verification workflow.');
   }
+  assertHostedMainHealthProvenance(input.mainHealth, input.candidate);
   const core = evaluateMergeGateCore({
     candidate: input.candidate,
     artifact: input.artifact,
@@ -898,7 +905,12 @@ export function CodexDevelopmentEvaluateMergeGate(
 
 export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
   input: CodexDevelopmentTrustedRuntimeMergeGateInput,
-  transitionQualification?: SourceProgramTransitionQualification
+  transitionQualification?: SourceProgramTransitionQualification,
+  mainHealthAdmission?: Readonly<{
+    authority: MainHealthPublicationAuthority;
+    receipt: TrustedRuntimeMainHealthReceipt;
+    repositoryRoot: string;
+  }>
 ): CodexDevelopmentTrustedRuntimeMergeGateResult {
   const record = exact(input, [
     'schema', 'provenance', 'candidate', 'artifact', 'artifactObservation', 'expectedActionPlan',
@@ -929,6 +941,22 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
     provenance,
     input.candidate.currentBaseSha
   );
+  if (input.mainHealth.producer.sourceTransport === 'trusted-runtime-durable-readback') {
+    if (mainHealthAdmission === undefined) fail('local MainHealth requires live production admission');
+    assertMainHealthPublicationLedger({ authority: mainHealthAdmission.authority,
+      ledger: input.mainHealth, now: input.issuedAt });
+    const receipt = mainHealthAdmission.receipt;
+    assertTrustedRuntimeMainHealthQualification({ receipt,
+      repositoryRoot: mainHealthAdmission.repositoryRoot,
+      repository: input.candidate.repository,
+      mainSha: input.candidate.currentBaseSha, mainTreeSha: input.candidate.currentBaseTreeSha });
+    if (input.mainHealth.producer.sourceDigest !== receipt.receiptDigest
+        || input.mainHealth.producer.sourceRunId !== receipt.executionId
+        || input.mainHealth.producer.sourceRef !==
+          `runtime-state:trusted-main-health/v2/main-${receipt.mainSha}-${receipt.receiptDigest.slice(7)}.json`) {
+      fail('local MainHealth receipt differs from live production admission');
+    }
+  } else assertHostedMainHealthProvenance(input.mainHealth, input.candidate);
   const core = evaluateMergeGateCore({
     candidate: input.candidate,
     artifact: input.artifact,

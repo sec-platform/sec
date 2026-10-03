@@ -64,6 +64,7 @@ import {
   parseGitObjectIdReply
 } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
+import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
@@ -2364,24 +2365,57 @@ function trustedRuntimeMainHealthCommandArgv(command: string): readonly string[]
   }
 }
 
+const mainHealthExecutionRoots = new WeakMap<object, Readonly<{
+  repositoryRoot: string;
+  physicalRoot: PhysicalDirectoryIdentity;
+  expiresAt: string;
+}>>();
+
+/** Neither the public data factory, parser nor durable-file reader can issue
+ * this qualification. The same live computation may be reread at T1 and T2. */
+export function assertTrustedRuntimeMainHealthQualification(input: Readonly<{
+  receipt: TrustedRuntimeMainHealthReceipt;
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>): Readonly<{ expiresAt: string }> {
+  const binding = mainHealthExecutionRoots.get(input.receipt);
+  if (binding === undefined || binding.repositoryRoot !== path.resolve(input.repositoryRoot)
+      || Date.now() >= Date.parse(binding.expiresAt)
+      || input.receipt.repository !== input.repository
+      || input.receipt.mainSha !== input.mainSha
+      || input.receipt.mainTreeSha !== input.mainTreeSha) {
+    fail('MainHealth requires current live production execution qualification for this exact root and main');
+  }
+  assertSameNoFollowDirectoryIdentity(binding.physicalRoot, 'MainHealth qualified repository root');
+  return Object.freeze({ expiresAt: binding.expiresAt });
+}
+
 export async function executeTrustedRuntimeMainHealth(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
   now?: () => Date;
+  deadlineAtUnixMs?: number;
 }>): Promise<TrustedRuntimeMainHealthReceipt> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const repositoryIdentity = repository(input.repository);
   const mainSha = sha(input.mainSha, 'MainHealth mainSha');
   const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
-  return await withTrustedRuntimeWorkspace({
+  const settlements: TrustedRuntimeContainerEngineSettlement[] = [];
+  const observeSettlement = (settlement: TrustedRuntimeContainerEngineSettlement): void => { settlements.push(settlement); };
+  const receipt = await withTrustedRuntimeWorkspace({
     repositoryRoot,
     repository: repositoryIdentity,
     baseSha: mainSha,
     headSha: mainSha,
     operationKey: `main-health-${mainSha.slice(0, 24)}`,
     setupMode: 'full',
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    dependencyCachePolicy: 'private-authority',
+    observeSettlement,
     execute: async ({
       containerName,
       image,
@@ -2389,11 +2423,12 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
       dockerEndpoint,
       dependencyCacheKey
     }) => {
-      if (dependencyCacheKey === null) {
-        fail('MainHealth full workspace did not bind the dependency cache generation');
+      if (dependencyCacheKey !== null) {
+        fail('MainHealth authority workspace mounted a candidate-writable dependency cache');
       }
       return await executeTrustedRuntimeContainerEngineOwnerOperation({
         session: containerEngineSession,
+        observeSettlement,
         repositoryRoot,
         repository: repositoryIdentity,
         baseSha: mainSha,
@@ -2459,11 +2494,6 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
           if (after.head !== mainSha || after.tree !== mainTreeSha || after.status !== '') {
             fail('MainHealth exact-main workspace identity changed during execution');
           }
-          const endpointReadback = await containerEngineSession.observeEndpoint();
-          if (encodeVerificationActionData(endpointReadback)
-              !== encodeVerificationActionData(dockerEndpoint)) {
-            fail('MainHealth Docker endpoint drifted during execution');
-          }
           const executionId = `trusted-main-health-${digestValue(Object.freeze({
             repository: repositoryIdentity,
             mainSha,
@@ -2487,6 +2517,45 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
       });
     }
   });
+  // Endpoint observations belong after their physical operation scopes settle.
+  // A normal terminal-join carrier can still describe unknown/not-started
+  // effects; it is not successful MainHealth authority.
+  if (settlements.length !== 3
+      || settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
+        !== 'setup,owner-operation,cleanup'
+      || settlements.some((settlement) => settlement.readback.disposition !== 'applied'
+        || settlement.providerSettlementSet.settlements.some(({ physicalDisposition }) => physicalDisposition !== 'settled')
+        || encodeVerificationActionData(settlement.endpointReadback) !== encodeVerificationActionData(receipt.dockerEndpoint))) {
+    fail('MainHealth lacks successful physical settlement and exact endpoint readback');
+  }
+  return receipt;
+}
+
+/** The admitted physical execution budget bounds the entire live consumption
+ * scope. Every exit revokes the proof; serialized results remain historical. */
+export async function withTrustedRuntimeMainHealthQualification<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const physicalRoot = inspectNoFollowDirectoryChain(repositoryRoot, 'MainHealth repository root').target;
+  const deadlineAtUnixMs = Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs;
+  const receipt = await executeTrustedRuntimeMainHealth({ ...input, repositoryRoot, deadlineAtUnixMs });
+  // The workspace has completed setup, execution, cleanup and settlement.
+  assertSameNoFollowDirectoryIdentity(physicalRoot, 'MainHealth settled repository root');
+  mainHealthExecutionRoots.set(receipt, Object.freeze({
+    repositoryRoot,
+    physicalRoot,
+    expiresAt: new Date(deadlineAtUnixMs).toISOString()
+  }));
+  try {
+    assertTrustedRuntimeMainHealthQualification({ ...input, repositoryRoot, receipt });
+    return await operation(receipt);
+  } finally {
+    mainHealthExecutionRoots.delete(receipt);
+  }
 }
 
 export async function executeTrustedRuntimeWorkspaceCanary(input: Readonly<{

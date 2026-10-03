@@ -4,10 +4,9 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
-import { createPipelineSemanticContext } from '../../compiler/pipeline/semantic-context.ts';
+import { type PipelineSemanticContext, createPipelineSemanticContext } from '../../compiler/pipeline/semantic-context.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { isPathInside, resolvePathInside } from "../../contracts/relative-path.ts";
-import { composeProject } from '../compilation/compose/compose-project.ts';
 import { copyRecursive } from '../filesystem/discovery.ts';
 import { pathExists, removeDir, writeJson } from "../filesystem/files.ts";
 import { WorkspaceWriteLeaseError } from '../filesystem/write-lease.ts';
@@ -18,15 +17,26 @@ import { ensureProjectBase } from '../workspace/project-base.ts';
 import { buildWorkspaceSemanticBundle } from '../workspace/semantic-bundle.ts';
 import { typecheckProject } from './typecheck-project.ts';
 
+/** Composition is supplied by bootstrap; this physical validation scope owns
+ * its temporary workspace and cleanup, not the application generation flow. */
+export type TemplateComposition = (
+  workspaceRoot: string,
+  lock: LockFile,
+  semanticContext: PipelineSemanticContext,
+  commitFence?: CommitFence
+) => Promise<LockFile>;
+
 export async function validateResolvedTemplates(
   workspaceRoot: string,
   lock: LockFile,
-  commitFence?: CommitFence
+  commitFence: CommitFence | undefined,
+  compose: TemplateComposition
 ): Promise<void> {
   workspaceRoot = path.resolve(workspaceRoot);
   if (commitFence !== undefined && typeof commitFence !== 'function') {
     throw new TypeError('Template validation commit fence must be callable');
   }
+  if (typeof compose !== 'function') throw new TypeError('Template composition capability must be callable');
   const sourcePaths = getWorkspacePaths(workspaceRoot);
   const isolated = process.env[ISOLATED_VERIFICATION_ENV_KEY] === '1';
   // Complete data preparation before acquiring a temporary root. A clone or
@@ -93,10 +103,7 @@ export async function validateResolvedTemplates(
       generatorPlan,
       semanticViews
     );
-    await composeProject(validationRoot, clonedLock, semanticContext, {
-      commitFence,
-      opaqueModuleMaterializationMode: 'workspace-link'
-    });
+    await compose(validationRoot, clonedLock, semanticContext, commitFence);
     if (isolated) {
       await typecheckProject(validationRoot, {
         dependencyProjectRoot: sourcePaths.workspaceRoot,

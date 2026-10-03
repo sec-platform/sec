@@ -10,6 +10,13 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../src/adapters/providers/linux-verification/contract.ts';
 import {
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+  createTrustedRuntimeMainHealthReceipt,
+  parseTrustedRuntimeMainHealthReceipt,
+  trustedRuntimeMainHealthReceiptLocator
+} from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import {
   TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
   TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
@@ -20,6 +27,7 @@ import {
   TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolume,
+  assertTrustedRuntimeMainHealthQualification,
   authorizeTrustedRuntimeContainerRecovery,
   composeTrustedRuntimeContainerLabels,
   createTrustedRuntimeCommandEnvironmentArgs,
@@ -31,13 +39,6 @@ import {
   parseTrustedRuntimeContainerIdentity,
   renderTrustedRuntimeCommandFailureDetail
 } from '../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
-import {
-  createTrustedRuntimeMainHealthReceipt,
-  parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
-  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
-} from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -93,7 +94,7 @@ describe('provider-neutral trusted runtime container', () => {
       mainTreeSha: '2'.repeat(40),
       executionId: 'trusted-main-health-fixture',
       dockerEndpoint,
-      dependencyCacheKey: `sha256:${'3'.repeat(64)}`,
+      dependencyCacheKey: null,
       actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
         command,
         resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`
@@ -101,13 +102,41 @@ describe('provider-neutral trusted runtime container', () => {
       observedAt: '2026-09-29T00:00:00.000Z'
     });
     expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
+    expect(receipt).toMatchObject({ schema: 'sec-trusted-runtime-main-health-receipt-v2',
+      dependencyPreparation: 'private-authority-ephemeral-v1', dependencyCacheKey: null });
+    for (const forged of [receipt, { ...receipt }, parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))]) {
+      expect(() => assertTrustedRuntimeMainHealthQualification({
+        receipt: forged, repositoryRoot: process.cwd(), repository: receipt.repository,
+        mainSha: receipt.mainSha, mainTreeSha: receipt.mainTreeSha
+      })).toThrow('live production execution qualification');
+    }
+    for (const invalid of [
+      { ...receipt, schema: 'sec-trusted-runtime-main-health-receipt-v1' },
+      { ...receipt, dependencyPreparation: undefined },
+      { ...receipt, dependencyPreparation: 'shared-sut' },
+      { ...receipt, dependencyCacheKey: `sha256:${'3'.repeat(64)}` },
+      { ...receipt, networkIsolatedBeforeExecution: false }
+    ]) expect(() => parseTrustedRuntimeMainHealthReceipt(invalid)).toThrow('shape or fixed identity');
+    expect(() => createTrustedRuntimeMainHealthReceipt({
+      ...receipt, dependencyCacheKey: `sha256:${'3'.repeat(64)}` as never
+    })).toThrow('candidate-writable dependency cache');
+    for (const results of [receipt.actionResults.slice(1), [...receipt.actionResults].reverse(),
+      [receipt.actionResults[0]!, ...receipt.actionResults.slice(0, -1)]]) {
+      expect(() => createTrustedRuntimeMainHealthReceipt({ ...receipt, actionResults: results })).toThrow();
+    }
+    const attemptLocator = trustedRuntimeMainHealthReceiptLocator({
+      repositoryStateRoot: path.resolve('state'), mainSha: receipt.mainSha,
+      receiptDigest: receipt.receiptDigest
+    });
+    expect(attemptLocator.fileName).toBe(`main-${receipt.mainSha}-${receipt.receiptDigest.slice(7)}.json`);
+
     expect(trustedRuntimeMainHealthReceiptLocator({
       repositoryStateRoot: path.resolve('state'),
       mainSha: receipt.mainSha
     })).toEqual({
-      directory: path.join(path.resolve('state'), 'trusted-main-health', 'v1'),
+      directory: path.join(path.resolve('state'), 'trusted-main-health', 'v2'),
       fileName: `main-${receipt.mainSha}.json`,
-      sourceRef: `runtime-state:trusted-main-health/v1/main-${receipt.mainSha}.json`
+      sourceRef: `runtime-state:trusted-main-health/v2/main-${receipt.mainSha}.json`
     });
     expect(() => parseTrustedRuntimeMainHealthReceipt({
       ...receipt,

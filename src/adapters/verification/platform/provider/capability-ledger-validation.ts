@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE, parseSecWindowsControlCliEnvironmentAuthority, type WindowsControlCliEnvironmentSpec } from '../../../providers/windows-control-cli/contract/environment.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { EXTERNAL_CAPABILITY_LEDGER_PATH, parseExternalCapabilityLedger, type ExternalCapabilityLedgerProjection } from './capability-ledger.ts';
@@ -135,7 +134,7 @@ const EXTERNAL_PROVIDER_CAPABILITIES: Readonly<Record<string, {
   'environment-materialization': { category: 'build-runtime', routingProfiles: [] },
   'workflow-execution': {
     category: 'workflow-runtime',
-    routingProfiles: ['sec-linux-verification-v1']
+    routingProfiles: []
   },
   'host-command-execution': {
     category: 'runtime',
@@ -280,30 +279,29 @@ function validateForbiddenAuthority(provider: Record<string, unknown>, label: st
   }
 }
 
-function validateLinuxVerificationProviderClosure(
+function validateRetiredLocalRunnerProviderClosure(
   provider: Record<string, unknown>,
   providerId: string
 ): void {
   const label = `External capability provider ${providerId}`;
-  const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
   if (providerId !== 'github-actions-local-runner'
       || provider.category !== 'workflow-runtime'
       || provider.capability !== 'workflow-execution'
       || provider.decision !== 'integrate-adapter'
-      || provider.lifecycle !== 'active'
-      || provider.activeRoutingProfile !== environment.environmentId) {
-    throw new Error(`${label} workflow-execution provider closure is invalid.`);
+      || provider.lifecycle !== 'retired'
+      || provider.activeRoutingProfile !== null) {
+    throw new Error(`${label} retired workflow-execution provider closure is invalid.`);
   }
+  // Catalog surfaces are active execution routes, not retained recovery owners.
+  // Existing generations keep status/recover/stop in the runtime implementation.
   const surfaces = recordValue(provider.surfaces, `${label}.surfaces`);
   if (JSON.stringify(uniqueCanonicalSurfaceIds(surfaces.cli, `${label}.surfaces.cli`))
-        !== JSON.stringify([
-          'src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'
-        ])
+        !== JSON.stringify([])
       || JSON.stringify(uniqueCanonicalSurfaceIds(
         surfaces.standingMcp,
         `${label}.surfaces.standingMcp`
       )) !== JSON.stringify([])) {
-    throw new Error(`${label} workflow-execution provider surfaces are invalid.`);
+    throw new Error(`${label} retired workflow-execution provider surfaces must be empty.`);
   }
 }
 
@@ -525,8 +523,9 @@ async function validateExternalCapabilityLedger(
     }
     if (capability === 'host-command-execution') {
       await validateWindowsControlCliProviderClosure(provider, providerId, repositoryRoot);
-    } else if (capability === 'workflow-execution') {
-      validateLinuxVerificationProviderClosure(provider, providerId);
+    } else if (capability === 'workflow-execution'
+        || providerId === 'github-actions-local-runner') {
+      validateRetiredLocalRunnerProviderClosure(provider, providerId);
     }
     validateForbiddenAuthority(provider, label);
 

@@ -7,20 +7,20 @@ import {
   withGitHubApiTestReadOperationBudget,
   withGitHubApiTestSession
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
-import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
-import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   createTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
-  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS
+  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  trustedRuntimeMainHealthReceiptLocator
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
-import { GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import {
   attachRegisteredMainHealthWorkflowProvenance,
   observeCanonicalMainHealthForDocumentControlTestingV2,
   resolveWorkSelectionMainHealthProviders
 } from '../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -400,7 +400,7 @@ test('nested MainHealth sessions still reuse a live outer budget without replaci
 });
 
 
-test('provider observation consumes only the exact trusted-runtime receipt path', async () => {
+test('canonical provider reader cannot qualify fabricated private receipts in writable state', async () => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return;
   const repositoryRoot = process.cwd();
   const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-state-'));
@@ -436,7 +436,7 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
         osType: 'linux',
         architecture: 'x86_64'
       },
-      dependencyCacheKey: `sha256:${'3'.repeat(64)}`,
+      dependencyCacheKey: null,
       actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
         command,
         resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`
@@ -449,7 +449,7 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
       'utf8'
     );
 
-    const observe = async () => await withGitHubApiTestEnrollmentSession({
+    const observe = async (qualifiedLocalReceipt?: typeof receipt) => await withGitHubApiTestEnrollmentSession({
       repository: 'sec-platform/sec',
       effect: 'read',
       readToken: async () => TEST_TOKEN,
@@ -472,26 +472,32 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
         defaultBranch: 'main',
         mainSha: MAIN,
         mainTreeSha: TREE,
-        capability
+        capability,
+        qualifiedLocalReceipt
       })
     });
 
-    const healthy = await observe();
-    expect(healthy.projection.state).toBe('healthy');
-    expect(healthy.repairDecision).toMatchObject({
-      status: 'blocked',
-      routingState: 'ordinary-only',
-      reasonCode: 'repair-lane-ineligible'
+    const unqualified = await observe();
+    expect(unqualified.projection.state).toBe('unresolved');
+    expect(unqualified.repairDecision).toMatchObject({
+      status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-unavailable'
     });
-
+    // Even a canonical V2 file at the exact requested digest path and a parsed
+    // DTO supplied by a caller cannot impersonate the production execution owner.
+    const exact = trustedRuntimeMainHealthReceiptLocator({
+      repositoryStateRoot: layout.repositoryStateRoot, mainSha: MAIN,
+      receiptDigest: receipt.receiptDigest
+    });
+    writeFileSync(path.join(exact.directory, exact.fileName), `${encodeVerificationActionData(receipt)}\n`);
+    const forged = await observe(receipt);
+    expect(forged.projection.state).toBe('unresolved');
+    expect(forged.repairDecision).toMatchObject({
+      status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-invalid'
+    });
     unlinkSync(path.join(locator.directory, locator.fileName));
     const missing = await observe();
     expect(missing.projection.state).toBe('unresolved');
-    expect(missing.repairDecision).toMatchObject({
-      status: 'blocked',
-      routingState: 'locked',
-      reasonCode: 'repair-provider-missing'
-    });
+    expect(missing.repairDecision.routingState).toBe('locked');
   } finally {
     if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
     else process.env.SEC_STATE_HOME = previous.stateHome;

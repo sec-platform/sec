@@ -314,7 +314,7 @@ async function writeReviewedProcessDispatcherProjection(
   }
 }
 
-function reviewedProcessDispatchersFromExactProjection(
+export function reviewedProcessDispatchersFromExactProjection(
   files: readonly SourceProgramFileInput[],
   cached: ReviewedProcessDispatcherProjection | null
 ): readonly string[] | null {
@@ -346,21 +346,19 @@ async function resolveImmutableRevisionProcessDispatchers(
   return cached;
 }
 
-async function resolveReviewedProcessDispatchers(
-  repositoryRoot: string,
-  files: readonly SourceProgramFileInput[]
-): Promise<readonly string[]> {
+/** Capture the existing analysis projection from exact source inputs. This
+ * carries no process permission and does not include its generated cache bytes. */
+export function compileReviewedProcessDispatcherProjection(
+  files: readonly SourceProgramFileInput[],
+  closure: Readonly<{ closure: ReadonlySet<string>; reviewedProcessDispatchers: ReadonlySet<string> }>
+): ReviewedProcessDispatcherProjection {
   const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
     [repositoryPath, contentDigest] as const));
-  const cached = reviewedProcessDispatchersFromExactProjection(
-    files,
-    await readReviewedProcessDispatcherProjection(repositoryRoot)
-  );
-  if (cached !== null) return cached;
-  const { trustedRuntimeClosure } = await import('../../verification/platform/trust/compiler.ts');
-  const closure = trustedRuntimeClosure();
   const inputPaths = new Set([
     ...closure.closure,
+    // The closure compiler owns dispatcher recognition but need not be a
+    // reachable runtime entrypoint. Preserve its real source identity too.
+    SEC_TCB_CLOSURE_RUNTIME_PATH,
     SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
   ]);
   const inputDigests = Object.freeze(Object.fromEntries(
@@ -374,12 +372,26 @@ async function resolveReviewedProcessDispatchers(
         return [repositoryPath, digest];
       })
   ));
-  const projection: ReviewedProcessDispatcherProjection = Object.freeze({
+  return Object.freeze({
     inputDigests,
     reviewedProcessDispatchers: Object.freeze(
       [...closure.reviewedProcessDispatchers].sort(compareCodeUnits)
     )
   });
+}
+
+async function resolveReviewedProcessDispatchers(
+  repositoryRoot: string,
+  files: readonly SourceProgramFileInput[]
+): Promise<readonly string[]> {
+  const cached = reviewedProcessDispatchersFromExactProjection(
+    files,
+    await readReviewedProcessDispatcherProjection(repositoryRoot)
+  );
+  if (cached !== null) return cached;
+  const { trustedRuntimeClosure } = await import('../../verification/platform/trust/compiler.ts');
+  const closure = trustedRuntimeClosure();
+  const projection = compileReviewedProcessDispatcherProjection(files, closure);
   await writeReviewedProcessDispatcherProjection(repositoryRoot, projection).catch(() => undefined);
   return projection.reviewedProcessDispatchers;
 }

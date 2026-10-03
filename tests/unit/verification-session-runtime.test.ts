@@ -78,7 +78,7 @@ import {
   type CodexDevelopmentMergeGateResult
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
-import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import { createObservedMainHealthInput, createTrustedRuntimeMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -135,6 +135,7 @@ import {
   assertTrustedMainRuntime,
   assertTrustedMergedRequestRuntimeReachability,
   assertTrustedRuntime,
+  assertVerificationSessionLocalPreparationCurrent,
   classifyVerificationSessionArtifactReuse,
   compilePostMainIssueDispositionHealthReadback,
   createHostedArtifactObservation,
@@ -146,6 +147,7 @@ import {
   parseVerificationSessionHostedRequest,
   prepareLocalQuickVerificationActionPlan,
   prepareTrustedMainVerificationSession,
+  prepareTrustedRuntimePendingHealthVerificationSession,
   prepareVerificationSessionHosted,
   prepareVerificationSessionMergeInput,
   reconstructVerificationSessionHostedFacts,
@@ -3895,6 +3897,52 @@ describe('qualified exact-repository Session consumers', () => {
     TEST_IMPACT_SOURCE_PROVIDER = bindDocumentationVerificationGateInput(
       testImpactFixture.provider, currentDocumentationVerificationBaseline());
   }, DEFAULT_TEST_TIMEOUT_MS);
+
+  test('synthetic local plan decomposition reads no health and preserves original planner bindings', () => {
+    const candidate = new FakeTransport().candidate();
+    const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+    const executionEnvironment = createCiVerificationLocalExecutionEnvironment({
+      os: 'linux', arch: 'x64', bunVersion: '1.4.0' });
+    const input = {
+      executionEnvironment, repository: candidate.repository, candidate,
+      manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'b'.repeat(64)}` as const,
+      changedPaths, testImpactTransition: changedTransition(changedPaths),
+      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick' as const,
+      producerPrincipalNodeId: 'INTEGRATOR', dependencyBlobs: actionDependencyBlobs()
+    };
+    const forbidden = Object.defineProperties({ ...input }, {
+      mainHealthInput: { get() { throw new Error('preparation read health input'); } },
+      mainHealthChecks: { get() { throw new Error('preparation read hosted checks'); } },
+      reviewBarrier: { get() { throw new Error('preparation read Session review facts'); } }
+    });
+    const pending = prepareTrustedRuntimePendingHealthVerificationSession(forbidden);
+    expect(pending.request.healthBinding).toBe('pending-main-health');
+    expect(pending).not.toHaveProperty('sessionRevision');
+    expect(pending).not.toHaveProperty('facts');
+    expect(pending.request.request).not.toHaveProperty('expectedSessionRevision');
+    expect(pending.request.request).not.toHaveProperty('requestOperationId');
+    const bound = prepareTrustedMainVerificationSession({ ...input,
+      integrationPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'synthetic-health-bound-planner',
+      sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
+      reviewBarrier: { status: 'waiting', reason: 'review-pending',
+        snapshotDigest: `sha256:${'a'.repeat(64)}`, observedAt: VERIFIED_AT },
+      mainHealthChecks: [],
+      // Pure fixture data proves decomposition only; no live admission is issued.
+      mainHealthInput: createTrustedRuntimeMainHealthInput({
+        schema: 'sec-trusted-runtime-main-health-observation-v1', repository: candidate.repository,
+        mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha, trustRevision: candidate.baseSha,
+        runtimeRef: 'runtime-state:test-only/synthetic-main-health.json',
+        executionId: 'synthetic-local-planner-fixture', verificationReceiptDigest: `sha256:${'c'.repeat(64)}`,
+        observedAt: VERIFIED_AT, expiresAt: new Date(new Date(VERIFIED_AT).getTime() + 600_000).toISOString()
+      })
+    });
+    expect(() => assertVerificationSessionLocalPreparationCurrent(pending.request,
+      bound.request, bound.sessionProposalDigest)).not.toThrow();
+    expect(pending.actionPlanClosure).toEqual(bound.actionPlanClosure);
+    expect(() => prepareTrustedRuntimePendingHealthVerificationSession({ ...input,
+      executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT }))
+      .toThrow('one explicit local execution environment');
+  });
 
   test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', async () => {
   const transport = new FakeTransport();

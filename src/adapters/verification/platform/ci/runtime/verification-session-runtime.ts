@@ -46,7 +46,7 @@ import {
   type MainHealthLedgerInput
 } from '../../../../self-hosting/control/main-health/contract.ts';
 import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, TRUSTED_RUNTIME_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
 import {
   assertScopeAuthorizationCurrent,
   createScopeAuthorization,
@@ -79,8 +79,12 @@ import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA
 } from '../contract/revision.ts';
 import {
-  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA, type VerificationSessionHostedRequest,
-  type VerificationSessionLocalPreparationRequest
+  CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA,
+  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+  type VerificationSessionBoundLocalPreparationRequest,
+  type VerificationSessionHostedRequest,
+  type VerificationSessionLocalPreparationRequest, type VerificationSessionPendingHealthLocalPreparationRequest,
+  type VerificationSessionPendingHealthRequestPins
 } from '../contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
@@ -766,7 +770,7 @@ export async function assertTrustedMergedRequestRuntimeReachability(input: {
   }
 }
 
-export function prepareTrustedMainVerificationSession(input: {
+type TrustedMainVerificationSessionPreparationInput = {
   repository: string;
   candidate: GitHubCandidateObservation;
   manifestPath: string;
@@ -787,16 +791,14 @@ export function prepareTrustedMainVerificationSession(input: {
   mainHealthInput?: MainHealthLedgerInput;
   scopeSourceTransport?: ScopeAuthorizationInput['issuer']['sourceTransport'];
   sourceProgramTransition?: CiSourceProgramTransitionBinding;
-}): Readonly<{
-  request: VerificationSessionHostedRequest;
-  sessionRevision: Digest;
-  scopeAuthorizationRevision: Digest;
-  sessionProposalDigest: Digest;
-  actionPlanClosure: CiVerificationActionPlanClosure;
-  testImpactTransitionDigest: Digest;
-  reviewBarrier: GitHubReviewBarrierObservation;
-  facts: VerificationSessionHostedFacts | null;
-}> {
+};
+
+type VerificationSessionCandidatePlanInput = Omit<TrustedMainVerificationSessionPreparationInput,
+  'mainHealthInput' | 'mainHealthChecks' | 'reviewBarrier' | 'observedAt'
+  | 'integrationPrincipalNodeId' | 'sourceRunId' | 'sourceRef' | 'scopeSourceTransport'>;
+
+/** Pure candidate planning does not observe health, issue a Scope grant, or bind a Session. */
+function prepareVerificationSessionCandidatePlan(input: VerificationSessionCandidatePlanInput) {
   const candidate = input.candidate;
   const executionEnvironment = input.executionEnvironment;
   if (executionEnvironment === undefined) {
@@ -849,7 +851,47 @@ export function prepareTrustedMainVerificationSession(input: {
     scopeProposalDigest: proposalDigest,
     actionPlanClosureDigest: actionPlan.actionPlanDigest, profile: input.profile, environmentDigest,
     trustRevision: candidate.baseSha, reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
-    mainHealthPolicyDigest: CI_MAIN_HEALTH_POLICY_DIGEST });
+    mainHealthPolicyDigest: executionEnvironment.kind === 'local'
+      ? TRUSTED_RUNTIME_MAIN_HEALTH_POLICY_DIGEST : CI_MAIN_HEALTH_POLICY_DIGEST });
+  return Object.freeze({ candidate, executionEnvironment, transition, environmentDigest,
+    issuerSemantic, proposalDigest, scopeRevision, actionPlan, sessionProposalDigest });
+}
+
+/** Local preparation has no health dependency. Execution must independently obtain
+ * qualified MainHealth before the original Session owner can bind this plan. */
+export function prepareTrustedRuntimePendingHealthVerificationSession(
+  input: VerificationSessionCandidatePlanInput
+) {
+  if (input.executionEnvironment?.kind !== 'local') {
+    throw new Error('Pending MainHealth preparation requires one explicit local execution environment.');
+  }
+  const { candidate, proposalDigest, scopeRevision, actionPlan, sessionProposalDigest, transition } =
+    prepareVerificationSessionCandidatePlan(input);
+  const request = createVerificationSessionPendingHealthLocalPreparationRequest({
+    prNumber: candidate.number, expectedBaseSha: candidate.baseSha, expectedBaseTreeSha: candidate.baseTreeSha,
+    expectedHeadSha: candidate.headSha, expectedHeadTreeSha: candidate.headTreeSha,
+    manifestPath: input.manifestPath, manifestDigest: input.manifestDigest, profile: input.profile,
+    expectedScopeProposalDigest: proposalDigest, expectedActionPlanDigest: actionPlan.actionPlanDigest,
+    expectedSessionProposalDigest: sessionProposalDigest,
+    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest
+  });
+  return Object.freeze({ request, scopeAuthorizationRevision: scopeRevision, sessionProposalDigest,
+    actionPlanClosure: actionPlan, testImpactTransitionDigest: transition.digest });
+}
+
+export function prepareTrustedMainVerificationSession(input: TrustedMainVerificationSessionPreparationInput): Readonly<{
+  request: VerificationSessionHostedRequest;
+  sessionRevision: Digest;
+  scopeAuthorizationRevision: Digest;
+  sessionProposalDigest: Digest;
+  actionPlanClosure: CiVerificationActionPlanClosure;
+  testImpactTransitionDigest: Digest;
+  reviewBarrier: GitHubReviewBarrierObservation;
+  facts: VerificationSessionHostedFacts | null;
+}> {
+  const { candidate, transition, environmentDigest,
+    issuerSemantic, proposalDigest, scopeRevision, actionPlan, sessionProposalDigest } =
+    prepareVerificationSessionCandidatePlan(input);
   const mainHealthInput = input.mainHealthInput ?? createObservedMainHealthInput({
     repository: input.repository, mainSha: candidate.baseSha,
     mainTreeSha: candidate.baseTreeSha, trustRevision: candidate.baseSha, observedAt: input.observedAt,
@@ -1108,13 +1150,46 @@ function createVerificationSessionHostedRequest(input: {
 
 export function createVerificationSessionLocalPreparationRequest(
   request: VerificationSessionHostedRequest
-): VerificationSessionLocalPreparationRequest {
+): VerificationSessionBoundLocalPreparationRequest {
   return Object.freeze({
     schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
     executionPlacement: 'local',
     authorityStage: 'preparation-only',
     request: parseVerificationSessionHostedRequest(JSON.stringify(request))
   });
+}
+
+/** Parse data only: neither the envelope nor any caller-provided digest is proof. */
+export function createVerificationSessionPendingHealthLocalPreparationRequest(
+  request: VerificationSessionPendingHealthRequestPins
+): VerificationSessionPendingHealthLocalPreparationRequest {
+  const value: unknown = JSON.parse(JSON.stringify(request));
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Pending MainHealth preparation pins must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const shaFields = ['expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha', 'expectedHeadTreeSha'];
+  const digestFields = ['manifestDigest', 'expectedScopeProposalDigest', 'expectedActionPlanDigest',
+    'expectedSessionProposalDigest', 'reviewPolicyDigest'];
+  const expected = [...shaFields, ...digestFields, 'prNumber', 'manifestPath', 'profile'].sort();
+  if (Object.keys(record).sort().join(',') !== expected.join(',')) {
+    throw new Error('Pending MainHealth preparation requires exact plan pins without a bound Session or operation.');
+  }
+  for (const field of shaFields) if (typeof record[field] !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(record[field] as string)) {
+    throw new Error(`Pending MainHealth preparation ${field} is invalid.`);
+  }
+  for (const field of digestFields) if (typeof record[field] !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(record[field] as string)) {
+    throw new Error(`Pending MainHealth preparation ${field} is invalid.`);
+  }
+  if (!Number.isSafeInteger(record.prNumber) || (record.prNumber as number) <= 0
+      || typeof record.manifestPath !== 'string' || typeof record.profile !== 'string') {
+    throw new Error('Pending MainHealth preparation scalar identity is invalid.');
+  }
+  return Object.freeze({ schema: CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA,
+    executionPlacement: 'local', authorityStage: 'preparation-only', healthBinding: 'pending-main-health',
+    request: Object.freeze(record as unknown as VerificationSessionPendingHealthRequestPins) });
 }
 
 /** Decode once at the local entry; the saved input grants no execution authority. */
@@ -1126,6 +1201,16 @@ export function parseVerificationSessionLocalPreparationRequest(
     throw new Error('Local preparation request must be an object.');
   }
   const record = value as Record<string, unknown>;
+  if (record.schema === CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
+    if (Object.keys(record).sort().join(',') !== 'authorityStage,executionPlacement,healthBinding,request,schema'
+        || record.executionPlacement !== 'local' || record.authorityStage !== 'preparation-only'
+        || record.healthBinding !== 'pending-main-health') {
+      throw new Error('Local preparation request requires the exact pending MainHealth preparation-only envelope.');
+    }
+    return createVerificationSessionPendingHealthLocalPreparationRequest(
+      record.request as VerificationSessionPendingHealthRequestPins
+    );
+  }
   if (Object.keys(record).sort().join(',') !== 'authorityStage,executionPlacement,request,schema'
       || record.schema !== CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
       || record.executionPlacement !== 'local' || record.authorityStage !== 'preparation-only') {
@@ -1136,24 +1221,56 @@ export function parseVerificationSessionLocalPreparationRequest(
   );
 }
 
-/** Re-preparation binds the actual environment into Session and Action identities.
- * Compare every saved pin before invoking any SourceTransition execution. */
+/** Reject all currently observable drift before paying for MainHealth execution.
+ * V1's health-dependent Session/operation pins remain mandatory at final binding. */
+export function assertVerificationSessionLocalPreparationInputsCurrent(
+  saved: VerificationSessionLocalPreparationRequest,
+  current: VerificationSessionPendingHealthLocalPreparationRequest
+): void {
+  const parsed = parseVerificationSessionLocalPreparationRequest(JSON.stringify(saved));
+  const fresh = parseVerificationSessionLocalPreparationRequest(JSON.stringify(current));
+  if (fresh.schema !== CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
+    throw new Error('Current local preparation inputs must be the pending MainHealth plan.');
+  }
+  if (parsed.schema === CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
+    if (encodeVerificationActionData(parsed.request) === encodeVerificationActionData(fresh.request)) return;
+  } else {
+    const { schema: _schema, expectedSessionRevision: _session, requestOperationId: _operation,
+      ...savedPins } = parsed.request;
+    const { expectedSessionProposalDigest: _proposal, ...currentPins } = fresh.request;
+    if (encodeVerificationActionData(savedPins) === encodeVerificationActionData(currentPins)) return;
+  }
+  throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
+}
+
+/** Compare every saved pin before invoking any SourceTransition execution.
+ * V1 still requires its complete frozen Session; V2 compares the pure proposal
+ * against the original owner's real-health-bound preparation, never a fake Session. */
 export function assertVerificationSessionLocalPreparationCurrent(
   saved: VerificationSessionLocalPreparationRequest,
-  current: VerificationSessionHostedRequest
+  current: VerificationSessionHostedRequest,
+  currentSessionProposalDigest?: Digest
 ): void {
   const parsed = parseVerificationSessionLocalPreparationRequest(JSON.stringify(saved));
   const prepared = parseVerificationSessionHostedRequest(JSON.stringify(current));
-  if (encodeVerificationActionData(parsed.request) !== encodeVerificationActionData(prepared)) {
-    throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
-  }
+  if (parsed.schema === CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
+    if (currentSessionProposalDigest === undefined) {
+      throw new Error('Pending MainHealth preparation requires the current original Session proposal digest.');
+    }
+    const { schema: _schema, expectedSessionRevision: _session, requestOperationId: _operation, ...pins } = prepared;
+    const currentPins = createVerificationSessionPendingHealthLocalPreparationRequest({ ...pins,
+      expectedSessionProposalDigest: currentSessionProposalDigest }).request;
+    if (encodeVerificationActionData(parsed.request) === encodeVerificationActionData(currentPins)) return;
+  } else if (encodeVerificationActionData(parsed.request) === encodeVerificationActionData(prepared)) return;
+  throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
 }
 
 export function parseVerificationSessionHostedRequest(
   source: string
 ): VerificationSessionHostedRequest {
   const value = JSON.parse(source) as Record<string, unknown>;
-  if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA) {
+  if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
+      || value?.schema === CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
     throw new Error('Local preparation-only request cannot be consumed by a hosted operation.');
   }
   // The exact legacy schema is hosted-only. It is accepted only at an explicitly

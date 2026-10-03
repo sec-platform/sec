@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "2c83104db7a13d2b01e1fa97a9e4b8fe5e073708c3d52fceeaf059ad7500329e",
+  "source_set_sha256": "032974cd2fe0ba099fb85e992880e800ec9953986461bf93bc17ddfa1d909ee4",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -19,8 +19,8 @@
     },
     {
       "path": ".documentation/known-regressions.json",
-      "bytes": 4440,
-      "sha256": "d398b2848ec5d2421be46b46760d1494f88654fbfb5d3f25eb33d85aef864097"
+      "bytes": 4478,
+      "sha256": "653e70a9cb6e8011cf818ef15638534788434026eaacb7bf7001a6b50904ca5d"
     },
     {
       "path": "AGENTS.md",
@@ -594,8 +594,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 93252,
-      "sha256": "c12cd07b5174c8f1ffec687113966fcd67fb3f44d67f58b1357522b15f3f3cb7"
+      "bytes": 95297,
+      "sha256": "5a452d85e256a4de2646015945cc694725d4d119708ab862aae3a3a490c4b3d5"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -1234,8 +1234,8 @@
     },
     {
       "path": "docs/运行/持久化提交与恢复.md",
-      "bytes": 98569,
-      "sha256": "bacac22d08106408543518c5945d4280b4ddefa44c7806c46b910a7921e68700"
+      "bytes": 101105,
+      "sha256": "6bf0c30f50813da3cec3a249a3e6c2524f3fa51c60ad331b679d2fead3ce22f6"
     },
     {
       "path": "docs/运行/权限与资源管理.md",
@@ -1795,7 +1795,7 @@
     {
       "path": "examples/开发成品/sec.lock.json",
       "bytes": 15834,
-      "sha256": "5b9b247bc93b5a05c5f4a357e0696d10c696fa391758cb393f06980444bce68e"
+      "sha256": "380024eac7c3437b9867836e47456d108ffa8c06e8bbd85b98bb9d5600e9a1f3"
     },
     {
       "path": "examples/开发成品/sec.project.json",
@@ -1875,7 +1875,7 @@
     {
       "path": "examples/成品形态/sec.lock.json",
       "bytes": 2272,
-      "sha256": "b5b55ed8d85cd8265360f6290357b71f780035241fe7765444729df494a99af5"
+      "sha256": "f6447cee8db2d9f1544acbea7451ab4b26c91961d141c5cd5ef34535d6d9edc4"
     },
     {
       "path": "examples/成品形态/sec.project.json",
@@ -2020,7 +2020,7 @@
     {
       "path": "examples/结构化工作台/sec.lock.json",
       "bytes": 12735,
-      "sha256": "adb68009acc8216fc2cac28e90793aa25072cee18b9a7ae3395b92cc54a3f326"
+      "sha256": "1951f289f93c6a4f3c51092cabd1fff26196ac16610c25eac2f7f64d148b0161"
     },
     {
       "path": "examples/结构化工作台/sec.project.json",

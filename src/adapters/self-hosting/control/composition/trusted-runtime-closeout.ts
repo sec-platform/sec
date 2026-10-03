@@ -32,13 +32,13 @@ import {
 } from '../../../verification/platform/ci/runtime/verification-session-github.ts';
 import {
   assertVerificationSessionLocalPreparationCurrent,
+  assertVerificationSessionLocalPreparationInputsCurrent,
   createTrustedRuntimeArtifactObservationFromDurableFile,
-  createVerificationSessionLocalPreparationRequest,
   createVerificationSessionMergeOperationId,
   createVerificationSessionReviewReceipt,
   finalizeVerificationSessionHostedArtifact,
   parseVerificationSessionLocalPreparationRequest,
-  prepareTrustedMainVerificationSession,
+  prepareTrustedRuntimePendingHealthVerificationSession,
   prepareTrustedRuntimeVerificationSession,
   prepareVerificationSessionTrustedRuntimeMergeInput,
   refreshVerificationSessionHostedArtifact
@@ -55,11 +55,11 @@ import {
 import { renderIndependentReviewTrailer } from '../../../verification/platform/review/contract/stability.ts';
 import {
   executeTrustedRuntimeContainerVerification,
-  executeTrustedRuntimeMainHealth,
   executeTrustedRuntimeWorkspaceCanary,
   parseTrustedRuntimeContainerReceipt,
   parseTrustedRuntimeSourceProgramAttemptEvidence,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
+  withTrustedRuntimeMainHealthQualification,
   type SourceProgramTransitionQualification,
   type TrustedRuntimeContainerReceipt
 } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
@@ -84,6 +84,8 @@ import {
 } from '../main-health/main-health-observation.ts';
 import {
   assertMainHealthGitHubReadOperationBudgetCurrent,
+  assertMainHealthPublicationAuthorityStable,
+  assertMainHealthPublicationLedger,
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubDefaultBranchSha,
   withMainHealthGitHubReadOperationBudget
@@ -517,13 +519,10 @@ async function assertCurrentTrustedRuntimeMainHealthSubject(input: Readonly<{
   }
 }
 
-export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
+async function withCurrentTrustedRuntimeMainHealth<T>(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-}>): Promise<Readonly<{
-  reused: boolean;
-  receipt: TrustedRuntimeMainHealthReceipt;
-}>> {
+}>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const firstFence = await observeTrustedRuntimeGitFence(repositoryRoot);
   assertOriginMatchesRepository(firstFence.originUrl, input.repository);
@@ -557,84 +556,65 @@ export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
   }, async (authority) => {
     const stateDirectory = authority.directory(locator.directory);
     const generationLease = acquirePhysicalMutationLease(
-      stateDirectory,
-      `main-health-${firstFence.headSha}.lock`
+      stateDirectory, `main-health-${firstFence.headSha}.lock`
     );
     if (generationLease === null) {
       fail('MainHealth receipt generation is already active or its owner liveness is unknown');
     }
+    let generationSettled = false;
     try {
-      const existing = readNoFollowOrdinaryFile(stateDirectory, locator.fileName);
-      if (existing !== null) {
-        const receipt = parseCanonicalTrustedRuntimeMainHealthReceipt(existing);
-        if (receipt.repository !== input.repository
-            || receipt.mainSha !== firstFence.headSha
-            || receipt.mainTreeSha !== firstFence.treeSha) {
-          fail('existing MainHealth receipt belongs to another exact subject');
-        }
-        // Re-enter the immutable publication owner with the exact same bytes.
-        // An interrupted predecessor may have completed the no-replace rename
-        // before its parent-directory durability boundary. This call validates
-        // the same physical final value and re-establishes durable readback.
-        const recovered = publishCanonical({
-          parent: stateDirectory,
-          name: locator.fileName,
-          value: receipt,
-          parse: parseCanonicalTrustedRuntimeMainHealthReceipt
-        });
-        if (generationLease.recoveryPending) {
-          generationLease.acknowledgeReclaimedRecovery();
-        }
-        await assertCurrentTrustedRuntimeMainHealthSubject({
-          repositoryRoot,
-          repository: input.repository,
-          expectedHeadSha: firstFence.headSha,
-          expectedTreeSha: firstFence.treeSha,
-          expectedOriginUrl: firstFence.originUrl
-        });
-        return Object.freeze({ reused: true, receipt: recovered });
-      }
-      // Final-name absence proves an interrupted predecessor never published
-      // an adopted receipt. Any private random candidate was never authority;
-      // after this exact readback the successor may clear predecessor lineage
-      // and execute the same exact-main generation.
-      if (generationLease.recoveryPending) {
-        generationLease.acknowledgeReclaimedRecovery();
-      }
-
-      const receipt = await executeTrustedRuntimeMainHealth({
+      // Historical JSON cannot recover production qualification. The original
+      // runtime owner performs a fresh isolated attempt and owns live reuse.
+      return await withTrustedRuntimeMainHealthQualification({
         repositoryRoot,
         repository: input.repository,
         mainSha: firstFence.headSha,
         mainTreeSha: firstFence.treeSha
+      }, async (receipt) => {
+        await assertCurrentTrustedRuntimeMainHealthSubject({
+          repositoryRoot, repository: input.repository,
+          expectedHeadSha: firstFence.headSha, expectedTreeSha: firstFence.treeSha,
+          expectedOriginUrl: firstFence.originUrl
+        });
+        const receiptLocator = trustedRuntimeMainHealthReceiptLocator({
+          repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+          mainSha: firstFence.headSha,
+          receiptDigest: receipt.receiptDigest
+        });
+        publishCanonical({
+          parent: stateDirectory, name: receiptLocator.fileName,
+          value: receipt, parse: parseCanonicalTrustedRuntimeMainHealthReceipt
+        });
+        await assertCurrentTrustedRuntimeMainHealthSubject({
+          repositoryRoot, repository: input.repository,
+          expectedHeadSha: firstFence.headSha, expectedTreeSha: firstFence.treeSha,
+          expectedOriginUrl: firstFence.originUrl
+        });
+        if (generationLease.recoveryPending) generationLease.acknowledgeReclaimedRecovery();
+        generationLease.release();
+        generationSettled = true;
+        return await operation(receipt);
       });
-
-      await assertCurrentTrustedRuntimeMainHealthSubject({
-        repositoryRoot,
-        repository: input.repository,
-        expectedHeadSha: firstFence.headSha,
-        expectedTreeSha: firstFence.treeSha,
-        expectedOriginUrl: firstFence.originUrl
-      });
-      const published = publishCanonical({
-        parent: stateDirectory,
-        name: locator.fileName,
-        value: receipt,
-        parse: parseCanonicalTrustedRuntimeMainHealthReceipt
-      });
-      await assertCurrentTrustedRuntimeMainHealthSubject({
-        repositoryRoot,
-        repository: input.repository,
-        expectedHeadSha: firstFence.headSha,
-        expectedTreeSha: firstFence.treeSha,
-        expectedOriginUrl: firstFence.originUrl
-      });
-      return Object.freeze({ reused: false, receipt: published });
     } finally {
-      if (generationLease.recoveryPending) generationLease.restoreReclaimedOwner();
-      else generationLease.release();
+      if (!generationSettled) {
+        if (generationLease.recoveryPending) generationLease.restoreReclaimedOwner();
+        else generationLease.release();
+      }
     }
   });
+}
+
+export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): Promise<Readonly<{
+  reused: false;
+  receipt: TrustedRuntimeMainHealthReceipt;
+  authority: 'historical-evidence-only';
+}>> {
+  return await withCurrentTrustedRuntimeMainHealth(input, async (receipt) => Object.freeze({
+    reused: false as const, receipt, authority: 'historical-evidence-only' as const
+  }));
 }
 
 async function mergeExactHead(input: Readonly<{
@@ -915,18 +895,31 @@ async function executeTrustedRuntimeCandidateStage(
           || current.baseTreeSha !== candidate.baseTreeSha || current.headTreeSha !== candidate.headTreeSha) {
         fail('PR transition drifted before serialized closeout admission');
       }
-      const preMerge = await withMainHealthGitHubReadOperationBudget({
-        repositoryRoot,
-        repository: input.repository,
-        operation: async () => await closeoutOpenCandidateWithTrustedRuntime({
-          input, repositoryRoot, github, candidate: current, sourceTransitionUseCase, stage
-        })
+      const observation = await observeOpenCandidateWithTrustedRuntime({
+        input, repositoryRoot, github, candidate: current
       });
-      // All predecessor evidence was read and a fresh isolated assessment was
-      // adopted, or the live review barrier deliberately held this attempt.
-      if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
-      if (preMerge.kind !== 'ready') return preMerge.value;
-      return await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
+      if (stage.kind === 'verification-only') {
+        assertVerificationSessionLocalPreparationInputsCurrent(stage.request, observation.planning.request);
+      }
+      if (observation.reviewBarrier.status !== 'clear') {
+        if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
+        return pendingTrustedRuntimeReview(observation).value;
+      }
+      return await withCurrentTrustedRuntimeMainHealth({
+        repositoryRoot, repository: input.repository
+      }, async (qualifiedLocalReceipt) => {
+        const preMerge = await withMainHealthGitHubReadOperationBudget({
+          repositoryRoot,
+          repository: input.repository,
+          operation: async () => await closeoutOpenCandidateWithTrustedRuntime({
+            input, repositoryRoot, github, candidate: current, sourceTransitionUseCase,
+            stage, qualifiedLocalReceipt, observation
+          })
+        });
+        if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
+        if (preMerge.kind !== 'ready') return preMerge.value;
+        return await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
+      });
     } finally {
       try {
         await authority.assertCurrent();
@@ -948,7 +941,7 @@ type TrustedRuntimeCandidatePreparationInput = Readonly<{
 /** Preparation observes and binds inputs; it does not execute candidate code or
  * produce verification evidence, publish status, or merge. Full closeout uses
  * this same preparation under its original effect lease and budget. */
-async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
+async function observeOpenCandidateWithTrustedRuntime(args: Readonly<{
   input: TrustedRuntimeCandidatePreparationInput;
   repositoryRoot: string;
   github: VerificationSessionGitHubClient;
@@ -1005,59 +998,75 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
   const observedAt = new Date().toISOString();
   const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentity}@${candidate.baseSha}`;
-  const mainHealthObservation = await observeCanonicalMainHealthForPublication({
-    repositoryRoot,
-    repository: input.repository,
-    defaultBranch: candidate.baseBranch,
-    mainSha: candidate.baseSha,
-    mainTreeSha: candidate.baseTreeSha
-  });
-  if (mainHealthObservation.ledger === null
-      || mainHealthObservation.ledger.producer.sourceTransport !== 'github-api'
-      || mainHealthObservation.projection.state !== 'healthy'
-      || mainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
-    fail(
-      `canonical MainHealth is not healthy and ordinary-only at verification preparation: `
-      + `${mainHealthObservation.repairDecision.reasonCode}`
-    );
-  }
-  const mainHealthInput = mainHealthObservation.ledger;
-  const preparationInput = {
-    repository: input.repository,
-    candidate,
-    manifestPath,
-    manifestDigest,
-    changedPaths: changed.changedPaths,
-    testImpactTransition: changed.testImpactTransition,
-    testImpactSourceProvider: changed.testImpactSourceProvider,
-    profile: manifest.requiredProfile,
-    integrationPrincipalNodeId: principal.nodeId,
-    producerPrincipalNodeId: principal.nodeId,
-    sourceRunId: `trusted-runtime-${candidate.headSha.slice(0, 16)}`,
-    sourceRef: runtimeRef,
-    observedAt,
-    reviewBarrier,
-    mainHealthChecks: Object.freeze([]),
-    dependencyBlobs,
+  const candidatePlanInput = {
+    repository: input.repository, candidate, manifestPath, manifestDigest,
+    changedPaths: changed.changedPaths, testImpactTransition: changed.testImpactTransition,
+    testImpactSourceProvider: changed.testImpactSourceProvider, profile: manifest.requiredProfile,
+    producerPrincipalNodeId: principal.nodeId, dependencyBlobs,
     executionEnvironment: TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
-    sourceProgramTransition,
-    mainHealthInput
+    sourceProgramTransition
   } as const;
-  const planning = prepareTrustedMainVerificationSession(preparationInput);
-  if (reviewBarrier.status !== 'clear') {
-    return Object.freeze({
-      kind: 'waiting' as const,
-      request: planning.request,
-      value: Object.freeze({
-        status: 'WAITING_REVIEW',
-        sessionRevision: planning.sessionRevision,
-        reason: reviewBarrier.status === 'provider-schema-unsupported'
-          ? reviewBarrier.reasonCode
-          : reviewBarrier.reason
-      })
-    });
+  const planning = prepareTrustedRuntimePendingHealthVerificationSession(candidatePlanInput);
+  return Object.freeze({ input, repositoryRoot, github, candidate, candidatePlanInput, planning,
+    principal, integrationPermission, observedAt, runtimeRef, sourceProgramTransition, dependencyBlobs,
+    observeAuthorApproval, authorApproval, manifestPath, manifestDigest, manifest, changed, reviewBarrier });
+}
+
+function pendingTrustedRuntimeReview(observation: Awaited<ReturnType<typeof observeOpenCandidateWithTrustedRuntime>>) {
+  const reviewBarrier = observation.reviewBarrier;
+  return Object.freeze({
+    kind: 'waiting' as const,
+    request: observation.planning.request,
+    value: Object.freeze({ status: 'WAITING_REVIEW', sessionRevision: null,
+      healthBinding: 'pending-main-health' as const,
+      reason: reviewBarrier.status === 'provider-schema-unsupported'
+        ? reviewBarrier.reasonCode : reviewBarrier.status === 'clear' ? 'clear' : reviewBarrier.reason })
+  });
+}
+
+async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
+  observation: Awaited<ReturnType<typeof observeOpenCandidateWithTrustedRuntime>>;
+  qualifiedLocalReceipt: TrustedRuntimeMainHealthReceipt;
+}>) {
+  const { input, repositoryRoot, github, candidate, candidatePlanInput, planning,
+    principal, integrationPermission, runtimeRef, sourceProgramTransition, dependencyBlobs,
+    observeAuthorApproval, authorApproval, manifestPath, manifestDigest, manifest, changed } = args.observation;
+  await assertTrustedBaseRuntime(repositoryRoot, candidate);
+  const current = await github.observeCandidate(input.repository, input.prNumber);
+  if (current.state !== 'OPEN' || current.isDraft || current.isCrossRepository
+      || current.baseSha !== candidate.baseSha || current.baseTreeSha !== candidate.baseTreeSha
+      || current.headSha !== candidate.headSha || current.headTreeSha !== candidate.headTreeSha) {
+    fail('candidate drifted while MainHealth was executing');
   }
-  const prepared = prepareTrustedRuntimeVerificationSession(preparationInput);
+  const freshPrincipal = await github.observeViewerPrincipal(input.repository);
+  if (freshPrincipal.nodeId !== principal.nodeId
+      || (freshPrincipal.permission !== 'admin' && freshPrincipal.permission !== 'maintain')) {
+    fail('principal drifted while MainHealth was executing');
+  }
+  const reviewBarrier = await github.observeReviewBarrier({ repository: input.repository,
+    prNumber: input.prNumber, headSha: candidate.headSha,
+    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) });
+  if (reviewBarrier.status !== 'clear') return pendingTrustedRuntimeReview({ ...args.observation, reviewBarrier });
+  const observedAt = new Date().toISOString();
+  const mainHealthObservation = await observeCanonicalMainHealthForPublication({
+    repositoryRoot, repository: input.repository, defaultBranch: candidate.baseBranch,
+    mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha,
+    qualifiedLocalReceipt: args.qualifiedLocalReceipt
+  });
+  if (mainHealthObservation.ledger === null || mainHealthObservation.projection.state !== 'healthy'
+      || mainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
+    fail(`canonical MainHealth is not healthy and ordinary-only at verification preparation: ${mainHealthObservation.repairDecision.reasonCode}`);
+  }
+  assertMainHealthPublicationLedger({ authority: mainHealthObservation.authority,
+    ledger: mainHealthObservation.ledger, now: observedAt });
+  const prepared = prepareTrustedRuntimeVerificationSession({
+    ...candidatePlanInput, integrationPrincipalNodeId: principal.nodeId,
+    sourceRunId: `trusted-runtime-${candidate.headSha.slice(0, 16)}`, sourceRef: runtimeRef,
+    observedAt, reviewBarrier, mainHealthChecks: Object.freeze([]),
+    mainHealthInput: mainHealthObservation.ledger
+  });
+  assertVerificationSessionLocalPreparationCurrent(planning.request, prepared.request,
+    prepared.envelope.session.sessionProposalDigest);
   return Object.freeze({
     kind: 'prepared' as const, prepared, principal, integrationPermission,
     observedAt, runtimeRef, sourceProgramTransition, dependencyBlobs,
@@ -1074,6 +1083,16 @@ export function readLocalVerificationStatusWithTrustedRuntime(input: Readonly<{
   request: VerificationSessionLocalPreparationRequest;
 }>) {
   const saved = parseVerificationSessionLocalPreparationRequest(JSON.stringify(input.request));
+  if ('healthBinding' in saved) {
+    return Object.freeze({ status: 'LOCAL_REQUEST_OBSERVED' as const, execution: 'local' as const,
+      stage: 'read-only-projection' as const, observationScope: 'saved-local-request' as const,
+      savedRequest: saved, healthBinding: saved.healthBinding, sessionRevision: null,
+      verificationStatus: 'not-observed' as const, evidenceDigest: null,
+      evidenceRecord: 'not-observed' as const, artifactDigest: null,
+      unverifiedRequestFields: Object.freeze(['repository', ...Object.keys(saved.request)]),
+      currentSubject: 'not-observed' as const, sourceQualification: 'not-revalidated' as const,
+      integrationAuthorization: 'not-evaluated' as const, executionStarted: false as const });
+  }
   const request = saved.request;
   const layout = resolveSecRuntimeStateForRepository({
     repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository
@@ -1142,30 +1161,15 @@ export function readLocalVerificationStatusWithTrustedRuntime(input: Readonly<{
 export async function prepareWithTrustedRuntime(input: TrustedRuntimeCandidatePreparationInput) {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
-  return await withMainHealthGitHubReadOperationBudget({
-    repositoryRoot,
-    repository: input.repository,
-    operation: async () => {
-      const candidate = await github.observeCandidate(input.repository, input.prNumber);
-      const preparation = await prepareOpenCandidateWithTrustedRuntime({
-        input, repositoryRoot, github, candidate
-      });
-      if (preparation.kind === 'waiting') {
-        return Object.freeze({ ...preparation.value, execution: 'local' as const,
-          stage: 'preparation-only' as const,
-          request: createVerificationSessionLocalPreparationRequest(preparation.request) });
-      }
-      return Object.freeze({
-        status: 'LOCAL_PREPARED' as const,
-        execution: 'local' as const,
-        stage: 'preparation-only' as const,
-        sessionRevision: preparation.prepared.envelope.session.sessionRevision,
-        request: createVerificationSessionLocalPreparationRequest(preparation.prepared.request),
-        verificationStatus: 'not-run' as const,
-        sourceQualification: 'not-run' as const,
-        integrationAuthorization: 'not-issued' as const
-      });
-    }
+  const candidate = await github.observeCandidate(input.repository, input.prNumber);
+  const observation = await observeOpenCandidateWithTrustedRuntime({ input, repositoryRoot, github, candidate });
+  const state = observation.reviewBarrier.status === 'clear'
+    ? { status: 'LOCAL_PREPARED' as const } : pendingTrustedRuntimeReview(observation).value;
+  return Object.freeze({
+    ...state, execution: 'local' as const, stage: 'preparation-only' as const,
+    healthBinding: 'pending-main-health' as const, sessionRevision: null,
+    request: observation.planning.request, verificationStatus: 'not-run' as const,
+    sourceQualification: 'not-run' as const, integrationAuthorization: 'not-issued' as const
   });
 }
 
@@ -1181,16 +1185,18 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   candidate: GitHubCandidateObservation;
   sourceTransitionUseCase: TrustedRuntimeSourceTransitionUseCase;
   stage: TrustedRuntimeCandidateStage;
+  qualifiedLocalReceipt: TrustedRuntimeMainHealthReceipt;
+  observation: Awaited<ReturnType<typeof observeOpenCandidateWithTrustedRuntime>>;
 }>): Promise<TrustedRuntimeCloseoutOpenResult> {
   const { input, repositoryRoot, github, candidate, sourceTransitionUseCase } = args;
   const preparation = await prepareOpenCandidateWithTrustedRuntime({
-    input, repositoryRoot, github, candidate
+    observation: args.observation, qualifiedLocalReceipt: args.qualifiedLocalReceipt
   });
-  if (args.stage.kind === 'verification-only') {
-    assertVerificationSessionLocalPreparationCurrent(args.stage.request,
-      preparation.kind === 'waiting' ? preparation.request : preparation.prepared.request);
-  }
   if (preparation.kind === 'waiting') return preparation;
+  if (args.stage.kind === 'verification-only') {
+    assertVerificationSessionLocalPreparationCurrent(args.stage.request, preparation.prepared.request,
+      preparation.prepared.envelope.session.sessionProposalDigest);
+  }
   const { prepared, principal, integrationPermission, observedAt, runtimeRef,
     sourceProgramTransition, dependencyBlobs, observeAuthorApproval, authorApproval,
     manifestPath, manifestDigest, manifest, changed, mainHealthObservation } = preparation;
@@ -1326,7 +1332,8 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         sessionRevision: artifact.session.sessionRevision,
         snapshotDigest: preMergeBarrier.snapshot.snapshotDigest })
     });
-    // T2 rereads the hosted producer. Its stable digest excludes observation
+    await assertTrustedBaseRuntime(repositoryRoot, candidate);
+    // T2 rereads the selected producer. Its stable digest excludes observation
     // time but binds producer provenance and the exact repository result, so
     // healthy-to-healthy provenance drift cannot pass the merge gate.
     const freshMainHealthObservation = await observeCanonicalMainHealthForPublication({
@@ -1334,10 +1341,10 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       repository: input.repository,
       defaultBranch: candidate.baseBranch,
       mainSha: candidate.baseSha,
-      mainTreeSha: candidate.baseTreeSha
+      mainTreeSha: candidate.baseTreeSha,
+      qualifiedLocalReceipt: args.qualifiedLocalReceipt
     });
     if (freshMainHealthObservation.ledger === null
-        || freshMainHealthObservation.ledger.producer.sourceTransport !== 'github-api'
         || freshMainHealthObservation.projection.state !== 'healthy'
         || freshMainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
       fail(
@@ -1345,8 +1352,11 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         + `${freshMainHealthObservation.repairDecision.reasonCode}`
       );
     }
+    assertMainHealthPublicationAuthorityStable(mainHealthObservation.authority, freshMainHealthObservation.authority);
+    assertMainHealthPublicationLedger({ authority: freshMainHealthObservation.authority,
+      ledger: freshMainHealthObservation.ledger, now: issuedAt });
     if (freshMainHealthObservation.stableDigest !== mainHealthObservation.stableDigest) {
-      fail('canonical MainHealth hosted producer provenance drifted between closeout snapshots');
+      fail('canonical MainHealth selected producer provenance drifted between closeout snapshots');
     }
     const freshMainHealth = freshMainHealthObservation.ledger;
     const artifactObservation = createTrustedRuntimeArtifactObservationFromDurableFile({
@@ -1395,7 +1405,11 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       issuedAt,
       expiresAt: new Date(Date.parse(issuedAt) + 5 * 60_000).toISOString()
     });
-    const gate = CodexDevelopmentEvaluateTrustedRuntimeMergeGate(gateInput, sourceProgramTransitionQualification);
+    const gate = CodexDevelopmentEvaluateTrustedRuntimeMergeGate(gateInput, sourceProgramTransitionQualification, {
+      authority: freshMainHealthObservation.authority,
+      receipt: args.qualifiedLocalReceipt,
+      repositoryRoot
+    });
     const gateReadback = publishCanonical({
       parent: stateDirectory,
       name: `merge-gate-${gate.resultDigest.slice(7)}.json`,

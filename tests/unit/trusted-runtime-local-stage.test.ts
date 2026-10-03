@@ -176,7 +176,7 @@ test('verification-only composition publishes through original journals and stop
   expect(observed.failure).toBeNull();
   expect(observed.result).toMatchObject({ status: 'LOCAL_VERIFIED', stage: 'verification-only',
     integrationAuthorization: 'not-issued-by-this-operation', actionEvidenceReused: false });
-  expect(observed.counters).toMatchObject({ source: 1, review: 1, currentSubject: 4,
+  expect(observed.counters).toMatchObject({ source: 1, review: 2, currentSubject: 5,
     remoteWrite: 0, platform: 0 });
   expect(observed.files).toContain('verification-action.json');
   expect(observed.files.some((file: string) => file.startsWith('source-program-attempt-'))).toBe(true);
@@ -192,7 +192,7 @@ test('verification-only composition publishes through original journals and stop
 test('full closeout still continues to its original pre-merge review boundary', () => {
   const observed = compositionScenario('full-closeout');
   expect(observed.failure).toContain('TEST_PRE_MERGE_BOUNDARY');
-  expect(observed.counters).toMatchObject({ source: 1, review: 2, remoteWrite: 0, platform: 0 });
+  expect(observed.counters).toMatchObject({ mainHealth: 1, mainHealthLeaseDuringSource: 0, source: 1, review: 3, remoteWrite: 0, platform: 0 });
   expect(observed.files).toContain('verification-action.json');
   expect(observed.leaseFiles).toEqual([]);
 });
@@ -200,7 +200,7 @@ test('full closeout still continues to its original pre-merge review boundary', 
 test('local environment drift is rejected before the SourceTransition owner executes', () => {
   const observed = compositionScenario('environment-drift');
   expect(observed.failure).toContain('differs from current exact candidate, Session or Action environment');
-  expect(observed.counters).toMatchObject({ source: 0, remoteWrite: 0, platform: 0 });
+  expect(observed.counters).toMatchObject({ mainHealth: 0, source: 0, remoteWrite: 0, platform: 0 });
   expect(observed.files).toEqual([]);
   expect(observed.leaseFiles).toEqual([]);
 });
@@ -217,7 +217,7 @@ test('local verification retains pending evidence and needs-author without inven
   const observed = compositionScenario('source-waiting');
   expect(observed.failure).toBeNull();
   expect(observed.result.status).toBe('needs-author');
-  expect(observed.counters).toMatchObject({ source: 1, review: 1, remoteWrite: 0, platform: 0 });
+  expect(observed.counters).toMatchObject({ source: 1, review: 2, remoteWrite: 0, platform: 0 });
   expect(observed.files).toContain('verification-pending-qualification.json');
   expect(observed.files).not.toContain('verification-action.json');
   expect(observed.files.some((file: string) => file.startsWith('source-program-adoption-'))).toBe(false);
@@ -229,7 +229,7 @@ test('local verification retains pending evidence and needs-author without inven
 test('local verification rechecks the subject after publication without entering integration', () => {
   const observed = compositionScenario('subject-drift');
   expect(observed.failure).toContain('candidate drifted after durable Verification');
-  expect(observed.counters).toMatchObject({ source: 1, review: 1, remoteWrite: 0, platform: 0 });
+  expect(observed.counters).toMatchObject({ source: 1, review: 2, remoteWrite: 0, platform: 0 });
   expect(observed.files).toContain('verification-action.json');
   expect(observed.leaseFiles).toEqual([]);
 });
@@ -239,7 +239,7 @@ test('local verification reuse still invokes the original live SourceTransition 
   expect(observed.failure).toBeNull();
   expect(observed.result).toMatchObject({ status: 'LOCAL_VERIFIED', actionEvidenceReused: true,
     integrationAuthorization: 'not-issued-by-this-operation' });
-  expect(observed.counters).toMatchObject({ source: 2, review: 2, remoteWrite: 0, platform: 0 });
+  expect(observed.counters).toMatchObject({ source: 2, review: 4, remoteWrite: 0, platform: 0 });
   expect(observed.leaseFiles).toEqual([]);
 });
 
@@ -248,7 +248,30 @@ test('local verification preserves the review wait and does not start source exe
   const observed = compositionScenario('review-waiting');
   expect(observed.failure).toBeNull();
   expect(observed.result.status).toBe('WAITING_REVIEW');
-  expect(observed.counters).toMatchObject({ source: 0, review: 1, remoteWrite: 0, platform: 0 });
+  expect(observed.counters).toMatchObject({ mainHealth: 0, source: 0, review: 1, remoteWrite: 0, platform: 0 });
   expect(observed.files).toEqual([]);
   expect(observed.leaseFiles).toEqual([]);
+});
+
+
+test('local readonly preparation returns pending health pins without starting MainHealth', () => {
+  const observed = compositionScenario('prepare-only');
+  expect(observed.failure).toBeNull();
+  expect(observed.result).toMatchObject({ status: 'LOCAL_PREPARED', stage: 'preparation-only',
+    healthBinding: 'pending-main-health', sessionRevision: null,
+    request: { schema: 'sec-verification-session-local-preparation-v2' } });
+  expect(observed.counters).toMatchObject({ mainHealth: 0, source: 0, remoteWrite: 0, platform: 0 });
+  expect(observed.files).toEqual([]);
+  expect(observed.leaseFiles).toEqual([]);
+});
+
+test('pending-health request reaches real local composition after health and source qualification', () => {
+  const observed = compositionScenario('pending-health-verified');
+  expect(observed.failure).toBeNull();
+  expect(observed.result).toMatchObject({ status: 'LOCAL_VERIFIED', stage: 'verification-only' });
+  expect(observed.counters).toMatchObject({ mainHealth: 1, mainHealthLeaseDuringSource: 0,
+    source: 1, remoteWrite: 0, platform: 0 });
+  expect(observed.projection).toMatchObject({ healthBinding: 'pending-main-health',
+    sessionRevision: null, executionStarted: false, observationScope: 'saved-local-request' });
+  expect(observed.files).toContain('verification-action.json');
 });

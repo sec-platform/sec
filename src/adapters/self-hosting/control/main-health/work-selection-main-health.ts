@@ -31,7 +31,8 @@ import {
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
   HOSTED_MAIN_HEALTH_FRESHNESS_MS,
   parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator
+  trustedRuntimeMainHealthReceiptLocator,
+  type TrustedRuntimeMainHealthReceipt
 } from './main-health-observation.ts';
 import {
   compileMainHealthRepairDecision,
@@ -135,22 +136,35 @@ function decodeExactUtf8(bytes: Uint8Array): string {
   return text;
 }
 
-function observeTrustedRuntimeProvider(input: Readonly<{
+async function observeTrustedRuntimeProvider(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
   now: string;
-}>): WorkSelectionMainHealthProviderObservation {
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
+}>): Promise<WorkSelectionMainHealthProviderObservation> {
   let receiptBytes: Uint8Array | null = null;
+  if (input.qualifiedLocalReceipt === undefined) {
+    return Object.freeze({ kind: 'unavailable', ref: invalidRef(
+      'trusted-runtime-live-qualification-required', `${input.repository}@${input.mainSha}`
+    ) });
+  }
   try {
+    const { assertTrustedRuntimeMainHealthQualification } = await import(
+      '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts'
+    );
+    const qualification = assertTrustedRuntimeMainHealthQualification({
+      ...input, receipt: input.qualifiedLocalReceipt
+    });
     const layout = resolveSecRuntimeStateForRepository({
       repository: input.repository,
       repositoryRoot: input.repositoryRoot
     });
     const locator = trustedRuntimeMainHealthReceiptLocator({
       repositoryStateRoot: layout.repositoryStateRoot,
-      mainSha: input.mainSha
+      mainSha: input.mainSha,
+      receiptDigest: input.qualifiedLocalReceipt.receiptDigest
     });
     const presence = inspectExactNoFollowDirectoryPresence(
       locator.directory,
@@ -169,7 +183,8 @@ function observeTrustedRuntimeProvider(input: Readonly<{
         ref: invalidRef('trusted-runtime-noncanonical-receipt-bytes', receiptBytes)
       });
     }
-    if (receipt.repository !== input.repository
+    if (receipt.receiptDigest !== input.qualifiedLocalReceipt.receiptDigest
+        || receipt.repository !== input.repository
         || receipt.mainSha !== input.mainSha
         || receipt.mainTreeSha !== input.mainTreeSha
         || Date.parse(receipt.observedAt) > Date.parse(input.now)) {
@@ -178,9 +193,11 @@ function observeTrustedRuntimeProvider(input: Readonly<{
         ref: invalidRef('trusted-runtime-receipt-subject-or-time-drift', receiptBytes)
       });
     }
-    const expiresAt = new Date(
-      Date.parse(input.now) + HOSTED_MAIN_HEALTH_FRESHNESS_MS
-    ).toISOString();
+    assertTrustedRuntimeMainHealthQualification({ ...input, receipt: input.qualifiedLocalReceipt });
+    const expiresAt = new Date(Math.min(
+      Date.parse(input.now) + HOSTED_MAIN_HEALTH_FRESHNESS_MS,
+      Date.parse(qualification.expiresAt)
+    )).toISOString();
     return Object.freeze({
       kind: 'available',
       ledger: createMainHealthLedger(createTrustedRuntimeMainHealthInput({
@@ -1177,6 +1194,7 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   capability: GitHubApiCapability;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<Readonly<{
   observedAt: string;
   localProvider: WorkSelectionMainHealthProviderObservation;
@@ -1195,12 +1213,13 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
     ).toISOString(),
     observation: hosted
   });
-  const localProvider = observeTrustedRuntimeProvider({
+  const localProvider = await observeTrustedRuntimeProvider({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha,
-    now: observedAt
+    now: observedAt,
+    qualifiedLocalReceipt: input.qualifiedLocalReceipt
   });
   return Object.freeze({
     observedAt,
@@ -1254,6 +1273,8 @@ type MainHealthPublicationAuthorityBinding = Readonly<{
     mainSha: string;
     mainTreeSha: string;
   }>;
+  selectedLedgerIdentity: MainHealthDigest | null;
+  selectedLedgerDigest: MainHealthDigest | null;
   localProviderEpoch: MainHealthDigest | null;
   localProvenanceDigest: MainHealthDigest | null;
   hostedProviderEpoch: MainHealthDigest | null;
@@ -1273,13 +1294,46 @@ function mainHealthPublicationAuthorityBinding(
   return binding;
 }
 
+function mainHealthPublicationAuthorityIdentity(authority: MainHealthPublicationAuthority) {
+  const { selectedLedgerDigest: _observationReceipt, ...identity } =
+    mainHealthPublicationAuthorityBinding(authority);
+  return identity;
+}
+
 export function assertMainHealthPublicationAuthorityStable(
   first: MainHealthPublicationAuthority,
   second: MainHealthPublicationAuthority
 ): void {
-  if (encodeVerificationActionData(mainHealthPublicationAuthorityBinding(first))
-      !== encodeVerificationActionData(mainHealthPublicationAuthorityBinding(second))) {
+  if (encodeVerificationActionData(mainHealthPublicationAuthorityIdentity(first))
+      !== encodeVerificationActionData(mainHealthPublicationAuthorityIdentity(second))) {
     throw new Error('MainHealth publication authority drifted between live snapshots');
+  }
+}
+
+/** A DTO or another canonical provider observation cannot substitute the exact
+ * ledger selected at this live publication boundary. Ordinary-lane freshness
+ * and exact subject checks remain in the original semantic owner. */
+export function assertMainHealthPublicationLedger(input: Readonly<{
+  authority: MainHealthPublicationAuthority;
+  ledger: MainHealthLedger;
+  now: string;
+}>): void {
+  const binding = mainHealthPublicationAuthorityBinding(input.authority);
+  const ledger = input.ledger;
+  const selectedIdentity = digestRef(Object.freeze({
+    healthRevision: ledger.healthRevision, producer: ledger.producer
+  }));
+  const decision = resolveOrdinaryMainHealthLane({
+    ledger, now: input.now,
+    expectedRepository: binding.subject.repository,
+    expectedDefaultBranch: binding.subject.defaultBranch,
+    expectedMainSha: binding.subject.mainSha,
+    expectedMainTreeSha: binding.subject.mainTreeSha,
+    expectedTrustRevision: binding.subject.mainSha
+  });
+  if (binding.selectedLedgerIdentity !== selectedIdentity
+      || binding.selectedLedgerDigest !== ledger.ledgerDigest || !decision.allowed) {
+    throw new Error('MainHealth ledger is not the exact current canonical publication selection');
   }
 }
 
@@ -1290,6 +1344,7 @@ function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
   mainTreeSha: string;
   localProvider: WorkSelectionMainHealthProviderObservation;
   hostedProvider: WorkSelectionMainHealthProviderObservation;
+  selectedLedger: MainHealthLedger | null;
 }>): MainHealthPublicationAuthority {
   const localLedger = input.localProvider.kind === 'available'
     ? input.localProvider.ledger
@@ -1305,6 +1360,11 @@ function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
       mainSha: input.mainSha,
       mainTreeSha: input.mainTreeSha
     }),
+    selectedLedgerDigest: input.selectedLedger?.ledgerDigest ?? null,
+    selectedLedgerIdentity: input.selectedLedger === null ? null : digestRef(Object.freeze({
+      healthRevision: input.selectedLedger.healthRevision,
+      producer: input.selectedLedger.producer
+    })),
     localProviderEpoch: localLedger === null ? null : localLedger.healthRevision,
     localProvenanceDigest: localLedger === null
       ? null
@@ -1333,7 +1393,7 @@ function mainHealthPublicationStableDigest(input: Readonly<{
   return digestRef(Object.freeze({
     schema: 'sec-main-health-provider-publication-stable-observation-v2',
     projection: input.projection,
-    authority: mainHealthPublicationAuthorityBinding(input.authority),
+    authority: mainHealthPublicationAuthorityIdentity(input.authority),
     ledger: ledger === null ? null : Object.freeze({
       repository: ledger.repository,
       defaultBranch: ledger.defaultBranch,
@@ -1425,6 +1485,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<Readonly<{
   observedAt: string;
   projection: WorkSelectionMainHealthProjection;
@@ -1449,7 +1510,8 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
       const authority = createWorkSelectionMainHealthPublicationAuthority({
         ...input,
         localProvider: observation.localProvider,
-        hostedProvider: observation.hostedProvider
+        hostedProvider: observation.hostedProvider,
+        selectedLedger: observation.resolution.ledger
       });
       const result = Object.freeze({
         observedAt: observation.observedAt,
@@ -1491,6 +1553,7 @@ export async function observeCanonicalMainHealthForDocumentControlTestingV2(inpu
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
   capability: GitHubApiCapability;
 }>): Promise<MainHealthTestingResult<Readonly<{
   projection: WorkSelectionMainHealthProjection;
@@ -1502,7 +1565,8 @@ export async function observeCanonicalMainHealthForDocumentControlTestingV2(inpu
   const authority = createWorkSelectionMainHealthPublicationAuthority({
     ...input,
     localProvider: observation.localProvider,
-    hostedProvider: observation.hostedProvider
+    hostedProvider: observation.hostedProvider,
+    selectedLedger: observation.resolution.ledger
   });
   return Object.freeze({
     projection: observation.resolution.projection,

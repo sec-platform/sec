@@ -5,7 +5,6 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { stringify as stringifyYaml } from 'yaml';
 
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 import { scanMachineLedgers, type CapabilityLedgerIssue } from '../../src/adapters/verification/platform/provider/capability-ledger-validation.ts';
 
@@ -634,68 +633,87 @@ test('ledger schemas reject missing, unknown, nested, and legacy alias fields', 
   });
 });
 
-test('workflow runtime catalog binds canonical Linux environment authority without copying runtime identity', async () => {
+test('retired fixed runner catalog cannot reactivate routes or active surfaces', async () => {
   await withLedgerFixture(async (root) => {
     const state = fixtureState();
-    const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+    const providerId = 'github-actions-local-runner';
+    const file = 'config/external-capabilities/ledger.yaml';
+    const closureError = `External capability provider ${providerId} `
+      + 'retired workflow-execution provider closure is invalid.';
+    const surfaceError = `External capability provider ${providerId} `
+      + 'retired workflow-execution provider surfaces must be empty.';
     (state.external.providers as Array<Record<string, unknown>>).push({
-      id: 'github-actions-local-runner',
+      id: providerId,
       category: 'workflow-runtime',
       capability: 'workflow-execution',
       decision: 'integrate-adapter',
-      lifecycle: 'active',
-      activeRoutingProfile: environment.environmentId,
-      surfaces: {
-        cli: ['src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'],
-        standingMcp: []
-      },
+      lifecycle: 'retired',
+      activeRoutingProfile: null,
+      surfaces: { cli: [], standingMcp: [] },
       forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
     });
     await expectZeroErrors(root, state);
 
-    const copiedVersion = structuredClone(state);
-    provider(copiedVersion.external, 'github-actions-local-runner').observedVersion =
-      environment.archives.runner.version;
+    const active = structuredClone(state);
+    Object.assign(provider(active.external, providerId), {
+      lifecycle: 'active',
+      activeRoutingProfile: 'sec-linux-verification-v1',
+      surfaces: {
+        cli: ['src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'],
+        standingMcp: []
+      }
+    });
+    await expectOneError(root, active, file, closureError);
+
+    const activeWithoutRoute = structuredClone(state);
+    provider(activeWithoutRoute.external, providerId).lifecycle = 'active';
+    await expectOneError(root, activeWithoutRoute, file, closureError);
+
+    const routed = structuredClone(state);
+    provider(routed.external, providerId).activeRoutingProfile = 'sec-linux-verification-v1';
+    await expectOneError(root, routed, file, closureError);
+
+    for (const surface of ['cli', 'standingMcp']) {
+      const exposed = structuredClone(state);
+      fixtureRecord(provider(exposed.external, providerId).surfaces)[surface] = ['recover'];
+      await expectOneError(root, exposed, file, surfaceError);
+    }
+
+    const wrongIdentity = structuredClone(state);
+    provider(wrongIdentity.external, providerId).id = 'other-workflow-runner';
     await expectOneError(
       root,
-      copiedVersion,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.observedVersion is not allowed.'
+      wrongIdentity,
+      file,
+      'External capability provider other-workflow-runner '
+        + 'retired workflow-execution provider closure is invalid.'
     );
 
-    const copiedAuthority = structuredClone(state);
-    provider(copiedAuthority.external, 'github-actions-local-runner').versionAuthority = {
-      kind: 'external-release'
-    };
-    await expectOneError(
-      root,
-      copiedAuthority,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority is not allowed.'
-    );
+    const disguisedCapability = structuredClone(state);
+    Object.assign(provider(disguisedCapability.external, providerId), {
+      category: 'graph',
+      capability: 'source-context'
+    });
+    await expectOneError(root, disguisedCapability, file, closureError);
 
-    const wrongProfile = structuredClone(state);
-    provider(wrongProfile.external, 'github-actions-local-runner').activeRoutingProfile =
-      'sec-linux-verification-other';
-    await expectOneError(
-      root,
-      wrongProfile,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.capability workflow-execution '
-        + 'does not permit routing profile sec-linux-verification-other.'
-    );
+    const wrongDecision = structuredClone(state);
+    provider(wrongDecision.external, providerId).decision = 'retired';
+    await expectOneError(root, wrongDecision, file, closureError);
 
-    const wrongSurface = structuredClone(state);
-    fixtureRecord(provider(wrongSurface.external, 'github-actions-local-runner').surfaces).cli = [
-      'src/adapters/verification/platform/ci/runtime/verification-session.ts'
-    ];
-    await expectOneError(
-      root,
-      wrongSurface,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner '
-        + 'workflow-execution provider surfaces are invalid.'
-    );
+    for (const [field, value] of Object.entries({
+      observedVersion: 'legacy-runner-version',
+      versionAuthority: { kind: 'external-release' },
+      ready: true,
+      runtime: { status: 'ready' }
+    })) {
+      const fabricated = structuredClone(state);
+      provider(fabricated.external, providerId)[field] = value;
+      await expectOneError(
+        root,
+        fabricated,
+        file,
+        `External capability provider ${providerId}.${field} is not allowed.`
+      );
+    }
   });
 });
-

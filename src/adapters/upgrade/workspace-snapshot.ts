@@ -1,18 +1,20 @@
 import os from 'node:os';
 import path from 'node:path';
+import { sha256 } from '../../contracts/canonical.ts';
 
 import { CompilerError } from '../../compiler/errors.ts';
 import { upgradeFailureWithSecondaryFailures } from '../../compiler/upgrade/failure.ts';
 import type { CommitFence } from '../../contracts/commit-fence.ts';
-import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../execution/resource-settlement.ts';
+import { settleResourcesAsync as settlePhysicalResourcesAsync, withAcquiredResource } from '../../execution/resource-settlement.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   copyNoFollowDirectoryTreesBulk,
+  createExclusiveNoFollowDirectory,
   createExclusiveNoFollowRandomDirectory,
-  deleteRetainedNoFollowEntry,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryLeaf,
   publishExclusiveDurableCanonicalFile,
+  retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile,
   retireNoFollowDirectoryTree,
   scanNoFollowDirectoryDirectMetadata,
@@ -22,6 +24,7 @@ import {
   type RetainedNoFollowOrdinaryFile
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { secRelativePath } from '../workspace-context.ts';
+import { acknowledgeUpgradeRestoredFile, admitUpgradeRecovery, assertUpgradeRecoveryFileCurrent, assertUpgradeRecoveryIntent, createUpgradeRecoveryIntent, type UpgradeRecoveryBinding, type UpgradeRecoveryIntent } from './recovery-intent.ts';
 
 const PRESERVED_WORKSPACE_SNAPSHOT_ENTRIES = new Set([
   '.git',
@@ -43,16 +46,28 @@ type UpgradeSnapshotProjectionEntry = Readonly<{
   size: number;
   contentDigest: `sha256:${string}` | null;
   permissionMode: number | null;
+  identity?: Readonly<{ device: string; inode: string }>;
 }>;
 
 export type UpgradeWorkspaceSnapshot = Readonly<{
   workspace: PhysicalDirectoryIdentity;
   temporaryParent: PhysicalDirectoryIdentity;
   backup: PhysicalDirectoryIdentity;
+  preimage: PhysicalDirectoryIdentity;
+  recoveryIntent: UpgradeRecoveryIntent;
   backupInventory: readonly NoFollowDirectoryTreeInventoryEntry[];
   projection: readonly UpgradeSnapshotProjectionEntry[];
   lockWasPresent: boolean;
 }>;
+
+// A persisted locator is content/recovery evidence, never a reusable physical
+// capability. Unknown/legacy reconstructed snapshots require fresh admission.
+const issuedUpgradeSnapshots = new WeakSet<UpgradeWorkspaceSnapshot>();
+function assertIssuedSnapshot(snapshot: UpgradeWorkspaceSnapshot): void {
+  if (!issuedUpgradeSnapshots.has(snapshot)) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade recovery required: unissued or legacy snapshot cannot authorize restore');
+  }
+}
 
 function upgradeSnapshotDeadline(): number {
   return performance.now() + UPGRADE_SNAPSHOT_OPERATION_DURATION_MS;
@@ -117,7 +132,8 @@ function addProjectedInventory(
       kind: entry.kind,
       size: entry.size,
       contentDigest: entry.contentDigest,
-      permissionMode: entry.permissionMode ?? null
+      permissionMode: entry.permissionMode ?? null,
+      identity: { device: entry.device, inode: entry.inode }
     }));
   }
 }
@@ -181,7 +197,8 @@ function observeUpgradeWorkspaceProjection(input: Readonly<{
         kind: 'directory',
         size: entry.size,
         contentDigest: null,
-        permissionMode: entry.permissionMode ?? null
+        permissionMode: entry.permissionMode ?? null,
+      identity: { device: entry.device, inode: entry.inode }
       }));
       addProjectedInventory(projection, entry.relativePath, inventory);
       continue;
@@ -203,7 +220,8 @@ function observeUpgradeWorkspaceProjection(input: Readonly<{
         kind: 'file',
         size: digest.size,
         contentDigest: digest.contentDigest,
-        permissionMode: entry.permissionMode ?? null
+        permissionMode: entry.permissionMode ?? null,
+      identity: { device: entry.device, inode: entry.inode }
       }));
       byteCount += digest.size;
     } finally {
@@ -248,7 +266,8 @@ function observeUpgradeWorkspaceProjection(input: Readonly<{
       kind: 'file',
       size: digest.size,
       contentDigest: digest.contentDigest,
-      permissionMode: lockEntry.permissionMode ?? null
+      permissionMode: lockEntry.permissionMode ?? null,
+      identity: { device: lockEntry.device, inode: lockEntry.inode }
     }));
   } finally {
     retainedLock.dispose();
@@ -257,23 +276,23 @@ function observeUpgradeWorkspaceProjection(input: Readonly<{
 }
 
 export async function retireUpgradeBackup(snapshot: UpgradeWorkspaceSnapshot): Promise<void> {
+  assertIssuedSnapshot(snapshot);
+  assertUpgradeRecoveryIntent(snapshot.recoveryIntent);
   const backup = assertSameNoFollowDirectoryIdentity(snapshot.backup, 'Upgrade backup retirement root').target;
-  const current = scanNoFollowDirectoryTreeInventory(backup, {
-    deadlineAtMs: upgradeSnapshotDeadline(),
-    maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
-    maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
-    includePermissionMode: true
+  const preimage = assertSameNoFollowDirectoryIdentity(snapshot.preimage, 'Upgrade backup preimage').target;
+  const sealed = scanNoFollowDirectoryTreeInventory(preimage, {
+    deadlineAtMs: upgradeSnapshotDeadline(), maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
+    maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES, includePermissionMode: true
   });
-  if (!samePhysicalInventory(snapshot.backupInventory, current)) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade backup changed before retirement');
+  if (!samePhysicalInventory(snapshot.backupInventory, sealed)) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade backup preimage changed before retirement');
   }
-  retireNoFollowDirectoryTree({
-    deadlineAtMonotonicMs: upgradeSnapshotDeadline(),
-    inventory: current,
-    parent: snapshot.temporaryParent,
-    root: backup,
-    restoreOwnerPermissions: true
+  const inventory = scanNoFollowDirectoryTreeInventory(backup, {
+    deadlineAtMs: upgradeSnapshotDeadline(), maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
+    maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES, includePermissionMode: true
   });
+  retireNoFollowDirectoryTree({ deadlineAtMonotonicMs: upgradeSnapshotDeadline(), inventory,
+    parent: snapshot.temporaryParent, root: backup, restoreOwnerPermissions: true });
 }
 
 async function copyRetainedDirectoryForUpgrade(input: Readonly<{
@@ -344,18 +363,20 @@ function copyRetainedFileForUpgrade(input: Readonly<{
 export async function snapshotWorkspace(
   workspaceRoot: string,
   lockPath: string,
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  binding: UpgradeRecoveryBinding
 ): Promise<UpgradeWorkspaceSnapshot> {
   const deadlineAtMs = upgradeSnapshotDeadline();
   await commitFence();
   const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Upgrade snapshot workspace root').target;
   const before = observeUpgradeWorkspaceProjection({ workspace, lockPath, deadlineAtMs });
   const temporaryParent = inspectNoFollowDirectoryChain(os.tmpdir(), 'Upgrade snapshot temporary parent').target;
-  const backup = createExclusiveNoFollowRandomDirectory(
+  const envelope = createExclusiveNoFollowRandomDirectory(
     temporaryParent,
     'engineering-compiler-upgrade-'
   );
   try {
+    const backup = createExclusiveNoFollowDirectory(envelope, 'preimage');
     const direct = scanNoFollowDirectoryDirectMetadata(workspace, {
       deadlineAtMs,
       maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
@@ -424,18 +445,29 @@ export async function snapshotWorkspace(
       throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade workspace changed while its snapshot was created');
     }
     await commitFence();
-    return Object.freeze({
+    const snapshot: UpgradeWorkspaceSnapshot = Object.freeze({
       workspace,
       temporaryParent,
-      backup,
+      backup: envelope,
+      preimage: backup,
+      recoveryIntent: createUpgradeRecoveryIntent({ workspace, backup: envelope, binding, projection: before.projection,
+        limits: {
+          maximumRecords: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES - backupInventory.length - 1,
+          maximumRecordBytes: UPGRADE_SNAPSHOT_MAXIMUM_ROOT_FILE_BYTES,
+          maximumTotalBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES - backupInventory.reduce(
+            (total, entry) => total + (entry.kind === 'file' ? entry.size : 0), 0)
+        }
+      }),
       backupInventory,
       projection: before.projection,
       lockWasPresent: before.lockWasPresent
     });
+    issuedUpgradeSnapshots.add(snapshot);
+    return snapshot;
   } catch (error) {
     let inventory: readonly NoFollowDirectoryTreeInventoryEntry[] = [];
     try {
-      inventory = scanNoFollowDirectoryTreeInventory(backup, {
+      inventory = scanNoFollowDirectoryTreeInventory(envelope, {
         deadlineAtMs: upgradeSnapshotDeadline(),
         maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
         maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
@@ -451,13 +483,13 @@ export async function snapshotWorkspace(
     await settlePhysicalResourcesAsync({
       primary: { label: 'upgrade-workspace-snapshot', error },
       cleanup: [{
-        label: `incomplete-upgrade-backup:${backup.path}`,
+        label: `incomplete-upgrade-backup:${envelope.path}`,
         settle: () => {
           retireNoFollowDirectoryTree({
             deadlineAtMonotonicMs: upgradeSnapshotDeadline(),
             inventory,
             parent: temporaryParent,
-            root: backup,
+            root: envelope,
             restoreOwnerPermissions: true
           });
         }
@@ -467,138 +499,143 @@ export async function snapshotWorkspace(
   }
 }
 
+/** Restore only exact recorded file constituents. Untracked effects, legacy
+ * locators and foreign changes retain the backup instead of broad deletion. */
 export async function restoreWorkspace(
   snapshot: UpgradeWorkspaceSnapshot,
   lockPath: string,
   commitFence: CommitFence
 ): Promise<void> {
-  const deadlineAtMs = upgradeSnapshotDeadline();
+  assertIssuedSnapshot(snapshot);
   await commitFence();
+  assertUpgradeRecoveryIntent(snapshot.recoveryIntent);
   const workspace = assertSameNoFollowDirectoryIdentity(snapshot.workspace, 'Upgrade rollback workspace').target;
-  const backup = assertSameNoFollowDirectoryIdentity(snapshot.backup, 'Upgrade rollback backup').target;
-  const backupInventory = scanNoFollowDirectoryTreeInventory(backup, {
-    deadlineAtMs,
+  const preimage = assertSameNoFollowDirectoryIdentity(snapshot.preimage, 'Upgrade rollback preimage').target;
+  const inventory = scanNoFollowDirectoryTreeInventory(preimage, {
+    deadlineAtMs: upgradeSnapshotDeadline(),
     maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
     maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
     includePermissionMode: true
   });
-  if (!samePhysicalInventory(snapshot.backupInventory, backupInventory)) {
+  if (!samePhysicalInventory(snapshot.backupInventory, inventory)) {
     throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade backup changed before rollback');
   }
-
-  const currentDirect = scanNoFollowDirectoryDirectMetadata(workspace, {
-    deadlineAtMs,
-    maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
-    maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
-    includePermissionMode: true
+  const current = observeUpgradeWorkspaceProjection({ workspace, lockPath, deadlineAtMs: upgradeSnapshotDeadline() });
+  const paths = admitUpgradeRecovery(snapshot.recoveryIntent, current.projection);
+  return withAcquiredResource({
+    operationLabel: 'upgrade-rollback',
+    resourceLabel: 'upgrade-live-files',
+    acquire: () => retainNoFollowFileTransaction(workspace.path, 'Upgrade rollback live'),
+    release: (live) => live.dispose(),
+    use: (live) =>
+      withAcquiredResource({
+        operationLabel: 'upgrade-rollback',
+        resourceLabel: 'upgrade-original-files',
+        acquire: () => retainNoFollowFileTransaction(preimage.path, 'Upgrade rollback original'),
+        release: (original) => original.dispose(),
+        use: async (original) => {
+          const actions = paths.map((relativePath) => {
+            const before = original.observe(relativePath, 'Upgrade original constituent');
+            const after = live.observe(relativePath, 'Upgrade current constituent');
+            assertUpgradeRecoveryFileCurrent(snapshot.recoveryIntent, relativePath, after);
+            const sealed = snapshot.backupInventory.find((entry) => entry.relativePath === relativePath);
+            const originalEntry = snapshot.projection.find((entry) => entry.relativePath === relativePath);
+            if (
+              (before === null) !== (originalEntry === undefined) ||
+              (before !== null &&
+                (originalEntry?.kind !== 'file' ||
+                  sealed?.kind !== 'file' ||
+                  before.identity.device !== sealed.device ||
+                  before.identity.inode !== sealed.inode ||
+                  before.permissionMode !== originalEntry.permissionMode ||
+                  before.bytes.byteLength !== originalEntry.size ||
+                  sha256({ bytes: Buffer.from(before.bytes).toString('hex') }) !== originalEntry.contentDigest))
+            ) {
+              throw new CompilerError(
+                'UPGRADE-BLOCKED-005',
+                'Upgrade original constituent changed after backup admission'
+              );
+            }
+            if (
+              before !== null &&
+              after === null &&
+              before.permissionMode !== null &&
+              (before.permissionMode & 0o7000) !== 0
+            ) {
+              throw new CompilerError(
+                'UPGRADE-BLOCKED-005',
+                'Upgrade recovery requires unsupported special-bit file creation'
+              );
+            }
+            if (before !== null && after !== null && before.permissionMode !== after.permissionMode) {
+              throw new CompilerError(
+                'UPGRADE-BLOCKED-005',
+                'Upgrade recovery requires an unsupported file permission transition'
+              );
+            }
+            return { relativePath, before, after };
+          });
+          for (const { relativePath, before, after } of actions) {
+            if (before === null && after === null) continue;
+            if (before !== null && after !== null && Buffer.from(before.bytes).equals(Buffer.from(after.bytes)))
+              continue;
+            await commitFence();
+            assertUpgradeRecoveryFileCurrent(snapshot.recoveryIntent, relativePath, after);
+            let restored = before;
+            if (before === null) {
+              await live.removeExact(relativePath, after!, 'Upgrade remove owned created constituent');
+              restored = null;
+            } else if (after !== null) {
+              restored = await live.rewriteExact(
+                relativePath,
+                after,
+                before.bytes,
+                'Upgrade restore exact constituent'
+              );
+            } else {
+              const target = path.join(workspace.path, relativePath);
+              const receipt = publishExclusiveDurableCanonicalFile({
+                parent: inspectNoFollowDirectoryChain(path.dirname(target), 'Upgrade restore target parent').target,
+                name: path.basename(target),
+                bytes: before.bytes,
+                ...(before.permissionMode === null ? {} : { permissionMode: before.permissionMode }),
+                validate: (bytes) => {
+                  if (!Buffer.from(bytes).equals(Buffer.from(before.bytes)))
+                    throw new Error('Upgrade restored bytes differ');
+                }
+              });
+              const observed = live.observe(relativePath, 'Upgrade restored deleted constituent');
+              if (
+                observed === null ||
+                observed.identity.device !== receipt.physical.device ||
+                observed.identity.inode !== receipt.physical.inode
+              ) {
+                throw new CompilerError(
+                  'UPGRADE-BLOCKED-005',
+                  'Upgrade restored file identity changed before readback'
+                );
+              }
+              restored = observed;
+            }
+            acknowledgeUpgradeRestoredFile(snapshot.recoveryIntent, relativePath, restored);
+          }
+          const restored = observeUpgradeWorkspaceProjection({
+            workspace,
+            lockPath,
+            deadlineAtMs: upgradeSnapshotDeadline()
+          });
+          const logical = (entries: readonly UpgradeSnapshotProjectionEntry[]) =>
+            entries.map(({ identity: _identity, ...entry }) =>
+              entry.kind === 'directory' ? { ...entry, size: 0 } : entry
+            );
+          if (
+            snapshot.lockWasPresent !== restored.lockWasPresent ||
+            !sameSnapshotProjection(logical(snapshot.projection), logical(restored.projection))
+          ) {
+            throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade rollback readback differs from its preimage');
+          }
+          await commitFence();
+        }
+      })
   });
-  for (const entry of currentDirect) {
-    if (PRESERVED_WORKSPACE_SNAPSHOT_ENTRIES.has(entry.relativePath)) continue;
-    await commitFence();
-    if (entry.kind === 'link') throw new CompilerError('UPGRADE-BLOCKED-005', `Upgrade rollback rejects linked entry ${entry.relativePath}`);
-    if (entry.kind === 'directory') {
-      const child = inspectNoFollowDirectoryLeaf(workspace, entry.relativePath, 'Upgrade rollback removal root');
-      if (child === null || child.device !== entry.device || child.inode !== entry.inode) {
-        throw new CompilerError('UPGRADE-BLOCKED-005', `Upgrade rollback directory ${entry.relativePath} changed before removal`);
-      }
-      const inventory = scanNoFollowDirectoryTreeInventory(child, {
-        deadlineAtMs,
-        maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
-        maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
-        includePermissionMode: true
-      });
-      retireNoFollowDirectoryTree({
-        deadlineAtMonotonicMs: deadlineAtMs,
-        inventory,
-        parent: workspace,
-        root: child,
-        restoreOwnerPermissions: true
-      });
-    } else {
-      deleteRetainedNoFollowEntry({
-        root: workspace,
-        relativePath: entry.relativePath,
-        kind: 'file',
-        device: entry.device,
-        inode: entry.inode,
-        ancestorDirectories: []
-      });
-    }
-  }
-
-  const backupDirect = scanNoFollowDirectoryDirectMetadata(backup, {
-    deadlineAtMs,
-    maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
-    maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
-    includePermissionMode: true
-  });
-  for (const entry of backupDirect) {
-    if (entry.relativePath === UPGRADE_LOCK_BACKUP_NAME) continue;
-    if (entry.kind === 'link') throw new CompilerError('UPGRADE-BLOCKED-005', `Upgrade backup contains linked entry ${entry.relativePath}`);
-    if (entry.kind === 'directory') {
-      const source = inspectNoFollowDirectoryLeaf(backup, entry.relativePath, 'Upgrade rollback copy source');
-      if (source === null || source.device !== entry.device || source.inode !== entry.inode) {
-        throw new CompilerError('UPGRADE-BLOCKED-005', `Upgrade backup directory ${entry.relativePath} changed before restore`);
-      }
-      const inventory = scanNoFollowDirectoryTreeInventory(source, {
-        deadlineAtMs,
-        maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
-        maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_BYTES,
-        includePermissionMode: true
-      });
-      await copyRetainedDirectoryForUpgrade({
-        source,
-        target: path.join(workspace.path, entry.relativePath),
-        inventory,
-        deadlineAtMs,
-        commitFence
-      });
-    } else {
-      copyRetainedFileForUpgrade({
-        sourceParent: backup,
-        sourceName: entry.relativePath,
-        expected: entry,
-        targetParent: workspace,
-        targetName: entry.relativePath
-      });
-    }
-  }
-
-  const lockParent = inspectUpgradeLockParent(workspace, lockPath);
-  const lockName = path.basename(lockPath);
-  const currentLock = scanNoFollowDirectoryDirectMetadata(lockParent, {
-    deadlineAtMs,
-    maximumEntries: UPGRADE_SNAPSHOT_MAXIMUM_ENTRIES,
-    maximumBytes: UPGRADE_SNAPSHOT_MAXIMUM_ROOT_FILE_BYTES,
-    includePermissionMode: true
-  }).find(({ relativePath }) => relativePath === lockName);
-  if (currentLock !== undefined) {
-    if (currentLock.kind !== 'file') throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade rollback lock is not an ordinary file');
-    deleteRetainedNoFollowEntry({
-      root: lockParent,
-      relativePath: lockName,
-      kind: 'file',
-      device: currentLock.device,
-      inode: currentLock.inode,
-      ancestorDirectories: []
-    });
-  }
-  if (snapshot.lockWasPresent) {
-    const backupLock = backupDirect.find(({ relativePath }) => relativePath === UPGRADE_LOCK_BACKUP_NAME);
-    if (backupLock === undefined || backupLock.kind !== 'file') {
-      throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade backup lock is absent or nonregular');
-    }
-    copyRetainedFileForUpgrade({
-      sourceParent: backup,
-      sourceName: UPGRADE_LOCK_BACKUP_NAME,
-      expected: backupLock,
-      targetParent: lockParent,
-      targetName: lockName
-    });
-  }
-  const restored = observeUpgradeWorkspaceProjection({ workspace, lockPath, deadlineAtMs });
-  if (snapshot.lockWasPresent !== restored.lockWasPresent || !sameSnapshotProjection(snapshot.projection, restored.projection)) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade rollback readback differs from its preimage');
-  }
-  await commitFence();
 }

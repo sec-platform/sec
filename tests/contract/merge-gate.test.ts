@@ -6,17 +6,22 @@ import { parse as parseYaml } from 'yaml';
 
 import {
   CodexDevelopmentCreateHostedArtifactObservation,
+  CodexDevelopmentCreateTrustedRuntimeMergeGateInput,
   CodexDevelopmentEvaluateMergeGate,
+  CodexDevelopmentEvaluateTrustedRuntimeMergeGate,
   CodexDevelopmentMergeGateInputSchema,
   CodexDevelopmentMergeGateProducerIdentity,
   CodexDevelopmentMergeGateTerminalStatusContext,
   CodexDevelopmentParseMergeGateResult,
   assertCanonicalMergeMessage,
   createMergeGateProvenance,
+  createTrustedRuntimeArtifactObservation,
+  createTrustedRuntimeMergeGateProvenance,
   requireIssuedIntegrationGateResult,
   type CodexDevelopmentMergeGateInput
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS, createTrustedRuntimeMainHealthReceipt } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
@@ -404,6 +409,73 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     expiresAt: '2026-08-09T00:30:00.000Z'
   };
 }
+
+/** DTO fixture for the real adapter's guards. This never supplies a live
+ * qualification and cannot prove physical MainHealth or full closeout. */
+function trustedAdapterFixture() {
+  const base = fixture();
+  const { sourceDigest: _producerDigest, ...producerFields } = base.artifact.producer;
+  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({ ...producerFields,
+    sourceTransport: 'local-dev-runner', runId: 'trusted-main-health-guard-test' });
+  const { schema: _evidenceSchema, evidenceDigest: _evidenceDigest, ...evidenceFields } = base.artifact.evidence;
+  const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({ ...evidenceFields, producer });
+  const { schema: _artifactSchema, artifactDigest: _artifactDigest, ...artifactFields } = base.artifact;
+  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({ ...artifactFields, evidence, producer });
+  const bytes = `${encodeVerificationActionData(artifact)}\n`;
+  const provenance = createTrustedRuntimeMergeGateProvenance({
+    runtimePath: CodexDevelopmentMergeGateProducerIdentity,
+    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
+    runtimeSha: BASE, executionId: producer.runId, actorNodeId: producer.actorNodeId,
+    actorPermission: 'maintain'
+  });
+  const artifactObservation = createTrustedRuntimeArtifactObservation({
+    artifactFileName: 'verification-session-artifact.json',
+    artifactByteDigest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    artifactByteLength: Buffer.byteLength(bytes), runtimeRef: provenance.runtimeRef,
+    runtimeSha: BASE, executionId: producer.runId, producerSourceDigest: producer.sourceDigest as `sha256:${string}`,
+    readbackTransport: 'trusted-runtime-durable-file'
+  });
+  return CodexDevelopmentCreateTrustedRuntimeMergeGateInput({
+    provenance, artifact, artifactObservation, candidate: base.candidate,
+    expectedActionPlan: base.expectedActionPlan, reviewReceipt: base.reviewReceipt,
+    reviewSnapshotDigest: base.reviewSnapshotDigest, mainHealth: base.mainHealth,
+    environmentDigest: base.environmentDigest, trustRevision: base.trustRevision,
+    platformObservation: base.platformObservation, consumptionOperationId: base.consumptionOperationId,
+    issuedAt: base.issuedAt, expiresAt: base.expiresAt
+  });
+}
+
+test('trusted runtime adapter preserves the hosted provenance path and its source guards', () => {
+  const base = trustedAdapterFixture();
+  expect(CodexDevelopmentEvaluateTrustedRuntimeMergeGate(base).status).toBe('authorized');
+  for (const sourceRef of [`.github/workflows/compiler-pr-validation.yml@${BASE}`,
+    `github-check-runs:other/repository@${BASE}`, `github-check-runs:${REPOSITORY}@${HEAD}`]) {
+    const mainHealth = createMainHealthLedger({ ...base.mainHealth,
+      producer: { ...base.mainHealth.producer, sourceRef } });
+    expect(() => CodexDevelopmentEvaluateTrustedRuntimeMergeGate({ ...base, mainHealth }))
+      .toThrow('fresh MainHealth producer provenance is not bound to the trusted authorization runtime');
+  }
+});
+
+test('trusted runtime Gate refuses local JSON without live admission and rejects a fabricated authority', () => {
+  const base = trustedAdapterFixture();
+  const receipt = createTrustedRuntimeMainHealthReceipt({ repository: REPOSITORY, mainSha: BASE,
+    mainTreeSha: BASE_TREE, executionId: 'unqualified-main-health-json', dependencyCacheKey: null,
+    dockerEndpoint: { schema: 'sec-docker-endpoint-identity-v1', contextName: 'test-only',
+      endpointHost: 'unix:///var/run/docker.sock', daemonId: 'test-only', osType: 'linux', architecture: 'x86_64' },
+    actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command) => ({ command, resultDigest: D('3') })),
+    observedAt: VERIFIED_AT });
+  const mainHealth = createMainHealthLedger({ ...base.mainHealth,
+    producer: { ...base.mainHealth.producer, sourceTransport: 'trusted-runtime-durable-readback',
+      sourceRunId: receipt.executionId, sourceDigest: receipt.receiptDigest,
+      sourceRef: `runtime-state:trusted-main-health/v2/main-${BASE}-${receipt.receiptDigest.slice(7)}.json` } });
+  expect(mainHealth.healthRevision).toBe(base.mainHealth.healthRevision);
+  expect(() => CodexDevelopmentEvaluateTrustedRuntimeMergeGate({ ...base, mainHealth }))
+    .toThrow('local MainHealth requires live production admission');
+  expect(() => CodexDevelopmentEvaluateTrustedRuntimeMergeGate({ ...base, mainHealth }, undefined,
+    { authority: {} as never, receipt, repositoryRoot: process.cwd() }))
+    .toThrow('MainHealth publication authority is forged or not issued in this process');
+});
 
 function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
   const refreshedAt = '2026-08-09T02:00:00.000Z';

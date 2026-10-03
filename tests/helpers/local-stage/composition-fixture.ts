@@ -9,6 +9,7 @@ import path from 'node:path';
 import * as gitAuthority from '../../../src/adapters/providers/git-read/authority.ts';
 import * as githubSession from '../../../src/adapters/providers/github-api/operation-session.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { createTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import * as mainHealth from '../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
 import * as workPackage from '../../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import * as gitRead from '../../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
@@ -29,14 +30,29 @@ const request = Object.freeze({ schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
   manifestPath: 'work-packages/local.json', manifestDigest: D('1'), profile: 'fast',
   expectedScopeProposalDigest: D('2'), expectedActionPlanDigest: D('3'),
   expectedSessionRevision: D('4'), reviewPolicyDigest: D('5'), requestOperationId: D('6') });
-const saved = sessionRuntime.createVerificationSessionLocalPreparationRequest(request);
+const { schema: _schema, expectedSessionRevision: _session, requestOperationId: _operation, ...pendingPins } = request;
+const pendingRequest = sessionRuntime.createVerificationSessionPendingHealthLocalPreparationRequest({
+  ...pendingPins, expectedSessionProposalDigest: D('e')
+});
+const saved = scenario === 'pending-health-verified' ? pendingRequest
+  : sessionRuntime.createVerificationSessionLocalPreparationRequest(request);
 const candidate = { repository: 'sec-platform/sec', number: 123, state: 'OPEN',
   isDraft: false, isCrossRepository: false, baseSha: request.expectedBaseSha,
   baseTreeSha: request.expectedBaseTreeSha, headSha: request.expectedHeadSha,
   headTreeSha: request.expectedHeadTreeSha, authorNodeId: 'author', body: '', baseBranch: 'main' };
-const counters = { source: 0, review: 0, currentSubject: 0, remoteWrite: 0, platform: 0, reprepare: 0 };
+const mainHealthReceipt = createTrustedRuntimeMainHealthReceipt({
+  repository: candidate.repository, mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha,
+  executionId: 'test-only-main-health',
+  dockerEndpoint: { schema: 'sec-docker-endpoint-identity-v1', contextName: 'test-only',
+    endpointHost: process.platform === 'win32' ? 'npipe:////./pipe/dockerDesktopLinuxEngine' : 'unix:///var/run/docker.sock',
+    daemonId: 'test-only', osType: 'linux', architecture: 'x86_64' },
+  dependencyCacheKey: null,
+  actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command) => ({ command, resultDigest: D('d') })),
+  observedAt: '2026-09-29T00:00:00.000Z'
+});
+const counters = { mainHealth: 0, mainHealthLeaseDuringSource: 0, source: 0, review: 0, currentSubject: 0, remoteWrite: 0, platform: 0, reprepare: 0 };
 const fixtureSession = { repository: candidate.repository, prNumber: 123,
-  sessionRevision: request.expectedSessionRevision, baseSha: candidate.baseSha,
+  sessionRevision: request.expectedSessionRevision, sessionProposalDigest: D('e'), baseSha: candidate.baseSha,
   baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
   manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
   profile: request.profile, reviewPolicyDigest: request.reviewPolicyDigest };
@@ -64,7 +80,14 @@ const prepared = () => {
 };
 const mockModule = (url: string, factory: () => object) => mock.module(new URL(url, import.meta.url).pathname, factory);
 mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts', () => ({
-  ...sessionRuntime, prepareTrustedMainVerificationSession: prepared, prepareTrustedRuntimeVerificationSession: prepared,
+  ...sessionRuntime,
+  prepareTrustedRuntimePendingHealthVerificationSession: () => {
+    counters.reprepare++;
+    return { request: scenario === 'environment-drift'
+      ? sessionRuntime.createVerificationSessionPendingHealthLocalPreparationRequest({ ...pendingRequest.request, expectedActionPlanDigest: D('f') })
+      : pendingRequest };
+  },
+  prepareTrustedMainVerificationSession: prepared, prepareTrustedRuntimeVerificationSession: prepared,
   finalizeVerificationSessionHostedArtifact: () => artifact, refreshVerificationSessionHostedArtifact: () => artifact
 }));
 mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-session.ts', () => ({
@@ -78,7 +101,12 @@ mockModule('../../../src/adapters/verification/platform/ci/contract/evidence.ts'
   parseSourceProgramTransitionAcceptanceRecord: (value: unknown) => value
 }));
 mockModule('../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts', () => ({
-  ...container, parseTrustedRuntimeContainerReceipt: (value: unknown) => value,
+  ...container,
+  withTrustedRuntimeMainHealthQualification: async (_input: unknown, operation: (receipt: unknown) => unknown) => {
+    counters.mainHealth++;
+    return await operation(mainHealthReceipt);
+  },
+  parseTrustedRuntimeContainerReceipt: (value: unknown) => value,
   parseTrustedRuntimeSourceProgramAttemptEvidence: (value: unknown) => value
 }));
 mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts', () => ({
@@ -86,7 +114,7 @@ mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-
     observeCandidate: async () => {
       counters.currentSubject++;
       return scenario === 'merged-input' ? { ...candidate, state: 'MERGED' }
-        : scenario === 'subject-drift' && counters.currentSubject >= 4
+        : scenario === 'subject-drift' && counters.currentSubject >= 5
           ? { ...candidate, headTreeSha: 'f'.repeat(40) } : candidate;
     },
     observeComparison: async () => ({ status: 'ahead', behindBy: 0 }),
@@ -95,7 +123,7 @@ mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-
     observeViewerPrincipal: async () => ({ permission: 'maintain', login: 'tester', nodeId: 'maintainer' }),
     observeReviewBarrier: async () => {
       counters.review++;
-      if (counters.review > 1 && scenario !== 'reuse') throw new Error('TEST_PRE_MERGE_BOUNDARY');
+      if (counters.review > 2 && scenario === 'full-closeout') throw new Error('TEST_PRE_MERGE_BOUNDARY');
       return { status: scenario === 'review-waiting' ? 'waiting' : 'clear', reason: 'test review waiting' };
     },
     observePlatformEnforcement: async () => { counters.platform++; throw new Error('TEST_PLATFORM_FORBIDDEN'); }
@@ -122,6 +150,9 @@ mockModule('../../../src/adapters/self-hosting/control/task/contract/work-packag
 }));
 mockModule('../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts', () => ({
   ...mainHealth,
+  assertMainHealthPublicationLedger: () => {},
+  assertMainHealthPublicationAuthorityStable: () => {},
+  observeMainHealthGitHubDefaultBranchSha: async () => candidate.baseSha,
   withMainHealthGitHubReadOperationBudget: async (input: { operation: () => unknown }) => input.operation(),
   observeCanonicalMainHealthForPublication: async () => ({ ledger: { producer: { sourceTransport: 'github-api' } },
     projection: { state: 'healthy' }, repairDecision: { routingState: 'ordinary-only' } })
@@ -131,10 +162,13 @@ mockModule('../../../src/adapters/providers/github-api/operation-session.ts', ()
   withGitHubApiMergeWriteSession: () => { counters.remoteWrite++; throw new Error('TEST_MERGE_FORBIDDEN'); }
 }));
 
-const { verifyWithTrustedRuntime, closeoutWithTrustedRuntime, readLocalVerificationStatusWithTrustedRuntime } =
+const { verifyWithTrustedRuntime, closeoutWithTrustedRuntime, prepareWithTrustedRuntime, readLocalVerificationStatusWithTrustedRuntime } =
   await import('../../../src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts');
 const source: Parameters<typeof verifyWithTrustedRuntime>[1] = async (context) => {
   counters.source++;
+  const healthLayout = resolveSecRuntimeStateForRepository({ repositoryRoot, repository: candidate.repository });
+  const healthDirectory = path.join(healthLayout.repositoryStateRoot, 'trusted-main-health', 'v2');
+  counters.mainHealthLeaseDuringSource += readdirSync(healthDirectory).filter((name) => name.endsWith('.lock')).length;
   await context.assertCurrentSubject();
   context.publishAttempt({ evidenceDigest: D('c') } as never);
   if (context.previousVerification === null) context.publishVerification({ evidence, receipt } as never);
@@ -145,7 +179,9 @@ const source: Parameters<typeof verifyWithTrustedRuntime>[1] = async (context) =
 let result: unknown = null;
 let failure: string | null = null;
 try {
-  result = scenario === 'full-closeout'
+  result = scenario === 'prepare-only'
+    ? await prepareWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, prNumber: 123 })
+    : scenario === 'full-closeout'
     ? await closeoutWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, prNumber: 123 }, source)
     : await verifyWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, request: saved }, source);
   if (scenario === 'reuse') result = await verifyWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, request: saved }, source);
@@ -154,7 +190,7 @@ const layout = resolveSecRuntimeStateForRepository({ repositoryRoot, repository:
 const records = path.join(layout.repositoryStateRoot, 'trusted-runtime', 'v1', fixtureSession.sessionRevision.slice(7));
 let files: string[] = [];
 try { files = readdirSync(records).sort(); } catch {}
-const projection = failure === null && ['verified', 'reuse', 'source-waiting'].includes(scenario ?? '')
+const projection = failure === null && ['verified', 'reuse', 'source-waiting', 'pending-health-verified'].includes(scenario ?? '')
   ? readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, request: saved }) : null;
 const leases = path.join(layout.repositoryStateRoot, 'trusted-runtime', 'closeout-leases');
 let leaseFiles: string[] = [];

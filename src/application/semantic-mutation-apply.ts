@@ -32,6 +32,11 @@ import type {
   SemanticMutationVerificationExecutionRef
 } from '../semantics/mutation/types.ts';
 import {
+  advanceSemanticMutationRecoveryRecord,
+  buildPreparedSemanticMutationRecoveryRecord,
+  type SemanticMutationRecoveryRecordDraft
+} from './semantic-mutation-recovery.ts';
+import {
   semanticMutationRequestRejected,
   semanticMutationTerminalRecoveryOutcome,
   semanticMutationUntrustedRequestId
@@ -381,18 +386,10 @@ export interface SemanticMutationApplyExecutionOperations {
   verify(derived: ReadySemanticMutationApplyDerivation): Promise<SemanticMutationApplyVerificationOutcome>;
   issueTransactionId(): string;
   writeTransactionArtifacts(derived: ReadySemanticMutationApplyDerivation): Promise<void>;
-  persistPrepared(
-    derived: ReadySemanticMutationApplyDerivation,
-    verification: SemanticMutationVerificationExecutionRef,
-    transactionId: string
-  ): Promise<SemanticMutationRecoveryRecord>;
+  appendDraft(draft: SemanticMutationRecoveryRecordDraft): Promise<SemanticMutationRecoveryRecord>;
   afterPrepared?(): void;
   publishSource(derived: ReadySemanticMutationApplyDerivation): Promise<void>;
   observeCurrentDigest(derived: ReadySemanticMutationApplyDerivation): Promise<string>;
-  appendAuthoringCommitted(
-    record: SemanticMutationRecoveryRecord,
-    diagnostics?: readonly import('../semantics/mutation/types.ts').SemanticMutationDiagnostic[]
-  ): Promise<SemanticMutationRecoveryRecord>;
   markRecoveryRequired(
     record: SemanticMutationRecoveryRecord,
     state: SemanticMutationRecoveryFailureState,
@@ -444,14 +441,14 @@ export async function executePreparedSemanticMutationApply(
   // second read of the caller-owned operation table.
   const {
     recover, readRetained, derive, publishRejected, verify, issueTransactionId,
-    writeTransactionArtifacts, persistPrepared, afterPrepared, publishSource,
-    observeCurrentDigest, appendAuthoringCommitted, markRecoveryRequired,
+    writeTransactionArtifacts, appendDraft, afterPrepared, publishSource,
+    observeCurrentDigest, markRecoveryRequired,
     rollbackCommitted, completeCommitted, prune, isExecutionBoundaryFailure
   } = operations;
   const required = [
     recover, readRetained, derive, publishRejected, verify, issueTransactionId,
-    writeTransactionArtifacts, persistPrepared, publishSource, observeCurrentDigest,
-    appendAuthoringCommitted, markRecoveryRequired, rollbackCommitted,
+    writeTransactionArtifacts, appendDraft, publishSource, observeCurrentDigest,
+    markRecoveryRequired, rollbackCommitted,
     completeCommitted, prune, isExecutionBoundaryFailure
   ];
   if (required.some(operation => typeof operation !== 'function') ||
@@ -503,9 +500,16 @@ export async function executePreparedSemanticMutationApply(
 
   await invokeMutationPort(operations, writeTransactionArtifacts, ready);
   let record = await invokeMutationPort(
-    operations, persistPrepared, ready,
-    verified.verification,
-    transactionId
+    operations, appendDraft,
+    buildPreparedSemanticMutationRecoveryRecord({
+      request: prepared.input,
+      plan: ready.plan,
+      editPlan: ready.editPlan,
+      rollbackManifest: ready.rollbackManifest,
+      transactionId,
+      requestIdentityDigest: prepared.requestIdentityDigest,
+      verification: verified.verification
+    })
   );
   if (afterPrepared !== undefined) invokeMutationPort(operations, afterPrepared);
 
@@ -529,7 +533,12 @@ export async function executePreparedSemanticMutationApply(
     }
 
     if (currentDigest === ready.editPlan.stagedByteDigest) {
-      record = await invokeMutationPort(operations, appendAuthoringCommitted, record, [diagnostic]);
+      record = await invokeMutationPort(
+        operations, appendDraft,
+        advanceSemanticMutationRecoveryRecord(record, 'authoring-committed', {
+          diagnostics: [diagnostic]
+        })
+      );
       const rolledBack = await invokeMutationPort(operations, rollbackCommitted, record, diagnostic);
       if (rolledBack.status === 'terminal') {
         await invokeMutationPort(operations, prune);
@@ -568,7 +577,10 @@ export async function executePreparedSemanticMutationApply(
   }
 
   try {
-    record = await invokeMutationPort(operations, appendAuthoringCommitted, record);
+    record = await invokeMutationPort(
+      operations, appendDraft,
+      advanceSemanticMutationRecoveryRecord(record, 'authoring-committed')
+    );
   } catch (error) {
     if (invokeMutationPort(operations, isExecutionBoundaryFailure, error)) throw error;
     return semanticMutationTerminalRecoveryOutcome(
