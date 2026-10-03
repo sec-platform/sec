@@ -36,6 +36,9 @@ export interface AuthenticatedGitHubJobBinding {
   readonly policyJobId: string;
   readonly policyDigest: `sha256:${string}`;
   readonly launcherRevision: string;
+  readonly phase: string;
+  readonly stepName: string;
+  readonly stepNumber: number;
   readonly originalDeadlineAtUnixMs: number;
   readonly identityDigest: `sha256:${string}`;
 }
@@ -105,11 +108,26 @@ export function decodeAuthenticatedGitHubJobBinding(input: Readonly<{
       || startedAt < 1 || startedAt > input.observedAtUnixMs) fail('provider job start time is invalid');
   const originalDeadlineAtUnixMs = startedAt + policy.maximumJobDurationMs;
   if (!Number.isSafeInteger(originalDeadlineAtUnixMs) || originalDeadlineAtUnixMs <= input.observedAtUnixMs) fail('original job deadline is exhausted');
+  // The CLI selector is not effect authority. Bind the phase that GitHub is
+  // actually executing in this exact signed job, rather than a caller's argv.
+  if (!Array.isArray(job.steps) || job.steps.length < 1 || job.steps.length > 100) fail('provider step census is unavailable');
+  const steps = job.steps.map(object);
+  if (steps.some(step => !Number.isSafeInteger(step.number) || Number(step.number) < 1)
+      || new Set(steps.map(step => step.number)).size !== steps.length) fail('provider step census is ambiguous');
+  const active = steps.filter(step => step.status === 'in_progress');
+  if (active.length !== 1 || active[0]!.conclusion !== null || active[0]!.completed_at !== null) fail('provider active phase is not unique');
+  const step = active[0]!;
+  const stages = policy.stages.filter(stage => stage.kind === 'phase' && stage.stepName === step.name);
+  if (stages.length !== 1 || stages[0]!.kind !== 'phase') fail('active provider step is not a closed launcher phase');
+  const phase = stages[0]!;
+  const stepStartedAt = typeof step.started_at === 'string' ? Date.parse(step.started_at) : Number.NaN;
+  if (!Number.isSafeInteger(stepStartedAt) || stepStartedAt < startedAt || stepStartedAt > input.observedAtUnixMs) fail('active provider phase start is invalid');
   const binding = Object.freeze({ repository: claims.repository, repositoryId: claims.repositoryId,
     workflowPath, workflowSha: claims.workflowSha, trustedSourceSha, trustedSourceTreeSha,
     runId: claims.runId, runAttempt: claims.runAttempt, jobId: id(job.id), checkRunId: claims.checkRunId,
     jobName: policy.jobName, role: policy.role, policyJobId: policy.jobId,
     policyDigest: CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST,
-    launcherRevision: policy.runtime.launcherRevision, originalDeadlineAtUnixMs });
+    launcherRevision: policy.runtime.launcherRevision, phase: phase.phase,
+    stepName: phase.stepName, stepNumber: Number(step.number), originalDeadlineAtUnixMs });
   return Object.freeze({ ...binding, identityDigest: sha256({ schema: 'sec-authenticated-github-job-origin-v1', ...binding }) });
 }
