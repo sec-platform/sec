@@ -8,6 +8,7 @@ import { generatedStateDigest } from '../../src/adapters/runtime-state/generated
 import {
   createGeneratedStateCleanupOperationSession,
   generatedStateProducerHooks,
+  inspectGeneratedState,
   type GeneratedStateProducerHookSet,
   type GeneratedStateProducerQuarantineHook,
   type GeneratedStateWorktreeRetirementEffectAuthority
@@ -25,6 +26,7 @@ import {
 } from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { loadRuntimeDependencySpec, RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+import { ensureCompilerDepsReadyFromGeneration } from '../../src/adapters/toolchain/dependencies/runtime.ts';
 import { transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
 import { transitionAbsentSlot } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
 import { advanceDependencyTransition, beginDependencyTransition, compilerTransitionBackupPath, markDependencyTransitionFailure, readDependencyTransition } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/operation.ts';
@@ -896,6 +898,109 @@ describe('compiler dependency installation', () => {
 
   }
   if (shard === 'external') {
+  effectfulCompilerTest(
+    'explicit public generation reuse registers a foreign compiler target with its canonical owner',
+    'sec-cdep-explicit-target-',
+    async (ownerRoot, operation) => {
+      await writeCompilerDependencyRoot(ownerRoot);
+      const source = await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'explicit-source');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, ownerRoot);
+      const consumerRoot = path.join(ownerRoot, 'explicit-consumer');
+      await fs.mkdir(consumerRoot);
+      await writeCompilerDependencyRoot(consumerRoot);
+      const cleanupDeadlineAtUnixMs = operation.deadlineAtUnixMs + EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS;
+      const cleanupLifecycle = generatedStateProducerHooks({ repositoryRoot: consumerRoot }, {
+        cleanupOperation: createGeneratedStateCleanupOperationSession({
+          deadlineAtMonotonicMs: performance.now() + cleanupDeadlineAtUnixMs - Date.now(),
+          maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+          maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+          monotonicNowMs: () => performance.now()
+        }),
+        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
+      });
+      await settleWorkspaceCallback(async () => {
+        const publicOptions = {
+          deadlineAtUnixMs: operation.deadlineAtUnixMs,
+          installMode: 'prebound-only' as const,
+          signal: operation.signal
+        };
+        Object.defineProperty(publicOptions, 'generatedStateLifecycle', {
+          enumerable: true,
+          get() { throw new Error('Public generation reuse must not read a caller lifecycle'); }
+        });
+        const ready = await ensureCompilerDepsReadyFromGeneration(
+          source.executionGenerationAuthority, publicOptions, consumerRoot
+        );
+        expect(ready.source).toBe('existing');
+        expect(ready.requiresFreshProcess).toBeTrue();
+        expect(ready.executionGenerationAuthority.generationDigest)
+          .toBe(source.executionGenerationAuthority.generationDigest);
+        expect(await fs.realpath(ready.nodeModulesPath)).toBe(await fs.realpath(source.nodeModulesPath));
+        const inventory = await inspectGeneratedState({
+          repositoryRoot: consumerRoot,
+          relativePaths: ['node_modules']
+        });
+        expect(inventory.entries[0]).toMatchObject({
+          owner: 'compiler-dependency-runtime',
+          ruleId: 'compiler-node-modules',
+          registrationState: 'active'
+        });
+        expect(inventory.entries[0]!.registrationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+        const repeated = await ensureCompilerDepsReadyFromGeneration(
+          source.executionGenerationAuthority, publicOptions, consumerRoot
+        );
+        expect(repeated.requiresFreshProcess).toBeFalse();
+        expect(repeated.executionGenerationAuthority.generationDigest)
+          .toBe(source.executionGenerationAuthority.generationDigest);
+      }, async () => {
+        const receipt = await disposeCompilerDependencyEnvironment(consumerRoot, {
+          deadlineAtUnixMs: cleanupDeadlineAtUnixMs,
+          generatedStateLifecycle: cleanupLifecycle
+        }, 'explicit-compiler-target-test-settled');
+        assertCompilerDependencyEnvironmentRetirementReceipt(receipt, consumerRoot);
+      });
+    });
+
+  effectfulCompilerTest(
+    'explicit public generation reuse rejects forged and incompatible sources before target publication',
+    'sec-cdep-explicit-target-reject-',
+    async (ownerRoot, operation) => {
+      await writeCompilerDependencyRoot(ownerRoot);
+      const source = await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'explicit-source-rejection');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, ownerRoot);
+      const consumerRoot = path.join(ownerRoot, 'incompatible-consumer');
+      await fs.mkdir(consumerRoot);
+      await writeCompilerDependencyRoot(consumerRoot, 'different-lock\n');
+      const publicOptions = {
+        deadlineAtUnixMs: operation.deadlineAtUnixMs,
+        installMode: 'prebound-only' as const,
+        signal: operation.signal
+      };
+      await expect(ensureCompilerDepsReadyFromGeneration(
+        { ...source.executionGenerationAuthority }, publicOptions, consumerRoot
+      )).rejects.toThrow();
+      await expect(ensureCompilerDepsReadyFromGeneration(
+        source.executionGenerationAuthority, publicOptions, consumerRoot
+      )).rejects.toThrow('incompatible canonical inputs');
+      await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+      const inventory = await inspectGeneratedState({
+        repositoryRoot: consumerRoot,
+        relativePaths: ['node_modules']
+      });
+      expect(inventory.entries[0]!.registrationDigest).toBeNull();
+    });
+
   effectfulTest(test,
     'reuses a compatible external physical generation without giving its bridge mutation ownership',
     {
