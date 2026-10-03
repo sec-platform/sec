@@ -10,6 +10,7 @@ export {
   GITHUB_API_REQUEST_TIMEOUT_MS, GitHubApiGraphqlResponseError, GitHubApiProviderError, assertGitHubApiCapability,
   assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
+  dispatchAuthenticatedHostedJobResume,
   executeGitHubApiOperation,
   inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
   withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
