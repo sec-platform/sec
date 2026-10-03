@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
-import { CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWorkflowShape, CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision, createCiVerificationPerJobHostedProviderRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -274,6 +274,113 @@ test('policy lookup uses exact authored identity and returns an immutable source
   expect(Object.isFrozen(policy)).toBe(true);
   expect(Object.isFrozen(policy?.runtime)).toBe(true);
   expect(Object.isFrozen(policy?.trigger.actions)).toBe(true);
+});
+
+function perJobPreflightWorkflowFixture() {
+  return {
+    name: 'compiler-pr-validation',
+    on: { repository_dispatch: { types: [
+      'sec-verify-session-v2', 'sec-produce-verification-action-v2',
+      'sec-produce-main-health-v1', 'sec-produce-agent-operation-activation-v1'
+    ] } },
+    jobs: { 'preflight-verification-action-sut': {
+      'runs-on': 'ubuntu-24.04', 'timeout-minutes': 10,
+      permissions: { actions: 'read', contents: 'read', 'id-token': 'write' },
+      steps: [
+        { name: 'Checkout exact trusted hosted launcher',
+          uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+          with: { ref: '${{ github.workflow_sha }}', 'fetch-depth': 0, 'persist-credentials': false } },
+        { name: 'Setup exact trusted bootstrap Bun',
+          uses: 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', with: { 'bun-version': '1.4.0' } },
+        { name: 'Verify exact bootstrap Bun bytes', shell: 'bash',
+          run: "set -euo pipefail\nprintf '%s  %s\\n' '33d56b070be6a9e3da0ab013038b43d1645d0534ca811ecdba4472599117eb4b' \"$(command -v bun)\" | sha256sum --check --strict" },
+        { name: 'Install exact trusted launcher dependencies', shell: 'bash',
+          run: 'exec bun --no-env-file install --frozen-lockfile --ignore-scripts' },
+        { name: 'Download trusted Action resolution transport', id: 'download-resolution',
+          uses: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+          if: "${{ needs.resolve-verification-action.outputs.resolution-artifact-name != '' }}",
+          with: { name: '${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}',
+            path: '${{ runner.temp }}/sec-hosted-job/preflight-verification-action-sut/in/resolution' } },
+        { name: 'Prove hostile SUT sandbox on the executing job', id: 'preflight', shell: 'bash',
+          env: { GH_TOKEN: '${{ github.token }}', SEC_HOSTED_NEEDS_JSON: '${{ toJSON(needs) }}',
+            SEC_HOSTED_STEPS_JSON: '${{ toJSON(steps) }}' },
+          run: 'exec bun --no-env-file src/adapters/verification/platform/ci/runtime/hosted-job-runtime.ts --job preflight-verification-action-sut --phase self-test-hosted-action-sandbox' },
+        { name: 'Upload exact SUT capability observation', id: 'upload-capability',
+          if: "${{ always() && !cancelled() && steps.preflight.outputs.capability-ready == 'true' }}",
+          uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+          with: { name: '${{ steps.preflight.outputs.capability-artifact-name }}',
+            path: '${{ runner.temp }}/sec-hosted-job/preflight-verification-action-sut/out/capability',
+            'if-no-files-found': 'error', 'retention-days': 1, 'include-hidden-files': true, overwrite: false } }
+      ] as Array<Record<string, unknown>>
+    } }
+  };
+}
+
+test('independent workflow fixture admits only the pinned staged launcher and quarantined artifact shape', () => {
+  const fixture = perJobPreflightWorkflowFixture();
+  const policy = assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'preflight-verification-action-sut');
+  expect(policy.jobId).toBe('preflight-verification-action-sut');
+  expect(policy.role).toBe('sut');
+  expect(policy.stages.map(({ kind }) => kind)).toEqual(['download', 'phase', 'upload']);
+  expect(policy.maximumJobDurationMs).toBe(600_000);
+  if (policy.runtime.kind !== 'per-job-runtime') throw new Error('Expected runtime policy.');
+  expect(policy.runtime.trustBoundary.excluded).toContain('stolen-or-deliberately-relayed-job-credentials');
+  expect(policy.runtime.originContinuity)
+    .toBe('fresh-token-at-admission-original-job-deadline-abort-or-finally-close');
+  expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'validate-hosted-request')).toThrow();
+  expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'sec/main-health')).toThrow();
+});
+
+test('workflow shape rejects host candidate execution, policy substitution and artifact escape', () => {
+  type Fixture = ReturnType<typeof perJobPreflightWorkflowFixture>;
+  const job = (fixture: Fixture) => fixture.jobs['preflight-verification-action-sut'];
+  const step = (fixture: Fixture, index: number) => job(fixture).steps[index]!;
+  const mutations: Array<(fixture: Fixture) => void> = [
+    (fixture) => { job(fixture)['runs-on'] = 'self-hosted'; },
+    (fixture) => { job(fixture)['runs-on'] = '${{ inputs.runner }}'; },
+    (fixture) => { job(fixture)['timeout-minutes'] = 11; },
+    (fixture) => { job(fixture).permissions.actions = 'write'; },
+    (fixture) => { job(fixture).steps.push({ run: 'bun candidate/hostile.ts' }); },
+    (fixture) => { step(fixture, 0).with = { ref: '${{ github.event.client_payload.head }}',
+      'fetch-depth': 0, 'persist-credentials': false }; },
+    (fixture) => { (step(fixture, 0).with as Record<string, unknown>)['persist-credentials'] = true; },
+    (fixture) => { step(fixture, 1).uses = 'oven-sh/setup-bun@main'; },
+    (fixture) => { job(fixture).steps.splice(2, 1); },
+    (fixture) => { step(fixture, 3).run = 'bun install --frozen-lockfile'; },
+    (fixture) => { step(fixture, 5).run = String(step(fixture, 5).run).replace('--phase self-test-hosted-action-sandbox', '--phase execute-hosted-action-sut'); },
+    (fixture) => { step(fixture, 5).run = `${String(step(fixture, 5).run)}; bun candidate.ts`; },
+    (fixture) => { (step(fixture, 5).env as Record<string, unknown>).NODE_OPTIONS = '--require ./candidate.js'; },
+    (fixture) => { (step(fixture, 4).with as Record<string, unknown>).path = '${{ github.workspace }}'; },
+    (fixture) => { (step(fixture, 6).with as Record<string, unknown>).path = '${{ runner.temp }}/../'; },
+    (fixture) => { (step(fixture, 6).with as Record<string, unknown>).overwrite = true; },
+    (fixture) => { (step(fixture, 6).with as Record<string, unknown>).name = 'foreign-artifact'; },
+    (fixture) => { job(fixture).steps.splice(4, 2, step(fixture, 5), step(fixture, 4)); },
+    (fixture) => { step(fixture, 5)['continue-on-error'] = true; },
+    (fixture) => { Object.assign(job(fixture), { container: { image: 'unqualified:latest' } }); },
+    (fixture) => { Object.assign(job(fixture), { outputs: { leak: '${{ secrets.SECRET }}' } }); },
+    (fixture) => { Object.assign(fixture, { env: { BASH_ENV: '/tmp/candidate.sh' } }); },
+    (fixture) => { fixture.name = 'foreign'; },
+    (fixture) => { fixture.on.repository_dispatch.types.push('arbitrary'); }
+  ];
+  for (const [index, mutate] of mutations.entries()) {
+    const fixture = perJobPreflightWorkflowFixture();
+    mutate(fixture);
+    expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture),
+      'preflight-verification-action-sut'), `mutation ${index}`).toThrow();
+  }
+  const source = stringifyYaml(perJobPreflightWorkflowFixture());
+  expect(() => assertCiVerificationPerJobHostedWorkflowShape(`${source}\nname: compiler-pr-validation\n`,
+    'preflight-verification-action-sut')).toThrow();
+  expect(() => assertCiVerificationPerJobHostedWorkflowShape('x'.repeat(512 * 1024 + 1),
+    'preflight-verification-action-sut')).toThrow();
+});
+
+test('every current legacy workflow remains unqualified for the new live origin issuer', async () => {
+  for (const policy of CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES) {
+    if (policy.runtime.kind !== 'per-job-runtime') continue;
+    const source = await readCompilerFile(policy.workflowPath);
+    expect(() => assertCiVerificationPerJobHostedWorkflowShape(source, policy.jobId), policy.jobId).toThrow();
+  }
 });
 
 test('release verification never loads repository bytes from a caller-selected ref', async () => {
