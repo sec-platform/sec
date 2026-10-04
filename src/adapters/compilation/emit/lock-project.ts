@@ -1,20 +1,20 @@
 import type { LockFile } from '../../../compiler/contract.ts';
-import { assertPassStatus } from "../../../compiler/contract/lock-schema.ts";
 import type { CommitFence } from "../../../contracts/commit-fence.ts";
 import { CodedFailure } from '../../../contracts/failure.ts';
-import { writeProvenance } from '../../artifacts/provenance.ts';
-import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/platform/artifact/runtime/authority.ts';
-import { saveLock } from "../../workspace/lock.ts";
+import { writeProvenanceFromVerification } from '../../artifacts/provenance.ts';
+import { readOptionalCurrentVerificationArtifactSet } from '../../verification/platform/artifact/runtime/authority.ts';
 
 export async function lockProject(
   workspaceRoot: string,
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<LockFile> {
-  assertPassStatus(lock, 'verify', 'succeeded', new CodedFailure('LOCK-BLOCKED-001', 'verify must succeed before lock'));
-
-  const artifacts = readOptionalCanonicalVerificationArtifactSet(
+  // Own one input for this operation before any suspension. Callers may still
+  // change their Lock object, but cannot retarget the checked publication.
+  const publicationLock = structuredClone(lock);
+  const artifacts = readOptionalCurrentVerificationArtifactSet(
     workspaceRoot,
+    publicationLock,
     'Lock Verification artifact set'
   );
   if (artifacts === null) {
@@ -25,8 +25,8 @@ export async function lockProject(
     throw new CodedFailure('LOCK-BLOCKED-002', 'lock requires a passing verify --lane all result');
   }
 
-  lock.passStatus.lock = 'succeeded';
-  await writeProvenance(workspaceRoot, lock, commitFence);
-  await saveLock(workspaceRoot, lock, commitFence);
-  return lock;
+  publicationLock.passStatus.lock = 'succeeded';
+  // Provenance publication also durably publishes the generated-path Lock.
+  await writeProvenanceFromVerification(workspaceRoot, publicationLock, artifacts, commitFence);
+  return publicationLock;
 }
