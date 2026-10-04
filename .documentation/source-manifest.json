@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "64aa6a8c14d524ebbf6d437330a2696b33b6d28d4fa706c9a3e9c0b2cefb6cf3",
+  "source_set_sha256": "7612f49f2d0c64ee4203873d20cedfb160fc85f7df5f21a49b9198a5df8e3087",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -379,8 +379,8 @@
     },
     {
       "path": "docs/作者/需求关系与能力边界.md",
-      "bytes": 77216,
-      "sha256": "671ad4fee5fd38b0418d798274d9cdaf7737a6a04465af0edd1970a8588beafc"
+      "bytes": 105811,
+      "sha256": "5c366f2462b5fabffb64deae26f0f2e9c32aeed235c2ca7a7a48e842031a67f5"
     },
     {
       "path": "docs/作者/需求含义与实现责任.md",
@@ -604,8 +604,8 @@
     },
     {
       "path": "docs/开发/README.md",
-      "bytes": 1894,
-      "sha256": "f98c9a3bd8999cc6360f52efadd0730bce0f6eed4a9141157a4503a703e09cbf"
+      "bytes": 2020,
+      "sha256": "d2df6dd1ed44f65f34b32945d2d16c20b57e9e71bcd39e0abc58d6ab1f9e1ea1"
     },
     {
       "path": "docs/开发/原生维护/导入观察与原生资产.md",
@@ -639,8 +639,8 @@
     },
     {
       "path": "docs/开发/工具协议/六工具与请求.md",
-      "bytes": 51215,
-      "sha256": "a94b29be20958224ae52a48a4e80b4852111c4006588a89548e45c0d88f94280"
+      "bytes": 51920,
+      "sha256": "145f894500cd43623b78efe2715445d34a707e2e9c27b952cc94ae2fb77b2e74"
     },
     {
       "path": "docs/开发/工具协议/客户端与并行会话.md",
@@ -664,8 +664,8 @@
     },
     {
       "path": "docs/开发/编辑审查与客户端.md",
-      "bytes": 79274,
-      "sha256": "268ed22f9910660504415fc564d7bc36fd3037fc6b7e68f30a663e520e45ad34"
+      "bytes": 83713,
+      "sha256": "df9026fd3f11b09102985348b776529ce2c8006f00bceb972608bceab9c7840c"
     },
     {
       "path": "docs/开发/编辑检查与失败继续.md",
@@ -679,8 +679,8 @@
     },
     {
       "path": "docs/开发/需求到交付主链.md",
-      "bytes": 29862,
-      "sha256": "a236dadee10343584f85827644057d177c57862ead50fc361ec234e2b4913a54"
+      "bytes": 32813,
+      "sha256": "5c6d3ca20310bdf357c2506dcd74eb9090c3c218d893b8aee5321128794a09ba"
     },
     {
       "path": "docs/架构/README.md",
@@ -729,8 +729,8 @@
     },
     {
       "path": "docs/架构/装配/能力接合与文件责任.md",
-      "bytes": 38532,
-      "sha256": "b09e515aa10ec8dfc6bf65319c8a3c084ae5285b49ae8a6df99bdc41764b3832"
+      "bytes": 39072,
+      "sha256": "e0e8c89b7b32d18912be083e0940de3d406f1f3c3f2a84e2937a834ce3377a64"
     },
     {
       "path": "docs/演进/README.md",
@@ -874,8 +874,8 @@
     },
     {
       "path": "docs/状态/作者与接口.md",
-      "bytes": 33704,
-      "sha256": "befdd92e7d8f04549397a213b74923d38a6f60414da1dc67d9c81e89072f584b"
+      "bytes": 34242,
+      "sha256": "9f93b29e4a0ac012ef95d351c418bf17f28fbf58069d299346ff38f351ce9c11"
     },
     {
       "path": "docs/状态/信息约束与验证.md",
