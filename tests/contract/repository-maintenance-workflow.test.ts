@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import * as crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -10,7 +11,51 @@ const WORKFLOW_PATH = '.github/workflows/repository-maintenance.yml';
 const RUNTIME_PATH =
   'src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts';
 
-test('repository maintenance workflow persists and reads back recovery before any ref effect', () => {
+async function executeMaintenanceRequestScript(
+  script: string,
+  permission: unknown,
+  outputs: Map<string, string>
+): Promise<string> {
+  const main = 'a'.repeat(40);
+  const body = JSON.stringify({
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: main
+  });
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as
+    new (...args: string[]) => (...values: unknown[]) => Promise<void>;
+  await new AsyncFunction('github', 'context', 'core', 'process', 'require', script)(
+    { rest: {
+      issues: { getComment: async (input: unknown) => {
+        expect(input).toEqual({ owner: 'sec-platform', repo: 'sec', comment_id: 7 });
+        return { data: { id: 7,
+          issue_url: 'https://api.github.com/repos/sec-platform/sec/issues/313',
+          user: { login: 'maintainer', type: 'User' }, performed_via_github_app: null,
+          author_association: 'MEMBER', body } };
+      } },
+      repos: { getCollaboratorPermissionLevel: async (input: unknown) => {
+        expect(input).toEqual({ owner: 'sec-platform', repo: 'sec', username: 'maintainer' });
+        return { data: permission };
+      } }
+    } },
+    { repo: { owner: 'sec-platform', repo: 'sec' }, actor: 'maintainer' },
+    { setOutput: (name: string, value: string) => outputs.set(name, value), info() {} },
+    { env: {
+      PAYLOAD_JSON: JSON.stringify({ schema: 'sec-repository-maintenance-dispatch-v1',
+        issue_number: 313, comment_id: 7,
+        comment_body_sha256: `sha256:${crypto.createHash('sha256').update(body).digest('hex')}` }),
+      EVENT_NAME: 'repository_dispatch', EVENT_ACTION: 'sec-repository-maintenance-v2',
+      WORKFLOW_SHA: main, EVENT_SHA: main
+    } },
+    (name: string) => {
+      if (name !== 'crypto') throw new Error('Unexpected maintenance script dependency');
+      return crypto;
+    }
+  );
+  return body;
+}
+
+test('repository maintenance workflow persists and reads back recovery before any ref effect', async () => {
   const source = readFileSync(path.resolve(import.meta.dir, '../..', WORKFLOW_PATH), 'utf8');
   const workflow = parseYaml(source) as any;
 
@@ -56,6 +101,36 @@ test('repository maintenance workflow persists and reads back recovery before an
   expect(request.with.script).toContain('!isRepositoryMaintenancePermission(role)');
   expect(request.with.script).not.toContain('associationAccepted');
   expect(source).not.toContain('SEC_MAINTENANCE_AUTHOR_ASSOCIATION');
+  // Exercise the actual workflow decision, including GitHub's legacy write
+  // projection of maintain. Raw permission text cannot establish this contract.
+  for (const permission of [
+    { permission: 'admin', role_name: 'admin' },
+    { permission: 'write', role_name: 'maintain' },
+    { permission: 'maintain', role_name: 'maintain' },
+    { permission: 'maintain' }
+  ]) {
+    const outputs = new Map<string, string>();
+    const body = await executeMaintenanceRequestScript(request.with.script, permission, outputs);
+    expect(Object.fromEntries(outputs)).toEqual({
+      'request-json': body, 'issue-number': '313', 'comment-id': '7',
+      'comment-author': 'maintainer'
+    });
+  }
+  for (const permission of [
+    { permission: 'write', role_name: 'write' },
+    { permission: 'read', role_name: 'read' },
+    { permission: 'read', role_name: 'triage' },
+    { permission: 'none', role_name: 'none' },
+    { permission: 'read', role_name: 'maintain' },
+    { permission: 'admin', role_name: 'write' },
+    { permission: 'admin', role_name: 'custom-role' },
+    {}, null
+  ]) {
+    const outputs = new Map<string, string>();
+    await expect(executeMaintenanceRequestScript(request.with.script, permission, outputs))
+      .rejects.toThrow('Repository maintenance trigger comment or dispatcher authority differs.');
+    expect(outputs.size).toBe(0);
+  }
   expect(request.with.script).toContain('bodyDigest !== payload.comment_body_sha256');
   expect(request.with.script).toContain('request?.expectedMainSha !== process.env.EVENT_SHA');
 
