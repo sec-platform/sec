@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "7612f49f2d0c64ee4203873d20cedfb160fc85f7df5f21a49b9198a5df8e3087",
+  "source_set_sha256": "7ae7dc6ff7399d3ea68217ee81f871bc40016dfd52ae281fe05987896950f752",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -884,8 +884,8 @@
     },
     {
       "path": "docs/状态/前沿与登记规则.md",
-      "bytes": 51436,
-      "sha256": "ff3894d4ddf1f4fb011a3bd2fde07605fca42b88bd3c968a1ecc95e501f0c025"
+      "bytes": 51678,
+      "sha256": "7bc0a27881b43fe96eb4e75de743ad12ac9275e7e9a681ad9c34f01e70f0fc92"
     },
     {
       "path": "docs/状态/执行与恢复.md",
@@ -899,8 +899,8 @@
     },
     {
       "path": "docs/状态/设计剩余全量清单.md",
-      "bytes": 29698,
-      "sha256": "d707f9154a209418416f0eb477f7e4fe849c97644c1067793548149f6085d32d"
+      "bytes": 30801,
+      "sha256": "41a456c0425337099377e63de3008efa76863fd86724cc21e982f7b097397046"
     },
     {
       "path": "docs/状态/语义与领域.md",
@@ -989,8 +989,8 @@
     },
     {
       "path": "docs/编译/内核/确定性与自举.md",
-      "bytes": 20038,
-      "sha256": "8aa1e035fa9739d6c29dfa4753893f62027780c57d79f764baa3f0cfe0fad343"
+      "bytes": 21919,
+      "sha256": "cd1bb6bde907806da0754ea4962a76cec680addedbd89ef859b95d7b4b79830e"
     },
     {
       "path": "docs/编译/内核/编译值服务.md",
@@ -1004,8 +1004,8 @@
     },
     {
       "path": "docs/编译/内核/输入与阶段总览.md",
-      "bytes": 52220,
-      "sha256": "a8fd40f491ce7ea5df00919788972ce6121ebc0904b652c4c1385e825c1684b4"
+      "bytes": 56722,
+      "sha256": "75b16b48e3865c8b506e660ef34d3664fee277377dd90353a610e21c848b3c36"
     },
     {
       "path": "docs/编译/内核/运行准备与最小实现.md",
@@ -1069,8 +1069,8 @@
     },
     {
       "path": "docs/编译/实现选择与设计搜索.md",
-      "bytes": 86744,
-      "sha256": "33a921784bf5e8565fb9ff91bd52b3fac05ac992e6096374a98405bdda7df6a9"
+      "bytes": 90817,
+      "sha256": "d4dd21767d272a5460fc8225c179c4e5f3581fd7888e25fd42b3501bdec4ca8d"
     },
     {
       "path": "docs/编译/性质保持与开放环境.md",
@@ -1104,8 +1104,8 @@
     },
     {
       "path": "docs/编译/目标/Rust目标画像与降低.md",
-      "bytes": 22746,
-      "sha256": "30f5e55721f0fb48417f9114b3e36f41bf8d5ce46c636de6091193a57852b73f"
+      "bytes": 25644,
+      "sha256": "715e5f0eca2e59d890899b9b271229c7ee49696aac4a95941eed003d28fed709"
     },
     {
       "path": "docs/编译/目标/具体降低与领域输出.md",
@@ -1304,8 +1304,8 @@
     },
     {
       "path": "docs/运行/验收/开发面案例.md",
-      "bytes": 104272,
-      "sha256": "4412e10af393b077d271e05a9160768d3dc235da2686887091953baad372c249"
+      "bytes": 109709,
+      "sha256": "b861ecd98c8814703400ad60c9b05d84ad48b1bc869ffd1c7f0a33ae9e78567c"
     },
     {
       "path": "docs/运行/验收/控制与演进案例.md",
