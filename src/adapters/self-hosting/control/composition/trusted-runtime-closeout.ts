@@ -10,7 +10,6 @@ import type { SourceProgramTransitionAcceptanceRecord } from '../../../verificat
 import type { TrustedRuntimeSourceProgramAttemptEvidence } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import { settleResources, settleResourcesAsync, withAcquiredResource, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
-import { consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../providers/docker/runtime/linux-oci-exporter.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import {
@@ -28,7 +27,7 @@ import { inspectExactNoFollowDirectoryPresence, publishExclusiveDurableCanonical
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import { parseCiSourceProgramTransitionBinding } from '../../../verification/platform/action/contract/ci.ts';
+import { createCiVerificationNativeLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding } from '../../../verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentParseVerificationSessionArtifact, parseSourceProgramTransitionAcceptanceRecord } from '../../../verification/platform/ci/contract/evidence.ts';
 import type { VerificationSessionLocalPreparationRequest } from '../../../verification/platform/ci/contract/session-request.ts';
 import { readSessionArtifactText } from '../../../verification/platform/ci/runtime/session-artifact-files.ts';
@@ -61,7 +60,6 @@ import {
   executeTrustedRuntimeWorkspaceCanary,
   parseTrustedRuntimeContainerReceipt,
   parseTrustedRuntimeSourceProgramAttemptEvidence,
-  TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
   withTrustedRuntimeMainHealthQualification,
   type SourceProgramTransitionQualification,
   type TrustedRuntimeContainerReceipt
@@ -550,7 +548,6 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
   mainTreeSha: string;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
-  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
   assertSubjectCurrent(): Promise<void>;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -585,7 +582,6 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
         mainSha: input.mainSha,
         mainTreeSha: input.mainTreeSha,
         signal: input.signal,
-        qualifiedEngineExporter: input.qualifiedEngineExporter,
         ...(input.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: input.deadlineAtUnixMs })
       }, async (receipt) => {
         await input.assertSubjectCurrent();
@@ -612,7 +608,6 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
  * main is materialized inside the original isolated MainHealth workspace. */
 export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
   origin: AuthenticatedGitHubJobOrigin;
-  engineExporter: QualifiedContainerEngineOciExporter;
   plan: TrustedRuntimePostMergeMainHealthPlan;
   repositoryRoot: string;
   repository: string;
@@ -624,28 +619,22 @@ export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
   observedAt: string;
   assertCurrent(): Promise<void>;
 }>) => Promise<T>): Promise<T> {
-  input = Object.freeze({ origin: input.origin, engineExporter: input.engineExporter,
+  input = Object.freeze({ origin: input.origin,
     plan: input.plan, repositoryRoot: input.repositoryRoot, repository: input.repository,
     mainSha: input.mainSha, mainTreeSha: input.mainTreeSha });
   const assertSubjectCurrent = async (): Promise<void> => {
     const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
-    if (origin.repository !== input.repository || origin.trustedDriverRoot !== input.repositoryRoot
-        || input.engineExporter.originIdentityDigest !== origin.identityDigest) {
-      fail('post-merge MainHealth origin or qualified Engine belongs to another operation');
+    if (origin.repository !== input.repository || origin.trustedDriverRoot !== input.repositoryRoot) {
+      fail('post-merge MainHealth authenticated origin belongs to another operation');
     }
     const liveMain = await observeMainHealthGitHubDefaultBranchSha({ ...input, defaultBranch: 'main' });
     if (liveMain !== input.mainSha) fail('post-merge MainHealth exact default advanced');
   };
   await assertSubjectCurrent();
   const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
-  const engine = await consumeQualifiedContainerEngineOciExporter(input.engineExporter);
-  if (engine.cwd !== input.repositoryRoot || engine.deadlineAtUnixMs > origin.deadlineAtUnixMs) {
-    fail('MainHealth Engine working directory or original job budget differs');
-  }
   return await withProducedTrustedRuntimeMainHealth({ ...input,
-    deadlineAtUnixMs: engine.deadlineAtUnixMs,
+    deadlineAtUnixMs: origin.deadlineAtUnixMs,
     signal: getAuthenticatedGitHubJobOriginSignal(input.origin),
-    qualifiedEngineExporter: input.engineExporter,
     assertSubjectCurrent
   }, async (receipt) => {
     const selected = await observeCanonicalMainHealthForPublication({ ...input,
@@ -1093,7 +1082,7 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
     reviewBarrier,
     mainHealthChecks: Object.freeze([]),
     dependencyBlobs,
-    executionEnvironment: TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
+    executionEnvironment: createCiVerificationNativeLocalExecutionEnvironment(),
     sourceProgramTransition,
     mainHealthInput
   } as const;

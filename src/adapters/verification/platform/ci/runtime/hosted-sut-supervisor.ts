@@ -1,7 +1,7 @@
 import type { HostedSutCommandPlan, HostedSutProcessLifecycle, HostedSutProcessObservation } from "../../../../../execution/verification/hosted.ts";
 /**
  * Production inner SUT observer. The fixed Python helper is part of the same
- * authenticated source image as this module. Caller JSON, output markers and
+ * authenticated read-only source snapshot as this module. Caller JSON, output markers and
  * injected callbacks never mint kernel lifecycle facts.
  */
 import { createHash } from 'node:crypto';
@@ -200,7 +200,7 @@ function retainFile(file: string, descriptor: number, role: 'ordinary-file' | 'e
     path.basename(file), undefined, 'Hosted SUT retained ' + role, descriptor, role);
 }
 
-function retainArchiveProjection(archive: CodexDevelopmentRetainedHostedSutArchive): RetainedNoFollowOrdinaryFile {
+export function retainHostedSutArchiveForNativeUnit(archive: CodexDevelopmentRetainedHostedSutArchive): RetainedNoFollowOrdinaryFile {
   assertRetainedHostedSutArchive(archive);
   const before = fstatSync(archive.fileDescriptor, { bigint: true });
   const file = readlinkSync(`/proc/self/fd/${archive.fileDescriptor}`);
@@ -303,7 +303,7 @@ export function createHostedSutSupervisor(input: Readonly<{
       retained.push(workingDirectory);
       const helper = retainFile(HELPER_PATH, HELPER_DESCRIPTOR, 'ordinary-file');
       retained.push(helper);
-      const archiveProjection = archive === undefined ? undefined : retainArchiveProjection(archive);
+      const archiveProjection = archive === undefined ? undefined : retainHostedSutArchiveForNativeUnit(archive);
       if (archiveProjection !== undefined) retained.push(archiveProjection);
       const boundary = issueRetainedCommandBoundary({ executable, workingDirectory,
         auxiliaryInputs: [{ kind: 'ordinary-file', capability: helper },
@@ -374,4 +374,3 @@ export function createHostedSutSupervisor(input: Readonly<{
   SUPERVISORS.set(supervisor, Object.freeze({ assertLive }));
   return supervisor as HostedSutSupervisor;
 }
-

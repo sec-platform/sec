@@ -5,7 +5,7 @@ import { types as nativeTypes } from 'node:util';
 import { snapshotVerificationData } from '../../../../assurance/verification/contract/data.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import type { VerificationGateResult } from "../../../../assurance/verification/result/contract/result.ts";
-import { cloneAndDeepFreeze, deepFreeze, uniqueSorted } from '../../../../contracts/canonical.ts';
+import { cloneAndDeepFreeze, deepFreeze, rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   observeExecutionProgressPhase
 } from '../../../../execution/execution-progress.ts';
@@ -44,8 +44,8 @@ import {
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/runner/contract.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, createCiVerificationNativeLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, resolveCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2 } from '../action/contract/provider.ts';
 import {
   writeVerificationActionProviderStartMarkerAtomic,
@@ -64,7 +64,7 @@ import {
   CI_VERIFICATION_SESSION_CONTRACT_REVISION,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from './contract/revision.ts';
-import { readAuthenticatedHostedJobRuntimeReceipt, type HostedJobRuntimeReceiptSelection } from './runtime/hosted-job-runtime-provenance.ts';
+import { assertAuthenticatedHostedJobRuntimeReceipt, readAuthenticatedHostedJobRuntimeReceipt, readAuthenticatedHostedJobRuntimeReceiptByName, type AuthenticatedHostedJobRuntimeReceipt, type HostedJobRuntimeReceiptSelection } from './runtime/hosted-job-runtime-provenance.ts';
 
 import { parseVerificationSessionHostedRequest } from "./contract/session-request.ts";
 import {
@@ -155,12 +155,8 @@ function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
     });
   });
   const executionEnvironment = hosted
-    ? CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
-    : createCiVerificationLocalExecutionEnvironment({
-        os: process.platform,
-        arch: process.arch,
-        bunVersion: Bun.version
-      });
+    ? resolveCiVerificationHostedExecutionEnvironment(env.SEC_EXECUTION_ENVIRONMENT_REVISION!)
+    : createCiVerificationNativeLocalExecutionEnvironment();
   if (env.SEC_EXECUTION_ENVIRONMENT_REVISION !== executionEnvironment.executionEnvironmentRevision) {
     throw new Error(`Formal ${mode} verification execution environment revision is not canonical.`);
   }
@@ -1064,7 +1060,8 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
   const evidenceRows = new WeakMap<object, Parameters<typeof CodexDevelopmentComposeHostedEvidence>[0]>();
   const prepared = new WeakSet<object>();
   const indexRows = new WeakMap<object, Transaction['snapshot']>();
-  let sandboxCapture: Readonly<{ actionKey: VerificationActionKeyDigest; value: object; source: string; selection: HostedJobRuntimeReceiptSelection }> | undefined;
+  let sandboxCapture: Readonly<{ actionKey: VerificationActionKeyDigest; value: object; source: string; selection: HostedJobRuntimeReceiptSelection;
+    resolutionDigest: string; executionEnvironmentRevision: string }> | undefined;
   const readTransport = (file: string, label: string): string => {
     current(); const source = hostedActionTransportText(file, label);
     texts.set(source, Object.freeze({ file, label })); current(); return source;
@@ -1293,12 +1290,12 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
       }
       const observation = parseHostedSutCapabilityObservation(output.observation);
       const value = deepFreeze({ ...observation, state });
-      sandboxCapture = Object.freeze({ actionKey: selected.actionKey, value, source: proof.outputSource, selection: selected.selection });
+      sandboxCapture = Object.freeze({ actionKey: selected.actionKey, value, source: proof.outputSource, selection: selected.selection,
+        resolutionDigest: proof.receipt.operation.resolutionDigest, executionEnvironmentRevision: proof.receipt.providerRevision });
       return value;
     },
     producer: () => { current(); return currentHostedActionProducer(); },
     createStartMarker: (input: Parameters<typeof createVerificationActionStartMarkerV2>[0]) => createVerificationActionStartMarkerV2(ownedPure(input)),
-    providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
     prepareMarker: (marker: Marker) => {
       marker = ownedPure(marker);
       current('prepare-start-marker');
@@ -1311,8 +1308,11 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
         index: hostedActionProviderIndexFromSnapshot(row.result.snapshot) });
       const inventory = inspectedInventories.filter(value => inventories.get(value)?.resolution.resolutionDigest === resolution.resolutionDigest);
       if (decision.disposition !== 'start-allowed' || !decision.physicalExecutionAllowed
+          || sandboxCapture.resolutionDigest !== resolution.resolutionDigest
+          || sandboxCapture.executionEnvironmentRevision !== resolution.executionEnvironment.executionEnvironmentRevision
           || encodeVerificationActionData(createVerificationActionStartMarkerV2({ actionKey: marker.actionKey,
-            candidateSha: resolution.artifactInput.headSha, executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+            candidateSha: resolution.artifactInput.headSha,
+            executionEnvironmentRevision: resolution.executionEnvironment.executionEnvironmentRevision,
             producer: currentHostedActionProducer() })) !== encodeVerificationActionData(marker)
           || inventory.length !== 1) throw new Error('Marker preparation differs from the exact native start admission.');
       const value = cloneAndDeepFreeze(marker);
@@ -1461,6 +1461,8 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
   const preparedTerminals = new WeakMap<object, Readonly<{ authority: Authority; snapshot: Observation['snapshot']; inputs: readonly object[] }>>();
   const preparedAnchors = new WeakMap<object, Readonly<{ authority: Authority; snapshot: Observation['snapshot'] }>>();
   let observed: Readonly<{ authority: Authority; result: Observation }> | undefined;
+  let rawCapture: ReturnType<typeof CodexDevelopmentParseHostedActionRawResult> | undefined;
+  let rawProof: AuthenticatedHostedJobRuntimeReceipt | undefined;
   const capture = <T extends object>(file: string, label: string, parse: (source: string) => T): T => {
     current();
     const source = hostedActionTransportText(file, label);
@@ -1495,6 +1497,32 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
     if (encodeVerificationActionData(expected) !== encodeVerificationActionData(resolution)) {
       throw new Error('Hosted terminal preparation differs from its original authenticated Action.');
     }
+  };
+  const authenticateRaw = async (authority: Authority): Promise<void> => {
+    current('assemble-hosted-action-terminal');
+    if (rawCapture === undefined) throw new Error('Hosted native terminal has no original raw capture.');
+    assertCaptured(rawCapture);
+    const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
+    const resolution = CodexDevelopmentResolveHostedAction({
+      request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(authority.providerEnvelope.proposal)),
+      envelope: authority.envelope });
+    const proof = await withGitHubApiVerificationSession({ repositoryRoot: job.trustedDriverRoot,
+      repository: job.repository, effect: 'verification-read', deadlineAtUnixMs: job.deadlineAtUnixMs,
+      operation: capability => readAuthenticatedHostedJobRuntimeReceiptByName({ capability,
+        repository: job.repository, runId: job.runId, runAttempt: job.runAttempt,
+        policyJobId: 'execute-verification-action-sut', phase: 'execute-hosted-action-sut',
+        actionKey: resolution.actionPlan.action.actionKey }) });
+    current('assemble-hosted-action-terminal'); assertCaptured(rawCapture);
+    const source = captures.get(rawCapture)!.source;
+    if (proof.outputSource !== source) throw new Error('Hosted raw capture differs from the same authenticated runtime archive.');
+    assertAuthenticatedHostedJobRuntimeReceipt(proof, { repository: job.repository, repositoryId: job.repositoryId,
+      workflowSha: job.workflowSha, runId: job.runId, runAttempt: job.runAttempt,
+      policyJobId: 'execute-verification-action-sut', phase: 'execute-hosted-action-sut',
+      actionKey: resolution.actionPlan.action.actionKey, outputDigest: rawSha256(source),
+      sandboxObservationDigest: rawCapture.sandboxReceipt.receiptDigest,
+      executionEnvironmentRevision: resolution.executionEnvironment.executionEnvironmentRevision,
+      resolutionDigest: resolution.resolutionDigest });
+    rawProof = proof;
   };
   const freshPublication = async (prepared: Readonly<{ authority: Authority; snapshot: Observation['snapshot'] }>, phase: string): Promise<void> => {
     current(phase);
@@ -1549,7 +1577,7 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
     },
     readRawResult: (file: string) => {
       current(); const value = capture(file, 'hosted Action raw result', CodexDevelopmentParseHostedActionRawResult);
-      current(); return value;
+      rawCapture = value; rawProof = undefined; current(); return value;
     },
     parseActionRequest: CodexDevelopmentParseHostedActionRequest,
     resolveAction: CodexDevelopmentResolveHostedAction,
@@ -1561,6 +1589,9 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
         intent: { kind: 'coordinate' }
       }); current(); assertAuthority(authority);
       observed = Object.freeze({ authority: Object.freeze({ ...authority }), result: deepFreeze(result) });
+      if (assertAuthenticatedGitHubJobOriginCurrent(origin).phase === 'assemble-hosted-action-terminal') {
+        await authenticateRaw(authority);
+      }
       return result;
     },
     producer: () => { current(); return currentHostedActionProducer(); },
@@ -1574,6 +1605,11 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
       const retained = preparedObservation();
       assertResolution(input.resolution, retained.authority);
       assertCaptured(input.ticket); assertCaptured(input.rawResult);
+      if (input.rawResult !== rawCapture || rawProof === undefined
+          || rawProof.outputSource !== captures.get(input.rawResult)?.source
+          || rawProof.receipt.providerRevision !== input.resolution.executionEnvironment.executionEnvironmentRevision) {
+        throw new Error('Hosted terminal has no same-archive native runtime receipt for its exact raw input.');
+      }
       const producer = currentHostedActionProducer();
       if (encodeVerificationActionData(producer) !== encodeVerificationActionData(input.producer)
           || encodeVerificationActionData(producer) !== encodeVerificationActionData(input.ticket.producer)) {
@@ -1631,6 +1667,10 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
       const prepared = preparedTerminals.get(artifact);
       if (prepared === undefined) throw new Error('Hosted terminal writer requires its same-invocation prepared artifact.');
       await freshPublication(prepared, 'assemble-hosted-action-terminal');
+      if (rawCapture === undefined || !prepared.inputs.includes(rawCapture)) {
+        throw new Error('Hosted terminal lost its exact original raw capture before publication.');
+      }
+      await authenticateRaw(prepared.authority);
       if (preparedTerminals.get(artifact) !== prepared) throw new Error('Hosted terminal preparation was already consumed.');
       for (const captured of prepared.inputs) assertCaptured(captured);
       if (encodeVerificationActionData(artifact.producer) !== encodeVerificationActionData(currentHostedActionProducer())) {
@@ -1670,6 +1710,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       '--head-sha', '--tree-sha', '--manifest-path'
     ]);
     const result = await CodexDevelopmentExecuteTrustedBootstrapSut({
+      executionEnvironmentRevision: process.env.SEC_EXECUTION_ENVIRONMENT_REVISION,
       baseRoot: args.get('--base-root')!,
       candidateRoot: args.get('--candidate-root')!,
       outputDirectory: args.get('--output-directory')!,

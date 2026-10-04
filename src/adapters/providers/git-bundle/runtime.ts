@@ -661,6 +661,21 @@ export async function createGitCandidateBundle(input: Readonly<{
   }
 }
 
+/** Borrow the original live input; a structural clone or terminal receipt cannot revive it. */
+export function assertGitCandidateBundleCurrent(bundle: GitCandidateBundle): RetainedNoFollowOrdinaryFile {
+  const state = GIT_CANDIDATE_BUNDLE_STATES.get(bundle);
+  if (state === undefined || state.receipt !== null || state.hasTerminalFailure) {
+    throw new Error('Git candidate bundle requires one current owner-issued retained capability.');
+  }
+  state.retainedBundle.assertCurrent();
+  const digest = state.retainedBundle.digest();
+  if (state.retainedBundle.path !== bundle.bundlePath
+      || digest.size !== bundle.bundleSize || digest.byteDigest !== bundle.bundleDigest) {
+    throw new Error('Git candidate bundle changed while borrowed.');
+  }
+  return state.retainedBundle;
+}
+
 export function closeGitCandidateBundle(bundle: GitCandidateBundle): GitCandidateBundleReceipt {
   const state = GIT_CANDIDATE_BUNDLE_STATES.get(bundle);
   if (state === undefined) {

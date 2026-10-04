@@ -4,7 +4,6 @@ import type { HostedSutCommandPlan, HostedSutExecutionAuthorization } from "../.
 import type { VerificationActionKeyDigest } from '../../../../../execution/verification/action.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
 import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest, exactObject } from '../verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA } from './hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from './revision.ts';
@@ -33,14 +32,18 @@ const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES = Object.freeze([
   'SEC_WORK_PACKAGE_MANIFEST_PATH'
 ] as const);
 
+export class HostedSutExecutionEnvironmentUnavailableError extends Error {
+  readonly code = 'SEC-HOSTED-SUT-EXECUTION-ENVIRONMENT-UNRESOLVED';
+  constructor() { super('Hosted SUT requires its explicitly supplied execution environment revision.'); }
+}
+
 export function hostedCandidateProcessEnvironment(
   source: NodeJS.ProcessEnv,
   semanticBindings: Readonly<Record<string, string>> = {}
 ): NodeJS.ProcessEnv {
-  const environment = resolveCiVerificationHostedExecutionEnvironment(
-    semanticBindings.SEC_EXECUTION_ENVIRONMENT_REVISION ?? source.SEC_EXECUTION_ENVIRONMENT_REVISION
-      ?? CI_VERIFICATION_HOSTED_PROVIDER_REVISION
-  );
+  const revision = semanticBindings.SEC_EXECUTION_ENVIRONMENT_REVISION ?? source.SEC_EXECUTION_ENVIRONMENT_REVISION;
+  if (revision === undefined || revision.length === 0) throw new HostedSutExecutionEnvironmentUnavailableError();
+  const environment = resolveCiVerificationHostedExecutionEnvironment(revision);
   const result: NodeJS.ProcessEnv = {
     PATH: '/tool/bin:/usr/bin:/bin',
     HOME: '/home/sut',
@@ -743,4 +746,3 @@ export function hostedSutTeardownCommandPlan(input: Readonly<{
     ]
   });
 }
-

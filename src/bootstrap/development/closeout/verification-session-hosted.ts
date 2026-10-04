@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { QualifiedContainerEngineOciExporter } from '../../../adapters/providers/docker/runtime/linux-oci-exporter.ts';
 import { ciVerificationHostedJobTransportSlot } from '../../../adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { HOSTED_RESUME_SIGNAL_SCHEMA } from '../../../adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../adapters/providers/github-api/hosted-job-origin.ts';
@@ -399,7 +398,6 @@ export function createHostedSessionPorts(input: Readonly<{
 
 export function createHostedCloseoutPorts(input: Readonly<{
   origin: AuthenticatedGitHubJobOrigin;
-  engineExporter: QualifiedContainerEngineOciExporter;
   ctx: VerificationSessionScope;
 }>): HostedCloseoutPorts<Parameters<Parameters<typeof withAuthenticatedPostMergeMainHealth>[1]>[0]> {
   return {
@@ -408,7 +406,7 @@ export function createHostedCloseoutPorts(input: Readonly<{
         repositoryRoot: input.ctx.repositoryRoot, repository: binding.repository,
         mergedSha: binding.newMainSha, mergedTreeSha: binding.newMainTreeSha });
       return await withAuthenticatedPostMergeMainHealth({ origin: input.origin,
-        engineExporter: input.engineExporter, plan, repositoryRoot: input.ctx.repositoryRoot,
+        plan, repositoryRoot: input.ctx.repositoryRoot,
         repository: binding.repository, mainSha: binding.newMainSha, mainTreeSha: binding.newMainTreeSha }, operation);
     },
     observeTerminal: request => observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, request),
@@ -462,7 +460,7 @@ export function createHostedIssueDispositionPorts(input: Readonly<{
 }
 
 export function createHostedCloseoutMutationPorts(input: Readonly<{
-  origin: AuthenticatedGitHubJobOrigin; engineExporter: QualifiedContainerEngineOciExporter;
+  origin: AuthenticatedGitHubJobOrigin;
   ctx: VerificationSessionScope;
   closeoutOperations: Parameters<typeof consumeSameHostWorktreeCloseout>[1];
 }>): HostedCloseoutMutationPorts<
@@ -646,7 +644,7 @@ export function createHostedIntegrationResumeObservationPorts(input: Readonly<{
  * The entry parser chooses spelling; application stages own business order. */
 export async function executeHostedVerificationCommand(input: Readonly<{
   command: ReturnType<typeof parseHostedVerificationCommand>; origin: AuthenticatedGitHubJobOrigin;
-  engineExporter: QualifiedContainerEngineOciExporter; ctx: VerificationSessionScope;
+  ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   event: Parameters<typeof assertHostedIntegrationIdentity>[0]['event'];
   environment: Parameters<typeof assertHostedIntegrationIdentity>[0]['environment'];

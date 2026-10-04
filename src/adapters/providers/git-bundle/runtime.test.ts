@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  assertGitCandidateBundleCurrent,
   assertGitCandidateBundleReceipt,
   closeGitCandidateBundle,
   createGitCandidateBundle,
@@ -74,6 +75,11 @@ describe('Git candidate bundle effect', () => {
       expect(bundle.bundlePath).toBe(path.join(outputRoot, 'candidate.bundle'));
       expect(bundle.bundleSize).toBeGreaterThan(0);
       expect(bundle.bundleDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+      const borrowed = assertGitCandidateBundleCurrent(bundle);
+      expect(borrowed.digest().byteDigest).toBe(bundle.bundleDigest);
+      expect(assertGitCandidateBundleCurrent(bundle)).toBe(borrowed);
+      expect(() => assertGitCandidateBundleCurrent(Object.freeze({ ...bundle! })))
+        .toThrow('current owner-issued retained capability');
       const heads = git(outputRoot, ['bundle', 'list-heads', bundle.bundlePath]);
       expect(heads.split('\n').sort()).toEqual([
         `${repository.baseSha} refs/sec/base`,
@@ -82,6 +88,8 @@ describe('Git candidate bundle effect', () => {
 
       const receipt = closeGitCandidateBundle(bundle);
       assertGitCandidateBundleReceipt(receipt, bundle);
+      expect(() => assertGitCandidateBundleCurrent(bundle!))
+        .toThrow('current owner-issued retained capability');
       expect(readFileSync(bundle.bundlePath).byteLength).toBe(bundle.bundleSize);
       expect(() => assertGitCandidateBundleReceipt(receipt, Object.freeze({ ...bundle! }))).toThrow(
         'owner-issued terminal settlement'

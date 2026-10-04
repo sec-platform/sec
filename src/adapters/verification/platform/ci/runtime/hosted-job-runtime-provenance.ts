@@ -10,9 +10,11 @@ import {
   currentGitHubApiCapability, executeGitHubApiOperation, inspectGitHubApiCapability,
   type GitHubApiCapability, type GitHubApiOperation
 } from '../../../../providers/github-api/operation-session.ts';
+import { SEC_LINUX_VERIFICATION_NATIVE_PROFILE } from '../../../../providers/linux-verification/contract.ts';
+import { createCiVerificationNativeHostedExecutionEnvironment } from '../../action/contract/ci.ts';
 import {
-  hostedJobRuntimeReceiptComplete, parseHostedJobRuntimeReceiptBytes,
-  type HostedJobRuntimeReceipt
+  assertHostedJobRuntimeReceiptOutput, hostedJobRuntimeReceiptComplete, parseHostedJobRuntimeReceiptBytes,
+  type NativeHostedJobRuntimeReceipt
 } from '../contract/hosted-job-runtime.ts';
 import {
   CodexDevelopmentParseHostedActionRawResult, parseHostedSutCapabilityObservation
@@ -50,10 +52,12 @@ export type HostedJobRuntimeReceiptSemanticBinding = Readonly<{
   runId: string; runAttempt: number;
   policyJobId: keyof typeof SUT_OUTPUTS; phase: string; actionKey: string;
   outputDigest: string; sandboxObservationDigest: string;
+  executionEnvironmentRevision: string;
+  resolutionDigest: string;
 }>;
 
 export type HostedJobRuntimeReceiptProvenanceData = Readonly<{
-  receipt: HostedJobRuntimeReceipt;
+  receipt: NativeHostedJobRuntimeReceipt;
   outputSource: string;
   provenance: Readonly<{
     artifactId: string; artifactName: string; archiveDigest: string;
@@ -67,11 +71,11 @@ export type HostedJobRuntimeReceiptProvenanceData = Readonly<{
 declare const authenticatedReceiptBrand: unique symbol;
 /**
  * Authenticated transport/source attribution of a settled producer observation.
- * This is not a fresh live origin, Engine capability, hardware attestation or
+ * This is not a fresh live origin, native unit capability, hardware attestation or
  * independently signed artifact. No raw JWT is retained: the private OIDC
  * issuer and exact trusted launcher produced these fields under the reviewed
- * GitHub VM/admin/bootstrap and no-credential-forwarding TCB. Process/root/
- * namespace and Engine/exporter identity digests remain producer observations.
+ * GitHub job/admin/bootstrap and no-credential-forwarding TCB. Process/root/
+ * namespace, manager and cgroup identity digests remain producer observations.
  */
 export type AuthenticatedHostedJobRuntimeReceipt = HostedJobRuntimeReceiptProvenanceData &
   Readonly<{ readonly [authenticatedReceiptBrand]: true }>;
@@ -164,6 +168,13 @@ export function decodeHostedJobRuntimeReceiptProvenance(input: Readonly<{
       || receipt.operation.phase !== selected.phase || receipt.operation.actionKey !== selected.actionKey) {
     fail('receipt does not bind the selected complete SUT phase');
   }
+  const environment = createCiVerificationNativeHostedExecutionEnvironment();
+  const accepted = SEC_LINUX_VERIFICATION_NATIVE_PROFILE.acceptedContent;
+  if (accepted.status !== 'accepted'
+      || receipt.providerRevision !== environment.executionEnvironmentRevision
+      || receipt.nativeUnit.inputs.runtimeManifestDigest !== accepted.manifestDigest) {
+    fail('receipt does not bind the actually accepted native environment');
+  }
   const repository = object(input.repository);
   if (repository.full_name !== selected.repository || id(repository.id) !== origin.repositoryId
       || repository.default_branch !== 'main') fail('repository binding differs');
@@ -248,19 +259,22 @@ export function decodeHostedJobRuntimeReceiptProvenance(input: Readonly<{
     if (!canonicalEquals(member[key], artifact[key])) fail('artifact census differs from exact readback');
   }
   if (typeof input.outputSource !== 'string' || Buffer.byteLength(input.outputSource, 'utf8') > 8 * 1024 * 1024
-      || Buffer.byteLength(input.outputSource, 'utf8') > receipt.execution.stdoutBytes
+      || Buffer.byteLength(input.outputSource, 'utf8') !== receipt.execution.stdoutBytes
       || rawSha256(input.outputSource) !== receipt.execution.outputDigest) fail('same-archive output bytes differ');
+  assertHostedJobRuntimeReceiptOutput(receipt, input.outputSource);
   const outputValue = parseExactJsonBytes(Buffer.from(input.outputSource, 'utf8'), 'Hosted runtime output',
     { maximumInputBytes: 8 * 1024 * 1024, maximumDepth: 32 });
   if (selected.policyJobId === 'execute-verification-action-sut') {
     const raw = CodexDevelopmentParseHostedActionRawResult(input.outputSource);
     if (raw.sandboxReceipt.actionKey !== selected.actionKey
         || raw.sandboxReceipt.receiptDigest !== receipt.execution.sandboxObservationDigest
+        || raw.sandboxReceipt.authenticatedArchive.archiveDigest !== receipt.nativeUnit.inputs.sutArchiveDigest
         || timestamp(raw.startedAt) < launcher.started || timestamp(raw.finishedAt) > launcher.completed
         || timestamp(raw.finishedAt) > receipt.operation.deadlineAtUnixMs) fail('raw sandbox observation differs');
   } else {
     const capability = object(outputValue);
     if (capability.schema !== output.prefix || capability.actionKey !== selected.actionKey
+        || receipt.nativeUnit.inputs.sutArchiveDigest !== null
         || sha256(parseHostedSutCapabilityObservation(capability.observation)) !== receipt.execution.sandboxObservationDigest) {
       fail('preflight sandbox observation differs');
     }
@@ -281,7 +295,7 @@ async function sourceBlob(capability: GitHubApiCapability, ref: string, path: st
   if (bytes.toString('base64') !== encoded || value.size !== bytes.length || bytes.length > 512 * 1024) fail('source bytes differ');
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
-async function readCensus(capability: GitHubApiCapability, selected: HostedJobRuntimeReceiptSelection,
+async function readCensus(capability: GitHubApiCapability, selected: Pick<HostedJobRuntimeReceiptSelection, 'runId' | 'runAttempt'>,
   field: 'jobs' | 'artifacts'): Promise<readonly unknown[]> {
   const pages: unknown[] = [];
   for (let page = 1; page <= 2; page += 1) {
@@ -295,6 +309,24 @@ async function readCensus(capability: GitHubApiCapability, selected: HostedJobRu
     if (Number(total) <= page * 100) { census(pages, field); return pages; }
   }
   fail('incomplete census');
+}
+
+/** Resolve the original immutable artifact ID from its exact run/name census.
+ * This is selection only; the same reader below still owns authentication. */
+export async function readAuthenticatedHostedJobRuntimeReceiptByName(input:
+  Omit<HostedJobRuntimeReceiptSelection, 'artifactId'> & Readonly<{ capability: GitHubApiCapability }>
+): Promise<AuthenticatedHostedJobRuntimeReceipt> {
+  const identity = inspectGitHubApiCapability(input.capability);
+  if (identity.origin !== 'production' || identity.repository !== input.repository
+      || identity.effect !== 'verification-read'
+      || currentGitHubApiCapability(input.repository, 'verification-read') !== input.capability) {
+    fail('artifact selection requires live original verification transport');
+  }
+  const name = hostedJobSutArtifactName(input.policyJobId, input.actionKey, input.runId, input.runAttempt);
+  const artifacts = census(await readCensus(input.capability, input, 'artifacts'), 'artifacts');
+  const matches = artifacts.filter(artifact => artifact.name === name);
+  if (matches.length !== 1) fail('exact native runtime artifact has no unique immutable ID');
+  return await readAuthenticatedHostedJobRuntimeReceipt({ ...input, artifactId: id(matches[0]!.id) });
 }
 
 /**
@@ -349,7 +381,8 @@ export function assertAuthenticatedHostedJobRuntimeReceipt(proof: AuthenticatedH
   if (!canonicalEquals({ repository: origin.repository, repositoryId: origin.repositoryId, workflowSha: origin.workflowSha,
     runId: origin.runId, runAttempt: origin.runAttempt, policyJobId: origin.policyJobId,
     phase: receipt.operation.phase, actionKey: receipt.operation.actionKey,
-    outputDigest: receipt.execution.outputDigest, sandboxObservationDigest: receipt.execution.sandboxObservationDigest }, actual)) {
+    outputDigest: receipt.execution.outputDigest, sandboxObservationDigest: receipt.execution.sandboxObservationDigest,
+    executionEnvironmentRevision: receipt.providerRevision, resolutionDigest: receipt.operation.resolutionDigest }, actual)) {
     fail('actual Action/ticket/job/output semantic binding differs');
   }
   return data;

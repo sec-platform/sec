@@ -51,14 +51,21 @@ import {
 
 const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
 
-// This protected compiler owns the only non-ESM executable resource relation.
-// Candidate declarations cannot extend this policy. The helper remains opaque
-// Python data during compilation; its actual bytes, not a TS parse, bind trust.
-const TCB_HOSTED_SUT_RESOURCE = Object.freeze({
-  owner: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts',
-  path: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
-  specifier: './hosted-sut-supervisor.py'
-});
+// This protected compiler owns these two fixed executable resource relations.
+// Candidate declarations cannot extend this policy. Both helpers remain opaque
+// Python data during compilation; their actual bytes, not a TS parse, bind trust.
+const TCB_RUNTIME_RESOURCES = Object.freeze([
+  Object.freeze({
+    owner: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts',
+    path: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+    specifier: './hosted-sut-supervisor.py'
+  }),
+  Object.freeze({
+    owner: 'src/adapters/runtime-state/physical/runtime/linux-verification-unit.ts',
+    path: 'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py',
+    specifier: './linux-verification-unit-helper.py'
+  })
+]);
 
 const TCB_REVIEWED_SUT_EDGES = new Set(
   SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges
@@ -135,7 +142,6 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([
-  'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts::function-declaration:download::node:https.request#1',
   'src/adapters/providers/github-api/hosted-job-origin.ts::function-declaration:jsonRequest::globalThis.fetch#1',
   'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:withProductionSession::globalThis.fetch#1'
 ]);
@@ -187,7 +193,10 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
   'execPath',
   'exit',
   'exitCode',
+  'getegid',
   'geteuid',
+  'getgid',
+  'getuid',
   'kill',
   'once',
   'pid',
@@ -993,11 +1002,12 @@ export function runtimeRelativeImportsFromSource(
   ts.forEachChild(sourceFile, visitRuntimeLoaders);
 
   // Python is not an ESM module or an arbitrary additional entrypoint. Only
-  // the fixed source-relative resource below can enter this causal closure.
+  // a fixed source-relative resource relation can enter this causal closure.
   if (specifiers.some((specifier) => /\.py$/iu.test(specifier))) {
     rejectUnmodeledLoader('Python ESM import');
   }
-  if (repositoryPath === TCB_HOSTED_SUT_RESOURCE.owner) {
+  const resource = TCB_RUNTIME_RESOURCES.find((value) => value.owner === repositoryPath);
+  if (resource !== undefined) {
     const declarations = sourceFile.statements.flatMap((statement) =>
       ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : []
     ).filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'HELPER_PATH');
@@ -1009,15 +1019,15 @@ export function runtimeRelativeImportsFromSource(
         || initializer === undefined || !ts.isCallExpression(initializer)
         || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'fileURLToPath'
         || initializer.arguments.length !== 1) {
-      return rejectUnmodeledLoader('hosted supervisor resource declaration');
+      return rejectUnmodeledLoader('reviewed runtime resource declaration');
     }
     const helperSymbol = localSymbol(declaration.name);
     if (helperSymbol?.declarations?.length !== 1 || helperSymbol.declarations[0] !== declaration) {
-      rejectUnmodeledLoader('hosted supervisor resource binding');
+      rejectUnmodeledLoader('reviewed runtime resource binding');
     }
     const assertResourceBinding = (node: ts.Node): void => {
       if (ts.isIdentifier(node) && node.text === 'HELPER_PATH' && localSymbol(node) !== helperSymbol) {
-        rejectUnmodeledLoader('shadowed hosted supervisor resource binding');
+        rejectUnmodeledLoader('shadowed reviewed runtime resource binding');
       }
       ts.forEachChild(node, assertResourceBinding);
     };
@@ -1030,18 +1040,18 @@ export function runtimeRelativeImportsFromSource(
         || imported.parent.parent.isTypeOnly || !ts.isImportDeclaration(imported.parent.parent.parent)
         || !ts.isStringLiteral(imported.parent.parent.parent.moduleSpecifier)
         || imported.parent.parent.parent.moduleSpecifier.text !== 'node:url') {
-      rejectUnmodeledLoader('hosted supervisor resource URL resolver');
+      rejectUnmodeledLoader('reviewed runtime resource URL resolver');
     }
     const url = initializer.arguments[0];
     if (url === undefined || !ts.isNewExpression(url) || !ts.isIdentifier(url.expression)
         || url.expression.text !== 'URL' || isLocallyBoundIdentifier(url.expression)
         || url.arguments?.length !== 2 || !ts.isStringLiteral(url.arguments[0]!)
-        || url.arguments[0]!.text !== TCB_HOSTED_SUT_RESOURCE.specifier
+        || url.arguments[0]!.text !== resource.specifier
         || !ts.isPropertyAccessExpression(url.arguments[1]!)
         || url.arguments[1]!.name.text !== 'url' || !isImportMeta(url.arguments[1]!.expression)) {
-      rejectUnmodeledLoader('hosted supervisor resource source-relative URL');
+      rejectUnmodeledLoader('reviewed runtime resource source-relative URL');
     }
-    specifiers.push(TCB_HOSTED_SUT_RESOURCE.specifier);
+    specifiers.push(resource.specifier);
   }
 
   return specifiers.filter((specifier) => {
@@ -1152,9 +1162,10 @@ function trustedRuntimeClosureAtCandidateRoot(
       reviewedNetworkDispatchers
     )) {
       const resolved = resolveRepositoryImportAtCandidateRoot(candidateRoot, current, specifier);
-      if (resolved === TCB_HOSTED_SUT_RESOURCE.path) {
-        if (current !== TCB_HOSTED_SUT_RESOURCE.owner || specifier !== TCB_HOSTED_SUT_RESOURCE.specifier) {
-          throw new Error('TCB hosted supervisor resource has no reviewed source owner.');
+      const resource = TCB_RUNTIME_RESOURCES.find((value) => value.path === resolved);
+      if (resource !== undefined) {
+        if (current !== resource.owner || specifier !== resource.specifier) {
+          throw new Error('TCB reviewed runtime resource has no reviewed source owner.');
         }
         // Resolution read these exact bytes through the original snapshot.
         // Include the terminal in the identity without parsing it as TypeScript.
@@ -1617,7 +1628,8 @@ function computeTcbClosureLockAtCandidateRoot(
     }
     // Preserve the existing JS/TS text contract. The executed Python resource
     // instead binds raw bytes, including encoding and newline differences.
-    const identityBytes = modulePath === TCB_HOSTED_SUT_RESOURCE.path ? bytes : normalizeTextBytes(bytes);
+    const identityBytes = TCB_RUNTIME_RESOURCES.some((resource) => resource.path === modulePath)
+      ? bytes : normalizeTextBytes(bytes);
     moduleBlobs[modulePath] = computeGitBlobSha(identityBytes);
     moduleContentDigests[modulePath] = computeContentDigest(identityBytes);
   }
@@ -1825,7 +1837,7 @@ export function compileTcbClosureIdentity(
 const TCB_CLOSURE_ACTION_RESULT_SCHEMA =
   'sec-tcb-closure-action-result-v1' as const;
 const TCB_CLOSURE_ACTION_PRODUCER_REVISION =
-  'sec-tcb-closure-action-producer-v2' as const;
+  'sec-tcb-closure-action-producer-v3' as const;
 
 export interface TcbClosureActionResult {
   readonly schema: typeof TCB_CLOSURE_ACTION_RESULT_SCHEMA;

@@ -91,42 +91,55 @@ test('the production projection interprets candidate B bytes with adopted compil
   }
 });
 
-test('production dispatcher projection binds the opaque supervisor resource through the exact candidate census', async () => {
+test('production dispatcher projection binds both opaque resources through the exact candidate census', async () => {
   const subject = fixture();
   let primary: ResourceSettlementFailure | undefined;
   try {
-    const owner = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
-    const helper = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py';
-    const source = file(owner, "import { fileURLToPath } from 'node:url';\n"
-      + "const HELPER_PATH = fileURLToPath(new URL('./hosted-sut-supervisor.py', import.meta.url));\n");
-    const resource = file(helper, '# opaque Python resource\r\nvalue = 1\r\n');
+    const owners = [
+      { owner: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts',
+        helper: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+        specifier: './hosted-sut-supervisor.py' },
+      { owner: 'src/adapters/runtime-state/physical/runtime/linux-verification-unit.ts',
+        helper: 'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py',
+        specifier: './linux-verification-unit-helper.py' }
+    ];
+    const resources = owners.map(({ helper }) => file(helper, '# opaque Python resource\r\nvalue = 1\r\n'));
+    const imports = owners.map(({ owner }) =>
+      "import '" + path.posix.relative(path.posix.dirname(runtimePath), owner) + "';\n").join('');
     const files = subject.files.map(input => input.path === runtimePath
-      ? file(runtimePath, runtimeSource + "import '../../verification/platform/ci/runtime/hosted-sut-supervisor.ts';\n")
-      : input);
-    files.push(source, resource);
+      ? file(runtimePath, runtimeSource + imports) : input);
+    for (const { owner, specifier } of owners) {
+      files.push(file(owner, "import { fileURLToPath } from 'node:url';\n"
+        + "const HELPER_PATH = fileURLToPath(new URL('" + specifier + "', import.meta.url));\n"));
+    }
+    files.push(...resources);
     for (const input of files) subject.write(input);
     const census = files.filter(input => isSourceProgramInputPath(input.path));
-    expect(census).toContainEqual(resource);
     const projection = await compileReviewedProcessDispatcherProjection(subject.root, census, compilerInputDigest);
-    expect(projection.sourceInputDigests[helper]).toBe(rawSha256(resource.source));
     expect(projection.reviewedProcessDispatchers).toEqual([dispatcher]);
     expect(reviewedProcessDispatchersFromExactProjection(census, compilerInputDigest, projection)).toEqual([dispatcher]);
-    const absent = census.filter(input => input.path !== helper);
-    expect(reviewedProcessDispatchersFromExactProjection(absent, compilerInputDigest, projection)).toBeNull();
-    await expect(compileReviewedProcessDispatcherProjection(subject.root, absent, compilerInputDigest))
-      .rejects.toThrow('read set does not match the exact candidate census');
-    const changed = census.map(input => input.path === helper ? file(helper, '# changed bytes\n') : input);
-    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toBeNull();
-    const other = census.map(input => input.path === helper ? file('src/other.py', resource.source) : input);
-    expect(reviewedProcessDispatchersFromExactProjection(other, compilerInputDigest, projection)).toBeNull();
-    expect(isSourceProgramInputPath('src/other.py')).toBe(false);
-    subject.write(file(helper, '# changed bytes\n'));
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
-    expect(recomputed.sourceInputDigests[helper]).toBe(rawSha256('# changed bytes\n'));
+    for (const resource of resources) {
+      const helper = resource.path;
+      expect(census).toContainEqual(resource);
+      expect(projection.sourceInputDigests[helper]).toBe(rawSha256(resource.source));
+      const absent = census.filter(input => input.path !== helper);
+      expect(reviewedProcessDispatchersFromExactProjection(absent, compilerInputDigest, projection)).toBeNull();
+      await expect(compileReviewedProcessDispatcherProjection(subject.root, absent, compilerInputDigest))
+        .rejects.toThrow('read set does not match the exact candidate census');
+      const changed = census.map(input => input.path === helper ? file(helper, '# changed bytes\n') : input);
+      expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toBeNull();
+      const other = census.map(input => input.path === helper ? file('src/other.py', resource.source) : input);
+      expect(reviewedProcessDispatchersFromExactProjection(other, compilerInputDigest, projection)).toBeNull();
+      expect(isSourceProgramInputPath('src/other.py')).toBe(false);
+      subject.write(file(helper, '# changed bytes\n'));
+      const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
+      expect(recomputed.sourceInputDigests[helper]).toBe(rawSha256('# changed bytes\n'));
+      subject.write(resource);
+    }
   } catch (error) {
-    primary = { label: 'supervisor-resource-projection', error };
+    primary = { label: 'runtime-resource-projection', error };
   } finally {
-    settleResources({ primary, cleanup: [{ label: 'supervisor-resource-projection-fixture', settle: subject.cleanup }] });
+    settleResources({ primary, cleanup: [{ label: 'runtime-resource-projection-fixture', settle: subject.cleanup }] });
   }
 });
 

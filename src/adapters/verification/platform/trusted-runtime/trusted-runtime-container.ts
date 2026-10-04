@@ -1,16 +1,38 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
-  readFileSync,
   rmSync
 } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { VerificationEvidence, VerificationGateEvidence } from '../../../../execution/verification/session.ts';
+import {
+  assertLinuxVerificationUnitResult,
+  bindLinuxVerificationUnitSession,
+  closeLinuxVerificationUnitSession,
+  executeLinuxVerificationUnit,
+  getLinuxVerificationUnitRecovery,
+  LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST,
+  LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
+  LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
+  LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
+  LINUX_VERIFICATION_UNIT_REQUIREMENT_ID,
+  linuxVerificationUnitInvocationDigest,
+  parseLinuxVerificationUnitReceipt,
+  prepareLinuxVerificationUnitSession,
+  recoverLinuxVerificationUnitSession,
+  type LinuxVerificationUnitInvocation,
+  type LinuxVerificationUnitReceipt,
+  type LinuxVerificationUnitRecovery,
+  type LinuxVerificationUnitResult,
+  type LinuxVerificationUnitSession,
+  type LinuxVerificationUnitSessionSettlement
+} from '../../../runtime-state/physical/runtime/linux-verification-unit.ts';
 
 import { CI_VERIFICATION_WORKFLOW_PATH, type CI_VERIFICATION_CONTRACT_REVISION } from '../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
 import { throwIfNativeAborted } from '../../../../contracts/native-abort.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSemanticOperation,
   compileCapabilityBinding,
@@ -28,35 +50,19 @@ import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../.
 import type { VerificationSessionHostedEnvelope } from '../../../../execution/verification/hosted.ts';
 import type {
   ContainerEngineOperation,
-  ContainerEngineOperationOptions,
-  ContainerEngineOperationScope,
-  ContainerEngineSession
 } from '../../../providers/docker/contract/container-engine-session.ts';
 import {
   parseDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../../../providers/docker/contract/daemon.ts';
-import { DOCKER_LINUX_INSTALLATION_PROFILE } from '../../../providers/docker/contract/linux-installation-profile.ts';
-import { disposeUnclaimedDockerCommandProviderCapability } from '../../../providers/docker/runtime/command-provider.ts';
 import {
-  observeRetainedContainerEngineSessionClose,
-  openContainerEngineSession
-} from '../../../providers/docker/runtime/container-engine-session.ts';
-import {
-  openDockerCommandProvider
-} from '../../../providers/docker/runtime/installed-command-provider.ts';
-import { openAuthenticatedLinuxDockerCommandProvider } from '../../../providers/docker/runtime/linux-command-provider.ts';
-import { claimQualifiedContainerEngineOciExporter, closeUnclaimedQualifiedContainerEngineOciExporter, consumeQualifiedContainerEngineOciExporter, observeQualifiedContainerEngineOciExporterOwnership, qualifyLinuxDockerOciExporter, type QualifiedContainerEngineOciExporter } from '../../../providers/docker/runtime/linux-oci-exporter.ts';
-import { publishLinuxDockerStaticToolchain } from '../../../providers/docker/runtime/linux-static-toolchain-publisher.ts';
-import {
+  assertGitCandidateBundleCurrent,
   assertGitCandidateBundleReceipt,
   closeGitCandidateBundle,
   createGitCandidateBundle,
   type GitCandidateBundle
 } from '../../../providers/git-bundle/runtime.ts';
-import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../../providers/git-read/runtime/session.ts';
-import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import { withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
 import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
 import {
@@ -65,30 +71,34 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../../providers/linux-verification/contract.ts';
+import { observeSecLinuxVerificationNativeRuntimeInput, requireSecLinuxVerificationNativeRuntimeInput } from '../../../providers/linux-verification/materialization.ts';
 import { repositoryAuditInheritedDeadline, SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV } from '../../../repository/repository-audit/cli-contract.ts';
 import { compileSourceProgramTransitionAdoption, parseSourceProgramTransitionAssessment, type SourceProgramTransitionAssessment } from '../../../repository/repository-audit/transition.ts';
 import { adoptSourceProgramTestAuthorDecision, assertSourceProgramTestAuthorApproval, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
-import {
-  parseGitObjectIdReply
-} from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
-  createTrustedRuntimeMainHealthReceipt,
+  createTrustedRuntimeNativeMainHealthInvocation,
+  createTrustedRuntimeNativeMainHealthReceipt,
   TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+  type TrustedRuntimeMainHealthNativeReceipt,
   type TrustedRuntimeMainHealthReceipt
 } from '../../../self-hosting/control/main-health/main-health-observation.ts';
+import {
+  assertCompilerDependencyReadGenerationRetirementReceipt,
+  observeCompilerDependencyExecutionGenerationAuthority,
+  retainCompilerDependencyReadGeneration,
+  type RetainedCompilerDependencyReadGeneration
+} from '../../../toolchain/dependencies/runtime.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
-import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramAnalysisBinding, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
-import { parseTrustedRuntimeSourceProgramActionRecord, type TrustedRuntimeSourceProgramActionRecord } from '../ci/contract/evidence.ts';
+import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, createCiVerificationNativeLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramAnalysisBinding, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
+import { parseTrustedRuntimeSourceProgramActionRecord, parseTrustedRuntimeSourceProgramAttemptCarrier, type TrustedRuntimeSourceProgramActionRecord } from '../ci/contract/evidence.ts';
 import {
-  createBuildxRawJsonProgressAdmission,
-  ensureLocalGitHubActionsRunnerToolchainMaterialization,
   type LocalGitHubActionsRunnerToolchainMaterialization
 } from '../ci/runtime/local-github-actions-runner.ts';
 
@@ -98,8 +108,6 @@ const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA =
   'sec-trusted-runtime-dependency-cache-v1' as const;
 const TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA =
   'sec-trusted-runtime-dependency-cache-volume-v1' as const;
-const TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE =
-  '.sec-derived-cache.json' as const;
 const TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH =
   '/tmp/sec-hosted-dependency-home/bun-install' as const;
 const TRUSTED_RUNTIME_CONTAINER_IMAGE = ENVIRONMENT.trustedRuntime.imageName;
@@ -417,7 +425,8 @@ export async function reobserveSourceProgramTransitionQualificationForEffect(
   }
 }
 
-export interface TrustedRuntimeContainerReceipt {
+/** Historical Docker data keeps its original schema and image interpretation. */
+export interface TrustedRuntimeDockerReceipt {
   readonly schema: typeof TRUSTED_RUNTIME_CONTAINER_SCHEMA;
   readonly executionId: string;
   readonly sessionRevision: Digest;
@@ -434,6 +443,26 @@ export interface TrustedRuntimeContainerReceipt {
   readonly sourceProgramTransition?: Readonly<{ assessmentDigest: string; outputByteDigest: Digest; actionKey: string }>;
   readonly receiptDigest: Digest;
 }
+
+export interface TrustedRuntimeNativeReceipt {
+  readonly schema: 'sec-trusted-runtime-native-receipt-v1';
+  readonly executionId: string;
+  readonly sessionRevision: Digest;
+  readonly baseSha: string;
+  readonly baseTreeSha: string;
+  readonly headSha: string;
+  readonly headTreeSha: string;
+  readonly unitReceipt: LinuxVerificationUnitReceipt;
+  readonly networkIsolatedBeforeSut: true;
+  readonly evidenceByteDigest: Digest;
+  readonly evidenceByteLength: number;
+  readonly evidenceDigest: Digest;
+  readonly producerSourceDigest: Digest;
+  readonly sourceProgramTransition?: Readonly<{ assessmentDigest: string; outputByteDigest: Digest; actionKey: string }>;
+  readonly receiptDigest: Digest;
+}
+
+export type TrustedRuntimeContainerReceipt = TrustedRuntimeDockerReceipt | TrustedRuntimeNativeReceipt;
 
 
 export interface TrustedRuntimeDependencyCacheMarker {
@@ -492,51 +521,6 @@ export const TRUSTED_RUNTIME_CONTAINER_ENGINE_REQUIREMENT = Object.freeze({
     'container-engine.runtime-endpoint-residue'
   ])
 });
-
-function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  baseSha: string;
-  headSha: string;
-  operationKey: string;
-  setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
-  providerIdentityDigest: OperationDigest;
-  deadlineAtUnixMs?: number;
-}>): BoundSemanticOperation {
-  const contractDigest = TRUSTED_RUNTIME_CONTAINER_ENGINE_REQUIREMENT.contractDigest;
-  const plan = compileSemanticOperationPlan({
-    operation: 'verification.trusted-runtime-container',
-    intentDigest: digestValue(Object.freeze({
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      baseSha: input.baseSha,
-      headSha: input.headSha,
-      operationKey: input.operationKey,
-      setupMode: input.setupMode
-    })) as OperationDigest,
-    decisionDigest: digestValue(Object.freeze({
-      contractDigest,
-      budget: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET
-    })) as OperationDigest,
-    deadlineAtUnixMs: input.deadlineAtUnixMs
-      ?? Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs,
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs },
-      { resource: 'input-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.inputBytes },
-      { resource: 'output-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.outputBytes },
-      { resource: 'processes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.processes }
-    ],
-    requirements: [TRUSTED_RUNTIME_CONTAINER_ENGINE_REQUIREMENT],
-    attempt: issueSemanticOperationAttemptContext({
-      authorityGrantDigest: contractDigest
-    })
-  });
-  return bindSemanticOperation(plan, [compileCapabilityBinding({
-    requirementId: TRUSTED_RUNTIME_CONTAINER_ENGINE_REQUIREMENT.id,
-    contractDigest,
-    providerIdentityDigest: input.providerIdentityDigest
-  })]);
-}
 
 function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Readonly<{
   operation: BoundSemanticOperation;
@@ -603,174 +587,6 @@ type TrustedRuntimeContainerEngineSettlement = Readonly<{
   endpointReadback: DockerEndpointIdentity;
 }> & ReturnType<typeof issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements>;
 
-async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
-  session: ContainerEngineSession;
-  operation: BoundSemanticOperation;
-  scope: ContainerEngineOperationScope;
-  ownerTerminalReference: Readonly<Record<string, unknown>>;
-  observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
-}>): Promise<TrustedRuntimeContainerEngineSettlement> {
-  const providerSettlement = input.scope.settle();
-  const endpointReadback = await input.session.observeEndpoint();
-  const joined = issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements({
-    operation: input.operation, primaryProviderSettlement: providerSettlement,
-    providerSettlements: [providerSettlement], endpointReadback,
-    ownerTerminalContractDigest: digestValue(Object.freeze({
-      schema: 'sec-trusted-runtime-container-engine-owner-terminal-contract-v1',
-      operation: input.operation.plan.identity.operation
-    })) as OperationDigest,
-    ownerTerminalReferenceDigest: digestValue(Object.freeze({
-      schema: 'sec-trusted-runtime-container-engine-owner-terminal-reference-v1',
-      ...input.ownerTerminalReference
-    })) as OperationDigest
-  });
-  const settlement = Object.freeze({ operation: input.operation,
-    ownerTerminalReference: input.ownerTerminalReference, endpointReadback, ...joined });
-  input.observeSettlement?.(settlement);
-  return settlement;
-}
-
-async function executeTrustedRuntimeContainerEngineOwnerOperation<T>(input: Readonly<{
-  session: ContainerEngineSession;
-  repositoryRoot: string;
-  repository: string;
-  baseSha: string;
-  headSha: string;
-  operationKey: string;
-  setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
-  execute: () => Promise<T>;
-  observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
-}>): Promise<T> {
-  const operation = bindTrustedRuntimeContainerEngineOperation({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    baseSha: input.baseSha,
-    headSha: input.headSha,
-    operationKey: input.operationKey,
-    setupMode: input.setupMode,
-    providerIdentityDigest: input.session.providerIdentityDigest,
-    deadlineAtUnixMs: input.session.deadlineAtUnixMs
-  });
-  const scope = input.session.openOperationScope({
-    operation,
-    requirementId: 'external.container-engine-process'
-  });
-  try {
-    return await input.execute();
-  } finally {
-    await settleTrustedRuntimeContainerEngineOperation({
-      observeSettlement: input.observeSettlement,
-      session: input.session,
-      operation,
-      scope,
-      ownerTerminalReference: Object.freeze({
-        phase: 'owner-operation',
-        operationKey: input.operationKey
-      })
-    });
-  }
-}
-
-/** The trusted host borrows the original qualified Engine only for a closed
- * hosted control phase. The application receives its functional OCI exporter,
- * never a caller-shaped Engine session or a fabricated physical receipt. */
-export async function withQualifiedHostedJobContainerEngine<T>(input: Readonly<{
-  origin: AuthenticatedGitHubJobOrigin;
-  execute: (exporter: QualifiedContainerEngineOciExporter) => Promise<T>;
-}>): Promise<T> {
-  const job = assertAuthenticatedGitHubJobOriginCurrent(input.origin);
-  const signal = getAuthenticatedGitHubJobOriginSignal(input.origin);
-  const publication = await publishLinuxDockerStaticToolchain({
-    deadlineAtUnixMs: job.originalDeadlineAtUnixMs,
-    signal
-  });
-  let provider: Awaited<ReturnType<typeof openAuthenticatedLinuxDockerCommandProvider>> | null = null;
-  let session: ContainerEngineSession | null = null;
-  let exporter: QualifiedContainerEngineOciExporter | null = null;
-  let providerClaimed = false;
-  let primary: Readonly<{ label: string; error: unknown }> | undefined;
-  try {
-    await publication.assertCurrent();
-    assertAuthenticatedGitHubJobOriginCurrent(input.origin);
-    provider = await openAuthenticatedLinuxDockerCommandProvider({
-      origin: input.origin,
-      generation: publication.generation,
-      workingDirectory: job.trustedDriverRoot,
-      deadlineAtUnixMs: job.originalDeadlineAtUnixMs
-    });
-    const operation = bindTrustedRuntimeContainerEngineOperation({
-      repositoryRoot: job.trustedDriverRoot,
-      repository: job.repository,
-      baseSha: job.workflowSha,
-      headSha: job.trustedSourceSha,
-      operationKey: `hosted-job-${job.identityDigest.slice(7, 31)}`,
-      setupMode: 'lifecycle-canary',
-      providerIdentityDigest: provider.providerIdentityDigest,
-      deadlineAtUnixMs: job.originalDeadlineAtUnixMs
-    });
-    const opening = openContainerEngineSession({
-      operation,
-      provider,
-      cwd: job.trustedDriverRoot,
-      availability: 'observe',
-      signal
-    });
-    providerClaimed = true;
-    session = await opening;
-    exporter = await qualifyLinuxDockerOciExporter({
-      session,
-      operation,
-      requirementId: TRUSTED_RUNTIME_CONTAINER_ENGINE_REQUIREMENT.id,
-      scratchParent: DOCKER_LINUX_INSTALLATION_PROFILE.runtimeParent
-    });
-    // The OCI qualification has its own original physical scope and exact
-    // endpoint readback. It never grants a second effect or extends the job.
-    issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
-      operation,
-      providerSettlement: exporter.observation.providerSettlementReceipt,
-      endpointReadback: await session.observeEndpoint(),
-      ownerTerminalContractDigest: digestValue({
-        schema: 'sec-hosted-job-engine-qualification-terminal-v1',
-        requirementId: TRUSTED_RUNTIME_CONTAINER_ENGINE_REQUIREMENT.id
-      }) as OperationDigest,
-      ownerTerminalReferenceDigest: digestValue({
-        schema: 'sec-hosted-job-engine-qualification-reference-v1',
-        origin: job.identityDigest,
-        exporter: exporter.identityDigest
-      }) as OperationDigest
-    });
-    assertAuthenticatedGitHubJobOriginCurrent(input.origin);
-    return await input.execute(exporter);
-  } catch (error) {
-    primary = Object.freeze({ label: 'hosted-job-container-engine', error });
-    throw error;
-  } finally {
-    await settlePhysicalResourcesAsync({
-      ...(primary === undefined ? {} : { primary }),
-      cleanup: [
-        { label: 'hosted-job-engine-exporter', settle: () => {
-          if (exporter === null) return;
-          const state = observeQualifiedContainerEngineOciExporterOwnership(exporter);
-          if (state.ownership === 'available') closeUnclaimedQualifiedContainerEngineOciExporter(exporter);
-          else if (state.sessionClose !== 'settled') {
-            fail('hosted job transferred Engine has no owner-issued close settlement');
-          }
-        } },
-        { label: 'hosted-job-engine-session', settle: () => {
-          if (session !== null && exporter === null) session.close();
-          if (provider !== null && !providerClaimed) disposeUnclaimedDockerCommandProviderCapability(provider);
-        } },
-        { label: 'hosted-job-static-toolchain-retirement', settle: async () => {
-          if (session !== null && observeRetainedContainerEngineSessionClose(session) !== 'settled') {
-            fail('hosted job Engine session is not settled; static generation remains protected');
-          }
-          await publication.retire();
-        } }
-      ]
-    });
-  }
-}
-
 export function createTrustedRuntimeDependencyCacheMarker(input: Readonly<{
   repository: string;
   bunLockBlobSha: string;
@@ -788,12 +604,6 @@ export function createTrustedRuntimeDependencyCacheMarker(input: Readonly<{
     activeUseFence: 'docker-mounted-volume-plus-operation-lease-v1' as const
   });
   return Object.freeze({ ...withoutKey, cacheKey: digestValue(withoutKey) });
-}
-
-function canonicalDependencyCacheMarkerBytes(
-  marker: TrustedRuntimeDependencyCacheMarker
-): Uint8Array {
-  return Buffer.from(`${encodeVerificationActionData(marker)}\n`, 'utf8');
 }
 
 export function createTrustedRuntimeDependencyCacheVolumeSpec(
@@ -910,40 +720,6 @@ export function renderTrustedRuntimeCommandFailureDetail(input: Readonly<{
   return sections.length === 0 ? '<no captured output>' : sections.join('\n');
 }
 
-async function observeContainerEngineOperation(
-  session: ContainerEngineSession,
-  operation: ContainerEngineOperation,
-  options: ContainerEngineOperationOptions = {}
-): Promise<Readonly<{ code: number; stdout: string; stderr: string }>> {
-  const result = await session.execute(operation, options);
-  return Object.freeze({
-    code: result.code,
-    stdout: result.stdout.toString('utf8'),
-    stderr: result.stderr.toString('utf8')
-  });
-}
-
-async function containerEngineOperationResult(
-  session: ContainerEngineSession,
-  operation: ContainerEngineOperation,
-  options: ContainerEngineOperationOptions = {}
-): Promise<Readonly<{ code: number; stdout: string; stderr: string }>> {
-  const result = await observeContainerEngineOperation(session, operation, options);
-  if (result.code !== 0) {
-    fail(`Container Engine ${operation.kind} failed (${result.code}): ${
-      renderTrustedRuntimeCommandFailureDetail(result)}`);
-  }
-  return result;
-}
-
-async function containerEngineOutput(
-  session: ContainerEngineSession,
-  operation: ContainerEngineOperation,
-  options: ContainerEngineOperationOptions = {}
-): Promise<string> {
-  return (await containerEngineOperationResult(session, operation, options)).stdout.trim();
-}
-
 export interface TrustedRuntimeContainerIdentity {
   readonly id: string;
   readonly imageId: string;
@@ -966,20 +742,6 @@ export function composeTrustedRuntimeContainerLabels(
     fail('Docker image labels collide with retained operation identity');
   }
   return Object.freeze({ ...imageLabels, ...operationLabels });
-}
-
-const TRUSTED_RUNTIME_OWNER_HOST = hostname();
-
-function localProcessLiveness(pid: number): 'alive' | 'dead' | 'unknown' {
-  try {
-    process.kill(pid, 0);
-    return 'alive';
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') {
-      return 'dead';
-    }
-    return 'unknown';
-  }
 }
 
 function assertCanonicalTmpfs(hostConfig: Readonly<Record<string, unknown>>): void {
@@ -1172,91 +934,6 @@ export function authorizeTrustedRuntimeContainerRecovery(input: Readonly<{
   return input.confirmed.id;
 }
 
-async function inspectContainerIdentity(
-  session: ContainerEngineSession,
-  container: string
-): Promise<TrustedRuntimeContainerIdentity> {
-  return parseTrustedRuntimeContainerIdentity(await containerEngineOutput(session, {
-    kind: 'container-inspect', arguments: [container]
-  }));
-}
-
-/**
- * Dead local owners are collected only after two identical Docker identity
- * observations. Unknown, foreign-host, live, malformed, or changed resources
- * are retained and block the same operation while its repository-scoped lease
- * is held; a collision-free name cannot bypass an unresolved prior start.
- */
-async function reclaimAbandonedTrustedRuntimeContainers(input: Readonly<{
-  session: ContainerEngineSession;
-  operationKey: string;
-  repository: string;
-  baseSha: string;
-  headSha: string;
-  endpointDigest: Digest;
-  imageId: string;
-  imageLabels: Readonly<Record<string, string>>;
-  dependencyCacheKey?: Digest;
-  dependencyCacheVolumeName: string | null;
-}>): Promise<void> {
-  const list = await observeContainerEngineOperation(input.session, {
-    kind: 'container-list',
-    arguments: [
-      '--all', '--quiet', '--no-trunc',
-      '--filter', `label=sec.trusted-runtime.operation=${input.operationKey}`
-    ]
-  }, { acceptAnyExitCode: true });
-  if (list.code !== 0) {
-    fail(`Docker abandoned-container inventory failed: ${list.stderr.trim().slice(-4_096)}`);
-  }
-  const idLines = list.stdout.split(/\r?\n/u);
-  while (idLines.at(-1) === '') idLines.pop();
-  if (idLines.some((value) => !/^[0-9a-f]{64}$/u.test(value))
-      || new Set(idLines).size !== idLines.length) {
-    fail('Docker abandoned-container inventory is malformed or duplicated');
-  }
-  const ids = Object.freeze([...idLines]);
-  for (const id of ids) {
-    let first: TrustedRuntimeContainerIdentity;
-    try {
-      first = await inspectContainerIdentity(input.session, id);
-    } catch (error) {
-      fail(`Docker abandoned-container identity cannot be observed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    let confirmed: TrustedRuntimeContainerIdentity;
-    try {
-      confirmed = await inspectContainerIdentity(input.session, first.id);
-    } catch (error) {
-      fail(`Docker abandoned-container confirmation failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    const recoveryTarget = authorizeTrustedRuntimeContainerRecovery({
-      first,
-      confirmed,
-      expected: {
-        operationKey: input.operationKey,
-        repository: input.repository,
-        baseSha: input.baseSha,
-        headSha: input.headSha,
-        endpointDigest: input.endpointDigest,
-        imageId: input.imageId,
-        imageLabels: input.imageLabels,
-        ownerHost: TRUSTED_RUNTIME_OWNER_HOST,
-        dependencyCacheVolumeName: input.dependencyCacheVolumeName,
-        ...(input.dependencyCacheKey === undefined ? {} : {
-          dependencyCacheKey: input.dependencyCacheKey
-        })
-      },
-      observeProcessLiveness: localProcessLiveness
-    });
-    const removed = await observeContainerEngineOperation(input.session, {
-      kind: 'container-remove', arguments: ['--force', recoveryTarget]
-    }, { acceptAnyExitCode: true });
-    if (removed.code !== 0) {
-      fail(`Docker abandoned-container removal failed: ${removed.stderr.trim().slice(-4_096)}`);
-    }
-  }
-}
-
 function imageObservation(source: string): TrustedRuntimeContainerImageObservation {
   let parsed: unknown;
   try {
@@ -1304,138 +981,7 @@ export function assertTrustedRuntimeContainerImageV1(
   return imageObservation(source);
 }
 
-async function ensureImage(
-  repositoryRoot: string,
-  session: ContainerEngineSession
-): Promise<TrustedRuntimeContainerImageObservation> {
-  const inspected = await observeContainerEngineOperation(session, {
-    kind: 'image-inspect', arguments: [TRUSTED_RUNTIME_CONTAINER_IMAGE]
-  }, { acceptAnyExitCode: true });
-  if (inspected.code === 0) return imageObservation(inspected.stdout);
-  const toolchain = await ensureLocalGitHubActionsRunnerToolchainMaterialization({
-    repositoryRoot,
-    containerEngineSession: session
-  });
-  if (toolchain.dockerProjectionDigest !== TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID) {
-    fail('trusted toolchain base image identity drifted');
-  }
-  const plan = createTrustedRuntimeImageBuildPlan(toolchain);
-  const progress = createBuildxRawJsonProgressAdmission();
-  const built = await observeContainerEngineOperation(session, {
-    kind: 'buildx-build', arguments: plan.args.slice(2)
-  }, {
-    acceptAnyExitCode: true,
-    maxStdoutBytes: 32 * 1024 * 1024,
-    maxStderrBytes: 32 * 1024 * 1024,
-    stallTimeoutMs: plan.stallTimeoutMs,
-    admitProgress: (chunk, stream) => stream === 'stderr' && progress.push(chunk)
-  });
-  progress.finish();
-  if (built.code !== 0) {
-    fail(`docker buildx failed (${built.code}): ${renderTrustedRuntimeCommandFailureDetail(built)}`);
-  }
-  return imageObservation(await containerEngineOutput(session, {
-    kind: 'image-inspect', arguments: [TRUSTED_RUNTIME_CONTAINER_IMAGE]
-  }));
-}
-
-/** Data-only materialization within the caller's already-owned setup scope.
- * The caller must obtain its session from the genuine Engine owner; this
- * observation cannot issue a hosted-runtime, origin, or MainHealth capability. */
-export async function ensureTrustedRuntimeContainerImageMaterialization(input: Readonly<{
-  repositoryRoot: string;
-  containerEngineSession: ContainerEngineSession;
-}>): Promise<TrustedRuntimeContainerImageObservation> {
-  if (!path.isAbsolute(input.repositoryRoot)
-      || path.resolve(input.repositoryRoot) !== input.repositoryRoot) {
-    fail('trusted image materialization repository root is noncanonical');
-  }
-  return await ensureImage(input.repositoryRoot, input.containerEngineSession);
-}
-
-async function ensureTrustedRuntimeDependencyCacheVolume(input: Readonly<{
-  session: ContainerEngineSession;
-  endpointDigest: Digest;
-  marker: TrustedRuntimeDependencyCacheMarker;
-}>): Promise<Readonly<{
-  spec: TrustedRuntimeDependencyCacheVolumeSpec;
-  observationDigest: Digest;
-}>> {
-  const spec = createTrustedRuntimeDependencyCacheVolumeSpec(input.marker);
-  let inspected = await observeContainerEngineOperation(input.session, {
-    kind: 'volume-inspect', arguments: [spec.name]
-  }, { acceptAnyExitCode: true });
-  if (inspected.code !== 0) {
-    if (!/no such volume/iu.test(inspected.stderr)) {
-      fail(`Docker dependency-cache volume inventory failed: ${inspected.stderr.trim().slice(-4_096)}`);
-    }
-    const created = await containerEngineOutput(input.session, {
-      kind: 'volume-create',
-      arguments: [
-        '--driver', 'local',
-        ...Object.entries(spec.labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
-        spec.name
-      ]
-    });
-    if (created !== spec.name) fail('Docker dependency-cache volume create returned another name');
-    inspected = await containerEngineOperationResult(input.session, {
-      kind: 'volume-inspect', arguments: [spec.name]
-    });
-  }
-  return Object.freeze({
-    spec,
-    observationDigest: assertTrustedRuntimeDependencyCacheVolume({
-      source: inspected.stdout,
-      expected: spec,
-      endpointDigest: input.endpointDigest
-    })
-  });
-}
-
-const PUBLISH_DEPENDENCY_CACHE_MARKER_SCRIPT = [
-  'set -euo pipefail',
-  'expected="$1"',
-  'expected_digest="$2"',
-  `root="${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH}"`,
-  `marker="$root/${TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE}"`,
-  '[ -d "$root" ] && [ ! -L "$root" ]',
-  '[ "$(stat -c %a "$root")" = "1777" ] || chmod 1777 "$root"',
-  'if [ -e "$marker" ]; then',
-  '  [ -f "$marker" ] && [ ! -L "$marker" ]',
-  '  [ "$(cat -- "$marker")" = "$expected" ]',
-  'else',
-  '  temporary="$root/.sec-derived-cache.new-$$"',
-  '  (umask 077; set -C; printf \'%s\\n\' "$expected" > "$temporary")',
-  '  mv -T -- "$temporary" "$marker"',
-  'fi',
-  'actual="$(sha256sum "$marker")"',
-  'actual="${actual%% *}"',
-  '[ "sha256:$actual" = "$expected_digest" ]',
-  'printf \'sha256:%s\\n\' "$actual"'
-].join('\n');
-
-const READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT = [
-  'set -euo pipefail',
-  `marker="${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH}/${TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE}"`,
-  '[ -f "$marker" ] && [ ! -L "$marker" ]',
-  'actual="$(sha256sum "$marker")"',
-  'actual="${actual%% *}"',
-  'printf \'sha256:%s\\n\' "$actual"'
-].join('\n');
-
-const READ_CANDIDATE_BUNDLE_IDENTITY_SCRIPT = [
-  'set -euo pipefail',
-  'expected_size="$1"',
-  'expected_digest="$2"',
-  `bundle="${TRUSTED_RUNTIME_CANDIDATE_BUNDLE}"`,
-  '[ -f "$bundle" ] && [ ! -L "$bundle" ]',
-  '[ "$(stat -c %s "$bundle")" = "$expected_size" ]',
-  'actual="$(sha256sum "$bundle")"',
-  'actual="${actual%% *}"',
-  '[ "sha256:$actual" = "$expected_digest" ]',
-  'printf \'sha256:%s\\n\' "$actual"'
-].join('\n');
-
+/** Historical Docker setup bytes remain inspectable; new execution never runs them. */
 export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT = [
   'set -euo pipefail',
   'base="$1"',
@@ -1471,21 +1017,19 @@ export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT = [
 function formalEnvironment(input: Readonly<{
   envelope: VerificationSessionHostedEnvelope<typeof import('../ci/contract/session-request.ts').VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   executionId: string;
+  executionEnvironment: CiVerificationExecutionEnvironment;
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
   sourceProgramTransition?: CiSourceProgramTransitionBinding;
   sourceAction?: TrustedRuntimeSourceProgramAction;
-}>): readonly string[] {
+}>): Readonly<Record<string, string>> {
   const { envelope } = input;
   const values: Readonly<Record<string, string>> = Object.freeze({
     CI: '1',
-    HOME: '/home/ubuntu',
+    HOME: '/tmp/home',
     LANG: 'C',
     LC_ALL: 'C',
     TZ: 'UTC',
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_TERMINAL_PROMPT: '0',
     SEC_FORMAL_TRUSTED_RUNTIME_MODE: '1',
     ...(input.sourceProgramTransition === undefined ? {} : {
       SEC_SOURCE_PROGRAM_TRANSITION_BINDING: encodeVerificationActionData(sourceProgramAnalysisBinding(input.sourceProgramTransition))
@@ -1505,7 +1049,7 @@ function formalEnvironment(input: Readonly<{
     SEC_ACTION_PLAN_DIGEST: envelope.actionPlanClosure.actionPlanDigest,
     SEC_REQUIRED_BLOB_CLOSURE_JSON: encodeVerificationActionData(input.requiredBlobs),
     SEC_EXECUTION_ENVIRONMENT_REVISION:
-      TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
+      input.executionEnvironment.executionEnvironmentRevision,
     SEC_TRUSTED_RUNTIME_EXECUTION_ID: input.executionId,
     SEC_TRUSTED_RUNTIME_ACTOR_NODE_ID: input.actorNodeId,
     SEC_CHANGED_BASE: 'refs/sec/base',
@@ -1513,13 +1057,67 @@ function formalEnvironment(input: Readonly<{
     SEC_WORK_PACKAGE_MANIFEST_PATH: envelope.session.manifestPath,
     SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`
   });
-  return createTrustedRuntimeCommandEnvironmentArgs(values);
+  return Object.freeze({ ...values, ...TRUSTED_RUNTIME_STATE_ENVIRONMENT });
 }
 
-function createReceipt(input: Omit<TrustedRuntimeContainerReceipt, 'schema' | 'receiptDigest'>):
-TrustedRuntimeContainerReceipt {
+function createReceipt(input: Omit<TrustedRuntimeDockerReceipt, 'schema' | 'receiptDigest'>):
+TrustedRuntimeDockerReceipt {
   const withoutDigest = Object.freeze({ schema: TRUSTED_RUNTIME_CONTAINER_SCHEMA, ...input });
   return Object.freeze({ ...withoutDigest, receiptDigest: digestValue(withoutDigest) });
+}
+
+function createNativeReceipt(input: Omit<TrustedRuntimeNativeReceipt, 'schema' | 'receiptDigest'>):
+TrustedRuntimeNativeReceipt {
+  const unitReceipt = parseLinuxVerificationUnitReceipt(input.unitReceipt);
+  const evidenceFile = unitReceipt.outputFiles.find(({ path: filePath }: Readonly<{ path: string }>) =>
+    filePath === `${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`);
+  if (unitReceipt.execution.exitCode !== 0
+      || [unitReceipt.gitBefore, unitReceipt.gitAfter].some((identity) =>
+        identity.baseSha !== input.baseSha || identity.headSha !== input.headSha
+        || identity.baseTreeSha !== input.baseTreeSha || identity.headTreeSha !== input.headTreeSha || identity.status !== '')
+      || unitReceipt.inputs.sutArchiveDigest !== null || unitReceipt.inputs.dependencyContentDigest === null
+      || unitReceipt.unit.workingDirectory !== TRUSTED_RUNTIME_TRUSTED_TREE
+      || evidenceFile === undefined || evidenceFile.digest !== input.evidenceByteDigest
+      || evidenceFile.bytes !== input.evidenceByteLength) {
+    fail('native receipt differs from the successful exact-subject physical output');
+  }
+  const withoutDigest = Object.freeze({
+    schema: 'sec-trusted-runtime-native-receipt-v1' as const, ...input, unitReceipt
+  });
+  return Object.freeze({ ...withoutDigest, receiptDigest: digestValue(withoutDigest) });
+}
+
+function parseNativeReceipt(record: Record<string, unknown>): TrustedRuntimeNativeReceipt {
+  if (Object.keys(record).sort().join(',') !== [
+    'schema', 'executionId', 'sessionRevision', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha',
+    'unitReceipt', 'networkIsolatedBeforeSut', 'evidenceByteDigest', 'evidenceByteLength',
+    'evidenceDigest', 'producerSourceDigest', 'receiptDigest',
+    ...(record.sourceProgramTransition === undefined ? [] : ['sourceProgramTransition'])
+  ].sort().join(',') || record.networkIsolatedBeforeSut !== true
+      || !Number.isSafeInteger(record.evidenceByteLength) || Number(record.evidenceByteLength) < 1) {
+    fail('native receipt shape or fixed identity is invalid');
+  }
+  const rebuilt = createNativeReceipt({
+    executionId: bounded(record.executionId, 'native receipt.executionId'),
+    sessionRevision: digest(record.sessionRevision, 'native receipt.sessionRevision'),
+    baseSha: sha(record.baseSha, 'native receipt.baseSha'),
+    baseTreeSha: sha(record.baseTreeSha, 'native receipt.baseTreeSha'),
+    headSha: sha(record.headSha, 'native receipt.headSha'),
+    headTreeSha: sha(record.headTreeSha, 'native receipt.headTreeSha'),
+    unitReceipt: parseLinuxVerificationUnitReceipt(record.unitReceipt),
+    networkIsolatedBeforeSut: true,
+    evidenceByteDigest: digest(record.evidenceByteDigest, 'native receipt.evidenceByteDigest'),
+    evidenceByteLength: Number(record.evidenceByteLength),
+    evidenceDigest: digest(record.evidenceDigest, 'native receipt.evidenceDigest'),
+    producerSourceDigest: digest(record.producerSourceDigest, 'native receipt.producerSourceDigest'),
+    ...(record.sourceProgramTransition === undefined ? {} : {
+      sourceProgramTransition: parseTransitionReceipt(record.sourceProgramTransition)
+    })
+  });
+  if (rebuilt.receiptDigest !== digest(record.receiptDigest, 'native receipt.receiptDigest')) {
+    fail('native receipt digest mismatch');
+  }
+  return rebuilt;
 }
 
 export function parseTrustedRuntimeContainerReceipt(
@@ -1529,6 +1127,7 @@ export function parseTrustedRuntimeContainerReceipt(
     fail('receipt must be an object');
   }
   const record = value as Record<string, unknown>;
+  if (record.schema === 'sec-trusted-runtime-native-receipt-v1') return parseNativeReceipt(record);
   const expected = [
     'schema', 'executionId', 'sessionRevision', 'baseSha', 'headSha', 'headTreeSha',
     'imageId', 'dockerEndpoint', 'networkIsolatedBeforeSut', 'evidenceByteDigest',
@@ -1567,516 +1166,401 @@ export function parseTrustedRuntimeContainerReceipt(
   return rebuilt;
 }
 
-interface TrustedRuntimeWorkspace {
-  readonly containerName: string;
-  readonly temporaryRoot: string;
-  readonly image: TrustedRuntimeContainerImageObservation;
-  readonly containerEngineSession: ContainerEngineSession;
-  readonly dockerEndpoint: DockerEndpointIdentity;
-  readonly dependencyCacheKey: Digest | null;
+
+export class TrustedRuntimePredecessorRecoveryRequiredError extends Error {
+  readonly code = 'TRUSTED_RUNTIME_PREDECESSOR_RECOVERY_REQUIRED';
+  constructor(readonly operationKey: string) {
+    super('The original trusted runtime lease retains predecessor recovery; native execution cannot replace or settle it.');
+  }
 }
 
-async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
+interface TrustedRuntimeNativeWorkspace {
+  readonly session: LinuxVerificationUnitSession;
+  readonly executionEnvironment: CiVerificationExecutionEnvironment;
+  execute(invocation: LinuxVerificationUnitInvocation): Promise<LinuxVerificationUnitResult>;
+}
+
+type TrustedRuntimeNativeWorkspaceSettlement = LinuxVerificationUnitSessionSettlement & Readonly<{
+  providerSettlement: ProviderSettlementReceipt;
+  providerSettlementSet: ReturnType<typeof compileProviderSettlementSet>;
+  readback: ReturnType<typeof issueNormalDomainReadbackReceipt>;
+  ownerTerminalProjection: OwnerTerminalJoinReceipt;
+}>;
+
+interface TrustedRuntimeOwnedRecovery {
+  readonly unit: LinuxVerificationUnitRecovery | null;
+  /** Captures the original resources; never repeats candidate execution. */
+  settle(): Promise<void>;
+}
+
+class TrustedRuntimeOwnedRecoveryRequiredError extends AggregateError {
+  readonly code = 'TRUSTED_RUNTIME_OWNED_RECOVERY_REQUIRED';
+  constructor(readonly recovery: TrustedRuntimeOwnedRecovery, failures: readonly unknown[]) {
+    super(failures, 'The original native unit and source resources require bounded owned recovery.');
+  }
+}
+
+async function recoverTrustedRuntimeOwnedUnit(recovery: LinuxVerificationUnitRecovery,
+  originalOperation: BoundSemanticOperation): Promise<void> {
+  const requirement = Object.freeze({ id: LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
+    contractDigest: LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
+    effectKinds: Object.freeze(['filesystem', 'process', 'provider', 'persistent-state'] as const),
+    failureKinds: Object.freeze(['native-unit.recovery-unknown']) });
+  const duration = LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS.find(
+    (value: Readonly<{ resource: string; maximum: number }>) => value.resource === 'duration-ms');
+  if (duration === undefined) fail('native recovery has no fixed cleanup deadline');
+  const deadlineAtUnixMs = Date.now() + duration.maximum;
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({
+    operation: requirement.id,
+    intentDigest: digestValue({ originalOperationIdentityDigest: recovery.originalOperationIdentityDigest,
+      originalBoundAttemptDigest: recovery.originalBoundAttemptDigest, inputDigest: recovery.inputDigest }) as OperationDigest,
+    decisionDigest: requirement.contractDigest, deadlineAtUnixMs,
+    aggregateBudgets: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
+    requirements: [requirement], attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: recovery.originalOperationIdentityDigest,
+      runIdDigest: recovery.originalBoundAttemptDigest })
+  }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
+    providerIdentityDigest: recovery.providerIdentityDigest })]);
+  const settled = await recoverLinuxVerificationUnitSession(recovery, { operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
+      requirementId: requirement.id, resourceCeilings: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
+      absoluteDeadlineAtUnixMs: deadlineAtUnixMs }) });
+  assertProcessResourceSessionReceipt(settled.processReceipt, {
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest, requirementId: requirement.id });
+  compileProviderSettlementSet(operation, [settled.providerSettlement]);
+  compileProviderSettlementSet(originalOperation, [settled.originalProviderSettlement]);
+  if (settled.status !== 'settled' || settled.transportRetired !== true
+      || originalOperation.plan.identity.identityDigest !== recovery.originalOperationIdentityDigest
+      || originalOperation.boundAttemptDigest !== recovery.originalBoundAttemptDigest
+      || settled.originalOperationIdentityDigest !== recovery.originalOperationIdentityDigest
+      || settled.originalBoundAttemptDigest !== recovery.originalBoundAttemptDigest
+      || settled.recoveryOperationIdentityDigest !== operation.plan.identity.identityDigest
+      || settled.providerSettlement.physicalDisposition !== 'settled'
+      || settled.originalProviderSettlement.physicalDisposition !== 'settled') {
+    fail('native recovery did not settle its exact original operation and cleanup scope');
+  }
+}
+
+/** The existing local runtime owner retains all input issuers and its operation
+ * lease. The native provider owns only physical units, never source authority. */
+async function withTrustedRuntimeNativeWorkspace<T>(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   baseSha: string;
+  baseTreeSha: string;
   headSha: string;
+  headTreeSha: string;
   operationKey: string;
-  setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
+  dependencies?: boolean;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
-  /** Fresh authority consumers never mount a cache writable by candidate execution. */
-  dependencyCachePolicy?: 'shared-sut' | 'private-authority';
-  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
-  observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
-  execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
-}>): Promise<T> {
-  if (input.deadlineAtUnixMs !== undefined && !Number.isSafeInteger(input.deadlineAtUnixMs)) {
-    fail('workspace inherited deadline is not a finite safe timestamp');
-  }
-  const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER,
-    Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs);
-  const remainingMs = (): number => {
-    throwIfNativeAborted(input.signal);
-    const remaining = deadlineAtUnixMs - Date.now();
-    if (!Number.isSafeInteger(deadlineAtUnixMs) || remaining <= 0) fail('workspace inherited deadline is exhausted or invalid');
-    return remaining;
-  };
-  remainingMs();
+  execute(workspace: TrustedRuntimeNativeWorkspace): Promise<T>;
+}>): Promise<Readonly<{ value: T; settlement: TrustedRuntimeNativeWorkspaceSettlement }>> {
+  throwIfNativeAborted(input.signal);
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  if (!path.isAbsolute(input.repositoryRoot) || repositoryRoot !== input.repositoryRoot) {
-    fail('workspace repository root is noncanonical');
+  if (repositoryRoot !== input.repositoryRoot || !path.isAbsolute(repositoryRoot)) {
+    fail('native workspace repository root is noncanonical');
   }
   const repositoryIdentity = repository(input.repository);
-  const baseSha = sha(input.baseSha, 'workspace baseSha');
-  const headSha = sha(input.headSha, 'workspace headSha');
-  if (!/^[a-z0-9][a-z0-9-]{7,47}$/u.test(input.operationKey)) {
-    fail('workspace operation key is invalid');
+  const baseSha = sha(input.baseSha, 'native baseSha');
+  const baseTreeSha = sha(input.baseTreeSha, 'native baseTreeSha');
+  const headSha = sha(input.headSha, 'native headSha');
+  const headTreeSha = sha(input.headTreeSha, 'native headTreeSha');
+  if (!/^[a-z0-9][a-z0-9-]{7,47}$/u.test(input.operationKey)) fail('native operation key is invalid');
+  const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER,
+    Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs);
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) {
+    fail('native workspace inherited deadline is invalid or exhausted');
   }
-  const runtimeLayout = resolveSecRuntimeStateForRepository({
-    repository: repositoryIdentity,
-    repositoryRoot
-  });
-  const operationLeaseRoot = path.join(
-    runtimeLayout.repositoryStateRoot,
-    'trusted-runtime-container-leases',
-    'v1'
-  );
-  let operationLeaseAuthority:
-    Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | null = null;
-  let operationLease: ReturnType<typeof acquirePhysicalMutationLease> = null;
-  let commandProvider: Awaited<ReturnType<typeof openDockerCommandProvider>> | null = null;
-  let commandProviderTransferred = false;
-  let containerEngineSession: ContainerEngineSession | null = null;
-  let primaryFailure: unknown;
-  let hasPrimaryFailure = false;
+  // Missing accepted native content is an input failure before native effects.
+  const runtime = requireSecLinuxVerificationNativeRuntimeInput(
+    await observeSecLinuxVerificationNativeRuntimeInput({ repositoryRoot }));
+  const executionEnvironment = createCiVerificationNativeLocalExecutionEnvironment();
+  throwIfNativeAborted(input.signal);
+  const runtimeRoot = inspectNoFollowDirectoryChain(runtime.rootPath, 'Accepted native runtime').target;
+  const layout = resolveSecRuntimeStateForRepository({ repositoryRoot, repository: repositoryIdentity });
+  // Keep the original coordination and recovery namespace across the physical
+  // migration. A predecessor is not declared settled by changing providers.
+  const leaseRoot = path.join(layout.repositoryStateRoot, 'trusted-runtime-container-leases', 'v1');
+  let authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | null = null;
+  let lease: ReturnType<typeof acquirePhysicalMutationLease> = null;
+  let temporaryRoot: string | null = null;
+  let temporaryIdentity: PhysicalDirectoryIdentity | null = null;
+  let bundle: GitCandidateBundle | null = null;
+  let dependencies: RetainedCompilerDependencyReadGeneration | null = null;
+  let session: LinuxVerificationUnitSession | null = null;
+  let nativeOperation: BoundSemanticOperation | null = null;
+  let sessionBound = false;
+  let borrowedInputsSettled = false;
+  let settlement: LinuxVerificationUnitSessionSettlement | null = null;
+  const results: LinuxVerificationUnitResult[] = [];
+  let value: T | undefined;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
+  const retired = { dependencies: false, bundle: false, temporaryRoot: false, lease: false, authority: false };
+  const releaseBorrowedInputs = async (): Promise<void> => {
+    if (borrowedInputsSettled) return;
+    await settlePhysicalResourcesAsync({ cleanup: [{
+      label: 'native borrowed dependency generation', settle: async () => {
+        if (retired.dependencies) return;
+        if (dependencies !== null) {
+          assertCompilerDependencyReadGenerationRetirementReceipt(await dependencies.retire(), dependencies.generationDigest);
+        }
+        retired.dependencies = true;
+      }
+    }, {
+      label: 'native borrowed Git bundle', settle: () => {
+        if (retired.bundle) return;
+        if (bundle !== null) assertGitCandidateBundleReceipt(closeGitCandidateBundle(bundle), bundle);
+        retired.bundle = true;
+      }
+    }] });
+    borrowedInputsSettled = true;
+  };
+  const retireSources = async (): Promise<void> => {
+    await releaseBorrowedInputs();
+    if (!retired.temporaryRoot) {
+      if (temporaryRoot !== null) {
+        if (temporaryIdentity === null) fail('native temporary root acquisition has an unresolved physical identity');
+        assertSameNoFollowDirectoryIdentity(temporaryIdentity, 'Native owned temporary root retirement');
+        rmSync(temporaryRoot, { recursive: true, force: false });
+      }
+      retired.temporaryRoot = true;
+    }
+    if (!retired.lease) {
+      await authority?.assertCurrent();
+      if (lease?.recoveryPending) lease.restoreReclaimedOwner();
+      else lease?.release();
+      retired.lease = true;
+    }
+    if (!retired.authority) {
+      await authority?.release();
+      retired.authority = true;
+    }
+  };
+  let sourceRetirement: Promise<void> | undefined;
+  const releaseSources = async (): Promise<void> => {
+    const pending = sourceRetirement ??= retireSources();
+    try { await pending; } finally {
+      if (sourceRetirement === pending) sourceRetirement = undefined;
+    }
+  };
   try {
-    operationLeaseAuthority = await acquireSecRuntimeStatePhysicalAuthority({
-      repositoryRoot,
-      stateRoot: runtimeLayout.stateRoot,
-      cacheRoot: runtimeLayout.cacheRoot,
-      requiredDirectories: [operationLeaseRoot]
-    });
-    operationLease = acquirePhysicalMutationLease(
-      operationLeaseAuthority.directory(operationLeaseRoot),
-      `container-${input.operationKey}.lock`
-    );
-    if (operationLease === null) {
-      fail('trusted runtime operation is already active or its owner liveness is unknown');
+    authority = await acquireSecRuntimeStatePhysicalAuthority({ repositoryRoot,
+      stateRoot: layout.stateRoot, cacheRoot: layout.cacheRoot, requiredDirectories: [leaseRoot], deadlineAtUnixMs });
+    lease = acquirePhysicalMutationLease(authority.directory(leaseRoot), `container-${input.operationKey}.lock`);
+    if (lease === null) fail('native operation is active or its predecessor liveness is unknown');
+    if (lease.recoveryPending) {
+      throw new TrustedRuntimePredecessorRecoveryRequiredError(input.operationKey);
     }
-    operationLease.acknowledgeReclaimedRecovery();
-    const bunLockBlobSha = input.setupMode === 'lifecycle-canary'
-      ? null
-      : await withAuthorityGitReadSession({
-          cwd: repositoryRoot,
-          source: process.env,
-          budget: {
-            deadlineMs: Math.min(30_000, remainingMs()),
-            maxProcesses: 1,
-            maxTotalArgumentBytes: 2 * 1024,
-            maxStdinBytes: 1,
-            maxStdoutBytes: 16 * 1024,
-            maxStderrBytes: 16 * 1024,
-            maxRecords: 2,
-            maxRootObservedBytes: 128 * 1024 * 1024,
-            maxReopenRefreshes: 2,
-            maxSettlementAttempts: 3,
-            maxCommandStdoutBytes: 8 * 1024,
-            maxCommandStderrBytes: 8 * 1024,
-            maxExecutableBytes: 64 * 1024 * 1024
-          }
-        }, async (git) => {
-          const observed = await git.run([
-            'rev-parse', '--verify', '--quiet', '--end-of-options', `${baseSha}:bun.lock`
-          ]);
-          const objectId = observed.kind === 'completed' && observed.result.code === 0
-            ? parseGitObjectIdReply(
-                observed.result.stdout,
-                baseSha.length === 40 ? 'sha1' : 'sha256'
-              )
-            : null;
-          if (objectId === null) fail('trusted runtime bun.lock blob observation is invalid');
-          return objectId;
-        });
-    remainingMs();
-    if (input.qualifiedEngineExporter !== undefined) {
-      const borrowed = await consumeQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
-      // This provider enforces its original Session deadline physically. It
-      // cannot promise a shorter per-scope process lifetime after transfer.
-      if (borrowed.cwd !== repositoryRoot || borrowed.deadlineAtUnixMs !== deadlineAtUnixMs) {
-        fail('qualified Engine working directory or deadline differs from the admitted MainHealth operation');
-      }
-      containerEngineSession = await claimQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
-    } else {
-      commandProvider = await openDockerCommandProvider({
-        workingDirectory: repositoryRoot
-      });
-      const operation = bindTrustedRuntimeContainerEngineOperation({
-        repositoryRoot,
-        repository: repositoryIdentity,
-        baseSha,
-        headSha,
-        operationKey: input.operationKey,
-        setupMode: input.setupMode,
-        providerIdentityDigest: commandProvider.providerIdentityDigest,
-        deadlineAtUnixMs
-      });
-      const openingSession = openContainerEngineSession({
-        operation,
-        provider: commandProvider,
-        cwd: repositoryRoot,
-        availability: 'ensure-started',
-        signal: input.signal
-      });
-      commandProviderTransferred = true;
-      containerEngineSession = await openingSession;
+    if (input.dependencies !== false) {
+      const dependencyAuthority = await observeCompilerDependencyExecutionGenerationAuthority({
+        deadlineAtUnixMs, signal: input.signal, installMode: 'prebound-only'
+      }, compilerRuntimeLayout.dependencyRoot);
+      if (dependencyAuthority === null) fail('accepted trusted compiler dependency content is unavailable');
+      dependencies = await retainCompilerDependencyReadGeneration(dependencyAuthority, { deadlineAtUnixMs, signal: input.signal });
+      await dependencies.assertAuthorityCurrent();
     }
-    const session = containerEngineSession;
-    const dockerEndpoint = session.endpoint;
-    const setupOperation = bindTrustedRuntimeContainerEngineOperation({
-      repositoryRoot,
-      repository: repositoryIdentity,
-      baseSha,
-      headSha,
-      operationKey: `${input.operationKey}-setup`,
-      setupMode: input.setupMode,
-      providerIdentityDigest: session.providerIdentityDigest,
-      deadlineAtUnixMs: session.deadlineAtUnixMs
+    temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-native-'));
+    temporaryIdentity = inspectNoFollowDirectoryChain(temporaryRoot, 'Native owned temporary root').target;
+    bundle = await createGitCandidateBundle({ sourceRoot: repositoryRoot, temporaryRoot,
+      baseSha, headSha, deadlineAtUnixMs, signal: input.signal });
+    session = await prepareLinuxVerificationUnitSession({
+      recoveryRoot: authority.directory(leaseRoot),
+      runtime: { root: runtimeRoot, manifest: runtime.manifest, manifestDigest: runtime.manifestDigest },
+      bundle: { file: assertGitCandidateBundleCurrent(bundle), baseSha, baseTreeSha, headSha, headTreeSha,
+        bundleDigest: bundle.bundleDigest },
+      dependencies: dependencies === null ? null : { physicalGeneration: dependencies.physicalGeneration, generationDigest: dependencies.generationDigest },
+      deadlineAtUnixMs
     });
-    const setupScope = session.openOperationScope({
-      operation: setupOperation,
-      requirementId: 'external.container-engine-process'
+    const requirement = Object.freeze({ id: LINUX_VERIFICATION_UNIT_REQUIREMENT_ID,
+      contractDigest: LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST,
+      effectKinds: Object.freeze(['filesystem', 'process', 'provider', 'persistent-state'] as const),
+      failureKinds: Object.freeze(['native-unit.admission-failed', 'native-unit.execution-failed', 'native-unit.settlement-unknown']) });
+    const plan = compileSemanticOperationPlan({
+      operation: 'verification.trusted-runtime-native',
+      intentDigest: digestValue({ repositoryRoot, repository: repositoryIdentity, baseSha, baseTreeSha, headSha, headTreeSha,
+        operationKey: input.operationKey, inputDigest: session.inputDigest }) as OperationDigest,
+      decisionDigest: digestValue({ contractDigest: requirement.contractDigest,
+        budget: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET }) as OperationDigest,
+      deadlineAtUnixMs,
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs },
+        { resource: 'input-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.inputBytes },
+        { resource: 'output-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.outputBytes },
+        { resource: 'processes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.processes }
+      ],
+      requirements: [requirement],
+      attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: requirement.contractDigest })
     });
-    let setupSettled = false;
-    const image = await ensureImage(repositoryRoot, session);
-    const endpointDigest = digestValue(dockerEndpoint);
-    const dependencyCacheMarker = input.dependencyCachePolicy === 'private-authority' || bunLockBlobSha === null
-      ? null
-      : createTrustedRuntimeDependencyCacheMarker({
-          repository: repositoryIdentity,
-          bunLockBlobSha,
-          imageId: image.imageId
-        });
-    const dependencyCacheVolume = dependencyCacheMarker === null
-      ? null
-      : await ensureTrustedRuntimeDependencyCacheVolume({
-          session,
-          endpointDigest,
-          marker: dependencyCacheMarker
-        });
-    await reclaimAbandonedTrustedRuntimeContainers({
-      session,
-      operationKey: input.operationKey,
-      repository: repositoryIdentity,
-      baseSha,
-      headSha,
-      endpointDigest,
-      imageId: image.imageId,
-      imageLabels: image.labels,
-      dependencyCacheVolumeName: dependencyCacheVolume?.spec.name ?? null,
-      ...(dependencyCacheMarker === null ? {} : {
-        dependencyCacheKey: dependencyCacheMarker.cacheKey
-      })
-    });
-    const ownerNonce = randomUUID();
-    const containerName = `sec-trusted-runtime-${input.operationKey}-${ownerNonce}`;
-    const operationLabels = Object.freeze({
-      'sec.trusted-runtime.operation': input.operationKey,
-      'sec.trusted-runtime.repository': repositoryIdentity,
-      'sec.trusted-runtime.base-sha': baseSha,
-      'sec.trusted-runtime.head-sha': headSha,
-      'sec.trusted-runtime.endpoint-digest': endpointDigest,
-      'sec.trusted-runtime.owner-host': TRUSTED_RUNTIME_OWNER_HOST,
-      'sec.trusted-runtime.owner-pid': String(process.pid),
-      'sec.trusted-runtime.owner-nonce': ownerNonce,
-      'sec.trusted-runtime.image-id': image.imageId,
-      ...(dependencyCacheMarker === null ? {} : {
-        'sec.trusted-runtime.dependency-cache-key': dependencyCacheMarker.cacheKey
-      })
-    });
-    const containerLabels = composeTrustedRuntimeContainerLabels(image.labels, operationLabels);
-    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-runtime-'));
-    // Set before crossing the native create boundary: an exception may follow
-    // a real daemon effect while suppressing its immutable ID reply.
-    let createEntered = false;
-    let containerRetirementSettled = false;
-    let containerId: string | null = null;
-    let candidateBundle: GitCandidateBundle | null = null;
-    let workspacePrimary: Readonly<{ label: string; error: unknown }> | undefined;
-    try {
-      candidateBundle = await createGitCandidateBundle({
-        sourceRoot: repositoryRoot,
-        temporaryRoot,
-        baseSha,
-        headSha,
-        deadlineAtUnixMs,
-        signal: input.signal
-      });
-      const dependencyCacheMarkerBytes = dependencyCacheMarker === null
-        ? null
-        : canonicalDependencyCacheMarkerBytes(dependencyCacheMarker);
-      const dependencyCacheMarkerFileDigest = dependencyCacheMarkerBytes === null
-        ? null
-        : digestBytes(dependencyCacheMarkerBytes);
-      createEntered = true;
-      containerId = await containerEngineOutput(session, {
-        kind: 'container-create',
-        arguments: ['--name', containerName,
-        ...Object.entries(containerLabels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
-        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
-        '--init',
-        '--read-only',
-        '--pids-limit', String(ENVIRONMENT.runtime.resources.trusted.pids),
-        '--cpus', String(ENVIRONMENT.runtime.resources.trusted.cpus),
-        '--memory', `${ENVIRONMENT.runtime.resources.trusted.memoryGiB}g`,
-        '--tmpfs', TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
-        '--tmpfs', TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
-        '--mount', `type=bind,source=${candidateBundle.bundlePath},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE},readonly`,
-        ...(dependencyCacheVolume === null ? [] : [
-          '--mount', `type=volume,source=${dependencyCacheVolume.spec.name},target=${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH}`
-        ]),
-        image.imageId]
-      });
-      if (!/^[0-9a-f]{64}$/u.test(containerId)) {
-        fail('Docker container create returned an invalid identity');
-      }
-      const containerTarget = containerId;
-      const createdIdentity = await inspectContainerIdentity(
-        session,
-        containerTarget
-      );
-      if (createdIdentity.id !== containerTarget
-          || createdIdentity.name !== containerName
-          || createdIdentity.imageId !== image.imageId
-          || createdIdentity.readOnlyRootfs !== true
-          || createdIdentity.readOnlyCandidateBundle !== true
-          || createdIdentity.candidateBundleSource !== candidateBundle.bundlePath
-          || createdIdentity.initProcess !== true
-          || createdIdentity.executableTestTmpfs !== true
-          || createdIdentity.nonExecutableMutableTmpfs !== true
-          || createdIdentity.dependencyCacheVolumeName
-            !== (dependencyCacheVolume?.spec.name ?? null)
-          || encodeVerificationActionData(createdIdentity.labels)
-            !== encodeVerificationActionData(containerLabels)) {
-        fail('Docker container creation readback differs from the retained attempt identity');
-      }
-      await containerEngineOutput(session, {
-        kind: 'container-start', arguments: [containerTarget]
-      });
-      const mountedBundleDigest = digest(await containerEngineOutput(session, {
-        kind: 'container-exec', arguments: [containerTarget, '/bin/bash', '-ceu',
-        READ_CANDIDATE_BUNDLE_IDENTITY_SCRIPT, '--',
-        String(candidateBundle.bundleSize), candidateBundle.bundleDigest]
-      }), 'mounted candidate bundle digest');
-      if (mountedBundleDigest !== candidateBundle.bundleDigest) {
-        fail('mounted candidate bundle identity differs from its retained capability');
-      }
-      if (dependencyCacheMarkerBytes !== null && dependencyCacheMarkerFileDigest !== null) {
-        const publishedMarkerDigest = digest(await containerEngineOutput(session, {
-          kind: 'container-exec', arguments: [containerTarget, '/bin/bash', '-ceu',
-          PUBLISH_DEPENDENCY_CACHE_MARKER_SCRIPT, '--',
-          Buffer.from(dependencyCacheMarkerBytes).toString('utf8').trimEnd(),
-          dependencyCacheMarkerFileDigest]
-        }), 'published dependency-cache marker digest');
-        if (publishedMarkerDigest !== dependencyCacheMarkerFileDigest) {
-          fail('published dependency-cache marker digest differs');
+    const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
+      requirementId: requirement.id, contractDigest: requirement.contractDigest,
+      providerIdentityDigest: session.providerIdentityDigest
+    })]);
+    nativeOperation = operation;
+    bindLinuxVerificationUnitSession(session, { operation,
+      requirementBindingContext: issueOperationRequirementBindingContext({ operation,
+        requirementId: requirement.id, resourceCeilings: plan.execution.aggregateBudgets }),
+      signal: input.signal });
+    sessionBound = true;
+    const boundSession = session;
+    let borrowedSettlement: Promise<void> | undefined;
+    value = await input.execute(Object.freeze({ session: boundSession, executionEnvironment,
+      execute: async (invocation: LinuxVerificationUnitInvocation): Promise<LinuxVerificationUnitResult> => {
+        throwIfNativeAborted(input.signal);
+        const executing = executeLinuxVerificationUnit(boundSession, invocation);
+        borrowedSettlement ??= boundSession.inputSnapshotReady.then(releaseBorrowedInputs);
+        const outcomes = await Promise.allSettled([executing, borrowedSettlement]);
+        const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+        if (outcomes[0].status !== 'fulfilled') {
+          throw new AggregateError(failures.map(({ reason }) => reason), 'Native execution or original input retirement failed');
         }
-      }
-      await containerEngineOutput(session, {
-        kind: 'container-exec',
-        arguments: ['--user', '1000:1000', containerTarget, '/bin/mkdir', '-p', TRUSTED_RUNTIME_OUTPUT]
-      });
-      await containerEngineOutput(session, {
-        kind: 'container-exec', arguments: ['--user', '1000:1000',
-        ...createTrustedRuntimeCommandEnvironmentArgs({ HOME: '/home/ubuntu' }),
-        containerTarget, '/bin/bash', '-lc', TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, '--',
-        baseSha, headSha, input.setupMode]
-      });
-      if (dependencyCacheMarkerFileDigest !== null) {
-        const readbackDigest = digest(await containerEngineOutput(session, {
-          kind: 'container-exec',
-          arguments: [containerTarget, '/bin/bash', '-ceu', READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT]
-        }), 'dependency-cache marker readback digest');
-        if (readbackDigest !== dependencyCacheMarkerFileDigest) {
-          fail('dependency-cache marker changed during setup');
+        const result = outcomes[0].value;
+        assertLinuxVerificationUnitResult(result, boundSession);
+        if (result.receipt.invocationDigest !== linuxVerificationUnitInvocationDigest(invocation)
+            || result.receipt.inputDigest !== boundSession.inputDigest
+            || result.receipt.boundAttemptDigest !== operation.boundAttemptDigest
+            || result.receipt.operationIdentityDigest !== operation.plan.identity.identityDigest
+            || result.receipt.providerIdentityDigest !== boundSession.providerIdentityDigest
+            || result.receipt.unit.trustedPackageReadable !== true || result.receipt.unit.outputWritable !== true
+            || result.receipt.unit.workingDirectory !== (invocation.cwd === 'trusted'
+              ? TRUSTED_RUNTIME_TRUSTED_TREE : invocation.cwd === 'candidate' ? TRUSTED_RUNTIME_WORKSPACE : '/tmp')) {
+          fail('native result differs from its exact command, inputs or original attempt');
         }
+        results.push(result);
+        if (failures.length !== 0) throw new AggregateError(failures.map(({ reason }) => reason), 'Original input retirement failed');
+        if (result.receipt.execution.exitCode !== 0) {
+          fail(`Native unit command failed (${result.receipt.execution.exitCode}): ${renderTrustedRuntimeCommandFailureDetail({
+            stdout: Buffer.from(result.stdout).toString('utf8'), stderr: Buffer.from(result.stderr).toString('utf8') })}`);
+        }
+        return result;
       }
-      const networksSource = await containerEngineOutput(session, {
-        kind: 'container-inspect',
-        arguments: ['--format', '{{json .NetworkSettings.Networks}}', containerTarget]
-      });
-      const networks = JSON.parse(networksSource) as Record<string, unknown>;
-      for (const network of Object.keys(networks).sort()) {
-        await containerEngineOutput(session, {
-          kind: 'network-disconnect', arguments: [network, containerTarget]
-        });
-      }
-      const isolated = JSON.parse(await containerEngineOutput(session, {
-        kind: 'container-inspect',
-        arguments: ['--format', '{{json .NetworkSettings.Networks}}', containerTarget]
-      })) as Record<string, unknown>;
-      if (Object.keys(isolated).length !== 0) {
-        fail('network isolation readback is not empty before trusted execution');
-      }
-      await settleTrustedRuntimeContainerEngineOperation({
-        observeSettlement: input.observeSettlement,
-        session,
-        operation: setupOperation,
-        scope: setupScope,
-        ownerTerminalReference: Object.freeze({
-          phase: 'setup',
-          operationKey: input.operationKey,
-          containerName: containerTarget,
-          imageId: image.imageId
-        })
-      });
-      setupSettled = true;
-      return await input.execute(Object.freeze({
-        containerName: containerTarget,
-        temporaryRoot,
-        image,
-        containerEngineSession: session,
-        dockerEndpoint,
-        dependencyCacheKey: dependencyCacheMarker?.cacheKey ?? null
-      }));
-    } catch (error) {
-      workspacePrimary = Object.freeze({ label: 'trusted-runtime-workspace', error });
-      throw error;
-    } finally {
-      await settlePhysicalResourcesAsync({
-        primary: workspacePrimary,
-        cleanup: [{
-          label: 'trusted-runtime-container-setup-operation',
-          settle: async () => {
-            if (setupSettled) return;
-            await settleTrustedRuntimeContainerEngineOperation({
-              observeSettlement: input.observeSettlement,
-              session,
-              operation: setupOperation,
-              scope: setupScope,
-              ownerTerminalReference: Object.freeze({
-                phase: 'setup-failure',
-                operationKey: input.operationKey
-              })
-            });
-          }
-        }, {
-          label: 'trusted-runtime-container-removal',
-          settle: async () => {
-            if (!createEntered) return;
-            const cleanupOperation = bindTrustedRuntimeContainerEngineOperation({
-              repositoryRoot,
-              repository: repositoryIdentity,
-              baseSha,
-              headSha,
-              operationKey: `${input.operationKey}-cleanup`,
-              setupMode: input.setupMode,
-              providerIdentityDigest: session.providerIdentityDigest,
-              deadlineAtUnixMs: session.deadlineAtUnixMs
-            });
-            const cleanupScope = session.openOperationScope({
-              operation: cleanupOperation,
-              requirementId: 'external.container-engine-process'
-            });
-            let removalPrimary: Readonly<{ label: string; error: unknown }> | undefined;
-            try {
-              // A create reply without one retained immutable ID may have
-              // started an effect. A name or label cannot identify which
-              // physical object this owner would remove or certify absent.
-              if (containerId === null || !/^[0-9a-f]{64}$/u.test(containerId)) {
-                fail(`container cleanup identity is unknown for ${containerName}`);
-              }
-              const removed = await observeContainerEngineOperation(session, {
-                kind: 'container-remove', arguments: ['--force', containerId]
-              }, { acceptAnyExitCode: true });
-              if (removed.code !== 0) {
-                fail(`container cleanup failed and ${containerName} was retained`);
-              }
-              // Docker's native ID and exact-name inventories are independent
-              // of the mutable operation label. Compare complete immutable
-              // IDs, including any replacement that acquired the same name.
-              for (const filter of [`id=${containerId}`, `name=^/${containerName}$`]) {
-                const remaining = await observeContainerEngineOperation(session, {
-                  kind: 'container-list', arguments: [
-                    '--all', '--quiet', '--no-trunc', '--filter', filter
-                  ]
-                }, { acceptAnyExitCode: true });
-                if (remaining.code !== 0) {
-                  fail(`container cleanup inventory failed for ${containerName}`);
-                }
-                const observedIds = remaining.stdout.split(/\r?\n/u);
-                while (observedIds.at(-1) === '') observedIds.pop();
-                if (observedIds.some(id => !/^[0-9a-f]{64}$/u.test(id))
-                    || new Set(observedIds).size !== observedIds.length
-                    || observedIds.length !== 0) {
-                  fail(`container cleanup absence is unconfirmed for ${containerName}`);
-                }
-              }
-            } catch (error) {
-              removalPrimary = Object.freeze({ label: 'trusted-runtime-container-remove-effect', error });
-            }
-            await settlePhysicalResourcesAsync({
-              primary: removalPrimary,
-              cleanup: [{
-                label: 'trusted-runtime-container-cleanup-operation',
-                settle: async () => {
-                  const settlement = await settleTrustedRuntimeContainerEngineOperation({
-                    observeSettlement: input.observeSettlement,
-                    session,
-                    operation: cleanupOperation,
-                    scope: cleanupScope,
-                    ownerTerminalReference: Object.freeze({
-                      phase: 'cleanup',
-                      operationKey: input.operationKey,
-                      containerName: containerId ?? containerName
-                    })
-                  });
-                  if (settlement.readback.disposition !== 'applied'
-                      || settlement.providerSettlementSet.settlements.some(
-                        receipt => receipt.physicalDisposition !== 'settled'
-                      )) {
-                    fail(`container cleanup owner settlement remains unknown for ${containerName}`);
-                  }
-                }
-              }]
-            });
-            containerRetirementSettled = true;
-          }
-        }, {
-          label: 'git-candidate-bundle-capability',
-          settle: () => {
-            if (candidateBundle === null) return;
-            if (createEntered && !containerRetirementSettled) return;
-            assertGitCandidateBundleReceipt(
-              closeGitCandidateBundle(candidateBundle),
-              candidateBundle
-            );
-          }
-        }, {
-          label: 'trusted-runtime-temporary-root',
-          settle: () => {
-            if (createEntered && !containerRetirementSettled) return;
-            rmSync(temporaryRoot, { recursive: true, force: true });
-          }
-        }]
-      });
-    }
+    }));
   } catch (error) {
-    primaryFailure = error;
-    hasPrimaryFailure = true;
-    throw error;
-  } finally {
-    await settlePhysicalResourcesAsync({
-      ...(hasPrimaryFailure ? {
-        primary: { label: 'trusted-runtime-operation', error: primaryFailure }
-      } : {}),
-      cleanup: [{
-        label: 'trusted-runtime-container-engine-session',
-        settle: () => { containerEngineSession?.close(); }
-      }, {
-        label: 'trusted-runtime-unclaimed-command-provider',
-        settle: () => {
-          if (commandProvider !== null && !commandProviderTransferred) {
-            disposeUnclaimedDockerCommandProviderCapability(commandProvider);
-          }
-        }
-      }, {
-        label: 'trusted-runtime-operation-lease-current',
-        settle: async () => { await operationLeaseAuthority?.assertCurrent(); }
-      }, {
-        label: 'trusted-runtime-operation-lease',
-        settle: () => {
-          if (operationLease === null) return;
-          if (operationLease.recoveryPending) operationLease.restoreReclaimedOwner();
-          else operationLease.release();
-        }
-      }, {
-        label: 'trusted-runtime-state-physical-authority',
-        settle: async () => { await operationLeaseAuthority?.release(); }
-      }]
-    });
+    primary = { label: 'trusted native workspace', error };
   }
+  const validateOriginalSettlement = (): void => {
+    if (session === null) return;
+    if (settlement === null || settlement.transportRetired !== true) fail('native input transport retirement is unconfirmed');
+    for (const result of results) assertLinuxVerificationUnitResult(result, session);
+    if (encodeVerificationActionData(settlement.unitReceiptDigests)
+        !== encodeVerificationActionData(results.map(({ receipt }) => receipt.receiptDigest))) {
+      fail('native workspace settled a different exact unit inventory');
+    }
+    if (sessionBound) {
+      if (nativeOperation === null || settlement.processReceipt === null || settlement.providerSettlement === null
+          || !['settled', 'not-started'].includes(settlement.providerSettlement.physicalDisposition)) {
+        fail('native original process or provider settlement is unconfirmed');
+      }
+      assertProcessResourceSessionReceipt(settlement.processReceipt, {
+        operationIdentityDigest: nativeOperation.plan.identity.identityDigest,
+        boundAttemptDigest: nativeOperation.boundAttemptDigest,
+        requirementId: LINUX_VERIFICATION_UNIT_REQUIREMENT_ID });
+      compileProviderSettlementSet(nativeOperation, [settlement.providerSettlement]);
+    }
+  };
+  try {
+    if (session !== null) {
+      settlement = await closeLinuxVerificationUnitSession(session);
+      for (const result of results) assertLinuxVerificationUnitResult(result, session);
+    }
+  } catch (closeError) {
+    if (session === null) throw closeError;
+    const originalSession = session;
+    let unitRecovery: LinuxVerificationUnitRecovery;
+    try { unitRecovery = getLinuxVerificationUnitRecovery(originalSession); }
+    catch (recoveryAdmissionError) {
+      // Failed admission cannot release the same session's original sources.
+      const recovery: TrustedRuntimeOwnedRecovery = Object.freeze({ unit: null,
+        async settle() {
+          settlement = await closeLinuxVerificationUnitSession(originalSession);
+          validateOriginalSettlement(); await releaseSources();
+        } });
+      throw new TrustedRuntimeOwnedRecoveryRequiredError(recovery,
+        [...(primary === undefined ? [] : [primary.error]), closeError, recoveryAdmissionError]);
+    }
+    let pending: Promise<void> | undefined;
+    let unitRecovered = false;
+    const recovery: TrustedRuntimeOwnedRecovery = Object.freeze({ unit: unitRecovery,
+      async settle(): Promise<void> {
+        if (pending !== undefined) return await pending;
+        pending = (async () => {
+          if (!unitRecovered) {
+            if (nativeOperation === null) fail('native recovery lost its original operation object');
+            await recoverTrustedRuntimeOwnedUnit(unitRecovery, nativeOperation);
+            unitRecovered = true;
+          }
+          await releaseSources();
+        })();
+        try { await pending; } finally { pending = undefined; }
+      }
+    });
+    // Consume the retained cleanup capability here. Remaining unknown keeps
+    // the same source, lease and authority closures reachable on the error.
+    try { await recovery.settle(); }
+    catch (recoveryError) {
+      throw new TrustedRuntimeOwnedRecoveryRequiredError(recovery,
+        [...(primary === undefined ? [] : [primary.error]), closeError, recoveryError]);
+    }
+    throw new AggregateError([...(primary === undefined ? [] : [primary.error]), closeError],
+      'Native execution failed; its original resources settled without issuing qualification.');
+  }
+  try { validateOriginalSettlement(); }
+  catch (error) {
+    const recovery: TrustedRuntimeOwnedRecovery = Object.freeze({ unit: null, async settle() {
+      if (session !== null) settlement = await closeLinuxVerificationUnitSession(session);
+      validateOriginalSettlement(); await releaseSources();
+    } });
+    throw new TrustedRuntimeOwnedRecoveryRequiredError(recovery,
+      [...(primary === undefined ? [] : [primary.error]), error]);
+  }
+  try { await releaseSources(); }
+  catch (error) {
+    throw new TrustedRuntimeOwnedRecoveryRequiredError(Object.freeze({ unit: null, settle: releaseSources }),
+      [...(primary === undefined ? [] : [primary.error]), error]);
+  }
+  if (primary !== undefined) throw primary.error;
+  const terminal = settlement as LinuxVerificationUnitSessionSettlement | null;
+  if (terminal === null || nativeOperation === null || results.length === 0
+      || terminal.processReceipt === null || terminal.providerSettlement === null
+      || terminal.providerSettlement.physicalDisposition !== 'settled' || terminal.transportRetired !== true) {
+    fail('native workspace completed without its successful physical/provider settlement');
+  }
+  const providerSettlementSet = compileProviderSettlementSet(nativeOperation, [terminal.providerSettlement]);
+  const readback = issueNormalDomainReadbackReceipt(nativeOperation, providerSettlementSet, {
+    readbackContractDigest: digestValue({ schema: 'sec-trusted-native-unit-terminal-readback-v1',
+      requirementId: LINUX_VERIFICATION_UNIT_REQUIREMENT_ID,
+      profileDigest: LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST }) as OperationDigest,
+    readbackReferenceDigest: digestValue({ sessionSettlement: terminal,
+      unitReceipts: results.map(({ receipt }) => receipt) }) as OperationDigest,
+    currentPhysicalEpochDigest: digestValue(results.map(({ receipt }) => ({
+      managerBootId: receipt.unit.managerBootId, managerStartTime: receipt.unit.managerStartTime,
+      unit: receipt.unit.name, invocationId: receipt.unit.invocationId,
+      cgroupPath: receipt.unit.cgroupPath, mainPid: receipt.unit.mainPid,
+      mainPidStartTime: receipt.unit.mainPidStartTime,
+      managerMainPid: receipt.unit.managerMainPid, managerMainPidStartTime: receipt.unit.managerMainPidStartTime,
+      namespaceIdentities: receipt.unit.namespaceIdentities,
+      rootDevice: receipt.unit.rootDevice, rootInode: receipt.unit.rootInode,
+      workingDirectory: receipt.unit.workingDirectory,
+      workingDirectoryDevice: receipt.unit.workingDirectoryDevice,
+      workingDirectoryInode: receipt.unit.workingDirectoryInode
+    }))) as OperationDigest,
+    disposition: 'applied'
+  });
+  const ownerTerminalProjection = issueNormalOwnerTerminalJoinReceipt(nativeOperation, providerSettlementSet, readback, {
+    ownerTerminalContractDigest: digestValue({ schema: 'sec-trusted-native-workspace-owner-terminal-v1',
+      operation: nativeOperation.plan.identity.operation }) as OperationDigest,
+    ownerTerminalReferenceDigest: digestValue({ repositoryRoot, repository: repositoryIdentity,
+      operationKey: input.operationKey, baseSha, baseTreeSha, headSha, headTreeSha,
+      unitReceiptDigests: terminal.unitReceiptDigests }) as OperationDigest
+  });
+  const joinedSettlement: TrustedRuntimeNativeWorkspaceSettlement = Object.freeze({ ...terminal,
+    providerSettlement: terminal.providerSettlement, providerSettlementSet, readback, ownerTerminalProjection });
+  throwIfNativeAborted(input.signal);
+  if (Date.now() >= deadlineAtUnixMs) fail('native workspace settled after its inherited deadline');
+  return Object.freeze({ value: value as T, settlement: joinedSettlement });
 }
+
 
 function parseTransitionReceipt(value: unknown): NonNullable<TrustedRuntimeContainerReceipt['sourceProgramTransition']> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)
@@ -2139,7 +1623,7 @@ function assertTransitionInput(input: Readonly<{
   return sourceProgramAnalysisBinding(binding);
 }
 
-export interface TrustedRuntimeSourceProgramAttemptEvidence {
+export interface TrustedRuntimeLegacySourceProgramAttemptEvidence {
   readonly schema: 'source-program-isolated-attempt-evidence-v1' | 'source-program-isolated-attempt-evidence-v2';
   readonly authority: 'historical-evidence-only';
   readonly assessment: SourceProgramTransitionAssessment;
@@ -2154,45 +1638,32 @@ export interface TrustedRuntimeSourceProgramAttemptEvidence {
   }>;
   readonly evidenceDigest: Digest;
 }
+export interface TrustedRuntimeNativeSourceProgramAttemptEvidence {
+  readonly schema: 'source-program-isolated-attempt-evidence-v3';
+  readonly authority: 'historical-evidence-only';
+  readonly assessment: SourceProgramTransitionAssessment;
+  readonly observation: TrustedRuntimeSourceProgramTransitionObservation;
+  readonly physicalEvidence: Readonly<{
+    unitReceipt: LinuxVerificationUnitReceipt;
+    invocation: LinuxVerificationUnitInvocation;
+    sessionSettlement: TrustedRuntimeNativeWorkspaceSettlement;
+    dependencyCache: 'private-ephemeral';
+    workspaceTerminal: 'retired';
+  }>;
+  readonly evidenceDigest: Digest;
+}
+export type TrustedRuntimeSourceProgramAttemptEvidence =
+  | TrustedRuntimeLegacySourceProgramAttemptEvidence
+  | TrustedRuntimeNativeSourceProgramAttemptEvidence;
 const transitionAttemptEvidence = new WeakMap<object, TrustedRuntimeSourceProgramAttemptEvidence>();
 const transitionAttemptRoots = new WeakMap<object, string>();
 
-/** Historical bytes are inspectable but never recreate a live observation. */
+/** The carrier decoder owns transport joins; this producer also retains the
+ * original semantic assessment interpretation. Neither path restores authority. */
 export function parseTrustedRuntimeSourceProgramAttemptEvidence(value: unknown): TrustedRuntimeSourceProgramAttemptEvidence {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('transition attempt evidence is not data');
-  const evidence = value as TrustedRuntimeSourceProgramAttemptEvidence;
-  if (Object.keys(evidence).sort().join(',') !== 'assessment,authority,evidenceDigest,observation,physicalEvidence,schema') {
-    fail('transition attempt evidence fields are invalid');
-  }
-  const { evidenceDigest, ...canonical } = evidence;
-  const { observationDigest, ...observed } = evidence.observation;
-  if (evidence.schema !== (evidence.observation.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || evidence.authority !== 'historical-evidence-only'
-      || evidenceDigest !== digestValue(canonical) || observationDigest !== digestValue(observed)
-      || evidence.observation.assessmentDigest !== evidence.assessment.assessmentDigest
-      || evidence.observation.settlementDigest !== digestValue(evidence.physicalEvidence.settlements)
-      || evidence.physicalEvidence.dependencyCache !== 'private-ephemeral'
-      || evidence.physicalEvidence.workspaceTerminal !== 'retired') fail('transition attempt historical join is invalid');
+  const evidence = parseTrustedRuntimeSourceProgramAttemptCarrier(value);
   parseSourceProgramTransitionAssessment(evidence.assessment);
-  if (evidence.observation.origin === 'first-qualified') {
-    if (evidence.observation.schema !== 'source-program-transition-observation-v2'
-        || 'predecessorActionOutputDigest' in evidence.observation
-        || evidence.observation.sourceActionOutputDigest !== digestBytes(`${encodeVerificationActionData(evidence.assessment)}\n`)
-        || evidence.observation.baseSha !== evidence.assessment.baseSha
-        || evidence.observation.headSha !== evidence.assessment.headSha
-        || evidence.observation.headTreeSha !== evidence.assessment.headTreeSha
-        || evidence.observation.baseSha !== evidence.assessment.runtimeSha
-        || evidence.observation.producerSourceDigest !== evidence.assessment.producerExecution.observation.implementationDigest
-        || evidence.observation.producerExecutionEvidenceDigest !== evidence.assessment.producerExecution.evidenceDigest
-        || evidence.physicalEvidence.settlements.length !== 3
-        || evidence.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
-          !== 'setup,owner-operation,cleanup') {
-      fail('first-qualified Source Program attempt lost its exact physical/output joins');
-    }
-  } else if (evidence.observation.schema !== undefined
-      || !/^sha256:[0-9a-f]{64}$/u.test(evidence.observation.predecessorActionOutputDigest)) {
-    fail('legacy Source Program attempt must retain its genuine predecessor');
-  }
-  return Object.freeze(evidence);
+  return evidence;
 }
 
 export async function observeTrustedRuntimeSourceProgramTransition(input: Readonly<{
@@ -2251,77 +1722,76 @@ async function executeIsolatedSourceProgramTransition(input: Readonly<{
   const action = input.envelope.actionPlanClosure.actions.find(
     ({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID)!;
   const startedAt = new Date().toISOString();
-  const settlements: TrustedRuntimeContainerEngineSettlement[] = [];
-  const observeSettlement = (settlement: TrustedRuntimeContainerEngineSettlement): void => { settlements.push(settlement); };
-  const completed = await withTrustedRuntimeWorkspace({
+  const completed = await withTrustedRuntimeNativeWorkspace({
     repositoryRoot: path.resolve(input.repositoryRoot), repository: session.repository,
-    baseSha: session.baseSha, headSha: session.headSha,
-    operationKey: `transition-${session.sessionRevision.slice(7, 27)}`, setupMode: 'full',
-    dependencyCachePolicy: 'private-authority', observeSettlement,
+    baseSha: session.baseSha, baseTreeSha: session.baseTreeSha,
+    headSha: session.headSha, headTreeSha: session.headTreeSha,
+    operationKey: `transition-${session.sessionRevision.slice(7, 27)}`,
     deadlineAtUnixMs, signal: input.signal,
-    execute: async (workspace) => await executeTrustedRuntimeContainerEngineOwnerOperation({
-      session: workspace.containerEngineSession, repositoryRoot: path.resolve(input.repositoryRoot),
-      repository: session.repository, baseSha: session.baseSha, headSha: session.headSha,
-      operationKey: `transition-${session.sessionRevision.slice(7, 23)}-assessment`, setupMode: 'full', observeSettlement,
-      execute: async () => {
-        const executionId = `source-program-transition-${randomUUID()}`;
-        if (workspace.dependencyCacheKey !== null) fail('fresh authority workspace consumed a shared dependency cache');
-        const invocation: ContainerEngineOperation = {
-          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-            ...createTrustedRuntimeCommandEnvironmentArgs({ CI: '1', HOME: '/home/ubuntu', LANG: 'C', LC_ALL: 'C', TZ: 'UTC',
-              [SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV]: String(workspace.containerEngineSession.deadlineAtUnixMs) }),
-            workspace.containerName, 'bun', 'run', '--no-env-file', `--config=${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
-            `${TRUSTED_RUNTIME_TRUSTED_TREE}/${SOURCE_PROGRAM_TRANSITION_ENTRYPOINT}`,
-            ...sourceProgramTransitionGate(binding).args.slice(1)]
-        };
-        const result = await containerEngineOperationResult(workspace.containerEngineSession, invocation,
-          { maxStdoutBytes: SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, maxStderrBytes: 8 * 1024 * 1024 });
-        const assessment = parseSourceProgramTransitionAssessment(JSON.parse(result.stdout));
-        if (result.stdout !== `${encodeVerificationActionData(assessment)}\n`
-            || assessment.baseSha !== session.baseSha || assessment.baseTreeSha !== session.baseTreeSha
-            || assessment.headSha !== session.headSha || assessment.headTreeSha !== session.headTreeSha
-            || assessment.runtimeSha !== session.baseSha
-            || digestValue(assessment.changedPaths) !== digestValue(input.envelope.scopeAuthorization.authorizedPaths)) {
-          fail('fresh isolated Source Program assessment differs from bound Action output or exact source pins');
-        }
-        const canonical = Object.freeze({
-          repository: session.repository, pullRequestNumber: session.prNumber,
-          assessmentDigest: assessment.assessmentDigest,
-          ...(input.predecessorActionOutputDigest === undefined ? {
-            schema: 'source-program-transition-observation-v2' as const, origin: 'first-qualified' as const,
-            sourceActionOutputDigest: digestBytes(result.stdout)
-          } : { predecessorActionOutputDigest: input.predecessorActionOutputDigest }),
-          baseSha: session.baseSha, headSha: session.headSha,
-          headTreeSha: session.headTreeSha, executionId,
-          producerSourceDigest: assessment.producerExecution.observation.implementationDigest,
-          producerExecutionEvidenceDigest: assessment.producerExecution.evidenceDigest,
-          actionKey: action.action.actionKey, sessionRevision: session.sessionRevision,
-          payloadDigest: binding.payloadDigest, approvalObservationDigest: binding.approvalObservationDigest,
-          approvalDigest: binding.approvalDigest
-        });
-        return Object.freeze({ assessment, canonical, invocation, image: workspace.image, dockerEndpoint: workspace.dockerEndpoint });
+    execute: async (workspace) => {
+      if (action.action.environment.providerRevision !== workspace.executionEnvironment.executionEnvironmentRevision) {
+        fail('Source Program Action differs from the accepted native execution environment');
       }
-    })
+      const invocation: LinuxVerificationUnitInvocation = Object.freeze({
+        kind: 'source-program', cwd: 'trusted',
+        argv: Object.freeze(['run', '--no-env-file', `--config=${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
+          `${TRUSTED_RUNTIME_TRUSTED_TREE}/${SOURCE_PROGRAM_TRANSITION_ENTRYPOINT}`,
+          ...sourceProgramTransitionGate(binding).args.slice(1)]),
+        environment: Object.freeze({ CI: '1', HOME: '/tmp/home', LANG: 'C', LC_ALL: 'C', TZ: 'UTC',
+          ...TRUSTED_RUNTIME_STATE_ENVIRONMENT,
+          [SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV]: String(workspace.session.deadlineAtUnixMs) }),
+        outputFiles: Object.freeze([]), maxStdoutBytes: SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT,
+        maxStderrBytes: 8 * 1024 * 1024
+      });
+      const result = await workspace.execute(invocation);
+      const stdout = Buffer.from(result.stdout).toString('utf8');
+      const assessment = parseSourceProgramTransitionAssessment(JSON.parse(stdout));
+      if (stdout !== `${encodeVerificationActionData(assessment)}\n`
+          || assessment.baseSha !== session.baseSha || assessment.baseTreeSha !== session.baseTreeSha
+          || assessment.headSha !== session.headSha || assessment.headTreeSha !== session.headTreeSha
+          || assessment.runtimeSha !== session.baseSha
+          || digestValue(assessment.changedPaths) !== digestValue(input.envelope.scopeAuthorization.authorizedPaths)) {
+        fail('fresh native Source Program assessment differs from its Action, source pins or scope');
+      }
+      return Object.freeze({ assessment, invocation, unitReceipt: result.receipt, canonical: Object.freeze({
+        repository: session.repository, pullRequestNumber: session.prNumber,
+        assessmentDigest: assessment.assessmentDigest,
+        ...(input.predecessorActionOutputDigest === undefined ? {
+          schema: 'source-program-transition-observation-v2' as const, origin: 'first-qualified' as const,
+          sourceActionOutputDigest: digestBytes(result.stdout)
+        } : { predecessorActionOutputDigest: input.predecessorActionOutputDigest }),
+        baseSha: session.baseSha, headSha: session.headSha, headTreeSha: session.headTreeSha,
+        executionId: `source-program-transition-${result.receipt.unit.invocationId}`,
+        producerSourceDigest: assessment.producerExecution.observation.implementationDigest,
+        producerExecutionEvidenceDigest: assessment.producerExecution.evidenceDigest,
+        actionKey: action.action.actionKey, sessionRevision: session.sessionRevision,
+        payloadDigest: binding.payloadDigest, approvalObservationDigest: binding.approvalObservationDigest,
+        approvalDigest: binding.approvalDigest
+      }) });
+    }
   });
-  if (settlements.length !== 3 || settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
-      !== 'setup,owner-operation,cleanup') fail('fresh Source Program workspace has no complete settled physical history');
-  const observationFields = Object.freeze({ ...completed.canonical, settlementDigest: digestValue(settlements) });
-  const observation: TrustedRuntimeSourceProgramTransitionObservation = Object.freeze({ ...observationFields, observationDigest: digestValue(observationFields) });
-  const carrier = Object.freeze({ schema: observation.origin === 'first-qualified'
-    ? 'source-program-isolated-attempt-evidence-v2' as const : 'source-program-isolated-attempt-evidence-v1' as const,
-    authority: 'historical-evidence-only' as const, assessment: completed.assessment, observation,
-    physicalEvidence: Object.freeze({ settlements: Object.freeze(settlements), invocation: completed.invocation,
-      image: completed.image, dockerEndpoint: completed.dockerEndpoint,
-      dependencyCache: 'private-ephemeral' as const, workspaceTerminal: 'retired' as const }) });
-  const attemptEvidence = Object.freeze({ ...carrier, evidenceDigest: digestValue(carrier) });
-  throwIfNativeAborted(input.signal);
-  if (Date.now() >= deadlineAtUnixMs) {
-    fail('settled Source Program output arrived after its inherited deadline');
+  const { value, settlement } = completed;
+  if (settlement.processReceipt === null || settlement.unitReceiptDigests.length !== 1
+      || settlement.unitReceiptDigests[0] !== value.unitReceipt.receiptDigest) {
+    fail('fresh Source Program output has no complete native session settlement');
   }
+  const observed = Object.freeze({ ...value.canonical,
+    settlementDigest: digestValue({ unitReceipt: value.unitReceipt, sessionSettlement: settlement }) });
+  const observation: TrustedRuntimeSourceProgramTransitionObservation = Object.freeze({ ...observed,
+    observationDigest: digestValue(observed) });
+  const carrier = Object.freeze({ schema: 'source-program-isolated-attempt-evidence-v3' as const,
+    authority: 'historical-evidence-only' as const, assessment: value.assessment, observation,
+    physicalEvidence: Object.freeze({ unitReceipt: value.unitReceipt, invocation: value.invocation,
+      sessionSettlement: settlement, dependencyCache: 'private-ephemeral' as const, workspaceTerminal: 'retired' as const }) });
+  const attemptEvidence = Object.freeze({ ...carrier, evidenceDigest: digestValue(carrier) });
+  parseTrustedRuntimeSourceProgramAttemptEvidence(attemptEvidence);
+  throwIfNativeAborted(input.signal);
+  if (Date.now() >= deadlineAtUnixMs) fail('settled native Source Program output arrived after its inherited deadline');
   issuedSourceProgramTransitionObservations.add(observation);
   transitionAttemptEvidence.set(observation, attemptEvidence);
   transitionAttemptRoots.set(observation, path.resolve(input.repositoryRoot));
-  return Object.freeze({ assessment: completed.assessment, observation, attemptEvidence, startedAt, finishedAt: new Date().toISOString() });
+  return Object.freeze({ assessment: value.assessment, observation, attemptEvidence, startedAt,
+    finishedAt: new Date().toISOString() });
 }
 
 /** The private no-SUT producer is the first physical execution of this Action.
@@ -2395,59 +1865,40 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
   receipt: TrustedRuntimeContainerReceipt;
 }>> {
   assertTransitionInput(input);
-  if (input.sourceAction !== undefined) {
-    assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
-  }
-  const repositoryRoot = path.resolve(input.repositoryRoot);
+  if (input.sourceAction !== undefined) assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
   const session = input.envelope.session;
-  sha(session.baseSha, 'baseSha');
-  sha(session.headSha, 'headSha');
-  sha(session.headTreeSha, 'headTreeSha');
-  const completed = await withTrustedRuntimeWorkspace({
-    repositoryRoot,
-    repository: session.repository,
-    baseSha: session.baseSha,
-    headSha: session.headSha,
+  const completed = await withTrustedRuntimeNativeWorkspace({
+    repositoryRoot: path.resolve(input.repositoryRoot), repository: session.repository,
+    baseSha: session.baseSha, baseTreeSha: session.baseTreeSha,
+    headSha: session.headSha, headTreeSha: session.headTreeSha,
     operationKey: `session-${session.sessionRevision.slice(7, 31)}`,
-    setupMode: 'full',
     deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
-    execute: async ({
-      containerName,
-      temporaryRoot,
-      image,
-      containerEngineSession,
-      dockerEndpoint
-    }) => {
-      return await executeTrustedRuntimeContainerEngineOwnerOperation({
-        session: containerEngineSession,
-        repositoryRoot,
-        repository: session.repository,
-        baseSha: session.baseSha,
-        headSha: session.headSha,
-        operationKey: `session-${session.sessionRevision.slice(7, 23)}-verification`,
-        setupMode: 'full',
-        execute: async () => {
-      const outputPath = path.join(temporaryRoot, 'verification-evidence.json');
-      const executionId = `trusted-runtime-${digestValue(Object.freeze({
-        sessionRevision: session.sessionRevision,
-        imageId: image.imageId,
-        dockerEndpoint
-      })).slice(7, 31)}`;
-    await containerEngineOutput(containerEngineSession, {
-      kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-      ...formalEnvironment({ envelope: input.envelope, executionId,
-        actorNodeId: input.actorNodeId, requiredBlobs: input.requiredBlobs,
-        sourceProgramTransition: input.sourceProgramTransition, sourceAction: input.sourceAction }),
-      containerName,
-      'bun', 'run', '--no-env-file', `--config=${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
-      `${TRUSTED_RUNTIME_TRUSTED_TREE}/${CI_VERIFICATION_WORKFLOW_PATH}`,
-      '--profile', session.profile, '--expected-head', session.headSha]
-    });
-    await containerEngineOutput(containerEngineSession, {
-      kind: 'container-copy',
-      arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`, outputPath]
-    });
-    const canonicalEvidenceBytes = readFileSync(outputPath, 'utf8');
+    execute: async (workspace) => {
+      if (input.envelope.actionPlanClosure.actions.some(({ action }) =>
+        action.environment.providerRevision !== workspace.executionEnvironment.executionEnvironmentRevision)) {
+        fail('verification Action plan differs from the accepted native execution environment');
+      }
+      const executionId = `trusted-runtime-${randomUUID()}`;
+      const result = await workspace.execute(Object.freeze({
+        kind: 'verification-action', cwd: 'trusted',
+        argv: Object.freeze(['run', '--no-env-file', `--config=${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
+          `${TRUSTED_RUNTIME_TRUSTED_TREE}/${CI_VERIFICATION_WORKFLOW_PATH}`,
+          '--profile', session.profile, '--expected-head', session.headSha]),
+        environment: formalEnvironment({ envelope: input.envelope, executionId,
+          executionEnvironment: workspace.executionEnvironment, actorNodeId: input.actorNodeId,
+          requiredBlobs: input.requiredBlobs, sourceProgramTransition: input.sourceProgramTransition,
+          sourceAction: input.sourceAction }),
+        outputFiles: Object.freeze([
+          { path: `${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`, maxBytes: 64 * 1024 * 1024 },
+          ...(input.sourceAction === undefined && input.sourceProgramTransition !== undefined
+            ? [{ path: `${TRUSTED_RUNTIME_OUTPUT}/${SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE}`, maxBytes: SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT }]
+            : [])
+        ]),
+        maxStdoutBytes: 64 * 1024 * 1024, maxStderrBytes: 16 * 1024 * 1024
+      }));
+      const evidenceBytes = result.outputFiles[`${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`];
+      if (evidenceBytes === undefined) fail('native verification evidence output was not captured');
+      const canonicalEvidenceBytes = Buffer.from(evidenceBytes).toString('utf8');
     const parsed = JSON.parse(canonicalEvidenceBytes) as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
     if (canonicalEvidenceBytes !== `${encodeVerificationActionData(parsed)}\n`) {
       fail('verification Evidence durable bytes are not canonical');
@@ -2475,10 +1926,9 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
         outputByteDigest: digest(input.sourceAction.outputByteDigest, 'source Action output'),
         actionKey: input.sourceAction.gate.action.actionKey });
     } else if (input.sourceProgramTransition !== undefined) {
-      const transitionPath = path.join(temporaryRoot, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE);
-      await containerEngineOutput(containerEngineSession, { kind: 'container-copy',
-        arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/${SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE}`, transitionPath] });
-      const transitionBytes = readFileSync(transitionPath, 'utf8');
+      const transitionOutput = result.outputFiles[`${TRUSTED_RUNTIME_OUTPUT}/${SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE}`];
+      if (transitionOutput === undefined) fail('native transition output file was not captured');
+      const transitionBytes = Buffer.from(transitionOutput).toString('utf8');
       const assessment = parseSourceProgramTransitionAssessment(JSON.parse(transitionBytes));
       const gate = parsed.gates.find(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
       if (transitionBytes !== `${encodeVerificationActionData(assessment)}\n`
@@ -2493,51 +1943,27 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
         outputByteDigest: digestBytes(transitionBytes),
         actionKey: gate.action.actionKey });
     }
-    const receipt = createReceipt({
-      executionId,
-      ...(sourceProgramTransition === undefined ? {} : { sourceProgramTransition }),
-      sessionRevision: digest(session.sessionRevision, 'sessionRevision'),
-      baseSha: session.baseSha,
-      headSha: session.headSha,
-      headTreeSha: session.headTreeSha,
-      imageId: image.imageId,
-      dockerEndpoint,
-      networkIsolatedBeforeSut: true,
-      evidenceByteDigest: digestBytes(canonicalEvidenceBytes),
-      evidenceByteLength: Buffer.byteLength(canonicalEvidenceBytes, 'utf8'),
-      evidenceDigest: digest(parsed.evidenceDigest, 'evidenceDigest'),
-      producerSourceDigest: digest(parsed.producer.sourceDigest, 'producer.sourceDigest')
-    });
-    return Object.freeze({ evidence: parsed, canonicalEvidenceBytes, receipt });
-        }
+      const receipt = createNativeReceipt({
+        executionId,
+        ...(sourceProgramTransition === undefined ? {} : { sourceProgramTransition }),
+        sessionRevision: digest(session.sessionRevision, 'sessionRevision'),
+        baseSha: session.baseSha, baseTreeSha: session.baseTreeSha, headSha: session.headSha, headTreeSha: session.headTreeSha,
+        unitReceipt: result.receipt, networkIsolatedBeforeSut: true,
+        evidenceByteDigest: digestBytes(evidenceBytes), evidenceByteLength: evidenceBytes.byteLength,
+        evidenceDigest: digest(parsed.evidenceDigest, 'evidenceDigest'),
+        producerSourceDigest: digest(parsed.producer.sourceDigest, 'producer.sourceDigest')
       });
+      return Object.freeze({ evidence: parsed, canonicalEvidenceBytes, receipt });
     }
   });
-  // Container transport cannot restore authority. Rejoin the retained host
-  // object only after the ordinary workspace has physically settled as well.
-  if (input.sourceAction !== undefined) {
-    assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
+  const receipt = completed.value.receipt;
+  if (completed.settlement.processReceipt === null || completed.settlement.unitReceiptDigests.length !== 1
+      || completed.settlement.unitReceiptDigests[0] !== receipt.unitReceipt.receiptDigest) {
+    fail('verification lacks its exact native unit and session settlement');
   }
-  throwIfNativeAborted(input.signal);
-  if (input.deadlineAtUnixMs !== undefined && Date.now() >= input.deadlineAtUnixMs) fail('verification completed after its inherited deadline');
-  return completed;
-}
-
-function trustedRuntimeMainHealthCommandArgv(command: string): readonly string[] {
-  switch (command) {
-    case 'bun run imports:check --all':
-      return Object.freeze(['bun', 'run', 'imports:check', '--all']);
-    case 'bun run typecheck:verified':
-      return Object.freeze(['bun', 'run', 'typecheck:verified']);
-    case 'bun run audit -- --worktree-source-program --enforce':
-      return Object.freeze(['bun', 'run', 'audit', '--', '--worktree-source-program', '--enforce']);
-    case 'bun run docs:doctor':
-      return Object.freeze(['bun', 'run', 'docs:doctor']);
-    case 'bun run test -- --scope fast':
-      return Object.freeze(['bun', 'run', 'test', '--', '--scope', 'fast']);
-    default:
-      fail(`unsupported trusted MainHealth command: ${command}`);
-  }
+  // Rejoin the same retained Action only after the independent verification unit settled.
+  if (input.sourceAction !== undefined) assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
+  return completed.value;
 }
 
 const mainHealthExecutionRoots = new WeakMap<object, Readonly<{
@@ -2577,148 +2003,50 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
   now?: () => Date;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
-  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
   selectedCommand?: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
 }>) {
   if (input.selectedCommand !== undefined && !TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.selectedCommand)) {
     fail('MainHealth single-check selector is outside the closed command set');
   }
   const commands = input.selectedCommand === undefined ? TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS : [input.selectedCommand];
-  const planDigest = input.selectedCommand === undefined ? TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
-    : digestValue({ parentPlanDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, command: input.selectedCommand });
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  const repositoryIdentity = repository(input.repository);
   const mainSha = sha(input.mainSha, 'MainHealth mainSha');
   const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
-  const settlements: TrustedRuntimeContainerEngineSettlement[] = [];
-  const observeSettlement = (settlement: TrustedRuntimeContainerEngineSettlement): void => { settlements.push(settlement); };
-  const receipt = await withTrustedRuntimeWorkspace({
-    repositoryRoot,
-    repository: repositoryIdentity,
-    baseSha: mainSha,
-    headSha: mainSha,
+  const completed = await withTrustedRuntimeNativeWorkspace({
+    repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository,
+    baseSha: mainSha, baseTreeSha: mainTreeSha, headSha: mainSha, headTreeSha: mainTreeSha,
     operationKey: `main-health-${mainSha.slice(0, 24)}`,
-    setupMode: 'full',
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    signal: input.signal,
-    qualifiedEngineExporter: input.qualifiedEngineExporter,
-    dependencyCachePolicy: 'private-authority',
-    observeSettlement,
-    execute: async ({
-      containerName,
-      image,
-      containerEngineSession,
-      dockerEndpoint,
-      dependencyCacheKey
-    }) => {
-      if (dependencyCacheKey !== null) {
-        fail('MainHealth authority workspace mounted a candidate-writable dependency cache');
-      }
-      return await executeTrustedRuntimeContainerEngineOwnerOperation({
-        session: containerEngineSession,
-        observeSettlement,
-        repositoryRoot,
-        repository: repositoryIdentity,
-        baseSha: mainSha,
-        headSha: mainSha,
-        operationKey: `main-health-${mainSha.slice(0, 16)}-execute`,
-        setupMode: 'full',
-        execute: async () => {
-          const environmentArgs = createTrustedRuntimeCommandEnvironmentArgs({
-            CI: '1',
-            HOME: '/home/ubuntu',
-            LANG: 'C',
-            LC_ALL: 'C',
-            TZ: 'UTC',
-            GIT_CONFIG_NOSYSTEM: '1',
-            GIT_CONFIG_GLOBAL: '/dev/null',
-            GIT_TERMINAL_PROMPT: '0'
-          });
-          const observeIdentity = async () => Object.freeze({
-            head: await containerEngineOutput(containerEngineSession, {
-              kind: 'container-exec',
-              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-                containerName, 'git', 'rev-parse', 'HEAD']
-            }),
-            tree: await containerEngineOutput(containerEngineSession, {
-              kind: 'container-exec',
-              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-                containerName, 'git', 'rev-parse', 'HEAD^{tree}']
-            }),
-            status: await containerEngineOutput(containerEngineSession, {
-              kind: 'container-exec',
-              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-                containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all']
-            })
-          });
-          const before = await observeIdentity();
-          if (before.head !== mainSha || before.tree !== mainTreeSha || before.status !== '') {
-            fail('MainHealth exact-main workspace identity differs before execution');
-          }
-
-          const actionResults: Array<Readonly<{ command: string; resultDigest: Digest }>> = [];
-          for (const command of commands) {
-            const argv = trustedRuntimeMainHealthCommandArgv(command);
-            const result = await containerEngineOperationResult(containerEngineSession, {
-              kind: 'container-exec',
-              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-                ...environmentArgs, containerName, ...argv]
-            }, {
-              maxStdoutBytes: 16 * 1024 * 1024,
-              maxStderrBytes: 16 * 1024 * 1024
-            });
-            actionResults.push(Object.freeze({
-              command,
-              resultDigest: digestValue(Object.freeze({
-                command,
-                exitCode: result.code,
-                stdoutDigest: digestBytes(result.stdout),
-                stderrDigest: digestBytes(result.stderr)
-              }))
-            }));
-          }
-
-          const after = await observeIdentity();
-          if (after.head !== mainSha || after.tree !== mainTreeSha || after.status !== '') {
-            fail('MainHealth exact-main workspace identity changed during execution');
-          }
-          const executionId = `trusted-main-health-${digestValue(Object.freeze({
-            repository: repositoryIdentity,
-            mainSha,
-            mainTreeSha,
-            imageId: image.imageId,
-            dockerEndpoint,
-            dependencyCacheKey,
-            planDigest
-          })).slice(7, 31)}`;
-          return Object.freeze({
-            repository: repositoryIdentity,
-            mainSha,
-            mainTreeSha,
-            executionId,
-            dockerEndpoint,
-            dependencyCacheKey,
-            imageId: image.imageId,
-            planDigest,
-            actionResults: Object.freeze(actionResults),
-            observedAt: (input.now ?? (() => new Date()))().toISOString()
-          });
+    deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
+    execute: async (workspace) => {
+      const actionResults: Array<Readonly<{ command: string; resultDigest: Digest; unitReceipt: LinuxVerificationUnitReceipt }>> = [];
+      for (const command of commands) {
+        const result = await workspace.execute(createTrustedRuntimeNativeMainHealthInvocation(command));
+        if ([result.receipt.gitBefore, result.receipt.gitAfter].some(identity => identity.baseSha !== mainSha
+            || identity.headSha !== mainSha || identity.baseTreeSha !== mainTreeSha
+            || identity.headTreeSha !== mainTreeSha || identity.status !== '')) {
+          fail('MainHealth native unit exact-main identity changed before or during execution');
         }
-      });
+        actionResults.push(Object.freeze({ command, unitReceipt: result.receipt,
+          resultDigest: digestValue({ command, exitCode: result.receipt.execution.exitCode,
+            stdoutDigest: result.receipt.execution.stdoutDigest,
+            stderrDigest: result.receipt.execution.stderrDigest, unitReceiptDigest: result.receipt.receiptDigest }) }));
+      }
+      return Object.freeze(actionResults);
     }
   });
-  // Endpoint observations belong after their physical operation scopes settle.
-  // A normal terminal-join carrier can still describe unknown/not-started
-  // effects; it is not successful MainHealth authority.
-  if (settlements.length !== 3
-      || settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
-        !== 'setup,owner-operation,cleanup'
-      || settlements.some((settlement) => settlement.readback.disposition !== 'applied'
-        || settlement.providerSettlementSet.settlements.some(({ physicalDisposition }) => physicalDisposition !== 'settled')
-        || encodeVerificationActionData(settlement.endpointReadback) !== encodeVerificationActionData(receipt.dockerEndpoint))) {
-    fail('MainHealth lacks successful physical settlement and exact endpoint readback');
+  if (completed.settlement.processReceipt === null
+      || encodeVerificationActionData(completed.settlement.unitReceiptDigests)
+        !== encodeVerificationActionData(completed.value.map(({ unitReceipt }) => unitReceipt.receiptDigest))) {
+    fail('MainHealth lacks successful native session settlement for every selected unit');
   }
-  return receipt;
+  const first = completed.value[0]!.unitReceipt;
+  return Object.freeze({ repository: repository(input.repository), mainSha, mainTreeSha,
+    executionId: `trusted-main-health-${first.boundAttemptDigest.slice(7, 31)}`,
+    dependencyCacheKey: null,
+    planDigest: digestValue({ schema: 'sec-trusted-runtime-main-health-plan-v3',
+      canonicalHostedCommands: commands, profileDigest: first.profileDigest,
+      runtimeManifestDigest: first.inputs.runtimeManifestDigest }),
+    actionResults: completed.value,
+    observedAt: (input.now ?? (() => new Date()))().toISOString() });
 }
 
 export async function executeTrustedRuntimeMainHealth(input: Readonly<{
@@ -2729,9 +2057,8 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
   now?: () => Date;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
-  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
-}>): Promise<TrustedRuntimeMainHealthReceipt> {
-  return createTrustedRuntimeMainHealthReceipt(await executeTrustedRuntimeMainHealthCommands(input));
+}>): Promise<TrustedRuntimeMainHealthNativeReceipt> {
+  return createTrustedRuntimeNativeMainHealthReceipt(await executeTrustedRuntimeMainHealthCommands(input));
 }
 
 /** One actual isolated check for one canonical hosted step. This never enters
@@ -2744,24 +2071,18 @@ export async function executeTrustedRuntimeMainHealthCheck(input: Readonly<{
   command: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
   deadlineAtUnixMs: number;
   signal?: AbortSignal;
-  qualifiedEngineExporter: QualifiedContainerEngineOciExporter;
 }>) {
   input = Object.freeze({ repositoryRoot: input.repositoryRoot, repository: input.repository,
     mainSha: input.mainSha, mainTreeSha: input.mainTreeSha, command: input.command,
-    deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
-    qualifiedEngineExporter: input.qualifiedEngineExporter });
+    deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal });
   if (!TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.command)) {
     fail('MainHealth single-check selector is outside the closed command set');
-  }
-  const engine = await consumeQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
-  if (engine.cwd !== path.resolve(input.repositoryRoot) || engine.deadlineAtUnixMs !== input.deadlineAtUnixMs) {
-    fail('MainHealth single-check working directory or deadline differs from its qualified Engine');
   }
   const observation = await executeTrustedRuntimeMainHealthCommands({ ...input, selectedCommand: input.command });
   if (observation.actionResults.length !== 1 || observation.actionResults[0]!.command !== input.command) {
     fail('MainHealth single-check result differs from the admitted command');
   }
-  return Object.freeze({ schema: 'sec-trusted-runtime-main-health-check-v1' as const,
+  return Object.freeze({ schema: 'sec-trusted-runtime-main-health-check-v2' as const,
     authority: 'single-check-observation-only' as const, ...observation,
     command: input.command, resultDigest: observation.actionResults[0]!.resultDigest });
 }
@@ -2776,7 +2097,6 @@ export async function withTrustedRuntimeMainHealthQualification<T>(input: Readon
   /** Parent budget may only shorten this operation; it never renews on reads. */
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
-  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   const signal = input.signal;
   throwIfNativeAborted(signal);
@@ -2817,96 +2137,75 @@ export async function executeTrustedRuntimeWorkspaceCanary(input: Readonly<{
   headTreeSha: string;
   dependencies?: boolean;
 }>): Promise<Readonly<{
-  schema: 'sec-trusted-runtime-workspace-canary-v1';
+  schema: 'sec-trusted-runtime-workspace-canary-v2';
   repository: string;
   headSha: string;
   headTreeSha: string;
   dependenciesReady: boolean;
-  dependencyCacheKey: Digest | null;
-  imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID;
-  dockerEndpoint: DockerEndpointIdentity;
+  dependencyCacheKey: null;
+  unitReceipts: readonly LinuxVerificationUnitReceipt[];
 }>> {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  const repositoryIdentity = repository(input.repository);
   const headSha = sha(input.headSha, 'workspace canary headSha');
   const headTreeSha = sha(input.headTreeSha, 'workspace canary headTreeSha');
-  return await withTrustedRuntimeWorkspace({
-    repositoryRoot,
-    repository: repositoryIdentity,
-    baseSha: headSha,
-    headSha,
+  const completed = await withTrustedRuntimeNativeWorkspace({
+    repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository,
+    baseSha: headSha, baseTreeSha: headTreeSha, headSha, headTreeSha,
     operationKey: `${input.dependencies === true ? 'dependency' : 'canary'}-${headSha.slice(0, 24)}`,
-    setupMode: input.dependencies === true ? 'dependency-canary' : 'lifecycle-canary',
-    execute: async ({
-      containerName,
-      image,
-      containerEngineSession,
-      dockerEndpoint,
-      dependencyCacheKey
-    }) => {
-      return await executeTrustedRuntimeContainerEngineOwnerOperation({
-        session: containerEngineSession,
-        repositoryRoot,
-        repository: repositoryIdentity,
-        baseSha: headSha,
-        headSha,
-        operationKey: `${input.dependencies === true ? 'dependency' : 'canary'}-${headSha.slice(0, 16)}-execute`,
-        setupMode: input.dependencies === true ? 'dependency-canary' : 'lifecycle-canary',
-        execute: async () => {
+    dependencies: input.dependencies === true,
+    execute: async (workspace) => {
+      const environment = Object.freeze({ CI: '1', HOME: '/tmp/home', LANG: 'C', LC_ALL: 'C', TZ: 'UTC',
+        ...TRUSTED_RUNTIME_STATE_ENVIRONMENT });
+      const receipts: LinuxVerificationUnitReceipt[] = [];
       if (input.dependencies === true) {
-        await containerEngineOutput(containerEngineSession, {
-          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-          ...createTrustedRuntimeCommandEnvironmentArgs({ CI: '1', HOME: '/home/ubuntu' }),
-          containerName,
-          ...TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND]
-        });
-        const providerIdentity = await containerEngineOutput(containerEngineSession, {
-            kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-            containerName, 'bun', TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH,
-            '--resolve-from', TRUSTED_RUNTIME_TRUSTED_TREE]
-          });
-        const isolatedProviderIdentity = await containerEngineOutput(containerEngineSession, {
-            kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', '/tmp',
-            containerName, '/bin/bash', '-ceu',
-            `NODE_PATH="$(realpath ${TRUSTED_RUNTIME_TRUSTED_TREE}/node_modules)" ` +
-              `exec bun --no-install ${TRUSTED_RUNTIME_TRUSTED_TREE}/${TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH} ` +
-              '--resolve-from /tmp']
-          });
-        if (isolatedProviderIdentity !== providerIdentity) {
-          fail('dependency canary isolated TypeCheck Provider identity differs from its canonical owner');
+        // The provider resolves its explicit accepted tree. NODE_PATH cannot
+        // alter that direct file lookup; the second process changes only cwd.
+        const argv = Object.freeze(['--no-install', `${TRUSTED_RUNTIME_TRUSTED_TREE}/${TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH}`,
+          '--resolve-from', TRUSTED_RUNTIME_TRUSTED_TREE]);
+        const results: Uint8Array[] = [];
+        for (const cwd of ['trusted', 'scratch'] as const) {
+          const result = await workspace.execute(Object.freeze({ kind: 'dependency-canary', cwd, argv, environment,
+            outputFiles: Object.freeze([]), maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 }));
+          results.push(result.stdout);
+          receipts.push(result.receipt);
+        }
+        if (!Buffer.from(results[0]!).equals(Buffer.from(results[1]!))) {
+          fail('dependency canary isolated cwd observed a different TypeScript Provider');
+        }
+        const provider = JSON.parse(Buffer.from(results[0]!).toString('utf8')) as Record<string, unknown>;
+        if (provider === null || typeof provider !== 'object' || provider.capability !== 'typescript-project-typecheck'
+            || provider.providerId !== 'typescript-native-cli') {
+          fail('dependency canary produced no canonical TypeScript Provider observation');
+        }
+      } else {
+        const result = await workspace.execute(Object.freeze({ kind: 'lifecycle-canary', cwd: 'candidate',
+          argv: Object.freeze([]), environment, outputFiles: Object.freeze([]),
+          maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 }));
+        if (Buffer.from(result.stdout).toString('utf8').trim() !== ENVIRONMENT.trustedRuntime.bunVersion) {
+          fail('lifecycle canary Bun version differs from the accepted runtime');
+        }
+        receipts.push(result.receipt);
+      }
+      for (const receipt of receipts) {
+        if (receipt.unit.trustedPackageReadable !== true || receipt.unit.outputWritable !== true
+            || (input.dependencies === true) !== (receipt.inputs.dependencyContentDigest !== null)) {
+          fail('native workspace canary did not observe its original readiness and dependency scope');
+        }
+        if ([receipt.gitBefore, receipt.gitAfter].some(identity => identity.baseSha !== headSha
+            || identity.headSha !== headSha || identity.baseTreeSha !== headTreeSha
+            || identity.headTreeSha !== headTreeSha || identity.status !== '')) {
+          fail('native workspace canary exact Git identity or clean state differs');
         }
       }
-      const observedHead = await containerEngineOutput(containerEngineSession, {
-          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-            containerName, 'git', 'rev-parse', 'HEAD']
-        });
-      const observedTree = await containerEngineOutput(containerEngineSession, {
-          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-            containerName, 'git', 'rev-parse', 'HEAD^{tree}']
-        });
-      const observedStatus = await containerEngineOutput(containerEngineSession, {
-          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
-            containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all']
-        });
-      await containerEngineOutput(containerEngineSession, {
-        kind: 'container-exec', arguments: ['--user', '1000:1000', containerName,
-          '/bin/bash', '-lc', `test -r ${TRUSTED_RUNTIME_TRUSTED_TREE}/package.json && test -w ${TRUSTED_RUNTIME_OUTPUT}`]
-      });
-      if (observedHead !== headSha || observedTree !== headTreeSha || observedStatus !== '') {
-        fail('workspace canary exact Git identity or clean state differs');
-      }
-      return Object.freeze({
-        schema: 'sec-trusted-runtime-workspace-canary-v1',
-        repository: repositoryIdentity,
-        headSha,
-        headTreeSha,
-        dependenciesReady: input.dependencies === true,
-        dependencyCacheKey,
-        imageId: image.imageId,
-        dockerEndpoint
-      });
-        }
-      });
+      return Object.freeze(receipts);
     }
   });
+  if (completed.settlement.processReceipt === null
+      || encodeVerificationActionData(completed.settlement.unitReceiptDigests)
+        !== encodeVerificationActionData(completed.value.map(({ receiptDigest }: LinuxVerificationUnitReceipt) => receiptDigest))) {
+    fail('native canary has no complete original physical settlement');
+  }
+  return Object.freeze({ schema: 'sec-trusted-runtime-workspace-canary-v2',
+    repository: repository(input.repository), headSha, headTreeSha,
+    dependenciesReady: input.dependencies === true, dependencyCacheKey: null,
+    unitReceipts: completed.value });
 }

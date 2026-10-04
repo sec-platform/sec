@@ -63,11 +63,21 @@ test('canonical trust-root registry is structurally strict and separates static 
     kind: 'static-prefix',
     rule: '.env'
   });
-  const helper = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py';
-  expect(matchSecTrustedBootstrapPath(helper, TCB_TRUST_ROOT)).toEqual({ kind: 'causal-runtime', rule: helper });
-  expect(parsed.staticExactPaths).not.toContain(helper);
-  expect(TCB_CLOSURE_LOCK.moduleContentDigests[helper]).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(matchSecTrustedBootstrapPath(helper.replace('supervisor.py', 'other.py'), TCB_TRUST_ROOT)).toBeNull();
+  for (const helper of [
+    'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+    'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py'
+  ]) {
+    expect(matchSecTrustedBootstrapPath(helper, TCB_TRUST_ROOT)).toEqual({ kind: 'causal-runtime', rule: helper });
+    expect(parsed.staticExactPaths).not.toContain(helper);
+    expect(TCB_CLOSURE_LOCK.moduleContentDigests[helper]).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(matchSecTrustedBootstrapPath(path.posix.join(path.posix.dirname(helper), 'other.py'), TCB_TRUST_ROOT))
+      .toBeNull();
+  }
+  const entry = 'src/bootstrap/toolchain/native-verification-dependencies.ts';
+  expect(parsed.runtimeEntrypoints).toContain(entry);
+  expect(TCB_CLOSURE_LOCK.modules).toContain(entry);
+  expect(parsed.staticDirectoryPaths).not.toContain('src/bootstrap/toolchain/');
+  expect(matchSecTrustedBootstrapPath('src/bootstrap/toolchain/unreviewed-entry.ts', TCB_TRUST_ROOT)).toBeNull();
   expect(matchSecTrustedBootstrapPath('src/unreviewed.py', TCB_TRUST_ROOT)).toBeNull();
   expect(TCB_TRUST_ROOT.paths).not.toContain('scripts/codex/');
 });

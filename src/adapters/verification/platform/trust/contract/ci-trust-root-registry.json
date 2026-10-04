@@ -63,6 +63,7 @@
     "src/bootstrap/development/closeout/worktree-physical-closeout-cli.ts",
     "src/bootstrap/development/runner-cli.ts",
     "src/bootstrap/engineering/trusted-runtime-closeout.ts",
+    "src/bootstrap/toolchain/native-verification-dependencies.ts",
     "tests/setup/test-runtime.setup.ts"
   ],
   "reviewedSutEdges": [],
@@ -71,10 +72,6 @@
   ],
   "reviewedExternalImports": [
     "src/adapters/providers/docker/contract/windows-installation-profile.ts -> zod",
-    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:https",
-    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:stream/promises",
-    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:tls",
-    "src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts -> node:zlib",
     "src/adapters/providers/github-api/internal/artifact-member.ts -> yauzl",
     "src/adapters/providers/linux-verification/contract.ts -> zod",
     "src/adapters/providers/windows-control-cli/contract/environment.ts -> zod",

@@ -72,13 +72,17 @@ import {
   compileWorkspaceSourceRevision
 } from './workspace-source-snapshot.ts';
 
-test('source program retains only the exact hosted supervisor Python resource in its byte census', () => {
-  const helper = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py';
-  expect(isSourceProgramInputPath(helper)).toBe(true);
-  expect(sourceProgramSurfaceForPath(helper)).toBe('resource');
-  for (const other of [helper.replace('supervisor.py', 'other.py'), 'src/other.py',
-    `../${helper}`, `${helper}.bak`, 'tests/fixture.py']) {
-    expect(isSourceProgramInputPath(other)).toBe(false);
+test('source program retains only the two exact reviewed Python resources in its byte census', () => {
+  for (const helper of [
+    'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+    'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py'
+  ]) {
+    expect(isSourceProgramInputPath(helper)).toBe(true);
+    expect(sourceProgramSurfaceForPath(helper)).toBe('resource');
+    for (const other of [helper.replace(/[^/]+$/u, 'other.py'), 'src/other.py',
+      `../${helper}`, `${helper}.bak`, 'tests/fixture.py']) {
+      expect(isSourceProgramInputPath(other)).toBe(false);
+    }
   }
 });
 

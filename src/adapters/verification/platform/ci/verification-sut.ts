@@ -209,6 +209,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
   headSha: string;
   treeSha: string;
   manifestPath: string;
+  executionEnvironmentRevision: string | undefined;
 }>): Promise<Readonly<{
   status: 'passed' | 'failed';
   bootstrapDigest: VerificationActionKeyDigest;
@@ -217,9 +218,21 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
   if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
     throw new Error('Trusted bootstrap SUT manifest path is invalid.');
   }
+  const candidateEnvironment = hostedCandidateProcessEnvironment({
+    SEC_EXECUTION_ENVIRONMENT_REVISION: input.executionEnvironmentRevision
+  }, {
+    SEC_BOOTSTRAP_BASE: input.baseSha,
+    SEC_BOOTSTRAP_HEAD: input.headSha,
+    SEC_BOOTSTRAP_TREE: input.treeSha,
+    SEC_CHANGED_BASE: input.baseSha,
+    SEC_AFFECTED_TESTS_BASE: input.baseSha,
+    SEC_REPOSITORY_AUDIT_DEFAULT_REF: input.baseSha,
+    SEC_WORK_PACKAGE_MANIFEST_PATH: input.manifestPath
+  });
   const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
     actionKey: ciActionDigest({
       baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
+      executionEnvironmentRevision: candidateEnvironment.SEC_EXECUTION_ENVIRONMENT_REVISION,
       manifestPath: input.manifestPath, sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
     })
   });
@@ -254,17 +267,9 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       archiveInventoryDigest: prepared.archiveInventoryDigest,
       dependencyMaterialization: prepared.dependencyMaterialization,
       dependencyArchiveProjection: prepared.dependencyArchiveProjection,
+      executionEnvironmentRevision: candidateEnvironment.SEC_EXECUTION_ENVIRONMENT_REVISION,
       sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
     }));
-    const candidateEnvironment = hostedCandidateProcessEnvironment({}, {
-      SEC_BOOTSTRAP_BASE: input.baseSha,
-      SEC_BOOTSTRAP_HEAD: input.headSha,
-      SEC_BOOTSTRAP_TREE: input.treeSha,
-      SEC_CHANGED_BASE: input.baseSha,
-      SEC_AFFECTED_TESTS_BASE: input.baseSha,
-      SEC_REPOSITORY_AUDIT_DEFAULT_REF: input.baseSha,
-      SEC_WORK_PACKAGE_MANIFEST_PATH: input.manifestPath
-    });
     let commandPlan: HostedSutCommandPlan<typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST> | null = null;
     let execution = syntheticHostedSutSandboxProcessObservation(
       1, capability.diagnostic ?? `sandbox-capability:${capability.state}`

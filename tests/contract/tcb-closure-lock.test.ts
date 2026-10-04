@@ -56,109 +56,142 @@ const verifyTcbClosureLock = (
 
 const supervisorOwner = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
 const supervisorResource = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py';
-const supervisorResourceSource = "import { fileURLToPath } from 'node:url';\n"
-  + "const HELPER_PATH = fileURLToPath(new URL('./hosted-sut-supervisor.py', import.meta.url));\n";
+const nativeUnitOwner = 'src/adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
+const nativeUnitResource = 'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py';
+const nativeDependencyEntrypoint = 'src/bootstrap/toolchain/native-verification-dependencies.ts';
 
-test('TCB supervisor resource binds the actual Python bytes as a causal terminal', () => {
-  const bytes = readFileSync(supervisorResource);
-  expect(TCB_CLOSURE_LOCK.modules).toContain(supervisorResource);
-  expect(TCB_CLOSURE_LOCK.moduleContentDigests[supervisorResource]).toBe(rawSha256(bytes));
-  expect(TCB_CLOSURE_LOCK.moduleBlobs[supervisorResource]).toBe(createHash('sha1')
-    .update(`blob ${bytes.length}\0`).update(bytes).digest('hex'));
-  expect(runtimeRelativeImportsFromSource(supervisorOwner, readFileSync(supervisorOwner, 'utf8')))
-    .toContain('./hosted-sut-supervisor.py');
-});
+const reviewedRuntimeResources = [
+  { owner: supervisorOwner, resource: supervisorResource, specifier: './hosted-sut-supervisor.py' },
+  { owner: nativeUnitOwner, resource: nativeUnitResource, specifier: './linux-verification-unit-helper.py' }
+] as const;
 
-test('TCB supervisor resource rejects missing, ambiguous, shadowed and redirected declarations', () => {
-  expect(runtimeRelativeImportsFromSource(supervisorOwner, supervisorResourceSource))
-    .toEqual(['./hosted-sut-supervisor.py']);
-  for (const source of [
-    "import { fileURLToPath } from 'node:url';\n",
-    supervisorResourceSource.replace('const HELPER_PATH', 'let HELPER_PATH'),
-    supervisorResourceSource + 'const HELPER_PATH = "duplicate";\n',
-    supervisorResourceSource + 'const { HELPER_PATH } = other;\n',
-    supervisorResourceSource + 'function run(HELPER_PATH: string) { return HELPER_PATH; }\n',
-    supervisorResourceSource.replace('./hosted-sut-supervisor.py', './other.py'),
-    supervisorResourceSource.replace('./hosted-sut-supervisor.py', './nested/../hosted-sut-supervisor.py'),
-    supervisorResourceSource.replace("'./hosted-sut-supervisor.py'", 'selectedPath'),
-    supervisorResourceSource.replace('import.meta.url', 'callerRoot'),
-    supervisorResourceSource.replace("'node:url'", "'./url.ts'"),
-    supervisorResourceSource.replace('fileURLToPath }', 'fileURLToPath as resolvePath }')
-      .replace('= fileURLToPath(', '= resolvePath('),
-    supervisorResourceSource.replace('const HELPER_PATH', 'const URL = other; const HELPER_PATH'),
-    supervisorResourceSource.replace('const HELPER_PATH', 'declare const URL: any; const HELPER_PATH'),
-    supervisorResourceSource + "import './hosted-sut-supervisor.py';\n"
-  ]) {
-    expect(() => runtimeRelativeImportsFromSource(supervisorOwner, source)).toThrow();
-  }
-  expect(() => runtimeRelativeImportsFromSource('other.ts', "import './hosted-sut-supervisor.py';"))
-    .toThrow('Python ESM import');
-});
-
-test('TCB supervisor resource preserves raw bytes while existing TypeScript normalization stays unchanged', () => {
-  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-python-bytes-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const root = realpathSync.native(createdRoot);
-    mkdirSync(path.join(root, path.posix.dirname(supervisorOwner)), { recursive: true });
-    writeFileSync(path.join(root, supervisorOwner), supervisorResourceSource.replaceAll('\n', '\r\n'));
-    const helper = path.join(root, supervisorResource);
-    const original = Buffer.from('# opaque Python resource\r\nvalue = 1\r\n', 'utf8');
-    writeFileSync(helper, original);
-    const closure = trustedRuntimeClosure([supervisorOwner], { candidateRoot: root });
-    expect([...closure.closure].sort()).toEqual([supervisorOwner, supervisorResource].sort());
-    const first = computeTcbClosureLock(closure, { candidateRoot: root });
-    expect(first.moduleContentDigests[supervisorOwner]).toBe(rawSha256(supervisorResourceSource));
-    expect(first.moduleContentDigests[supervisorResource]).toBe(rawSha256(original));
-    writeFileSync(helper, original.toString('utf8').replaceAll('\r\n', '\n'));
-    const changed = computeTcbClosureLock(closure, { candidateRoot: root });
-    expect(changed.moduleContentDigests[supervisorOwner]).toBe(first.moduleContentDigests[supervisorOwner]);
-    expect(changed.moduleBlobs[supervisorResource]).not.toBe(first.moduleBlobs[supervisorResource]);
-    expect(changed.moduleContentDigests[supervisorResource]).not.toBe(first.moduleContentDigests[supervisorResource]);
-    expect(changed.trustRevision).not.toBe(first.trustRevision);
-    expect(changed.closureDigest).not.toBe(first.closureDigest);
-    expect(verifyTcbClosureLockAgainstExactTree(closure, { candidateRoot: root, expectedIdentity: first }).status)
-      .toBe('failed');
-    const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
-    const captured = trustedRuntimeClosure([supervisorOwner], { candidateSnapshot: snapshot });
-    writeFileSync(helper, '# changed after discovery\n');
-    expect(() => computeTcbClosureLock(captured, { candidateSnapshot: snapshot })).toThrow('snapshot changed');
-    expect(() => trustedRuntimeClosure([supervisorResource, supervisorOwner], { candidateRoot: root }))
-      .toThrow('not a reviewed resource edge');
-    expect(() => trustedRuntimeClosure([supervisorOwner, supervisorResource], { candidateRoot: root }))
-      .toThrow('not a reviewed resource edge');
-  } catch (error) {
-    primary = { label: 'supervisor-resource-assertions', error };
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'supervisor-resource-fixture',
-      settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
+test('TCB fixed resources bind the actual Python bytes as a causal terminal', () => {
+  for (const { owner, resource, specifier } of reviewedRuntimeResources) {
+    const bytes = readFileSync(resource);
+    expect(TCB_CLOSURE_LOCK.modules).toContain(resource);
+    expect(TCB_CLOSURE_LOCK.moduleContentDigests[resource]).toBe(rawSha256(bytes));
+    expect(TCB_CLOSURE_LOCK.moduleBlobs[resource]).toBe(createHash('sha1')
+      .update(`blob ${bytes.length}\0`).update(bytes).digest('hex'));
+    expect(runtimeRelativeImportsFromSource(owner, readFileSync(owner, 'utf8')))
+      .toContain(specifier);
   }
 });
 
-test('TCB supervisor resource rejects absent and nonordinary bytes through the original snapshot reader', () => {
-  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-python-ordinary-'));
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const root = realpathSync.native(createdRoot);
-    mkdirSync(path.join(root, path.posix.dirname(supervisorOwner)), { recursive: true });
-    writeFileSync(path.join(root, supervisorOwner), supervisorResourceSource);
-    const helper = path.join(root, supervisorResource);
-    expect(() => trustedRuntimeClosure([supervisorOwner], { candidateRoot: root })).toThrow('does not resolve');
-    mkdirSync(helper);
-    expect(() => trustedRuntimeClosure([supervisorOwner], { candidateRoot: root })).toThrow();
-    rmSync(helper, { recursive: true });
-    const other = path.join(root, 'other.py');
-    writeFileSync(other, '# original\n');
-    symlinkSync(other, helper);
-    expect(() => trustedRuntimeClosure([supervisorOwner], { candidateRoot: root })).toThrow();
-    rmSync(helper);
-    linkSync(other, helper);
-    expect(() => trustedRuntimeClosure([supervisorOwner], { candidateRoot: root })).toThrow();
-  } catch (error) {
-    primary = { label: 'supervisor-resource-assertions', error };
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'supervisor-resource-fixture',
-      settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
+test('TCB fixed resources reject missing, ambiguous, shadowed and redirected declarations', () => {
+  for (const { owner, resource, specifier } of reviewedRuntimeResources) {
+    const resourceSource = "import { fileURLToPath } from 'node:url';\n"
+      + "const HELPER_PATH = fileURLToPath(new URL('" + specifier + "', import.meta.url));\n";
+    expect(runtimeRelativeImportsFromSource(owner, resourceSource))
+      .toEqual([specifier]);
+    for (const source of [
+      "import { fileURLToPath } from 'node:url';\n",
+      resourceSource.replace('const HELPER_PATH', 'let HELPER_PATH'),
+      resourceSource + 'const HELPER_PATH = "duplicate";\n',
+      resourceSource + 'const { HELPER_PATH } = other;\n',
+      resourceSource + 'function run(HELPER_PATH: string) { return HELPER_PATH; }\n',
+      resourceSource.replace(specifier, './other.py'),
+      resourceSource.replace(specifier, specifier === './hosted-sut-supervisor.py'
+        ? './linux-verification-unit-helper.py' : './hosted-sut-supervisor.py'),
+      resourceSource.replace(specifier, './nested/../' + path.posix.basename(resource)),
+      resourceSource.replace("'" + specifier + "'", 'selectedPath'),
+      resourceSource.replace('import.meta.url', 'callerRoot'),
+      resourceSource.replace("'node:url'", "'./url.ts'"),
+      resourceSource.replace('fileURLToPath }', 'fileURLToPath as resolvePath }')
+        .replace('= fileURLToPath(', '= resolvePath('),
+      resourceSource.replace('const HELPER_PATH', 'const URL = other; const HELPER_PATH'),
+      resourceSource.replace('const HELPER_PATH', 'declare const URL: any; const HELPER_PATH'),
+      resourceSource + "import '" + specifier + "';\n"
+    ]) {
+      expect(() => runtimeRelativeImportsFromSource(owner, source)).toThrow();
+    }
+    expect(() => runtimeRelativeImportsFromSource('other.ts', "import '" + specifier + "';"))
+      .toThrow('Python ESM import');
+  }
+});
+
+test('TCB fixed resources preserve raw bytes while existing TypeScript normalization stays unchanged', () => {
+  for (const { owner, resource, specifier } of reviewedRuntimeResources) {
+    const resourceSource = "import { fileURLToPath } from 'node:url';\n"
+      + "const HELPER_PATH = fileURLToPath(new URL('" + specifier + "', import.meta.url));\n";
+    const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-python-bytes-'));
+    let primary: ResourceSettlementFailure | undefined;
+    try {
+      const root = realpathSync.native(createdRoot);
+      mkdirSync(path.join(root, path.posix.dirname(owner)), { recursive: true });
+      writeFileSync(path.join(root, owner), resourceSource.replaceAll('\n', '\r\n'));
+      const helper = path.join(root, resource);
+      const original = Buffer.from('# opaque Python resource\r\nvalue = 1\r\n', 'utf8');
+      writeFileSync(helper, original);
+      const closure = trustedRuntimeClosure([owner], { candidateRoot: root });
+      expect([...closure.closure].sort()).toEqual([owner, resource].sort());
+      const first = computeTcbClosureLock(closure, { candidateRoot: root });
+      expect(first.moduleContentDigests[owner]).toBe(rawSha256(resourceSource));
+      expect(first.moduleContentDigests[resource]).toBe(rawSha256(original));
+      writeFileSync(helper, original.toString('utf8').replaceAll('\r\n', '\n'));
+      const changed = computeTcbClosureLock(closure, { candidateRoot: root });
+      expect(changed.moduleContentDigests[owner]).toBe(first.moduleContentDigests[owner]);
+      expect(changed.moduleBlobs[resource]).not.toBe(first.moduleBlobs[resource]);
+      expect(changed.moduleContentDigests[resource]).not.toBe(first.moduleContentDigests[resource]);
+      expect(changed.trustRevision).not.toBe(first.trustRevision);
+      expect(changed.closureDigest).not.toBe(first.closureDigest);
+      expect(verifyTcbClosureLockAgainstExactTree(closure, { candidateRoot: root, expectedIdentity: first }).status)
+        .toBe('failed');
+      const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
+      const captured = trustedRuntimeClosure([owner], { candidateSnapshot: snapshot });
+      writeFileSync(helper, '# changed after discovery\n');
+      expect(() => computeTcbClosureLock(captured, { candidateSnapshot: snapshot })).toThrow('snapshot changed');
+      expect(() => trustedRuntimeClosure([resource, owner], { candidateRoot: root }))
+        .toThrow('not a reviewed resource edge');
+      expect(() => trustedRuntimeClosure([owner, resource], { candidateRoot: root }))
+        .toThrow('not a reviewed resource edge');
+    } catch (error) {
+      primary = { label: 'runtime-resource-assertions', error };
+    } finally {
+      settleResources({ primary, cleanup: [{ label: 'runtime-resource-fixture',
+        settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
+    }
+  }
+});
+
+test('TCB fixed resources reject absent and nonordinary bytes through the original snapshot reader', () => {
+  for (const { owner, resource, specifier } of reviewedRuntimeResources) {
+    const resourceSource = "import { fileURLToPath } from 'node:url';\n"
+      + "const HELPER_PATH = fileURLToPath(new URL('" + specifier + "', import.meta.url));\n";
+    const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-python-ordinary-'));
+    let primary: ResourceSettlementFailure | undefined;
+    try {
+      const root = realpathSync.native(createdRoot);
+      mkdirSync(path.join(root, path.posix.dirname(owner)), { recursive: true });
+      writeFileSync(path.join(root, owner), resourceSource);
+      const helper = path.join(root, resource);
+      expect(() => trustedRuntimeClosure([owner], { candidateRoot: root })).toThrow('does not resolve');
+      mkdirSync(helper);
+      expect(() => trustedRuntimeClosure([owner], { candidateRoot: root })).toThrow();
+      rmSync(helper, { recursive: true });
+      const other = path.join(root, 'other.py');
+      writeFileSync(other, '# original\n');
+      symlinkSync(other, helper);
+      expect(() => trustedRuntimeClosure([owner], { candidateRoot: root })).toThrow();
+      rmSync(helper);
+      linkSync(other, helper);
+      expect(() => trustedRuntimeClosure([owner], { candidateRoot: root })).toThrow();
+    } catch (error) {
+      primary = { label: 'runtime-resource-assertions', error };
+    } finally {
+      settleResources({ primary, cleanup: [{ label: 'runtime-resource-fixture',
+        settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
+    }
+  }
+});
+
+test('TCB fixed native dependency entry retains its real transitive TypeScript source closure', () => {
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints).toContain(nativeDependencyEntrypoint);
+  const closure = trustedRuntimeClosure([nativeDependencyEntrypoint]);
+  for (const source of [nativeDependencyEntrypoint,
+    'src/bootstrap/toolchain/dependency-operation.ts',
+    'src/adapters/toolchain/dependencies/runtime/project-runtime.ts']) {
+    expect(closure.closure.has(source)).toBe(true);
+    expect(TCB_CLOSURE_LOCK.modules).toContain(source);
   }
 });
 
@@ -244,18 +277,36 @@ test('TCB closure models direct OS identity reads without admitting identity mut
     'synthetic-parent-process.ts',
     'export const issuerProcessId = process.ppid;'
   )).not.toThrow();
-  expect(() => runtimeRelativeImportsFromSource(
-    'synthetic-effective-user.ts',
-    "export const effectiveUserId = typeof process.geteuid === 'function' ? process.geteuid() : undefined;"
-  )).not.toThrow();
-  expect(() => runtimeRelativeImportsFromSource(
-    'synthetic-effective-user.ts',
-    'process.seteuid(0);'
-  )).toThrow('unclassified process member seteuid');
-  expect(() => runtimeRelativeImportsFromSource(
-    'synthetic-effective-user.ts',
-    "export const effectiveUserId = process['geteuid']();"
-  )).toThrow('computed process member');
+  for (const member of ['getuid', 'geteuid', 'getgid', 'getegid']) {
+    for (const source of [
+      `export const identity = process.${member}();`,
+      `export const identity = process.${member}?.();`,
+      `export const identity = typeof process.${member} === 'function' ? process.${member}() : undefined;`
+    ]) {
+      expect(() => runtimeRelativeImportsFromSource('synthetic-process-identity.ts', source)).not.toThrow();
+    }
+    expect(() => runtimeRelativeImportsFromSource(
+      'synthetic-process-identity.ts', `export const identity = process['${member}']();`
+    )).toThrow('computed process member');
+    for (const source of [
+      `const host = process; export const identity = host.${member}();`,
+      `const { ${member}: read } = process; export const identity = read();`,
+      `Object.getOwnPropertyDescriptor(process, '${member}');`,
+      `Object.defineProperty(process, '${member}', { get: () => () => 0 });`
+    ]) {
+      expect(() => runtimeRelativeImportsFromSource('synthetic-process-identity.ts', source))
+        .toThrow('escaped process namespace');
+    }
+    expect(() => runtimeRelativeImportsFromSource(
+      'synthetic-process-identity.ts', `export const identity = globalThis.process.${member}();`
+    )).toThrow('unclassified globalThis member process');
+  }
+  for (const member of ['setuid', 'seteuid', 'setgid', 'setegid', 'setgroups']) {
+    expect(() => runtimeRelativeImportsFromSource('synthetic-process-mutation.ts', `process.${member}(0);`))
+      .toThrow(`unclassified process member ${member}`);
+  }
+  expect(() => runtimeRelativeImportsFromSource('synthetic-process-stream.ts', 'const input = process.stdin;'))
+    .toThrow('unclassified process member stdin');
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-parent-process.ts',
     'export const issuerProcessId = process.parentPid;'
@@ -402,11 +453,12 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   const plan = createTcbClosureActionPlan(input);
   const repeated = createTcbClosureActionPlan(input);
   const changedTree = createTcbClosureActionPlan({ ...input, exactTreeSha: '3'.repeat(40) });
-  expect(plan.action.producer.revision).toBe('sec-tcb-closure-action-producer-v2');
-  expect(() => compileTcbClosureActionResult({ plan: {
-    ...plan, action: { ...plan.action, producer: { ...plan.action.producer,
-      revision: 'sec-tcb-closure-action-producer-v1' } }
-  } })).toThrow('not one canonical derivation plan');
+  expect(plan.action.producer.revision).toBe('sec-tcb-closure-action-producer-v3');
+  for (const revision of ['sec-tcb-closure-action-producer-v1', 'sec-tcb-closure-action-producer-v2']) {
+    expect(() => compileTcbClosureActionResult({ plan: {
+      ...plan, action: { ...plan.action, producer: { ...plan.action.producer, revision } }
+    } })).toThrow('not one canonical derivation plan');
+  }
   expect(repeated.action.actionKey).toBe(plan.action.actionKey);
   expect(changedTree.action.actionKey).not.toBe(plan.action.actionKey);
 
@@ -434,9 +486,11 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
     changedPaths: [SEC_TCB_CLOSURE_RUNTIME_PATH]
   });
   expect(impacted.impactedPaths).toEqual([SEC_TCB_CLOSURE_RUNTIME_PATH]);
-  const helperOnly = selectTcbClosureCandidateAction({ ...commonDemand, changedPaths: [supervisorResource] });
-  expect(helperOnly.impactedPaths).toEqual([supervisorResource]);
-  expect(helperOnly.plan?.action.upstreamActionKeys).toEqual([result.actionKey]);
+  for (const source of [supervisorResource, nativeUnitResource, nativeDependencyEntrypoint]) {
+    const sourceOnly = selectTcbClosureCandidateAction({ ...commonDemand, changedPaths: [source] });
+    expect(sourceOnly.impactedPaths).toEqual([source]);
+    expect(sourceOnly.plan?.action.upstreamActionKeys).toEqual([result.actionKey]);
+  }
   expect(impacted.plan?.action.upstreamActionKeys).toEqual([result.actionKey]);
   expect(impacted.plan?.dependencies).toEqual([{ actionKey: result.actionKey, kind: 'upstream' }]);
   expect(() => compileTcbClosureActionResult({ plan: impacted.plan! }))
@@ -842,17 +896,17 @@ test('adding an unauthorized network dispatcher causes the lock to break', () =>
   ]));
 });
 
-test('TCB HTTPS bindings reject escaped, substituted and additional network dispatchers', () => {
+test('TCB retired HTTPS bindings reject direct, escaped and substituted network dispatchers', () => {
   const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
   const prefix = "import { Agent, request } from 'node:https';\n";
   const direct = 'function download(agent: Agent) { return new Promise(resolve => { request(target, { agent }, resolve); }); }';
   const network = new Set<string>();
   expect(() => runtimeRelativeImportsFromSource(publisher, prefix + direct,
-    new Set(), new Set(), new Set(), network)).not.toThrow();
-  expect([...network]).toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
+    new Set(), new Set(), new Set(), network)).toThrow('unreviewed node:https importer');
+  expect([...network]).toEqual([]);
   expect(() => runtimeRelativeImportsFromSource(publisher,
     prefix + 'function publishLinuxDockerStaticToolchain() { return new Agent({ keepAlive: false }); }'))
-    .not.toThrow();
+    .toThrow('unreviewed node:https importer');
   for (const source of [
     "import { get } from 'node:https'; function download() { return get(target); }",
     "import { request as send } from 'node:https'; function download() { return send(target); }",
@@ -884,20 +938,44 @@ test('TCB HTTPS bindings reject escaped, substituted and additional network disp
 test('TCB HTTPS dispatcher census never credits a shadowed local binding', () => {
   const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
   const network = new Set<string>();
-  runtimeRelativeImportsFromSource(publisher,
+  expect(() => runtimeRelativeImportsFromSource(publisher,
     "import { request } from 'node:https'; function download(request: (url: unknown) => unknown) { return request(target); }",
-    new Set(), new Set(), new Set(), network);
-  // The unchanged exact census equality in generateTcbClosureLock rejects this missing dispatcher.
+    new Set(), new Set(), new Set(), network)).toThrow('unreviewed node:https importer');
+  // A denied historical import cannot turn a local callback into network authority.
   expect([...network]).toEqual([]);
   expect([...network]).not.toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
 });
 
-test('TCB HTTPS census consumes the actual static publisher source', () => {
+test('TCB live census excludes the retired publisher and denies its actual HTTPS source', () => {
   const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
   const network = new Set<string>();
   const external = new Set<string>();
-  runtimeRelativeImportsFromSource(publisher, readFileSync(publisher, 'utf8'),
-    new Set(), new Set(), external, network);
-  expect([...network]).toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
-  expect(external.has(`${publisher} -> node:https`)).toBe(true);
+  expect(TCB_CLOSURE_LOCK.modules).not.toContain(publisher);
+  expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(`${publisher}::function-declaration:download::node:https.request#1`))
+    .toBe(false);
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports
+    .filter((edge) => edge.startsWith(`${publisher} -> `))).toEqual([]);
+  expect(() => runtimeRelativeImportsFromSource(publisher, readFileSync(publisher, 'utf8'),
+    new Set(), new Set(), external, network)).toThrow('unreviewed node:https importer');
+  expect([...network]).toEqual([]);
+  expect(external.has(`${publisher} -> node:https`)).toBe(false);
+});
+
+test('TCB active hosted origin source records its exact reviewed fetch dispatcher', () => {
+  const owner = 'src/adapters/providers/github-api/hosted-job-origin.ts';
+  const site = `${owner}::function-declaration:jsonRequest::globalThis.fetch#1`;
+  const network = new Set<string>();
+  expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(site)).toBe(true);
+  expect(() => runtimeRelativeImportsFromSource(owner, readFileSync(owner, 'utf8'),
+    new Set(), new Set(), new Set(), network)).not.toThrow();
+  expect([...network]).toEqual([site]);
+});
+
+test('TCB active hosted origin does not credit a locally bound fetch callback', () => {
+  const owner = 'src/adapters/providers/github-api/hosted-job-origin.ts';
+  const network = new Set<string>();
+  expect(() => runtimeRelativeImportsFromSource(owner,
+    'function jsonRequest(fetch: (target: unknown) => unknown, target: unknown) { return fetch(target); }',
+    new Set(), new Set(), new Set(), network)).not.toThrow();
+  expect([...network]).toEqual([]);
 });

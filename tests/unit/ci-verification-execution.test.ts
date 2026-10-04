@@ -1043,6 +1043,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
     candidateEnvironment: hostedCandidateProcessEnvironment({}, {
+      SEC_EXECUTION_ENVIRONMENT_REVISION: normalizedOperation.candidate.executionEnvironmentRevision,
       SEC_BOOTSTRAP_BASE: normalizedOperation.candidate.baseSha,
       SEC_BOOTSTRAP_HEAD: normalizedOperation.candidate.headSha,
       SEC_BOOTSTRAP_TREE: TREE
@@ -2108,7 +2109,9 @@ test('test backend serializes one shared ActionKey while different roots and clo
 });
 
 test('credential sanitizer never treats provider environment identity as a writable token', () => {
+  expect(() => hostedCandidateProcessEnvironment({})).toThrow(/explicitly supplied execution environment revision/u);
   expect(hostedCandidateProcessEnvironment({
+    SEC_EXECUTION_ENVIRONMENT_REVISION: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
     GITHUB_TOKEN: 'secret',
     actions_runtime_token: 'secret',
     GITHUB_OUTPUT: 'secret',
