@@ -152,7 +152,8 @@ export function createMainHealthLedger(input: MainHealthLedgerInput): MainHealth
   const expectedProducerKeys = ['identity', 'trustRevision', 'sourceTransport', 'sourceRunId', 'sourceRef', 'sourceDigest'].sort();
   if (producerKeys.length !== expectedProducerKeys.length || producerKeys.some((key, index) => key !== expectedProducerKeys[index])) fail('producer keys are invalid.');
   if (producer.sourceTransport !== 'github-api'
-      && producer.sourceTransport !== 'trusted-runtime-durable-readback') {
+      && producer.sourceTransport !== 'trusted-runtime-durable-readback'
+      && producer.sourceTransport !== 'trusted-runtime-live-readback') {
     fail('producer.sourceTransport is invalid.');
   }
   const semantic = normalizeMainHealthSemanticInput(input);

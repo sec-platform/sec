@@ -14,7 +14,7 @@ import {
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
   createTrustedRuntimeMainHealthReceipt,
   parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator
+  trustedRuntimeMainHealthReceiptReference
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import {
   TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
@@ -27,6 +27,7 @@ import {
   TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolume,
+  assertTrustedRuntimeMainHealthQualification,
   authorizeTrustedRuntimeContainerRecovery,
   composeTrustedRuntimeContainerLabels,
   createTrustedRuntimeCommandEnvironmentArgs,
@@ -101,14 +102,22 @@ describe('provider-neutral trusted runtime container', () => {
       observedAt: '2026-09-29T00:00:00.000Z'
     });
     expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
-    expect(trustedRuntimeMainHealthReceiptLocator({
-      repositoryStateRoot: path.resolve('state'),
-      mainSha: receipt.mainSha
-    })).toEqual({
-      directory: path.join(path.resolve('state'), 'trusted-main-health', 'v2'),
-      fileName: `main-${receipt.mainSha}.json`,
-      sourceRef: `runtime-state:trusted-main-health/v2/main-${receipt.mainSha}.json`
-    });
+    for (const unqualified of [receipt, parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))]) {
+      expect(() => assertTrustedRuntimeMainHealthQualification({
+        receipt: unqualified, repositoryRoot: process.cwd(), repository: receipt.repository,
+        mainSha: receipt.mainSha, mainTreeSha: receipt.mainTreeSha
+      })).toThrow('current live production execution qualification');
+    }
+    expect(trustedRuntimeMainHealthReceiptReference(receipt)).toBe(
+      `live-receipt:trusted-main-health/v2/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
+    );
+    expect(trustedRuntimeMainHealthReceiptReference(receipt)).not.toContain('.json');
+    expect(() => trustedRuntimeMainHealthReceiptReference({
+      mainSha: '../main', receiptDigest: receipt.receiptDigest
+    })).toThrow('one lowercase Git SHA');
+    expect(() => trustedRuntimeMainHealthReceiptReference({
+      mainSha: receipt.mainSha, receiptDigest: 'sha256:invalid'
+    })).toThrow('one SHA-256 digest');
     expect(() => parseTrustedRuntimeMainHealthReceipt({
       ...receipt,
       planDigest: `sha256:${'f'.repeat(64)}`

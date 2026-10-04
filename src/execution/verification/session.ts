@@ -255,7 +255,10 @@ export type MainHealthLane = 'ordinary' | 'repair';
 export interface MainHealthProducer {
   readonly identity: string;
   readonly trustRevision: string;
-  readonly sourceTransport: 'github-api' | 'trusted-runtime-durable-readback';
+  // Durable transport remains decodable for historical ledgers only. New
+  // local observations borrow the physical producer's live receipt scope.
+  readonly sourceTransport: 'github-api' | 'trusted-runtime-durable-readback'
+    | 'trusted-runtime-live-readback';
   readonly sourceRunId: string;
   readonly sourceRef: string;
   readonly sourceDigest: MainHealthDigest;

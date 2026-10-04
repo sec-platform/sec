@@ -1,7 +1,6 @@
 /** Canonical provider-checks to MainHealth-ledger input compiler. */
 
 import { createHash } from 'node:crypto';
-import path from 'node:path';
 import type { GitHubCheckObservation } from '../../../../execution/verification/session.ts';
 
 import {
@@ -29,7 +28,6 @@ export interface TrustedRuntimeMainHealthObservation {
   readonly mainSha: string;
   readonly mainTreeSha: string;
   readonly trustRevision: string;
-  readonly runtimeRef: string;
   readonly executionId: string;
   readonly verificationReceiptDigest: Digest;
   readonly observedAt: string;
@@ -146,21 +144,15 @@ function mainHealthInstant(value: unknown, label: string): string {
   return value;
 }
 
-export function trustedRuntimeMainHealthReceiptLocator(input: Readonly<{
-  repositoryStateRoot: string;
+/** Content reference for one live production receipt, never a file locator or
+ * a means of reconstructing its same-process qualification. */
+export function trustedRuntimeMainHealthReceiptReference(input: Readonly<{
   mainSha: string;
-  receiptDigest?: Digest;
-}>): Readonly<{ directory: string; fileName: string; sourceRef: string }> {
-  const repositoryStateRoot = path.resolve(input.repositoryStateRoot);
-  const mainSha = mainHealthSha(input.mainSha, 'receipt locator mainSha');
-  const fileName = input.receiptDigest === undefined
-    ? `main-${mainSha}.json`
-    : `main-${mainSha}-${mainHealthDigest(input.receiptDigest, 'receipt locator digest').slice(7)}.json`;
-  return Object.freeze({
-    directory: path.join(repositoryStateRoot, 'trusted-main-health', 'v2'),
-    fileName,
-    sourceRef: `runtime-state:trusted-main-health/v2/${fileName}`
-  });
+  receiptDigest: Digest;
+}>): string {
+  const mainSha = mainHealthSha(input.mainSha, 'receipt reference mainSha');
+  const receiptDigest = mainHealthDigest(input.receiptDigest, 'receipt reference digest');
+  return `live-receipt:trusted-main-health/v2/${mainSha}/${receiptDigest.slice(7)}`;
 }
 
 export function createTrustedRuntimeMainHealthReceipt(input: Readonly<{
@@ -323,9 +315,11 @@ export function createTrustedRuntimeMainHealthInput(
     producer: Object.freeze({
       identity: DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
       trustRevision,
-      sourceTransport: 'trusted-runtime-durable-readback' as const,
+      sourceTransport: 'trusted-runtime-live-readback' as const,
       sourceRunId: boundedText(input.executionId, 'executionId'),
-      sourceRef: boundedText(input.runtimeRef, 'runtimeRef'),
+      sourceRef: trustedRuntimeMainHealthReceiptReference({
+        mainSha, receiptDigest: verificationReceiptDigest
+      }),
       sourceDigest: verificationReceiptDigest
     })
   });

@@ -63,6 +63,12 @@ test('canonical trust-root registry is structurally strict and separates static 
     kind: 'static-prefix',
     rule: '.env'
   });
+  const helper = 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py';
+  expect(matchSecTrustedBootstrapPath(helper, TCB_TRUST_ROOT)).toEqual({ kind: 'causal-runtime', rule: helper });
+  expect(parsed.staticExactPaths).not.toContain(helper);
+  expect(TCB_CLOSURE_LOCK.moduleContentDigests[helper]).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(matchSecTrustedBootstrapPath(helper.replace('supervisor.py', 'other.py'), TCB_TRUST_ROOT)).toBeNull();
+  expect(matchSecTrustedBootstrapPath('src/unreviewed.py', TCB_TRUST_ROOT)).toBeNull();
   expect(TCB_TRUST_ROOT.paths).not.toContain('scripts/codex/');
 });
 

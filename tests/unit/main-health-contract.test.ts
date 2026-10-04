@@ -224,6 +224,23 @@ test('MainHealth observation provenance changes receipt digest but not health re
   expect(local.ledgerDigest).not.toBe(base.ledgerDigest);
 });
 
+test('live receipt provenance is distinct while historical durable ledgers stay decodable', () => {
+  const legacy = createMainHealthLedger(healthyInput({
+    producer: { ...producer(), sourceTransport: 'trusted-runtime-durable-readback',
+      sourceRef: `runtime-state:trusted-main-health/v2/main-${SHA_A}-${D_A.slice(7)}.json` }
+  }));
+  const live = createMainHealthLedger(healthyInput({
+    producer: { ...legacy.producer, sourceTransport: 'trusted-runtime-live-readback',
+      sourceRef: `live-receipt:trusted-main-health/v2/${SHA_A}/${D_A.slice(7)}` }
+  }));
+  expect(parseMainHealthLedger(JSON.stringify(legacy))).toEqual(legacy);
+  expect(parseMainHealthLedger(JSON.stringify(live))).toEqual(live);
+  expect(live.healthRevision).toBe(legacy.healthRevision);
+  expect(live.ledgerDigest).not.toBe(legacy.ledgerDigest);
+  expect(legacy.producer.sourceTransport).toBe('trusted-runtime-durable-readback');
+  expect(live.producer.sourceTransport).toBe('trusted-runtime-live-readback');
+});
+
 test('MainHealth canonicalizes set ordering and rejects duplicate/unknown members', () => {
   const left = createMainHealthLedger(degradedInput({ failureFingerprints: [D_B, D_A] }));
   const right = createMainHealthLedger(degradedInput({ failureFingerprints: [D_A, D_B] }));

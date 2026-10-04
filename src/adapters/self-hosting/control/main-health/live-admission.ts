@@ -1,7 +1,7 @@
 import type { MainHealthLedger } from '../../../../execution/verification/session.ts';
 import { assertTrustedRuntimeMainHealthQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY } from './contract.ts';
-import type { TrustedRuntimeMainHealthReceipt } from './main-health-observation.ts';
+import { trustedRuntimeMainHealthReceiptReference, type TrustedRuntimeMainHealthReceipt } from './main-health-observation.ts';
 import { assertMainHealthPublicationLedger, type MainHealthPublicationAuthority } from './work-selection-main-health.ts';
 
 /** Borrowed same-process evidence. Its fields cannot mint either authority. */
@@ -30,12 +30,11 @@ export function assertTrustedRuntimeMainHealthPublication(input: Readonly<{
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha });
   if (ledger.producer.identity !== DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY
-      || ledger.producer.sourceTransport !== 'trusted-runtime-durable-readback'
+      || ledger.producer.sourceTransport !== 'trusted-runtime-live-readback'
       || ledger.producer.trustRevision !== input.mainSha
       || ledger.producer.sourceDigest !== receipt.receiptDigest
       || ledger.producer.sourceRunId !== receipt.executionId
-      || ledger.producer.sourceRef !==
-        `runtime-state:trusted-main-health/v2/main-${receipt.mainSha}-${receipt.receiptDigest.slice(7)}.json`) {
+      || ledger.producer.sourceRef !== trustedRuntimeMainHealthReceiptReference(receipt)) {
     throw new Error('local MainHealth receipt differs from live production admission');
   }
 }

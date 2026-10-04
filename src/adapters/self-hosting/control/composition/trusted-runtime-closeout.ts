@@ -81,11 +81,7 @@ import {
   parseGitHubClosingKeywordOccurrences
 } from '../issues/disposition.ts';
 import { assertTrustedRuntimeMainHealthPublication, type TrustedRuntimeMainHealthPublicationAdmission } from '../main-health/live-admission.ts';
-import {
-  parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
-  type TrustedRuntimeMainHealthReceipt
-} from '../main-health/main-health-observation.ts';
+import type { TrustedRuntimeMainHealthReceipt } from '../main-health/main-health-observation.ts';
 import { assertTrustedRuntimePostMergeMainHealthPlanCurrent, type TrustedRuntimePostMergeMainHealthPlan } from '../main-health/post-merge-plan.ts';
 import {
   assertMainHealthGitHubReadOperationBudgetCurrent,
@@ -488,19 +484,6 @@ export async function runCurrentTrustedRuntimeWorkspaceCanary(input: Readonly<{
   });
 }
 
-function parseCanonicalTrustedRuntimeMainHealthReceipt(bytes: Uint8Array):
-TrustedRuntimeMainHealthReceipt {
-  const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  if (!Buffer.from(source, 'utf8').equals(Buffer.from(bytes))) {
-    fail('MainHealth durable receipt is not exact UTF-8');
-  }
-  const receipt = parseTrustedRuntimeMainHealthReceipt(source);
-  if (!Buffer.from(bytes).equals(Buffer.from(canonicalBytes(receipt)))) {
-    fail('MainHealth durable receipt bytes are not canonical');
-  }
-  return receipt;
-}
-
 async function assertCurrentTrustedRuntimeMainHealthSubject(input: Readonly<{
   repositoryRoot: string;
   repository: string;
@@ -575,17 +558,16 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
     repository: input.repository,
     repositoryRoot
   });
-  const locator = trustedRuntimeMainHealthReceiptLocator({
-    repositoryStateRoot: runtimeLayout.repositoryStateRoot,
-    mainSha: input.mainSha
-  });
+  // Preserve the original generation coordination and any unknown recovery
+  // residue. Receipts themselves live only in their producer-owned scope.
+  const generationDirectory = path.join(runtimeLayout.repositoryStateRoot, 'trusted-main-health', 'v2');
   return await withTrustedRuntimeStateAuthority({
     repositoryRoot,
     stateRoot: runtimeLayout.stateRoot,
     cacheRoot: runtimeLayout.cacheRoot,
-    sessionRoot: locator.directory
+    sessionRoot: generationDirectory
   }, async (authority) => {
-    const stateDirectory = authority.directory(locator.directory);
+    const stateDirectory = authority.directory(generationDirectory);
     const generationLease = acquirePhysicalMutationLease(
       stateDirectory, `main-health-${input.mainSha}.lock`
     );
@@ -606,16 +588,6 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
         qualifiedEngineExporter: input.qualifiedEngineExporter,
         ...(input.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: input.deadlineAtUnixMs })
       }, async (receipt) => {
-        await input.assertSubjectCurrent();
-        const receiptLocator = trustedRuntimeMainHealthReceiptLocator({
-          repositoryStateRoot: runtimeLayout.repositoryStateRoot,
-          mainSha: input.mainSha,
-          receiptDigest: receipt.receiptDigest
-        });
-        publishCanonical({
-          parent: stateDirectory, name: receiptLocator.fileName,
-          value: receipt, parse: parseCanonicalTrustedRuntimeMainHealthReceipt
-        });
         await input.assertSubjectCurrent();
         if (generationLease.recoveryPending) generationLease.acknowledgeReclaimedRecovery();
         generationLease.release();

@@ -51,6 +51,15 @@ import {
 
 const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
 
+// This protected compiler owns the only non-ESM executable resource relation.
+// Candidate declarations cannot extend this policy. The helper remains opaque
+// Python data during compilation; its actual bytes, not a TS parse, bind trust.
+const TCB_HOSTED_SUT_RESOURCE = Object.freeze({
+  owner: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts',
+  path: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+  specifier: './hosted-sut-supervisor.py'
+});
+
 const TCB_REVIEWED_SUT_EDGES = new Set(
   SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges
 );
@@ -983,6 +992,58 @@ export function runtimeRelativeImportsFromSource(
   }
   ts.forEachChild(sourceFile, visitRuntimeLoaders);
 
+  // Python is not an ESM module or an arbitrary additional entrypoint. Only
+  // the fixed source-relative resource below can enter this causal closure.
+  if (specifiers.some((specifier) => /\.py$/iu.test(specifier))) {
+    rejectUnmodeledLoader('Python ESM import');
+  }
+  if (repositoryPath === TCB_HOSTED_SUT_RESOURCE.owner) {
+    const declarations = sourceFile.statements.flatMap((statement) =>
+      ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : []
+    ).filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'HELPER_PATH');
+    const declaration = declarations[0];
+    const initializer = declaration?.initializer;
+    if (declarations.length !== 1 || declaration === undefined || !ts.isIdentifier(declaration.name)
+        || !ts.isVariableDeclarationList(declaration.parent)
+        || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+        || initializer === undefined || !ts.isCallExpression(initializer)
+        || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'fileURLToPath'
+        || initializer.arguments.length !== 1) {
+      return rejectUnmodeledLoader('hosted supervisor resource declaration');
+    }
+    const helperSymbol = localSymbol(declaration.name);
+    if (helperSymbol?.declarations?.length !== 1 || helperSymbol.declarations[0] !== declaration) {
+      rejectUnmodeledLoader('hosted supervisor resource binding');
+    }
+    const assertResourceBinding = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && node.text === 'HELPER_PATH' && localSymbol(node) !== helperSymbol) {
+        rejectUnmodeledLoader('shadowed hosted supervisor resource binding');
+      }
+      ts.forEachChild(node, assertResourceBinding);
+    };
+    ts.forEachChild(sourceFile, assertResourceBinding);
+    const resolver = localSymbol(initializer.expression)?.declarations;
+    const imported = resolver?.[0];
+    if (resolver?.length !== 1 || imported === undefined || !ts.isImportSpecifier(imported)
+        || imported.isTypeOnly || imported.propertyName !== undefined
+        || !ts.isNamedImports(imported.parent) || !ts.isImportClause(imported.parent.parent)
+        || imported.parent.parent.isTypeOnly || !ts.isImportDeclaration(imported.parent.parent.parent)
+        || !ts.isStringLiteral(imported.parent.parent.parent.moduleSpecifier)
+        || imported.parent.parent.parent.moduleSpecifier.text !== 'node:url') {
+      rejectUnmodeledLoader('hosted supervisor resource URL resolver');
+    }
+    const url = initializer.arguments[0];
+    if (url === undefined || !ts.isNewExpression(url) || !ts.isIdentifier(url.expression)
+        || url.expression.text !== 'URL' || isLocallyBoundIdentifier(url.expression)
+        || url.arguments?.length !== 2 || !ts.isStringLiteral(url.arguments[0]!)
+        || url.arguments[0]!.text !== TCB_HOSTED_SUT_RESOURCE.specifier
+        || !ts.isPropertyAccessExpression(url.arguments[1]!)
+        || url.arguments[1]!.name.text !== 'url' || !isImportMeta(url.arguments[1]!.expression)) {
+      rejectUnmodeledLoader('hosted supervisor resource source-relative URL');
+    }
+    specifiers.push(TCB_HOSTED_SUT_RESOURCE.specifier);
+  }
+
   return specifiers.filter((specifier) => {
     if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
     if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) {
@@ -1077,6 +1138,9 @@ function trustedRuntimeClosureAtCandidateRoot(
   const queue: string[] = [...entrypoints];
   while (queue.length > 0) {
     const current = queue.shift()!;
+    if (/\.py$/iu.test(current)) {
+      throw new Error(`TCB Python source is not a reviewed resource edge: ${current}.`);
+    }
     if (closure.has(current)) continue;
     closure.add(current);
     for (const specifier of runtimeRelativeImportsAtCandidateRoot(
@@ -1088,6 +1152,15 @@ function trustedRuntimeClosureAtCandidateRoot(
       reviewedNetworkDispatchers
     )) {
       const resolved = resolveRepositoryImportAtCandidateRoot(candidateRoot, current, specifier);
+      if (resolved === TCB_HOSTED_SUT_RESOURCE.path) {
+        if (current !== TCB_HOSTED_SUT_RESOURCE.owner || specifier !== TCB_HOSTED_SUT_RESOURCE.specifier) {
+          throw new Error('TCB hosted supervisor resource has no reviewed source owner.');
+        }
+        // Resolution read these exact bytes through the original snapshot.
+        // Include the terminal in the identity without parsing it as TypeScript.
+        closure.add(resolved);
+        continue;
+      }
       const edge = `${current} -> ${resolved}`;
       if (TCB_REVIEWED_BOUNDARY_EDGES.has(edge)) {
         reviewedBoundaryEdges.add(edge);
@@ -1542,9 +1615,11 @@ function computeTcbClosureLockAtCandidateRoot(
     if (bytes === null) {
       throw new Error(`TCB closure module is missing or unreadable: ${modulePath}.`);
     }
-    const normalized = normalizeTextBytes(bytes);
-    moduleBlobs[modulePath] = computeGitBlobSha(normalized);
-    moduleContentDigests[modulePath] = computeContentDigest(normalized);
+    // Preserve the existing JS/TS text contract. The executed Python resource
+    // instead binds raw bytes, including encoding and newline differences.
+    const identityBytes = modulePath === TCB_HOSTED_SUT_RESOURCE.path ? bytes : normalizeTextBytes(bytes);
+    moduleBlobs[modulePath] = computeGitBlobSha(identityBytes);
+    moduleContentDigests[modulePath] = computeContentDigest(identityBytes);
   }
   const reviewedEdges = [...input.reviewedEdges].sort();
   const reviewedBoundaryEdges = [...input.reviewedBoundaryEdges].sort();
@@ -1750,7 +1825,7 @@ export function compileTcbClosureIdentity(
 const TCB_CLOSURE_ACTION_RESULT_SCHEMA =
   'sec-tcb-closure-action-result-v1' as const;
 const TCB_CLOSURE_ACTION_PRODUCER_REVISION =
-  'sec-tcb-closure-action-producer-v1' as const;
+  'sec-tcb-closure-action-producer-v2' as const;
 
 export interface TcbClosureActionResult {
   readonly schema: typeof TCB_CLOSURE_ACTION_RESULT_SCHEMA;
@@ -1890,6 +1965,11 @@ export function compileTcbClosureActionResult(input: Readonly<{
   upstreamResults?: readonly TcbClosureActionResult[];
 }>): TcbClosureActionResult {
   if (input.plan.action.actionKind !== 'tcb-closure-identity' ||
+      input.plan.action.producer.identity !== 'src/adapters/verification/platform/trust/runtime/closure-lock.ts' ||
+      input.plan.action.producer.revision !== TCB_CLOSURE_ACTION_PRODUCER_REVISION ||
+      input.plan.action.operation.identity !== 'compile-exact-tree-tcb-closure' ||
+      input.plan.action.operation.revision !== TCB_CLOSURE_ACTION_PRODUCER_REVISION ||
+      input.plan.action.environment.contractRevision !== TCB_CLOSURE_ACTION_PRODUCER_REVISION ||
       input.plan.action.resultSchemaRevision !== TCB_CLOSURE_ACTION_RESULT_SCHEMA ||
       input.plan.dependencies.some((dependency) => dependency.kind !== 'upstream')) {
     throw new Error('TCB closure Action plan is not one canonical derivation plan.');
