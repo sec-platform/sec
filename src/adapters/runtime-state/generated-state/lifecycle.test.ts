@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { continueGeneratedStateCleanup, generatedStateProducerHooks, inspectGeneratedState, planGeneratedStateCleanup, settleGeneratedState, settleGeneratedStateForWorktreeRetirement } from '../../../../tests/helpers/generated-state-fixture.ts';
+import { createGeneratedStateRegistrationBootstrap } from '../../../bootstrap/runtime-state/generated-state.ts';
 import { canonicalJson } from '../../../contracts/canonical.ts';
-import { createGeneratedStateCleanupOperationSession } from '../../../execution/generated-state/cleanup-budget.ts';
+import { createGeneratedStateCleanupOperationSession, GeneratedStateCleanupOperationExhaustedError, generatedStateCleanupOperationState } from '../../../execution/generated-state/cleanup-budget.ts';
 import { generatedStateDomainProviderMaterialDigest } from '../../../execution/generated-state/contract.ts';
 import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
 import type { GeneratedStateWorktreeRetirementProvider } from "../../../execution/generated-state/lifecycle-port.ts";
@@ -796,6 +797,134 @@ test('cleanup quarantines, bounded-deletes and reads back one retired physical g
     relativePaths: [LIFECYCLE_FIXTURE_PATH]
   }, options)).blockers).toEqual([]);
   expect(await absent(path.join(repositoryRoot, '.tmp', 'foreign-sibling', 'keep.txt'))).toBe(false);
+});
+
+test('bootstrap settlement rejects its captured expired operation before creating runtime state', async () => {
+  const { cacheRoot, options, repositoryRoot, stateRoot } = await fixture();
+  const bootstrap = createGeneratedStateRegistrationBootstrap({
+    ...options,
+    workspaceRoot: repositoryRoot,
+    cleanupOperation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: 1,
+      monotonicNowMs: () => 2
+    })
+  });
+
+  await expect(bootstrap.settle({ repositoryRoot, profile: 'automatic' }))
+    .rejects.toBeInstanceOf(GeneratedStateCleanupOperationExhaustedError);
+
+  expect(await readdir(repositoryRoot)).toEqual([]);
+  expect(await absent(stateRoot)).toBe(true);
+  expect(await absent(cacheRoot)).toBe(true);
+});
+
+test('bootstrap settlement consumes the captured aggregate budget and preserves unprocessed quarantine', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePaths = [LIFECYCLE_FIXTURE_PATH, `${LIFECYCLE_FIXTURE_PATH}-second`];
+  const cleanupOperation = createGeneratedStateCleanupOperationSession({
+    deadlineAtMonotonicMs: performance.now() + 30_000,
+    maximumEntries: 1,
+    maximumBytes: 5
+  });
+  const bootstrap = createGeneratedStateRegistrationBootstrap({
+    ...options, workspaceRoot: repositoryRoot, cleanupOperation
+  });
+  const owner = bootstrap.createProducerRegistration(repositoryRoot);
+  let retainedRegistrationDigest = '';
+  for (const relativePath of relativePaths) {
+    const root = path.join(repositoryRoot, relativePath);
+    await mkdir(root, { recursive: true });
+    await writeFile(path.join(root, 'cache.bin'), 'cache');
+    await owner.born(relativePath, 'bootstrap-settlement-bounded-operation');
+    const retired = await owner.retired(relativePath, 'bootstrap-settlement-owner-completed');
+    retainedRegistrationDigest = retired.registrationDigest;
+  }
+
+  const receipt = await bootstrap.settle({ repositoryRoot, profile: 'automatic', relativePaths });
+
+  expect(receipt.terminal).toBe('partial-residue');
+  expect(receipt.attempts.filter(attempt => attempt.action === 'deleted').map(attempt => attempt.relativePath))
+    .toEqual([relativePaths[0]!]);
+  expect(receipt.blockers).toContain(`${relativePaths[1]}:cleanup-residue`);
+  expect(generatedStateCleanupOperationState(cleanupOperation)).toMatchObject({
+    maximumEntries: 1, maximumBytes: 5, observedEntries: 1, observedBytes: 5
+  });
+  for (const relativePath of relativePaths) expect(await absent(path.join(repositoryRoot, relativePath))).toBe(true);
+  const quarantineRoot = path.join(repositoryRoot, '.tmp', 'generated-state-quarantine');
+  const retainedName = `q-${retainedRegistrationDigest.slice(7, 55)}`;
+  expect(await readdir(quarantineRoot)).toEqual([retainedName]);
+  expect(await readFile(path.join(quarantineRoot, retainedName, 'cache.bin'), 'utf8')).toBe('cache');
+});
+
+test('bootstrap settlement uses captured callbacks and preserves explicit per-call overrides', async () => {
+  for (const override of [false, true]) {
+    const { options, repositoryRoot } = await fixture();
+    const generatedRoot = fixtureRoot(repositoryRoot);
+    await mkdir(generatedRoot, { recursive: true });
+    await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+    const calls: string[] = [];
+    const before = (label: string) => async (relativePath: string) => {
+      expect(relativePath).toBe(LIFECYCLE_FIXTURE_PATH);
+      expect(await absent(generatedRoot)).toBe(false);
+      calls.push(`${label}:before`);
+    };
+    const after = (label: string) => async (relativePath: string) => {
+      expect(relativePath).toBe(LIFECYCLE_FIXTURE_PATH);
+      expect(await absent(generatedRoot)).toBe(true);
+      calls.push(`${label}:after`);
+    };
+    const bootstrap = createGeneratedStateRegistrationBootstrap({
+      ...options,
+      workspaceRoot: repositoryRoot,
+      ...(override ? { cleanupOperation: createGeneratedStateCleanupOperationSession({
+        deadlineAtMonotonicMs: 1, monotonicNowMs: () => 2
+      }) } : {}),
+      beforeCleanupEffect: before('captured'),
+      afterQuarantineEffect: after('captured')
+    });
+    const owner = bootstrap.createProducerRegistration(repositoryRoot);
+    await owner.born(LIFECYCLE_FIXTURE_PATH, 'bootstrap-settlement-callbacks');
+    await owner.retired(LIFECYCLE_FIXTURE_PATH, 'bootstrap-settlement-owner-completed');
+    const hooks = override ? {
+      cleanupOperation: createGeneratedStateCleanupOperationSession({ deadlineAtMonotonicMs: performance.now() + 30_000 }),
+      beforeCleanupEffect: before('per-call'),
+      afterQuarantineEffect: after('per-call')
+    } : {};
+
+    const receipt = await bootstrap.settle({
+      repositoryRoot, profile: 'automatic', relativePaths: [LIFECYCLE_FIXTURE_PATH]
+    }, hooks);
+
+    expect(receipt.terminal).toBe('completed');
+    expect(calls).toEqual(override ? ['per-call:before', 'per-call:after'] : ['captured:before', 'captured:after']);
+    expect(await absent(generatedRoot)).toBe(true);
+    expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
+  }
+});
+
+test('bootstrap settlement propagates a captured before callback failure without quarantining', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+  const failure = new Error('captured cleanup callback failed');
+  const calls: string[] = [];
+  const bootstrap = createGeneratedStateRegistrationBootstrap({
+    ...options,
+    workspaceRoot: repositoryRoot,
+    beforeCleanupEffect: () => { calls.push('before'); throw failure; },
+    afterQuarantineEffect: () => { calls.push('after'); }
+  });
+  const owner = bootstrap.createProducerRegistration(repositoryRoot);
+  await owner.born(LIFECYCLE_FIXTURE_PATH, 'bootstrap-settlement-callback-failure');
+  await owner.retired(LIFECYCLE_FIXTURE_PATH, 'bootstrap-settlement-owner-completed');
+
+  await expect(bootstrap.settle({ repositoryRoot, profile: 'automatic', relativePaths: [LIFECYCLE_FIXTURE_PATH] }))
+    .rejects.toBe(failure);
+
+  expect(calls).toEqual(['before']);
+  expect(await readFile(path.join(generatedRoot, 'cache.bin'), 'utf8')).toBe('cache');
+  expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
 });
 
 test('producer hooks omit quarantine without an owner-issued cleanup operation', async () => {

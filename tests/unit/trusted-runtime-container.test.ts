@@ -105,9 +105,9 @@ describe('provider-neutral trusted runtime container', () => {
       repositoryStateRoot: path.resolve('state'),
       mainSha: receipt.mainSha
     })).toEqual({
-      directory: path.join(path.resolve('state'), 'trusted-main-health', 'v1'),
+      directory: path.join(path.resolve('state'), 'trusted-main-health', 'v2'),
       fileName: `main-${receipt.mainSha}.json`,
-      sourceRef: `runtime-state:trusted-main-health/v1/main-${receipt.mainSha}.json`
+      sourceRef: `runtime-state:trusted-main-health/v2/main-${receipt.mainSha}.json`
     });
     expect(() => parseTrustedRuntimeMainHealthReceipt({
       ...receipt,

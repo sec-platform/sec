@@ -106,7 +106,7 @@ test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
     scripts: Record<string, string>;
   }).scripts;
   expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
-  expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
+  expect(packageScripts['typecheck:verified']).toContain('bootstrap/development/runner-cli.ts typecheck');
   expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
   );
