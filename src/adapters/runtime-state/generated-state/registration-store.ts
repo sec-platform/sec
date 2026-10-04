@@ -3,6 +3,7 @@ import path from 'node:path';
 import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
 import type {
   GeneratedStateMigrationPlan, GeneratedStateNativeMutationResource,
+  GeneratedStateNativeObservationResource,
   GeneratedStateNativeResource,
   GeneratedStatePublicationAuthority,
   GeneratedStateRegistrationCensus,
@@ -34,7 +35,6 @@ import {
 } from '../physical/runtime/mutation-lease.ts';
 import {
   assertPhysicallyDisjointDirectoryChains,
-  createExclusiveNoFollowDirectory,
   createNoFollowOrdinaryDirectoryChain,
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
@@ -1522,8 +1522,11 @@ export function createGeneratedStateRegistrationMutationBackend(): GeneratedStat
     const request = consumeGeneratedStatePublication(authority, resource);
     const plan = state.plan;
     const expected = phase === 'prepared' ? plan?.prepared : plan?.complete;
-    if (plan === null || expected === undefined || request.kind !== `migration-${phase}` ||
-        canonicalBytes(request.intent) !== canonicalBytes(expected)) throw new GeneratedStateProducerBindingBlockedError(
+    const migrationRequest = request.kind === 'migration-prepared' || request.kind === 'migration-complete'
+      ? request : null;
+    if (plan === null || expected === undefined || migrationRequest === null ||
+        migrationRequest.kind !== `migration-${phase}` ||
+        canonicalBytes(migrationRequest.intent) !== canonicalBytes(expected)) throw new GeneratedStateProducerBindingBlockedError(
       'Migration publication does not bind the exact retained native plan.');
     const root = inspectNoFollowDirectoryChain(state.store.registrationsRoot, 'Migration publication root').target;
     if (phase === 'prepared') {

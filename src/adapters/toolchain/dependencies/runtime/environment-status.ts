@@ -1,7 +1,6 @@
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { CodedFailure } from '../../../../contracts/failure.ts';
 import type { RuntimeDependencyGeneratedStateLifecycle } from "../../../../execution/generated-state/dependency-lifecycle.ts";
 import { isFileNotFoundError, pathExists } from "../../../filesystem/files.ts";
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -34,17 +33,6 @@ export interface DependencyEnvironmentOptions {
   sharedDepsRoot?: string;
 }
 
-/** Bind the location once; read-only observations never acquire lifecycle methods. */
-function environmentLocation(options: DependencyEnvironmentOptions, cwd: string): Readonly<{
-  sharedDepsRoot: string;
-}> {
-  const selected = options.sharedDepsRoot;
-  if (selected !== undefined && (typeof selected !== 'string' || selected.length === 0)) {
-    throw new CodedFailure('RUNTIME-DEPS-003', 'Shared dependency root must be a nonempty path');
-  }
-  return Object.freeze({ sharedDepsRoot: path.resolve(cwd, selected ?? defaultSharedDepsRoot()) });
-}
-
 export interface DoctorCheck {
   id: string;
   status: DoctorCheckStatus;
@@ -56,10 +44,6 @@ export interface DoctorReport {
   checkCount: number;
   checks: DoctorCheck[];
   dependencies: DependencyEnvironmentStatus;
-}
-
-function defaultSharedDepsRoot(): string {
-  return path.join(compilerRoot, '.shared-deps');
 }
 
 function bunCacheRoot(): string {

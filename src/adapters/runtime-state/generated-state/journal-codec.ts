@@ -1,6 +1,7 @@
 import {
   GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA, generatedStateDigest, normalizeGeneratedStateRelativePath,
   parseGeneratedStatePhysicalIdentity,
+  type GeneratedStateCleanupProfile,
   type GeneratedStateDisposalReceipt,
   type GeneratedStatePhysicalIdentity
 } from '../../../execution/generated-state/contract.ts';

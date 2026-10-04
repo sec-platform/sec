@@ -357,7 +357,7 @@ jobs:
           export TRUSTED_BASE_ROOT CANDIDATE_ROOT BOOTSTRAP_EVIDENCE_ROOT
           out="$BOOTSTRAP_EVIDENCE_ROOT"
           mkdir -p "$out"
-          (cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/entry/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")
+          (cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/bootstrap/development/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")
           SEC_BOOTSTRAP_PHASE=pre SEC_BOOTSTRAP_RECEIPT="$out/pre-receipt.json" bun "$out/checker.mjs"
           (cd "$out" && sha256sum checker.mjs pre-receipt.json > SHA256SUMS)
 
@@ -447,7 +447,7 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          bun src/entry/ci-verification.ts execute-trusted-bootstrap-sut \
+          bun src/bootstrap/development/ci-verification.ts execute-trusted-bootstrap-sut \
             --base-root "$BASE_SUT_ROOT" \
             --candidate-root "$CANDIDATE_ROOT" \
             --output-directory "$SUT_EVIDENCE_ROOT" \

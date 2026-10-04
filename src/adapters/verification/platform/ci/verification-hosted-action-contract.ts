@@ -1,19 +1,12 @@
-import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../execution/verification/action.ts';
+import type { VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import type { HostedActionArtifactInput, HostedActionExecutionTicket, HostedActionResolution, HostedSutCommandPlan, HostedSutInventory, HostedSutProcessObservation, VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
 import { encodeVerificationActionData, parseVerificationActionPlan } from '../action/contract/action.ts';
-import { parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionProposal, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
+import { parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionProposal } from '../action/contract/ci.ts';
 import { parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
 import { CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionArtifactProducer, type CodexDevelopmentVerificationActionTerminalArtifact } from './contract/evidence.ts';
 
-import {
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
-} from './contract/revision.ts';
-
 import type { VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
 import { parseVerificationSessionHostedRequest, VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from "./contract/session-request.ts";
-import {
-  type CodexDevelopmentGateProcessResult
-} from './runtime/ci-orchestration-core.ts';
 import {
   type VerificationActionGitHubProviderSnapshot
 } from './runtime/verification-action-github-provider.ts';

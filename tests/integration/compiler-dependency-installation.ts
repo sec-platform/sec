@@ -57,7 +57,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 // exact, run-owned OS-temp child while state/cache remain invocation-isolated.
 const LINKED_WORKTREE_TEMP_PREFIX = 'sec-cdep-wt-';
 type IsolatedGeneratedStateLifecycle = Readonly<
-  GeneratedStateProducerHookSet & GeneratedStateProducerQuarantineHook
+  GeneratedStateProducerHookSet & Partial<GeneratedStateProducerQuarantineHook>
 >;
 const generatedStateFixtureRoots = new WeakMap<IsolatedGeneratedStateLifecycle, string>();
 

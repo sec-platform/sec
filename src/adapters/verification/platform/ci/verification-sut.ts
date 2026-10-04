@@ -13,9 +13,8 @@ import type { VerificationActionKeyDigest } from '../../../../execution/verifica
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutCommandPlan, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessLifecycle, HostedSutProcessObservation, HostedSutSandboxReceipt, PreparedTrustedBootstrapSutInputs } from "../../../../execution/verification/hosted.ts";
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, hostedCandidateProcessEnvironment, hostedSutCapabilityCommandPlan, hostedSutTeardownCommandPlan } from './contract/hosted-sut-command-plan.ts';
-import { CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, CodexDevelopmentParseHostedSutSandboxReceipt, hostedSutCleanupComplete, hostedSutLifecycleComplete } from './contract/hosted-sut-observation.ts';
+import { buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, hostedCandidateProcessEnvironment, hostedSutCapabilityCommandPlan, hostedSutTeardownCommandPlan } from './contract/hosted-sut-command-plan.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, CodexDevelopmentParseHostedSutSandboxReceipt, hostedSutCleanupComplete, hostedSutLifecycleComplete } from './contract/hosted-sut-observation.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
@@ -24,7 +23,7 @@ import {
   CodexDevelopmentFailureTail
 } from './runtime/ci-orchestration-core.ts';
 import type { CodexDevelopmentHostedSutSandboxProcess } from './verification-hosted-action-contract.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentRetainedHostedSutArchive } from './verification-materialization.ts';
 import { CodexDevelopmentPrepareTrustedBootstrapSutInputs, assertRetainedHostedSutArchive, hostedActionFileDigest, retainHostedSutArchive } from './verification-materialization.ts';
 import { writeHostedActionJson } from './verification-shared.ts';

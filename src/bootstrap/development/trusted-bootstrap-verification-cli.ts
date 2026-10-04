@@ -1,4 +1,4 @@
-import { materializeTrustedBootstrapCheckerProgram } from '../adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-program.ts';
+import { materializeTrustedBootstrapCheckerProgram } from '../../adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-program.ts';
 
 /** PRE-only source materialization entry. The resulting checker.mjs is the
  * only executable reused by POST; this command does not evaluate a candidate. */

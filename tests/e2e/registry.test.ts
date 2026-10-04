@@ -4,6 +4,7 @@ import pLimit from 'p-limit';
 import { validateResolvedTemplates } from '../../src/adapters/verification/validate-resolved-templates.ts';
 import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
 import { loadAllManifests } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { createDependencyOperation } from '../../src/bootstrap/toolchain/dependency-operation.ts';
 import { buildManifestValidationPlan } from '../helpers/plan-fixtures.ts';
 
 type RegistryValidationFailure = {
@@ -28,7 +29,9 @@ test('official registry blocks typecheck in their minimal resolved closure', asy
     try {
       const plan = await buildManifestValidationPlan(entry, manifests);
       const lock = await resolveGraph(process.cwd(), plan);
-      await validateResolvedTemplates(process.cwd(), lock);
+      await validateResolvedTemplates(process.cwd(), lock, undefined, {
+        forWorkspace: (root) => createDependencyOperation({ workspaceRoot: root })
+      });
       return null;
     } catch (caught: any) {
       return {

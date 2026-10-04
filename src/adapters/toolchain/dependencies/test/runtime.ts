@@ -45,7 +45,7 @@ function testInstallOptions(
   return {
     ...canonical,
     ...(canonical.generatedStateLifecycle !== undefined || canonical.generatedStateLifecycleFactory !== undefined ? {} : {
-      generatedStateLifecycleFactory: Object.freeze({ forWorkspace: (root: string) => generatedStateProducerHooks(root) })
+      generatedStateLifecycleFactory: Object.freeze({ forWorkspace: (root: string) => generatedStateProducerHooks({ repositoryRoot: root }) })
     }),
     ...(materialize === undefined ? {} : {
       testMaterialization: issueRuntimeDependencyTestMaterialization(async (request) => (

@@ -13,7 +13,7 @@ import {
   publishPhysicalJournalMutationInitialization,
   readPhysicalMutationCoordinationResource
 } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
-import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 const name = 'registration.lock', namespace = 'registrations-v3';
 const ownerUrl = pathToFileURL(path.resolve('src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;

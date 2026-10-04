@@ -18,7 +18,7 @@ export function createDevRunnerComposition(repositoryRoot = process.cwd()): DevR
           { deadlineAtUnixMs: options.deadlineAtUnixMs, signal: options.signal }, repositoryRoot);
         return observed === null ? null : projectCompilerDepsReadyState(observed);
       } });
-  return Object.freeze({ dependencyBootstrap: bindDependencyBootstrap(),
+  return Object.freeze<DevRunnerComposition>({ dependencyBootstrap: bindDependencyBootstrap(),
     ensureDependencies: (demand, options) => ensureOperationDependencies(demand, bindDependencyBootstrap(options)),
     importOrganizer: Object.freeze({ generatedStateLifecycle: createGeneratedStateRegistrationBootstrap({
       workspaceRoot: compilerRoot }).createProducerHooks(compilerRoot) }),

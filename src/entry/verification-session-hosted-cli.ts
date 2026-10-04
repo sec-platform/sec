@@ -1,15 +1,17 @@
-import type { HostedVerificationCommand } from '../execution/verification/hosted.ts';
+import {
+  HOSTED_VERIFICATION_COMMANDS, type HostedVerificationCommand
+} from '../application/verification-session-hosted.ts';
 
-const HOSTED_VERIFICATION_COMMANDS = [
-  'prepare-integration-hosted', 'integrate-hosted', 'closeout-mutate-hosted', 'closeout-publish-hosted'
-] as const;
+function isHostedVerificationCommand(value: string | undefined): value is HostedVerificationCommand {
+  return HOSTED_VERIFICATION_COMMANDS.some(candidate => candidate === value);
+}
 
 /** Command-line spelling selects a workflow; it never authenticates a job. */
 export function parseHostedVerificationCommand(argv: readonly string[]): Readonly<{
   command: HostedVerificationCommand; repository: string; outputPath: string;
 }> {
   const command = argv[0];
-  if (!HOSTED_VERIFICATION_COMMANDS.some(value => value === command)) throw new Error(`Unknown hosted verification command: ${command ?? '<missing>'}`);
+  if (!isHostedVerificationCommand(command)) throw new Error(`Unknown hosted verification command: ${command ?? '<missing>'}`);
   const args = new Map<string, string>();
   for (let index = 1; index < argv.length; index += 1) {
     const flag = argv[index]!;
@@ -22,6 +24,6 @@ export function parseHostedVerificationCommand(argv: readonly string[]): Readonl
   }
   const outputPath = args.get('--output');
   if (outputPath === undefined) throw new Error('Missing required argument --output.');
-  return Object.freeze({ command: command as HostedVerificationCommand,
+  return Object.freeze({ command,
     repository: args.get('--repository') ?? 'sec-platform/sec', outputPath });
 }

@@ -20,7 +20,7 @@ import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/
 import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
@@ -405,6 +405,18 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
   };
 }
 
+type DirectVerificationSessionArtifact = ReturnType<typeof CodexDevelopmentFinalizeVerificationSessionArtifact>;
+
+/** Merge-gate inputs admit direct and delegated hosted terminals, but the
+ * refresh/current-assert contract owns only the direct V2 terminal. Narrow
+ * through the production assertion instead of an unchecked cast. */
+function directArtifact(
+  artifact: CodexDevelopmentMergeGateInput['artifact']
+): DirectVerificationSessionArtifact {
+  CodexDevelopmentAssertVerificationSessionArtifact(artifact);
+  return artifact;
+}
+
 function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
   const refreshedAt = '2026-08-09T02:00:00.000Z';
   const expiresAt = '2026-08-09T03:00:00.000Z';
@@ -463,7 +475,7 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
     actorNodeId: 'USER_integrator'
   });
   return CodexDevelopmentRefreshVerificationSessionArtifact({
-    previousArtifact: base.artifact,
+    previousArtifact: directArtifact(base.artifact),
     scopeAuthorization,
     session,
     preGateReview,
@@ -576,11 +588,11 @@ test('fresh MainHealth provenance rejects workflow references, wrong revisions a
 test('expired authority receipts re-finalize fresh V4 Evidence while reusing exact Action Results', () => {
   const base = fixture();
   expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
-    base.artifact,
+    directArtifact(base.artifact),
     '2026-08-09T00:30:00.000Z'
   )).not.toThrow();
   expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
-    base.artifact,
+    directArtifact(base.artifact),
     '2026-08-09T02:00:00.000Z'
   )).toThrow('expired');
 
@@ -604,7 +616,7 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
   expect(refreshedFailure.evidence.status).toBe('failed');
   expect(refreshedFailure.evidence.gates[0]!.result.status).toBe('failed');
   expect(() => CodexDevelopmentRefreshVerificationSessionArtifact({
-    previousArtifact: base.artifact,
+    previousArtifact: directArtifact(base.artifact),
     scopeAuthorization: base.artifact.scopeAuthorization,
     session: base.artifact.session,
     preGateReview: base.artifact.preGateReview,

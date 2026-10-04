@@ -11,7 +11,7 @@ import { parseDigest } from '../../../../../contracts/digest.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionInputRef } from '../../../../../execution/verification/action.ts';
 import type { BranchCloseoutOperationBinding } from '../../../../../execution/verification/branch-closeout.ts';
 import type { HostedArtifactObservation, IntegrationAuthorization, IntegrationAuthorizationOperationPublication, MergeGateProvenance, MergeGateResult } from '../../../../../execution/verification/integration.ts';
-import type { Digest, GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, ScopeAuthorization, TrustedArtifactProvenance, TrustedIntegrationAuthorizationArtifact, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof, VerificationEvidence, VerificationEvidenceProducer, VerificationSession, VerificationSessionArtifact, VerificationSessionRuntimeOutcome } from '../../../../../execution/verification/session.ts';
+import type { Digest, GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, ScopeAuthorization, TrustedArtifactProvenance, TrustedIntegrationAuthorizationArtifact, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof, VerificationEvidence, VerificationEvidenceProducer, VerificationSession, VerificationSessionArtifact } from '../../../../../execution/verification/session.ts';
 import { createDelegatedHostedArtifactObservation } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import type { TrustedRuntimeSourceProgramAttemptEvidence } from '../../trusted-runtime/trusted-runtime-container.ts';
 import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../trusted-runtime/trusted-runtime-container.ts';
@@ -19,26 +19,24 @@ import type { SourceProgramTransitionAcceptanceRecord } from '../contract/eviden
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 
-import { assertBranchCloseoutOperationBinding } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import { assertIntegrationAuthorizationUsable } from '../../../../self-hosting/control/integration/authorization.ts';
 import { parseIntegrationAuthorizationOperationPublication } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
-import { assertCanonicalMergeMessage, CodexDevelopmentCreateHostedArtifactObservation, CodexDevelopmentCreateMergeGateInput, CodexDevelopmentCreateTrustedRuntimeMergeGateInput, CodexDevelopmentMergeGateProducerIdentity, CodexDevelopmentParseMergeGateResult, createMergeGateProvenance, createTrustedRuntimeArtifactObservation, createTrustedRuntimeMergeGateProvenance, type CodexDevelopmentMergeGateCandidate, type CodexDevelopmentMergeGateInput, type CodexDevelopmentTrustedRuntimeArtifactObservation, type CodexDevelopmentTrustedRuntimeMergeGateInput, type CodexDevelopmentTrustedRuntimeMergeGateProvenance } from '../../../../self-hosting/control/integration/merge-gate.ts';
+import { CodexDevelopmentCreateHostedArtifactObservation, CodexDevelopmentCreateMergeGateInput, CodexDevelopmentCreateTrustedRuntimeMergeGateInput, CodexDevelopmentMergeGateProducerIdentity, CodexDevelopmentParseMergeGateResult, createMergeGateProvenance, createTrustedRuntimeArtifactObservation, createTrustedRuntimeMergeGateProvenance, type CodexDevelopmentMergeGateCandidate, type CodexDevelopmentMergeGateInput, type CodexDevelopmentTrustedRuntimeArtifactObservation, type CodexDevelopmentTrustedRuntimeMergeGateInput, type CodexDevelopmentTrustedRuntimeMergeGateProvenance } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
   SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
 } from '../../../../self-hosting/control/integration/platform-policy.ts';
 import { createMainHealthLedger, resolveOrdinaryMainHealthLane, type MainHealthLedgerInput } from '../../../../self-hosting/control/main-health/contract.ts';
 import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
-import { assertScopeAuthorizationCurrent, createScopeAuthorization, createScopeAuthorizationRevision, parseScopeAuthorization, type ScopeAuthorizationInput } from '../../../../self-hosting/control/scope/authorization.ts';
+import { CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
+import { createScopeAuthorization, createScopeAuthorizationRevision, type ScopeAuthorizationInput } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
-import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
+import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, type VerificationSessionInput } from '../../session/contract/session.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../contract/evidence.ts';
 import {
   CodexDevelopmentBuildVerificationPlan
 } from '../contract/plan.ts';
@@ -49,11 +47,7 @@ import {
 } from "../contract/session-request.ts";
 import { assertGitHubReviewAuthorityObservation, type VerificationSessionGitHubClient } from './verification-session-github.ts';
 import {
-  appendVerificationSessionJournalEvent,
-  claimVerificationSessionOperation,
-  createVerificationSessionOperationId,
-  readVerificationSessionJournal,
-  type VerificationSessionJournalFileSystem
+  createVerificationSessionOperationId
 } from './verification-session-journal.ts';
 /**
  * Canonical post-new-main health consumer for IssueDisposition evidence.
@@ -1251,11 +1245,18 @@ export function assertArtifactProvenance(
   for (const [actual, expected, label] of checks) {
     if (actual !== expected) throw new Error(`Hosted artifact ${label} provenance mismatch.`);
   }
+  // Direct human terminals keep the original maintain/admin transport rule.
+  // A delegated bot terminal keeps its actual 'none' permission; its provenance
+  // is constructible only by the qualified creator, which re-authenticates the
+  // fresh borrowed historical source under the human Scope cause before intake.
+  const transportPermissionAccepted = artifact.schema === 'verification-session-delegated-terminal'
+    ? provenance.transport.actorPermission === 'none'
+    : provenance.transport.actorPermission === 'admin' || provenance.transport.actorPermission === 'maintain';
   if (
-    provenance.artifactId.length === 0
+    !transportPermissionAccepted
+    || provenance.artifactId.length === 0
     || provenance.artifactName !== `sec-verification-session-v2-pr-${session.prNumber}-session-${session.sessionRevision.slice(7)}-run-${provenance.transport.runId}-attempt-${provenance.transport.runAttempt}`
     || provenance.downloadTransport !== 'github-actions-artifact-api'
-    || provenance.transport.actorPermission !== 'admin' && provenance.transport.actorPermission !== 'maintain'
     || producer.sourceTransport !== 'github-actions'
     || producer.workflowPath !== '.github/workflows/compiler-pr-validation.yml'
     || producer.workflowSha !== session.trustRevision

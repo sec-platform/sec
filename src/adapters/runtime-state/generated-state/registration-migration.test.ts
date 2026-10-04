@@ -14,6 +14,7 @@ import { inspectNoFollowDirectoryChain } from '../physical/runtime/physical-no-f
 import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
 
 import { withMigratedGeneratedStateMutation } from '../../../application/generated-state/registration.ts';
+import type { GeneratedStateRegistrationRecord } from '../../../execution/generated-state/registration-port.ts';
 import { issueGeneratedStatePublication } from '../../../execution/generated-state/registration-session.ts';
 import { createGeneratedStateRegistrationMutationBackend } from './registration-store.ts';
 
@@ -398,10 +399,10 @@ test('one bounded migration settles 128 independent old chains without path-mult
     let first: `sha256:${string}` | null = null;
     let sequence = 0;
     for (const registration of [active, retired]) {
-      const material = { schema: 'sec-generated-state-registration-ledger-v2', previousRecordDigest: previous,
+      const material: Omit<GeneratedStateRegistrationRecord, 'recordDigest'> = { schema: 'sec-generated-state-registration-ledger-v2', previousRecordDigest: previous,
         sequence: ++sequence, relativePath: relative, registrationDigest: registration.registrationDigest,
         registrationBytes: Buffer.from(canonicalBytes(registration)).toString('base64') };
-      const record = { ...material, recordDigest: generatedStateDigest(material) };
+      const record: GeneratedStateRegistrationRecord = { ...material, recordDigest: generatedStateDigest(material) };
       await writeFile(path.join(source, `registration-${registration.registrationDigest.slice(7)}.json`), canonicalBytes(registration));
       await writeFile(path.join(source, `registration-ledger-${key}-${record.recordDigest.slice(7)}.json`), canonicalBytes(record));
       previous = record.recordDigest;
@@ -422,7 +423,7 @@ test('one bounded migration settles 128 independent old chains without path-mult
       relativePath: string; sequence: number; registrationDigest: string; event: string
     }));
   for (const record of records.filter(record => record.sequence === 2)) {
-    expect(record.registrationDigest).toBe(expected.get(record.relativePath));
+    expect(record.registrationDigest).toBe(expected.get(record.relativePath)!);
     expect(record.event).toBe('registered');
     expected.delete(record.relativePath);
   }

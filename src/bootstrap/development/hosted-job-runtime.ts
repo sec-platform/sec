@@ -964,6 +964,27 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
         }
         return result;
       }
+      case 'verify-integration-recovery': {
+        const parent = ensureHostedJobOutputParent(origin, 'recovery');
+        const output = path.join(parent, 'integration-recovery-verification.json');
+        const command = parseHostedVerificationCommand([
+          phase, '--repository', job.repository, '--output', output, '--json'
+        ]);
+        const result = await executeVerificationControl(origin, command);
+        const projection = dataObject(JSON.parse(result) as unknown, 'recovery verification projection');
+        const readback = dataObject(JSON.parse(readSessionArtifactText(output)) as unknown,
+          'recovery verification readback');
+        const { output: projectedPath, ...originalProjection } = projection;
+        if (projectedPath !== output
+            || encodeVerificationActionData(readback) !== encodeVerificationActionData(originalProjection)) {
+          throw new Error('Recovery verification projection differs from its original native writer.');
+        }
+        const lane = readback.lane;
+        if (readback.status !== 'verified' || (lane !== 'recovery-uploaded' && lane !== 'recovery-absent')) {
+          throw new Error('Recovery verification projection has no closed verification outcome.');
+        }
+        return result;
+      }
       case 'self-test-hosted-action-sandbox':
         return await probeSut(origin, hostedJobTransportSlot(
           origin, 'in', 'resolution', 'hosted-action-resolution.json'

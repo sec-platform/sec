@@ -29,7 +29,7 @@ export function createDependencyOperation(input: Readonly<{ workspaceRoot: strin
       maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES, maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
       monotonicNowMs: context.monotonicNowMs, signal: context.signal });
     const sessions = new Map<string, RuntimeDependencyGeneratedStateLifecycle>();
-    const factory: RuntimeDependencyLifecycleFactory = Object.freeze({ forWorkspace: rootInput => {
+    const factory: RuntimeDependencyLifecycleFactory = Object.freeze<RuntimeDependencyLifecycleFactory>({ forWorkspace: rootInput => {
       const root = path.resolve(rootInput);
       if (root !== workspaceRoot && root !== path.resolve(compilerRoot)) {
         const owner = linkedWorktreeDependencyOwnerRoot(workspaceRoot);

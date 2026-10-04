@@ -46,8 +46,9 @@ export async function settleRetiredGeneratedStateDomain(input: Readonly<{
     if (observed.kind !== 'missing') {
       if (observed.identity === null || !sameIdentity(observed.identity, registration.root)) throw new Error('Retired domain physical preimage changed.');
       const form = rule.physicalForms.find(candidate => candidate.kind === observed.kind);
-      if (form?.worktreeRetirement.mode !== 'domain-retire') return false;
-      const providers = dependencies.providers.filter(provider => provider.id === form.worktreeRetirement.providerId);
+      const retirement = form?.worktreeRetirement;
+      if (retirement?.mode !== 'domain-retire') return false;
+      const providers = dependencies.providers.filter(provider => provider.id === retirement.providerId);
       if (providers.length !== 1) throw new Error('Retired domain provider is unavailable or ambiguous.');
       const provider = providers[0]!;
       const plan = await provider.plan({ repositoryRoot, workspaceRoot, relativePath, source: observed.identity, registration });

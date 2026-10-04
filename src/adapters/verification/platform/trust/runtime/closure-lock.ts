@@ -649,11 +649,12 @@ export function runtimeRelativeImportsFromSource(
       const httpsBinding = reference === undefined ? undefined : httpsBindings.get(reference);
       if (httpsBinding === 'request') {
         const invocation = node.parent;
-        if (!ts.isCallExpression(invocation) || invocation.expression !== node
-            || invocation.questionDotToken !== undefined) {
+        if (ts.isCallExpression(invocation) && invocation.expression === node
+            && invocation.questionDotToken === undefined) {
+          reviewNetworkDispatch(invocation, 'node:https.request');
+        } else {
           rejectUnmodeledLoader('indirect node:https request binding');
         }
-        reviewNetworkDispatch(invocation, 'node:https.request');
       } else if (httpsBinding === 'Agent') {
         if (!ts.isNewExpression(node.parent) || node.parent.expression !== node) {
           rejectUnmodeledLoader('indirect node:https Agent binding');

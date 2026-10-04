@@ -19,7 +19,7 @@ export function createGeneratedStateProducerLifecycle(scope: Readonly<{ reposito
   };
   const settleRetired: GeneratedStateProducerHookSet['settleRetired'] = (relativePath, expected) =>
     settleRetiredGeneratedStateDomain({ ...scope, relativePath, expected }, owned);
-  const hooks: GeneratedStateProducerHookSet = Object.freeze({
+  const hooks: GeneratedStateProducerHookSet = Object.freeze<GeneratedStateProducerHookSet>({
     born: async (relativePath, operationId) => { await producer.born(relativePath, operationId);
       const registration = await producer.bind(relativePath); bindings.set(registration.relativePath, registration.registrationDigest); },
     bind: async (relativePath, expected) => { const registration = await producer.bind(relativePath, expected);
@@ -35,7 +35,7 @@ export function createGeneratedStateProducerLifecycle(scope: Readonly<{ reposito
   });
   if (owned.cleanupOperation === undefined) return hooks;
   const cleanupOperation = owned.cleanupOperation;
-  return Object.freeze({ ...hooks, quarantine: async (relativePath, request) => {
+  return Object.freeze<GeneratedStateProducerHookSet & Partial<GeneratedStateProducerQuarantineHook>>({ ...hooks, quarantine: async (relativePath, request) => {
     assertGeneratedStateCleanupOperation(generatedStateCleanupOperationState(cleanupOperation), 'Generated-state producer quarantine');
     await prepareGeneratedStateDisposal({ ...scope, relativePath, ...request, acceptExistingRetirement: true,
       expectedRegistrationDigest: bindings.get(relativePath) ?? null }, owned, retire);

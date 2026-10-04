@@ -93,7 +93,7 @@ describe('provider-neutral trusted runtime container', () => {
       mainTreeSha: '2'.repeat(40),
       executionId: 'trusted-main-health-fixture',
       dockerEndpoint,
-      dependencyCacheKey: `sha256:${'3'.repeat(64)}`,
+      dependencyCacheKey: null,
       actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
         command,
         resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`

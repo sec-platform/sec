@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 
+import type { AuthenticatedGitHubJobOrigin, AuthenticatedGitHubJobOriginObservation } from '../../src/adapters/providers/github-api/hosted-job-origin.ts';
+import { SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionProviderEnvelope } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
@@ -23,10 +25,71 @@ const PARENT_JOB_ID = 6001;
 const EVENT_ROOT = mkdtempSync(path.join(tmpdir(), 'sec-provider-p1-test-'));
 const EVENT_PATH = path.join(EVENT_ROOT, 'event.json');
 
-const fixtureDigest = (source: string): VerificationActionKeyDigest =>
-  `sha256:${createHash('sha256').update(source).digest('hex')}`;
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}`;
+
+// Deterministic single-member stored ZIP archives. The provider reads artifact
+// archives through yauzl, so fixtures must be real ZIP bytes whose SHA-256 is
+// the identity declared by the envelope and anchors.
+const CRC32_TABLE = new Uint32Array(256);
+for (let index = 0; index < 256; index += 1) {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  CRC32_TABLE[index] = value >>> 0;
+}
+function crc32(bytes: Uint8Array): number {
+  let value = 0xffffffff;
+  for (const byte of bytes) value = CRC32_TABLE[(value ^ byte) & 0xff]! ^ (value >>> 8);
+  return (value ^ 0xffffffff) >>> 0;
+}
+function storedZip(fileName: string, source: string): Buffer {
+  const name = Buffer.from(fileName, 'utf8');
+  const data = Buffer.from(source, 'utf8');
+  const checksum = crc32(data);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0, 6);
+  local.writeUInt16LE(0, 8);
+  local.writeUInt16LE(0, 10);
+  local.writeUInt16LE(0x21, 12);
+  local.writeUInt32LE(checksum, 14);
+  local.writeUInt32LE(data.byteLength, 18);
+  local.writeUInt32LE(data.byteLength, 22);
+  local.writeUInt16LE(name.byteLength, 26);
+  local.writeUInt16LE(0, 28);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(0, 8);
+  central.writeUInt16LE(0, 10);
+  central.writeUInt16LE(0, 12);
+  central.writeUInt16LE(0x21, 14);
+  central.writeUInt32LE(checksum, 16);
+  central.writeUInt32LE(data.byteLength, 20);
+  central.writeUInt32LE(data.byteLength, 24);
+  central.writeUInt16LE(name.byteLength, 28);
+  central.writeUInt16LE(0, 30);
+  central.writeUInt16LE(0, 32);
+  central.writeUInt16LE(0, 34);
+  central.writeUInt16LE(0, 36);
+  central.writeUInt32LE(0, 38);
+  central.writeUInt32LE(0, 42);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.byteLength + name.byteLength, 12);
+  end.writeUInt32LE(local.byteLength + name.byteLength + data.byteLength, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([local, name, data, central, name, end]);
+}
+const rawSha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+const archiveDigestFor = (fileName: string, source: string): VerificationActionKeyDigest =>
+  `sha256:${rawSha256Hex(storedZip(fileName, source))}`;
 
 const closure = buildCiVerificationActionPlanClosure({
   candidate: {
@@ -102,7 +165,7 @@ const envelope = createCiVerificationActionProviderEnvelope({
   proposal,
   parentPlan,
   parentDispatchPlanArtifactId: String(PARENT_ARTIFACT_ID),
-  parentDispatchPlanArchiveDigest: fixtureDigest(`zip-${PARENT_ARTIFACT_ID}`)
+  parentDispatchPlanArchiveDigest: archiveDigestFor('verification-action-parent-dispatch-plan.json', parentPlanSource)
 });
 const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
 const botRecord = Object.freeze({ login: bot.login, id: bot.id, node_id: bot.nodeId, type: bot.type });
@@ -125,6 +188,67 @@ const marker = createVerificationActionProviderStartMarker({
   producer: currentOrigin
 });
 const TERMINAL_PAYLOAD_DIGEST = digest('9');
+
+// The genuine hosted job origin is a platform (linux/x64 OIDC) capability that
+// cannot be issued on a developer host. The transport under test consumes only
+// its published observation surface, so the exact observation contract is
+// substituted here and every fixture origin carries its own job phase.
+type ProviderOriginPhase = Readonly<{ policyJobId: string; phase: string; stepName: string; stepNumber: number }>;
+const ORIGIN_DEADLINE_AT_UNIX_MS = Date.now() + 3_600_000;
+const originRecords = new WeakMap<object, ProviderOriginPhase & Readonly<{ signal: AbortSignal }>>();
+
+function createProviderOrigin(policyJobId: string, phase: string, stepName: string, stepNumber: number): AuthenticatedGitHubJobOrigin {
+  const origin = Object.freeze({}) as AuthenticatedGitHubJobOrigin;
+  originRecords.set(origin, Object.freeze({ policyJobId, phase, stepName, stepNumber, signal: new AbortController().signal }));
+  return origin;
+}
+const claimOrigin = createProviderOrigin('claim-verification-action', 'claim-start',
+  'Claim canonical verification Action start', 5);
+const coordinateOrigin = createProviderOrigin('coordinate-verification-session', 'coordinate-session',
+  'Coordinate canonical verification Session', 3);
+const terminalOrigin = createProviderOrigin('assemble-verification-action-terminal', 'anchor-terminal',
+  'Anchor canonical verification Action terminal', 9);
+
+function providerOriginObservation(origin: AuthenticatedGitHubJobOrigin): AuthenticatedGitHubJobOriginObservation {
+  const record = originRecords.get(origin);
+  if (record === undefined) throw new Error('unregistered test provider origin');
+  const workflowSha = process.env.GITHUB_WORKFLOW_SHA ?? BASE;
+  return Object.freeze({
+    repository: process.env.GITHUB_REPOSITORY ?? REPOSITORY,
+    repositoryId: process.env.GITHUB_REPOSITORY_ID ?? String(REPOSITORY_ID),
+    workflowPath: '.github/workflows/compiler-pr-validation.yml',
+    workflowSha,
+    trustedSourceSha: workflowSha,
+    trustedSourceTreeSha: '4'.repeat(40),
+    runId: process.env.GITHUB_RUN_ID ?? CURRENT_RUN_ID,
+    runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? '1'),
+    jobId: record.policyJobId,
+    checkRunId: '5002',
+    jobName: record.policyJobId,
+    role: 'control',
+    policyJobId: record.policyJobId,
+    policyDigest: `sha256:${'7'.repeat(64)}`,
+    launcherRevision: 'hosted-launcher-v1',
+    phase: record.phase,
+    stepName: record.stepName,
+    stepNumber: record.stepNumber,
+    originalDeadlineAtUnixMs: ORIGIN_DEADLINE_AT_UNIX_MS,
+    identityDigest: `sha256:${'8'.repeat(64)}`,
+    deadlineAtUnixMs: ORIGIN_DEADLINE_AT_UNIX_MS,
+    credentialExpiresAtUnixMs: ORIGIN_DEADLINE_AT_UNIX_MS + 3_600_000,
+    trustedDriverRoot: process.cwd(),
+    driverBunExecutableDigest: SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+    workflowSourceDigest: `sha256:${'a'.repeat(64)}`,
+    launcherSourceDigest: `sha256:${'b'.repeat(64)}`
+  });
+}
+
+class TestAuthenticatedGitHubJobOriginUnavailableError extends Error {
+  readonly code = 'authenticated-github-job-origin-unavailable' as const;
+  constructor(readonly reason: 'context' | 'transport' | 'binding' | 'source' | 'expired' | 'closed') {
+    super(`Authenticated GitHub job origin unavailable (${reason}).`);
+  }
+}
 
 function rawStatus(input: Readonly<{
   id: number;
@@ -202,35 +326,25 @@ class FakeGh {
     return this;
   }
 
-  spawn(
-    command: string,
-    args: readonly string[],
-    options?: Readonly<{ input?: string }>
-  ): Record<string, unknown> {
-    if (command === 'unzip') return this.unzip(args);
-    if (command !== 'gh') return this.failure(`unexpected executable ${command}`);
-    const endpoint = args.find((entry) => entry.startsWith('/repos/'));
-    if (endpoint === undefined) return this.failure('missing endpoint');
-    if (args.includes('--method') && args.includes('POST')) return this.post(endpoint, args, options);
+  async fetch(input: string | URL, init?: RequestInit): Promise<Response> {
+    const url = input instanceof URL ? input : new URL(input);
+    if (!url.pathname.startsWith('/repos/')) return this.download(url);
+    const endpoint = url.pathname;
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (method === 'POST') return this.post(endpoint, init);
     if (endpoint === `/repos/${REPOSITORY}`) {
-      return this.success(JSON.stringify({ id: REPOSITORY_ID, full_name: REPOSITORY, default_branch: 'main' }));
+      return this.json({ id: REPOSITORY_ID, full_name: REPOSITORY, default_branch: 'main' });
     }
-    if (endpoint.endsWith('/actions/workflows/compiler-pr-validation.yml')) {
-      return this.success(JSON.stringify({
-        id: 300,
-        path: '.github/workflows/compiler-pr-validation.yml',
-        state: 'active'
-      }));
+    if (endpoint === `/repos/${REPOSITORY}/actions/workflows/300`
+        || endpoint === `/repos/${REPOSITORY}/actions/workflows/compiler-pr-validation.yml`) {
+      return this.json({ id: 300, path: '.github/workflows/compiler-pr-validation.yml', state: 'active' });
     }
-    if (endpoint.includes('/collaborators/maintainer/permission')) {
-      return this.success(JSON.stringify({
-        ...this.parentPermission,
-        user: this.parentPermissionUser
-      }));
+    if (endpoint === `/repos/${REPOSITORY}/collaborators/${parentActor.login}/permission`) {
+      return this.json({ ...this.parentPermission, user: this.parentPermissionUser });
     }
-    if (endpoint.includes('/attempts/1/jobs?')) {
-      const page = Number(new URL(`https://github.invalid${endpoint}`).searchParams.get('page'));
-      return this.success(JSON.stringify({ jobs: page === 1 ? [{
+    if (/^\/repos\/[^/]+\/[^/]+\/actions\/runs\/[1-9][0-9]*\/attempts\/[1-9][0-9]*\/jobs$/u.test(endpoint)) {
+      const page = Number(url.searchParams.get('page'));
+      return this.json({ jobs: page === 1 ? [{
         id: PARENT_JOB_ID,
         name: 'coordinate-verification-session',
         run_id: Number(PARENT_RUN_ID),
@@ -239,16 +353,40 @@ class FakeGh {
         status: 'in_progress',
         conclusion: null,
         steps: [{ name: 'Prepare canonical parent Action dispatch plan', status: 'completed', conclusion: 'success' }]
-      }] : [] }));
+      }] : [] });
     }
-    if (endpoint.includes('/commits/') && endpoint.includes('/statuses?')) {
-      const page = Number(new URL(`https://github.invalid${endpoint}`).searchParams.get('page'));
+    if (/^\/repos\/[^/]+\/[^/]+\/commits\/[0-9a-f]{40}\/statuses$/u.test(endpoint)) {
+      const page = Number(url.searchParams.get('page'));
       this.statusListCalls.push({ page, perPage: 100 });
       const override = this.statusPageHook?.(page, this.statusListCalls.length) ?? null;
-      return this.success(JSON.stringify(override ?? this.statuses.slice((page - 1) * 100, page * 100)));
+      return this.json(override ?? this.statuses.slice((page - 1) * 100, page * 100));
     }
-    if (endpoint.includes('/actions/artifacts?')) {
-      const page = Number(new URL(`https://github.invalid${endpoint}`).searchParams.get('page'));
+    const artifactZipMatch = /^\/repos\/[^/]+\/[^/]+\/actions\/artifacts\/([1-9][0-9]*)\/zip$/u.exec(endpoint);
+    if (artifactZipMatch !== null) {
+      const artifact = this.artifacts.find((entry) => entry.id === Number(artifactZipMatch[1]));
+      if (artifact === undefined) return this.fail('artifact not found');
+      this.lastDownloadedArtifactId = artifact.id;
+      this.downloadedArtifactIds.push(artifact.id);
+      return new Response(null, { status: 302, headers: {
+        location: `https://results-receiver.actions.githubusercontent.com/fixture/${artifact.id}`
+      } });
+    }
+    const artifactMetadataMatch = /^\/repos\/[^/]+\/[^/]+\/actions\/artifacts\/([1-9][0-9]*)$/u.exec(endpoint);
+    if (artifactMetadataMatch !== null) {
+      const artifact = this.artifacts.find((entry) => entry.id === Number(artifactMetadataMatch[1]));
+      if (artifact === undefined) return this.fail('artifact not found');
+      const archive = storedZip(artifact.fileName, artifact.source);
+      return this.json({
+        id: artifact.id,
+        name: artifact.name,
+        expired: artifact.expired,
+        workflow_run: { id: artifact.runId },
+        size_in_bytes: archive.byteLength,
+        digest: `sha256:${rawSha256Hex(archive)}`
+      });
+    }
+    if (/^\/repos\/[^/]+\/[^/]+\/actions\/artifacts$/u.test(endpoint)) {
+      const page = Number(url.searchParams.get('page'));
       this.artifactListCalls.push({ page, perPage: 100 });
       const override = this.artifactPageHook?.(page, this.artifactListCalls.length) ?? null;
       const inventory = override?.artifacts ?? this.artifacts;
@@ -258,46 +396,30 @@ class FakeGh {
         expired: entry.expired,
         workflow_run: { id: entry.runId }
       }));
-      return this.success(JSON.stringify({ total_count: override?.totalCount ?? inventory.length, artifacts }));
+      return this.json({ total_count: override?.totalCount ?? inventory.length, artifacts });
     }
-    const artifactMatch = /\/actions\/artifacts\/([1-9][0-9]*)(\/zip)?$/u.exec(endpoint);
-    if (artifactMatch !== null) {
-      const artifact = this.artifacts.find((entry) => entry.id === Number(artifactMatch[1]));
-      if (artifact === undefined) return this.failure('artifact not found');
-      if (artifactMatch[2] === '/zip') {
-        this.lastDownloadedArtifactId = artifact.id;
-        this.downloadedArtifactIds.push(artifact.id);
-        return this.success(Buffer.from(`zip-${artifact.id}`));
-      }
-      return this.success(JSON.stringify({
-        id: artifact.id,
-        name: artifact.name,
-        expired: artifact.expired,
-        workflow_run: { id: artifact.runId }
-      }));
-    }
-    const exactRunMatch = /\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(endpoint);
+    const exactRunMatch = /^\/repos\/[^/]+\/[^/]+\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(endpoint);
     if (exactRunMatch !== null) {
       const id = exactRunMatch[1]!;
       const runAttempt = Number(exactRunMatch[2]);
       this.exactAttemptCalls.push({ runId: id, runAttempt });
       if (this.exactRunFailures.has(`${id}:${runAttempt}`)) {
-        return this.failure('exact attempt not found');
+        return this.fail('exact attempt not found');
       }
-      return this.success(JSON.stringify({
+      return this.json({
         id: Number(id), run_attempt: runAttempt,
         check_suite_id: id === PARENT_RUN_ID ? 5001 : id === CURRENT_RUN_ID ? 5002 : 5003,
         event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
         head_sha: BASE, repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
         ...(this.exactRunOverrides[`${id}:${runAttempt}`] ?? {})
-      }));
+      });
     }
-    const runMatch = /\/actions\/runs\/([1-9][0-9]*)$/u.exec(endpoint);
+    const runMatch = /^\/repos\/[^/]+\/[^/]+\/actions\/runs\/([1-9][0-9]*)$/u.exec(endpoint);
     if (runMatch !== null) {
       const id = runMatch[1]!;
       this.latestRunCalls.push(id);
       if (id === PARENT_RUN_ID) {
-        return this.success(JSON.stringify({
+        return this.json({
           id: Number(PARENT_RUN_ID), run_attempt: 1, workflow_id: 300, check_suite_id: 5001,
           event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
           head_sha: BASE, head_branch: 'main',
@@ -305,9 +427,9 @@ class FakeGh {
           display_title: `verify session PR #42 session ${SESSION}`, actor: {
             login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User'
           }, repository: { id: REPOSITORY_ID, full_name: REPOSITORY }
-        }));
+        });
       }
-      return this.success(JSON.stringify({
+      return this.json({
         id: Number(id), run_attempt: this.latestRunAttempts[id] ?? 1,
         workflow_id: 300, check_suite_id: id === CURRENT_RUN_ID ? 5002 : 5003,
         event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
@@ -315,80 +437,91 @@ class FakeGh {
         display_title: `produce Action ${ACTION}`, actor: botRecord,
         repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
         ...this.currentRunOverrides
-      }));
+      });
     }
-    const suiteMatch = /\/check-suites\/([1-9][0-9]*)$/u.exec(endpoint);
+    const suiteMatch = /^\/repos\/[^/]+\/[^/]+\/check-suites\/([1-9][0-9]*)$/u.exec(endpoint);
     if (suiteMatch !== null) {
       const id = Number(suiteMatch[1]);
-      return this.success(JSON.stringify({
+      return this.json({
         id,
         head_sha: BASE,
         repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
         app: { id: 15368, node_id: 'MDM6QXBwMTUzNjg=', slug: 'github-actions' },
         ...(id === 5002 ? this.currentSuiteOverrides : {}),
         ...(this.exactSuiteOverrides[String(id)] ?? {})
-      }));
+      });
     }
-    return this.failure(`unexpected endpoint ${endpoint}`);
+    return this.fail(`unexpected endpoint ${endpoint}`);
   }
 
-  private post(
-    endpoint: string,
-    args: readonly string[],
-    options?: Readonly<{ input?: string }>
-  ): Record<string, unknown> {
+  private download(url: URL): Response {
+    const artifact = this.artifacts.find((entry) => entry.id === Number(url.pathname.split('/').pop()));
+    if (artifact === undefined) return this.fail('artifact download is not available', 404);
+    return new Response(storedZip(artifact.fileName, artifact.source), { status: 200 });
+  }
+
+  private post(endpoint: string, init?: RequestInit): Response {
     if (endpoint === `/repos/${REPOSITORY}/dispatches`) {
       this.dispatchCalls += 1;
-      this.dispatchBodies.push(JSON.parse(options?.input ?? 'null'));
-      return this.success('');
+      this.dispatchBodies.push(JSON.parse(String(init?.body ?? 'null')));
+      return new Response(null, { status: 204 });
     }
-    if (!endpoint.includes(`/statuses/${HEAD}`)) return this.failure('unexpected mutation endpoint');
+    if (!/^\/repos\/[^/]+\/[^/]+\/statuses\/[0-9a-f]{40}$/u.test(endpoint)) {
+      return this.fail('unexpected mutation endpoint');
+    }
     this.createCalls += 1;
-    if (this.failStatusPost) return this.failure('connection reset after request write');
-    const fields = new Map(args.filter((entry) => entry.includes('=')).map((entry) => {
-      const offset = entry.indexOf('=');
-      return [entry.slice(0, offset), entry.slice(offset + 1)];
-    }));
+    if (this.failStatusPost) return this.fail('connection reset after request write');
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      state?: 'pending' | 'success'; context?: string; description?: string; target_url?: string;
+    };
     const created = rawStatus({
       id: 9000 + this.createCalls,
-      state: fields.get('state') as 'pending' | 'success',
-      context: fields.get('context'),
-      description: fields.get('description'),
-      targetUrl: fields.get('target_url')
+      state: body.state,
+      context: body.context,
+      description: body.description,
+      targetUrl: body.target_url
     });
     this.statuses.push(created);
-    return this.success(JSON.stringify(created));
+    return this.json(created);
   }
 
-  private unzip(args: readonly string[]): Record<string, unknown> {
-    const artifact = this.artifacts.find((entry) => entry.id === this.lastDownloadedArtifactId);
-    if (artifact === undefined) return this.failure('no artifact fixture');
-    if (args[0] === '-Z1') return this.success(`${artifact.fileName}\n`);
-    if (args[0] === '-p') return this.success(artifact.source);
-    return this.failure('unexpected unzip operation');
+  private json(value: unknown, status = 200): Response {
+    return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
   }
 
-  private success(stdout: string | Buffer): Record<string, unknown> {
-    return { status: 0, stdout, stderr: '', error: undefined };
-  }
-
-  private failure(stderr: string): Record<string, unknown> {
-    return { status: 1, stdout: '', stderr, error: undefined };
+  private fail(message: string, status = 500): Response {
+    return new Response(message, { status });
   }
 }
 
 let fakeGh = new FakeGh();
-const spawnSync = mock((
-  command: string,
-  args: readonly string[],
-  options?: Readonly<{ input?: string }>
-) => fakeGh.spawn(command, args, options));
-mock.module('node:child_process', () => ({ spawnSync }));
+const originalFetch = globalThis.fetch;
+globalThis.fetch = Object.assign(
+  (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> =>
+    fakeGh.fetch(input instanceof Request ? input.url : input, init) as Promise<Response>,
+  { preconnect: originalFetch.preconnect }
+);
+
+mock.module('../../src/adapters/providers/github-api/hosted-job-origin.ts', () => ({
+  assertAuthenticatedGitHubJobOriginCurrent: (origin: AuthenticatedGitHubJobOrigin) => providerOriginObservation(origin),
+  getAuthenticatedGitHubJobOriginSignal: (origin: AuthenticatedGitHubJobOrigin) => {
+    const record = originRecords.get(origin);
+    if (record === undefined) throw new Error('unregistered test provider origin');
+    return record.signal;
+  },
+  closeAuthenticatedGitHubJobOrigin: async (origin: AuthenticatedGitHubJobOrigin) => { originRecords.delete(origin); },
+  openAuthenticatedGitHubJobOrigin: async () => { throw new Error('hosted job origins are not opened in this test'); },
+  AuthenticatedGitHubJobOriginUnavailableError: TestAuthenticatedGitHubJobOriginUnavailableError
+}));
 const provider = await import('../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts');
 const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransaction;
 
 function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope = envelope): void {
   Object.assign(process.env, {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_API_URL: 'https://api.github.com',
+    GH_TOKEN: 'ghs-provider-fixture-token',
     GITHUB_REPOSITORY: REPOSITORY,
     GITHUB_REPOSITORY_ID: String(REPOSITORY_ID),
     GITHUB_RUN_ID: CURRENT_RUN_ID,
@@ -412,6 +545,10 @@ function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope 
 
 function trustedParentEnvironment(): void {
   Object.assign(process.env, {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_API_URL: 'https://api.github.com',
+    GH_TOKEN: 'ghs-provider-fixture-token',
     GITHUB_REPOSITORY: REPOSITORY,
     GITHUB_REPOSITORY_ID: String(REPOSITORY_ID),
     GITHUB_RUN_ID: PARENT_RUN_ID,
@@ -446,12 +583,16 @@ function authority(
   return { envelope: valueEnvelope, actionPlanClosure: valueClosure };
 }
 
-afterAll(() => rmSync(EVENT_ROOT, { recursive: true, force: true }));
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+  rmSync(EVENT_ROOT, { recursive: true, force: true });
+});
 
 describe('VerificationAction GitHub provider authenticated transaction', () => {
   test('exact parent artifact, closure member, current bot run, and marker chain posts once', async () => {
     fakeGh = new FakeGh().withMarker();
     const result = await ensureTransaction({
+      origin: claimOrigin,
       authority: authority(),
       intent: { kind: 'claim-start', marker }
     });
@@ -465,6 +606,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     trustedParentEnvironment();
     const result = await ensureTransaction({
+      origin: coordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'coordinate-parent' }
     });
@@ -473,6 +615,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
     fakeGh.parentPermissionUser.node_id = 'different-node';
     await expect(ensureTransaction({
+      origin: coordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'coordinate-parent' }
     })).rejects.toThrow('parent actor live identity');
@@ -483,6 +626,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     trustedParentEnvironment();
     const result = await ensureTransaction({
+      origin: coordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     });
@@ -510,12 +654,13 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       trustedParentEnvironment();
       forge();
       await expect(ensureTransaction({
+        origin: coordinateOrigin,
         authority: { envelope, actionPlanClosure: closure },
         intent: { kind: 'coordinate-parent' }
       })).rejects.toThrow();
       expect(fakeGh.createCalls).toBe(0);
     }
-  });
+  }, 30_000);
 
   test('complete status and artifact inventories remain fully paginated', async () => {
     fakeGh = new FakeGh();
@@ -534,6 +679,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       });
     }
     const result = await ensureTransaction({
+      origin: coordinateOrigin,
       authority: authority(),
       intent: { kind: 'coordinate' }
     });
@@ -560,6 +706,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fillInventory(fakeGh, 101);
     trustedParentEnvironment();
     const stable = await ensureTransaction({
+      origin: coordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     });
@@ -575,6 +722,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       : null;
     trustedParentEnvironment();
     await expect(ensureTransaction({
+      origin: coordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     })).rejects.toThrow(/artifact inventory page 2 is incomplete or malformed/i);
@@ -599,6 +747,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       : null;
     trustedParentEnvironment();
     await expect(ensureTransaction({
+      origin: coordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     })).rejects.toThrow(/artifact inventory total or leading boundary changed/i);
@@ -607,6 +756,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     fakeGh.artifacts.push(Object.freeze({ ...fakeGh.artifacts[0]!, name: 'duplicate-id' }));
     await expect(ensureTransaction({
+      origin: coordinateOrigin,
       authority: authority(),
       intent: { kind: 'coordinate' }
     })).rejects.toThrow(/repeats one provider artifact id/i);
@@ -637,7 +787,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       { id: otherOwnedIds[2]!, name: verificationActionProviderTerminalAnchorName(otherActionKey),
         expired: false, runId: Number(CURRENT_RUN_ID), fileName: 'other.json', source: '{}' }
     );
-    const result = await ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } });
+    const result = await ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } });
     expect(result.disposition).toBe('started');
     expect(fakeGh.createCalls).toBe(1);
     expect(fakeGh.artifactListCalls).toContainEqual({ page: 2, perPage: 100 });
@@ -664,7 +814,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fakeGh.artifacts.push({ id: malformedId, name, expired: index === prefixes.length * 7 - 1,
         runId: Number(CURRENT_RUN_ID), fileName: 'malformed.json', source: '{}' });
       malformedId += 1;
-      await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } }))
+      await expect(ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } }))
         .rejects.toThrow(/provider-family name is malformed/i);
       expect(fakeGh.createCalls).toBe(0);
     }
@@ -676,7 +826,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       id: 1000 - index,
       context: `diagnostic/stable-${index}`
     }));
-    const stable = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    const stable = await ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } });
     expect(stable.disposition).toBe('observed');
     expect(fakeGh.createCalls).toBe(0);
     expect(fakeGh.statusListCalls.filter((call) => call.page === 1).length).toBe(2);
@@ -687,7 +837,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       rawStatus({ id: 77, context: 'diagnostic/one' }),
       { ...rawStatus({ id: 77, context: 'diagnostic/two' }), node_id: 'STATUS_77_DUPLICATE' }
     ];
-    await expect(ensureTransaction({ authority: authority(),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow(/duplicate status identity/i);
     expect(fakeGh.createCalls).toBe(0);
 
@@ -696,7 +846,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       rawStatus({ id: 78, context: 'diagnostic/node-one' }),
       { ...rawStatus({ id: 79, context: 'diagnostic/node-two' }), node_id: 'STATUS_78' }
     ];
-    await expect(ensureTransaction({ authority: authority(),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow(/duplicate status identity/i);
     expect(fakeGh.createCalls).toBe(0);
 
@@ -707,7 +857,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     }));
     fakeGh.statuses = [...repeatedPage, rawStatus({ id: 399 })];
     fakeGh.statusPageHook = (page) => page === 2 ? repeatedPage : null;
-    await expect(ensureTransaction({ authority: authority(),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow(/duplicate status identity/i);
     expect(fakeGh.createCalls).toBe(0);
 
@@ -715,10 +865,10 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh.statusPageHook = (page, call) => page === 1 && call === 2
       ? [rawStatus({ id: 88 })]
       : [];
-    await expect(ensureTransaction({ authority: authority(),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow(/leading boundary changed/i);
     expect(fakeGh.createCalls).toBe(0);
-  });
+  }, 30_000);
 
   test('unrelated canonical null status fields do not block provider status publication', async () => {
     fakeGh = new FakeGh().withMarker();
@@ -727,7 +877,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       description: null,
       target_url: null
     }];
-    const result = await ensureTransaction({ authority: authority(),
+    const result = await ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } });
     expect(result.disposition).toBe('started');
     expect(fakeGh.createCalls).toBe(1);
@@ -740,7 +890,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       description: null,
       target_url: null
     }];
-    await expect(ensureTransaction({ authority: authority(),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow();
     expect(fakeGh.createCalls).toBe(0);
   });
@@ -748,14 +898,14 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   test('existing exact status is joined and unknown POST outcome is never retried', async () => {
     fakeGh = new FakeGh().withMarker();
     fakeGh.statuses = [rawStatus({ id: 101 })];
-    const existing = await ensureTransaction({ authority: authority(),
+    const existing = await ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } });
     expect(existing.disposition).toBe('complete');
     expect(fakeGh.createCalls).toBe(0);
 
     fakeGh = new FakeGh().withMarker();
     fakeGh.failStatusPost = true;
-    const ambiguous = await ensureTransaction({ authority: authority(),
+    const ambiguous = await ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } });
     expect(ambiguous.disposition).toBe('blocked');
     expect(fakeGh.createCalls).toBe(1);
@@ -775,11 +925,11 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fakeGh = new FakeGh().withMarker();
       trustedEnvironment();
       forge();
-      await expect(ensureTransaction({ authority: { envelope, actionPlanClosure: closure },
+      await expect(ensureTransaction({ origin: claimOrigin, authority: { envelope, actionPlanClosure: closure },
         intent: { kind: 'claim-start', marker } })).rejects.toThrow();
       expect(fakeGh.createCalls).toBe(0);
     }
-  });
+  }, 30_000);
 
   test('artifact provenance rehydrates the immutable producing attempt instead of the latest rerun', async () => {
     const historicalOrigin = Object.freeze({ ...currentOrigin, runId: '9200', runAttempt: 1 });
@@ -797,11 +947,11 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       startStatusNodeId: 'STATUS_101',
       startArtifactOriginId: '7001',
       startArtifactName: verificationActionProviderStartArtifactName(ACTION),
-      startArtifactArchiveDigest: fixtureDigest('zip-7001'),
+      startArtifactArchiveDigest: archiveDigestFor('verification-action-start-marker.json', JSON.stringify(stableMarker)),
       startMarkerDigest: stableMarker.markerDigest,
       terminalArtifactOriginId: '7002',
       terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
-      terminalArtifactArchiveDigest: fixtureDigest('zip-7002'),
+      terminalArtifactArchiveDigest: archiveDigestFor('verification-action-terminal-artifact.json', '{}'),
       terminalArtifactPayloadDigest: TERMINAL_PAYLOAD_DIGEST,
       terminalAssemblerOrigin: assemblerOrigin,
       anchorPublisherOrigin: historicalOrigin
@@ -814,7 +964,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh.artifacts.push({ id: 7003, name: verificationActionProviderTerminalAnchorName(ACTION),
       expired: false, runId: 9200, fileName: 'verification-action-terminal-status-anchor.json',
       source: JSON.stringify(stableAnchor) });
-    const observed = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    const observed = await ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } });
     expect(observed.disposition).toBe('observed');
     expect(observed.snapshot.startObservations[0]?.referencedOrigin).toEqual(historicalOrigin);
     expect(observed.snapshot.terminalAnchorObservations[0]?.referencedOrigin).toEqual(historicalOrigin);
@@ -828,7 +978,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     fakeGh.artifacts.push({ id: 7010, name: verificationActionProviderStartArtifactName(ACTION),
       expired: true, runId: 9300, fileName: 'verification-action-start-marker.json', source: 'not-json' });
-    const expired = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    const expired = await ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } });
     expect(expired.snapshot.startObservations[0]).toMatchObject({
       expired: true, payload: null, referencedOrigin: null, archiveDigest: null
     });
@@ -836,14 +986,14 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.downloadedArtifactIds).not.toContain(7010);
 
     fakeGh = new FakeGh().withMarker(stableMarker, 9300);
-    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } }))
+    await expect(ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } }))
       .rejects.toThrow(/payload producing origin differs.*metadata identity/i);
     expect(fakeGh.createCalls).toBe(0);
 
     const malformedAttemptMarker = { ...stableMarker,
       producer: { ...stableMarker.producer, runAttempt: 0 } } as typeof marker;
     fakeGh = new FakeGh().withMarker(malformedAttemptMarker, 9200);
-    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } }))
+    await expect(ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } }))
       .rejects.toThrow();
     expect(fakeGh.exactAttemptCalls.some((entry) => entry.runId === '9200')).toBe(false);
     expect(fakeGh.createCalls).toBe(0);
@@ -865,22 +1015,22 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     for (const forge of exactAttemptForgeries) {
       fakeGh = new FakeGh().withMarker(stableMarker, 9200);
       forge(fakeGh);
-      await expect(ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } }))
+      await expect(ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } }))
         .rejects.toThrow();
       expect(fakeGh.createCalls).toBe(0);
     }
-  });
+  }, 30_000);
 
   test('substituted parent artifact, closure, and non-member envelope fail before POST', async () => {
     fakeGh = new FakeGh().withMarker();
     fakeGh.artifacts[0] = Object.freeze({ ...fakeGh.artifacts[0]!, source: '{}\n' });
-    await expect(ensureTransaction({ authority: authority(),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow();
     expect(fakeGh.createCalls).toBe(0);
 
     fakeGh = new FakeGh().withMarker();
     const substitutedClosure = { ...closure, actionPlanDigest: digest('8') } as CiVerificationActionPlanClosure;
-    await expect(ensureTransaction({ authority: authority(envelope, substitutedClosure),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(envelope, substitutedClosure),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow();
     expect(fakeGh.createCalls).toBe(0);
 
@@ -889,7 +1039,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       ...envelope,
       proposal: { ...envelope.proposal, proposedActionKey: digest('7') }
     } as CiVerificationActionProviderEnvelope;
-    await expect(ensureTransaction({ authority: authority(forgedEnvelope),
+    await expect(ensureTransaction({ origin: claimOrigin, authority: authority(forgedEnvelope),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow();
     expect(fakeGh.createCalls).toBe(0);
   });
@@ -902,7 +1052,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       producer: { ...currentOrigin, runId: '9999' }
     });
     fakeGh = new FakeGh().withMarker(forgedMarker, 9999);
-    const result = await ensureTransaction({ authority: authority(),
+    const result = await ensureTransaction({ origin: claimOrigin, authority: authority(),
       intent: { kind: 'claim-start', marker: forgedMarker } });
     expect(result.disposition).toBe('blocked');
     expect(fakeGh.createCalls).toBe(0);
@@ -927,11 +1077,11 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       startStatusNodeId: 'STATUS_101',
       startArtifactOriginId: '7001',
       startArtifactName: verificationActionProviderStartArtifactName(ACTION),
-      startArtifactArchiveDigest: fixtureDigest('zip-7001'),
+      startArtifactArchiveDigest: archiveDigestFor('verification-action-start-marker.json', JSON.stringify(marker)),
       startMarkerDigest: marker.markerDigest,
       terminalArtifactOriginId: '7002',
       terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
-      terminalArtifactArchiveDigest: fixtureDigest('zip-7002'),
+      terminalArtifactArchiveDigest: archiveDigestFor('verification-action-terminal-artifact.json', JSON.stringify(terminalArtifact)),
       terminalArtifactPayloadDigest: terminalArtifact.artifactDigest as VerificationActionKeyDigest,
       terminalAssemblerOrigin: currentOrigin,
       anchorPublisherOrigin: currentOrigin
@@ -946,7 +1096,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json',
         source: JSON.stringify(terminalAnchor) }
     );
-    const result = await ensureTransaction({ authority: authority(),
+    const result = await ensureTransaction({ origin: terminalOrigin, authority: authority(),
       intent: { kind: 'anchor-terminal', anchor: terminalAnchor } });
     expect(result.disposition).toBe('terminal-anchored');
     expect(result.status?.state).toBe('success');

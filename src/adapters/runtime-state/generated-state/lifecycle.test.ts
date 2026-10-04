@@ -820,9 +820,11 @@ test('producer hooks expose quarantine only for the exact live cleanup operation
     cleanupOperation
   });
   expect(typeof lifecycle.quarantine).toBe('function');
+  const quarantine = lifecycle.quarantine;
+  if (quarantine === undefined) throw new Error('Fixture producer lifecycle omitted its owner-issued quarantine hook.');
   await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-capability');
   await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
-  const receipt = await lifecycle.quarantine(LIFECYCLE_FIXTURE_PATH, {
+  const receipt = await quarantine(LIFECYCLE_FIXTURE_PATH, {
     outcome: 'compiler-staging-capability-cleanup',
     profile: 'automatic'
   });
@@ -852,7 +854,9 @@ test('producer quarantine rejects cloned, foreign and expired cleanup operations
       ...options,
       cleanupOperation
     });
-    await expect(lifecycle.quarantine(LIFECYCLE_FIXTURE_PATH, {
+    const quarantine = lifecycle.quarantine;
+    if (quarantine === undefined) throw new Error('Fixture producer lifecycle omitted its owner-issued quarantine hook.');
+    await expect(quarantine(LIFECYCLE_FIXTURE_PATH, {
       outcome: 'compiler-staging-invalid-capability',
       profile: 'automatic'
     })).rejects.toThrow(/not owner-issued|exceeded the cleanup operation budget/u);

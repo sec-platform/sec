@@ -5,7 +5,7 @@ import { ciVerificationHostedJobTransportSlot } from '../../../adapters/provider
 import { HOSTED_RESUME_SIGNAL_SCHEMA } from '../../../adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../adapters/providers/github-api/hosted-job-origin.ts';
 import { dispatchAuthenticatedHostedJobResume, observeAuthenticatedHostedResumeEmitter } from '../../../adapters/providers/github-api/operation-session.ts';
-import { assertBranchCloseoutOperationBinding, BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, parseBranchCloseoutOperationReceipt } from '../../../adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { assertBranchCloseoutOperationBinding, BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, parseBranchCloseoutOperationReceipt, parseBranchCloseoutRecoveryArtifact } from '../../../adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { assertBranchCloseoutEffectStartMatches, observeBranchCloseoutEffectStartPublication, observeBranchCloseoutOperationPublication } from '../../../adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
 import { operationReceiptFilePath, prepareMergedPullRequestCloseout } from '../../../adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { withAuthenticatedPostMergeMainHealth } from '../../../adapters/self-hosting/control/composition/trusted-runtime-closeout.ts';
@@ -41,7 +41,7 @@ import {
   CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution,
   CodexDevelopmentResolveHostedAction, hostedActionProviderIndexFromSnapshot, parseHostedEnvelope
 } from '../../../adapters/verification/platform/ci/verification-hosted-action-contract.ts';
-import type { HostedCloseoutMutationPorts, HostedCloseoutPorts, HostedIntegrationEffectPorts, HostedIntegrationPreflightPorts, HostedIntegrationResumeObservationPorts, HostedIssueDispositionPorts, HostedRecoveryPreparationPorts, HostedSessionPorts } from '../../../application/verification-session-hosted.ts';
+import type { HostedCloseoutMutationPorts, HostedCloseoutPorts, HostedIntegrationEffectPorts, HostedIntegrationPreflightPorts, HostedIntegrationResumeObservationPorts, HostedIssueDispositionPorts, HostedRecoveryPreparationPorts, HostedRecoveryVerificationPorts, HostedSessionPorts } from '../../../application/verification-session-hosted.ts';
 import { assertHostedSessionFinalizationSelection, authenticateHostedSessionResume, executeHostedSessionResumeReceiver, executeHostedVerificationSessionCommand, finalizeHostedSessionCommand, observeHostedSessionCommand, prepareHostedSessionFromFacts, sendHostedSessionResume } from '../../../application/verification-session-hosted.ts';
 import { resumeVerificationSession, type VerificationSessionResumePorts } from '../../../application/verification-session-resume.ts';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
@@ -89,6 +89,7 @@ import {
   assertHostedCompilerIdentity,
   assertHostedIntegrationIdentity,
   assertHostedSquashMergeCompletion,
+  branchCloseoutRecoveryArtifactName,
   captureHostedSessionCompilerCommand,
   closeoutPublicationCompositeDigest,
   comparePositiveDecimalDescending,
@@ -97,7 +98,7 @@ import {
   executeHostedCloseoutEffect,
   executeHostedSquashMerge,
   hostedActorHandle,
-  hostedIntegrationPreflightResultPath, hostedIntegrationPreflightTransportPath,
+  hostedIntegrationPreflightTransportPath,
   hostedMergeWakeupLocator,
   inspectTrustedRuntime,
   issueDispositionCommitMarkerState,
@@ -112,6 +113,9 @@ import {
   positiveEnvironmentInteger,
   publishHostedCloseoutTerminal,
   publishHostedIntegrationAuthorizationOperation,
+  readAuthenticatedHostedControlStepFacts,
+  readHostedAttemptRecoveryArtifactNames,
+  readVerifiedHostedRecoveryTransport,
   synchronizeTrustedRemoteDefaultRef
 } from '../../../adapters/verification/platform/ci/runtime/verification-session.ts';
 import { assertReviewStabilityReceiptCurrent } from '../../../adapters/verification/platform/review/contract/stability.ts';
@@ -477,7 +481,6 @@ export function createHostedIntegrationPreflightPorts(input: Readonly<{
   origin: AuthenticatedGitHubJobOrigin; github: VerificationSessionGitHubClient;
 }>): HostedIntegrationPreflightPorts<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence,
   typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult,
-  ReturnType<typeof CodexDevelopmentParseCurrentWorkPackageManifest>['tracking'],
   ReturnType<typeof prepareVerificationSessionMergeInput>, typeof HOSTED_RESUME_SIGNAL_SCHEMA> {
   const assertCurrent = (): void => { assertAuthenticatedGitHubJobOriginCurrent(input.origin); };
   return {
@@ -532,6 +535,66 @@ export function createHostedRecoveryPreparationPorts(input: Readonly<{
       assertCurrent();
       writeDurable(hostedIntegrationPreflightTransportPath(input.ctx.repositoryRoot, 'producer'), result);
       assertCurrent();
+    },
+    writeProjection: writeDurable, resolveOutputPath: value => path.resolve(value), now: () => new Date().toISOString()
+  };
+}
+
+export function createHostedRecoveryVerificationPorts(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin; ctx: VerificationSessionScope; github: VerificationSessionGitHubClient;
+}>): HostedRecoveryVerificationPorts {
+  const assertCurrent = (): ReturnType<typeof assertAuthenticatedGitHubJobOriginCurrent> =>
+    assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+  return {
+    readControlStepFacts: () => {
+      assertCurrent();
+      const facts = readAuthenticatedHostedControlStepFacts({ ctx: input.ctx, origin: input.origin });
+      assertCurrent();
+      return facts;
+    },
+    readProducedRecoveryTransport: () => {
+      const job = assertCurrent();
+      const memberDirectory = path.resolve(input.ctx.repositoryRoot,
+        ciVerificationHostedJobTransportSlot(job.policyJobId, 'out', 'recovery'));
+      const recoveryPath = path.join(memberDirectory, BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME);
+      const preflightPath = hostedIntegrationPreflightTransportPath(input.ctx.repositoryRoot, 'producer');
+      const recoveryPresent = existsSync(recoveryPath);
+      const preflightPresent = existsSync(preflightPath);
+      if (!recoveryPresent && !preflightPresent) return null;
+      if (recoveryPresent !== preflightPresent) {
+        throw new Error('Prepared recovery transport members are incomplete.');
+      }
+      const recoverySource = readSessionArtifactText(recoveryPath);
+      const preflightSource = readSessionArtifactText(preflightPath);
+      const recovery = parseBranchCloseoutRecoveryArtifact(recoverySource);
+      const preflight = CodexDevelopmentParseMergeGateResult(preflightSource);
+      if (recovery.repository !== job.repository || preflight.authorization.repository !== job.repository
+          || preflight.authorization.prNumber !== recovery.pullRequestNumber
+          || preflight.authorization.sessionRevision !== recovery.sessionRevision
+          || preflight.authorization.headSha !== recovery.headSha
+          || preflight.authorization.headTreeSha !== recovery.headTreeSha) {
+        throw new Error('Prepared recovery transport members disagree on their Session identity.');
+      }
+      const artifactName = branchCloseoutRecoveryArtifactName({ prNumber: recovery.pullRequestNumber,
+        sessionRevision: recovery.sessionRevision, runId: job.runId, runAttempt: job.runAttempt });
+      assertCurrent();
+      return Object.freeze({ artifactName, recoveryDigest: rawSha256(recoverySource),
+        preflightDigest: rawSha256(preflightSource) });
+    },
+    readRunAttemptRecoveryArtifactNames: async () => {
+      const job = assertCurrent();
+      const names = await readHostedAttemptRecoveryArtifactNames({ github: input.github,
+        repository: job.repository, runId: job.runId, runAttempt: job.runAttempt });
+      assertCurrent();
+      return names;
+    },
+    readVerifiedHostedRecoveryTransport: async request => {
+      const job = assertCurrent();
+      const transport = await readVerifiedHostedRecoveryTransport({ ctx: input.ctx, github: input.github,
+        repository: job.repository, expectedArtifactName: request.expectedArtifactName,
+        runId: job.runId, runAttempt: job.runAttempt });
+      assertCurrent();
+      return transport;
     },
     writeProjection: writeDurable, resolveOutputPath: value => path.resolve(value), now: () => new Date().toISOString()
   };
@@ -612,7 +675,7 @@ export async function executeHostedVerificationCommand(input: Readonly<{
     resumeGitHub: input.github, observationResumePorts, effectGuardResumePorts, durableResumePorts }, {
     ...sessionPorts, ...issuePorts, ...preflightPorts, ...preparationPorts, ...closeoutPorts,
     ...createHostedIntegrationResumeObservationPorts(input), ...createHostedIntegrationEffectPorts(input),
-    ...createHostedCloseoutMutationPorts(input)
+    ...createHostedCloseoutMutationPorts(input), ...createHostedRecoveryVerificationPorts(input)
     });
   } finally {
     closeHistoricalHostedSessionSources(input.ctx);

@@ -8,7 +8,7 @@ import type {
   Digest, GitHubCandidateObservation, GitHubReviewBarrierObservation, MainHealthLedger,
   PlatformEnforcementObservation, ReviewStabilityReceipt, ScopeAuthorization,
   TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof,
-  VerificationSession, VerificationSessionArtifact, VerificationSessionRuntimeOutcome
+  VerificationSession, VerificationSessionRuntimeOutcome
 } from '../execution/verification/session.ts';
 
 /** Native payloads keep their original concrete type through the application. */

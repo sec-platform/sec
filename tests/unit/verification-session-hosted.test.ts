@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
-import { dispatchHostedSessionResume } from '../../src/application/verification-session-hosted.ts';
+import {
+  dispatchHostedSessionResume, verifyHostedIntegrationRecovery,
+  type HostedControlStepFact, type HostedRecoveryVerificationPorts
+} from '../../src/application/verification-session-hosted.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import type { HostedResumeEmitter } from '../../src/execution/verification/hosted.ts';
 
@@ -61,4 +64,78 @@ test('resume sender refuses a dispatch readback for another signal', async () =>
     digest: sha256, encodeData: JSON.stringify,
     dispatchSignal: async () => ({ status: 'submitted', signalDigest: sha256('other-signal') })
   })).rejects.toThrow('Hosted resume dispatch readback names another signal.');
+});
+
+const controlStep = (name: string, conclusion: string | null): HostedControlStepFact =>
+  Object.freeze({ name, number: 1, status: 'completed', conclusion });
+
+function identity(overrides: Readonly<{ preparation?: string | null; upload?: string | null }>): ReturnType<HostedRecoveryVerificationPorts['readControlStepFacts']> {
+  return Object.freeze({
+    preparation: controlStep('Prepare exact integration recovery artifact', overrides.preparation ?? 'success'),
+    upload: controlStep('Upload exact branch closeout recovery artifact', overrides.upload ?? 'success')
+  });
+}
+
+const localRecovery = Object.freeze({ artifactName: 'sec-branch-closeout-recovery-v1-double',
+  recoveryDigest: sha256('recovery-bytes'), preflightDigest: sha256('preflight-bytes') });
+
+function recoveryPorts(overrides: Partial<HostedRecoveryVerificationPorts>): {
+  ports: HostedRecoveryVerificationPorts; written: unknown[];
+} {
+  const written: unknown[] = [];
+  return {
+    written,
+    ports: {
+      readControlStepFacts: () => identity({}),
+      readProducedRecoveryTransport: () => localRecovery,
+      readRunAttemptRecoveryArtifactNames: async () => Object.freeze([]),
+      readVerifiedHostedRecoveryTransport: async () => localRecovery,
+      writeProjection: (_path, value) => { written.push(value); },
+      resolveOutputPath: value => value, now: () => '2026-10-04T00:00:00.000Z',
+      ...overrides
+    }
+  };
+}
+
+test('recovery verification accepts only provider bytes equal to the local writer', async () => {
+  const { ports, written } = recoveryPorts({});
+  const projection = JSON.parse(await verifyHostedIntegrationRecovery(
+    { repository: 'owner/repo', outputPath: 'out.json' }, ports)) as Record<string, unknown>;
+  expect(projection).toMatchObject({ status: 'verified', lane: 'recovery-uploaded',
+    artifactName: localRecovery.artifactName, recoveryDigest: localRecovery.recoveryDigest,
+    preflightDigest: localRecovery.preflightDigest, output: 'out.json' });
+  expect(written).toEqual([expect.objectContaining({ status: 'verified', lane: 'recovery-uploaded' })]);
+});
+
+test('a skipped upload verifies only when the attempt has no provider recovery artifact', async () => {
+  const { ports, written } = recoveryPorts({
+    readControlStepFacts: () => identity({ upload: 'skipped' }), readProducedRecoveryTransport: () => null
+  });
+  const projection = JSON.parse(await verifyHostedIntegrationRecovery(
+    { repository: 'owner/repo', outputPath: 'out.json' }, ports)) as Record<string, unknown>;
+  expect(projection).toMatchObject({ status: 'verified', lane: 'recovery-absent' });
+  expect(written).toHaveLength(1);
+});
+
+test('recovery verification rejects unproven preparation, orphaned uploads and mismatched bytes', async () => {
+  const cases: readonly Readonly<{ ports: HostedRecoveryVerificationPorts; message: RegExp }>[] = [
+    { ports: recoveryPorts({ readControlStepFacts: () => identity({ preparation: 'failure' }) }).ports,
+      message: /completed successful preparation step/ },
+    { ports: recoveryPorts({ readProducedRecoveryTransport: () => null }).ports,
+      message: /upload step is not skipped/ },
+    { ports: recoveryPorts({ readControlStepFacts: () => identity({ upload: 'skipped' }) }).ports,
+      message: /without its successful upload step/ },
+    { ports: recoveryPorts({ readControlStepFacts: () => identity({ upload: 'skipped' }),
+        readProducedRecoveryTransport: () => null,
+        readRunAttemptRecoveryArtifactNames: async () => Object.freeze([localRecovery.artifactName]) }).ports,
+      message: /still has a provider artifact/ },
+    { ports: recoveryPorts({ readVerifiedHostedRecoveryTransport: async () => Object.freeze({
+        artifactName: localRecovery.artifactName, recoveryDigest: sha256('other-bytes'),
+        preflightDigest: localRecovery.preflightDigest }) }).ports,
+      message: /differ from their original local writer/ }
+  ];
+  for (const negative of cases) {
+    await expect(verifyHostedIntegrationRecovery(
+      { repository: 'owner/repo', outputPath: 'out.json' }, negative.ports)).rejects.toThrow(negative.message);
+  }
 });

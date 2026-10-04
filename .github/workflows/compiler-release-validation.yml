@@ -82,7 +82,7 @@ jobs:
           SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
           SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
           SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.base }}
-        run: bun src/entry/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
+        run: bun src/bootstrap/development/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
       - name: Build and bind exact-head release set
         shell: bash
         env:

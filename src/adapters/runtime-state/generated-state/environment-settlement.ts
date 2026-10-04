@@ -16,7 +16,7 @@ function parseGitStatusRecords(bytes: Uint8Array): readonly string[] {
   }
   return Object.freeze(text.split('\0').sort());
 }
-export const workspaceGitStatusBackend: WorkspaceGitStatusBackend = Object.freeze({ observe: async input => {
+export const workspaceGitStatusBackend: WorkspaceGitStatusBackend = Object.freeze<WorkspaceGitStatusBackend>({ observe: async input => {
   const operation = input.operation;
   try {
     return await withAuthorityGitReadSession({

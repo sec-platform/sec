@@ -3,7 +3,7 @@ import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../adapt
 import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 import { createGeneratedStateRegistrationBootstrap } from './generated-state.ts';
 
-export const worktreePhysicalCloseoutOperations: WorktreePhysicalCloseoutOperations = Object.freeze({
+export const worktreePhysicalCloseoutOperations: WorktreePhysicalCloseoutOperations = Object.freeze<WorktreePhysicalCloseoutOperations>({
   retireSettledCompilerDependencyStageIntents: root => createDependencyOperation({ workspaceRoot: root })
     .retireSettledCompilerDependencyStageIntents(root),
   settleGeneratedStateForWorktreeRetirement: request => createGeneratedStateRegistrationBootstrap({

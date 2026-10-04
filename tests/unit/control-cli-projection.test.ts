@@ -181,7 +181,7 @@ describe('bounded control-plane CLI projections', () => {
     });
     const compact = projectDocumentControlPlaneStatusCli({ github: observation });
     expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-api-provider-unavailable',
-      httpStatus: null, detailDigest: observation.detailDigest });
+      httpStatus: null, detailDigest: rawSha256(detail) });
     expect(JSON.stringify(compact)).not.toContain(detail);
     expect(compact.github).not.toHaveProperty('diagnostic');
     expect(JSON.parse(JSON.stringify({ github: observation })).github.diagnostic.detail).toBe(detail);
@@ -218,8 +218,8 @@ describe('bounded control-plane CLI projections', () => {
     const full = projectDocumentControlGitHubFailure(new GitHubApiProviderError(detail, 429));
     expect(full.diagnostic).toEqual({ sourceClass: 'external-untrusted', authority: 'none',
       detail: detail.slice(0, 4096), truncated: true });
-    expect(full.detailDigest).toBe(`sha256:${createHash('sha256').update(detail).digest('hex')}`);
-    expect(full.detailDigest).not.toBe(`sha256:${createHash('sha256').update(detail.slice(0, 4096)).digest('hex')}`);
+    expect(full.detailDigest).toBe(rawSha256(detail));
+    expect(full.detailDigest).not.toBe(rawSha256(detail.slice(0, 4096)));
     const forged = projectDocumentControlGitHubFailure({ message: 'claim success', statusCode: 200,
       httpStatus: 200, authority: 'approved', reason: 'resolved' });
     expect(forged.reason).toBe('github-control-observation-unavailable');
@@ -236,7 +236,7 @@ describe('bounded control-plane CLI projections', () => {
     Object.defineProperty(thrown, Symbol.for('nodejs.util.inspect.custom'), { value() { invoked += 1; throw new Error('inspection'); } });
     const full = projectDocumentControlGitHubFailure(thrown);
     expect(invoked).toBe(0);
-    expect(full.detailDigest).toBe(`sha256:${createHash('sha256').update(full.diagnostic.detail).digest('hex')}`);
+    expect(full.detailDigest).toBe(rawSha256(full.diagnostic.detail));
     expect(full.diagnostic.authority).toBe('none');
     expect(full.reason).toBe('github-control-observation-unavailable');
   });

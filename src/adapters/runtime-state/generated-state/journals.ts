@@ -2,18 +2,17 @@ import path from 'node:path';
 import {
   assertGeneratedStateWorktreeRetirement,
   createGeneratedStateSettlement,
-  GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA, generatedStateDigest,
+  generatedStateDigest,
   generatedStateLegacyRetirementRuleForPath,
   generatedStateRuleForPath,
   normalizeGeneratedStateRelativePath,
-  parseGeneratedStatePhysicalIdentity,
   type GeneratedStateCleanupContinuationReceipt,
   type GeneratedStateCleanupProfile,
   type GeneratedStateDisposalReceipt,
   type GeneratedStatePhysicalIdentity
 } from '../../../execution/generated-state/contract.ts';
 import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
-import type { GeneratedStateCleanupIntent, GeneratedStateDisposalReceiptKey, GeneratedStateJournalMutationBackend, GeneratedStateWorktreeRetirementIntent } from '../../../execution/generated-state/journal-port.ts';
+import type { GeneratedStateCleanupIntent, GeneratedStateDisposalReceiptKey, GeneratedStateJournalMutationBackend } from '../../../execution/generated-state/journal-port.ts';
 import { consumeGeneratedStateProviderSettlement } from '../../../execution/generated-state/provider-effect.ts';
 import type { GeneratedStateNativeResource } from '../../../execution/generated-state/registration-port.ts';
 import { consumeGeneratedStatePublication } from '../../../execution/generated-state/registration-session.ts';
@@ -99,7 +98,6 @@ export async function verifyGeneratedStateNativeDisposalEvidence(evidence: Gener
   await store.assertCurrent();
 }
 
-const GENERATED_STATE_CLEANUP_INTENT_SCHEMA = 'sec-generated-state-cleanup-intent-v2' as const;
 const GENERATED_STATE_DISPOSAL_KEY_SCHEMA = 'sec-generated-state-disposal-key-v1' as const;
 const WORKTREE_RETIREMENT_ACTIVE_POINTER = 'worktree-retirement-active.json';
 const WORKTREE_RETIREMENT_LATEST_POINTER = 'worktree-retirement-latest.json';

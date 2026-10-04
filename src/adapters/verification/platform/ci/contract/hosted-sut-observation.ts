@@ -1,10 +1,9 @@
-import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../../assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../../../../assurance/verification/result/contract/result.ts';
 import { canonicalEquals, sha256 as canonicalSha256 } from '../../../../../contracts/canonical.ts';
 import type { CiVerificationNormalizedOperation, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 import type { HostedActionRawResult, HostedSutCapabilityObservation, HostedSutCleanupObservation, HostedSutDerivedCleanup, HostedSutEnvironmentProjection, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutPhysicalCommandAuthorization, HostedSutProcessLifecycle, HostedSutSandboxReceipt, HostedSutTerminalProjection } from "../../../../../execution/verification/hosted.ts";
 import { encodeVerificationActionData, parseVerificationActionPlan } from '../../action/contract/action.ts';
 import { ciVerificationNormalizedOperationArgv, parseCiVerificationNormalizedOperation, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
 import type { VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,

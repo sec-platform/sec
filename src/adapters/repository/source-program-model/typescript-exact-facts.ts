@@ -429,7 +429,8 @@ function typeOnlyStarExportStatus(
       contributedByTypeOnlyStar = true;
       continue;
     }
-    if ((ts.getCombinedModifierFlags(statement as ts.Declaration) & ts.ModifierFlags.Export) === 0) {
+    if (!ts.canHaveModifiers(statement)
+        || !ts.getModifiers(statement)?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword)) {
       continue;
     }
     if ((ts.isFunctionDeclaration(statement)
@@ -463,6 +464,18 @@ function moduleExportLookup(
     else ids.push(declaration.observationId);
   }
   return { pathBySourceFile, declarationIdsByPathAndStart, exportsBySourceFile: new Map() };
+}
+
+/** Public-API reconstruction of the checker's former getTypeOnlyAliasDeclaration
+ * (no longer exposed on the TypeChecker surface). An alias is type-only when its
+ * own declaration, or any alias it resolves through, is a type-only import or
+ * export declaration. */
+function typeOnlyAliasReachable(checker: ts.TypeChecker, symbol: ts.Symbol, visited = new Set<ts.Symbol>()): boolean {
+  if ((symbol.flags & ts.SymbolFlags.Alias) === 0 || visited.has(symbol)) return false;
+  visited.add(symbol);
+  if ((symbol.declarations ?? []).some(ts.isTypeOnlyImportOrExportDeclaration)) return true;
+  const resolved = checker.getAliasedSymbol(symbol);
+  return resolved !== symbol && typeOnlyAliasReachable(checker, resolved, visited);
 }
 
 /** Resolve one export through the current exact TypeChecker, including aliases and star re-exports. */
@@ -515,7 +528,7 @@ function resolveTypeScriptModuleExportWithLookup(
         reason: 'export-target-unresolved' as const
       });
     }
-    if (generation.checker.getTypeOnlyAliasDeclaration(exportedSymbol) !== undefined) {
+    if (typeOnlyAliasReachable(generation.checker, exportedSymbol)) {
       return Object.freeze({ status: 'absent' as const, entrypointPath });
     }
     let targetSymbol = exportedSymbol;

@@ -2,10 +2,10 @@
 import { cloneAndDeepFreeze } from '../../../../../contracts/canonical.ts';
 import { parseDigest } from '../../../../../contracts/digest.ts';
 import type { CiVerificationActionPlanClosure } from '../../../../../execution/verification/action.ts';
-import type { BranchCloseoutEffectStartPublication, BranchCloseoutOperationPublication, BranchCloseoutOperationReceipt, BranchCloseoutRecoveryArtifact, HostedWorkflowCommentProvenance, PreparedBranchCloseoutEnvelope } from '../../../../../execution/verification/branch-closeout.ts';
-import type { HostedCloseoutEffectStartReadback, HostedCloseoutTerminalReadback, HostedIntegrationAuthorizationPublicationReadback, HostedIntegrationIdentity, HostedRecoveryArtifactMaterialization, HostedRecoveryArtifactObservation, HostedSessionArtifactCapture, HostedSquashMergeResponse } from '../../../../../execution/verification/hosted.ts';
-import type { HostedIntegrationPhase, HostedIntegrationPhaseOwnership, IntegrationAuthorizationOperationPublication, IssueDisposition, IssueDispositionDigest, IssueDispositionPlan } from '../../../../../execution/verification/integration.ts';
-import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubWorkflowRunObservation, ReviewStabilityReceipt, TrustedRuntimeProof, VerificationSession } from '../../../../../execution/verification/session.ts';
+import type { BranchCloseoutEffectStartPublication, BranchCloseoutOperationPublication, BranchCloseoutOperationReceipt, HostedWorkflowCommentProvenance, PreparedBranchCloseoutEnvelope } from '../../../../../execution/verification/branch-closeout.ts';
+import type { HostedCloseoutEffectStartReadback, HostedCloseoutTerminalReadback, HostedIntegrationAuthorizationPublicationReadback, HostedIntegrationIdentity, HostedRecoveryArtifactMaterialization, HostedRecoveryArtifactObservation, HostedSquashMergeResponse } from '../../../../../execution/verification/hosted.ts';
+import type { HostedIntegrationPhase, HostedIntegrationPhaseOwnership, IntegrationAuthorizationOperationPublication, IssueDispositionDigest, IssueDispositionPlan } from '../../../../../execution/verification/integration.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, ReviewStabilityReceipt, TrustedRuntimeProof, VerificationSession } from '../../../../../execution/verification/session.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/budget.ts';
 import { GITHUB_API_BASE_URL } from '../../../../providers/github-api/contract.ts';
 import { createDelegatedHostedWorkflowCommentProvenance } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
@@ -28,11 +28,9 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
-  readFileSync,
   realpathSync
 } from 'node:fs';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { rawSha256 } from '../../../../../contracts/canonical.ts';
 
 import { readJson, readSessionArtifactBytes, readSessionArtifactText, writeCanonicalDurable, writeDurable } from './session-artifact-files.ts';
@@ -40,7 +38,7 @@ import { readJson, readSessionArtifactBytes, readSessionArtifactText, writeCanon
 import { CodedFailure } from '../../../../../contracts/failure.ts';
 
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../../filesystem/write-lease.ts';
-import { compileIssueDisposition, createIssueAcceptanceId, createIssueDispositionPlan, parseGitHubClosingKeywordOccurrences } from '../../../../self-hosting/control/issues/disposition.ts';
+import { createIssueDispositionPlan, parseGitHubClosingKeywordOccurrences } from '../../../../self-hosting/control/issues/disposition.ts';
 
 import { withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/session.ts';
@@ -50,9 +48,9 @@ import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../../providers/git-
 import { createRuntimeStateJournalFileSystem } from '../../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
-import { BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, createBranchCloseoutRecoveryArtifact, parseBranchCloseoutOperationReceipt, parseBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, createBranchCloseoutRecoveryArtifact, parseBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME, assertBranchCloseoutEffectStartMatches, assertHostedCommentProvenanceLive, createBranchCloseoutEffectStartPublication, createBranchCloseoutOperationPublication, createHostedWorkflowCommentProvenance, hostedPublisherMatches, issueCommentRecord, observeBranchCloseoutEffectStartPublication, observeBranchCloseoutOperationPublication, parseBranchCloseoutEffectStartPublicationComment, parseBranchCloseoutOperationPublicationComment, renderBranchCloseoutEffectStartPublicationComment, renderBranchCloseoutOperationPublicationComment } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
-import { operationReceiptFilePath, parsePreparedBranchCloseoutEnvelope, prepareMergedPullRequestCloseout, rehydratePreparedBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { parsePreparedBranchCloseoutEnvelope, rehydratePreparedBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { assertGitBranchName } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitHubCredentialArgs, decodeBranchLifecycleChildError, decodeBranchLifecycleChildStdout } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
@@ -70,24 +68,16 @@ import {
 import {
   observeActiveWorkPackage
 } from '../../../../self-hosting/control/documentation/document-control-plane.ts';
-import { assertHostedIntegrationPhaseOwnership, createIntegrationAuthorizationOperationPublication, observeIntegrationAuthorizationOperationPublications, parseIntegrationAuthorizationOperationPublication, parseIntegrationAuthorizationOperationPublicationComment, renderIntegrationAuthorizationOperationPublicationComment, selectCanonicalIntegrationRunOwner } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
+import { assertHostedIntegrationPhaseOwnership, observeIntegrationAuthorizationOperationPublications, parseIntegrationAuthorizationOperationPublication, parseIntegrationAuthorizationOperationPublicationComment, renderIntegrationAuthorizationOperationPublicationComment, selectCanonicalIntegrationRunOwner } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import {
-  CodexDevelopmentEvaluateMergeGate,
   CodexDevelopmentParseMergeGateResult,
   assertCanonicalMergeMessage,
   createDelegatedHostedArtifactObservation
 } from '../../../../self-hosting/control/integration/merge-gate.ts';
-import {
-  observeGitHubIssue,
-  observeUnexpectedGitHubIssueClosures
-} from '../../../../self-hosting/control/issues/issue-disposition-github.ts';
-import { createMainHealthLedger } from '../../../../self-hosting/control/main-health/contract.ts';
-import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
-import {
-  createCiMainHealthRequestOperationId
-} from '../../../../self-hosting/control/main-health/provider-policy.ts';
+import { observeUnexpectedGitHubIssueClosures } from '../../../../self-hosting/control/issues/issue-disposition-github.ts';
 
-import { HOSTED_RESUME_DISPATCH_EVENT, HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
+import { getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import { HOSTED_RESUME_DISPATCH_EVENT, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
@@ -112,7 +102,6 @@ import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
 import {
   CodexDevelopmentAssertVerificationSessionArtifact,
-  CodexDevelopmentCreateVerificationEvidenceProducer,
   CodexDevelopmentParseVerificationSessionArtifact,
   parseHostedSessionTerminalArtifact
 } from '../contract/evidence.ts';
@@ -129,19 +118,16 @@ import { parseVerificationSessionHostedRequest } from "../contract/session-reque
 import { createReviewProviderRevalidationCommentBody, createVerificationSessionGitHubClient, shouldPublishMaintainerReviewWakeup, type VerificationSessionGitHubClient } from './verification-session-github.ts';
 import {
   appendVerificationSessionJournalEvent,
-  createEphemeralVerificationSessionJournalFs,
   createVerificationSessionOperationId,
   readVerificationSessionJournal,
   type VerificationSessionJournalFileSystem
 } from './verification-session-journal.ts';
-import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedMergedRuntimeReachability, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createHostedArtifactObservation, createTrustedHostedArtifactProvenance, createTrustedIntegrationAuthorizationPublicationSource, createVerificationSessionMergeOperationId, createVerificationSessionReviewReceipt, finalizeVerificationSessionHostedArtifact, integrationMergeMarkers, parseVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, prepareVerificationSessionMergeInput, reconstructVerificationSessionHostedFacts, refreshVerificationSessionHostedArtifact } from './verification-session-runtime.ts';
+import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedMergedRuntimeReachability, classifyVerificationSessionArtifactReuse, createHostedArtifactObservation, createTrustedHostedArtifactProvenance, integrationMergeMarkers, parseVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession } from './verification-session-runtime.ts';
 export { assertHostedCompilerDispatchPayload, assertHostedCompilerInternalProvenance } from './hosted-compiler-provenance.ts';
 
 import { exactCommitMarker } from './merge-commit-marker.ts';
 import {
   classifyDurableVerificationSessionProjection,
-  planHostedIntegrationEffects,
-  routeHostedIntegration,
   selectMergedAuthorizationPublication
 } from './verification-session-integration-routing.ts';
 
@@ -149,7 +135,6 @@ export { readExactCommitMarker } from './merge-commit-marker.ts';
 export { deleteHostedLocalRefCas } from './session-branch-closeout-effects.ts';
 export { HOSTED_INTEGRATION_ROUTE_SCHEMA, classifyDurableVerificationSessionProjection, planHostedIntegrationEffects, routeHostedIntegration } from './verification-session-integration-routing.ts';
 
-import type { VerificationSessionHostedEnvelope, VerificationSessionHostedFacts } from "../../../../../execution/verification/hosted.ts";
 import type { withAuthenticatedPostMergeMainHealth } from '../../../../self-hosting/control/composition/trusted-runtime-closeout.ts';
 import { assertHostedCloseoutMainHealthCurrent, evaluateHostedCloseoutEffectPreconditionsUnderLease, finalizeHostedBranchCloseout } from './session-branch-closeout-effects.ts';
 import {
@@ -621,6 +606,121 @@ export async function loadProviderBranchCloseoutRecoveryArtifact(input: {
   const prepared = rehydratePreparedBranchCloseoutRecoveryArtifact({ scope: input.ctx,
     remote: remotePrepared, recoveryBundleBytes: Buffer.from(artifact.recoveryBundleBase64, 'base64') });
   return Object.freeze({ artifact, metadata, remotePrepared, prepared });
+}
+
+/** Provider readback of the two closed control steps whose produced and
+ * uploaded bytes the verify phase re-reads. The authenticated job is still
+ * in_progress, so only step facts are admissible here; a job conclusion that
+ * does not exist yet is never observed or invented. */
+export function readAuthenticatedHostedControlStepFacts(input: Readonly<{
+  ctx: VerificationSessionScope; origin: AuthenticatedGitHubJobOrigin;
+}>): Readonly<{ preparation: Readonly<{ name: string; number: number; status: string; conclusion: string | null }>;
+  upload: Readonly<{ name: string; number: number; status: string; conclusion: string | null }> }> {
+  const job = assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+  const policy = getCiVerificationPerJobHostedJobPolicy(job.workflowPath, job.policyJobId);
+  let preparationStepName: string | null = null;
+  let uploadStepName: string | null = null;
+  for (const stage of policy === null ? [] : policy.stages) {
+    if (stage.kind === 'phase' && stage.phase === 'prepare-integration-hosted') {
+      if (preparationStepName !== null) throw new Error('Hosted recovery verification policy has duplicate producer phases.');
+      preparationStepName = stage.stepName;
+    }
+    if (stage.kind === 'upload' && stage.slot === 'recovery') {
+      if (uploadStepName !== null) throw new Error('Hosted recovery verification policy has duplicate upload stages.');
+      uploadStepName = stage.stepName;
+    }
+  }
+  if (preparationStepName === null || uploadStepName === null) {
+    throw new Error('Hosted recovery verification has no unique policy producer/upload steps.');
+  }
+  const observed = apiRecord(input.ctx, `/repos/${job.repository}/actions/jobs/${job.jobId}`,
+    'hosted recovery verification job readback');
+  if (String(observed.id) !== job.jobId || String(observed.run_id) !== job.runId
+      || observed.run_attempt !== job.runAttempt || observed.name !== job.jobName
+      || observed.head_sha !== job.workflowSha
+      || observed.check_run_url !== `${GITHUB_API_BASE_URL}/repos/${job.repository}/check-runs/${job.checkRunId}`
+      || !Array.isArray(observed.steps)) {
+    throw new Error('Hosted recovery verification job readback differs from its authenticated origin.');
+  }
+  const fact = (stepName: string) => {
+    const matches = observed.steps.map((entry: unknown) => {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new Error('Hosted recovery verification step is not one object.');
+      }
+      return entry as Record<string, unknown>;
+    }).filter((step: Record<string, unknown>) => step.name === stepName);
+    if (matches.length !== 1 || !Number.isSafeInteger(matches[0]!.number) || Number(matches[0]!.number) < 1
+        || typeof matches[0]!.status !== 'string'
+        || (matches[0]!.conclusion !== null && typeof matches[0]!.conclusion !== 'string')) {
+      throw new Error('Hosted recovery verification has no unique exact provider step.');
+    }
+    return Object.freeze({ name: stepName, number: Number(matches[0]!.number),
+      status: matches[0]!.status as string, conclusion: matches[0]!.conclusion as string | null });
+  };
+  assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+  return Object.freeze({ preparation: fact(preparationStepName), upload: fact(uploadStepName) });
+}
+
+const HOSTED_RECOVERY_ARTIFACT_ATTEMPT_NAME =
+  /^sec-branch-closeout-recovery-v1-pr-([1-9][0-9]*)-session-([0-9a-f]{64})-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u;
+
+/** Live provider names that claim this exact attempt's recovery identity.
+ * Earlier attempts of the same run and same-named artifacts of other runs are
+ * excluded by the immutable run/attempt suffix, never by recency. */
+export async function readHostedAttemptRecoveryArtifactNames(input: Readonly<{
+  github: VerificationSessionGitHubClient; repository: string; runId: string; runAttempt: number;
+}>): Promise<readonly string[]> {
+  if (!/^[1-9][0-9]*$/u.test(input.runId) || !Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) {
+    throw new Error('Hosted recovery attempt identity is invalid.');
+  }
+  return Object.freeze((await input.github.observeActionsArtifactsForRun(input.repository, input.runId))
+    .map(({ artifactName }) => artifactName)
+    .filter(name => {
+      const match = HOSTED_RECOVERY_ARTIFACT_ATTEMPT_NAME.exec(name);
+      return match !== null && match[3] === input.runId && match[4] === String(input.runAttempt);
+    }));
+}
+
+/** The verify phase's whole provider function: the provider must expose exactly
+ * the artifact name this job's own preparation derived, its immutable
+ * provenance must bind this exact run and attempt, and both members must
+ * re-derive the same Session identity. Returned member digests let the
+ * application compare provider bytes with the original local writer. */
+export async function readVerifiedHostedRecoveryTransport(input: Readonly<{
+  ctx: VerificationSessionScope; github: VerificationSessionGitHubClient; repository: string;
+  expectedArtifactName: string; runId: string; runAttempt: number;
+}>): Promise<Readonly<{ artifactName: string; recoveryDigest: `sha256:${string}`; preflightDigest: `sha256:${string}` }>> {
+  const matches = (await input.github.observeActionsArtifactsForRun(input.repository, input.runId))
+    .filter(({ artifactName }) => artifactName === input.expectedArtifactName);
+  if (matches.length !== 1) {
+    throw new Error('Closeout recovery verification requires exactly one provider artifact for the prepared name.');
+  }
+  const metadata = matches[0]!;
+  const source = (await input.github.downloadArtifactText(input.repository, metadata,
+    BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME));
+  const artifact = parseBranchCloseoutRecoveryArtifact(source);
+  if (`${encodeVerificationActionData(artifact)}\n` !== source || artifact.repository !== input.repository
+      || branchCloseoutRecoveryArtifactName({ prNumber: artifact.pullRequestNumber,
+        sessionRevision: artifact.sessionRevision, runId: input.runId, runAttempt: input.runAttempt }) !== input.expectedArtifactName) {
+    throw new Error('Closeout recovery verification artifact bytes differ from their prepared name and identity.');
+  }
+  const preflightSource = (await input.github.downloadArtifactText(input.repository, metadata,
+    HOSTED_INTEGRATION_PREFLIGHT_RESULT_FILE));
+  const preflight = CodexDevelopmentParseMergeGateResult(preflightSource);
+  if (preflight.authorization.repository !== input.repository
+      || preflight.authorization.prNumber !== artifact.pullRequestNumber
+      || preflight.authorization.sessionRevision !== artifact.sessionRevision
+      || preflight.authorization.headSha !== artifact.headSha
+      || preflight.authorization.headTreeSha !== artifact.headTreeSha) {
+    throw new Error('Closeout recovery verification preflight and recovery members disagree.');
+  }
+  const producingRun = apiRecord(input.ctx,
+    `/repos/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`,
+    'closeout recovery verification producing run attempt readback');
+  assertHostedRecoveryArtifactProvenance({ metadata, producingRun, baseSha: preflight.authorization.baseSha,
+    runId: input.runId, runAttempt: input.runAttempt });
+  return Object.freeze({ artifactName: input.expectedArtifactName, recoveryDigest: rawSha256(source),
+    preflightDigest: rawSha256(preflightSource) });
 }
 
 export function addSeconds(instant: string, seconds: number): string {
@@ -1401,97 +1501,6 @@ function observeExactRemoteCloseoutBranch(
     label: 'hosted closeout remote branch readback',
     cwd: preparation.repository.root
   });
-}
-
-/**
- * The post-merge MainHealth dispatch/join belongs to the invocation that will
- * consume physical closeout tokens.  A later Workflow step is a new process
- * and therefore cannot retain those capabilities.
- */
-async function joinExactPostMergeMainHealth(input: Readonly<{
-  ctx: VerificationSessionScope;
-  github: VerificationSessionGitHubClient;
-  repository: string;
-  mainSha: string;
-  environment: Readonly<Record<string, string | undefined>>;
-}>): Promise<Readonly<{ requestOperationId: `sha256:${string}`; runId: string }>> {
-  if (!/^[0-9a-f]{40}$/u.test(input.mainSha)) {
-    throw new Error('Post-merge MainHealth main SHA is invalid.');
-  }
-  const requestOperationId = createCiMainHealthRequestOperationId(input.mainSha);
-  const expectedTitle = `SEC main health ${input.mainSha} operation ${requestOperationId}`;
-  const workflow = apiRecord(input.ctx,
-    `/repos/${input.repository}/actions/workflows/compiler-pr-validation.yml`,
-    'canonical MainHealth workflow readback');
-  const workflowId = Number(workflow.id);
-  if (!Number.isSafeInteger(workflowId) || workflowId < 1
-    || workflow.path !== '.github/workflows/compiler-pr-validation.yml' || workflow.state !== 'active') {
-    throw new Error('Canonical MainHealth workflow is not active.');
-  }
-  const matchingRuns = async () => (await input.github.observeWorkflowRuns(input.repository, input.mainSha))
-    .filter((run) => matchesCiCompilerWorkflowRunIdentity({
-      workflowPath: run.workflowPath,
-      eventName: run.event,
-      displayTitle: run.displayTitle,
-      headSha: run.headSha,
-      expectedDisplayTitle: expectedTitle,
-      expectedHeadSha: input.mainSha
-    }));
-  let matches = (await matchingRuns());
-  if (matches.length > 1) throw new Error('MainHealth operation already has multiple exact workflow runs.');
-  if (matches.length === 0) {
-    const body = encodeVerificationActionData({ event_type: 'sec-produce-main-health-v1',
-      client_payload: { payload: { mainSha: input.mainSha, requestOperationId } } });
-    const dispatched = runVerificationSessionCommand(input.ctx, 'gh', [
-      'api', '--method', 'POST', `/repos/${input.repository}/dispatches`, '--input', '-'
-    ], input.ctx.repositoryRoot, body);
-    if (dispatched.status !== 0) {
-      throw new Error(`Canonical MainHealth dispatch failed: ${decodeBranchLifecycleChildError(dispatched)}`);
-    }
-  }
-  const queueAllowance = positiveEnvironmentInteger('MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES', input.environment);
-  const producerTimeout = positiveEnvironmentInteger('MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES', input.environment);
-  const pollSeconds = positiveEnvironmentInteger('MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS', input.environment);
-  const queueAllowanceMilliseconds = queueAllowance * 60 * 1000;
-  const producerTimeoutMilliseconds = producerTimeout * 60 * 1000;
-  const pollMilliseconds = pollSeconds * 1000;
-  const deadline = Date.now() + (2 * producerTimeoutMilliseconds)
-    + queueAllowanceMilliseconds + pollMilliseconds;
-  let joined: GitHubWorkflowRunObservation | null = null;
-  while (Date.now() < deadline) {
-    matches = (await matchingRuns());
-    if (matches.length > 1) throw new Error('MainHealth dispatch resolved to multiple exact workflow runs.');
-    if (matches.length === 1 && matches[0]!.status === 'completed') {
-      if (matches[0]!.conclusion !== 'success') {
-        throw new Error(`Exact MainHealth run concluded ${matches[0]!.conclusion ?? 'without conclusion'}.`);
-      }
-      joined = matches[0]!;
-      break;
-    }
-    await delay(pollMilliseconds);
-  }
-  if (joined === null) throw new Error('Timed out joining the exact post-merge MainHealth run.');
-  const run = apiRecord(input.ctx, `/repos/${input.repository}/actions/runs/${joined.id}`,
-    'joined MainHealth workflow readback');
-  if (String(run.id) !== joined.id || Number(run.workflow_id) !== workflowId
-    || !matchesCiCompilerWorkflowRunIdentity({
-      workflowPath: run.path,
-      eventName: run.event,
-      displayTitle: run.display_title,
-      headSha: run.head_sha,
-      expectedDisplayTitle: expectedTitle,
-      expectedHeadSha: input.mainSha
-    })
-    || run.status !== 'completed' || run.conclusion !== 'success') {
-    throw new Error('Joined MainHealth workflow API readback is not canonical.');
-  }
-  const checks = (await input.github.observeChecks(input.repository, input.mainSha)).filter((check) => (
-    check.name === 'sec/main-health' && check.status === 'completed' && check.conclusion === 'success'
-      && check.headSha === input.mainSha && check.workflowRunId === joined!.id
-      && check.workflowRunDisplayTitle === expectedTitle && check.appSlug === 'github-actions'
-  ));
-  if (checks.length !== 1) throw new Error('Exact MainHealth run has no unique successful canonical sec/main-health check.');
-  return Object.freeze({ requestOperationId, runId: joined.id });
 }
 
 async function publishHostedCloseoutEffectStart(
@@ -2690,7 +2699,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
     return runtimeJournalFs;
   };
   const githubAdapter = () => createVerificationSessionGitHubClient(repositoryRoot, repository);
-  const event = () => githubEvent(environment);
   // CLI command routing selects one closed operation only. The selected
   // operation revalidates every authority/target/effect precondition internally.
   // codeql[js/user-controlled-bypass]

@@ -159,7 +159,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   const workflow = parseYaml(source) as Workflow;
   const checkerSource = await readCompilerFile('src/application/trusted-bootstrap-verification.ts');
   const preProgram = step(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt').run;
-  expect(preProgram).toContain('(cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/entry/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")');
+  expect(preProgram).toContain('(cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/bootstrap/development/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")');
   expect(preProgram).toContain('SEC_BOOTSTRAP_PHASE=pre');
   expect(preProgram).not.toContain("<<'CHECKER'");
   const postProgram = workflow.jobs['checker-post']?.steps.map(value => value.run ?? '').join('\n');
@@ -269,7 +269,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
       SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
     });
   expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').run)
-    .toContain('bun src/entry/ci-verification.ts execute-trusted-bootstrap-sut');
+    .toContain('bun src/bootstrap/development/ci-verification.ts execute-trusted-bootstrap-sut');
   expect(sutSteps.some((candidate) =>
     candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];

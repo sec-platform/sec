@@ -194,7 +194,7 @@ export async function probeHostedSutCapability<
   const teardownPlan = ports.createTeardownPlan({ actionKey: input.actionKey, unitName: plan.unitName });
   const [observed, teardown] = await observeSutAttemptAndTeardown({
     execution: plan, teardown: teardownPlan,
-    run: (command, archive) => ports.run(command, archive),
+    run: (command, archive: RetainedArchive | undefined) => ports.run(command, archive),
     unobserved: (code, diagnostic) => ports.unobservedProcess(code, diagnostic)
   });
   const cleanup = directoryCleanup(teardown);
@@ -299,7 +299,7 @@ export async function executeHostedActionSut<
   ProcessResult extends Readonly<{ code: number; rawOutputDigest: string; stdout?: Uint8Array; failureTail: string }>,
   RetainedArchive extends Readonly<{ archiveDigest: VerificationActionKeyDigest }>
 >(input: ReturnType<typeof prepareHostedActionSut<Policy, Environment, ProviderOrigin, ResolutionSchema, TicketSchema, AuthorizationSchema, PhysicalSchema, ProviderRevision, ReceiptSchema, RawResultSchema, CommandSchema, ProcessResult, RetainedArchive>>, ports: HostedSutPorts<Policy, Environment, ProviderOrigin, ResolutionSchema, TicketSchema, AuthorizationSchema, PhysicalSchema, ProviderRevision, ReceiptSchema, RawResultSchema, CommandSchema, ProcessResult, RetainedArchive>): Promise<HostedActionRawResult<Policy, VerificationActionKeyDigest, RawResultSchema, ReceiptSchema>> {
-  const { resolution, ticket, ticketInventory, normalizedOperation, executionAuthorization, env } = input;
+  const { resolution, normalizedOperation, executionAuthorization, env } = input;
   const now = ports.now;
   const startedAt = now();
   const actionKey = resolution.actionPlan.action.actionKey;

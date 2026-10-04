@@ -436,7 +436,7 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
         osType: 'linux',
         architecture: 'x86_64'
       },
-      dependencyCacheKey: `sha256:${'3'.repeat(64)}`,
+      dependencyCacheKey: null,
       actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
         command,
         resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`

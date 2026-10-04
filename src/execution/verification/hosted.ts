@@ -495,8 +495,11 @@ export interface VerificationSessionHostedRequest<RequestSchema extends string> 
   reviewPolicyDigest: `sha256:${string}`;
   requestOperationId: `sha256:${string}`;
 }
-export type HostedVerificationCommand = 'prepare-integration-hosted' | 'integrate-hosted'
-  | 'closeout-mutate-hosted' | 'closeout-publish-hosted';
+export const HOSTED_VERIFICATION_COMMANDS = [
+  'prepare-integration-hosted', 'verify-integration-recovery',
+  'integrate-hosted', 'closeout-mutate-hosted', 'closeout-publish-hosted'
+] as const;
+export type HostedVerificationCommand = typeof HOSTED_VERIFICATION_COMMANDS[number];
 export type VerificationSessionCloseoutObservation =
   | { status: 'completed' | 'protected-pending'; receiptDigest: Digest }
   | { status: 'waiting' | 'blocked'; reason: string };

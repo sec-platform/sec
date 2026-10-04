@@ -3,7 +3,8 @@ import { parseExactJsonBytes } from '../../../../../contracts/exact-json.ts';
 import {
   assertCiVerificationPerJobHostedWholeWorkflowShape,
   assertCiVerificationPerJobHostedWorkflowShape,
-  getCiVerificationPerJobHostedJobPolicy
+  getCiVerificationPerJobHostedJobPolicy,
+  type CiVerificationPerJobHostedStage
 } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import {
   currentGitHubApiCapability, executeGitHubApiOperation, inspectGitHubApiCapability,
@@ -203,11 +204,15 @@ export function decodeHostedJobRuntimeReceiptProvenance(input: Readonly<{
   if (!Number.isSafeInteger(input.observedAtUnixMs) || input.observedAtUnixMs < completed || completed < started
       || origin.originalDeadlineAtUnixMs !== started + policy.maximumJobDurationMs
       || completed > origin.originalDeadlineAtUnixMs) fail('producer original lifetime differs');
-  const phases = policy.stages.filter(stage => stage.kind === 'phase' && stage.phase === selected.phase);
+  const phases = policy.stages.filter(
+    (stage): stage is Extract<CiVerificationPerJobHostedStage, { kind: 'phase' }> =>
+      stage.kind === 'phase' && stage.phase === selected.phase);
   if (phases.length !== 1) fail('producer phase is not unique');
   const phase = phases[0]!;
-  const uploads = policy.stages.filter(stage => stage.kind === 'upload' && stage.slot === output.slot
-    && stage.producerStepId === phase.stepId);
+  const uploads = policy.stages.filter(
+    (stage): stage is Extract<CiVerificationPerJobHostedStage, { kind: 'upload' }> =>
+      stage.kind === 'upload' && stage.slot === output.slot
+      && stage.producerStepId === phase.stepId);
   if (uploads.length !== 1) fail('artifact slot has no unique closed phase writer');
   const steps = job.steps.map(object);
   if (steps.length > 100 || new Set(steps.map(step => step.number)).size !== steps.length) fail('step census is ambiguous');

@@ -63,7 +63,6 @@
     "src/bootstrap/development/closeout/worktree-physical-closeout-cli.ts",
     "src/bootstrap/development/runner-cli.ts",
     "src/bootstrap/engineering/trusted-runtime-closeout.ts",
-    "src/entry/ci-verification.ts",
     "tests/setup/test-runtime.setup.ts"
   ],
   "reviewedSutEdges": [],

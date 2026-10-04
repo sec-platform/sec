@@ -165,7 +165,7 @@ test('worktree flow preserves the exact ordinary root under one native operation
   const { workspaceRoot, environment, relativePath, registration } = await legacyFixture();
   const repositoryRoot = path.join(path.dirname(workspaceRoot), 'primary');
   const head = 'a'.repeat(40), tree = 'b'.repeat(40);
-  const runGit = async (_command: string, args: string[]) => ({ code: 0, stderr: new Uint8Array(), stdout: Buffer.from(
+  const runGit = async (_command: string, args: string[]) => ({ code: 0, stderr: '', stdout: Buffer.from(
     args.includes('list') ? `worktree ${repositoryRoot}\0HEAD ${head}\0branch refs/heads/main\0\0worktree ${workspaceRoot}\0HEAD ${head}\0branch refs/heads/candidate\0\0`
       : args.includes('rev-parse') ? `${tree}\n` : '!! .tmp/\0') });
   const composition = createGeneratedStateRegistrationBootstrap({ workspaceRoot, environment, runGit });

@@ -11,7 +11,7 @@ import {
 } from '../../../../execution/execution-progress.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
-import type { HostedActionResolution, VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
+import type { VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
 import type { VerificationGateEvidence } from '../../../../execution/verification/session.ts';
 import {
   withAuthorityGitReadOperation,
@@ -46,7 +46,7 @@ import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
+import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2 } from '../action/contract/provider.ts';
 import {
   writeVerificationActionProviderStartMarkerAtomic,
   writeVerificationActionProviderTerminalAnchorAtomic
@@ -61,13 +61,11 @@ import {
 } from './contract/plan.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
   CI_VERIFICATION_SESSION_CONTRACT_REVISION,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from './contract/revision.ts';
 import { readAuthenticatedHostedJobRuntimeReceipt, type HostedJobRuntimeReceiptSelection } from './runtime/hosted-job-runtime-provenance.ts';
 
-import type { VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
 import { parseVerificationSessionHostedRequest } from "./contract/session-request.ts";
 import {
   CodexDevelopmentChangedFilesFromRecords,
@@ -87,11 +85,11 @@ import {
 import type { CodexDevelopmentCiVerificationTestOptions } from './verification-action-effect.ts';
 import { CodexDevelopmentExecuteCiActionClosure } from './verification-action-effect.ts';
 import { CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentParseHostedActionRawResult } from './verification-coordination.ts';
-import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionProviderIndex } from './verification-hosted-action-contract.ts';
+import type { CodexDevelopmentHostedActionProviderIndex } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, ciActionDigest, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, hostedActionProviderIndexFromSnapshot, INVALIDATION_RULES, parseHostedEnvelope, VERIFICATION_EVIDENCE_PATH } from './verification-hosted-action-contract.ts';
-import { CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertPreparedHostedActionCandidate, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentMaterializeHostedActionCandidate, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
-import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
-import { CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentExecuteTrustedBootstrapSut, CodexDevelopmentProbeHostedSutSandboxCapability, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
+import { CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertPreparedHostedActionCandidate, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
+import { writeHostedActionJson } from './verification-shared.ts';
+import { CodexDevelopmentExecuteTrustedBootstrapSut, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
 function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
   mode: 'github-actions' | 'trusted-runtime';

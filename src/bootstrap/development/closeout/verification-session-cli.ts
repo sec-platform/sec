@@ -6,7 +6,8 @@ import { executeHostedSessionCompilerCommand } from './verification-session-host
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   const command = argv[0];
-  const result = command === 'prepare-integration-hosted' || command === 'integrate-hosted'
+  const result = command === 'prepare-integration-hosted' || command === 'verify-integration-recovery'
+      || command === 'integrate-hosted'
       || command === 'closeout-mutate-hosted' || command === 'closeout-publish-hosted'
     ? await runHostedVerificationInvocation(parseHostedVerificationCommand(argv))
     : command === 'observe-hosted' || command === 'prepare-hosted' || command === 'finalize-hosted'

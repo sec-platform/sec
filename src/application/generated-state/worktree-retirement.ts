@@ -106,10 +106,11 @@ export async function settleGeneratedStateForWorktreeRetirement(input: Generated
         }
         const form = directOwners.length === 1 ? directOwners[0]!.physicalForms.find(form => form.kind === observed.kind) : null;
         if (directOwners.length > 0 && form == null) throw new GeneratedStateWorktreeRetirementBlockedError('Unregistered worktree physical form.');
-        if (form?.worktreeRetirement.mode === 'domain-retire') {
+        const retirement = form?.worktreeRetirement;
+        if (retirement?.mode === 'domain-retire') {
           const registration = census.observations.get(relativePath)?.registration;
           if (registration == null || registration.ruleId !== directOwners[0]!.id || !same(registration.root, observed.identity)) throw new Error('Worktree domain lacks exact registration.');
-          const providers = dependencies.providers.filter(provider => provider.id === form.worktreeRetirement.providerId);
+          const providers = dependencies.providers.filter(provider => provider.id === retirement.providerId);
           if (providers.length !== 1) throw new GeneratedStateWorktreeRetirementBlockedError('Worktree domain provider is unavailable or ambiguous.');
           const provider = providers[0]!, plan = await provider.plan({ repositoryRoot, workspaceRoot, relativePath, source: observed.identity, registration });
           if (plan.digest !== generatedStateDomainProviderMaterialDigest(provider.id, 'plan', plan.bytes)) throw new Error('Worktree provider plan digest differs.');

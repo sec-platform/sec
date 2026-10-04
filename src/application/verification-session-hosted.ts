@@ -8,8 +8,10 @@ import type {
 } from "../execution/verification/hosted.ts";
 import { HOSTED_SESSION_WAKE_KEY_SCHEMA } from '../execution/verification/hosted.ts';
 import type { HostedIntegrationEffectPlan, HostedIntegrationPhase, HostedIntegrationRoute, IntegrationAuthorizationOperationPublication, IssueDisposition, IssueDispositionPlan, MergeGateProvenance, MergeGateResult } from '../execution/verification/integration.ts';
-import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof, VerificationSession, VerificationSessionArtifact, VerificationSessionRuntimeOutcome } from '../execution/verification/session.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof, VerificationSession, VerificationSessionRuntimeOutcome } from '../execution/verification/session.ts';
 import { resumeVerificationSession, type VerificationSessionResumeExternal, type VerificationSessionResumeGitHub, type VerificationSessionResumePorts } from './verification-session-resume.ts';
+
+export { HOSTED_VERIFICATION_COMMANDS, type HostedVerificationCommand } from '../execution/verification/hosted.ts';
 
 export interface HostedSessionPreparationPorts<RequestSchema extends string, EnvelopeSchema extends string,
   Manifest, Transition, SourceProvider, DependencyBlobs> {
@@ -439,11 +441,15 @@ export async function executeHostedVerificationSessionCommand<SourceAcceptance, 
     durableResumePorts: VerificationSessionResumePorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult,
       EventSchema, ClaimSchema, VerificationSessionHostedRequest<RequestSchema>, Transition, Health, SignalSchema>;
   }>, ports: HostedSessionPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, RequestSchema, SignalSchema>
-    & HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, Tracking, MergeInput, SignalSchema>
+    & HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, MergeInput, SignalSchema>
     & HostedIssueDispositionPorts<Tracking, readonly GitHubCheckObservation[]> & HostedRecoveryPreparationPorts
     & HostedIntegrationResumeObservationPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, SignalSchema>
     & HostedIntegrationEffectPorts<Reconciliation> & HostedCloseoutMutationPorts<Qualification, WorktreeToken>
+    & HostedRecoveryVerificationPorts
 ): Promise<string> {
+  if (input.command === 'verify-integration-recovery') {
+    return await verifyHostedIntegrationRecovery({ repository: input.repository, outputPath: input.outputPath }, ports);
+  }
   const hosted = await selectHostedArtifactForMergeWakeup(input, ports);
   const selected = { repository: input.repository, outputPath: input.outputPath, hosted };
   if (input.command === 'closeout-publish-hosted') return await publishHostedCloseout(selected, ports);
@@ -562,7 +568,7 @@ export async function observeHostedIssueDisposition<Tracking, Checks>(input: Rea
 
 export interface HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence,
   ContractRevision extends string, ResultStatus extends string,
-  GateResult extends { readonly status: ResultStatus }, Tracking, MergeInput, SignalSchema extends string> {
+  GateResult extends { readonly status: ResultStatus }, MergeInput, SignalSchema extends string> {
   classifyArtifactReuse(artifact: HostedSessionTerminalArtifact<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, SignalSchema>, now: string): Readonly<{ actionEvidenceCandidate: boolean; reason: string }>;
   observeReviewBarrier(input: Readonly<{ repository: string; prNumber: number; headSha: string;
     excludedPrincipalNodeIds: ReadonlySet<string> }>): Promise<GitHubReviewBarrierObservation>;
@@ -602,7 +608,7 @@ export async function evaluateHostedIntegrationPreflight<SourceAcceptance, Sourc
     repository: string; hosted: HostedSessionArtifactTransport<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, SignalSchema>;
     candidate: GitHubCandidateObservation; provenance: HostedWorkflowCommentProvenance;
     integrationPrincipal: HostedIntegrationIdentity['integrationPrincipal']; observedAt: string;
-  }>, ports: HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, Tracking, MergeInput, SignalSchema>
+  }>, ports: HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, MergeInput, SignalSchema>
     & HostedIssueDispositionPorts<Tracking, readonly GitHubCheckObservation[]>) {
   const { repository, hosted, candidate, provenance, observedAt } = input;
   const artifact = hosted.artifact;
@@ -668,7 +674,7 @@ export async function prepareHostedIntegrationRecovery<SourceAcceptance, SourceA
     repository: string; outputPath: string;
     hosted: HostedSessionArtifactTransport<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, SignalSchema>;
   }>, ports: HostedSessionPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, RequestSchema, SignalSchema>
-    & HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, Tracking, MergeInput, SignalSchema>
+    & HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, MergeInput, SignalSchema>
     & HostedIssueDispositionPorts<Tracking, readonly GitHubCheckObservation[]> & HostedRecoveryPreparationPorts): Promise<string> {
   const artifact = input.hosted.artifact;
   if (artifact.session.repository !== input.repository) throw new Error('prepare-integration-hosted repository differs from the authenticated Session artifact.');
@@ -707,6 +713,70 @@ export async function prepareHostedIntegrationRecovery<SourceAcceptance, SourceA
   return output(Object.freeze({ ...route, effects, preflightResultDigest: preflight.result.resultDigest,
     recoveryArtifact: Object.freeze({ artifactName: recovery.artifactName, artifactFileName: ports.recoveryArtifactFileName,
       artifactFilePath: recovery.artifactFilePath, artifactDigest: recovery.artifact.artifactDigest }), observedAt: ports.now() }));
+}
+
+/** One provider-owned step fact from the authenticated control job readback.
+ * The job is still in_progress while this phase runs, so only completed steps
+ * are admissible; a job conclusion that does not exist yet is never invented. */
+export interface HostedControlStepFact {
+  readonly name: string;
+  readonly number: number;
+  readonly status: string;
+  readonly conclusion: string | null;
+}
+
+/** The verify phase re-reads what the provider actually recorded for the two
+ * closed control steps and, when this attempt produced a recovery artifact,
+ * re-downloads the exact provider bytes. Local facts come from this job's own
+ * fixed transport slot; provider facts come from the original authenticated
+ * job and run attempt. */
+export interface HostedRecoveryVerificationPorts {
+  readControlStepFacts(): Readonly<{ preparation: HostedControlStepFact; upload: HostedControlStepFact }>;
+  readProducedRecoveryTransport(): Readonly<{ artifactName: string;
+    recoveryDigest: `sha256:${string}`; preflightDigest: `sha256:${string}` }> | null;
+  readRunAttemptRecoveryArtifactNames(): Promise<readonly string[]>;
+  readVerifiedHostedRecoveryTransport(input: Readonly<{ expectedArtifactName: string }>): Promise<Readonly<{
+    artifactName: string; recoveryDigest: `sha256:${string}`; preflightDigest: `sha256:${string}` }>>;
+  writeProjection(path: string, value: unknown): void;
+  resolveOutputPath(path: string): string;
+  now(): string;
+}
+
+/** Read back the exact uploaded branch closeout recovery artifact. The upload
+ * step either succeeded over this job's own produced bytes or was skipped
+ * because no recovery was produced; both provider facts are asserted, and the
+ * provider bytes must equal the original local writer exactly. */
+export async function verifyHostedIntegrationRecovery(input: Readonly<{ repository: string; outputPath: string }>,
+  ports: HostedRecoveryVerificationPorts): Promise<string> {
+  const steps = ports.readControlStepFacts();
+  if (steps.preparation.status !== 'completed' || steps.preparation.conclusion !== 'success') {
+    throw new Error('verify-integration-recovery requires its completed successful preparation step.');
+  }
+  const output = <Projection extends object>(projection: Projection): string => {
+    ports.writeProjection(input.outputPath, projection);
+    return JSON.stringify({ ...projection, output: ports.resolveOutputPath(input.outputPath) }, null, 2);
+  };
+  const local = ports.readProducedRecoveryTransport();
+  if (local === null) {
+    if (steps.upload.status !== 'completed' || steps.upload.conclusion !== 'skipped') {
+      throw new Error('verify-integration-recovery has no produced recovery while its upload step is not skipped.');
+    }
+    const names = await ports.readRunAttemptRecoveryArtifactNames();
+    if (names.length !== 0) throw new Error('A skipped recovery upload still has a provider artifact for this attempt.');
+    return output(Object.freeze({ status: 'verified', lane: 'recovery-absent', repository: input.repository,
+      reason: 'upload-skipped-without-provider-artifact', steps, observedAt: ports.now() }));
+  }
+  if (steps.upload.status !== 'completed' || steps.upload.conclusion !== 'success') {
+    throw new Error('verify-integration-recovery produced local recovery without its successful upload step.');
+  }
+  const verified = await ports.readVerifiedHostedRecoveryTransport({ expectedArtifactName: local.artifactName });
+  if (verified.artifactName !== local.artifactName || verified.recoveryDigest !== local.recoveryDigest
+      || verified.preflightDigest !== local.preflightDigest) {
+    throw new Error('Provider recovery artifact members differ from their original local writer.');
+  }
+  return output(Object.freeze({ status: 'verified', lane: 'recovery-uploaded', repository: input.repository,
+    artifactName: local.artifactName, recoveryDigest: local.recoveryDigest, preflightDigest: local.preflightDigest,
+    steps, observedAt: ports.now() }));
 }
 
 export interface HostedIntegrationResumeObservationPorts<SourceAcceptance, SourceAttemptEvidence,
@@ -827,7 +897,7 @@ export async function integrateHostedSession<SourceAcceptance, SourceAttemptEvid
     durableResumePorts: VerificationSessionResumePorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult,
       EventSchema, ClaimSchema, VerificationSessionHostedRequest<RequestSchema>, Transition, Health, SignalSchema>;
   }>, ports: HostedSessionPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, RequestSchema, SignalSchema>
-    & HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, Tracking, MergeInput, SignalSchema>
+    & HostedIntegrationPreflightPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, MergeInput, SignalSchema>
     & HostedIssueDispositionPorts<Tracking, readonly GitHubCheckObservation[]> & HostedRecoveryPreparationPorts
     & HostedIntegrationResumeObservationPorts<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, SignalSchema>
     & HostedIntegrationEffectPorts<Reconciliation>

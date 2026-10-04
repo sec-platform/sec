@@ -1029,7 +1029,7 @@ function compileRepositoryModuleArchitectureAdmission(
   )));
   const facts = Object.freeze({
     ...model,
-    descriptorOperationExports: observeRepositorySourceProgramDescriptorOperationExports(model) ?? undefined,
+    descriptorOperationExports: observeRepositorySourceProgramDescriptorOperationExports(requireCompleteSourceProgramModel(model)) ?? undefined,
     files: Object.freeze(model.files.map((file) => Object.freeze({
       ...file,
       sourceLines: sourceLinesByPath.get(file.path)

@@ -154,7 +154,7 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
             "SEC_CHANGED_BASE": "${{ steps.verification.outputs.base }}",
             "SEC_AFFECTED_TESTS_BASE": "${{ steps.verification.outputs.base }}"
           },
-          "run": "bun src/entry/ci-verification.ts --profile full --expected-head \"$SEC_EXPECTED_HEAD_SHA\""
+          "run": "bun src/bootstrap/development/ci-verification.ts --profile full --expected-head \"$SEC_EXPECTED_HEAD_SHA\""
         },
         {
           "name": "Build and bind exact-head release set",
@@ -276,7 +276,7 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
             "SEC_BOOTSTRAP_TREE": "${{ needs.resolve.outputs.tree }}",
             "SEC_BOOTSTRAP_REGISTRY_DIGEST": "${{ needs.resolve.outputs.registry-digest }}"
           },
-          "run": "set -euo pipefail\nunset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL\nunset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY\nTRUSTED_BASE_ROOT=\"$(realpath \"$TRUSTED_BASE_ROOT\")\"\nCANDIDATE_ROOT=\"$(realpath \"$CANDIDATE_ROOT\")\"\nBOOTSTRAP_EVIDENCE_ROOT=\"$(realpath -m \"$BOOTSTRAP_EVIDENCE_ROOT\")\"\nexport TRUSTED_BASE_ROOT CANDIDATE_ROOT BOOTSTRAP_EVIDENCE_ROOT\nout=\"$BOOTSTRAP_EVIDENCE_ROOT\"\nmkdir -p \"$out\"\n(cd \"$TRUSTED_BASE_ROOT\" && bun --no-env-file src/entry/trusted-bootstrap-verification-cli.ts materialize --output \"$out/checker.mjs\")\nSEC_BOOTSTRAP_PHASE=pre SEC_BOOTSTRAP_RECEIPT=\"$out/pre-receipt.json\" bun \"$out/checker.mjs\"\n(cd \"$out\" && sha256sum checker.mjs pre-receipt.json > SHA256SUMS)\n"
+          "run": "set -euo pipefail\nunset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL\nunset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY\nTRUSTED_BASE_ROOT=\"$(realpath \"$TRUSTED_BASE_ROOT\")\"\nCANDIDATE_ROOT=\"$(realpath \"$CANDIDATE_ROOT\")\"\nBOOTSTRAP_EVIDENCE_ROOT=\"$(realpath -m \"$BOOTSTRAP_EVIDENCE_ROOT\")\"\nexport TRUSTED_BASE_ROOT CANDIDATE_ROOT BOOTSTRAP_EVIDENCE_ROOT\nout=\"$BOOTSTRAP_EVIDENCE_ROOT\"\nmkdir -p \"$out\"\n(cd \"$TRUSTED_BASE_ROOT\" && bun --no-env-file src/bootstrap/development/trusted-bootstrap-verification-cli.ts materialize --output \"$out/checker.mjs\")\nSEC_BOOTSTRAP_PHASE=pre SEC_BOOTSTRAP_RECEIPT=\"$out/pre-receipt.json\" bun \"$out/checker.mjs\"\n(cd \"$out\" && sha256sum checker.mjs pre-receipt.json > SHA256SUMS)\n"
         },
         {
           "name": "Upload bounded checker PRE artifact",
@@ -373,7 +373,7 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
             "SEC_WORK_PACKAGE_MANIFEST_PATH": "${{ needs.resolve.outputs.manifest }}",
             "SEC_REPOSITORY_AUDIT_DEFAULT_REF": "${{ needs.resolve.outputs.base }}"
           },
-          "run": "set -euo pipefail\nunset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL\nunset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY\nbun src/entry/ci-verification.ts execute-trusted-bootstrap-sut \\\n  --base-root \"$BASE_SUT_ROOT\" \\\n  --candidate-root \"$CANDIDATE_ROOT\" \\\n  --output-directory \"$SUT_EVIDENCE_ROOT\" \\\n  --base-sha \"$SEC_BOOTSTRAP_BASE\" \\\n  --head-sha \"$SEC_BOOTSTRAP_HEAD\" \\\n  --tree-sha \"$SEC_BOOTSTRAP_TREE\" \\\n  --manifest-path \"$SEC_WORK_PACKAGE_MANIFEST_PATH\"\n"
+          "run": "set -euo pipefail\nunset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL\nunset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY\nbun src/bootstrap/development/ci-verification.ts execute-trusted-bootstrap-sut \\\n  --base-root \"$BASE_SUT_ROOT\" \\\n  --candidate-root \"$CANDIDATE_ROOT\" \\\n  --output-directory \"$SUT_EVIDENCE_ROOT\" \\\n  --base-sha \"$SEC_BOOTSTRAP_BASE\" \\\n  --head-sha \"$SEC_BOOTSTRAP_HEAD\" \\\n  --tree-sha \"$SEC_BOOTSTRAP_TREE\" \\\n  --manifest-path \"$SEC_WORK_PACKAGE_MANIFEST_PATH\"\n"
         },
         {
           "name": "Upload bounded candidate SUT artifact",
