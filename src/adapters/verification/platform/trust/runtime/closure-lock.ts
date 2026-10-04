@@ -1401,9 +1401,11 @@ function readTcbClosureCandidateModule(
   return Buffer.from(observation.bytes);
 }
 
+/** Finalize once and return analysis-only identities of every actual raw-byte read.
+ * A null digest records an observed absence; it never means an unread input. */
 export function finalizeTcbClosureCandidateSnapshot(
   snapshot: TcbClosureCandidateSnapshot
-): void {
+): Readonly<Record<string, string | null>> {
   const candidateRoot = resolveTcbClosureCandidateRoot({ candidateSnapshot: snapshot });
   for (const repositoryPath of [...candidateRoot.observations.keys()].sort()) {
     assertTcbClosureCandidateObservationCurrent(
@@ -1413,6 +1415,12 @@ export function finalizeTcbClosureCandidateSnapshot(
   }
   assertTcbClosureCandidateRootCurrent(candidateRoot);
   candidateRoot.finalized = true;
+  return Object.freeze(Object.fromEntries(
+    [...candidateRoot.observations.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([repositoryPath, observation]) => [
+        repositoryPath, observation.kind === 'missing' ? null : computeContentDigest(observation.bytes)
+      ])
+  ));
 }
 
 export function readTcbClosureCandidateFile(

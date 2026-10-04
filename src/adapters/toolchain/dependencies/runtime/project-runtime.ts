@@ -7495,7 +7495,7 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
   generationPath: string;
   generationPhysical: GeneratedStatePhysicalIdentity;
   identity: CompilerDependencyIdentity;
-  options: RuntimeDependencyInstallOptions;
+  options: RuntimeDependencyOperationOptions;
   root: string;
   stageRoot: DependencyTransitionSlot | null;
   stageRootPath: string | null;

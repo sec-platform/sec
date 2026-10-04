@@ -55,6 +55,7 @@ import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_A
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
+import { settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
 const actualCommandRunner = await import('../../src/adapters/self-hosting/development/runner/command-runner.ts');
@@ -953,8 +954,8 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(Object.isFrozen(admission.attempt)).toBe(true);
 });
 
-test.skipIf(process.platform !== 'win32')(
-  'fast batch binds the selected physical observer once without replacing admission identity or deadline',
+test.skipIf(process.platform !== 'win32' && !(process.platform === 'linux' && process.arch === 'x64'))(
+  'fast batch preserves the selected physical observer effects, identity and deadline',
   () => {
     const testInventory = testImpactFixture.provider.testInventory;
     const budgetProjection = compileTestBudgetProjection(testInventory);
@@ -965,22 +966,30 @@ test.skipIf(process.platform !== 'win32')(
       bunOptions: []
     });
     const admission = admitFastTestBatchExecutionPolicy(policy);
-    const resolution = prepareRepositoryChangeObserver({ roots: [testImpactFixture.repositoryRoot] });
+    const resolution = prepareRepositoryChangeObserver({
+      roots: [process.platform === 'linux' ? compilerRoot : testImpactFixture.repositoryRoot]
+    });
     expect(resolution.status).toBe('ready');
-    if (resolution.status !== 'ready') throw new Error('Windows observer preparation failed.');
+    if (resolution.status !== 'ready') throw new Error('Physical observer preparation requires a qualified test host.');
+    let primary: ResourceSettlementFailure | undefined;
     try {
       const binding = repositoryChangeObserverBinding(resolution.prepared);
       const operation = bindFastTestBatchExecutionAdmission(admission, resolution.prepared);
       expect(operation.bindings).toEqual([binding]);
       expect(operation.plan.execution.requirements[0]!.id).toBe(binding.requirementId);
       expect(operation.plan.execution.requirements[0]!.contractDigest).toBe(binding.contractDigest);
+      expect(operation.plan.execution.requirements[0]!.effectKinds).toEqual(
+        process.platform === 'linux' ? ['filesystem', 'process'] : ['filesystem']
+      );
       expect(operation.plan.attempt.attemptNonceDigest).toBe(admission.attempt.attemptNonceDigest);
       expect(operation.plan.attempt.deadlineAtUnixMs).toBe(admission.logicalDeadlineAtUnixMs);
       expect(() => bindFastTestBatchExecutionAdmission(admission, resolution.prepared))
         .toThrow('already bound');
-    } finally {
-      disposePreparedRepositoryChangeObserver(resolution.prepared);
-    }
+    } catch (error) { primary = { label: 'observer-binding-assertions', error }; }
+    settleResources({ primary, cleanup: [{
+      label: 'prepared-observer',
+      settle: () => disposePreparedRepositoryChangeObserver(resolution.prepared)
+    }] });
   }
 );
 

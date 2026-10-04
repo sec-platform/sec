@@ -29,7 +29,7 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 3. 可以 materialize 已冻结的 test body/fixture/adapter；若出现新的 proof 缺口或必须改变测试语义，向主线程 A0 回交 `test-design-required` 及最小反例。A0 在已有授权内补齐设计后续交同一任务，这不是用户审批点；Worker 不在 implement 中自行改变 Claim/oracle。
 4. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
 5. candidate稳定后消费selector的`RequiredClosure ∩ MissingOrStale`；在取得新依赖projection或启动进程前先查fresh PASS、unchanged FAIL与authenticated in-flight，分别reuse、stop、join。重试资格由原owner按attempt/错误分类决定；不得把“每个ActionKey一次”扩大为禁止合同允许的瞬态恢复。新物理开始由真实资源owner准入，配置worker数不是已执行并发证明。
-6. 经真实提交准入只 stage Envelope owned paths，按下述独立检查点与最终集成的边界materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
+6. 经真实提交准入只 stage Envelope owned paths，按下述独立检查点与最终集成的边界materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。**Branch/ref 是进行中差异的临时载体，不是历史档案。** 每个非默认 ref 在创建时必须有当前 owner、唯一任务/候选身份、可观察终态与 retirement responsibility；同一任务默认复用原 ref，只有确有独立并行主体、不可变审查主体或恢复前置时才允许新 ref。新候选替代旧候选后，旧 ref 不得因 checkpoint/source/recovery/qualification/transport 命名而自动保留；在确认其唯一源码/证据/恢复消费者已由 main、后继对象或 durable receipt 承接后，由原 lifecycle owner 按 exact identity、recovery、CAS 与 readback 合同及时退役。工作完成若仍留下无独立消费者的临时 ref，属于未结算 residue，不能报告仓库终态完成；禁止以递增 `-v2/-v3/-newN/-isolated` 分支替代同一 ref 上的正常修复、重基或候选更新。
 7. 完成前检查本次维护者修正或行为变化是否触发[heuristic-governance](../heuristic-governance/SKILL.md)；相交时调用该既有owner并消费其完成证据，不在Worker中重建纠错算法。核对相交规则、唯一owner入口、实际消费者与持久决策的一致性，并在各自原owner同步真实变化；已有规则已覆盖反例时修复执行或接合，不另写重复规则或操作规程。规范语义未变时遵守AGENTS的docs写入准入；未闭合项保留owner、影响与恢复条件，不能仅在聊天中确认后宣称完成。
 8. 返回exact base/head/tree、changed symbols、Action/Evidence delta、blocker与next seam；分开源码检查、fixture/隔离运行、真实平台作用及未验证范围。冻结patch/manifest等交付保存在有明确保留责任的任务制品位置并回读，不能只交指向可淘汰cache的路径；这不授权归档整套依赖或另建恢复owner。
 

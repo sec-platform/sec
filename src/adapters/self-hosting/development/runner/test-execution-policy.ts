@@ -10,6 +10,7 @@ import {
 } from '../../../../execution/operation/semantic.ts';
 import {
   repositoryChangeObserverBinding,
+  repositoryChangeObserverEffectKinds,
   type PreparedRepositoryChangeObserver
 } from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import {
@@ -295,7 +296,7 @@ export function bindFastTestBatchExecutionAdmission(
     requirements: [{
       id: providerBinding.requirementId,
       contractDigest: providerBinding.contractDigest,
-      effectKinds: ['filesystem'],
+      effectKinds: repositoryChangeObserverEffectKinds(observer),
       failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
     }]
   });

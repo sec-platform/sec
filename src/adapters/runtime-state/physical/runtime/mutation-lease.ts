@@ -945,7 +945,7 @@ function adoptLegacyPhysicalMutationCoordinationResource(parent: PhysicalDirecto
   const guardName = anchorNameFor(namespaceLeaf, 'namespace-coordination');
   const anchor = inspectNoFollowOrdinaryFileEntry(parent, guardName, { maximumBytes: 8192 });
   if (anchor === null) return createGuardedLegacyCoordinationAdoption(parent, name, namespaceLeaf, guardName, legacyBytes, legacy.activeOwner);
-  return resumeGuardedLegacyCoordinationAdoption(parent, name, namespaceLeaf, guardName, anchor, legacyBytes, legacy.activeOwner);
+  return resumeGuardedLegacyCoordinationAdoption(parent, name, namespaceLeaf, guardName, anchor, legacy.activeOwner);
 }
 
 function retainedCoordinationAdoptionBinding(parent: PhysicalDirectoryIdentity, material: CoordinationAnchorMaterial,
@@ -1043,7 +1043,7 @@ function parseRetainedCoordinationMaterial(bytes: Uint8Array, parent: PhysicalDi
  * and the durable record CAS. The retained anchor resumes exactly that step;
  * a record already completed into the guarded protocol is returned as-is. */
 function resumeGuardedLegacyCoordinationAdoption(parent: PhysicalDirectoryIdentity, name: string, namespaceLeaf: string,
-  guardName: string, anchor: NoFollowDirectoryTreeEntry, legacyBytes: Buffer,
+  guardName: string, anchor: NoFollowDirectoryTreeEntry,
   legacyOwner: PhysicalMutationLeaseOwner): PhysicalMutationCoordinationResource {
   const material = anchor.bytes === null ? null : parseRetainedCoordinationMaterial(anchor.bytes, parent, name, namespaceLeaf);
   if (material === null) throw new PhysicalMutationCoordinationBlockedError('unknown',
