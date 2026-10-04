@@ -5,7 +5,7 @@ import { syntheticTestFindingComparison } from '../../../../tests/testkit/source
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext } from '../../../execution/operation/semantic.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel } from '../source-program-model/contract.ts';
 import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
 import { querySourceProgramModel } from '../source-program-model/typescript.ts';
@@ -1206,7 +1206,7 @@ test('test-obligations candidate scope preserves source facts and refuses ordina
     subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
       baseSnapshotDigest: digest('candidate-scope-fixture'), mutationDigest: sourceRevision } },
     files,
-    moduleMembership: compileSecRepositoryModuleMembershipSnapshot({
+    moduleMembership: compileRepositoryModuleMembershipSnapshot({
       repositoryFiles: files.map(({ path }) => path),
       descriptorSources: [{ descriptorPath, source: descriptorSource }]
     })

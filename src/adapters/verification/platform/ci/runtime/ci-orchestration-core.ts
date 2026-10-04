@@ -5,7 +5,7 @@ import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
 import type { BoundSemanticOperation } from '../../../../../execution/operation/semantic.ts';
 import { GitReadAuthorityError } from '../../../../providers/git-read/authority.ts';
-import { CodexDevelopmentReadExactGitBlobBytesBatchFromSession } from '../../../../providers/git-read/exact-blob.ts';
+import { readExactGitBlobBytesBatchFromSession } from '../../../../providers/git-read/exact-blob.ts';
 import {
   assertProductionGitReadSession,
   type GitBlobBytes,
@@ -157,7 +157,7 @@ export async function CodexDevelopmentReadExactGitBlobs(
     mode: entry.mode,
     type: 'blob'
   }));
-  const observed = await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, {
+  const observed = await readExactGitBlobBytesBatchFromSession(session, {
     entries: orderedEntries
   });
   const blobs = new Map<string, GitBlobBytes>();

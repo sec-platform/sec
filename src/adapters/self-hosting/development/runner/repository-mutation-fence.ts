@@ -13,6 +13,7 @@ import {
   armRepositoryChangeObserver,
   disposePreparedRepositoryChangeObserver,
   prepareRepositoryChangeObserver,
+  repositoryInputZeroWritesProven,
   settlePreparedRepositoryChangeObserver,
   settleRepositoryChangeObserver,
   type PreparedRepositoryChangeObserver,
@@ -48,7 +49,7 @@ export interface RepositoryMutationFenceOptions {
 
 export type RepositoryObserverFailureDiagnostic = Readonly<{
   schema: 'sec-repository-observer-failure-diagnostic-v1';
-  status: Exclude<RepositoryChangeObserverSettlement['status'], 'zero-events'>;
+  status: Exclude<RepositoryChangeObserverSettlement['status'], 'zero-events' | 'immutable-input'>;
   rootIdentityDigest: `sha256:${string}`;
   eventCount?: number;
   observationDigest?: `sha256:${string}`;
@@ -62,7 +63,7 @@ export type RepositoryObserverFailureDiagnostic = Readonly<{
 
 /** Bounded diagnostic projection only; it cannot authorize or excuse a write. */
 export function projectRepositoryObserverFailureDiagnostic(
-  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'zero-events' }>,
+  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'zero-events' | 'immutable-input' }>,
   roots: readonly string[]
 ): RepositoryObserverFailureDiagnostic {
   if (settlement.status !== 'events') {
@@ -350,7 +351,7 @@ export async function runRepositoryZeroWriteOperation(
         }
         // A failed command does not erase a second loss-of-observation result.
         // Keep the native settlement as cause; display text is not the evidence.
-        if (primary !== undefined && settlement.status !== 'zero-events') {
+        if (primary !== undefined && !repositoryInputZeroWritesProven(settlement)) {
           throw new RepositoryObservationError('physical-unresolved',
             'Repository change observation did not establish zero writes', settlement);
         }
@@ -360,7 +361,7 @@ export async function runRepositoryZeroWriteOperation(
       } }])
     ]
   });
-  if (settlement!.status !== 'zero-events') {
+  if (!repositoryInputZeroWritesProven(settlement!)) {
     const diagnostic = projectRepositoryObserverFailureDiagnostic(settlement!, roots);
     observeOptionalDiagnostic(() => report(
       `${commandId} mutated or lost continuous observation of repository state; `

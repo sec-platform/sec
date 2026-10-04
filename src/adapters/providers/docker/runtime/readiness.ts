@@ -17,13 +17,13 @@ import {
   type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import type {
-  SecDurableExecutionDigest
+  DurableExecutionDigest
 } from '../../../runtime-state/workspace-state/durable-execution/contract.ts';
 import {
   createDurableExecutionWriter,
   durableExecutionJournalIdentity,
   durableExecutionPredecessorAttemptReference,
-  type SecDurableExecutionWriter
+  type DurableExecutionWriter
 } from '../../../runtime-state/workspace-state/durable-execution/store.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -218,7 +218,7 @@ async function observeWithOwnedProvider(input: Readonly<{
 function durableWriter(input: Readonly<{
   authority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>>;
   repositoryRoot: string;
-}>): SecDurableExecutionWriter {
+}>): DurableExecutionWriter {
   const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: input.repositoryRoot });
   return createDurableExecutionWriter({
     fileSystem: createRuntimeStateJournalFileSystem(
@@ -315,7 +315,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
   let journalAuthority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>> | null = null;
   const completion = (async (): Promise<LocalContainerEngineReadiness> => {
     try {
-    let writer: SecDurableExecutionWriter | null = null;
+    let writer: DurableExecutionWriter | null = null;
     let retryAlreadyClaimed = false;
     if (mode === 'ensure-started' && process.platform === 'win32') {
       journalAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: cwd });
@@ -442,7 +442,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
             writer.appendRecoveredRetryAttemptStart(
               recovery,
               operation,
-              sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest,
+              sha256('sec.docker.desktop-launcher-worker') as DurableExecutionDigest,
               retryAdmission,
               currentPhysicalEpochDigest
             );
@@ -481,7 +481,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           writer!.createIntent(operation);
           writer!.appendInitialAttemptStart(
             operation,
-            sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest
+            sha256('sec.docker.desktop-launcher-worker') as DurableExecutionDigest
           );
         },
         observeDesktopLaunchSettlement: (settlement) => {

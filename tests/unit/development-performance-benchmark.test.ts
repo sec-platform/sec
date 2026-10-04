@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
 import {
-  buildDevelopmentPerformanceScenarioV1
+  buildDevelopmentPerformanceScenario
 } from '../../src/adapters/verification/platform/benchmark/development-performance.ts';
 
 test('development closeout performance scenario exposes the complete critical-path measurement surface', () => {
-  const scenario = buildDevelopmentPerformanceScenarioV1();
+  const scenario = buildDevelopmentPerformanceScenario();
   expect(scenario.scenarioId).toBe('development-closeout-v1');
   expect(scenario.stages).toEqual([
     'finalize',
@@ -44,7 +44,7 @@ test('development closeout performance scenario exposes the complete critical-pa
 });
 
 test('development performance catalog is descriptive and has no invented baseline or percentile threshold', () => {
-  const scenario = buildDevelopmentPerformanceScenarioV1();
+  const scenario = buildDevelopmentPerformanceScenario();
   const encoded = JSON.stringify(scenario);
   expect(new Set(scenario.metrics.map(({ id }) => id)).size).toBe(scenario.metrics.length);
   expect(encoded).not.toContain('p50');

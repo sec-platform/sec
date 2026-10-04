@@ -5,7 +5,7 @@ import { createBranchCloseoutOperationBinding } from '../../../../self-hosting/c
 
 import { exactCommitMarker } from './merge-commit-marker.ts';
 
-import type { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
+import type { parseVerificationSessionHostedRequest } from "../contract/session-request.ts";
 
 export function selectMergedAuthorizationPublication(input: {
   candidate: GitHubCandidateObservation;

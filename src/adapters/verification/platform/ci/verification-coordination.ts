@@ -1,34 +1,27 @@
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
 import type { VerificationEvidence } from '../../../../execution/verification/session.ts';
 import { encodeVerificationActionData, isVerificationActionRunnable, type VerificationActionDependencyResolution } from '../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
+import { resolveCiVerificationHostedExecutionEnvironment } from '../action/contract/ci.ts';
 import { reduceVerificationActionProviderState, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
 import { aggregateV4Status, CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationActionArtifactProducer, type CodexDevelopmentVerificationActionTerminalArtifact } from './contract/evidence.ts';
-import {
-  CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentReduceHostedSutObservation,
-  CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2,
-  type CodexDevelopmentHostedActionRawResult
-} from './contract/hosted-sut-observation.ts';
-import {
-  type VerificationSessionHostedEnvelope
-} from './runtime/verification-session-runtime.ts';
-import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedActionStartObservation, CodexDevelopmentHostedActionTerminalAnchorObservation } from './verification-hosted-action-contract.ts';
+import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentReduceHostedSutObservation, CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2 } from './contract/hosted-sut-observation.ts';
+import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionStartObservation, CodexDevelopmentHostedActionTerminalAnchorObservation } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import { hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
 export function CodexDevelopmentParseHostedActionRawResult(
   source: string
-): CodexDevelopmentHostedActionRawResult {
+): HostedActionRawResult<typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   return parseHostedActionRawResultContractV2(source);
 }
 
 export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  ticket: CodexDevelopmentHostedActionExecutionTicket;
-  rawResult: CodexDevelopmentHostedActionRawResult;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
+  ticket: HostedActionExecutionTicket<import("./contract/evidence.ts").CodexDevelopmentVerificationActionArtifactProducer, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA>;
+  rawResult: HostedActionRawResult<typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   expectedRawResultDigest: VerificationActionKeyDigest;
   producer: CodexDevelopmentVerificationActionArtifactProducer;
 }>): CodexDevelopmentVerificationActionTerminalArtifact {
@@ -83,7 +76,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
     normalizedOperation,
     result: terminal.result,
     cleanup: terminal.cleanup,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment: resolveCiVerificationHostedExecutionEnvironment(resolution.actionPlan.action.environment.providerRevision),
     input: resolution.artifactInput,
     producer: input.producer,
     executionProof: terminal.proof
@@ -131,7 +124,7 @@ function deriveHostedSyntheticNotRunActionKeys(
 }
 
 export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
-  envelope: VerificationSessionHostedEnvelope;
+  envelope: VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
   startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
   terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];
@@ -175,7 +168,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
       const member = membersByKey.get(actionKey)!;
       CodexDevelopmentAssertVerificationActionTerminalArtifact(observation.artifact, {
         actionPlan: member,
-        executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
+        executionEnvironmentRevision: resolveCiVerificationHostedExecutionEnvironment(member.action.environment.providerRevision).executionEnvironmentRevision
       });
       if (provider.payload === null || provider.payload.payloadDigest !== observation.artifact.artifactDigest ||
           provider.payload.actionKey !== actionKey || provider.payload.candidateSha !== envelope.session.headSha ||
@@ -229,7 +222,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
       repository: envelope.scopeAuthorization.repository,
       actionKey,
       candidateSha: envelope.session.headSha,
-      executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+      executionEnvironmentRevision: resolveCiVerificationHostedExecutionEnvironment(member.action.environment.providerRevision).executionEnvironmentRevision,
       statusReadback: statusReadbacksByKey.get(actionKey)!,
       startObservations: startsByKey.has(actionKey) ? [startsByKey.get(actionKey)!] : [],
       terminalObservations: terminalsByKey.has(actionKey)
@@ -310,7 +303,7 @@ function finalizeCoordination(
 }
 
 export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
-  envelope: VerificationSessionHostedEnvelope;
+  envelope: VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
   startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
   terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];

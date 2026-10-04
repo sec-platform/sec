@@ -65,7 +65,7 @@ function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAff
 test('local affected plan selects docs doctor alone for pure active documentation', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     ['docs/运行/保证/要求证据与裁决.md'],
-    ['tests/unit/codex-work-package-contract.test.ts']
+    ['tests/unit/work-package-contract.test.ts']
   ));
 
   expect(gateIds(plan)).toEqual(['docs:doctor']);

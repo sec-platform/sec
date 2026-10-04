@@ -13,20 +13,20 @@ import {
   assertAgentOperationActivationWorkPackageCensus
 } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation-census.ts';
 import {
-  createSecAgentOperationActivationPreparation,
-  createSecAgentOperationActivationProvider,
-  createSecAgentOperationActivationPublication,
-  createSecAgentOperationActivationReceipt,
-  createSecAgentOperationActivationRequest,
-  parseSecAgentOperationActivationPreparation,
-  parseSecAgentOperationActivationPublicationComment,
-  parseSecAgentOperationActivationReceipt,
-  renderSecAgentOperationActivationPublicationComment,
-  secAgentOperationActivationArtifactName,
-  secAgentOperationActivationOperationId,
-  type SecAgentOperationActivationPreparationInput,
-  type SecAgentOperationActivationProvider,
-  type SecAgentOperationActivationRequest
+  agentOperationActivationArtifactName,
+  agentOperationActivationOperationId,
+  createAgentOperationActivationPreparation,
+  createAgentOperationActivationProvider,
+  createAgentOperationActivationPublication,
+  createAgentOperationActivationReceipt,
+  createAgentOperationActivationRequest,
+  parseAgentOperationActivationPreparation,
+  parseAgentOperationActivationPublicationComment,
+  parseAgentOperationActivationReceipt,
+  renderAgentOperationActivationPublicationComment,
+  type AgentOperationActivationPreparationInput,
+  type AgentOperationActivationProvider,
+  type AgentOperationActivationRequest
 } from '../../src/adapters/self-hosting/control/agent/operation-activation.ts';
 
 const sha = (character: string): string => character.repeat(40);
@@ -55,8 +55,8 @@ test('activation test census accepts colocated regular blobs and rejects non-fil
   }
 });
 
-function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProvider {
-  return createSecAgentOperationActivationProvider({
+function provider(runId: string, workflowSha = sha('a')): AgentOperationActivationProvider {
+  return createAgentOperationActivationProvider({
     repositoryId: '123',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${workflowSha}`,
@@ -73,8 +73,8 @@ function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActiv
   });
 }
 
-function prepareRequest(): SecAgentOperationActivationRequest {
-  return createSecAgentOperationActivationRequest({
+function prepareRequest(): AgentOperationActivationRequest {
+  return createAgentOperationActivationRequest({
     phase: 'prepare',
     pullRequestNumber: 400,
     expectedBaseSha: sha('a'),
@@ -85,7 +85,7 @@ function prepareRequest(): SecAgentOperationActivationRequest {
   });
 }
 
-function preparationInput(): SecAgentOperationActivationPreparationInput {
+function preparationInput(): AgentOperationActivationPreparationInput {
   const request = prepareRequest();
   return {
     request,
@@ -123,7 +123,7 @@ function preparationInput(): SecAgentOperationActivationPreparationInput {
       'config/repository/rolling-plan.md',
       'config/repository/work-packages/delegation-consumer-zero-retirement-v1.md'
     ],
-    operationId: secAgentOperationActivationOperationId(request.requestOperationId),
+    operationId: agentOperationActivationOperationId(request.requestOperationId),
     role: 'worker',
     operationKind: 'implement',
     workDecisionReceiptDigest: digest('6'),
@@ -157,21 +157,21 @@ tests:
 }
 
 test('hosted PRE is canonical and binds request, provider, and full manifest scope', () => {
-  const first = createSecAgentOperationActivationPreparation(preparationInput());
-  const second = createSecAgentOperationActivationPreparation({
+  const first = createAgentOperationActivationPreparation(preparationInput());
+  const second = createAgentOperationActivationPreparation({
     ...preparationInput(),
     authorizedPaths: [...preparationInput().authorizedPaths].reverse(),
     proposalChangedPaths: [...preparationInput().proposalChangedPaths].reverse()
   });
   expect(second).toEqual(first);
-  expect(parseSecAgentOperationActivationPreparation(
+  expect(parseAgentOperationActivationPreparation(
     JSON.parse(JSON.stringify(first))
   )).toEqual(first);
-  expect(() => createSecAgentOperationActivationPreparation({
+  expect(() => createAgentOperationActivationPreparation({
     ...preparationInput(),
     proposalChangedPaths: ['source/forbidden.ts']
   })).toThrow(/scope is inconsistent/u);
-  expect(() => createSecAgentOperationActivationPreparation({
+  expect(() => createAgentOperationActivationPreparation({
     ...preparationInput(),
     provider: provider('11', sha('e'))
   })).toThrow(/scope is inconsistent/u);
@@ -211,8 +211,8 @@ test('hosted PRE requires every stale default-branch Work Package to be deleted'
 });
 
 test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE scope', () => {
-  const preparation = createSecAgentOperationActivationPreparation(preparationInput());
-  const request = createSecAgentOperationActivationRequest({
+  const preparation = createAgentOperationActivationPreparation(preparationInput());
+  const request = createAgentOperationActivationRequest({
     phase: 'finalize',
     pullRequestNumber: preparation.proposal.number,
     expectedBaseSha: preparation.trustedBaseSha,
@@ -221,7 +221,7 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     manifestDigest: preparation.proposal.manifestDigest,
     preparationCommentId: 501
   });
-  const receipt = createSecAgentOperationActivationReceipt({
+  const receipt = createAgentOperationActivationReceipt({
     request,
     preparation,
     pullRequest: {
@@ -238,15 +238,15 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     workDecisionDecisionDigest: digest('9'),
     provider: provider('12')
   });
-  expect(parseSecAgentOperationActivationReceipt(
+  expect(parseAgentOperationActivationReceipt(
     JSON.parse(JSON.stringify(receipt))
   )).toEqual(receipt);
   const { schema: _receiptSchema, activationDigest: _activationDigest, ...receiptInput } = receipt;
-  expect(() => createSecAgentOperationActivationReceipt({
+  expect(() => createAgentOperationActivationReceipt({
     ...receiptInput,
     changedPaths: ['source/forbidden.ts']
   })).toThrow(/exact PRE authority/u);
-  expect(() => createSecAgentOperationActivationReceipt({
+  expect(() => createAgentOperationActivationReceipt({
     ...receiptInput,
     controlDigests: { ...preparation.controlDigests, rollingPlan: digest('f') }
   })).toThrow(/exact PRE authority/u);
@@ -254,22 +254,22 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
 
 test('App comment is only a canonical immutable-artifact locator', () => {
   const request = prepareRequest();
-  const publication = createSecAgentOperationActivationPublication({
+  const publication = createAgentOperationActivationPublication({
     request,
     payloadDigest: digest('a'),
     artifactId: '9001',
-    artifactName: secAgentOperationActivationArtifactName(
+    artifactName: agentOperationActivationArtifactName(
       request.phase, request.requestOperationId
     ),
     artifactFileName: 'agent-operation-activation.json',
     artifactDigest: digest('b'),
     provider: provider('11')
   });
-  const rendered = renderSecAgentOperationActivationPublicationComment(publication);
-  expect(parseSecAgentOperationActivationPublicationComment(rendered)).toEqual(publication);
+  const rendered = renderAgentOperationActivationPublicationComment(publication);
+  expect(parseAgentOperationActivationPublicationComment(rendered)).toEqual(publication);
   expect(rendered).not.toContain('authorizedPaths');
   const { schema: _publicationSchema, publicationDigest: _publicationDigest, ...publicationInput } = publication;
-  expect(() => createSecAgentOperationActivationPublication({
+  expect(() => createAgentOperationActivationPublication({
     ...publicationInput,
     artifactName: 'candidate-local-ref'
   })).toThrow(/artifact name/u);
@@ -277,13 +277,13 @@ test('App comment is only a canonical immutable-artifact locator', () => {
 
 test('candidate-local objects cannot satisfy the hosted provider schema', () => {
   const { schema: _providerSchema, providerDigest: _providerDigest, ...providerInput } = provider('11');
-  expect(() => createSecAgentOperationActivationProvider({
+  expect(() => createAgentOperationActivationProvider({
     ...providerInput,
     workflowPath: '.github/workflows/candidate.yml',
     workflowRef: `.github/workflows/candidate.yml@${sha('a')}`
   } as never)).toThrow(/provider workflow/u);
   const { schema: _requestSchema, requestOperationId: _requestOperationId, ...requestInput } = prepareRequest();
-  expect(() => createSecAgentOperationActivationRequest({
+  expect(() => createAgentOperationActivationRequest({
     ...requestInput,
     phase: 'finalize',
     preparationCommentId: null

@@ -641,57 +641,31 @@ test('machine cutover rejects malformed and foreign auxiliary-only static eviden
       if (candidate === 'malformed-pointer') {
         let failure: unknown;
         try { attemptCutover(); } catch (error) { failure = error; }
-        expect(failure).toBeInstanceOf(AggregateError);
-        const errors = Object.getOwnPropertyDescriptor(failure as object, 'errors')?.value;
-        expect(Array.isArray(errors)).toBe(true);
-        expect(errors).toHaveLength(2);
-        expect(errors[0]).toBeInstanceOf(VerificationActionJournalError);
-        expect(errors[0].kind).toBe('corrupt-journal');
-        expect(errors[0].message).toBe('VerificationAction journal legacy static pointer digest mismatch.');
-        expect(errors[1]).toBeInstanceOf(Error);
-        expect(errors[1].message).toBe('Journal first-data publication is unresolved; initialization residue is preserved.');
+        expect(failure).toBeInstanceOf(VerificationActionJournalError);
+        expect((failure as VerificationActionJournalError).kind).toBe('corrupt-journal');
+        expect((failure as Error).message).toBe('VerificationAction journal legacy static pointer digest mismatch.');
         expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
         expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
         const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
         const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), 'Rejected cutover control readback').target;
         const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
         const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
-        expect(control).toMatchObject({
-          leaseName,
-          resourceName: VERIFICATION_ACTION_MACHINE_CUTOVER_FILE,
-          state: 'initializing'
-        });
-        expect(existsSync(path.join(receiptParent.path, control!.anchorName))).toBe(true);
+        expect(control).toBeNull();
+        expect(readdirSync(receiptParent.path)).toEqual([]);
       } else {
         let failure: unknown;
         try { attemptCutover(); } catch (error) { failure = error; }
-        expect(failure).toBeInstanceOf(AggregateError);
-        const errors = Object.getOwnPropertyDescriptor(failure as object, 'errors')?.value;
-        expect(Array.isArray(errors)).toBe(true);
-        expect(errors).toHaveLength(2);
-        expect(errors[0]).toBeInstanceOf(VerificationActionJournalError);
-        expect(errors[0].kind).toBe('corrupt-journal');
-        expect(errors[0].message).toBe('VerificationAction journal legacy static closure schema is unknown.');
-        expect(errors[1]).toBeInstanceOf(Error);
-        expect(errors[1].message).toBe('Journal first-data publication is unresolved; initialization residue is preserved.');
+        expect(failure).toBeInstanceOf(VerificationActionJournalError);
+        expect((failure as VerificationActionJournalError).kind).toBe('corrupt-journal');
+        expect((failure as Error).message).toBe('VerificationAction journal legacy static closure schema is unknown.');
         expect(readFileSync(auxiliary.pointerPath)).toEqual(originalPointerBytes);
         expect(readFileSync(auxiliary.closurePath)).toEqual(originalClosureBytes);
         const receiptPath = path.join(stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, VERIFICATION_ACTION_MACHINE_CUTOVER_FILE);
         const receiptParent = inspectNoFollowDirectoryChain(path.dirname(receiptPath), 'Rejected foreign closure control readback').target;
         const leaseName = runtimeStateJournalMutationLeaseName(stateRoot, receiptPath);
         const control = observePhysicalJournalMutationEntry(receiptParent, leaseName);
-        expect(control).toMatchObject({
-          leaseName,
-          resourceName: VERIFICATION_ACTION_MACHINE_CUTOVER_FILE,
-          state: 'initializing'
-        });
-        expect(existsSync(path.join(receiptParent.path, control!.anchorName))).toBe(true);
-        const record = JSON.parse(readFileSync(path.join(receiptParent.path, leaseName), 'utf8'));
-        expect(record.phase).toBe('initializing');
-        expect(record.activeOwner.pid).toBe(process.pid);
-        expect(record.activeOwner.host).toBe(hostname());
-        expect(record.recoveryOwner).toBeNull();
-        expect(record.binding.material.effectDomain).toBe('direct-canonical-journal-records');
+        expect(control).toBeNull();
+        expect(readdirSync(receiptParent.path)).toEqual([]);
       }
       expect(existsSync(path.join(
         stateRoot,

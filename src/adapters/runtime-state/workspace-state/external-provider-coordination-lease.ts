@@ -205,7 +205,7 @@ function externalProviderCoordinationSegments(input: Readonly<{
   return Object.freeze([...segments, 'external-providers']);
 }
 
-export function secUserExternalProviderCoordinationPath(input: Readonly<{
+export function userExternalProviderCoordinationPath(input: Readonly<{
   localAppData: string;
   repositoryRoot: string;
 }>): string {
@@ -388,7 +388,7 @@ export async function withExternalProviderCoordinationLeaseAtOwnerIssuedRoot<T>(
  * The current token's Known Folder is read from the OS; ambient LOCALAPPDATA
  * and provider-owned directories never participate in SEC lease placement.
  */
-export async function withSecUserExternalProviderCoordinationLease<T>(input: Readonly<{
+export async function withUserExternalProviderCoordinationLease<T>(input: Readonly<{
   coordination: ExternalProviderCoordinationLeaseInput;
   operation: (lease: ExternalProviderCoordinationLease) => Promise<T>;
 }>): Promise<T | null> {
@@ -406,7 +406,7 @@ export async function withSecUserExternalProviderCoordinationLease<T>(input: Rea
       mode: 'create-or-open',
       segments
     });
-    if (retained.root.path !== localAppData || retained.path !== secUserExternalProviderCoordinationPath({
+    if (retained.root.path !== localAppData || retained.path !== userExternalProviderCoordinationPath({
       localAppData: retained.root.path,
       repositoryRoot: coordination.repositoryRoot
     })) {

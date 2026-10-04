@@ -268,7 +268,7 @@ export type BranchLifecycleClassification =
   | 'protected-pending'
   | 'orphan-unknown';
 
-export interface HostedWorkflowCommentProvenance {
+export interface DirectHostedWorkflowCommentProvenance {
   schema: "sec-hosted-workflow-comment-provenance-v1";
   repositoryId: string;
   workflowPath: '.github/workflows/merge-gate.yml';
@@ -289,6 +289,24 @@ export interface HostedWorkflowCommentProvenance {
   };
   provenanceDigest: `sha256:${string}`;
 }
+
+/** Historical locator data. Native readers independently capture and authenticate
+ * the original delegated Session; this carrier never grants effect authority. */
+export interface DelegatedHostedWorkflowCommentProvenance extends Omit<
+  DirectHostedWorkflowCommentProvenance, 'schema' | 'actorPermission'
+> {
+  schema: 'hosted-delegated-session-comment-provenance';
+  actorPermission: 'none';
+  sourceArtifact: Readonly<{
+    artifactId: string;
+    artifactName: string;
+    artifactDigest: `sha256:${string}`;
+    archiveDigest: `sha256:${string}`;
+  }>;
+}
+
+export type HostedWorkflowCommentProvenance = DirectHostedWorkflowCommentProvenance
+  | DelegatedHostedWorkflowCommentProvenance;
 
 export interface BranchCloseoutOperationPublication {
   schema: "sec-branch-closeout-operation-publication-v1";

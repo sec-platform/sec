@@ -10,11 +10,9 @@ export {
   GITHUB_API_REQUEST_TIMEOUT_MS, GitHubApiGraphqlResponseError, GitHubApiProviderError, assertGitHubApiCapability,
   assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
-  executeGitHubApiOperation,
-  inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
-  withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
-  withGitHubApiStatusWriteSession, withGitHubApiVerificationSession, type GitHubApiCapability,
-  type GitHubApiEffect,
+  dispatchAuthenticatedHostedJobResume, executeGitHubApiOperation,
+  inspectGitHubApiCapability, isGitHubApiProviderError, observeAuthenticatedHostedResumeEmitter, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget, withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
+  withGitHubApiStatusWriteSession, withGitHubApiVerificationActionProviderSession, withGitHubApiVerificationSession, type GitHubApiCapability, type GitHubApiEffect,
   type GitHubApiOperation,
   type GitHubApiPrincipal
 } from './internal/operation-session-runtime.ts';

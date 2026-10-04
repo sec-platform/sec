@@ -112,16 +112,16 @@ export function completePhysicalJournalMutationRetirement(
   retire(expectedPayloadBytes, actor);
 }
 
-const issuedJournalInitializations = new WeakMap<object, (receipt: DurableCanonicalFilePublicationReceipt) => void>();
+const issuedJournalInitializations = new WeakMap<object, (bytes: Uint8Array) => DurableCanonicalFilePublicationReceipt>();
 
-/** Consume only the native no-replace publisher's exact first-data receipt. */
-export function completePhysicalJournalMutationInitialization(
+/** Publish the first payload through its original retained initializer. */
+export function publishPhysicalJournalMutationInitialization(
   handle: PhysicalMutationLeaseHandle,
-  receipt: DurableCanonicalFilePublicationReceipt
-): void {
-  const complete = issuedJournalInitializations.get(handle);
-  if (complete === undefined) throw new Error('Journal initialization handle was not issued by its owner.');
-  complete(receipt);
+  bytes: Uint8Array
+): DurableCanonicalFilePublicationReceipt {
+  const publish = issuedJournalInitializations.get(handle);
+  if (publish === undefined) throw new Error('Journal initialization handle was not issued by its owner.');
+  return publish(bytes);
 }
 
 
@@ -304,6 +304,7 @@ function createMutationLeaseHandle(input: Readonly<{
   let binding = input.binding;
   let bytes = input.bytes;
   let initializing = input.initializing ?? false;
+  let firstPublication: 'never-entered' | 'entered' | 'ready' = initializing ? 'never-entered' : 'ready';
   const serialize = (active: PhysicalMutationLeaseOwner | null, recovery: PhysicalMutationLeaseOwner | null): Buffer =>
     binding === undefined ? recordBytes(active!, recovery) : guardedRecordBytes(binding, initializing ? 'initializing' : 'ready', active, recovery);
   let heldReceipt: DurableCanonicalFileIdentityReceipt = input.receipt;
@@ -427,6 +428,37 @@ function createMutationLeaseHandle(input: Readonly<{
         throw new Error('Physical mutation lease recovery must be acknowledged or restored before release.');
       }
       if (initializing) {
+        if (binding?.material.effectDomain === 'direct-canonical-journal-records'
+            && firstPublication === 'never-entered' && reclaimedOwner === null) {
+          recordOperation(() => {
+            const current = requireCurrent('unpublished initialization cancellation');
+            assertJournalBinding(parent, name, binding!.material.resourceName, binding!);
+            if (inspectNoFollowOrdinaryFileEntry(parent, binding!.material.resourceName) !== null
+                || observeDurableCanonicalFileReplacement({ parent, name: binding!.material.resourceName }) !== 'none'
+                || observeDurableCanonicalFileReplacement({ parent, name }) !== 'none') {
+              throw new Error('Journal initialization cancellation has unresolved publication evidence; state is preserved.');
+            }
+            // The original held scope retires its own exact identities. This is
+            // cooperative exclusion, not atomic byte-CAS against foreign writers.
+            deleteRetainedNoFollowEntry({ root: parent, relativePath: name, kind: 'file',
+              device: current.device, inode: current.inode, ancestorDirectories: [] });
+            flushNoFollowDirectory(parent);
+            if (inspectNoFollowOrdinaryFileEntry(parent, name) !== null) {
+              throw new Error('Journal initialization control cancellation readback differs.');
+            }
+            guard!.assertCurrent();
+            deleteRetainedNoFollowEntry({ root: parent, relativePath: binding!.anchorName, kind: 'file',
+              device: binding!.anchorPhysical.device, inode: binding!.anchorPhysical.inode, ancestorDirectories: [] });
+            flushNoFollowDirectory(parent);
+            if (inspectNoFollowOrdinaryFileEntry(parent, binding!.anchorName) !== null
+                || inspectNoFollowOrdinaryFileEntry(parent, binding!.material.resourceName) !== null) {
+              throw new Error('Journal initialization cancellation final readback differs.');
+            }
+          });
+          released = true;
+          settleGuard();
+          return;
+        }
         // The original first creator did not prove winning the payload slot.
         // Keep the initialization record, but release the native observation handle.
         released = true;
@@ -528,10 +560,22 @@ function createMutationLeaseHandle(input: Readonly<{
     released = true;
     settleGuard();
   });
-  if (binding?.material.effectDomain === 'direct-canonical-journal-records') issuedJournalInitializations.set(handle, receipt => {
+  if (binding?.material.effectDomain === 'direct-canonical-journal-records') issuedJournalInitializations.set(handle, suppliedBytes => {
     if (released) throw new Error('Journal first-data publication handle is no longer held.');
-    if (!initializing) return;
+    if (initializing && firstPublication !== 'never-entered') {
+      throw new Error('Journal first-data publisher is not the original unentered initializer.');
+    }
+    const payloadBytes = Buffer.from(suppliedBytes);
     requireCurrent('first-data publication acknowledgement');
+    if (initializing) firstPublication = 'entered';
+    const receipt = publishExclusiveDurableCanonicalFile({ parent, name: binding.material.resourceName,
+      bytes: payloadBytes, validate: candidate => {
+        if (!Buffer.from(candidate).equals(payloadBytes)) throw new Error('Journal first-data publication bytes differ.');
+      }
+    });
+    // A ready direct-record owner may recreate its deleted payload under the
+    // same guarded namespace. It has no pending initialization to acknowledge.
+    if (!initializing) return receipt;
     assertDurableCanonicalFileIdentityReceipt(receipt);
     const resourceName = binding.material.resourceName;
     const current = inspectNoFollowOrdinaryFileEntry(parent, resourceName);
@@ -551,6 +595,8 @@ function createMutationLeaseHandle(input: Readonly<{
     guard!.assertCurrent();
     bytes = ready;
     initializing = false;
+    firstPublication = 'ready';
+    return receipt;
   });
   issuedLeaseAssertions.set(handle, () => {
     if (released) throw new Error('Physical mutation lease is no longer held.');

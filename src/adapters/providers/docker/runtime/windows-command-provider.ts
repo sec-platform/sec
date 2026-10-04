@@ -27,8 +27,8 @@ import {
 } from '../contract/windows-installation-profile.ts';
 import { issueDockerCommandProviderCapability } from './command-provider.ts';
 
-function requireSecOperationDigest(value: string, label: string): OperationDigest {
-  if (!isSecOperationDigest(value)) {
+function requireOperationDigest(value: string, label: string): OperationDigest {
+  if (!isOperationDigest(value)) {
     throw new DockerCommandProviderUnavailableError(
       `Windows Docker provider ${label} is invalid.`
     );
@@ -36,7 +36,7 @@ function requireSecOperationDigest(value: string, label: string): OperationDiges
   return value;
 }
 
-function isSecOperationDigest(value: string): value is OperationDigest {
+function isOperationDigest(value: string): value is OperationDigest {
   return /^sha256:[a-f0-9]{64}$/u.test(value);
 }
 
@@ -62,7 +62,7 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
     );
   }
   const profile = DOCKER_WINDOWS_INSTALLATION_PROFILE;
-  const providerContractDigest = requireSecOperationDigest(
+  const providerContractDigest = requireOperationDigest(
     DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST,
     'installation profile digest'
   );

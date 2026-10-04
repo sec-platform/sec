@@ -165,14 +165,14 @@ function workspaceJournalFs(repositoryRoot: string) {
   );
 }
 
-function readVerificationActionJournalV2(
+function readVerificationActionJournal(
   repositoryRoot: string,
   actionKey: Parameters<typeof readJournal>[1]
 ) {
   return readJournal(journalFs(repositoryRoot), actionKey);
 }
 
-function appendVerificationActionJournalEventV2(
+function appendVerificationActionJournalEvent(
   input: Omit<Parameters<typeof appendJournalEvent>[0], 'fs'> & { repositoryRoot: string }
 ) {
   const { repositoryRoot, ...event } = input;
@@ -221,11 +221,11 @@ function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts'
 
 function seedPassedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/example.ts'): void {
   const preflight = preflightAction(inputPath);
-  const current = readVerificationActionJournalV2(repositoryRoot, preflight.actionKey);
+  const current = readVerificationActionJournal(repositoryRoot, preflight.actionKey);
   if (current.latestState === 'terminal' || current.latestState === 'reused') return;
-  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'queued' });
-  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'running' });
-  appendVerificationActionJournalEventV2({
+  appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'queued' });
+  appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'running' });
+  appendVerificationActionJournalEvent({
     repositoryRoot,
     action: preflight,
     state: 'terminal',
@@ -235,11 +235,11 @@ function seedPassedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/
 
 function seedFailedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/example.ts'): void {
   const preflight = preflightAction(inputPath);
-  const current = readVerificationActionJournalV2(repositoryRoot, preflight.actionKey);
+  const current = readVerificationActionJournal(repositoryRoot, preflight.actionKey);
   if (current.latestState === 'terminal' || current.latestState === 'reused') return;
-  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'queued' });
-  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'running' });
-  appendVerificationActionJournalEventV2({
+  appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'queued' });
+  appendVerificationActionJournalEvent({ repositoryRoot, action: preflight, state: 'running' });
+  appendVerificationActionJournalEvent({
     repositoryRoot,
     action: preflight,
     state: 'terminal',
@@ -416,7 +416,7 @@ test('concurrent callers in different execution domains join one physical execut
       new Set(['executed', 'joined'])
     );
     expect([firstResult, secondResult].every(({ terminal }) => terminal?.status === 'passed')).toBeTrue();
-    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('terminal');
+    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('terminal');
   } finally {
     await Promise.all([runner.close(), secondRunner.close()]);
     rmSync(repositoryRoot, { recursive: true, force: true });
@@ -449,7 +449,7 @@ test('runner completes machine cutover before reusing a workspace terminal witho
     });
     expect(result.disposition).toBe('reused');
     expect(invocations).toBe(0);
-    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
       .toBe('terminal');
     expect(readJournal(legacyFs, key.actionKey).latestState).toBe('terminal');
   } finally {
@@ -492,8 +492,8 @@ test('equal ActionKeys in distinct workspaces join one machine-global physical c
     expect(new Set([first.disposition, second.disposition])).toEqual(
       new Set(['executed', 'joined'])
     );
-    const firstReadback = readVerificationActionJournalV2(firstRepositoryRoot, key.actionKey);
-    const secondReadback = readVerificationActionJournalV2(secondRepositoryRoot, key.actionKey);
+    const firstReadback = readVerificationActionJournal(firstRepositoryRoot, key.actionKey);
+    const secondReadback = readVerificationActionJournal(secondRepositoryRoot, key.actionKey);
     expect(firstReadback.filePath).toBe(secondReadback.filePath);
     expect(firstReadback.latestState).toBe('terminal');
     expect(secondReadback.terminal).toEqual(firstReadback.terminal);
@@ -538,8 +538,8 @@ test('distinct ActionKeys retain independent machine-global physical claims', as
     expect(secondInvocations).toBe(1);
     expect(first.disposition).toBe('executed');
     expect(second.disposition).toBe('executed');
-    expect(readVerificationActionJournalV2(firstRepositoryRoot, firstKey.actionKey).filePath)
-      .not.toBe(readVerificationActionJournalV2(secondRepositoryRoot, secondKey.actionKey).filePath);
+    expect(readVerificationActionJournal(firstRepositoryRoot, firstKey.actionKey).filePath)
+      .not.toBe(readVerificationActionJournal(secondRepositoryRoot, secondKey.actionKey).filePath);
   } finally {
     await Promise.all([firstRunner.close(), secondRunner.close()]);
     rmSync(firstRepositoryRoot, { recursive: true, force: true });
@@ -575,8 +575,8 @@ test('an expired global claim observed from another workspace blocks blind resta
     expect(result.disposition).toBe('blocked');
     expect(result.reason).toContain('expired physical owner');
     expect(invocations).toBe(0);
-    expect(readVerificationActionJournalV2(ownerRepositoryRoot, key.actionKey).filePath)
-      .toBe(readVerificationActionJournalV2(contenderRepositoryRoot, key.actionKey).filePath);
+    expect(readVerificationActionJournal(ownerRepositoryRoot, key.actionKey).filePath)
+      .toBe(readVerificationActionJournal(contenderRepositoryRoot, key.actionKey).filePath);
   } finally {
     await runner.close();
     rmSync(ownerRepositoryRoot, { recursive: true, force: true });
@@ -727,8 +727,8 @@ test('independent processes in distinct workspaces share one machine-global phys
     expect(secondExit, secondOutput).toBe(0);
     expect(existsSync(markerPath)).toBe(true);
     const actionKey = preflightAction('tests/unit/cross-process-action.ts').actionKey;
-    const firstReadback = readVerificationActionJournalV2(firstRepositoryRoot, actionKey);
-    const secondReadback = readVerificationActionJournalV2(secondRepositoryRoot, actionKey);
+    const firstReadback = readVerificationActionJournal(firstRepositoryRoot, actionKey);
+    const secondReadback = readVerificationActionJournal(secondRepositoryRoot, actionKey);
     expect(firstReadback.filePath).toBe(secondReadback.filePath);
     expect(firstReadback.latestState).toBe('terminal');
     expect(secondReadback.terminal).toEqual(firstReadback.terminal);
@@ -1080,7 +1080,7 @@ test('producer subordinate settlement is atomically journaled and replayed witho
     const first = await execute();
     expect(first.disposition).toBe('executed');
     expect(first.subordinateSettlement).toBe(subordinate);
-    const journal = readVerificationActionJournalV2(repositoryRoot, key.actionKey);
+    const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
     expect(journal.latestState).toBe('terminal');
     expect(journal.events.at(-1)?.note).toBe(subordinate);
 
@@ -1118,7 +1118,7 @@ test('subordinate settlement registration rejects unbounded or duplicate project
       expect(result.state).toBe('cancelled');
       expect(result.terminal).toBeNull();
       expect(result.subordinateSettlement).toBeNull();
-      expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('cancelled');
+      expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('cancelled');
     } finally {
       rmSync(repositoryRoot, { recursive: true, force: true });
     }
@@ -1141,7 +1141,7 @@ test('executor failure is durably cancelled and its diagnostic is bounded', asyn
     expect(result.state).toBe('cancelled');
     expect(result.terminal).toBeNull();
     expect(result.reason).toContain('executor threw: line one line two');
-    const journal = readVerificationActionJournalV2(repositoryRoot, key.actionKey);
+    const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
     expect(journal.latestState).toBe('cancelled');
     expect(journal.events.at(-1)?.note).toBe(result.reason);
     expect(Buffer.byteLength(result.reason ?? '', 'utf8')).toBeLessThanOrEqual(1024);
@@ -1173,7 +1173,7 @@ test('non-issued and recovery-required executor results durably cancel without a
       expect(result.state).toBe('cancelled');
       expect(result.terminal).toBeNull();
       expect(result.reason).toContain('durably cancelled');
-      expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+      expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
         .toBe('cancelled');
     } finally {
       rmSync(repositoryRoot, { recursive: true, force: true });
@@ -1236,7 +1236,7 @@ test('dependency closure is re-read after execution and unstable closure discard
     expect(result.disposition).toBe('blocked');
     expect(result.physicalExecution).toBe(true);
     expect(result.reason).toContain('dependency closure');
-    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('invalidated');
+    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState).toBe('invalidated');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
@@ -1283,9 +1283,9 @@ test('persisted running and queued actions without a live owner are durably canc
     const repositoryRoot = root();
     try {
       const key = action(kind);
-      appendVerificationActionJournalEventV2({ repositoryRoot, action: key, state: 'queued' });
+      appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'queued' });
       if (state === 'running') {
-        appendVerificationActionJournalEventV2({ repositoryRoot, action: key, state: 'running' });
+        appendVerificationActionJournalEvent({ repositoryRoot, action: key, state: 'running' });
       }
       let invocations = 0;
       const result = await new VerificationActionRunner().execute({
@@ -1300,7 +1300,7 @@ test('persisted running and queued actions without a live owner are durably canc
       expect(result.disposition).toBe('blocked');
       expect(result.reason).toContain('durably cancelled');
       expect(invocations).toBe(0);
-      expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+      expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
         .toBe('cancelled');
     } finally {
       rmSync(repositoryRoot, { recursive: true, force: true });
@@ -1327,7 +1327,7 @@ test('executor failure settles the durable action as cancelled before releasing 
       terminal: null
     });
     expect(result.reason).toContain('durably cancelled');
-    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
       .toBe('cancelled');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
@@ -1433,7 +1433,7 @@ test.skipIf(process.platform !== 'win32')(
     expect(reused.actionResults[0]?.terminal).toEqual(terminal);
     expect(reused.terminalDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(physicalExecutions).toBe(1);
-    expect(readVerificationActionJournalV2(
+    expect(readVerificationActionJournal(
       authorityRoot,
       fixture.closure.actions[0]!.action.actionKey
     ).latestState).toBe('terminal');
@@ -1673,7 +1673,7 @@ test.skipIf(process.platform !== 'win32')(
           ? 'did not return one physical process result'
           : 'candidate readback drifted'
       );
-      expect(readVerificationActionJournalV2(
+      expect(readVerificationActionJournal(
         authorityRoot,
         fixture.closure.actions[0]!.action.actionKey
       ).latestState).toBe(mode === 'candidate-readback-drift' ? 'invalidated' : 'cancelled');

@@ -3,15 +3,11 @@ import {
   isCanonicalPortableLogicalPath,
   portableLogicalPathCollisionKey
 } from '../../contracts/logical-path.ts';
+import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
 import { OverrideManifestSchema } from '../../semantics/provenance/override-schema.ts';
 import type { OverrideManifest } from '../../semantics/provenance/types.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import {
-  packageJsonRelativePath,
-  secRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
-} from '../../workspace/paths.ts';
+import { packageJsonRelativePath, secRelativePath, tsconfigRelativePath } from '../../workspace/paths.ts';
 
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = [
   `${modelRelativePath}/`,

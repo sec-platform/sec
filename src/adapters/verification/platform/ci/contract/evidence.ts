@@ -11,21 +11,22 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import type { CiVerificationActionPlanClosure, CiVerificationNormalizedOperation, VerificationActionKey, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
+import type { HostedActionArtifactInput, HostedSessionTerminalArtifact, HostedSutExecutionProof, VerificationSessionResumeArtifact } from "../../../../../execution/verification/hosted.ts";
 import type { MainHealthLedger, ReviewStabilityReceipt, ScopeAuthorization, VerificationCleanup, VerificationEvidence, VerificationEvidenceProducer, VerificationGateEvidence, VerificationSession, VerificationSessionArtifact } from '../../../../../execution/verification/session.ts';
+import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
+import { parseCiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "./session-request.ts";
 
 import { canonicalEquals, sha256 as canonicalSha256 } from '../../../../../contracts/canonical.ts';
-import {
-  CodexDevelopmentReduceHostedSutObservation,
-  type CodexDevelopmentHostedSutExecutionProof
-} from './hosted-sut-observation.ts';
+import { CodexDevelopmentReduceHostedSutObservation } from './hosted-sut-observation.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentAssertVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
 import { parseMainHealthLedger, resolveOrdinaryMainHealthLane } from '../../../../self-hosting/control/main-health/contract.ts';
 import { assertScopeAuthorizationCurrent, parseScopeAuthorization } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan } from '../../action/contract/action.ts';
-import { assertCiVerificationActionPlanClosureEqual, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationNormalizedOperation, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
+import { assertCiVerificationActionPlanClosureEqual, parseCiVerificationActionPlanClosure, parseCiVerificationNormalizedOperation, resolveCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY } from '../../review/contract/stability.ts';
 import { parseVerificationSession } from '../../session/contract/session.ts';
 import type { SourceProgramTransitionQualification, TrustedRuntimeSourceProgramAttemptEvidence } from '../../trusted-runtime/trusted-runtime-container.ts';
@@ -332,16 +333,7 @@ export function CodexDevelopmentWriteVerificationEvidenceV4Atomic(
   }
 }
 
-export type CodexDevelopmentVerificationActionArtifactInput = Readonly<{
-  baseSha: string;
-  baseTreeSha: string;
-  headSha: string;
-  headTreeSha: string;
-  manifestPath: string;
-  manifestDigest: string;
-  inputClosureDigest: string;
-  candidateBytesDigest: string;
-}>;
+
 
 export type CodexDevelopmentVerificationActionArtifactProducer = VerificationActionProviderOrigin;
 
@@ -352,9 +344,9 @@ export type CodexDevelopmentVerificationActionTerminalArtifact = Readonly<{
   result: VerificationGateResult;
   cleanup: VerificationCleanup;
   executionEnvironment: CiVerificationExecutionEnvironment;
-  input: CodexDevelopmentVerificationActionArtifactInput;
+  input: HostedActionArtifactInput;
   producer: CodexDevelopmentVerificationActionArtifactProducer;
-  executionProof: CodexDevelopmentHostedSutExecutionProof;
+  executionProof: HostedSutExecutionProof<typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   artifactDigest: string;
 }>;
 
@@ -430,18 +422,19 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
     'contractRevision', 'kind', 'os', 'arch', 'runnerImage', 'toolchainRevision',
     'executionEnvironmentRevision'
   ], 'VerificationAction artifact execution environment');
-  if (!canonicalEquals(value.executionEnvironment, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
+  const executionEnvironment = resolveCiVerificationHostedExecutionEnvironment(plan.action.environment.providerRevision);
+  if (!canonicalEquals(value.executionEnvironment, executionEnvironment)) {
     throw new Error('VerificationAction terminal artifact must use the canonical hosted execution environment.');
   }
   if (plan.action.environment.providerRevision !==
-      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision) {
+      executionEnvironment.executionEnvironmentRevision) {
     throw new Error('VerificationAction artifact ActionKey does not bind the hosted execution environment.');
   }
   const environmentBinding = plan.action.operation.declaredEnvironment.find(
     (binding) => binding.name === 'SEC_EXECUTION_ENVIRONMENT_REVISION'
   );
   if (environmentBinding?.digest !== CodexDevelopmentVerificationDigest(
-    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+    executionEnvironment.executionEnvironmentRevision
   )) {
     throw new Error('VerificationAction artifact declared environment revision is missing or forged.');
   }
@@ -450,7 +443,7 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
     'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'manifestPath', 'manifestDigest',
     'inputClosureDigest', 'candidateBytesDigest'
   ], 'VerificationAction artifact input');
-  const artifactInput = value.input as unknown as CodexDevelopmentVerificationActionArtifactInput;
+  const artifactInput = value.input as unknown as HostedActionArtifactInput;
   for (const key of ['baseSha', 'baseTreeSha', 'headSha', 'headTreeSha'] as const) {
     if (!/^[0-9a-f]{40}$/u.test(artifactInput[key])) {
       throw new Error(`VerificationAction artifact input ${key} is invalid.`);
@@ -499,7 +492,7 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
   assertExactKeys(value.executionProof, [
     'schema', 'authorization', 'observation', 'externalRawResultDigest', 'proofDigest'
   ], 'VerificationAction artifact execution proof');
-  const proof = value.executionProof as unknown as CodexDevelopmentHostedSutExecutionProof;
+  const proof = value.executionProof as unknown as HostedSutExecutionProof<typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   const replay = CodexDevelopmentReduceHostedSutObservation({
     actionPlan: plan,
     normalizedOperation,
@@ -622,12 +615,17 @@ export function CodexDevelopmentFinalizeVerificationSessionArtifact(input: Omit<
 export function CodexDevelopmentAssertVerificationSessionArtifact(
   value: unknown
 ): asserts value is VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
+  assertVerificationSessionArtifactFields(value, false);
+}
+
+function assertVerificationSessionArtifactFields(value: unknown, delegated: boolean): void {
   assertObject(value, 'VerificationSession artifact V2');
-  if (value.schema !== CodexDevelopmentVerificationSessionArtifactSchema) {
+  if (value.schema !== (delegated ? 'verification-session-delegated-terminal' : CodexDevelopmentVerificationSessionArtifactSchema)) {
     throw new Error('VerificationSession artifact V2 schema mismatch.');
   }
   assertExactKeys(value, [
     'schema', 'scopeAuthorization', 'session', 'preGateReview', 'mainHealth', 'evidence', 'producer', 'artifactDigest',
+    ...(delegated ? ['sourceCause'] : []),
     ...(value.sourceProgramTransitionAcceptance === undefined ? [] : ['sourceProgramTransitionAcceptance']),
     ...(value.sourceProgramTransitionEvidence === undefined ? [] : ['sourceProgramTransitionEvidence'])
   ], 'VerificationSession artifact V2');
@@ -755,11 +753,85 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
   }
 }
 
+export function assertVerificationSessionResumeArtifact(value: unknown): asserts value is
+  VerificationSessionResumeArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence,
+    typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA> {
+  assertVerificationSessionArtifactFields(value, true);
+  assertObject(value, 'Delegated Verification Session artifact');
+  assertObject(value.sourceCause, 'Delegated Verification Session source cause');
+  const cause = value.sourceCause;
+  assertObject(value.producer, 'Delegated Verification Session producer');
+  assertExactKeys(cause, ['kind', 'signal', 'actionPlanClosureDigest', 'requestOperationId',
+    'scopeAuthorizationDigest', 'sessionRevision'], 'Delegated Verification Session source cause');
+  if (cause.kind !== 'hosted-action-resume') throw new Error('Unsupported Verification Session delegated source.');
+  const signal = parseHostedResumeDispatchSignal(encodeVerificationActionData(cause.signal));
+  const provider = parseCiVerificationActionProviderEnvelope(signal.completedAction.providerEnvelope);
+  const request = provider.proposal.sessionRequest;
+  assertObject(request, 'Delegated Verification Session original request');
+  assertExactKeys(request, ['schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
+    'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile', 'expectedScopeProposalDigest',
+    'expectedActionPlanDigest', 'expectedSessionRevision', 'reviewPolicyDigest', 'requestOperationId'],
+  'Delegated Verification Session original request');
+  const scope = parseScopeAuthorization(encodeVerificationActionData(value.scopeAuthorization));
+  const session = parseVerificationSession(encodeVerificationActionData(value.session));
+  if (value.producer.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
+      || value.producer.workflowPath !== CI_COMPILER_WORKFLOW_RUN_IDENTITY.workflowPath || value.producer.sourceTransport !== 'github-actions'
+      || request.schema !== CI_VERIFICATION_SESSION_REQUEST_SCHEMA || cause.actionPlanClosureDigest !== session.actionPlanClosureDigest || cause.requestOperationId !== request.requestOperationId
+      || cause.scopeAuthorizationDigest !== scope.authorizationDigest || cause.sessionRevision !== session.sessionRevision
+      || request.expectedSessionRevision !== session.sessionRevision || request.expectedScopeProposalDigest !== scope.sessionProposalDigest
+      || request.expectedActionPlanDigest !== session.actionPlanClosureDigest || request.prNumber !== session.prNumber
+      || request.expectedBaseSha !== session.baseSha || request.expectedBaseTreeSha !== session.baseTreeSha
+      || request.expectedHeadSha !== session.headSha || request.expectedHeadTreeSha !== session.headTreeSha
+      || request.manifestPath !== session.manifestPath || request.manifestDigest !== session.manifestDigest
+      || request.profile !== session.profile || request.reviewPolicyDigest !== session.reviewPolicyDigest
+      || signal.emitter.repository !== session.repository || signal.emitter.workflowSha !== session.baseSha) {
+    throw new Error('Delegated Verification Session cause differs from its exact original request, Scope or Session.');
+  }
+}
+
+export function finalizeVerificationSessionResumeArtifact(input: Omit<VerificationSessionResumeArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA>, 'schema' | 'artifactDigest'>) {
+  const fields = Object.freeze({ schema: 'verification-session-delegated-terminal' as const, ...input });
+  const artifact = Object.freeze({ ...fields, artifactDigest: CodexDevelopmentVerificationDigest(fields) });
+  assertVerificationSessionResumeArtifact(artifact);
+  return artifact;
+}
+
+export function assertHostedSessionTerminalArtifact(value: unknown): asserts value is HostedSessionTerminalArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA> {
+  assertObject(value, 'Hosted Session terminal artifact');
+  if (value.schema === CodexDevelopmentVerificationSessionArtifactSchema) CodexDevelopmentAssertVerificationSessionArtifact(value);
+  else if (value.schema === 'verification-session-delegated-terminal') assertVerificationSessionResumeArtifact(value);
+  else throw new Error('Unsupported hosted Session terminal artifact interpretation.');
+}
+
+export function parseHostedSessionTerminalArtifact(source: string) {
+  const value: unknown = JSON.parse(source);
+  assertHostedSessionTerminalArtifact(value);
+  return value;
+}
+
 export function CodexDevelopmentAssertVerificationSessionArtifactCurrent(
   artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
   now: string
 ): void {
   CodexDevelopmentAssertVerificationSessionArtifact(artifact);
+  assertVerificationSessionArtifactLifetime(artifact, now);
+}
+
+export function assertHostedSessionTerminalArtifactCurrent(artifact: HostedSessionTerminalArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA>, now: string): void {
+  assertHostedSessionTerminalArtifact(artifact);
+  assertVerificationSessionArtifactLifetime(artifact, now);
+}
+
+function assertVerificationSessionArtifactLifetime(artifact: Pick<VerificationSessionArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult>, 'scopeAuthorization' | 'session' | 'preGateReview' | 'mainHealth'>,
+  now: string): void {
   const scope = artifact.scopeAuthorization;
   const session = artifact.session;
   const review = artifact.preGateReview;

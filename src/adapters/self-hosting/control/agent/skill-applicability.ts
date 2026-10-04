@@ -11,16 +11,16 @@ import {
 } from '../../../providers/git-read/runtime/session.ts';
 import { assertWorkerOperationReadPlanMatches, resolveProspectiveWorkerOperation } from './operation-read-plan.ts';
 import {
-  parseSecOperationReadPlan,
-  projectSecSkillEnvelopeFromOperationReadPlan,
-  type SecOperationReadPlan
+  parseOperationReadPlan,
+  projectSkillApplicabilityEnvelopeFromOperationReadPlan,
+  type OperationReadPlan
 } from './read-plan.ts';
 import {
-  evaluateSecSkillApplicability,
-  isSecSkillQuarantinePath
+  evaluateSkillApplicability,
+  isSkillQuarantinePath
 } from './skill.ts';
 import {
-  SecTaskCapsuleProjectionUnavailableError,
+  TaskCapsuleProjectionUnavailableError,
   taskCapsuleProjectionBlocked
 } from './task-capsule-host.ts';
 
@@ -121,16 +121,16 @@ async function main(): Promise<void> {
   if (path.resolve(invokedRoot) !== runtimeRoot) {
     fail('Skill applicability must be invoked from the exact trusted-runtime repository root.');
   }
-  let plan: SecOperationReadPlan;
+  let plan: OperationReadPlan;
   try {
-    plan = parseSecOperationReadPlan(await readJsonArgument(options.readPlan, runtimeRoot));
+    plan = parseOperationReadPlan(await readJsonArgument(options.readPlan, runtimeRoot));
   } catch (error) {
     fail(`Read Plan verification failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   const observation = await resolveProspectiveWorkerOperation(runtimeRoot, options.candidateRoot);
   assertWorkerOperationReadPlanMatches(plan, observation);
-  const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
-  const quarantined = observation.changedPaths.filter(isSecSkillQuarantinePath);
+  const envelope = projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan);
+  const quarantined = observation.changedPaths.filter(isSkillQuarantinePath);
   const { trustedSkillRevisions, candidateSkillRevisions } = await withAuthorityGitReadSession(
     { cwd: observation.candidateRoot, budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
     async (session) => {
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
       });
     }
   );
-  const decision = evaluateSecSkillApplicability({
+  const decision = evaluateSkillApplicability({
     ...envelope,
     changedPaths: observation.changedPaths,
     trustedSkillRevisions,
@@ -170,7 +170,7 @@ if (import.meta.main) {
     await main();
   }
   catch (error) {
-    if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
+    if (error instanceof TaskCapsuleProjectionUnavailableError) {
       console.error(JSON.stringify(taskCapsuleProjectionBlocked(error)));
     }
     else {

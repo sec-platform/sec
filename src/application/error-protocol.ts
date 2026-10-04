@@ -1,7 +1,8 @@
 import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { getErrorCode } from '../contracts/failure-inspection.ts';
 import { posixPath } from '../contracts/relative-path.ts';
-import { overridesRelativePath, workspaceConfigRelativePath } from '../workspace/paths.ts';
+import { workspaceConfigRelativePath } from '../contracts/workspace-config.ts';
+import { overridesRelativePath } from '../workspace/paths.ts';
 
 export type ErrorProtocol = {
   code: string;

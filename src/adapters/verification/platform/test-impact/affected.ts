@@ -8,7 +8,7 @@ import {
   type CodexDevelopmentTestImpactSourceProvider
 } from './runtime/impact.ts';
 
-export type CodexDevelopmentAffectedTestInventory = {
+export type AffectedTestInventory = {
   changedFastTests: string[];
   changedSlowTests: string[];
   affectedFastTests: string[];
@@ -33,7 +33,7 @@ export type CodexDevelopmentAffectedTestInventory = {
   unresolvedModuleFiles: string[];
 };
 
-export function CodexDevelopmentAffectedInventoryInputs(
+export function AffectedInventoryInputs(
   changedPaths: readonly string[],
   currentTestPathIsRunnable: (file: string) => boolean
 ): string[] {
@@ -42,10 +42,10 @@ export function CodexDevelopmentAffectedInventoryInputs(
   )));
 }
 
-export function CodexDevelopmentBuildAffectedTestInventory(
+export function buildAffectedTestInventory(
   files: readonly string[],
   provider: CodexDevelopmentTestImpactSourceProvider
-): CodexDevelopmentAffectedTestInventory {
+): AffectedTestInventory {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));
   const impactSourceFiles = files.filter((file) => isTestImpactSourceFile(file, provider));

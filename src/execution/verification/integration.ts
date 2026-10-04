@@ -25,7 +25,7 @@ export interface MergeGatePlatformObservation {
 
 export type MergeGateDigest = `sha256:${string}`;
 
-export interface HostedArtifactObservation {
+export interface DirectHostedArtifactObservation {
   readonly artifactId: string;
   readonly artifactName: string;
   readonly artifactFileName: 'verification-session-artifact.json';
@@ -42,6 +42,16 @@ export interface HostedArtifactObservation {
   readonly actorPermission: 'maintain' | 'admin';
   readonly downloadTransport: 'github-actions-artifact-api';
 }
+
+export type DelegatedHostedArtifactObservation = Readonly<
+  Omit<DirectHostedArtifactObservation, 'actorPermission'> & {
+    kind: 'delegated-session-terminal';
+    actorPermission: 'none';
+    delegatedArtifactDigest: MergeGateDigest;
+  }
+>;
+
+export type HostedArtifactObservation = DirectHostedArtifactObservation | DelegatedHostedArtifactObservation;
 
 export interface MergeGateProvenance {
   readonly workflowPath: '.github/workflows/merge-gate.yml';

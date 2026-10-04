@@ -13,8 +13,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { executeHostedSessionCompilerCommand, resumeHostedVerificationSession } from '../../src/bootstrap/development/closeout/verification-session-hosted.ts';
 import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
 import type { BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
+import type { VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
 import type { IntegrationAuthorizationOperationPublication, MergeGateResult } from '../../src/execution/verification/integration.ts';
 import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, GitHubWorkflowRunObservation, ScopeAuthorization, SessionDigest, VerificationSession } from '../../src/execution/verification/session.ts';
 
@@ -82,38 +84,15 @@ import {
   executeLocalVerificationActionDag,
   issueVerificationActionTestProcessIssuerForTests
 } from '../../src/adapters/verification/platform/action/runner.ts';
-import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
+
+import { parseVerificationSessionHostedRequest, VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, createVerificationSessionGitHubClient, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubAppReviewCommentObservation, type GitHubCommitResolutionObservation, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation, type GitHubReviewRequestObservation, type GitHubReviewThreadObservation, type VerificationSessionGitHubClient, type VerificationSessionReviewObservationTransaction, type VerificationSessionWorkflowObservationTransaction } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import {
   createEphemeralVerificationSessionJournalFs
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
-import {
-  assertTrustedExactRevisionRuntime,
-  assertTrustedMainRuntime,
-  assertTrustedMergedRequestRuntimeReachability,
-  assertTrustedRuntime,
-  classifyVerificationSessionArtifactReuse,
-  compilePostMainIssueDispositionHealthReadback,
-  createHostedArtifactObservation,
-  createTrustedHostedArtifactProvenance,
-  createTrustedIntegrationAuthorizationArtifact,
-  createVerificationSessionLocalPreparationRequest,
-  createVerificationSessionMergeOperationId,
-  integrationAuthorizationMergeMarkers,
-  parseVerificationSessionHostedRequest,
-  prepareLocalQuickVerificationActionPlan,
-  prepareTrustedMainVerificationSession,
-  prepareVerificationSessionHosted,
-  prepareVerificationSessionMergeInput,
-  reconstructVerificationSessionHostedFacts,
-  resumeVerificationSession,
-  SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
-  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
-  type VerificationSessionHostedEnvelope,
-  type VerificationSessionHostedFacts,
-  type VerificationSessionRuntimeExternal
-} from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createHostedArtifactObservation, createTrustedHostedArtifactProvenance, createTrustedIntegrationAuthorizationArtifact, createVerificationSessionLocalPreparationRequest, createVerificationSessionMergeOperationId, integrationAuthorizationMergeMarkers, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, prepareVerificationSessionMergeInput, reconstructVerificationSessionHostedFacts, SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY, type VerificationSessionRuntimeExternal } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
@@ -122,12 +101,14 @@ import {
   parseHostedSynchronousSquashMergeResponse,
   planHostedIntegrationEffects,
   routeHostedIntegration,
-  routePreparedWorktreeCleanupAttempt,
   verificationSessionCli,
   verificationSessionExecutionPlacement
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
+import { routePreparedWorktreeCleanupAttempt } from '../../src/application/verification-session-hosted.ts';
+import { parseHostedVerificationCommand } from '../../src/entry/verification-session-hosted-cli.ts';
 import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
+import type { VerificationSessionHostedEnvelope, VerificationSessionHostedFacts } from "../../src/execution/verification/hosted.ts";
 import { compileCloseoutCliProviderShims, prepareCloseoutCliScenario, readCloseoutCliHarnessState, writeCloseoutCliHarnessState, type CloseoutCliHarnessState } from '../helpers/closeout-cli/provider.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
@@ -155,7 +136,7 @@ function changedTransition(
   });
 }
 
-const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
+const JOIN_REQUEST: VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA> = Object.freeze({
   schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 42,
   expectedBaseSha: BASE, expectedBaseTreeSha: HEAD, expectedHeadSha: HEAD,
   expectedHeadTreeSha: HEAD, manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
@@ -1247,9 +1228,9 @@ function createPureReviewFixture(input: {
 }
 
 function createPureHostedEnvelopeFixture(input: {
-  request: VerificationSessionHostedRequest;
+  request: VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>;
   facts: VerificationSessionHostedFacts;
-}): VerificationSessionHostedEnvelope {
+}): VerificationSessionHostedEnvelope<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA> {
   const { request, facts } = input;
   const scopeAuthorization = createScopeAuthorization({
     repository: facts.repository, prNumber: request.prNumber,
@@ -1531,7 +1512,7 @@ async function reducerFixture(options: {
 }
 
 async function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
-  return (await resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
+  return (await resumeHostedVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
     changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR',
@@ -2725,7 +2706,7 @@ test('local preparation request cannot enter any hosted consumer or runtime stat
     expect(parseVerificationSessionHostedRequest(JSON.stringify(JOIN_REQUEST))).toEqual(JOIN_REQUEST);
     const requestPath = path.join(root, 'local-request.json');
     writeFileSync(requestPath, JSON.stringify(localRequest));
-    const cliPath = path.resolve('src/adapters/verification/platform/ci/runtime/verification-session.ts');
+    const cliPath = path.resolve('src/bootstrap/development/closeout/verification-session-cli.ts');
     for (const command of ['status', 'resume', 'observe-hosted', 'prepare-hosted']) {
       const state = path.join(root, `${command}-state`);
       const cache = path.join(root, `${command}-cache`);
@@ -2748,17 +2729,17 @@ test('CLI rejects caller-provided authority artifacts', async () => {
     '--artifact', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --artifact/);
   await expect(verificationSessionCli(['resume', '--request', 'request.json',
     '--authorization', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --authorization/);
-  await expect(verificationSessionCli(['integrate-hosted', '--repository', 'sec-platform/sec',
-    '--output', 'projection.json', '--authorization', 'forged.json'], worktreePhysicalCloseoutOperations))
-    .rejects.toThrow(/Unknown argument for integrate-hosted: --authorization/);
+  expect(() => parseHostedVerificationCommand(['integrate-hosted', '--repository', 'sec-platform/sec',
+    '--output', 'projection.json', '--authorization', 'forged.json']))
+    .toThrow(/Unknown argument for integrate-hosted: --authorization/);
   for (const command of ['prepare-integration-hosted', 'integrate-hosted',
     'closeout-mutate-hosted', 'closeout-publish-hosted']) {
-    await expect(verificationSessionCli([command, '--repository', 'sec-platform/sec',
-      '--output', 'projection.json', '--artifact', 'caller.json'], worktreePhysicalCloseoutOperations))
-      .rejects.toThrow(new RegExp(`Unknown argument for ${command}: --artifact`));
+    expect(() => parseHostedVerificationCommand([command, '--repository', 'sec-platform/sec',
+      '--output', 'projection.json', '--artifact', 'caller.json']))
+      .toThrow(new RegExp(`Unknown argument for ${command}: --artifact`));
   }
-  await expect(verificationSessionCli(['finalize-hosted', '--envelope', 'envelope.json', '--output',
-    'artifact.json', '--evidence', 'evidence.json', '--previous-artifact', 'prior.json'], worktreePhysicalCloseoutOperations))
+  await expect(executeHostedSessionCompilerCommand(['finalize-hosted', '--envelope', 'envelope.json', '--output',
+    'artifact.json', '--evidence', 'evidence.json', '--previous-artifact', 'prior.json']))
     .rejects.toThrow(/exactly one of --evidence or --previous-artifact/);
 });
 

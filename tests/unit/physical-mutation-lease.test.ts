@@ -6,9 +6,9 @@ import { pathToFileURL } from 'node:url';
 
 import {
   acquirePhysicalMutationLease,
-  completePhysicalJournalMutationInitialization,
   initializePhysicalJournalMutationResource,
   PHYSICAL_MUTATION_LEASE_SCHEMA,
+  publishPhysicalJournalMutationInitialization,
   readPhysicalJournalMutationResource,
   type PhysicalMutationLeaseOwner
 } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
@@ -75,9 +75,7 @@ function abandonGuarded(parent: ReturnType<typeof inspectNoFollowDirectoryChain>
   const resourceName = 'direct-journal.json';
   const resource = initializePhysicalJournalMutationResource(parent, name, resourceName);
   const initial = acquirePhysicalMutationLease(parent, name, { journalResource: resource })!;
-  completePhysicalJournalMutationInitialization(initial, publishExclusiveDurableCanonicalFile({
-    parent, name: resourceName, bytes: Buffer.from('fixture'), validate: () => undefined
-  }));
+  publishPhysicalJournalMutationInitialization(initial, Buffer.from('fixture'));
   initial.release();
   const moduleUrl = pathToFileURL(path.resolve(import.meta.dir,
     '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;
@@ -516,15 +514,132 @@ test('retired journal generation cannot be reopened by captured resource or writ
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('cancelling prepared first creation releases exclusion and retains unresolved initialization', () => {
+test('cancelling an original unentered first creation retires its control and permits exact retry', () => {
   const { root, parent } = fixture();
   try {
     const fs = createRuntimeStateJournalFileSystem(parent);
     const file = path.join(parent.path, 'cancelled.json');
     const prepared = prepareRuntimeStateJournalMutation(fs, file, 'create-absent-data')!;
-    expect(() => prepared.dispose()).toThrow('initialization residue');
+    const before = readdirSync(parent.path);
+    expect(before.length).toBe(2);
     expect(() => prepared.dispose()).not.toThrow();
-    expect(() => prepareRuntimeStateJournalMutation(fs, file, 'create-absent-data')).toThrow('unresolved');
+    expect(() => prepared.dispose()).not.toThrow();
+    expect(readdirSync(parent.path)).toEqual([]);
     expect(existsSync(file)).toBe(false);
+    expect(fs.createExclusiveFsync(file, 'retry')).toBe(true);
+    expect(fs.readText(file)).toBe('retry');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a falsy domain failure before first publication keeps its primary and permits the same journal retry', () => {
+  const { root, parent } = fixture();
+  try {
+    const fs = createRuntimeStateJournalFileSystem(parent);
+    const file = path.join(parent.path, 'domain-retry.json');
+    let observed: unknown = 'not-thrown';
+    try { fs.mutateTextFsync(file, '', 1024, () => { throw undefined; }); }
+    catch (error) { observed = error; }
+    expect(observed).toBeUndefined();
+    expect(readdirSync(parent.path)).toEqual([]);
+    expect(fs.mutateTextFsync(file, '', 1024, () => 'completed')).toBe('completed');
+    expect(fs.readText(file)).toBe('completed');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('an entered original publisher failure preserves initialization and foreign payload bytes', () => {
+  const { root, parent } = fixture();
+  try {
+    const name = 'entered.lock';
+    const resourceName = 'entered.json';
+    const resource = initializePhysicalJournalMutationResource(parent, name, resourceName);
+    const handle = acquirePhysicalMutationLease(parent, name, { journalResource: resource })!;
+    const foreignBytes = Buffer.from('foreign first payload');
+    publishExclusiveDurableCanonicalFile({ parent, name: resourceName, bytes: foreignBytes, validate: () => undefined });
+    expect(() => publishPhysicalJournalMutationInitialization({ ...handle }, Buffer.from('wanted'))).toThrow('not issued');
+    expect(() => publishPhysicalJournalMutationInitialization(handle, Buffer.from('wanted'))).toThrow();
+    const controlBytes = readFileSync(path.join(parent.path, name));
+    const record = JSON.parse(controlBytes.toString('utf8'));
+    const anchorBytes = readFileSync(path.join(parent.path, record.binding.anchorName));
+    expect(record.phase).toBe('initializing');
+    expect(() => handle.release()).toThrow('initialization residue');
+    expect(readFileSync(path.join(parent.path, name))).toEqual(controlBytes);
+    expect(readFileSync(path.join(parent.path, record.binding.anchorName))).toEqual(anchorBytes);
+    expect(readFileSync(path.join(parent.path, resourceName))).toEqual(foreignBytes);
+    expect(() => readPhysicalJournalMutationResource(parent, name, resourceName)).toThrow('unresolved');
+    expect(() => publishPhysicalJournalMutationInitialization(handle, Buffer.from('wanted'))).toThrow('no longer held');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a ready direct journal owner recreates its retired payload through the same publication owner', () => {
+  const { root, parent } = fixture();
+  try {
+    const fs = createRuntimeStateJournalFileSystem(parent);
+    const file = path.join(parent.path, 'recreated.json');
+    expect(fs.createExclusiveFsync(file, 'first')).toBe(true);
+    const controls = readdirSync(parent.path).filter(name => name !== 'recreated.json');
+    const anchors = controls.filter(name => name.startsWith('.sec-journal-guard-'));
+    const anchorBytes = readFileSync(path.join(parent.path, anchors[0]));
+    expect(fs.deleteFsyncCas(file, 'first')).toBe(true);
+    expect(fs.createExclusiveFsync(file, 'second')).toBe(true);
+    expect(fs.readText(file)).toBe('second');
+    expect(readdirSync(parent.path).filter(name => name !== 'recreated.json')).toEqual(controls);
+    expect(readFileSync(path.join(parent.path, anchors[0]))).toEqual(anchorBytes);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a changed initializer control preserves falsy primary and independent settlement failure', () => {
+  const { root, parent } = fixture();
+  try {
+    const fs = createRuntimeStateJournalFileSystem(parent);
+    const file = path.join(parent.path, 'changed-control.json');
+    const name = runtimeStateJournalMutationLeaseName(parent.path, file);
+    const foreignBytes = Buffer.from('foreign control');
+    let failure: unknown;
+    try {
+      fs.mutateTextFsync(file, '', 1024, () => {
+        replaceLeaseBytes(parent, name, foreignBytes);
+        throw 0;
+      });
+    } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(AggregateError);
+    const errors = Object.getOwnPropertyDescriptor(failure as object, 'errors')!.value;
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toBe(0);
+    expect(errors[1]).toBeInstanceOf(Error);
+    expect(errors[1].message).toContain('ownership changed');
+    expect(readFileSync(path.join(parent.path, name))).toEqual(foreignBytes);
+    expect(readdirSync(parent.path).some(name => name.startsWith('.sec-journal-guard-'))).toBe(true);
+    expect(existsSync(file)).toBe(false);
+    expect(() => fs.createExclusiveFsync(file, 'retry')).toThrow('legacy or unqualified');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('publication snapshots dynamic bytes before fresh initializer authority readback', () => {
+  const { root, parent } = fixture();
+  try {
+    const name = 'conversion.lock';
+    const resourceName = 'conversion.json';
+    const resource = initializePhysicalJournalMutationResource(parent, name, resourceName);
+    const handle = acquirePhysicalMutationLease(parent, name, { journalResource: resource })!;
+    const foreignBytes = Buffer.from('changed by input conversion');
+    let conversions = 0;
+    const suppliedBytes = new Proxy(new Uint8Array([65]), {
+      get(object, key) {
+        if (key === 'valueOf') return () => {
+          conversions++;
+          replaceLeaseBytes(parent, name, foreignBytes);
+          return object;
+        };
+        return Reflect.get(object, key, object);
+      }
+    });
+    expect(suppliedBytes).toBeInstanceOf(Uint8Array);
+    expect(() => publishPhysicalJournalMutationInitialization(handle, suppliedBytes)).toThrow('ownership changed');
+    expect(conversions).toBe(1);
+    expect(readFileSync(path.join(parent.path, name))).toEqual(foreignBytes);
+    expect(existsSync(path.join(parent.path, resourceName))).toBe(false);
+    expect(() => handle.release()).toThrow('ownership changed');
+    expect(readFileSync(path.join(parent.path, name))).toEqual(foreignBytes);
+    expect(readdirSync(parent.path).some(name => name.startsWith('.sec-journal-guard-'))).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

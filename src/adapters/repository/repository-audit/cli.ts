@@ -66,19 +66,19 @@ import {
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import {
-  classifySecRepositorySurface,
-  resolveSecMarkdownSkillCoverage,
-  resolveSecRepositoryHeuristicSkills,
-  SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
-  SEC_REPOSITORY_HEURISTIC_ROUTES,
-  type SecAgentSkillId,
-  type SecRepositorySurfaceKind
+  AGENT_SKILL_IDS,
+  classifyRepositorySurface,
+  REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
+  REPOSITORY_HEURISTIC_ROUTES,
+  resolveMarkdownSkillCoverage,
+  resolveRepositoryHeuristicSkills,
+  type AgentSkillId,
+  type RepositorySurfaceKind
 } from '../../self-hosting/control/agent/skill.ts';
 import {
-  CodexDevelopmentClassifyWorkPackageCensus,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseRollingPlan
+  classifyWorkPackageCensus,
+  parseActivePointer,
+  parseRollingPlan
 } from '../../self-hosting/control/documentation/document-control-plane-contract.ts';
 import type {
   CompilerDependencyReadGenerationRetirementReceipt,
@@ -91,13 +91,13 @@ import {
 } from '../../verification/platform/trust/contract/root.ts';
 import { tsconfigRelativePath } from "../../workspace-context.ts";
 import {
-  compileSecRepositoryModuleArchitectureProjection, compileSecRepositoryModuleTopologyProjection,
+  compileRepositoryModuleArchitectureProjection, compileRepositoryModuleTopologyProjection,
   type RepositoryModuleGraph,
-  type SecRepositoryModuleMembership,
-  type SecRepositoryModuleTopologyProjection
+  type RepositoryModuleMembership,
+  type RepositoryModuleTopologyProjection
 } from '../architecture/contract.ts';
 import {
-  compileSecRepositoryModulePlacementAdmission
+  compileRepositoryModulePlacementAdmission
 } from '../architecture/placement.ts';
 import {
   createSourceProgramCompilationOperation,
@@ -119,7 +119,7 @@ import {
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
 import { compileRepositorySourceProgramTestObligationsWithCache, compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
 import { compileRepositorySourceProgramCompilation, requireCompleteRepositorySourceProgramCompilation, type RepositorySourceProgramCompilationReceipt } from '../source-program-model/repository-compilation.ts';
-import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTestObligationsTopology, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
+import { compileSourceProgramOwnerIntentEvidence, observeRepositorySourceProgramDescriptorOperationExports, summarizeSourceProgramTestObligationsTopology, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { assessSourceProgramTestAuthorDecision, parseSourceProgramTestAuthorDecisionPayload, type SourceProgramTestAuthorAssessment, type SourceProgramTestAuthorDecisionPayload } from '../source-program-model/test-disposition-decisions.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import {
@@ -915,7 +915,7 @@ async function compileRevisionSupersessionEvidence(
   compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   evidence: SourceProgramSupersessionEvidence;
   tests: SourceProgramTestValueCompilation;
-  membership: SecRepositoryModuleMembership;
+  membership: RepositoryModuleMembership;
   sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
   const files = workspaceSnapshot.files;
@@ -987,7 +987,7 @@ type WorkingTreeModuleTopology = Readonly<{
   files: number;
   references: number;
   unresolvedFiles: readonly string[];
-  topology: SecRepositoryModuleTopologyProjection;
+  topology: RepositoryModuleTopologyProjection;
 }>;
 
 async function compileWorkingTreeModuleTopology(
@@ -1009,7 +1009,7 @@ async function compileWorkingTreeModuleTopology(
         files: graph.files.length,
         references: graph.references.length,
         unresolvedFiles: graph.unresolvedFiles,
-        topology: compileSecRepositoryModuleTopologyProjection(
+        topology: compileRepositoryModuleTopologyProjection(
           graph,
           workspaceSnapshot.moduleMembership
         )
@@ -1020,7 +1020,7 @@ async function compileWorkingTreeModuleTopology(
 
 function compileRepositoryModuleArchitectureAdmission(
   graph: RepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
+  membership: RepositoryModuleMembership,
   model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   sourceFiles: readonly WorkspaceSourceFile[]
 ): RepositoryModuleArchitectureWithPlacement {
@@ -1029,17 +1029,18 @@ function compileRepositoryModuleArchitectureAdmission(
   )));
   const facts = Object.freeze({
     ...model,
+    descriptorOperationExports: observeRepositorySourceProgramDescriptorOperationExports(model) ?? undefined,
     files: Object.freeze(model.files.map((file) => Object.freeze({
       ...file,
       sourceLines: sourceLinesByPath.get(file.path)
     })))
   });
-  const architecture = compileSecRepositoryModuleArchitectureProjection(
+  const architecture = compileRepositoryModuleArchitectureProjection(
     graph,
     membership,
     facts
   );
-  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+  const responsibilityAdmission = compileRepositoryModulePlacementAdmission({
     graph,
     membership,
     facts
@@ -1094,13 +1095,13 @@ async function compileWorkingTreeSourceProgram(
   baselineTreeSha: string;
   currentSha: string;
   currentTreeSha: string;
-  baselineModuleMembership: SecRepositoryModuleMembership;
+  baselineModuleMembership: RepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   baselineSharesCurrentSourceRevision: boolean;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
@@ -1193,13 +1194,13 @@ async function compileWorkingTreeSourceProgramWithSession(
   baselineTreeSha: string;
   currentSha: string;
   currentTreeSha: string;
-  baselineModuleMembership: SecRepositoryModuleMembership;
+  baselineModuleMembership: RepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   baselineSharesCurrentSourceRevision: boolean;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
@@ -1753,9 +1754,9 @@ function markdownStatus(source: string): string | null {
   return /^status:\s*([^\s#]+)\s*$/mu.exec(frontmatter)?.[1] ?? null;
 }
 
-function behaviorSkills(repositoryPath: string): SecAgentSkillId[] {
-  const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
-  return markdown?.skills ?? resolveSecRepositoryHeuristicSkills(repositoryPath);
+function behaviorSkills(repositoryPath: string): AgentSkillId[] {
+  const markdown = resolveMarkdownSkillCoverage(repositoryPath);
+  return markdown?.skills ?? resolveRepositoryHeuristicSkills(repositoryPath);
 }
 
 function lineStarts(source: string): number[] {
@@ -1915,7 +1916,7 @@ export function extractHeuristicBehaviorCandidates(
       && !isJavaScriptOrTypeScriptTestPath(repositoryPath)
     )
   ) return [];
-  const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
+  const markdown = resolveMarkdownSkillCoverage(repositoryPath);
   if (markdown && (
     markdown.kind === 'historical'
     || markdown.kind === 'evidence'
@@ -1929,7 +1930,7 @@ export function extractHeuristicBehaviorCandidates(
   const skills = behaviorSkills(repositoryPath);
   const pathImpliesAgentBehavior = markdown?.kind === 'skill-definition'
     || markdown?.kind === 'agent-projection'
-    || (markdown === null && resolveSecRepositoryHeuristicSkills(repositoryPath).length > 0);
+    || (markdown === null && resolveRepositoryHeuristicSkills(repositoryPath).length > 0);
   const contextMarker = skills.length > 0
     ? AGENT_CONTEXT_MARKER
     : STRONG_AGENT_CONTEXT_MARKER;
@@ -2294,7 +2295,7 @@ async function auditControlPlane(
   let manifestPath: string;
   let expectedDigest: string;
   try {
-    const parsedPointer = CodexDevelopmentParseActivePointer(pointer);
+    const parsedPointer = parseActivePointer(pointer);
     manifestPath = parsedPointer.manifest;
     expectedDigest = parsedPointer.manifestDigest.slice('sha256:'.length);
   } catch (error) {
@@ -2308,7 +2309,7 @@ async function auditControlPlane(
   }
   let rollingPackage: string;
   try {
-    rollingPackage = CodexDevelopmentParseRollingPlan(rollingPlan).activePackageId;
+    rollingPackage = parseRollingPlan(rollingPlan).activePackageId;
   } catch (error) {
     pushFinding(findings, {
       code: 'control-plane-rolling-invalid',
@@ -2386,7 +2387,7 @@ async function auditControlPlane(
       });
     }
     const roadmapSource = textByPath.get('config/repository/work-selection.md');
-    const census = CodexDevelopmentClassifyWorkPackageCensus({
+    const census = classifyWorkPackageCensus({
       selectedManifestPath: manifestPath,
       entries,
       roadmapSource: liveManifests.length > 1 && roadmapSource !== null
@@ -2526,7 +2527,7 @@ async function auditRepositoryWithSession(
   if (defaultHead === null) {
     unknowns.push(`default ref unavailable: ${defaultRefInput}`);
   }
-  const surfaceCounts: Record<SecRepositorySurfaceKind, number> = {
+  const surfaceCounts: Record<RepositorySurfaceKind, number> = {
     configuration: 0,
     'heuristic-runtime': 0,
     markdown: 0,
@@ -2547,14 +2548,14 @@ async function auditRepositoryWithSession(
       ? { kind: 'verification-test' as const, skills: [] }
       : compiledSurface === 'production'
         ? { kind: 'product-implementation' as const, skills: [] }
-        : classifySecRepositorySurface(repositoryPath);
+        : classifyRepositorySurface(repositoryPath);
     surfaceCounts[surface.kind] += 1;
     if (repositoryPath.endsWith('.md')) markdown += 1;
 
     const source = textByPath.get(repositoryPath) ?? null;
     if (source === null) continue;
 
-    const markdownCoverage = resolveSecMarkdownSkillCoverage(repositoryPath);
+    const markdownCoverage = resolveMarkdownSkillCoverage(repositoryPath);
     if (markdownCoverage?.kind === 'active-authority'
       || markdownCoverage?.kind === 'agent-projection') {
       activeMarkdown += 1;
@@ -2597,9 +2598,9 @@ async function auditRepositoryWithSession(
     }
   }
 
-  for (const skillId of SEC_AGENT_SKILL_IDS) {
-    const routed = SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS.filter(
-      (behavior) => SEC_REPOSITORY_HEURISTIC_ROUTES[behavior].owner === skillId
+  for (const skillId of AGENT_SKILL_IDS) {
+    const routed = REPOSITORY_HEURISTIC_BEHAVIOR_IDS.filter(
+      (behavior) => REPOSITORY_HEURISTIC_ROUTES[behavior].owner === skillId
     );
     if (routed.length === 0) {
       pushFinding(findings, {
@@ -2655,7 +2656,7 @@ async function auditRepositoryWithSession(
     architecture,
     declarationTopology,
     behaviorCandidates: Object.freeze([...candidates]),
-    heuristicRoutes: SEC_REPOSITORY_HEURISTIC_ROUTES,
+    heuristicRoutes: REPOSITORY_HEURISTIC_ROUTES,
     contentCoverage,
     findings: Object.freeze(findings),
     optimizations: Object.freeze([
@@ -2703,7 +2704,7 @@ async function auditRepositoryWithSession(
         references: sourceProgram.references.length,
         unknowns: sourceProgram.unknowns.length
       }),
-      skills: SEC_AGENT_SKILL_IDS.length,
+      skills: AGENT_SKILL_IDS.length,
       trackedPaths: tracked.length,
       unknowns: unknowns.length
     }),

@@ -24,7 +24,7 @@ export const FreezeResultSchema = 'sec-document-control-plane-freeze-result-v2' 
 
 export const FreezeJournalRelativePath = '.tmp/codex/document-control-plane-freeze-v1/journal.json';
 
-export type CodexDevelopmentFreezeFault =
+export type FreezeFault =
   | 'after-journal-prepare'
   | 'after-index-lock-write'
   | 'after-index-pre-quarantine'
@@ -46,15 +46,15 @@ export type CodexDevelopmentFreezeFault =
   | 'after-journal-terminal-next-install'
   | 'after-terminal';
 
-export type CodexDevelopmentDurabilityStage =
+export type DurabilityStage =
   | 'renamed'
   | 'file-flushed'
   | 'parent-barrier';
 
-export interface CodexDevelopmentDurabilityEvent {
+export interface DurabilityEvent {
   readonly label: string;
   readonly targetPath: string;
-  readonly stage: CodexDevelopmentDurabilityStage;
+  readonly stage: DurabilityStage;
 }
 
 export type FreezeJournalPhase =
@@ -64,7 +64,7 @@ export type FreezeJournalPhase =
   | 'rolling-published'
   | 'terminal';
 
-export interface CodexDevelopmentFreezeResult {
+export interface FreezeResult {
   readonly schema: typeof LegacyFreezeResultSchema | typeof FreezeResultSchema;
   readonly status: 'ACTIVATED_INDEX_PENDING_COMMIT' | 'PROPOSED';
   readonly operationId: `sha256:${string}`;
@@ -102,7 +102,7 @@ export interface FreezeJournal {
   }>;
   readonly index: FreezeJournalFile;
   readonly indexTransportDigest: `sha256:${string}`;
-  readonly result: CodexDevelopmentFreezeResult;
+  readonly result: FreezeResult;
 }
 
 export function byteDigest(bytes: Uint8Array): `sha256:${string}` {
@@ -182,7 +182,7 @@ export function freezeOperationId(
   }) as `sha256:${string}`;
 }
 
-function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResult {
+function parseFreezeResult(value: unknown): FreezeResult {
   const record = recordValue(value, 'Freeze journal result');
   exactKeys(record, [
     'baseSha', 'baseTreeSha', 'candidateHeadSha', 'candidateTreeSha', 'indexPublished',
@@ -198,8 +198,8 @@ function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResult {
     throw new Error('Freeze journal result identity is invalid.');
   }
   return Object.freeze({
-    schema: record.schema as CodexDevelopmentFreezeResult['schema'],
-    status: record.status as CodexDevelopmentFreezeResult['status'],
+    schema: record.schema as FreezeResult['schema'],
+    status: record.status as FreezeResult['status'],
     operationId: digestValue(record.operationId, 'Freeze result operationId'),
     baseSha: shaValue(record.baseSha, 'Freeze result baseSha'),
     baseTreeSha: shaValue(record.baseTreeSha, 'Freeze result baseTreeSha'),

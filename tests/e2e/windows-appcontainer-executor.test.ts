@@ -74,7 +74,7 @@ function readAcl(icaclsPath: string, targetPath: string): string {
   return result.stdout.toString();
 }
 
-function readSecAppContainerProfiles(regPath: string): readonly string[] {
+function readSemanticMutationAppContainerProfiles(regPath: string): readonly string[] {
   const result = Bun.spawnSync([
     regPath,
     'query',
@@ -405,7 +405,7 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
       ...Object.values(directories)
     ];
     const aclBefore = aclTargets.map((target) => readAcl(icaclsPath, target));
-    const profilesBefore = readSecAppContainerProfiles(regPath);
+    const profilesBefore = readSemanticMutationAppContainerProfiles(regPath);
 
     const capability = windowsAppContainerCapability();
     expect(Object.keys(capability)).toEqual(['status']);
@@ -454,7 +454,7 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
     }
 
     await waitForNoWindowsProcessesReferencingPath(systemRoot, workspaceRoot);
-    expect(readSecAppContainerProfiles(regPath)).toEqual(profilesBefore);
+    expect(readSemanticMutationAppContainerProfiles(regPath)).toEqual(profilesBefore);
     expect(await exists(ownerPath)).toBe(false);
     expect(await exists(`${ownerPath}.pending-v1`)).toBe(false);
     expect(await exists(path.join(

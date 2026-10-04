@@ -5,11 +5,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   acquirePhysicalMutationLease, assertPhysicalMutationLeaseOwned,
-  completePhysicalJournalMutationInitialization, completePhysicalJournalMutationRetirement,
+  completePhysicalJournalMutationRetirement,
   deletePhysicalJournalMutationFile,
   ensurePhysicalMutationCoordinationNamespace,
   PHYSICAL_MUTATION_LEASE_SCHEMA,
   preparePhysicalMutationCoordinationResource,
+  publishPhysicalJournalMutationInitialization,
   readPhysicalMutationCoordinationResource
 } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -53,8 +54,7 @@ test('coordination first birth is durable and two real processes exclude without
     expect(child(root, `const resource=owner.readPhysicalMutationCoordinationResource(parent,name,namespace);
       console.log(owner.acquirePhysicalMutationLease(parent,name,{coordinationResource:resource})===null);`)).toBe('true');
     expect(() => deletePhysicalJournalMutationFile(lease, { device: '0', inode: '0', bytes: Buffer.alloc(0) })).toThrow('not issued');
-    const receipt = publishExclusiveDurableCanonicalFile({ parent, name: 'unrelated.json', bytes: Buffer.from('{}\n'), validate: () => undefined });
-    expect(() => completePhysicalJournalMutationInitialization(lease, receipt)).toThrow('not issued');
+    expect(() => publishPhysicalJournalMutationInitialization(lease, Buffer.from('{}\n'))).toThrow('not issued');
     expect(() => completePhysicalJournalMutationRetirement(lease, Buffer.alloc(0))).toThrow('not issued');
     lease.release();
     expect(() => assertPhysicalMutationLeaseOwned(lease)).toThrow();

@@ -5,7 +5,7 @@ export const DEVELOPMENT_PERFORMANCE_SCENARIO_CATALOG_REVISION =
 
 export type DevelopmentPerformanceMetricKind = 'count' | 'duration-ms';
 
-export interface DevelopmentPerformanceMetricDefinitionV1 {
+export interface DevelopmentPerformanceMetricDefinition {
   readonly id: string;
   readonly kind: DevelopmentPerformanceMetricKind;
   /** Describes the upstream observation family; it does not transfer authority here. */
@@ -18,7 +18,7 @@ export interface DevelopmentPerformanceMetricDefinitionV1 {
   readonly meaning: string;
 }
 
-export interface DevelopmentPerformanceScenarioV1 {
+export interface DevelopmentPerformanceScenario {
   readonly schema: 'sec-development-performance-scenario-v1';
   readonly revision: typeof DEVELOPMENT_PERFORMANCE_SCENARIO_CATALOG_REVISION;
   readonly scenarioId: 'development-closeout-v1';
@@ -30,10 +30,10 @@ export interface DevelopmentPerformanceScenarioV1 {
    * not this descriptive catalog.
    */
   readonly requiredSampleBindings: readonly string[];
-  readonly metrics: readonly DevelopmentPerformanceMetricDefinitionV1[];
+  readonly metrics: readonly DevelopmentPerformanceMetricDefinition[];
 }
 
-const DEVELOPMENT_CLOSEOUT_METRICS: readonly DevelopmentPerformanceMetricDefinitionV1[] =
+const DEVELOPMENT_CLOSEOUT_METRICS: readonly DevelopmentPerformanceMetricDefinition[] =
   deepFreeze([
     {
       id: 'action-executed-count',
@@ -131,7 +131,7 @@ const DEVELOPMENT_CLOSEOUT_METRICS: readonly DevelopmentPerformanceMetricDefinit
       sourceClass: 'settlement',
       meaning: 'Time from GC eligibility/authorization to physical-clean settlement; never substituted for operational-terminal latency.'
     }
-  ] satisfies readonly DevelopmentPerformanceMetricDefinitionV1[]);
+  ] satisfies readonly DevelopmentPerformanceMetricDefinition[]);
 
 const DEVELOPMENT_CLOSEOUT_STAGES = Object.freeze([
   'finalize',
@@ -158,7 +158,7 @@ const REQUIRED_SAMPLE_BINDINGS = Object.freeze([
  * It intentionally carries no samples, baselines, percentiles, thresholds, or regression verdicts.
  * #441 (or another selected #316 producer) must bind those to exact environment/input Evidence.
  */
-export function buildDevelopmentPerformanceScenarioV1(): DevelopmentPerformanceScenarioV1 {
+export function buildDevelopmentPerformanceScenario(): DevelopmentPerformanceScenario {
   return deepFreeze({
     schema: 'sec-development-performance-scenario-v1',
     revision: DEVELOPMENT_PERFORMANCE_SCENARIO_CATALOG_REVISION,

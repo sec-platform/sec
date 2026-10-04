@@ -6,11 +6,11 @@ import { expect, test } from 'bun:test';
 import { stringify as stringifyYaml } from 'yaml';
 
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
-import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
+import { WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, WINDOWS_CONTROL_CLI_PROFILE_ID, WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 import { scanMachineLedgers, type CapabilityLedgerIssue } from '../../src/adapters/verification/platform/provider/capability-ledger-validation.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
+const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
 
 async function scan(root: string): Promise<CapabilityLedgerIssue[]> {
   const issues: CapabilityLedgerIssue[] = [];
@@ -33,10 +33,10 @@ function windowsControlCliProvider(): Record<string, unknown> {
     capability: 'host-command-execution',
     decision: 'integrate-provider',
     lifecycle: 'revalidation-required',
-    activeRoutingProfile: SEC_WINDOWS_CONTROL_CLI_PROFILE_ID,
-    surfaces: { cli: [SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE], standingMcp: [] },
+    activeRoutingProfile: WINDOWS_CONTROL_CLI_PROFILE_ID,
+    surfaces: { cli: [WINDOWS_CONTROL_CLI_SESSION_SURFACE], standingMcp: [] },
     forbiddenAuthority: [...FORBIDDEN_AUTHORITY],
-    unresolved: [SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON]
+    unresolved: [WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON]
   };
 }
 
@@ -338,7 +338,7 @@ test('host-command-execution has one exhaustive provider closure with no null or
       ['missing closure reason', (entry) => {
         entry.unresolved = [];
       }, `External capability provider windows-native-control-cli.unresolved must contain exactly ${
-        SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
+        WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
       }.`]
     ];
     for (const [, mutate, message] of cases) {

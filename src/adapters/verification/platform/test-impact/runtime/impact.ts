@@ -2,7 +2,7 @@ import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { CodedFailure } from '../../../../../contracts/failure.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import {
-  normalizeSecRepositoryPath,
+  normalizeRepositoryPath,
   type RepositoryModuleGraph
 } from '../../../../repository/architecture/contract.ts';
 import {
@@ -65,7 +65,7 @@ type ProviderIndex = Readonly<{
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
 function normalizeRepoPath(value: string): string {
-  return normalizeSecRepositoryPath(value);
+  return normalizeRepositoryPath(value);
 }
 
 function assertIssuedProvider(provider: CodexDevelopmentTestImpactSourceProvider): void {

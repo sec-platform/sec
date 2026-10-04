@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../../repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../../repository/architecture/contract.ts';
 import { requireSourceProgramOperationProducerClosure } from '../../../repository/source-program-model/producer-closure.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import { compileCandidateNormalizationProducer, IMPORT_NORMALIZATION_OPERATION } from './contract.ts';
@@ -26,7 +26,7 @@ function sourceSnapshot(implementation: string) {
       kind: 'source-program-virtual-mutation', baseSnapshotDigest: sha256('base'), mutationDigest: sha256(files)
     } },
     files,
-    moduleMembership: compileSecRepositoryModuleMembershipSnapshot({
+    moduleMembership: compileRepositoryModuleMembershipSnapshot({
       repositoryFiles: files.map(({ path }) => path),
       descriptorSources: [{ descriptorPath: `${root}/module.json`, source: descriptor }]
     })

@@ -9,17 +9,10 @@ import { type CommitFence } from '../../contracts/commit-fence.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { isPathInside, isSafeRelativePath, posixPath, resolvePathInside } from '../../contracts/relative-path.ts';
+import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import {
-  packageJsonRelativePath,
-  prismaRelativePath,
-  secRelativePath,
-  srcRelativePath,
-  testsRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
-} from '../../workspace/paths.ts';
+import { packageJsonRelativePath, prismaRelativePath, secRelativePath, srcRelativePath, testsRelativePath, tsconfigRelativePath } from '../../workspace/paths.ts';
 import { publishExistingParentCanonicalWorkspaceFile } from '../filesystem/file-publication.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../verification/platform/artifact/runtime/authority.ts';
 import {

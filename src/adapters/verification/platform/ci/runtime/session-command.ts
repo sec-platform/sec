@@ -6,8 +6,11 @@
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { cloneAndDeepFreeze } from '../../../../../contracts/canonical.ts';
 
 import { settleResources } from '../../../../../execution/resource-settlement.ts';
+import type { IntegrationAuthorization } from '../../../../../execution/verification/integration.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
 import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
@@ -16,6 +19,7 @@ import {
 import { RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR } from '../../../../runtime-state/physical/runtime/process.ts';
 import { createBranchLifecycleGitChildEnvironment, decodeBranchLifecycleChildError, decodeBranchLifecycleChildStdout } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import type { ActiveWorkPackageOwnerObservation } from '../../../../self-hosting/control/task/contract/active-work-observation.ts';
+import { assertHistoricalHostedSessionTerminalSourceCurrent, closeHistoricalHostedSessionTerminalSource } from './verification-action-github-provider.ts';
 
 const SESSION_COMMAND_TIMEOUT_MS = 60_000;
 
@@ -28,6 +32,137 @@ export interface VerificationSessionScope {
   readonly defaultBranch?: string;
   readonly recoveryRoot?: string;
   readonly activeWorkPackageObservation?: ActiveWorkPackageOwnerObservation;
+}
+
+type HistoricalSessionSelector = Parameters<typeof assertHistoricalHostedSessionTerminalSourceCurrent>[0]['artifact'];
+type HistoricalSessionFacts = Awaited<ReturnType<typeof assertHistoricalHostedSessionTerminalSourceCurrent>>;
+type BorrowedHistoricalSessionSource = {
+  readonly origin: AuthenticatedGitHubJobOrigin;
+  readonly selector: HistoricalSessionSelector;
+  artifactDigest: string;
+  state: 'pending' | 'retained';
+};
+const historicalSourcesByArtifact = new WeakMap<object, BorrowedHistoricalSessionSource>();
+const historicalSourcesByContext = new WeakMap<VerificationSessionScope, Set<BorrowedHistoricalSessionSource>>();
+const selectedHistoricalSource = new WeakMap<VerificationSessionScope, BorrowedHistoricalSessionSource>();
+const delegatedSelectedContexts = new WeakSet<VerificationSessionScope>();
+const retiredHistoricalSourceContexts = new WeakSet<VerificationSessionScope>();
+
+function assertHistoricalSourceContext(ctx: VerificationSessionScope, source: BorrowedHistoricalSessionSource, facts: HistoricalSessionFacts): void {
+  const job = assertAuthenticatedGitHubJobOriginCurrent(source.origin);
+  if (path.resolve(ctx.repositoryRoot) !== job.trustedDriverRoot
+      || facts.authenticatedArtifact.session.repository !== job.repository
+      || facts.authenticatedArtifact.artifactDigest !== source.artifactDigest
+      || (ctx.repositoryFullName !== undefined && ctx.repositoryFullName !== job.repository)) {
+    throw new Error('Historical Session borrow differs from its genuine origin, repository or immutable artifact.');
+  }
+}
+
+/** This association holds a dependency, never an authority: each consumer goes
+ * back to the original provider's private selector and current native facts. */
+export async function retainHistoricalHostedSessionSource(input: Readonly<{
+  ctx: VerificationSessionScope; origin: AuthenticatedGitHubJobOrigin; selector: HistoricalSessionSelector;
+}>) {
+  const { ctx, origin, selector } = input;
+  if (retiredHistoricalSourceContexts.has(ctx)) throw new Error('The invocation historical source lifetime has ended.');
+  const source: BorrowedHistoricalSessionSource = { origin, selector, artifactDigest: '', state: 'pending' };
+  const sources = historicalSourcesByContext.get(ctx) ?? new Set<BorrowedHistoricalSessionSource>();
+  sources.add(source);
+  historicalSourcesByContext.set(ctx, sources);
+  try {
+    const facts = await assertHistoricalHostedSessionTerminalSourceCurrent({ origin, artifact: selector });
+    if (retiredHistoricalSourceContexts.has(ctx) || historicalSourcesByContext.get(ctx) !== sources || !sources.has(source)) {
+      throw new Error('The invocation historical source lifetime ended during native observation.');
+    }
+    source.artifactDigest = facts.authenticatedArtifact.artifactDigest;
+    assertHistoricalSourceContext(ctx, source, facts);
+    source.state = 'retained';
+    Object.freeze(source);
+    historicalSourcesByArtifact.set(facts.authenticatedArtifact, source);
+    return facts;
+  } catch (error) {
+    if (historicalSourcesByContext.get(ctx) === sources) sources.delete(source);
+    closeHistoricalHostedSessionTerminalSource({ origin, artifact: selector });
+    throw error;
+  }
+}
+
+export async function selectHistoricalHostedSessionSource(input: Readonly<{
+  ctx: VerificationSessionScope; artifact: HistoricalSessionSelector;
+}>) {
+  const { ctx, artifact } = input;
+  if (retiredHistoricalSourceContexts.has(ctx)) throw new Error('The invocation historical source lifetime has ended.');
+  if (artifact.schema !== 'verification-session-delegated-terminal') {
+    if (delegatedSelectedContexts.has(ctx)) throw new Error('An invocation cannot replace its selected delegated source with a direct artifact.');
+    selectedHistoricalSource.delete(ctx);
+    return artifact;
+  }
+  const source = historicalSourcesByArtifact.get(artifact);
+  if (source === undefined || source.state !== 'retained' || historicalSourcesByContext.get(ctx)?.has(source) !== true) {
+    throw new Error('Selected delegated Session is not an original qualified capture in this invocation.');
+  }
+  const selected = selectedHistoricalSource.get(ctx);
+  if (selected !== undefined && (selected.origin !== source.origin || selected.artifactDigest !== source.artifactDigest)) {
+    throw new Error('An invocation cannot replace its selected original Session with another qualified source.');
+  }
+  const facts = await assertHistoricalHostedSessionTerminalSourceCurrent({ origin: source.origin, artifact: source.selector });
+  const currentSelected = selectedHistoricalSource.get(ctx);
+  if (retiredHistoricalSourceContexts.has(ctx) || historicalSourcesByContext.get(ctx)?.has(source) !== true
+      || currentSelected !== selected) {
+    throw new Error('The selected historical source changed during native observation.');
+  }
+  assertHistoricalSourceContext(ctx, source, facts);
+  selectedHistoricalSource.set(ctx, source);
+  delegatedSelectedContexts.add(ctx);
+  historicalSourcesByArtifact.set(facts.authenticatedArtifact, source);
+  return facts.authenticatedArtifact;
+}
+
+export async function assertBorrowedHostedSessionSourceCurrent(ctx: VerificationSessionScope, subject: Readonly<{
+  repository: string; pullRequestNumber: number; headSha: string; candidateTreeSha?: string; sessionRevision?: string;
+  authorization?: IntegrationAuthorization;
+}>) {
+  subject = cloneAndDeepFreeze(subject);
+  if (retiredHistoricalSourceContexts.has(ctx)) throw new Error('The invocation historical source lifetime has ended.');
+  const source = selectedHistoricalSource.get(ctx);
+  if (source === undefined) {
+    if (delegatedSelectedContexts.has(ctx)) throw new Error('The selected delegated source has been released; native effects remain unavailable.');
+    return null;
+  }
+  const facts = await assertHistoricalHostedSessionTerminalSourceCurrent({ origin: source.origin, artifact: source.selector });
+  if (retiredHistoricalSourceContexts.has(ctx) || selectedHistoricalSource.get(ctx) !== source
+      || historicalSourcesByContext.get(ctx)?.has(source) !== true) {
+    throw new Error('The selected historical source was released during native observation.');
+  }
+  assertHistoricalSourceContext(ctx, source, facts);
+  const artifact = facts.authenticatedArtifact;
+  if (artifact.session.repository !== subject.repository || artifact.session.prNumber !== subject.pullRequestNumber
+      || artifact.session.headSha !== subject.headSha
+      || (subject.candidateTreeSha !== undefined && artifact.session.headTreeSha !== subject.candidateTreeSha)
+      || (subject.sessionRevision !== undefined && artifact.session.sessionRevision !== subject.sessionRevision)) {
+    throw new Error('Native effect subject differs from its selected historical Session and original Scope.');
+  }
+  if (subject.authorization !== undefined) {
+    const authorization = subject.authorization;
+    if (authorization.baseSha !== artifact.session.baseSha || authorization.baseTreeSha !== artifact.session.baseTreeSha
+        || authorization.headTreeSha !== artifact.session.headTreeSha || authorization.manifestDigest !== artifact.session.manifestDigest
+        || authorization.actionClosureDigest !== artifact.session.actionPlanClosureDigest
+        || authorization.evidenceDigest !== artifact.evidence.evidenceDigest
+        || authorization.scopeAuthorizationReceiptDigest !== artifact.scopeAuthorization.authorizationDigest
+        || authorization.scopeAuthorizationRevision !== artifact.scopeAuthorization.authorizationRevision) {
+      throw new Error('Native integration authorization differs from its fresh original Session, Scope and Evidence.');
+    }
+  }
+  historicalSourcesByArtifact.set(artifact, source);
+  return facts;
+}
+
+export function closeHistoricalHostedSessionSources(ctx: VerificationSessionScope): void {
+  retiredHistoricalSourceContexts.add(ctx);
+  const sources = historicalSourcesByContext.get(ctx);
+  historicalSourcesByContext.delete(ctx);
+  selectedHistoricalSource.delete(ctx);
+  for (const source of sources ?? []) closeHistoricalHostedSessionTerminalSource({ origin: source.origin, artifact: source.selector });
 }
 
 /** Consume the original retained inode/pinned chain; a path alone is no authority. */

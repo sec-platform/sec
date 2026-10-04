@@ -7,69 +7,69 @@ import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
 import { compareCodeUnits, sha256 } from '../../../../contracts/canonical.ts';
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
-  resolveSecAgentOperationActivation,
-  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES,
-  SecAgentOperationActivationUnavailableError,
-  type SecAgentOperationActivationReasonCode,
-  type SecOperationAuthorityOwnerObservation,
-  type SecResolvedAgentOperationActivation
+  AGENT_OPERATION_ACTIVATION_REASON_CODES,
+  AgentOperationActivationUnavailableError,
+  resolveAgentOperationActivation,
+  type AgentOperationActivationReasonCode,
+  type OperationAuthorityOwnerObservation,
+  type ResolvedAgentOperationActivation
 } from './agent-operation-activation.ts';
-import { SEC_AGENT_SKILL_IDS } from './skill.ts';
+import { AGENT_SKILL_IDS } from './skill.ts';
 import {
-  compileSecTaskCapsule,
-  parseSecTaskCapsule,
-  SEC_TASK_CAPSULE_AUTHORITY_STATUS,
-  SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigest,
-  type SecTaskCapsule
+  compileTaskCapsule,
+  parseTaskCapsule,
+  TASK_CAPSULE_AUTHORITY_STATUS,
+  TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
+  TASK_CAPSULE_INPUT_SCHEMA,
+  type AgentContentDigest,
+  type TaskCapsule
 } from './task-capsule.ts';
 
-export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA =
+export const TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA =
   'sec-task-capsule-projection-blocked-v1' as const;
-export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASONS =
-  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES;
+export const TASK_CAPSULE_PROJECTION_BLOCKED_REASONS =
+  AGENT_OPERATION_ACTIVATION_REASON_CODES;
 
-export interface SecTaskCapsuleProjectionBlocked {
-  readonly schema: typeof SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA;
+export interface TaskCapsuleProjectionBlocked {
+  readonly schema: typeof TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA;
   readonly status: 'blocked';
-  readonly reasonCode: SecAgentOperationActivationReasonCode;
-  readonly blockerDigest: SecDigest;
-  readonly authorityStatus: typeof SEC_TASK_CAPSULE_AUTHORITY_STATUS;
+  readonly reasonCode: AgentOperationActivationReasonCode;
+  readonly blockerDigest: AgentContentDigest;
+  readonly authorityStatus: typeof TASK_CAPSULE_AUTHORITY_STATUS;
   readonly effectAuthority: 'none';
   readonly retryOwner: 'document-control-a0-activation-authority';
 }
 
-export class SecTaskCapsuleProjectionUnavailableError extends Error {
-  readonly code: SecAgentOperationActivationReasonCode;
-  readonly blockerDigest: SecDigest;
+export class TaskCapsuleProjectionUnavailableError extends Error {
+  readonly code: AgentOperationActivationReasonCode;
+  readonly blockerDigest: AgentContentDigest;
 
-  constructor(code: SecAgentOperationActivationReasonCode, blockerDigest: SecDigest) {
+  constructor(code: AgentOperationActivationReasonCode, blockerDigest: AgentContentDigest) {
     super(
       `trusted activation authority is unavailable (${code}); candidate state cannot issue a Task Capsule projection.`
     );
-    this.name = 'SecTaskCapsuleProjectionUnavailableError';
+    this.name = 'TaskCapsuleProjectionUnavailableError';
     this.code = code;
     this.blockerDigest = blockerDigest;
   }
 }
 
 export function taskCapsuleProjectionBlocked(
-  error: SecTaskCapsuleProjectionUnavailableError
-): SecTaskCapsuleProjectionBlocked {
+  error: TaskCapsuleProjectionUnavailableError
+): TaskCapsuleProjectionBlocked {
   return Object.freeze({
-    schema: SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA,
+    schema: TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA,
     status: 'blocked',
     reasonCode: error.code,
     blockerDigest: error.blockerDigest,
-    authorityStatus: SEC_TASK_CAPSULE_AUTHORITY_STATUS,
+    authorityStatus: TASK_CAPSULE_AUTHORITY_STATUS,
     effectAuthority: 'none',
     retryOwner: 'document-control-a0-activation-authority'
   });
 }
 
-export interface SecTrustedWorkerTaskCapsuleObservation {
-  readonly taskCapsule: SecTaskCapsule;
+export interface TrustedWorkerTaskCapsuleObservation {
+  readonly taskCapsule: TaskCapsule;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
   readonly trustedRevision: string;
@@ -77,11 +77,11 @@ export interface SecTrustedWorkerTaskCapsuleObservation {
   readonly changedPaths: readonly string[];
   readonly manifestPath: string;
   readonly manifestRevision: string;
-  readonly manifestDigest: SecDigest;
+  readonly manifestDigest: AgentContentDigest;
   readonly activationPhase: 'prepare' | 'finalize';
-  readonly activationDigest: SecDigest;
-  readonly currentSpecRevision: SecDigest;
-  readonly authorityOwners: readonly SecOperationAuthorityOwnerObservation[];
+  readonly activationDigest: AgentContentDigest;
+  readonly currentSpecRevision: AgentContentDigest;
+  readonly authorityOwners: readonly OperationAuthorityOwnerObservation[];
 }
 
 /**
@@ -94,24 +94,24 @@ export interface SecTrustedWorkerTaskCapsuleObservation {
 export async function resolveTrustedWorkerTaskCapsule(
   runtimeRootInput: string,
   candidateRootInput: string
-): Promise<SecTrustedWorkerTaskCapsuleObservation> {
-  let activation: Awaited<ReturnType<typeof resolveSecAgentOperationActivation>>;
+): Promise<TrustedWorkerTaskCapsuleObservation> {
+  let activation: Awaited<ReturnType<typeof resolveAgentOperationActivation>>;
   try {
-    activation = await resolveSecAgentOperationActivation(runtimeRootInput, candidateRootInput);
+    activation = await resolveAgentOperationActivation(runtimeRootInput, candidateRootInput);
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) {
-      throw new SecTaskCapsuleProjectionUnavailableError(error.reasonCode, error.blockerDigest);
+    if (error instanceof AgentOperationActivationUnavailableError) {
+      throw new TaskCapsuleProjectionUnavailableError(error.reasonCode, error.blockerDigest);
     }
     throw error;
   }
   return projectWorkerTaskCapsuleObservation(activation);
 }
 
-type WorkerTaskCapsuleProjectionInput = Pick<SecResolvedAgentOperationActivation,
+type WorkerTaskCapsuleProjectionInput = Pick<ResolvedAgentOperationActivation,
   'manifest' | 'manifestPath' | 'manifestRevision' | 'manifestDigest' | 'authorityOwners' |
   'activationDigest' | 'targetCandidate' | 'trustedRevision' | 'changedPaths' |
   'runtimeRoot' | 'candidateRoot' | 'phase'> & Readonly<{
-    preparation: Pick<SecResolvedAgentOperationActivation['preparation'],
+    preparation: Pick<ResolvedAgentOperationActivation['preparation'],
       'operationId' | 'role' | 'operationKind' | 'currentSpecRevision' | 'trustedBaseSha' |
       'proposal' | 'controlDigests'>;
   }>;
@@ -119,7 +119,7 @@ type WorkerTaskCapsuleProjectionInput = Pick<SecResolvedAgentOperationActivation
 /** Pure projection of already resolved inputs; its Capsule remains unbound planning content. */
 export function projectWorkerTaskCapsuleObservation(
   activation: WorkerTaskCapsuleProjectionInput
-): SecTrustedWorkerTaskCapsuleObservation {
+): TrustedWorkerTaskCapsuleObservation {
   const { preparation } = activation;
   const ownerFacts = [
     ...activation.manifest.tasks.map((task) => Object.freeze({
@@ -150,8 +150,8 @@ export function projectWorkerTaskCapsuleObservation(
     revision: testPath,
     reasonCode: 'work-package-test'
   }));
-  const taskCapsule = compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  const taskCapsule = compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: `activation:${activation.activationDigest}`,
     planningContext: {
       operationId: preparation.operationId,
@@ -174,7 +174,7 @@ export function projectWorkerTaskCapsuleObservation(
         changedPaths: activation.changedPaths
       },
       verificationObligations,
-      skillCandidateIds: SEC_AGENT_SKILL_IDS
+      skillCandidateIds: AGENT_SKILL_IDS
     }
   });
   return Object.freeze({
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
       fail('compile requires --input <inline-json|file> --candidate-root <path> and rejects --capsule.');
     }
     const request = object(await readJsonArgument(options.input, runtimeRoot, '--input'), 'compile request');
-    if (request.schema !== SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA || Object.keys(request).length !== 1) {
+    if (request.schema !== TASK_CAPSULE_COMPILE_REQUEST_SCHEMA || Object.keys(request).length !== 1) {
       fail('compile input must be one authority-free schema-only request.');
     }
     const observation = await resolveTrustedWorkerTaskCapsule(runtimeRoot, options.candidateRoot);
@@ -258,7 +258,7 @@ async function main(): Promise<void> {
     if (options.capsule === undefined || options.input !== undefined || options.candidateRoot !== undefined) {
       fail('verify requires --capsule <inline-json|file> only.');
     }
-    const capsule = parseSecTaskCapsule(
+    const capsule = parseTaskCapsule(
       await readJsonArgument(options.capsule, runtimeRoot, '--capsule')
     );
     process.stdout.write(`${JSON.stringify({
@@ -280,7 +280,7 @@ if (import.meta.main) {
     await main();
   }
   catch (error) {
-    if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
+    if (error instanceof TaskCapsuleProjectionUnavailableError) {
       console.error(JSON.stringify(taskCapsuleProjectionBlocked(error)));
     }
     else {

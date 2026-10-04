@@ -1,9 +1,11 @@
 import path from 'node:path';
-import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { graphLockArtifactRelativePath, verificationReportArtifactRelativePath } from '../contracts/artifact-paths.ts';
+import { workspaceConfigRelativePath } from '../contracts/workspace-config.ts';
+
 import { sha256 } from '../contracts/canonical.ts';
 import { CodedFailure } from '../contracts/failure.ts';
 import { isCanonicalPortableLogicalPath } from '../contracts/logical-path.ts';
-import { workspaceConfigRelativePath } from '../workspace/paths.ts';
+
 
 export type WorkspaceCreateTemplate = 'minimal' | 'reference-customer';
 
@@ -61,7 +63,7 @@ export function freezeWorkspaceCreateBlueprint(parts: readonly WorkspaceTemplate
   }
   if (directories.size + files.length > 2048 || bytes > 16 * 1024 * 1024
       || files.some(file => directories.has(file.relativePath))
-      || [workspaceConfigRelativePath, CI_ARTIFACT_FILES.graphLock, CI_ARTIFACT_FILES.verificationReport].some(name => !names.has(name))) invalid('invalid-template-shape');
+      || [workspaceConfigRelativePath, graphLockArtifactRelativePath, verificationReportArtifactRelativePath].some(name => !names.has(name))) invalid('invalid-template-shape');
   return Object.freeze({
     directories: Object.freeze([...directories].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))),
     files: Object.freeze(files.sort((a, b) => a.relativePath.localeCompare(b.relativePath)))

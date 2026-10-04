@@ -15,7 +15,7 @@ import {
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../contract/revision.ts';
 
-import { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
+import { parseVerificationSessionHostedRequest } from "../contract/session-request.ts";
 
 type HostedCompilerDispatchPayload = Readonly<{ payload: unknown }>;
 

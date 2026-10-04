@@ -11,8 +11,8 @@ import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { observeGitHubRepositoryComment } from '../../providers/github-api/repository-comment.ts';
 import { issueGitHubApiTestCapability, withGitHubApiTestSession } from '../../providers/github-api/test/operation-session.ts';
 import {
-  compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleMembershipSnapshot
+  compileRepositoryModuleArchitectureProjection,
+  compileRepositoryModuleMembershipSnapshot
 } from '../architecture/contract.ts';
 import { assessSourceProgramTransitionAuthorInput } from '../repository-audit/transition.ts';
 import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
@@ -35,8 +35,10 @@ import {
 } from './reduction.ts';
 import {
   compileRepositorySourceProgramModel,
+  compileRepositorySourceProgramModelFromWorkspaceSnapshot,
   compileSourceProgramOwnerIntentEvidence,
   compileSourceProgramResponsibilityEvidence,
+  observeRepositorySourceProgramDescriptorOperationExports,
   summarizeSourceProgramTopology
 } from './repository.ts';
 import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
@@ -62,9 +64,13 @@ import {
   observeSourceProgramTypeScriptRename,
   observeSourceProgramTypeScriptSyntax,
   observeTypeScriptSourceProgramPerformanceForTests,
-  querySourceProgramModel
+  querySourceProgramModel,
+  sourceProgramTypeScriptExactFactGenerationReceipt
 } from './typescript.ts';
-import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
+import {
+  compileVirtualWorkspaceSourceSnapshot,
+  compileWorkspaceSourceRevision
+} from './workspace-source-snapshot.ts';
 
 test('source program classifies catalog-installed code as a resource surface', () => {
   expect(sourceProgramSurfaceForPath(
@@ -74,6 +80,248 @@ test('source program classifies catalog-installed code as a resource surface', (
   expect(sourceProgramSurfaceForPath('tests/unit/example.test.ts')).toBe('test');
   expect(sourceProgramSurfaceForPath('examples/reference-workspace/src/example.ts')).toBe('resource');
   expect(sourceProgramSurfaceForPath('source/code/example.ts')).toBe('resource');
+});
+
+test('descriptor operations use exact owned runtime exports, including aliases, without admitting a nested owner', () => {
+  const sources = new Map([
+    ['src/example/root.ts',
+      "export function live(): void {}\nexport { live as alias };\nexport type { TypeOnly as old } from './type.ts';\nexport * from './star.ts';\n"],
+    ['src/example/type.ts', 'export class TypeOnly {}\n'],
+    ['src/example/star.ts', 'export function starred(): void {}\n'],
+    ['src/example/nested/old.ts', 'export function old(): void {}\n']
+  ]);
+  const descriptorSources = [
+    {
+      descriptorPath: 'src/example/module.json',
+      source: JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: [],
+        capabilityProviders: [{
+          capability: 'example.operations',
+          operations: ['live', 'alias', 'starred', 'old'],
+          ownerInternalOperations: ['old']
+        }]
+      })
+    },
+    {
+      descriptorPath: 'src/example/nested/module.json',
+      source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+    }
+  ];
+  const membership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)],
+    descriptorSources
+  });
+  const files = [...sources].map(([path, source]) => ({
+    path, source, contentDigest: rawSha256(source)
+  }));
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    subject: {
+      kind: 'virtual-mutation',
+      provenance: {
+        kind: 'source-program-virtual-mutation',
+        baseSnapshotDigest: rawSha256('descriptor-operation-base'),
+        mutationDigest: rawSha256('descriptor-operation-positive')
+      }
+    },
+    files,
+    moduleMembership: membership
+  });
+  const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot({
+    sourceRevision: workspaceSnapshot.sourceRevision,
+    files: workspaceSnapshot.files,
+    moduleMembership: membership
+  }, workspaceSnapshot);
+  const observations = observeRepositorySourceProgramDescriptorOperationExports(model);
+  expect(observations).not.toBeNull();
+  const byOperation = new Map(observations!.map((observation) => [observation.operation, observation]));
+  for (const name of ['live', 'alias', 'starred']) {
+    expect(byOperation.get(name)?.status).toBe('resolved');
+    expect(byOperation.get(name)?.resolutions.some((resolution) => (
+      resolution.status === 'resolved'
+      && resolution.targetDeclarationObservationIds.length > 0
+      && resolution.targetPaths.every((path) => path.startsWith('src/example/'))
+    ))).toBe(true);
+  }
+  expect(byOperation.get('old')?.status).toBe('absent');
+  expect(byOperation.get('old')?.scopePaths).not.toContain('src/example/nested/old.ts');
+  const graph = compileSourceProgramRepositoryModuleGraph({
+    files: files.map(({ path }) => path),
+    readSource: (path) => sources.get(path) ?? null
+  });
+  const architecture = compileRepositoryModuleArchitectureProjection(graph, membership, {
+    ...model,
+    descriptorOperationExports: observations!
+  });
+  expect(architecture.violations).toContainEqual(expect.objectContaining({
+    code: 'repository-descriptor-operation-export-absent',
+    to: 'example.operations:old'
+  }));
+  expect(observeRepositorySourceProgramDescriptorOperationExports({ ...model })).toBeNull();
+  const foreignMembership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)],
+    descriptorSources: [{
+      descriptorPath: 'src/example/module.json',
+      source: JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: [],
+        capabilityProviders: [{
+          capability: 'example.operations',
+          operations: ['foreign']
+        }]
+      })
+    }, descriptorSources[1]!]
+  });
+  const foreignTypeScriptModel = compileTypeScriptSourceProgramModel({
+    sourceRevision: model.sourceRevision,
+    files,
+    moduleMembership: foreignMembership
+  });
+  const foreignComposite = compileRepositorySourceProgramModel({
+    sourceRevision: model.sourceRevision,
+    files,
+    moduleMembership: membership,
+    typescriptModel: foreignTypeScriptModel
+  });
+  expect(observeRepositorySourceProgramDescriptorOperationExports(foreignComposite)).toBeNull();
+  const foreignRevisionTypeScriptModel = compileTypeScriptSourceProgramModel({
+    sourceRevision: 'foreign-revision',
+    files,
+    moduleMembership: membership
+  });
+  expect(() => compileRepositorySourceProgramModel({
+    sourceRevision: model.sourceRevision,
+    files,
+    moduleMembership: membership,
+    typescriptModel: foreignRevisionTypeScriptModel
+  })).toThrow('invalid TypeScript fact snapshot');
+  const unselectedEntrypoint = 'src/example/unselected.ts';
+  const partialMembership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [
+      ...sources.keys(),
+      unselectedEntrypoint,
+      ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
+    ],
+    descriptorSources: [{
+      descriptorPath: 'src/example/module.json',
+      source: JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: [unselectedEntrypoint],
+        capabilityProviders: [{
+          capability: 'example.operations',
+          operations: ['old']
+        }]
+      })
+    }, descriptorSources[1]!]
+  });
+  const partialModel = compileRepositorySourceProgramModel({
+    sourceRevision: model.sourceRevision,
+    files,
+    moduleMembership: partialMembership
+  });
+  expect(observeRepositorySourceProgramDescriptorOperationExports(partialModel)
+    ?.find(({ operation }) => operation === 'old')?.status).toBe('unresolved');
+  const extraFile = {
+    path: 'src/example/extra.ts',
+    source: 'export function old(): void {}\n',
+    contentDigest: rawSha256('export function old(): void {}\n')
+  };
+  const fallbackMembership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [
+      ...sources.keys(),
+      extraFile.path,
+      ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
+    ],
+    descriptorSources: [{
+      descriptorPath: 'src/example/module.json',
+      source: JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: [],
+        capabilityProviders: [{ capability: 'example.operations', operations: ['old'] }]
+      })
+    }, descriptorSources[1]!]
+  });
+  const completeSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    subject: {
+      kind: 'virtual-mutation',
+      provenance: {
+        kind: 'source-program-virtual-mutation',
+        baseSnapshotDigest: rawSha256('descriptor-operation-base'),
+        mutationDigest: rawSha256('descriptor-operation-complete')
+      }
+    },
+    files: [...files, extraFile],
+    moduleMembership: fallbackMembership
+  });
+  expect(completeSnapshot.files.map(({ path }) => path)).toContain(extraFile.path);
+  const unboundPartialModel = compileRepositorySourceProgramModel({
+    sourceRevision: model.sourceRevision,
+    files,
+    moduleMembership: fallbackMembership
+  });
+  expect(observeRepositorySourceProgramDescriptorOperationExports(unboundPartialModel)
+    ?.find(({ operation }) => operation === 'old')?.status).toBe('unresolved');
+  expect(() => compileRepositorySourceProgramModelFromWorkspaceSnapshot({
+    sourceRevision: completeSnapshot.sourceRevision,
+    files,
+    moduleMembership: fallbackMembership
+  }, completeSnapshot)).toThrow();
+});
+
+test('type-only star exports are absent while ambient declarations stay unresolved', () => {
+  const files = [
+    {
+      path: 'src/example/root.ts',
+      source: "export type * from './type.ts';\nexport declare function declared(): void;\n"
+    },
+    { path: 'src/example/type.ts', source: 'export class TypeOnly {}\n' }
+  ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
+  const descriptorPath = 'src/example/module.json';
+  const membership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [descriptorPath, ...files.map(({ path }) => path)],
+    descriptorSources: [{
+      descriptorPath,
+      source: JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: ['src/example/root.ts'],
+        capabilityProviders: [{ capability: 'example', operations: ['TypeOnly', 'declared'] }]
+      })
+    }]
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership: membership
+  });
+  const observations = observeRepositorySourceProgramDescriptorOperationExports(model);
+  expect(observations?.find(({ operation }) => operation === 'TypeOnly')?.status).toBe('absent');
+  expect(observations?.find(({ operation }) => operation === 'declared')?.status).toBe('unresolved');
+});
+
+test('exact TypeScript generation receipt excludes private source scope and membership capabilities', () => {
+  const source = 'export function run(): void {}\n';
+  const sourcePath = 'src/example/run.ts';
+  const descriptorPath = 'src/example/module.json';
+  const membership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [sourcePath, descriptorPath],
+    descriptorSources: [{
+      descriptorPath,
+      source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+    }]
+  });
+  const model = compileTypeScriptSourceProgramModel({
+    sourceRevision: rawSha256(source),
+    files: [{ path: sourcePath, source, contentDigest: rawSha256(source) }],
+    moduleMembership: membership
+  });
+  const receipt = sourceProgramTypeScriptExactFactGenerationReceipt(model);
+  expect(Object.keys(receipt ?? {}).sort()).toEqual([
+    'apiClosureDigest',
+    'observationInputDigest',
+    'provenanceDigest',
+    'semanticInputDigest'
+  ]);
+  expect(Object.values(receipt ?? {}).every((value) => typeof value === 'string')).toBe(true);
 });
 
 test('source program input closure excludes target workspaces and generated artifacts', () => {
@@ -321,7 +569,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     descriptorPath: `${root}/module.json`,
     source: JSON.stringify(descriptor)
   }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)],
     descriptorSources
   });
@@ -340,7 +588,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     files: files.map(({ path }) => path),
     readSource: (path) => sources.get(path) ?? null
   });
-  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, model);
+  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, model);
 
   expect(model.files).toContainEqual(expect.objectContaining({
     path: 'src/public-contract/facade.ts',
@@ -376,7 +624,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
   const sourcePath = 'src/example/run.ts';
   const source = 'export function run(): string { return \'ok\'; }\n';
   const descriptorPath = 'src/example/module.json';
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [sourcePath, descriptorPath],
     descriptorSources: [{
       descriptorPath,
@@ -452,7 +700,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
     files: [sourcePath],
     readSource: () => source
   });
-  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, {
+  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, {
     ...model,
     semanticRevision: snapshot.ir.semanticRevision,
     responsibilityEvidence
@@ -632,7 +880,7 @@ test('source program model finds capability producers, consumers, literals, and 
     'src/example/module.json',
     ...sources.keys()
   ];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles,
     descriptorSources: [{
       descriptorPath: 'src/example/module.json',
@@ -966,7 +1214,7 @@ test('source program blocks owner-internal process primitives at repository prov
       source: "import { nativePrimitive } from '../physical-provider/process.ts';\nnativePrimitive();\n"
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
@@ -1031,7 +1279,7 @@ test('source program blocks raw process primitives imported only as a production
         + 'export interface Options { runner?: typeof nativePrimitive }\n'
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
@@ -1080,7 +1328,7 @@ test('source program classifies worker-thread construction as native process tra
   const source = "import { Worker } from 'node:worker_threads';\n"
     + "export function start(): Worker { return new Worker('./worker.ts'); }\n";
   const files = [{ path: consumerPath, source, contentDigest: rawSha256(source) }];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: ['src/consumer/module.json', consumerPath],
     descriptorSources: [{
       descriptorPath: 'src/consumer/module.json',
@@ -1212,7 +1460,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
   }));
   const repositoryFiles = [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles,
     descriptorSources
   });
@@ -1237,7 +1485,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     files: [...sources.keys()],
     readSource: (repositoryPath) => sources.get(repositoryPath) ?? null
   });
-  const architecture = compileSecRepositoryModuleArchitectureProjection(
+  const architecture = compileRepositoryModuleArchitectureProjection(
     moduleGraph,
     moduleMembership,
     model
@@ -1289,7 +1537,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
       span: null
     }]
   });
-  const driftedArchitecture = compileSecRepositoryModuleArchitectureProjection(
+  const driftedArchitecture = compileRepositoryModuleArchitectureProjection(
     moduleGraph,
     moduleMembership,
     driftedModel
@@ -1336,7 +1584,7 @@ function compileGraphCutFixture(
       source,
       contentDigest: rawSha256(source)
     }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
@@ -1680,7 +1928,7 @@ function compileSupersessionFixture(
       source,
       contentDigest: rawSha256(source)
     }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
@@ -2797,7 +3045,7 @@ function compileIssuerRoleFixture(input: Readonly<{
       preDependencyBootstrap: false
     })
   }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [
       ...files.map(({ path }) => path),
       ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
@@ -3183,7 +3431,7 @@ function compileCausalReaderFixture(
     source,
     contentDigest: rawSha256(source)
   }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [
       ...Object.keys(sources),
       ...descriptorSources.map(({ descriptorPath }) => descriptorPath)

@@ -5,12 +5,12 @@ import { executeGitHubApiOperation, GitHubApiProviderError } from '../../src/ada
 import { issueGitHubApiTestCapability, withGitHubApiTestSession } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 
 import {
-  compileSecRepositoryModuleMembershipSnapshot,
-  compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor,
-  type SecRepositoryModuleMembership
+  compileRepositoryModuleMembershipSnapshot,
+  compileRepositoryModuleTopologyProjection,
+  parseRepositoryModuleDescriptor,
+  type RepositoryModuleMembership
 } from '../../src/adapters/repository/architecture/contract.ts';
-import { compileSecRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
+import { compileRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
 import {
   projectRepositoryAuditCli,
   projectRepositoryModuleArchitectureAudit,
@@ -27,8 +27,8 @@ import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
 import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
-import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
+import type { WorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { projectWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { formatImportRecoveryCommand, shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
@@ -37,7 +37,7 @@ function declarationTopologyFixture() {
   const sourcePath = 'src/projection-owner/runtime.ts';
   const source = 'export const projection = true;';
   const sourceRevision = rawSha256(source);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, sourcePath],
     descriptorSources: [{
       descriptorPath,
@@ -69,16 +69,16 @@ function declarationTopologyFixture() {
 }
 
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
-  const contract = parseSecModuleDescriptor(
+  const contract = parseRepositoryModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
     'src/contract-owner/module.json'
   );
-  const runtime = parseSecModuleDescriptor(
+  const runtime = parseRepositoryModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
     'src/runtime-owner/module.json'
   );
   const descriptors = Object.freeze([contract, runtime]);
-  const membership: SecRepositoryModuleMembership = Object.freeze({
+  const membership: RepositoryModuleMembership = Object.freeze({
     descriptors,
     graphRoots: Object.freeze(descriptors.map(({ root }) => root)),
     moduleRoots: Object.freeze(descriptors.map(({ root }) => root)),
@@ -104,8 +104,8 @@ function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
     files: [...sources.keys()],
     readSource: (sourcePath) => sources.get(sourcePath) ?? null
   });
-  const structural = compileSecRepositoryModuleTopologyProjection(graph, membership);
-  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+  const structural = compileRepositoryModuleTopologyProjection(graph, membership);
+  const responsibilityAdmission = compileRepositoryModulePlacementAdmission({
     graph,
     membership,
     facts: Object.freeze({
@@ -129,6 +129,38 @@ function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
 }
 
 describe('bounded control-plane CLI projections', () => {
+  test('provider diagnostic identity invokes no proxy traps or native Error prototype traversal', () => {
+    let traps = 0;
+    const trap = () => { traps += 1; throw new Error('diagnostic traversed untrusted proxy'); };
+    const handler = { get: trap, getPrototypeOf: trap, ownKeys: trap, getOwnPropertyDescriptor: trap };
+    const live = new Proxy(new GitHubApiProviderError('wrapped producer', 503), handler);
+    const revocable = Proxy.revocable(new Error('revoked'), handler);
+    revocable.revoke();
+    for (const value of [live, revocable.proxy]) {
+      const projected = projectDocumentControlGitHubFailure(value);
+      expect(projected.reason).toBe('github-control-observation-unavailable');
+      expect(projected.httpStatus).toBeNull();
+    }
+    const ordinary = new Error('ordinary native error');
+    Object.setPrototypeOf(ordinary, new Proxy(Error.prototype, handler));
+    expect(projectDocumentControlGitHubFailure(ordinary)).toMatchObject({
+      reason: 'github-control-observation-unavailable', httpStatus: null,
+      diagnostic: { detail: 'ordinary native error' }
+    });
+    const produced = new GitHubApiProviderError('actual constructor identity', 503);
+    Object.setPrototypeOf(produced, new Proxy(Error.prototype, handler));
+    expect(projectDocumentControlGitHubFailure(produced)).toMatchObject({
+      reason: 'github-api-provider-unavailable', httpStatus: 503,
+      diagnostic: { detail: 'actual constructor identity' }
+    });
+    const forged = Object.create(GitHubApiProviderError.prototype);
+    Object.defineProperty(forged, 'statusCode', { value: 503 });
+    expect(projectDocumentControlGitHubFailure(forged)).toMatchObject({
+      reason: 'github-control-observation-unavailable', httpStatus: null
+    });
+    expect(traps).toBe(0);
+  });
+
   test('actual observation catch stays unresolved and compact never copies its diagnostic', async () => {
     let requests = 0;
     const capability = issueGitHubApiTestCapability({
@@ -302,8 +334,8 @@ describe('bounded control-plane CLI projections', () => {
           blockedCandidateRefs: ['issue-999'], requiredPreconditions: [{}, {}]
         }
       }
-    } as unknown as SecWorkSelectionLiveResult;
-    const projected = projectSecWorkSelectionCli(result);
+    } as unknown as WorkSelectionLiveResult;
+    const projected = projectWorkSelectionCli(result);
     expect(projected).toMatchObject({
       status: 'resolved', exactMain: 'a'.repeat(40),
       decision: { selectedWorkId: 'issue-346', requiredPreconditions: 2 }

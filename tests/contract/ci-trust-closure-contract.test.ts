@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { CodexDevelopmentTrustedBootstrapSutHarness } from '../../src/adapters/verification/platform/ci/verification.ts';
+import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { slowTestSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import {
@@ -65,20 +65,6 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
   return found;
 }
 
-function embeddedTrustedBootstrapChecker(source: string): string {
-  const normalizedSource = source.replaceAll('\r\n', '\n');
-  const startDelimiter = `cat > "$out/checker.mjs" <<'CHECKER'\n`;
-  const start = normalizedSource.indexOf(startDelimiter);
-  if (start < 0) throw new Error('trusted bootstrap workflow checker start delimiter is missing.');
-  const checkerStart = start + startDelimiter.length;
-  const endDelimiter = '\n          CHECKER\n';
-  const end = normalizedSource.indexOf(endDelimiter, checkerStart);
-  if (end < 0) throw new Error('trusted bootstrap workflow checker end delimiter is missing.');
-  return normalizedSource.slice(checkerStart, end).split('\n')
-    .map((line) => line.startsWith('              ') ? line.slice(14) : line)
-    .join('\n');
-}
-
 test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
   const quickGates = buildCiQuickGatePlan({
     includeImports: true,
@@ -121,10 +107,10 @@ test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
   }).scripts;
   expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
   expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain(
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
   );
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).not.toContain(
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).not.toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck"]);'
   );
 });
@@ -171,9 +157,15 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
   const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
-  const checkerSource = embeddedTrustedBootstrapChecker(source);
-  expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
-    .not.toThrow();
+  const checkerSource = await readCompilerFile('src/application/trusted-bootstrap-verification.ts');
+  const preProgram = step(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt').run;
+  expect(preProgram).toContain('(cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/entry/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")');
+  expect(preProgram).toContain('SEC_BOOTSTRAP_PHASE=pre');
+  expect(preProgram).not.toContain("<<'CHECKER'");
+  const postProgram = workflow.jobs['checker-post']?.steps.map(value => value.run ?? '').join('\n');
+  expect(postProgram).toContain('sha256sum -c SHA256SUMS');
+  expect(postProgram).toContain('bun "$BOOTSTRAP_EVIDENCE_ROOT/checker.mjs"');
+  expect(postProgram).not.toContain('materialize --output');
   expect([
     createTcbClosureCandidateSnapshot,
     readTcbClosureCandidateFile,
@@ -277,7 +269,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
       SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
     });
   expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').run)
-    .toContain('bun src/adapters/verification/platform/ci/verification.ts execute-trusted-bootstrap-sut');
+    .toContain('bun src/entry/ci-verification.ts execute-trusted-bootstrap-sut');
   expect(sutSteps.some((candidate) =>
     candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];

@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import type { BranchCloseoutAttempt, BranchCloseoutEffectStartPublication, BranchCloseoutEffectStartReference, BranchCloseoutOperationBinding, BranchCloseoutOperationPublication, BranchCloseoutOperationReceipt, BranchCloseoutReceipt, BranchCloseoutReceiptObservation, BranchCloseoutStablePublishedReceipt, BranchPublishedCloseoutReceipt, BranchPullRequestObservation, HostedWorkflowCommentProvenance } from '../../../../execution/verification/branch-closeout.ts';
+import { parseDigest } from '../../../../contracts/digest.ts';
+import type { BranchCloseoutAttempt, BranchCloseoutEffectStartPublication, BranchCloseoutEffectStartReference, BranchCloseoutOperationBinding, BranchCloseoutOperationPublication, BranchCloseoutOperationReceipt, BranchCloseoutReceipt, BranchCloseoutReceiptObservation, BranchCloseoutStablePublishedReceipt, BranchPublishedCloseoutReceipt, BranchPullRequestObservation, DelegatedHostedWorkflowCommentProvenance, DirectHostedWorkflowCommentProvenance, HostedWorkflowCommentProvenance } from '../../../../execution/verification/branch-closeout.ts';
+import { observeHistoricalHostedSessionTerminalSourceForLocalRead } from '../../../verification/platform/ci/runtime/verification-action-github-provider.ts';
 
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
@@ -54,7 +56,7 @@ const BRANCH_CLOSEOUT_EFFECT_START_COMMENT_MARKER =
   '<!-- sec-branch-closeout-effect-start-v1 -->' as const;
 export const BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME: BranchCloseoutEffectStartPublication["phase"]["stepName"] =
   'Close out exact integrated branch' as const;
-const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA: HostedWorkflowCommentProvenance["schema"] =
+const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA: DirectHostedWorkflowCommentProvenance["schema"] =
   'sec-hosted-workflow-comment-provenance-v1' as const;
 
 const COMMENT_JSON_PREFIX = `${BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER}\n` + '```json\n';
@@ -169,16 +171,14 @@ function boundedIdentity(value: unknown, label: string): string {
 }
 
 function hostedWorkflowCommentProvenancePayload(input: Omit<
-  HostedWorkflowCommentProvenance,
+  DirectHostedWorkflowCommentProvenance,
   'schema' | 'provenanceDigest'
->): Omit<HostedWorkflowCommentProvenance, 'provenanceDigest'> {
+>): Omit<DirectHostedWorkflowCommentProvenance, 'provenanceDigest'> {
   return { schema: HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA, ...input };
 }
 
-export function createHostedWorkflowCommentProvenance(input: Omit<
-  HostedWorkflowCommentProvenance,
-  'schema' | 'provenanceDigest'
->): HostedWorkflowCommentProvenance {
+function assertHostedCommentSourceIdentity(input: Omit<HostedWorkflowCommentProvenance,
+  'schema' | 'provenanceDigest'>): void {
   if (!/^[1-9][0-9]*$/u.test(input.repositoryId)
     || !/^[1-9][0-9]*$/u.test(input.runId)
     || !/^[1-9][0-9]*$/u.test(input.sourceRunId)) {
@@ -194,15 +194,41 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
   positiveInteger(input.sourceRunAttempt, 'Hosted comment sourceRunAttempt');
   boundedIdentity(input.actorLogin, 'Hosted comment actorLogin');
   boundedIdentity(input.actorNodeId, 'Hosted comment actorNodeId');
-  if (input.actorPermission !== 'maintain' && input.actorPermission !== 'admin') {
-    throw new Error('Hosted comment actor lacks maintain/admin permission.');
-  }
   if (input.app.id !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
     || input.app.nodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.nodeId
     || input.app.slug !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.slug) {
     throw new Error('Hosted comment app is not the canonical GitHub Actions app.');
   }
+}
+
+export function createHostedWorkflowCommentProvenance(input: Omit<
+  DirectHostedWorkflowCommentProvenance,
+  'schema' | 'provenanceDigest'
+>): DirectHostedWorkflowCommentProvenance {
+  assertHostedCommentSourceIdentity(input);
+  if (input.actorPermission !== 'maintain' && input.actorPermission !== 'admin') {
+    throw new Error('Hosted comment actor lacks maintain/admin permission.');
+  }
   const payload = hostedWorkflowCommentProvenancePayload(input);
+  return Object.freeze({ ...payload, provenanceDigest: branchLifecycleDigest(payload) });
+}
+
+export function createDelegatedHostedWorkflowCommentProvenance(input: Omit<
+  DelegatedHostedWorkflowCommentProvenance, 'schema' | 'provenanceDigest'
+>): DelegatedHostedWorkflowCommentProvenance {
+  assertHostedCommentSourceIdentity(input);
+  const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
+  if (input.actorLogin !== bot.login || input.actorNodeId !== bot.nodeId || input.actorPermission !== 'none') {
+    throw new Error('Delegated hosted comment must retain the actual canonical bot identity.');
+  }
+  const sourceArtifact = input.sourceArtifact;
+  if (!/^[1-9][0-9]*$/u.test(sourceArtifact.artifactId)) throw new Error('Delegated Session artifact identity is invalid.');
+  boundedIdentity(sourceArtifact.artifactName, 'Delegated Session artifact name');
+  for (const digest of [sourceArtifact.artifactDigest, sourceArtifact.archiveDigest]) {
+    if (!/^sha256:[0-9a-f]{64}$/u.test(digest)) throw new Error('Delegated Session artifact digest is invalid.');
+  }
+  const payload = { schema: 'hosted-delegated-session-comment-provenance' as const,
+    ...input, sourceArtifact: Object.freeze({ ...sourceArtifact }) };
   return Object.freeze({ ...payload, provenanceDigest: branchLifecycleDigest(payload) });
 }
 
@@ -210,6 +236,43 @@ export function parseHostedWorkflowCommentProvenance(
   value: unknown
 ): HostedWorkflowCommentProvenance {
   assertRecord(value, 'Hosted workflow comment provenance');
+  if (value.schema === 'hosted-delegated-session-comment-provenance') {
+    assertExactKeys(value, ['schema', 'repositoryId', 'workflowPath', 'workflowRef', 'workflowSha', 'runId',
+      'runAttempt', 'eventName', 'sourceRunId', 'sourceRunAttempt', 'actorLogin', 'actorNodeId',
+      'actorPermission', 'app', 'sourceArtifact', 'provenanceDigest'], 'Delegated hosted comment provenance');
+    assertRecord(value.sourceArtifact, 'Delegated Session artifact reference');
+    assertExactKeys(value.sourceArtifact, ['artifactId', 'artifactName', 'artifactDigest', 'archiveDigest'],
+      'Delegated Session artifact reference');
+    assertRecord(value.app, 'Hosted workflow comment app');
+    assertExactKeys(value.app, ['id', 'nodeId', 'slug'], 'Hosted workflow comment app');
+    if (value.workflowPath !== '.github/workflows/merge-gate.yml' || value.eventName !== 'workflow_run'
+        || value.actorPermission !== 'none'
+        || typeof value.sourceArtifact.artifactDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.sourceArtifact.artifactDigest)
+        || typeof value.sourceArtifact.archiveDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.sourceArtifact.archiveDigest)) {
+      throw new Error('Delegated hosted comment interpretation is invalid.');
+    }
+    const provenance = createDelegatedHostedWorkflowCommentProvenance({
+      repositoryId: boundedIdentity(value.repositoryId, 'Hosted comment repositoryId'),
+      workflowPath: value.workflowPath, workflowRef: boundedIdentity(value.workflowRef, 'Hosted comment workflowRef'),
+      workflowSha: boundedIdentity(value.workflowSha, 'Hosted comment workflowSha'),
+      runId: boundedIdentity(value.runId, 'Hosted comment runId'),
+      runAttempt: positiveInteger(value.runAttempt, 'Hosted comment runAttempt'), eventName: value.eventName,
+      sourceRunId: boundedIdentity(value.sourceRunId, 'Hosted comment sourceRunId'),
+      sourceRunAttempt: positiveInteger(value.sourceRunAttempt, 'Hosted comment sourceRunAttempt'),
+      actorLogin: boundedIdentity(value.actorLogin, 'Hosted comment actorLogin'),
+      actorNodeId: boundedIdentity(value.actorNodeId, 'Hosted comment actorNodeId'), actorPermission: value.actorPermission,
+      app: { id: positiveInteger(value.app.id, 'Hosted comment app id'),
+        nodeId: boundedIdentity(value.app.nodeId, 'Hosted comment app nodeId'),
+        slug: boundedIdentity(value.app.slug, 'Hosted comment app slug') },
+      sourceArtifact: { artifactId: boundedIdentity(value.sourceArtifact.artifactId, 'Delegated Session artifact id'),
+        artifactName: boundedIdentity(value.sourceArtifact.artifactName, 'Delegated Session artifact name'),
+        artifactDigest: parseDigest(value.sourceArtifact.artifactDigest, 'sha256'),
+        archiveDigest: parseDigest(value.sourceArtifact.archiveDigest, 'sha256') }
+    });
+    if (value.provenanceDigest !== provenance.provenanceDigest) throw new Error('Delegated hosted comment provenance digest mismatch.');
+    return provenance;
+  }
+  if (value.schema !== HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA) throw new Error('Hosted comment provenance schema is unknown.');
   assertExactKeys(value, [
     'schema', 'repositoryId', 'workflowPath', 'workflowRef', 'workflowSha', 'runId',
     'runAttempt', 'eventName', 'sourceRunId', 'sourceRunAttempt', 'actorLogin',
@@ -954,9 +1017,42 @@ export function assertHostedCommentProvenanceLive(
   repository: string,
   comment: IssueCommentRecord,
   provenance: HostedWorkflowCommentProvenance
-): void {
+): void | Promise<Awaited<ReturnType<typeof observeHistoricalHostedSessionTerminalSourceForLocalRead>>> {
   if (!hostedPublisherMatches(comment)) {
     throw new Error(`comment ${comment.id} was not performed by the canonical GitHub Actions app`);
+  }
+  if (provenance.schema === 'hosted-delegated-session-comment-provenance') {
+    return (async () => {
+      const facts = await observeHistoricalHostedSessionTerminalSourceForLocalRead({ repositoryRoot, repository,
+        ...provenance.sourceArtifact });
+      const artifact = facts.authenticatedArtifact;
+      if (artifact.session.repository !== repository || artifact.session.baseSha !== provenance.workflowSha
+          || artifact.evidence.producer.runId !== provenance.sourceRunId
+          || artifact.evidence.producer.runAttempt !== provenance.sourceRunAttempt
+          || String(facts.receiverOrigin.repositoryId) !== provenance.repositoryId) {
+        throw new Error('Delegated hosted comment source differs from its independently authenticated Session.');
+      }
+      const run = jsonApi(repositoryRoot,
+        `/repos/${repository}/actions/runs/${provenance.runId}/attempts/${provenance.runAttempt}`,
+        'delegated hosted comment workflow attempt readback');
+      assertRecord(run.actor, 'delegated hosted comment actor');
+      assertRecord(run.triggering_actor, 'delegated hosted comment triggering actor');
+      assertRecord(run.repository, 'delegated hosted comment repository');
+      if (String(run.id ?? '') !== provenance.runId || run.run_attempt !== provenance.runAttempt
+          || run.event !== provenance.eventName || run.path !== provenance.workflowPath
+          || run.head_sha !== provenance.workflowSha || String(run.repository.id ?? '') !== provenance.repositoryId
+          || run.actor.login !== provenance.actorLogin || run.actor.node_id !== provenance.actorNodeId
+          || run.actor.type !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type) {
+        throw new Error('Delegated hosted comment actual publishing workflow identity drifted.');
+      }
+      const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
+      if (run.triggering_actor.login !== bot.login || run.triggering_actor.node_id !== bot.nodeId) {
+        const permission = collaboratorCanPublishReceipt(repositoryRoot, repository,
+          boundedIdentity(run.triggering_actor.login, 'delegated hosted comment triggering actor'));
+        if (!permission.trusted) throw new Error(permission.reason ?? 'Delegated hosted comment rerun principal permission is unknown.');
+      }
+      return facts;
+    })();
   }
   const repo = jsonApi(repositoryRoot, `/repos/${repository}`, 'hosted comment repository readback');
   if (String(repo.id ?? '') !== provenance.repositoryId || repo.full_name !== repository
@@ -991,15 +1087,25 @@ export function assertHostedCommentProvenanceLive(
   if (!permission.trusted) throw new Error(permission.reason ?? 'hosted comment actor permission is not trusted');
 }
 
-function effectStartPublicationsInComments(
+function assertDelegatedCloseoutSubject(binding: BranchCloseoutOperationBinding,
+  source: Awaited<ReturnType<typeof observeHistoricalHostedSessionTerminalSourceForLocalRead>>): void {
+  const session = source.authenticatedArtifact.session;
+  if (binding.repository !== session.repository || binding.pullRequestNumber !== session.prNumber
+      || binding.headSha !== session.headSha || binding.candidateTreeSha !== session.headTreeSha
+      || binding.newMainTreeSha !== session.headTreeSha) {
+    throw new Error('Delegated closeout publication differs from the authentic Session subject.');
+  }
+}
+
+async function effectStartPublicationsInComments(
   repositoryRoot: string,
   repository: string,
   pullRequestNumber: number,
   comments: readonly IssueCommentRecord[]
-): readonly Readonly<{
+): Promise<readonly Readonly<{
   publication: BranchCloseoutEffectStartPublication;
   commentId: number;
-}>[] {
+}>[]> {
   const publications: Array<{
     publication: BranchCloseoutEffectStartPublication;
     commentId: number;
@@ -1017,7 +1123,8 @@ function effectStartPublicationsInComments(
     } catch (error) {
       throw new Error(`Closeout effect start comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
-    assertHostedCommentProvenanceLive(repositoryRoot, repository, comment, publication.provenance);
+    const source = await assertHostedCommentProvenanceLive(repositoryRoot, repository, comment, publication.provenance);
+    if (source !== undefined) assertDelegatedCloseoutSubject(publication.binding, source);
     if (publication.binding.repository !== repository
       || publication.binding.pullRequestNumber !== pullRequestNumber) {
       throw new Error(`Closeout effect start comment ${comment.id} targets a different PR.`);
@@ -1079,20 +1186,20 @@ export function assertBranchCloseoutEffectStartMatches(input: {
   }
 }
 
-export function observeBranchCloseoutEffectStartPublication(
+export async function observeBranchCloseoutEffectStartPublication(
   repositoryRoot: string,
   input: { repository: string; pullRequestNumber: number; closeoutOperationId: `sha256:${string}` }
-): Readonly<{
+): Promise<Readonly<{
   publication: BranchCloseoutEffectStartPublication;
   commentId: number;
-}> | null {
+}> | null> {
   const endpoint = `/repos/${input.repository}/issues/${input.pullRequestNumber}/comments`;
   const inventory = listIssueComments(repositoryRoot, endpoint);
   if (inventory.comments === null) {
     throw new Error(`Closeout effect start inventory failed: ${inventory.detail}`);
   }
-  const matching = effectStartPublicationsInComments(repositoryRoot, input.repository,
-    input.pullRequestNumber, inventory.comments).filter(({ publication }) => (
+  const matching = (await effectStartPublicationsInComments(repositoryRoot, input.repository,
+    input.pullRequestNumber, inventory.comments)).filter(({ publication }) => (
       publication.closeoutOperationId === input.closeoutOperationId
     ));
   if (matching.length > 1) {
@@ -1291,14 +1398,14 @@ export function parseBranchCloseoutOperationPublicationComment(
   return publication;
 }
 
-function assertEffectStartReferenceInComments(
+async function assertEffectStartReferenceInComments(
   repositoryRoot: string,
   repository: string,
   comments: readonly IssueCommentRecord[],
   terminal: BranchCloseoutOperationPublication
-): void {
-  const matching = effectStartPublicationsInComments(repositoryRoot, repository,
-    terminal.binding.pullRequestNumber, comments).filter(({ publication }) => (
+): Promise<void> {
+  const matching = (await effectStartPublicationsInComments(repositoryRoot, repository,
+    terminal.binding.pullRequestNumber, comments)).filter(({ publication }) => (
       publication.closeoutOperationId === terminal.closeoutOperationId
     ));
   if (matching.length !== 1) {
@@ -1314,10 +1421,10 @@ function assertEffectStartReferenceInComments(
   }
 }
 
-export function observeBranchCloseoutOperationPublication(
+export async function observeBranchCloseoutOperationPublication(
   repositoryRoot: string,
   input: { repository: string; pullRequestNumber: number; closeoutOperationId: `sha256:${string}` }
-): Readonly<{ publication: BranchCloseoutOperationPublication; commentId: number }> | null {
+): Promise<Readonly<{ publication: BranchCloseoutOperationPublication; commentId: number }> | null> {
   const endpoint = `/repos/${input.repository}/issues/${input.pullRequestNumber}/comments`;
   const inventory = listIssueComments(repositoryRoot, endpoint);
   if (inventory.comments === null) {
@@ -1337,12 +1444,13 @@ export function observeBranchCloseoutOperationPublication(
     } catch (error) {
       throw new Error(`Closeout publication comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
-    assertHostedCommentProvenanceLive(
+    const source = await assertHostedCommentProvenanceLive(
       repositoryRoot,
       input.repository,
       comment,
       publication.provenance
     );
+    if (source !== undefined) assertDelegatedCloseoutSubject(publication.binding, source);
     if (publication.receipt.repository !== input.repository
       || publication.receipt.pullRequest !== input.pullRequestNumber) {
       throw new Error(`Closeout publication comment ${comment.id} targets a different PR.`);
@@ -1353,7 +1461,7 @@ export function observeBranchCloseoutOperationPublication(
   }
   if (matching.length > 1) throw new Error('Duplicate comments exist for one closeout operation.');
   if (matching[0] !== undefined) {
-    assertEffectStartReferenceInComments(repositoryRoot, input.repository, inventory.comments,
+    await assertEffectStartReferenceInComments(repositoryRoot, input.repository, inventory.comments,
       matching[0].publication);
   }
   return matching[0] === undefined ? null : Object.freeze(matching[0]);

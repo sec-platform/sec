@@ -19,9 +19,22 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../src/assurance/verification/contract/revision.ts";
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
+import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
 import type { VerificationEvidence } from '../../src/execution/verification/session.ts';
 
 import { expect, test } from 'bun:test';
+import { CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+
+test('hosted environment data accepts both canonical profiles and rejects forged profile fields', () => {
+  for (const environment of [CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT]) {
+    expect(parseCiVerificationHostedExecutionEnvironment(JSON.parse(JSON.stringify(environment)))).toBe(environment);
+    expect(resolveCiVerificationHostedExecutionEnvironment(environment.executionEnvironmentRevision)).toBe(environment);
+    expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, runnerImage: 'caller-image' })).toThrow();
+    expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, authority: true })).toThrow();
+  }
+  expect(() => resolveCiVerificationHostedExecutionEnvironment('caller-provider')).toThrow();
+  expect(CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision).not.toBe(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision);
+});
 
 import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../helpers/ci-verification-fixtures.ts';
 
@@ -30,49 +43,15 @@ import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
-import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
+
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
-} from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+} from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
-import {
-  CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
-  CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
-  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
-  CodexDevelopmentAssembleHostedActionTerminal,
-  CodexDevelopmentAssertHostedActionDependencyInputsV1,
-  CodexDevelopmentAssertHostedActionParentEvent,
-  CodexDevelopmentAssertHostedDependencyArchiveProjection,
-  CodexDevelopmentAssertHostedSutSandboxCommandPlan,
-  CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean,
-  CodexDevelopmentBuildHostedSutSandboxCommandPlan,
-  CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan,
-  CodexDevelopmentCandidateProcessEnvironment,
-  CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot,
-  CodexDevelopmentCiVerificationMainForTests,
-  CodexDevelopmentComposeHostedEvidence,
-  CodexDevelopmentCoordinateHostedActions,
-  CodexDevelopmentExecuteHostedActionSut,
-  CodexDevelopmentHostedDependencyMaterializerEnvironment,
-  CodexDevelopmentHostedSutCapabilityAssertion,
-  CodexDevelopmentInspectHostedActionArchive,
-  CodexDevelopmentInspectHostedActionArchiveInventory,
-  CodexDevelopmentMaterializeTrustedBootstrapArchive,
-  CodexDevelopmentProbeHostedSutSandboxCapability,
-  CodexDevelopmentRunBoundedDependencyMaterialization,
-  CodexDevelopmentTrustedBootstrapSutHarness,
-  CodexDevelopmentValidateHostedActionArchiveInventory,
-  type CodexDevelopmentHostedActionArchiveInventory,
-  type CodexDevelopmentHostedActionArtifactObservation,
-  type CodexDevelopmentHostedActionExecutionTicket,
-  type CodexDevelopmentHostedActionRawResult,
-  type CodexDevelopmentHostedActionResolution,
-  type CodexDevelopmentHostedSutSandboxProcessObservation,
-  type CodexDevelopmentHostedSutSandboxReceipt
-} from '../../src/adapters/verification/platform/ci/verification.ts';
+import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertHostedActionParentEvent, CodexDevelopmentAssertHostedDependencyArchiveProjection, CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean, CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot, CodexDevelopmentCiVerificationMainForTests, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentHostedDependencyMaterializerEnvironment, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentInspectHostedActionArchiveInventory, CodexDevelopmentMaterializeTrustedBootstrapArchive, CodexDevelopmentProbeHostedSutSandboxCapability, CodexDevelopmentRunBoundedDependencyMaterialization, CodexDevelopmentValidateHostedActionArchiveInventory, HOSTED_SUT_CAPABILITY_ASSERTION, hostedCandidateProcessEnvironment, TRUSTED_BOOTSTRAP_SUT_HARNESS, type CodexDevelopmentHostedActionArtifactObservation } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import type { VerificationGateResult, VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
@@ -101,8 +80,8 @@ function bytesDigest(value: string | Buffer): VerificationActionKeyDigest {
 function sandboxObservation(
   code: number,
   failureTail: string,
-  options: Readonly<{ truncated?: boolean; started?: boolean; lifecycle?: Partial<CodexDevelopmentHostedSutSandboxProcessObservation['lifecycle']> }> = {}
-): CodexDevelopmentHostedSutSandboxProcessObservation {
+  options: Readonly<{ truncated?: boolean; started?: boolean; lifecycle?: Partial<HostedSutProcessObservation<import("../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts").CodexDevelopmentGateProcessResult>['lifecycle']> }> = {}
+): HostedSutProcessObservation<import("../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts").CodexDevelopmentGateProcessResult> {
   const stdoutDigest = bytesDigest(failureTail);
   const stderrDigest = bytesDigest('');
   return Object.freeze({
@@ -129,8 +108,8 @@ function sandboxObservation(
 function sandboxReceipt(
   actionKey: VerificationActionKeyDigest,
   status: 'passed' | 'failed' | 'unsupported' | 'invalidated' = 'passed',
-  authorization?: CodexDevelopmentHostedSutExecutionAuthorization
-): CodexDevelopmentHostedSutSandboxReceipt {
+  authorization?: HostedSutExecutionAuthorization<typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../src/adapters/verification/platform/action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, import("../../src/adapters/verification/platform/action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../src/adapters/verification/platform/action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION>
+): HostedSutSandboxReceipt<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const executed = status === 'passed' || status === 'failed';
   if (executed && authorization === undefined) {
     throw new Error('Executed sandbox fixture requires its physical command authorization.');
@@ -249,7 +228,7 @@ function hostedCandidate(): CiVerificationActionCandidate {
 
 function hostedResolution(
   gates: readonly CiVerificationProducerGate[] = [hostedGates()[0]!]
-): CodexDevelopmentHostedActionResolution {
+): HostedActionResolution<import("../../src/adapters/verification/platform/action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA> {
   const actionPlanClosure = buildCiVerificationActionPlanClosure({
     candidate: hostedCandidate(),
     gates
@@ -260,7 +239,7 @@ function hostedResolution(
 function hostedMemberResolution(
   actionPlanClosure: CiVerificationActionPlanClosure,
   memberIndex: number
-): CodexDevelopmentHostedActionResolution {
+): HostedActionResolution<import("../../src/adapters/verification/platform/action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA> {
   const actionPlan = actionPlanClosure.actions[memberIndex]!;
   const artifactInput = Object.freeze({
     baseSha: BASE,
@@ -296,8 +275,8 @@ function hostedMemberResolution(
 }
 
 function hostedTicket(
-  resolution: CodexDevelopmentHostedActionResolution,
-  inventory: CodexDevelopmentHostedActionArchiveInventory = Object.freeze({
+  resolution: HostedActionResolution<import("../../src/adapters/verification/platform/action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>,
+  inventory: HostedSutInventory = Object.freeze({
     archiveDigest: digest('9'),
     inventoryDigest: digest('0'),
     entryCount: 12,
@@ -305,7 +284,7 @@ function hostedTicket(
     dependencyClosureDigest: DEPENDENCY_CLOSURE,
     gitBundleDigest: GIT_CLOSURE
   })
-): CodexDevelopmentHostedActionExecutionTicket {
+): HostedActionExecutionTicket<import("../../src/adapters/verification/platform/ci/contract/evidence.ts").CodexDevelopmentVerificationActionArtifactProducer, typeof import("../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA> {
   const actionKey = resolution.actionPlan.action.actionKey;
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
@@ -337,9 +316,9 @@ function hostedTicket(
 }
 
 function hostedRawResult(
-  resolution: CodexDevelopmentHostedActionResolution,
+  resolution: HostedActionResolution<import("../../src/adapters/verification/platform/action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>,
   status: 'passed' | 'failed' | 'unsupported' | 'invalidated'
-): CodexDevelopmentHostedActionRawResult {
+): HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const ticket = hostedTicket(resolution);
   const memberIndex = resolution.actionPlanClosure.actions.findIndex(
     (member) => member.action.actionKey === resolution.actionPlan.action.actionKey
@@ -883,7 +862,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
     const dirtyArchive = path.join(dirtyRoot, 'prepared-candidate.tar');
     writeFileSync(cleanArchive, 'authenticated-clean-archive');
     writeFileSync(dirtyArchive, 'authenticated-dirty-archive');
-    const inventory = (archive: string): CodexDevelopmentHostedActionArchiveInventory => ({
+    const inventory = (archive: string): HostedSutInventory => ({
       archiveDigest: bytesDigest(readFileSync(archive)),
       inventoryDigest: digest('0'),
       entryCount: 20,
@@ -891,7 +870,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
       dependencyClosureDigest: DEPENDENCY_CLOSURE,
       gitBundleDigest: GIT_CLOSURE
     });
-    let executionPlan: Parameters<typeof CodexDevelopmentAssertHostedSutSandboxCommandPlan>[0] | null = null;
+    let executionPlan: Parameters<typeof assertHostedSutSandboxCommandPlan>[0] | null = null;
     const retainedArchiveBytes: string[] = [];
     const cleanInventory = inventory(cleanArchive);
     const cleanTicket = hostedTicket(resolution, cleanInventory);
@@ -953,7 +932,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
     expect(executionPlan).not.toBeNull();
     expect(retainedArchiveBytes).toEqual(['authenticated-clean-archive']);
     expect(JSON.stringify(executionPlan!.argv)).not.toContain(cleanArchive);
-    expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(executionPlan!)).not.toThrow();
+    expect(() => assertHostedSutSandboxCommandPlan(executionPlan!)).not.toThrow();
     expect(executionPlan!.argv.slice(-directBunTestArgv.length)).toEqual(directBunTestArgv);
     expect(cleanTerminal.result.execution?.argv).toEqual(directBunTestArgv);
     expect(executionPlan!.candidateEnvironmentNames).toContain('SEC_FORMAL_HOSTED_MODE');
@@ -1021,7 +1000,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     }),
     producer: hostedProducer
   });
-  const plan = CodexDevelopmentBuildHostedSutSandboxCommandPlan({
+  const plan = buildHostedSutSandboxCommandPlan({
     actionKey: resolution.actionPlan.action.actionKey,
     candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
     bunExecutable: path.resolve('/trusted/tool/bun'),
@@ -1034,7 +1013,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     }),
     executionAuthorization
   });
-  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan)).not.toThrow();
+  expect(() => assertHostedSutSandboxCommandPlan(plan)).not.toThrow();
   expect(plan.command).toBe('/usr/bin/unshare');
   const encoded = JSON.stringify(plan.argv);
   for (const invariant of [
@@ -1057,27 +1036,27 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(plan.candidateEnvironmentNames).toEqual(
     executionAuthorization.physicalCommand.fixedSandboxEnvironment.map((entry) => entry.name)
   );
-  const bootstrapPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({
+  const bootstrapPlan = buildTrustedBootstrapSutSandboxCommandPlan({
     bootstrapDigest: digest('b'),
     candidateArchiveDigest: digest('a'),
     bunExecutable: path.resolve('/trusted/tool/bun'),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
-    candidateEnvironment: CodexDevelopmentCandidateProcessEnvironment({}, {
+    candidateEnvironment: hostedCandidateProcessEnvironment({}, {
       SEC_BOOTSTRAP_BASE: normalizedOperation.candidate.baseSha,
       SEC_BOOTSTRAP_HEAD: normalizedOperation.candidate.headSha,
       SEC_BOOTSTRAP_TREE: TREE
     }),
     unitNonce: 'bootstrap-contract'
   });
-  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(bootstrapPlan)).not.toThrow();
+  expect(() => assertHostedSutSandboxCommandPlan(bootstrapPlan)).not.toThrow();
   expect(bootstrapPlan.phase).toBe('bootstrap-execute');
   expect(bootstrapPlan.executionAuthorizationDigest).toBeNull();
   expect(bootstrapPlan.physicalCommandProjectionDigest).toBeNull();
-  expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarness);
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('reader.releaseLock()');
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('reader.cancel(error)');
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('Promise.allSettled([stdoutCollection, stderrCollection, exitPromise])');
+  expect(bootstrapPlan.argv.at(-1)).toBe(TRUSTED_BOOTSTRAP_SUT_HARNESS);
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain('reader.releaseLock()');
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain('reader.cancel(error)');
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain('Promise.allSettled([stdoutCollection, stderrCollection, exitPromise])');
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
 });
 
@@ -1133,7 +1112,7 @@ test('Linux retained archive descriptor defeats pathname ABA before private sand
 });
 
 test('parent event binds the canonical one-key Session request wrapper', () => {
-  const sessionRequest: VerificationSessionHostedRequest = Object.freeze({
+  const sessionRequest: VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA> = Object.freeze({
     schema: 'sec-verification-session-hosted-request-v1',
     prNumber: 42,
     expectedBaseSha: BASE,
@@ -1284,7 +1263,7 @@ test.each([
   ['failed descriptor read', null, 'EIO', 'fd-readlink:EIO'],
   ['allowed descriptor', '/dev/null', null, null]
 ] as const)('capability inherited descriptor assertion: %s', (_case, target, errorCode, expectedFailure) => {
-  const assertion = CodexDevelopmentHostedSutCapabilityAssertion;
+  const assertion = HOSTED_SUT_CAPABILITY_ASSERTION;
   const start = assertion.indexOf('for (const descriptor of fs.readdirSync("/proc/self/fd"))');
   const end = assertion.indexOf('const cgroup =', start);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -1332,7 +1311,7 @@ test('capability probe detaches its deliberate residue child for trusted teardow
   });
   expect(observation).toMatchObject({ state: 'supported', lifecycle: { candidateUnitSettled: true } });
 
-  const assertion = CodexDevelopmentHostedSutCapabilityAssertion;
+  const assertion = HOSTED_SUT_CAPABILITY_ASSERTION;
   const spawnOffset = assertion.indexOf('const descendant = spawn');
   const markerOffset = assertion.indexOf('process.stdout.write');
   expect(spawnOffset).toBeGreaterThanOrEqual(0);
@@ -1391,7 +1370,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-capability-'));
   const archive = path.join(root, 'prepared-candidate.tar');
   writeFileSync(archive, 'capability-fixture');
-  const archiveInventory: CodexDevelopmentHostedActionArchiveInventory = {
+  const archiveInventory: HostedSutInventory = {
     archiveDigest: bytesDigest('capability-fixture'),
     inventoryDigest: digest('0'),
     entryCount: 4,
@@ -1426,11 +1405,11 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       'SEC_HOST_SANDBOX_SENTINEL', '/proc/1/environ', '/proc/net/route',
       'fetch("http://1.1.1.1', 'spawn("/usr/bin/sleep"', 'host-usr-or-proc-mount',
       'inherited-fd', 'cgroup-limits', '/home/runner/work', '/actions-runner/_work/_actions'
-    ]) expect(CodexDevelopmentHostedSutCapabilityAssertion).toContain(invariant);
-    expect(CodexDevelopmentHostedSutCapabilityAssertion).not.toContain('process.pid !== 1');
-    expect(CodexDevelopmentHostedSutCapabilityAssertion).toContain('error?.code !== "ENOENT"');
-    expect(CodexDevelopmentHostedSutCapabilityAssertion).toStartWith('(async () => {');
-    expect(CodexDevelopmentHostedSutCapabilityAssertion).toContain(
+    ]) expect(HOSTED_SUT_CAPABILITY_ASSERTION).toContain(invariant);
+    expect(HOSTED_SUT_CAPABILITY_ASSERTION).not.toContain('process.pid !== 1');
+    expect(HOSTED_SUT_CAPABILITY_ASSERTION).toContain('error?.code !== "ENOENT"');
+    expect(HOSTED_SUT_CAPABILITY_ASSERTION).toStartWith('(async () => {');
+    expect(HOSTED_SUT_CAPABILITY_ASSERTION).toContain(
       '})().catch((error) => { console.error(error); process.exitCode = 1; });'
     );
     for (const invariant of [
@@ -2129,7 +2108,7 @@ test('test backend serializes one shared ActionKey while different roots and clo
 });
 
 test('credential sanitizer never treats provider environment identity as a writable token', () => {
-  expect(CodexDevelopmentCandidateProcessEnvironment({
+  expect(hostedCandidateProcessEnvironment({
     GITHUB_TOKEN: 'secret',
     actions_runtime_token: 'secret',
     GITHUB_OUTPUT: 'secret',

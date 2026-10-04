@@ -26,9 +26,9 @@ import type { ProcessResourceSession } from '../../../runtime-state/physical/run
 import { secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
 import {
+  AffectedInventoryInputs,
+  buildAffectedTestInventory,
   classifyAffectedSelectionTrustBoundary,
-  CodexDevelopmentAffectedInventoryInputs,
-  CodexDevelopmentBuildAffectedTestInventory,
   defaultAffectedSelectionProjectionContext,
   isAffectedSelectionFailClosed,
   projectAffectedSelectionToVerificationGateResult
@@ -896,8 +896,8 @@ function affectedTestSelection(
     ...currentFastFiles,
     ...getSlowTestFilesSync(budgetProjection)
   ]);
-  const inventory = CodexDevelopmentBuildAffectedTestInventory(
-    CodexDevelopmentAffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
+  const inventory = buildAffectedTestInventory(
+    AffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
     provider
   );
   // A changed fast-test source can introduce or remove a process-global

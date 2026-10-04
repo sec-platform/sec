@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { rawSha256 } from '../../../../contracts/canonical.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
-import { compileSecRepositoryModuleMembership } from '../../../repository/architecture/contract.ts';
+import { compileRepositoryModuleMembership } from '../../../repository/architecture/contract.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
@@ -24,15 +24,15 @@ import {
   withDocumentControlGitReadSession
 } from './document-control-observation.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentAssertRollingMachineBaseBinding,
-  CodexDevelopmentClassifyPublishedControlBinding,
-  type CodexDevelopmentCommittedCandidateReplanAuthority,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlanHeadings,
-  CodexDevelopmentResolveWorkSelectionProjectionMode
+  assertControlPlaneBinding,
+  assertRollingMachineBaseBinding,
+  classifyPublishedControlBinding,
+  type CommittedCandidateReplanAuthority,
+  parseActivePointer,
+  parseCurrentStateSpec,
+  parseRollingMachineProjection,
+  parseRollingPlanHeadings,
+  resolveWorkSelectionProjectionMode
 } from './document-control-plane-contract.ts';
 
 /**
@@ -74,7 +74,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
   trustedDefaultSha: string;
   trustedDefaultTree: string;
   manifestPath: string;
-}): Promise<CodexDevelopmentCommittedCandidateReplanAuthority> {
+}): Promise<CommittedCandidateReplanAuthority> {
   const ancestry = requireCommand(
     await run('git', ['rev-list', '--parents', '-n', '1', input.headSha], input.repositoryRoot),
     'Committed candidate ancestry'
@@ -97,7 +97,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
   if (!candidateState.equals(trustedState)) {
     throw new Error('Committed candidate replan must preserve the exact live-default current-state authority bytes.');
   }
-  const spec = CodexDevelopmentParseCurrentStateSpec(
+  const spec = parseCurrentStateSpec(
     decodeUtf8(candidateState, 'Committed candidate current-state')
   );
   const pointerBytes = await requireGitBlob(
@@ -106,16 +106,16 @@ export async function assertCommittedCandidateReplanAuthority(input: {
     'Committed candidate active pointer'
   );
   const pointerSource = decodeUtf8(pointerBytes, 'Committed candidate active pointer');
-  const pointer = CodexDevelopmentParseActivePointer(pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
+  const pointer = parseActivePointer(pointerSource);
+  assertControlPlaneBinding({ spec, pointer });
   const rollingBytes = await requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${RollingPlanPath}`,
     'Committed candidate rolling plan'
   );
   const rollingSource = decodeUtf8(rollingBytes, 'Committed candidate rolling plan');
-  const rolling = CodexDevelopmentParseRollingPlanHeadings(rollingSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(rollingSource);
+  const rolling = parseRollingPlanHeadings(rollingSource);
+  const rollingMachine = parseRollingMachineProjection(rollingSource);
   const manifestBytes = await requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${input.manifestPath}`,
@@ -132,7 +132,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
       'Committed candidate replan requires the exact active pointer, rolling plan, manifest path, and base binding.'
     );
   }
-  if (CodexDevelopmentResolveWorkSelectionProjectionMode(spec) === 'required-v1'
+  if (resolveWorkSelectionProjectionMode(spec) === 'required-v1'
       && rollingMachine === null) {
     throw new Error('Committed candidate replan requires the prior machine projection identity.');
   }
@@ -150,7 +150,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
   const rollingMatchesLiveDefault = liveDefaultRollingBytes.equals(rollingBytes);
   if (rollingMachine !== null) {
     if (rollingMachine.exactMain === input.trustedDefaultSha) {
-      CodexDevelopmentAssertRollingMachineBaseBinding({
+      assertRollingMachineBaseBinding({
         projection: rollingMachine,
         exactMain: input.trustedDefaultSha,
         exactMainTree: input.trustedDefaultTree
@@ -183,7 +183,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
           `${rollingMachine.exactMain}:${ActivePointerPath}`,
           'Historical live-default active pointer'
         ), 'Historical live-default active pointer');
-        const historicalPointer = CodexDevelopmentParseActivePointer(historicalPointerSource);
+        const historicalPointer = parseActivePointer(historicalPointerSource);
         const unchangedControlPaths = [
           CurrentStatePath,
           ActivePointerPath,
@@ -277,7 +277,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
             `${publicationCommit}:${ActivePointerPath}`,
             'Published rolling projection pointer'
           ), 'Published rolling projection pointer');
-          const publishedPointer = CodexDevelopmentParseActivePointer(publishedPointerSource);
+          const publishedPointer = parseActivePointer(publishedPointerSource);
           const publishedManifestBytes = await requireGitBlob(
             input.repositoryRoot,
             `${publicationCommit}:${input.manifestPath}`,
@@ -339,7 +339,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
           || rawSha256(sourceRolling) !== sourceAuthority.sourceRollingRevision) {
         throw new Error('Historical committed-candidate control bytes do not match their recorded authority.');
       }
-      const parsedSourcePointer = CodexDevelopmentParseActivePointer(sourcePointer);
+      const parsedSourcePointer = parseActivePointer(sourcePointer);
       if (parsedSourcePointer.manifest !== input.manifestPath
           || parsedSourcePointer.manifestDigest !== sourceManifestDigest) {
         throw new Error('Historical committed-candidate source does not bind its exact manifest.');
@@ -361,7 +361,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
     const pointerBindsDefault = defaultManifestDigest === pointer.manifestDigest;
     const pointerBindsRolling = rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
       && rollingMachine.active.manifestDigest === pointer.manifestDigest;
-    const binding = CodexDevelopmentClassifyPublishedControlBinding({
+    const binding = classifyPublishedControlBinding({
       authorityProven: true,
       historicalBaseIsLiveDefault: rollingMachine?.exactMain === input.trustedDefaultSha,
       pointerBindsDefault,
@@ -428,7 +428,7 @@ export async function admitDocumentControlExecutionRoot(input: Readonly<{
       requireCommand(await run('git', ['rev-parse', 'HEAD'], executionRoot), 'Document-control execution HEAD'),
       'Document-control execution HEAD'
     );
-    const executionSpec = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(await requireGitBlob(
+    const executionSpec = parseCurrentStateSpec(decodeUtf8(await requireGitBlob(
       executionRoot,
       `${executionHead}:${CurrentStatePath}`,
       'Document-control execution current-state authority'
@@ -439,7 +439,7 @@ export async function admitDocumentControlExecutionRoot(input: Readonly<{
       'Document-control execution default'
     ), 'Document-control execution default');
     const executionSurfacePaths = [
-      ...compileSecRepositoryModuleMembership(executionRoot).moduleRoots,
+      ...compileRepositoryModuleMembership(executionRoot).moduleRoots,
       'package.json',
       'bun.lock'
     ];

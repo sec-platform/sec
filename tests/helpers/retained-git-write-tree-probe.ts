@@ -23,7 +23,7 @@ function requireSuccess(result: ReturnType<typeof git>, label: string): string {
 
 /** Probe immutable consumption separately from native cache-tree mutation.
  * This fixture is not an authorization or a production docs-doctor receipt. */
-export function runRetainedGitWriteTreeProbeV1(warmIndex = true): string {
+export function runRetainedGitWriteTreeProbe(warmIndex = true): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-git-write-tree-'));
   const repositoryRoot = path.join(root, 'repository');
   const snapshotRoot = path.join(root, 'snapshot');

@@ -8,21 +8,21 @@ import { observeSourceTransitionReadView } from './source-transition-read-view.t
 
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
-  compileSecOperationReadPlan,
-  parseSecOperationReadPlan,
-  SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
-  SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlan,
-  type SecOperationReadPlanInput
+  compileOperationReadPlan,
+  OPERATION_MANDATORY_FORBIDDEN_SOURCES,
+  OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
+  OPERATION_READ_PLAN_INPUT_SCHEMA,
+  parseOperationReadPlan,
+  type OperationReadPlan,
+  type OperationReadPlanInput
 } from './read-plan.ts';
 import {
   resolveTrustedWorkerTaskCapsule,
-  SecTaskCapsuleProjectionUnavailableError,
   taskCapsuleProjectionBlocked,
-  type SecTrustedWorkerTaskCapsuleObservation
+  TaskCapsuleProjectionUnavailableError,
+  type TrustedWorkerTaskCapsuleObservation
 } from './task-capsule-host.ts';
-import type { SecTaskCapsule } from './task-capsule.ts';
+import type { TaskCapsule } from './task-capsule.ts';
 
 function fail(message: string): never {
   throw new Error(`operation-read-plan: ${message}`);
@@ -35,14 +35,14 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export type SecCompiledReadClosure = Omit<
-  SecOperationReadPlanInput,
+export type CompiledReadClosure = Omit<
+  OperationReadPlanInput,
   'schema' | 'taskCapsule'
 >;
 
-export interface SecProspectiveWorkerOperationObservation {
-  readonly taskCapsule: SecTaskCapsule;
-  readonly readClosure: SecCompiledReadClosure;
+export interface ProspectiveWorkerOperationObservation {
+  readonly taskCapsule: TaskCapsule;
+  readonly readClosure: CompiledReadClosure;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
   readonly trustedRevision: string;
@@ -60,7 +60,7 @@ export interface SecProspectiveWorkerOperationObservation {
 export async function resolveProspectiveWorkerOperation(
   runtimeRootInput: string,
   candidateRootInput: string
-): Promise<SecProspectiveWorkerOperationObservation> {
+): Promise<ProspectiveWorkerOperationObservation> {
   const observation = await resolveTrustedWorkerTaskCapsule(
     runtimeRootInput,
     candidateRootInput
@@ -70,8 +70,8 @@ export async function resolveProspectiveWorkerOperation(
 
 /** Pure downstream projection; receiving these facts does not prove agent prose consumption. */
 export function projectWorkerOperationReadClosure(
-  observation: SecTrustedWorkerTaskCapsuleObservation
-): SecProspectiveWorkerOperationObservation {
+  observation: TrustedWorkerTaskCapsuleObservation
+): ProspectiveWorkerOperationObservation {
   const sources = Object.freeze([
     ...observation.authorityOwners.map((source) => Object.freeze({
       id: source.id,
@@ -111,10 +111,10 @@ export function projectWorkerOperationReadClosure(
     reasonCode: reference.reasonCode,
     contentDigest: sources.find(({ id }) => id === reference.id)!.contentDigest
   })));
-  const readClosure: SecCompiledReadClosure = Object.freeze({
+  const readClosure: CompiledReadClosure = Object.freeze({
     requiredRefs,
     conditionalRefs: Object.freeze([]),
-    forbiddenSources: SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
+    forbiddenSources: OPERATION_MANDATORY_FORBIDDEN_SOURCES,
     maxSkillBodies: 1,
     unresolvedFrontier: Object.freeze([]),
     readReceipts,
@@ -142,12 +142,12 @@ export function projectWorkerOperationReadClosure(
 
 /** Whole-plan comparison used by the live applicability CLI, not only a revision-field check. */
 export function assertWorkerOperationReadPlanMatches(
-  plan: SecOperationReadPlan,
-  observation: SecProspectiveWorkerOperationObservation
+  plan: OperationReadPlan,
+  observation: ProspectiveWorkerOperationObservation
 ): void {
-  const expectedPlan = compileSecOperationReadPlan({
+  const expectedPlan = compileOperationReadPlan({
     ...observation.readClosure,
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: observation.taskCapsule
   });
   if (JSON.stringify(canonicalJson(expectedPlan)) !== JSON.stringify(canonicalJson(plan))) {
@@ -196,7 +196,7 @@ async function main(): Promise<void> {
       fail('source-transition requires --candidate-root <path> and accepts optional --plan <file>.');
     }
     const plan = options.plan === undefined ? undefined
-      : parseSecOperationReadPlan(await readJsonArgument(options.plan, process.cwd(), '--plan'));
+      : parseOperationReadPlan(await readJsonArgument(options.plan, process.cwd(), '--plan'));
     process.stdout.write(`${JSON.stringify(await observeSourceTransitionReadView(options.candidateRoot, plan), null, 2)}\n`);
     return;
   }
@@ -209,16 +209,16 @@ async function main(): Promise<void> {
     if (Object.hasOwn(raw, 'taskCapsule')) {
       fail('compile input cannot provide taskCapsule authority.');
     }
-    if (raw.schema !== SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA || Object.keys(raw).length !== 1) {
+    if (raw.schema !== OPERATION_READ_CLOSURE_REQUEST_SCHEMA || Object.keys(raw).length !== 1) {
       fail('compile input must be an authority-free read closure request; refs, receipts, and policy are trusted-derived.');
     }
     const observation = await resolveProspectiveWorkerOperation(
       runtimeRoot,
       options.candidateRoot
     );
-    const plan = compileSecOperationReadPlan({
+    const plan = compileOperationReadPlan({
       ...observation.readClosure,
-      schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+      schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
       taskCapsule: observation.taskCapsule
     });
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
     if (options.plan === undefined || options.input !== undefined || options.candidateRoot !== undefined) {
       fail('verify requires --plan <inline-json|file> only.');
     }
-    const plan = parseSecOperationReadPlan(
+    const plan = parseOperationReadPlan(
       await readJsonArgument(options.plan, runtimeRoot, '--plan')
     );
     process.stdout.write(`${JSON.stringify({
@@ -251,7 +251,7 @@ if (import.meta.main) {
     await main();
   }
   catch (error) {
-    if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
+    if (error instanceof TaskCapsuleProjectionUnavailableError) {
       console.error(JSON.stringify(taskCapsuleProjectionBlocked(error)));
     }
     else {

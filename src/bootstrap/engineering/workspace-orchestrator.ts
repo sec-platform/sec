@@ -10,8 +10,9 @@ import { initializePreparedWorkspace } from '../../application/workspace-initial
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { requireLockFileSchema } from '../../compiler/contract/lock-schema.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
+import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
 import type { WorkspaceCreateTemplate } from '../../execution/workspace-create.ts';
-import { workspaceConfigRelativePath } from '../../workspace/paths.ts';
+
 
 export interface WorkspaceInitOptions {
   readonly template?: WorkspaceCreateTemplate;

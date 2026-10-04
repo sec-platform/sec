@@ -3,11 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
 
 import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { runTrustedRuntimeOperatorCli, verifyWithTrustedRuntime } from '../../src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts';
-import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
+
 import {
   assertVerificationSessionLocalPreparationCurrent,
   createVerificationSessionLocalPreparationRequest,
@@ -15,7 +16,7 @@ import {
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 
 const D = (n: string) => `sha256:${n.repeat(64)}` as const;
-const REQUEST: VerificationSessionHostedRequest = Object.freeze({
+const REQUEST: VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA> = Object.freeze({
   schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
   prNumber: 123, expectedBaseSha: '1'.repeat(40), expectedBaseTreeSha: '2'.repeat(40),
   expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
@@ -58,7 +59,7 @@ test('local request parser preserves frozen exact pins and rejects placement esc
 
 test('local re-preparation rejects every changed saved identity before execution', () => {
   expect(() => assertVerificationSessionLocalPreparationCurrent(LOCAL, REQUEST)).not.toThrow();
-  for (const key of Object.keys(REQUEST) as (keyof VerificationSessionHostedRequest)[]) {
+  for (const key of Object.keys(REQUEST) as (keyof VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>)[]) {
     if (key === 'schema') continue;
     const value = REQUEST[key];
     const changed = typeof value === 'number' ? value + 1

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
-import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE, parseSecWindowsControlCliEnvironmentAuthority, type WindowsControlCliEnvironmentSpec } from '../../../providers/windows-control-cli/contract/environment.ts';
+import { WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, WINDOWS_CONTROL_CLI_SESSION_SURFACE, parseWindowsControlCliEnvironmentAuthority, type WindowsControlCliEnvironmentSpec } from '../../../providers/windows-control-cli/contract/environment.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { EXTERNAL_CAPABILITY_LEDGER_PATH, parseExternalCapabilityLedger, type ExternalCapabilityLedgerProjection } from './capability-ledger.ts';
 
@@ -160,7 +160,7 @@ const EXTERNAL_LEDGER_STATUSES = new Set([
 
 type EnvironmentSpecDescriptor = Readonly<{
   readonly path: string;
-  readonly spec: typeof SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
+  readonly spec: typeof WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
 }>;
 
 // A single explicit registry maps the host-command capability to its parsed
@@ -169,8 +169,8 @@ type EnvironmentSpecDescriptor = Readonly<{
 // layout, endpoint, or resource values.
 const ENVIRONMENT_SPEC_REGISTRY: readonly EnvironmentSpecDescriptor[] = Object.freeze([
   Object.freeze({
-    path: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH,
-    spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
+    path: WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH,
+    spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
   })
 ]);
 
@@ -257,7 +257,7 @@ async function readEnvironmentSpecFromRepositoryRoot(
       `EnvironmentSpec ${descriptor.path} must be valid UTF-8: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  const parsed = parseSecWindowsControlCliEnvironmentAuthority(
+  const parsed = parseWindowsControlCliEnvironmentAuthority(
     parseEnvironmentSpecJson(raw, `EnvironmentSpec ${descriptor.path}`)
   );
   if (parsed.specDigest !== descriptor.spec.specDigest) {
@@ -318,7 +318,7 @@ async function validateWindowsControlCliProviderClosure(
       || provider.capability !== 'host-command-execution'
       || provider.decision !== 'integrate-provider'
       || provider.lifecycle !== 'revalidation-required'
-      || provider.activeRoutingProfile !== SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId) {
+      || provider.activeRoutingProfile !== WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId) {
     throw new Error(`${label} host-command-execution provider closure is invalid.`);
   }
   const descriptors = ENVIRONMENT_SPEC_REGISTRY.filter(
@@ -337,14 +337,14 @@ async function validateWindowsControlCliProviderClosure(
   const unresolved = provider.unresolved === undefined
     ? []
     : uniqueStrings(provider.unresolved, `${label}.unresolved`);
-  if (JSON.stringify(unresolved) !== JSON.stringify([SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON])) {
+  if (JSON.stringify(unresolved) !== JSON.stringify([WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON])) {
     throw new Error(
-      `${label}.unresolved must contain exactly ${SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON}.`
+      `${label}.unresolved must contain exactly ${WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON}.`
     );
   }
   const surfaces = recordValue(provider.surfaces, `${label}.surfaces`);
   if (JSON.stringify(uniqueCanonicalSurfaceIds(surfaces.cli, `${label}.surfaces.cli`))
-        !== JSON.stringify([SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE])
+        !== JSON.stringify([WINDOWS_CONTROL_CLI_SESSION_SURFACE])
       || JSON.stringify(uniqueCanonicalSurfaceIds(surfaces.standingMcp, `${label}.surfaces.standingMcp`))
         !== JSON.stringify([])) {
     throw new Error(`${label} host-command-execution provider surfaces are invalid.`);

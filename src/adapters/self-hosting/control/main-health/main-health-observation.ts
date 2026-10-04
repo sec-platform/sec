@@ -79,7 +79,7 @@ function hash(value: unknown): Digest {
 }
 
 const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA =
-  'sec-trusted-runtime-main-health-receipt-v1' as const;
+  'sec-trusted-runtime-main-health-receipt-v2' as const;
 const TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID =
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.imageDigest;
 const TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT =
@@ -93,9 +93,9 @@ export const TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS = Object.freeze([
   ...CI_MAIN_HEALTH_COMMANDS.slice(2)
 ]);
 export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST = hash(Object.freeze({
-  schema: 'sec-trusted-runtime-main-health-plan-v1',
+  schema: 'sec-trusted-runtime-main-health-plan-v2',
   canonicalHostedCommands: CI_MAIN_HEALTH_COMMANDS,
-  dependencyPreparation: 'trusted-runtime-full-workspace-v1',
+  dependencyPreparation: 'private-authority-ephemeral-v1',
   checkCommands: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
   executionEnvironmentRevision:
     TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
@@ -110,7 +110,8 @@ export interface TrustedRuntimeMainHealthReceipt {
   readonly executionId: string;
   readonly imageId: typeof TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID;
   readonly dockerEndpoint: DockerEndpointIdentity;
-  readonly dependencyCacheKey: Digest;
+  readonly dependencyCacheKey: null;
+  readonly dependencyPreparation: 'private-authority-ephemeral-v1';
   readonly networkIsolatedBeforeExecution: true;
   readonly executionEnvironmentRevision:
     typeof TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision;
@@ -148,13 +149,17 @@ function mainHealthInstant(value: unknown, label: string): string {
 export function trustedRuntimeMainHealthReceiptLocator(input: Readonly<{
   repositoryStateRoot: string;
   mainSha: string;
+  receiptDigest?: Digest;
 }>): Readonly<{ directory: string; fileName: string; sourceRef: string }> {
   const repositoryStateRoot = path.resolve(input.repositoryStateRoot);
   const mainSha = mainHealthSha(input.mainSha, 'receipt locator mainSha');
+  const fileName = input.receiptDigest === undefined
+    ? `main-${mainSha}.json`
+    : `main-${mainSha}-${mainHealthDigest(input.receiptDigest, 'receipt locator digest').slice(7)}.json`;
   return Object.freeze({
-    directory: path.join(repositoryStateRoot, 'trusted-main-health', 'v1'),
-    fileName: `main-${mainSha}.json`,
-    sourceRef: `runtime-state:trusted-main-health/v1/main-${mainSha}.json`
+    directory: path.join(repositoryStateRoot, 'trusted-main-health', 'v2'),
+    fileName,
+    sourceRef: `runtime-state:trusted-main-health/v2/${fileName}`
   });
 }
 
@@ -164,10 +169,13 @@ export function createTrustedRuntimeMainHealthReceipt(input: Readonly<{
   mainTreeSha: string;
   executionId: string;
   dockerEndpoint: DockerEndpointIdentity;
-  dependencyCacheKey: Digest;
+  dependencyCacheKey: null;
   actionResults: readonly Readonly<{ command: string; resultDigest: Digest }>[];
   observedAt: string;
 }>): TrustedRuntimeMainHealthReceipt {
+  if (input.dependencyCacheKey !== null) {
+    throw new Error('MainHealth authority cannot consume a candidate-writable dependency cache.');
+  }
   if (TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length !== 5
       || CI_MAIN_HEALTH_COMMANDS[0] !== 'bun install --frozen-lockfile'
       || input.actionResults.length !== TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length) {
@@ -196,10 +204,8 @@ export function createTrustedRuntimeMainHealthReceipt(input: Readonly<{
     executionId: boundedText(input.executionId, 'trusted-runtime receipt executionId'),
     imageId: TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID,
     dockerEndpoint: parseDockerEndpointIdentity(input.dockerEndpoint),
-    dependencyCacheKey: mainHealthDigest(
-      input.dependencyCacheKey,
-      'trusted-runtime receipt dependencyCacheKey'
-    ),
+    dependencyCacheKey: null,
+    dependencyPreparation: 'private-authority-ephemeral-v1' as const,
     networkIsolatedBeforeExecution: true as const,
     executionEnvironmentRevision:
       TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
@@ -226,7 +232,7 @@ export function parseTrustedRuntimeMainHealthReceipt(
   const record = value as Record<string, unknown>;
   const expected = [
     'schema', 'repository', 'mainSha', 'mainTreeSha', 'executionId', 'imageId',
-    'dockerEndpoint', 'dependencyCacheKey', 'networkIsolatedBeforeExecution',
+    'dockerEndpoint', 'dependencyCacheKey', 'dependencyPreparation', 'networkIsolatedBeforeExecution',
     'executionEnvironmentRevision', 'planDigest', 'actionResults', 'observedAt',
     'receiptDigest'
   ].sort();
@@ -234,6 +240,8 @@ export function parseTrustedRuntimeMainHealthReceipt(
   if (actual.length !== expected.length
       || actual.some((key, index) => key !== expected[index])
       || record.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA
+      || record.dependencyCacheKey !== null
+      || record.dependencyPreparation !== 'private-authority-ephemeral-v1'
       || record.imageId !== TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID
       || record.networkIsolatedBeforeExecution !== true
       || record.executionEnvironmentRevision
@@ -254,10 +262,7 @@ export function parseTrustedRuntimeMainHealthReceipt(
       'trusted-runtime receipt executionId'
     ),
     dockerEndpoint: parseDockerEndpointIdentity(record.dockerEndpoint),
-    dependencyCacheKey: mainHealthDigest(
-      record.dependencyCacheKey,
-      'trusted-runtime receipt dependencyCacheKey'
-    ),
+    dependencyCacheKey: null,
     actionResults: record.actionResults as TrustedRuntimeMainHealthReceipt['actionResults'],
     observedAt: mainHealthInstant(
       record.observedAt,

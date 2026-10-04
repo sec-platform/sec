@@ -6,7 +6,7 @@ import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonica
 import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import {
   type RepositoryModuleGraph,
-  type SecRepositoryModuleMembership
+  type RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -46,7 +46,7 @@ export interface CompileSourceProgramTestObservationsInput {
   readonly productionModel: SourceProgramModel;
   /** Exact production and test bytes for the candidate revision. */
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly repositoryRoot?: string;
   /** Reuse the enclosing compilation operation; this module never issues one. */
   readonly operation?: SourceProgramCompilationOperation;
@@ -333,7 +333,7 @@ function resolvedDeclaration(
 
 function operationRoleProvenance(
   declaration: SourceProgramDeclaration,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
   const module = moduleMembership.moduleForPath(declaration.path);
   if (module === null) return Object.freeze([]);
@@ -423,7 +423,7 @@ function compilerRegistrationKind(
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): string | null {
   const direct = testRegistrationKind(node.expression);
   if (direct !== null) return direct;
@@ -443,7 +443,7 @@ function compilerRegistrationProvenance(
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
   if (testRegistrationKind(node.expression) !== null) return Object.freeze([]);
   const call = callReferenceForExpression(
@@ -1314,7 +1314,7 @@ function registrationCallback(node: ts.CallExpression): ts.FunctionLikeDeclarati
 function compileTestDefinitionInputs(input: Readonly<{
   files: readonly SourceProgramFileInput[];
   model: SourceProgramModel;
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   graph: RepositoryModuleGraph;
   testPaths: readonly string[];
   resourceReads: readonly SourceProgramTestSourceReadObservation[];
@@ -1405,8 +1405,8 @@ function compileTestDefinitionInputs(input: Readonly<{
   // One immutable compilation owns these indexes. Overlapping test closures
   // still walk every edge and retain their own unknown/read boundary, but do
   // not repeatedly hash the same module descriptor or read envelope.
-  const ownersByPath = new Map<string, ReturnType<SecRepositoryModuleMembership['moduleForPath']>>();
-  const moduleDigestsByOwner = new Map<ReturnType<SecRepositoryModuleMembership['moduleForPath']>, string>();
+  const ownersByPath = new Map<string, ReturnType<RepositoryModuleMembership['moduleForPath']>>();
+  const moduleDigestsByOwner = new Map<ReturnType<RepositoryModuleMembership['moduleForPath']>, string>();
   const observedInputsByPath = new Map<string, SourceProgramTestDefinitionInputs['inputs'][number]>();
   const dependenciesByPath = new Map<string, readonly string[]>();
   const envelopesByRead = new Map<SourceProgramTestDefinitionRead, Readonly<{

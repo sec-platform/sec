@@ -16,7 +16,7 @@ import {
   type AuthorityGitReadOperation
 } from '../../../providers/git-read/authority.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntriesFromSession
+  listExactGitTreeEntriesFromSession
 } from '../../../providers/git-read/exact-blob.ts';
 import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
@@ -110,7 +110,7 @@ async function readBackCandidateNormalizationSnapshot(input: Readonly<{
   if (provenance.kind !== 'git-tree') {
     throw new Error('Candidate normalization readback requires exact Git provenance');
   }
-  const entries = await CodexDevelopmentListExactGitTreeEntriesFromSession(
+  const entries = await listExactGitTreeEntriesFromSession(
     input.session,
     provenance.commitSha
   );

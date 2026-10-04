@@ -14,7 +14,7 @@ import * as workPackage from '../../../src/adapters/self-hosting/control/task/co
 import * as gitRead from '../../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
 import * as evidenceContract from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
-import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import * as github from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import * as sessionRuntime from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import * as session from '../../../src/adapters/verification/platform/ci/runtime/verification-session.ts';

@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 import {
   linkSync,
   mkdirSync,
-  mkdtempSync, realpathSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -10,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import { compileRepositorySourceProgramModel } from '../../src/adapters/repository/source-program-model/repository.ts';
 import {
   TCB_REVIEWED_NETWORK_DISPATCHERS,
@@ -396,7 +398,7 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
   const sourceRevision = rawSha256(JSON.stringify(
     files.map(({ contentDigest, path: repositoryPath }) => ({ path: repositoryPath, contentDigest }))
   ));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
     descriptorSources: [{
       descriptorPath: 'src/example/module.json',
@@ -655,3 +657,64 @@ test('adding an unauthorized network dispatcher causes the lock to break', () =>
     expect.stringContaining('network dispatcher addition: unexpected')
   ]));
 });
+
+test('TCB HTTPS bindings reject escaped, substituted and additional network dispatchers', () => {
+  const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
+  const prefix = "import { Agent, request } from 'node:https';\n";
+  const direct = 'function download(agent: Agent) { return new Promise(resolve => { request(target, { agent }, resolve); }); }';
+  const network = new Set<string>();
+  expect(() => runtimeRelativeImportsFromSource(publisher, prefix + direct,
+    new Set(), new Set(), new Set(), network)).not.toThrow();
+  expect([...network]).toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
+  expect(() => runtimeRelativeImportsFromSource(publisher,
+    prefix + 'function publishLinuxDockerStaticToolchain() { return new Agent({ keepAlive: false }); }'))
+    .not.toThrow();
+  for (const source of [
+    "import { get } from 'node:https'; function download() { return get(target); }",
+    "import { request as send } from 'node:https'; function download() { return send(target); }",
+    "import https from 'node:https'; function download() { return https.request(target); }",
+    "import * as https from 'node:https'; function download() { return https.request(target); }",
+    "export { request } from 'node:https';",
+    "export const https = import('node:https');",
+    "import { request } from 'node:http'; function download() { return request(target); }",
+    prefix + 'function download() { const send = request; return send(target); }',
+    prefix + 'function download() { return consume(request); }',
+    prefix + 'function download() { return request.call(null, target); }',
+    prefix + "function download() { return request['call'](null, target); }",
+    prefix + 'function download() { return request?.(target); }',
+    prefix + 'function download() { return new request(target); }',
+    prefix + 'function download() { return { request }; }',
+    prefix + 'export { request };',
+    prefix + 'export { request as escaped };',
+    prefix + 'function download() { return consume(Agent); }',
+    prefix + 'function download() { return Agent(target); }',
+    prefix + 'function download() { return new Agent.prototype.constructor(); }',
+    prefix + 'function unknownOwner() { return request(target); }',
+    prefix + 'function download() { request(target); return request(target); }',
+    prefix + 'function download() { request(target); } function download() { request(target); }'
+  ]) {
+    expect(() => runtimeRelativeImportsFromSource(publisher, source)).toThrow();
+  }
+});
+
+test('TCB HTTPS dispatcher census never credits a shadowed local binding', () => {
+  const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
+  const network = new Set<string>();
+  runtimeRelativeImportsFromSource(publisher,
+    "import { request } from 'node:https'; function download(request: (url: unknown) => unknown) { return request(target); }",
+    new Set(), new Set(), new Set(), network);
+  // The unchanged exact census equality in generateTcbClosureLock rejects this missing dispatcher.
+  expect([...network]).toEqual([]);
+  expect([...network]).not.toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
+});
+
+test('TCB HTTPS census consumes the actual static publisher source', () => {
+  const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
+  const network = new Set<string>();
+  const external = new Set<string>();
+  runtimeRelativeImportsFromSource(publisher, readFileSync(publisher, 'utf8'),
+    new Set(), new Set(), external, network);
+  expect([...network]).toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
+  expect(external.has(`${publisher} -> node:https`)).toBe(true);
+});
+

@@ -13,33 +13,33 @@ import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 
 import {
-  compileSecOperationReadPlan,
-  projectSecSkillEnvelopeFromOperationReadPlan,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInput
+  compileOperationReadPlan,
+  OPERATION_READ_PLAN_INPUT_SCHEMA,
+  projectSkillApplicabilityEnvelopeFromOperationReadPlan,
+  type OperationReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
-  evaluateSecSkillApplicability,
-  isSecSkillQuarantinePath,
-  SEC_SKILL_QUARANTINE_EXACT_PATHS,
-  type SecAgentRole,
-  type SecAgentSkillId,
-  type SecOperationKind,
-  type SecSkillApplicabilityDecision
+  evaluateSkillApplicability,
+  isSkillQuarantinePath,
+  SKILL_QUARANTINE_EXACT_PATHS,
+  type AgentRole,
+  type AgentSkillId,
+  type SkillApplicabilityDecision,
+  type TaskCapsuleOperationKind
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
-  compileSecTaskCapsule,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigest,
-  type SecTaskCapsulePlanningContext
+  compileTaskCapsule,
+  TASK_CAPSULE_INPUT_SCHEMA,
+  type AgentContentDigest,
+  type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
+const digest = (character: string): AgentContentDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
-  return compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlanInput['taskCapsule'] {
+  return compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:skill-applicability-contract',
     planningContext
   });
@@ -79,9 +79,9 @@ function changedPaths(base: string, head: string): string[] {
 }
 
 function planInput(overrides: {
-  role?: SecAgentRole;
-  operationKind?: SecOperationKind;
-  candidates?: readonly SecAgentSkillId[];
+  role?: AgentRole;
+  operationKind?: TaskCapsuleOperationKind;
+  candidates?: readonly AgentSkillId[];
   authorizedResources?: readonly string[];
   authorizedGates?: readonly string[];
   writePaths?: readonly string[];
@@ -89,13 +89,13 @@ function planInput(overrides: {
   base?: string;
   head?: string;
   changedPaths?: readonly string[];
-} = {}): SecOperationReadPlanInput {
+} = {}): OperationReadPlanInput {
   const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
   const base = overrides.base ?? head;
   const candidates = overrides.candidates ?? ['worker-development'];
   const observedChangedPaths = overrides.changedPaths ?? changedPaths(base, head);
   return {
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
       operationId: 'skill-applicability-contract',
       role: overrides.role ?? 'worker',
@@ -150,12 +150,12 @@ function planInput(overrides: {
   };
 }
 
-function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDecision {
-  const plan = compileSecOperationReadPlan(input);
-  const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
+function evaluatePlan(input: OperationReadPlanInput): SkillApplicabilityDecision {
+  const plan = compileOperationReadPlan(input);
+  const envelope = projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan);
   const trustedSkillRevisions: Record<string, string> = {};
   const candidateSkillRevisions: Record<string, string> = {};
-  for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSecSkillQuarantinePath)) {
+  for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSkillQuarantinePath)) {
     const trusted = gitOutputOrNull(['rev-parse', '--verify', `${envelope.trustedRevision}:${repositoryPath}`]);
     const candidate = gitOutputOrNull(['rev-parse', '--verify', `${envelope.targetCandidate}:${repositoryPath}`]);
     if (trusted !== null && /^[0-9a-f]{40,64}$/u.test(trusted)) {
@@ -165,7 +165,7 @@ function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDe
       candidateSkillRevisions[repositoryPath] = candidate;
     }
   }
-  const decision = evaluateSecSkillApplicability({
+  const decision = evaluateSkillApplicability({
     ...envelope,
     trustedSkillRevisions,
     candidateSkillRevisions
@@ -213,7 +213,7 @@ test('Skill selection remains orthogonal to Task Capsule write and resource auth
 
 test('candidate quarantine revisions are derived from exact Git objects', async () => {
   await inGitProtocolRepository(async (root, git) => {
-    const repositoryPath = SEC_SKILL_QUARANTINE_EXACT_PATHS[0];
+    const repositoryPath = SKILL_QUARANTINE_EXACT_PATHS[0];
     writeFileSync(path.join(root, repositoryPath), 'Trusted fixture guidance\n');
     gitProtocolSuccess(git(['add', '--', repositoryPath]));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted fixture']));
@@ -225,9 +225,9 @@ test('candidate quarantine revisions are derived from exact Git objects', async 
     const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${head}:${repositoryPath}`])).trim();
     const changed = gitProtocolSuccess(git(['diff', '--name-only', '-z', base, head])).split('\0').filter(Boolean);
-    const plan = compileSecOperationReadPlan(planInput({ base, head, changedPaths: changed }));
-    const decision = evaluateSecSkillApplicability({
-      ...projectSecSkillEnvelopeFromOperationReadPlan(plan),
+    const plan = compileOperationReadPlan(planInput({ base, head, changedPaths: changed }));
+    const decision = evaluateSkillApplicability({
+      ...projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan),
       trustedSkillRevisions: { [repositoryPath]: trustedBlob },
       candidateSkillRevisions: { [repositoryPath]: candidateBlob }
     });
@@ -302,8 +302,8 @@ test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner st
     expect(observation.readClosure.requiredRefs.find(ref => ref.ref === guidance)?.revision).toBe(trustedBlob);
     expect(observation.readClosure.readReceipts.find(receipt => receipt.refId === owner.id)?.contentDigest)
       .toBe(rawSha256(`trusted ${guidance}\n`));
-    const plan = compileSecOperationReadPlan({ ...observation.readClosure,
-      schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule: observation.taskCapsule });
+    const plan = compileOperationReadPlan({ ...observation.readClosure,
+      schema: OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule: observation.taskCapsule });
     expect(() => assertWorkerOperationReadPlanMatches(plan, observation)).not.toThrow();
     const candidateBound = projectWorkerOperationReadClosure(projectWorkerTaskCapsuleObservation({
       ...activation,
@@ -311,8 +311,8 @@ test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner st
         ? { ...entry, revision: candidateBlob, contentDigest: rawSha256('candidate replacement guidance\n') }
         : entry)
     }));
-    const forgedPlan = compileSecOperationReadPlan({ ...candidateBound.readClosure,
-      schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule: candidateBound.taskCapsule });
+    const forgedPlan = compileOperationReadPlan({ ...candidateBound.readClosure,
+      schema: OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule: candidateBound.taskCapsule });
     expect(() => assertWorkerOperationReadPlanMatches(forgedPlan, observation))
       .toThrow('Read Plan was not fully produced by the exact trusted-resolver');
   });

@@ -4,8 +4,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import {
-  CodexDevelopmentClassifyWorkPackageCensus,
-  CodexDevelopmentParseActivePointer
+  classifyWorkPackageCensus,
+  parseActivePointer
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
@@ -27,7 +27,7 @@ test('current Work Package tree contains no stale or unauthorized transport mani
     path.join(ROOT, 'config/repository/active-work-package.md'),
     'utf8'
   );
-  const selectedManifestPath = CodexDevelopmentParseActivePointer(pointerSource).manifest;
+  const selectedManifestPath = parseActivePointer(pointerSource).manifest;
   const paths = readdirSync(PACKAGE_DIR, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
     .map((entry) => `config/repository/work-packages/${entry.name}`)
@@ -44,7 +44,7 @@ test('current Work Package tree contains no stale or unauthorized transport mani
         : defaultBytes(repositoryPath)
     };
   });
-  const census = CodexDevelopmentClassifyWorkPackageCensus({
+  const census = classifyWorkPackageCensus({
     selectedManifestPath,
     entries,
     ...(paths.length > 1 ? {

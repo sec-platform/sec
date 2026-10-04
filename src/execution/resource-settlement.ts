@@ -3,6 +3,9 @@ export interface ResourceSettlementFailure {
   readonly error: unknown;
 }
 
+const issuedResourceCompositeSettlementErrors = new WeakSet<object>();
+const resourceCompositeSettlementFailures = new WeakMap<object, readonly ResourceSettlementFailure[]>();
+
 export class ResourceCompositeSettlementError extends AggregateError {
   readonly failures: readonly ResourceSettlementFailure[];
 
@@ -11,9 +14,22 @@ export class ResourceCompositeSettlementError extends AggregateError {
       Array.from(failures, ({ label, error }) => Object.freeze({ label, error }))
     );
     super(captured.map(({ error }) => error), 'Resource composite settlement failed.');
+    issuedResourceCompositeSettlementErrors.add(this);
+    resourceCompositeSettlementFailures.set(this, captured);
     this.name = 'ResourceCompositeSettlementError';
     this.failures = captured;
   }
+}
+
+export function isResourceCompositeSettlementError(value: unknown): value is ResourceCompositeSettlementError {
+  return value !== null && (typeof value === 'object' || typeof value === 'function')
+    && issuedResourceCompositeSettlementErrors.has(value);
+}
+
+export function readResourceCompositeSettlementFailures(value: ResourceCompositeSettlementError): readonly ResourceSettlementFailure[] {
+  const failures = resourceCompositeSettlementFailures.get(value);
+  if (failures === undefined) throw new TypeError('Resource settlement error is not owner-issued');
+  return failures;
 }
 
 export interface ResourceSettlementTerminal {

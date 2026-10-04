@@ -9,7 +9,7 @@ import type {
   RepositoryModuleGraphImportObservation
 } from '../architecture/contract.ts';
 import {
-  normalizeSecRepositoryPath
+  normalizeRepositoryPath
 } from '../architecture/contract.ts';
 import type {
   SourceProgramCompilationOperation
@@ -60,10 +60,10 @@ export function compileSourceProgramRepositoryModuleGraph(
   input: SourceProgramRepositoryModuleGraphInput
 ): RepositoryModuleGraph {
   const operation = resolveSourceProgramCompilationOperation(input.operation);
-  const files = Object.freeze([...new Set(input.files.map(normalizeSecRepositoryPath))]
+  const files = Object.freeze([...new Set(input.files.map(normalizeRepositoryPath))]
     .sort(compareCodeUnits));
   const sourceByPath = new Map<string, string>();
-  const unresolvedFiles = new Set((input.unresolvedFiles ?? []).map(normalizeSecRepositoryPath));
+  const unresolvedFiles = new Set((input.unresolvedFiles ?? []).map(normalizeRepositoryPath));
   for (const repositoryPathValue of files) {
     const source = input.readSource(repositoryPathValue);
     if (source === null) unresolvedFiles.add(repositoryPathValue);

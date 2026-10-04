@@ -3,6 +3,9 @@ import {
   compareCodeUnits,
   sha256
 } from '../../../contracts/canonical.ts';
+import type {
+  RepositoryModuleMembership
+} from '../architecture/contract.ts';
 import {
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
@@ -43,6 +46,10 @@ import type {
 import {
   compileExactTypeScriptProgram
 } from './typescript-workspace.ts';
+import {
+  assertWorkspaceSourceSnapshot,
+  type WorkspaceSourceSnapshot
+} from './workspace-source-snapshot.ts';
 
 /** Exact-program facts and capability observations bound to model identity; private generation registry. */
 export type TypeScriptSyntaxObservation = Readonly<{
@@ -73,6 +80,8 @@ export type TypeScriptModuleExportResolution =
   | Readonly<{
       readonly status: 'resolved';
       readonly entrypointPath: string;
+      readonly targetDeclarationObservationIds: readonly string[];
+      readonly targetPaths: readonly string[];
     }>
   | Readonly<{
       readonly status: 'unresolved';
@@ -84,6 +93,15 @@ export type TypeScriptModuleExportResolution =
         | 'export-target-unresolved';
     }>;
 
+export type TypeScriptDescriptorOperationExportObservation = Readonly<{
+  readonly moduleId: string;
+  readonly capability: string;
+  readonly operation: string;
+  readonly scopePaths: readonly string[];
+  readonly resolutions: readonly TypeScriptModuleExportResolution[];
+  readonly status: 'resolved' | 'absent' | 'unresolved';
+}>;
+
 type ExactFactGeneration = Readonly<
   TypeScriptExactFactGenerationReceipt & {
   apiClosure: TypeScriptRequiredApiClosure;
@@ -91,6 +109,9 @@ type ExactFactGeneration = Readonly<
   renameAt: ExactTypeScriptProgram['renameAt'];
   returnProvenances: readonly SourceProgramReturnProvenance[];
   sourceFiles: ReadonlyMap<string, ts.SourceFile>;
+  sourceInputPaths: readonly string[];
+  canonicalSourcePaths: readonly string[] | null;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 const exactFactGenerationByModel = new WeakMap<object, ExactFactGeneration>();
@@ -357,14 +378,80 @@ export function observeDurableWorkerInput(
   });
 }
 
-/** Resolve one export through the current exact TypeChecker, including aliases and star re-exports. */
-export function resolveTypeScriptModuleExport(
-  model: SourceProgramModel,
-  entrypointPaths: readonly string[],
+function hasRuntimeValueDeclaration(symbol: ts.Symbol): boolean {
+  return (symbol.declarations ?? []).some((declaration) => {
+    const sourceFile = declaration.getSourceFile();
+    if (sourceFile.isDeclarationFile) return false;
+    for (let node: ts.Node | undefined = declaration; node !== undefined && node !== sourceFile; node = node.parent) {
+      if ((ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Ambient) !== 0) {
+        return false;
+      }
+    }
+    if (ts.isFunctionDeclaration(declaration)) return declaration.body !== undefined;
+    if (ts.isClassDeclaration(declaration)) return true;
+    if (ts.isVariableDeclaration(declaration) || ts.isBindingElement(declaration)) return true;
+    if (ts.isEnumDeclaration(declaration)) {
+      return (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Const) === 0;
+    }
+    if (ts.isExportAssignment(declaration)) return true;
+    return false;
+  });
+}
+
+function typeOnlyStarExportStatus(
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
   exportName: string
-): readonly TypeScriptModuleExportResolution[] | null {
-  const generation = exactFactGenerationByModel.get(model);
-  if (generation === undefined) return null;
+): 'absent' | 'unresolved' | 'not-applicable' {
+  let contributedByTypeOnlyStar = false;
+  let unknownStarTarget = false;
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.exportClause !== undefined) {
+        if (!statement.isTypeOnly && ts.isNamedExports(statement.exportClause)
+            && statement.exportClause.elements.some((element) => (
+              element.name.text === exportName && !element.isTypeOnly
+            ))) return 'not-applicable';
+        if (!statement.isTypeOnly && ts.isNamespaceExport(statement.exportClause)
+            && statement.exportClause.name.text === exportName) return 'not-applicable';
+        continue;
+      }
+      if (statement.moduleSpecifier === undefined) continue;
+      const targetModule = checker.getSymbolAtLocation(statement.moduleSpecifier);
+      if (targetModule === undefined) {
+        unknownStarTarget = true;
+        continue;
+      }
+      const contributes = checker.getExportsOfModule(targetModule)
+        .some((candidate) => candidate.getName() === exportName);
+      if (!contributes) continue;
+      if (!statement.isTypeOnly) return 'not-applicable';
+      contributedByTypeOnlyStar = true;
+      continue;
+    }
+    if ((ts.getCombinedModifierFlags(statement as ts.Declaration) & ts.ModifierFlags.Export) === 0) {
+      continue;
+    }
+    if ((ts.isFunctionDeclaration(statement)
+        || ts.isClassDeclaration(statement)
+        || ts.isEnumDeclaration(statement))
+        && statement.name?.text === exportName) return 'not-applicable';
+    if (ts.isVariableStatement(statement) && statement.declarationList.declarations.some((declaration) => (
+      ts.isIdentifier(declaration.name) && declaration.name.text === exportName
+    ))) return 'not-applicable';
+  }
+  return unknownStarTarget ? 'unresolved'
+    : contributedByTypeOnlyStar ? 'absent' : 'not-applicable';
+}
+
+function moduleExportLookup(
+  model: SourceProgramModel,
+  generation: ExactFactGeneration
+): Readonly<{
+  pathBySourceFile: ReadonlyMap<ts.SourceFile, string>;
+  declarationIdsByPathAndStart: ReadonlyMap<string, readonly string[]>;
+  exportsBySourceFile: Map<ts.SourceFile, ReadonlyMap<string, ts.Symbol>>;
+}> {
   const pathBySourceFile = new Map<ts.SourceFile, string>([...generation.sourceFiles].map(
     ([repositoryPath, sourceFile]) => [sourceFile, repositoryPath] as const
   ));
@@ -375,6 +462,17 @@ export function resolveTypeScriptModuleExport(
     if (ids === undefined) declarationIdsByPathAndStart.set(key, [declaration.observationId]);
     else ids.push(declaration.observationId);
   }
+  return { pathBySourceFile, declarationIdsByPathAndStart, exportsBySourceFile: new Map() };
+}
+
+/** Resolve one export through the current exact TypeChecker, including aliases and star re-exports. */
+function resolveTypeScriptModuleExportWithLookup(
+  generation: ExactFactGeneration,
+  entrypointPaths: readonly string[],
+  exportName: string,
+  lookup: ReturnType<typeof moduleExportLookup>
+): readonly TypeScriptModuleExportResolution[] {
+  const { pathBySourceFile, declarationIdsByPathAndStart } = lookup;
   return Object.freeze([...new Set(entrypointPaths)].sort(compareCodeUnits).map((entrypointPath) => {
     const sourceFile = generation.sourceFiles.get(entrypointPath);
     if (sourceFile === undefined) return Object.freeze({
@@ -389,14 +487,35 @@ export function resolveTypeScriptModuleExport(
       reason: 'entrypoint-syntax-unresolved' as const
     });
     const moduleSymbol = generation.checker.getSymbolAtLocation(sourceFile);
-    if (moduleSymbol === undefined) return Object.freeze({
-      status: 'unresolved' as const,
-      entrypointPath,
-      reason: 'entrypoint-module-symbol-unresolved' as const
-    });
-    const exportedSymbol = generation.checker.getExportsOfModule(moduleSymbol)
-      .find((candidate) => candidate.getName() === exportName);
+    if (moduleSymbol === undefined) return ts.isExternalModule(sourceFile)
+      ? Object.freeze({
+          status: 'unresolved' as const,
+          entrypointPath,
+          reason: 'entrypoint-module-symbol-unresolved' as const
+        })
+      : Object.freeze({ status: 'absent' as const, entrypointPath });
+    let exportsByName = lookup.exportsBySourceFile.get(sourceFile);
+    if (exportsByName === undefined) {
+      exportsByName = new Map(generation.checker.getExportsOfModule(moduleSymbol)
+        .map((candidate) => [candidate.getName(), candidate] as const));
+      lookup.exportsBySourceFile.set(sourceFile, exportsByName);
+    }
+    const exportedSymbol = exportsByName.get(exportName);
     if (exportedSymbol === undefined) {
+      return Object.freeze({ status: 'absent' as const, entrypointPath });
+    }
+    const typeOnlyStar = typeOnlyStarExportStatus(generation.checker, sourceFile, exportName);
+    if (typeOnlyStar === 'absent') {
+      return Object.freeze({ status: 'absent' as const, entrypointPath });
+    }
+    if (typeOnlyStar === 'unresolved') {
+      return Object.freeze({
+        status: 'unresolved' as const,
+        entrypointPath,
+        reason: 'export-target-unresolved' as const
+      });
+    }
+    if (generation.checker.getTypeOnlyAliasDeclaration(exportedSymbol) !== undefined) {
       return Object.freeze({ status: 'absent' as const, entrypointPath });
     }
     let targetSymbol = exportedSymbol;
@@ -418,7 +537,22 @@ export function resolveTypeScriptModuleExport(
         `${repositoryPath}\0${node.getStart(node.getSourceFile(), false)}`
       ) ?? []) targetDeclarationObservationIds.add(observationId);
     }
+    const targetSourceResolved = (targetSymbol.declarations ?? []).length > 0
+      && (targetSymbol.declarations ?? []).every((node) => {
+        const targetSource = node.getSourceFile();
+        const targetPath = pathBySourceFile.get(targetSource);
+        return targetPath !== undefined
+          && generation.sourceFiles.get(targetPath) === targetSource
+          && (((targetSource as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] })
+            .parseDiagnostics?.length ?? 0) === 0);
+      });
     if ((targetSymbol.flags & ts.SymbolFlags.Value) === 0
+        && targetSourceResolved) {
+      return Object.freeze({ status: 'absent' as const, entrypointPath });
+    }
+    if ((targetSymbol.flags & ts.SymbolFlags.Value) === 0
+        || !hasRuntimeValueDeclaration(targetSymbol)
+        || !targetSourceResolved
         || targetDeclarationObservationIds.size === 0
         || targetPaths.size === 0) {
       return Object.freeze({
@@ -429,9 +563,91 @@ export function resolveTypeScriptModuleExport(
     }
     return Object.freeze({
       status: 'resolved' as const,
-      entrypointPath
+      entrypointPath,
+      targetDeclarationObservationIds: Object.freeze([...targetDeclarationObservationIds].sort(compareCodeUnits)),
+      targetPaths: Object.freeze([...targetPaths].sort(compareCodeUnits))
     });
   }));
+}
+
+export function resolveTypeScriptModuleExport(
+  model: SourceProgramModel,
+  entrypointPaths: readonly string[],
+  exportName: string
+): readonly TypeScriptModuleExportResolution[] | null {
+  const generation = exactFactGenerationByModel.get(model);
+  return generation === undefined ? null : resolveTypeScriptModuleExportWithLookup(
+    generation, entrypointPaths, exportName, moduleExportLookup(model, generation)
+  );
+}
+
+/**
+ * Observe descriptor operation exports from the original exact Source Program
+ * generation. A projected model or caller-supplied completeness claim cannot
+ * turn an unobserved export scope into confirmed absence.
+ */
+export function observeTypeScriptDescriptorOperationExports(
+  model: SourceProgramModel,
+  expectedMembership?: RepositoryModuleMembership
+): readonly TypeScriptDescriptorOperationExportObservation[] | null {
+  const generation = exactFactGenerationByModel.get(model);
+  if (generation === undefined
+      || (expectedMembership !== undefined
+        && generation.moduleMembership !== expectedMembership)) return null;
+  const lookup = moduleExportLookup(model, generation);
+  const selectedPaths = new Set(generation.sourceInputPaths);
+  const completeFallbackScope = generation.canonicalSourcePaths !== null;
+  const observedPathsByOwner = new Map<string, string[]>();
+  for (const path of generation.canonicalSourcePaths ?? generation.sourceInputPaths) {
+    if (sourceProgramSurfaceForPath(path) !== 'production') continue;
+    const ownerId = generation.moduleMembership.moduleForPath(path)?.moduleId;
+    if (ownerId === undefined) continue;
+    const paths = observedPathsByOwner.get(ownerId);
+    if (paths === undefined) observedPathsByOwner.set(ownerId, [path]);
+    else paths.push(path);
+  }
+  const observations: TypeScriptDescriptorOperationExportObservation[] = [];
+  for (const descriptor of generation.moduleMembership.descriptors) {
+    const scopePaths = Object.freeze([...new Set(
+      descriptor.externalEntrypoints.length > 0
+        ? descriptor.externalEntrypoints
+        : observedPathsByOwner.get(descriptor.moduleId) ?? []
+    )].sort(compareCodeUnits));
+    for (const provider of descriptor.capabilityProviders) {
+      for (const operation of provider.operations) {
+        const resolutions = resolveTypeScriptModuleExportWithLookup(
+          generation, scopePaths, operation, lookup
+        );
+        const completeScope = scopePaths.length > 0
+          && (descriptor.externalEntrypoints.length > 0 || completeFallbackScope)
+          && scopePaths.every((path) => (
+          /\.[cm]?tsx?$/iu.test(path)
+          && selectedPaths.has(path)
+          && generation.sourceFiles.has(path)
+          && !generation.sourceFiles.get(path)!.isDeclarationFile
+          ));
+        const status = resolutions.some((resolution) => (
+          resolution.status === 'resolved'
+          && /\.[cm]?tsx?$/iu.test(resolution.entrypointPath)
+          && !generation.sourceFiles.get(resolution.entrypointPath)?.isDeclarationFile
+        ))
+          ? 'resolved'
+          : completeScope && resolutions.length === scopePaths.length
+            && resolutions.every((resolution) => resolution.status === 'absent')
+            ? 'absent'
+            : 'unresolved';
+        observations.push(Object.freeze({
+          moduleId: descriptor.moduleId,
+          capability: provider.capability,
+          operation,
+          scopePaths,
+          resolutions,
+          status
+        }));
+      }
+    }
+  }
+  return Object.freeze(observations);
 }
 
 /** One exact semantic generation owns both reusable facts and causal provenance. */
@@ -446,6 +662,9 @@ export function typeScriptExactFactGenerationReceipt(
     renameAt: _renameAt,
     returnProvenances: _returnProvenances,
     sourceFiles: _sourceFiles,
+    sourceInputPaths: _sourceInputPaths,
+    canonicalSourcePaths: _canonicalSourcePaths,
+    moduleMembership: _moduleMembership,
     ...projection
   } = receipt;
   return Object.freeze(projection);
@@ -496,6 +715,19 @@ export function issueTypeScriptExactFactGeneration(
   assertTypeScriptRequiredApiClosure(apiClosure);
   const identity = typeScriptExactFactGenerationIdentity(input);
   const canonicalProvenances = Object.freeze([...returnProvenances]);
+  let canonicalSourcePaths: readonly string[] | null = null;
+  if (input.repositoryCompilation !== undefined) {
+    const candidate = input.repositoryCompilation as WorkspaceSourceSnapshot;
+    try {
+      assertWorkspaceSourceSnapshot(candidate);
+      if (candidate.moduleMembership === input.moduleMembership
+          && candidate.sourceRevision === input.sourceRevision) {
+        canonicalSourcePaths = Object.freeze(candidate.files.map(({ path }) => path));
+      }
+    } catch {
+      // A generic compilation context cannot certify complete module membership.
+    }
+  }
   const receipt = Object.freeze({
     ...identity,
     apiClosure,
@@ -504,7 +736,10 @@ export function issueTypeScriptExactFactGeneration(
     renameAt,
     provenanceDigest: sha256(canonicalProvenances) as `sha256:${string}`,
     returnProvenances: canonicalProvenances,
-    sourceFiles
+    sourceFiles,
+    sourceInputPaths: Object.freeze(input.files.map(({ path }) => path)),
+    canonicalSourcePaths,
+    moduleMembership: input.moduleMembership
   });
   exactFactGenerationByModel.set(model, receipt);
   currentExactReturnProvenancesByModel.set(model, receipt.returnProvenances);

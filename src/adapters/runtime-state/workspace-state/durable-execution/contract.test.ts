@@ -1,23 +1,23 @@
 import { expect, test } from 'bun:test';
 
 import {
-  SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-  SecDurableExecutionContractError,
+  DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+  DurableExecutionContractError,
   encodeDurableExecutionRecord,
   observeDurableExecutionJournal,
   parseDurableExecutionRecord,
   sealDurableExecutionRecordForInternalWriter,
-  type SecDurableExecutionDigest,
-  type SecDurableExecutionRecord
+  type DurableExecutionDigest,
+  type DurableExecutionRecord
 } from './contract.ts';
 
-const digest = (value: string): SecDurableExecutionDigest =>
-  `sha256:${value.padStart(64, '0')}` as SecDurableExecutionDigest;
+const digest = (value: string): DurableExecutionDigest =>
+  `sha256:${value.padStart(64, '0')}` as DurableExecutionDigest;
 
-function attemptPrefix(run = '2', nonce = '5'): readonly SecDurableExecutionRecord[] {
+function attemptPrefix(run = '2', nonce = '5'): readonly DurableExecutionRecord[] {
   const deadlineAtUnixMs = 4_102_444_800_000;
   const intent = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'intent',
     sequence: 0,
     operationKeyDigest: digest('1'),
@@ -31,7 +31,7 @@ function attemptPrefix(run = '2', nonce = '5'): readonly SecDurableExecutionReco
     previousRecordDigest: null
   });
   const start = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-start',
     sequence: 1,
     operationKeyDigest: intent.operationKeyDigest,
@@ -51,12 +51,12 @@ function attemptPrefix(run = '2', nonce = '5'): readonly SecDurableExecutionReco
 }
 
 function readback(
-  prefix: readonly SecDurableExecutionRecord[],
+  prefix: readonly DurableExecutionRecord[],
   reference = 'a'
-): SecDurableExecutionRecord {
+): DurableExecutionRecord {
   const start = prefix[1]!;
   return sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'domain-readback-reference',
     sequence: prefix.length,
     operationKeyDigest: prefix[0]!.operationKeyDigest,
@@ -71,7 +71,7 @@ test('one OperationKey serializes every run and only an owner terminal closes th
   const prefix = attemptPrefix();
   const observedReadback = readback(prefix);
   const resolution = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 3,
     operationKeyDigest: prefix[0]!.operationKeyDigest,
@@ -103,7 +103,7 @@ test('one OperationKey serializes every run and only an owner terminal closes th
 test('a lost handle requires readback and exact owner retry admission before a new run', () => {
   const prefix = attemptPrefix();
   const lostHandle = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'lost-handle-reference',
     sequence: 2,
     operationKeyDigest: prefix[0]!.operationKeyDigest,
@@ -124,7 +124,7 @@ test('a lost handle requires readback and exact owner retry admission before a n
 
   const observedReadback = readback([...prefix, lostHandle], '17');
   const sealedAdmission = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 4,
     operationKeyDigest: prefix[0]!.operationKeyDigest,
@@ -152,7 +152,7 @@ test('a lost handle requires readback and exact owner retry admission before a n
 test('provider references are unique per requirement and resolution binds their exact record set', () => {
   const prefix = attemptPrefix();
   const provider = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'provider-settlement-reference',
     sequence: 2,
     operationKeyDigest: prefix[0]!.operationKeyDigest,
@@ -174,7 +174,7 @@ test('provider references are unique per requirement and resolution binds their 
 
   const observedReadback = readback([...prefix, provider], '24');
   const resolution = sealDurableExecutionRecordForInternalWriter({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 4,
     operationKeyDigest: prefix[0]!.operationKeyDigest,
@@ -205,8 +205,8 @@ test('exact parser rejects duplicate keys, unknown fields, digest drift and nonc
     parseDurableExecutionRecord(encoded.replace('{', '{"unknown":true,'));
     throw new Error('expected strict record parsing to fail');
   } catch (error) {
-    expect(error).toBeInstanceOf(SecDurableExecutionContractError);
-    expect((error as SecDurableExecutionContractError).kind).toBe('invalid-record');
+    expect(error).toBeInstanceOf(DurableExecutionContractError);
+    expect((error as DurableExecutionContractError).kind).toBe('invalid-record');
   }
   expect(() => parseDurableExecutionRecord(
     encoded.replace(digest('3'), digest('26'))

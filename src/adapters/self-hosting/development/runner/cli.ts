@@ -244,10 +244,10 @@ async function runRepositoryZeroWriteCommand(
     console.error(`${commandId} strict-zero-write-unproven: semantic operation authority is unavailable.`);
     return 1;
   }
-  const { runRepositoryZeroWriteOperation: runRepositoryZeroWriteOperationV1 } = await import(
+  const { runRepositoryZeroWriteOperation } = await import(
     './repository-mutation-fence.ts'
   );
-  return runRepositoryZeroWriteOperationV1(commandId, operation, {
+  return runRepositoryZeroWriteOperation(commandId, operation, {
     ...fenceOptions,
     operation: semanticOperation
   });

@@ -6,7 +6,7 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import { decodeExactUtf8 } from '../../../contracts/utf8.ts';
-import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
+import { normalizeRepositoryPath } from '../architecture/contract.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
@@ -436,7 +436,7 @@ export function parseTypeScriptSourceProgramFactShard(
     new Set(['module-scoped', 'global-or-ambient', 'unknown']),
     'TypeScript fact shard semantic dependency scope'
   );
-  if (normalizeSecRepositoryPath(parsed.path as string) !== parsed.path) {
+  if (normalizeRepositoryPath(parsed.path as string) !== parsed.path) {
     throw new Error('TypeScript fact shard path is not canonical');
   }
   exactShardFacts(parsed);

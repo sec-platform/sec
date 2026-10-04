@@ -29,7 +29,7 @@ let rawExecutable: ReturnType<typeof createRawTestExecutableFixture>;
 beforeAll(() => { rawExecutable = createRawTestExecutableFixture(); });
 afterAll(() => { rawExecutable.dispose(); });
 
-import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
+import { runRetainedGitWriteTreeProbe } from '../helpers/retained-git-write-tree-probe.ts';
 
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -604,7 +604,7 @@ test('retained child-process file reads the observed inode after leaf replacemen
 });
 
 test('retained Git index and object directories support write-tree without lexical reopen', () => {
-  expect(runRetainedGitWriteTreeProbeV1()).toMatch(/^[0-9a-f]{40}$/u);
+  expect(runRetainedGitWriteTreeProbe()).toMatch(/^[0-9a-f]{40}$/u);
 });
 
 test('exact ordinary leaf observation does not scan unrelated parent entries', () => {

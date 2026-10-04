@@ -19,7 +19,7 @@ import {
   assertExternalProviderCoordinationLease,
   externalProviderCoordinationLeaseName,
   issueExternalProviderCoordinationLeaseTestIssuerForTests,
-  secUserExternalProviderCoordinationPath,
+  userExternalProviderCoordinationPath,
   withExternalProviderCoordinationLeaseAtOwnerIssuedRoot
 } from './external-provider-coordination-lease.ts';
 import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
@@ -73,7 +73,7 @@ test.skipIf(process.platform !== 'win32')(
     process.env.LOCALAPPDATA = '';
     try {
       const root = inspectNoFollowDirectoryChain(rootPath, 'test provider coordination owner');
-      const expectedDirectory = secUserExternalProviderCoordinationPath({
+      const expectedDirectory = userExternalProviderCoordinationPath({
         localAppData: root.target.path,
         repositoryRoot: process.cwd()
       });
@@ -199,7 +199,7 @@ test.skipIf(process.platform !== 'win32')(
         operation: async () => 'initialize'
       });
       const coordinationDirectory = inspectNoFollowDirectoryChain(
-        secUserExternalProviderCoordinationPath({
+        userExternalProviderCoordinationPath({
           localAppData: rootPath,
           repositoryRoot: process.cwd()
         }),
@@ -298,7 +298,7 @@ test.skipIf(process.platform !== 'win32')(
         root,
         operation: async () => 'unreachable'
       })).rejects.toMatchObject({ reason: 'invalid-input' });
-      expect(existsSync(secUserExternalProviderCoordinationPath({
+      expect(existsSync(userExternalProviderCoordinationPath({
         localAppData: rootPath,
         repositoryRoot: process.cwd()
       }))).toBe(false);

@@ -1,14 +1,17 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { types as nativeTypes } from 'node:util';
+import { snapshotVerificationData } from '../../../../assurance/verification/contract/data.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import type { VerificationGateResult } from "../../../../assurance/verification/result/contract/result.ts";
-import { uniqueSorted } from '../../../../contracts/canonical.ts';
+import { cloneAndDeepFreeze, deepFreeze, uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   observeExecutionProgressPhase
 } from '../../../../execution/execution-progress.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import type { HostedActionResolution, VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
 import type { VerificationGateEvidence } from '../../../../execution/verification/session.ts';
 import {
   withAuthorityGitReadOperation,
@@ -18,10 +21,14 @@ import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
+import { ciVerificationHostedActionCandidateRoot, ciVerificationHostedJobTransportSlot } from '../../../providers/github-api/contract/hosted-job-policy.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
+import { withGitHubApiVerificationSession } from '../../../providers/github-api/operation-session.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
+  inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   PhysicalNoFollowError,
   publishExclusiveDurableCanonicalFile,
@@ -47,6 +54,7 @@ import {
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentPrepareVerificationEvidenceTarget, CodexDevelopmentVerificationDigest, CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic, CodexDevelopmentWriteVerificationEvidenceV4Atomic, parseTrustedRuntimeSourceProgramActionRecord, type TrustedRuntimeSourceProgramActionRecord } from './contract/evidence.ts';
+import { parseHostedSutCapabilityObservation } from './contract/hosted-sut-observation.ts';
 import {
   assertCiExpectedHead,
   CodexDevelopmentBuildVerificationPlan, type CodexDevelopmentVerificationPlanProfile
@@ -57,7 +65,10 @@ import {
   CI_VERIFICATION_SESSION_CONTRACT_REVISION,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from './contract/revision.ts';
-import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
+import { readAuthenticatedHostedJobRuntimeReceipt, type HostedJobRuntimeReceiptSelection } from './runtime/hosted-job-runtime-provenance.ts';
+
+import type { VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
+import { parseVerificationSessionHostedRequest } from "./contract/session-request.ts";
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentDefaultChangedPaths,
@@ -73,15 +84,12 @@ import {
 import {
   ensureVerificationActionGitHubProviderTransaction
 } from './runtime/verification-action-github-provider.ts';
-import {
-  parseVerificationSessionHostedRequest, type VerificationSessionHostedEnvelope
-} from './runtime/verification-session-runtime.ts';
 import type { CodexDevelopmentCiVerificationTestOptions } from './verification-action-effect.ts';
 import { CodexDevelopmentExecuteCiActionClosure } from './verification-action-effect.ts';
 import { CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentParseHostedActionRawResult } from './verification-coordination.ts';
-import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionProviderIndex, CodexDevelopmentHostedActionResolution } from './verification-hosted-action-contract.ts';
+import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionProviderIndex } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, ciActionDigest, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, hostedActionProviderIndexFromSnapshot, INVALIDATION_RULES, parseHostedEnvelope, VERIFICATION_EVIDENCE_PATH } from './verification-hosted-action-contract.ts';
-import { CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentMaterializeHostedActionCandidate, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
+import { CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertPreparedHostedActionCandidate, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentMaterializeHostedActionCandidate, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 import { CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentExecuteTrustedBootstrapSut, CodexDevelopmentProbeHostedSutSandboxCapability, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
@@ -856,17 +864,11 @@ export async function CodexDevelopmentCiVerificationMainForTests(
 }
 
 export const HOSTED_ACTION_COMMANDS = new Set([
-  'ensure-hosted-action-provider',
-  'resolve-hosted-action',
   'prepare-hosted-action-inputs',
-  'execute-trusted-bootstrap-sut',
-  'self-test-hosted-action-sandbox',
-  'execute-hosted-action-sut',
-  'assemble-hosted-action-terminal',
-  'compose-hosted-evidence'
+  'execute-trusted-bootstrap-sut'
 ]);
 
-function hostedActionCliArgs(
+export function hostedActionCliArgs(
   argv: readonly string[],
   allowed: readonly string[]
 ): ReadonlyMap<string, string> {
@@ -919,23 +921,10 @@ function hostedActionTransportBytes(filePath: string, label: string): Buffer {
   }
 }
 
-function hostedActionTransportText(filePath: string, label: string): string {
+export function hostedActionTransportText(filePath: string, label: string): string {
   return new TextDecoder('utf-8', { fatal: true }).decode(
     hostedActionTransportBytes(filePath, label)
   );
-}
-
-function hostedActionCanonicalFile<T>(
-  filePath: string,
-  parser: (value: unknown) => T,
-  label: string
-): T {
-  const source = hostedActionTransportText(filePath, label);
-  const value = parser(JSON.parse(source) as unknown);
-  if (source !== `${encodeVerificationActionData(value)}\n`) {
-    throw new Error(`${label} is not one exact canonical JSON line.`);
-  }
-  return value;
 }
 
 function hostedActionParentActor(repository: string): CiVerificationActionParentActor {
@@ -992,7 +981,7 @@ function hostedActionParentJobId(repository: string, runId: string, runAttempt: 
 
 export function CodexDevelopmentAssertHostedActionParentEvent(
   eventValue: unknown,
-  sessionRequest: VerificationSessionHostedRequest
+  sessionRequest: VerificationSessionHostedRequest<typeof import("./contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>
 ): void {
   const event = hostedActionRecord(eventValue, 'parent Session event');
   const expectedClientPayload = Object.freeze({ payload: sessionRequest });
@@ -1001,161 +990,6 @@ export function CodexDevelopmentAssertHostedActionParentEvent(
         encodeVerificationActionData(expectedClientPayload)) {
     throw new Error('parent dispatch plan event does not contain the exact Session request wrapper.');
   }
-}
-
-function createHostedActionParentPlan(input: Readonly<{
-  sessionRequest: VerificationSessionHostedRequest;
-  envelope: VerificationSessionHostedEnvelope;
-}>): CiVerificationActionParentDispatchPlan {
-  const repositoryIdentity = hostedActionRepositoryIdentity();
-  const runId = process.env.GITHUB_RUN_ID ?? '';
-  const runAttempt = positiveEnvironmentInteger('GITHUB_RUN_ATTEMPT');
-  const workflowSha = process.env.GITHUB_WORKFLOW_SHA ?? '';
-  const workflowRef = process.env.GITHUB_WORKFLOW_REF ?? '';
-  if (!/^[1-9][0-9]*$/u.test(runId) || !/^[0-9a-f]{40}$/u.test(workflowSha) ||
-      workflowSha !== input.sessionRequest.expectedBaseSha ||
-      workflowRef !== `${repositoryIdentity.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main` ||
-      process.env.GITHUB_JOB !== 'coordinate-verification-session') {
-    throw new Error('parent dispatch plan is not running in the exact trusted Session coordinator.');
-  }
-  // Event payload ownership is intentionally upstream: validate-hosted-request
-  // binds the repository_dispatch wrapper to these exact request bytes before
-  // this job materializes hosted-request.json. This owner revalidates the live
-  // workflow/base/actor authority instead of reopening a second event path.
-  const proposals = input.envelope.actionPlanClosure.actions.map((member) =>
-    createCiVerificationActionProposal({
-      sessionRequest: input.sessionRequest,
-      proposedActionKey: member.action.actionKey
-    })
-  );
-  for (const proposal of proposals) {
-    CodexDevelopmentResolveHostedAction({
-      request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(proposal)),
-      envelope: input.envelope
-    });
-  }
-  return createCiVerificationActionParentDispatchPlan({
-    repositoryId: String(repositoryIdentity.repositoryId),
-    repository: repositoryIdentity.repository,
-    parentRunId: runId,
-    parentRunAttempt: runAttempt,
-    parentJobId: hostedActionParentJobId(repositoryIdentity.repository, runId, runAttempt),
-    parentWorkflowRef: workflowRef,
-    parentWorkflowSha: workflowSha,
-    parentActor: hostedActionParentActor(repositoryIdentity.repository),
-    proposals
-  });
-}
-
-function hostedActionParentAuthority(input: Readonly<{
-  requestPath: string;
-  envelopePath: string;
-  parentPlanPath: string;
-  parentArtifactId: string;
-  parentArtifactArchiveDigest: string;
-}>): Readonly<{
-  sessionRequest: VerificationSessionHostedRequest;
-  envelope: VerificationSessionHostedEnvelope;
-  parentPlan: CiVerificationActionParentDispatchPlan;
-  providerEnvelopes: readonly CiVerificationActionProviderEnvelope[];
-}> {
-  const sessionRequest = parseVerificationSessionHostedRequest(
-    hostedActionTransportText(input.requestPath, 'parent Session request')
-  );
-  const envelope = parseHostedEnvelope(
-    JSON.parse(hostedActionTransportText(input.envelopePath, 'parent Session envelope')) as unknown
-  );
-  const parentPlan = hostedActionCanonicalFile(
-    input.parentPlanPath,
-    parseCiVerificationActionParentDispatchPlan,
-    'parent dispatch plan'
-  );
-  const expectedProposals = envelope.actionPlanClosure.actions.map((member) =>
-    createCiVerificationActionProposal({ sessionRequest, proposedActionKey: member.action.actionKey })
-  ).sort((left, right) => left.proposedActionKey.localeCompare(right.proposedActionKey));
-  if (encodeVerificationActionData(parentPlan.proposals) !== encodeVerificationActionData(expectedProposals)) {
-    throw new Error('parent dispatch plan proposals differ from the exact hosted Action closure.');
-  }
-  if (!/^[1-9][0-9]*$/u.test(input.parentArtifactId) ||
-      !/^sha256:[0-9a-f]{64}$/u.test(input.parentArtifactArchiveDigest)) {
-    throw new Error('parent dispatch plan artifact identity is invalid.');
-  }
-  const providerEnvelopes = parentPlan.proposals.map((proposal) =>
-    createCiVerificationActionProviderEnvelope({
-      proposal,
-      parentPlan,
-      parentDispatchPlanArtifactId: input.parentArtifactId,
-      parentDispatchPlanArchiveDigest: input.parentArtifactArchiveDigest as VerificationActionKeyDigest
-    })
-  );
-  return Object.freeze({ sessionRequest, envelope, parentPlan, providerEnvelopes: Object.freeze(providerEnvelopes) });
-}
-
-function hostedActionChildAuthority(input: Readonly<{
-  providerEnvelopePath: string;
-  envelopePath: string;
-  resolutionPath?: string;
-}>): Readonly<{
-  providerEnvelope: CiVerificationActionProviderEnvelope;
-  envelope: VerificationSessionHostedEnvelope;
-  resolution: CodexDevelopmentHostedActionResolution;
-}> {
-  const providerEnvelope = hostedActionCanonicalFile(
-    input.providerEnvelopePath,
-    parseCiVerificationActionProviderEnvelope,
-    'internal Action provider envelope'
-  );
-  const envelope = parseHostedEnvelope(
-    JSON.parse(hostedActionTransportText(input.envelopePath, 'parent Session envelope')) as unknown
-  );
-  const resolution = CodexDevelopmentResolveHostedAction({
-    request: CodexDevelopmentParseHostedActionRequest(
-      encodeVerificationActionData(providerEnvelope.proposal)
-    ),
-    envelope
-  });
-  if (input.resolutionPath !== undefined) {
-    const supplied = CodexDevelopmentParseHostedActionResolution(
-      hostedActionTransportText(input.resolutionPath, 'internal Action resolution')
-    );
-    if (encodeVerificationActionData(supplied) !== encodeVerificationActionData(resolution)) {
-      throw new Error('caller Action resolution differs from the authenticated provider envelope.');
-    }
-  }
-  return Object.freeze({ providerEnvelope, envelope, resolution });
-}
-
-async function observeHostedActionAuthority(input: Readonly<{
-  providerEnvelope: CiVerificationActionProviderEnvelope;
-  envelope: VerificationSessionHostedEnvelope;
-  role: 'parent' | 'child';
-}>): Promise<Readonly<{
-  index: CodexDevelopmentHostedActionProviderIndex;
-  decision: VerificationActionProviderDecision;
-}>> {
-  const result = await ensureVerificationActionGitHubProviderTransaction({
-    authority: {
-      envelope: input.providerEnvelope,
-      actionPlanClosure: input.envelope.actionPlanClosure
-    },
-    intent: { kind: input.role === 'parent' ? 'coordinate-parent' : 'coordinate' }
-  });
-  if (result.disposition !== 'observed') {
-    throw new Error(`hosted Action provider observation returned ${result.disposition}.`);
-  }
-  const index = hostedActionProviderIndexFromSnapshot(result.snapshot);
-  const resolution = CodexDevelopmentResolveHostedAction({
-    request: CodexDevelopmentParseHostedActionRequest(
-      encodeVerificationActionData(input.providerEnvelope.proposal)
-    ),
-    envelope: input.envelope
-  });
-  const decision = CodexDevelopmentReduceHostedActionProviderIndex({
-    resolution,
-    ...hostedActionRepositoryIdentity(),
-    index
-  });
-  return Object.freeze({ index, decision });
 }
 
 function hostedActionGhReadJson(args: readonly string[], label: string): unknown {
@@ -1174,532 +1008,660 @@ function hostedActionGhReadJson(args: readonly string[], label: string): unknown
   }
 }
 
-async function readParentPlanObservation(
-  authority: ReturnType<typeof hostedActionParentAuthority>
-): Promise<string> {
-  const first = authority.providerEnvelopes[0];
-  if (first === undefined) throw new Error('parent dispatch plan has no Action proposal.');
-  const observed = await observeHostedActionAuthority({
-    providerEnvelope: first,
-    envelope: authority.envelope,
-    role: 'parent'
-  });
-  return JSON.stringify({
-    status: 'verified',
-    parentDispatchPlanDigest: authority.parentPlan.parentDispatchPlanDigest,
-    parentArtifactPayloadDigest: first.parentDispatchPlanPayloadDigest,
-    firstActionDisposition: observed.decision.disposition
-  });
-}
-
-async function observeHostedSessionProvider(
-  authority: ReturnType<typeof hostedActionParentAuthority>
-): Promise<Readonly<{
-  artifactIndex: CodexDevelopmentHostedActionProviderIndex;
-  coordination: CodexDevelopmentHostedActionCoordination;
-}>> {
-  const terminalObservations: CodexDevelopmentHostedActionArtifactObservation[] = [];
-  const startObservations: VerificationActionProviderStartObservation[] = [];
-  const terminalAnchorObservations: VerificationActionProviderTerminalAnchorObservation[] = [];
-  const providerStatusReadbacks: VerificationActionProviderStatusReadback[] = [];
-  for (const providerEnvelope of authority.providerEnvelopes) {
-    const observed = await observeHostedActionAuthority({
-      providerEnvelope,
-      envelope: authority.envelope,
-      role: 'parent'
-    });
-    terminalObservations.push(...observed.index.terminalObservations);
-    startObservations.push(...observed.index.startObservations);
-    terminalAnchorObservations.push(...observed.index.terminalAnchorObservations);
-    providerStatusReadbacks.push(...observed.index.providerStatusReadbacks);
-  }
-  const artifactIndex = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA,
-    terminalObservations: Object.freeze(terminalObservations),
-    startObservations: Object.freeze(startObservations),
-    terminalAnchorObservations: Object.freeze(terminalAnchorObservations),
-    providerStatusReadbacks: Object.freeze(providerStatusReadbacks)
-  });
-  const coordination = CodexDevelopmentCoordinateHostedActions({
-    envelope: authority.envelope,
-    observations: artifactIndex.terminalObservations,
-    startObservations: artifactIndex.startObservations,
-    terminalAnchorObservations: artifactIndex.terminalAnchorObservations,
-    providerStatusReadbacks: artifactIndex.providerStatusReadbacks
-  });
-  return Object.freeze({ artifactIndex, coordination });
-}
-
-async function coordinateHostedSessionProvider(
-  authority: ReturnType<typeof hostedActionParentAuthority>
-): Promise<Readonly<{
-  artifactIndex: CodexDevelopmentHostedActionProviderIndex;
-  coordination: CodexDevelopmentHostedActionCoordination;
-  dispatched: number;
-}>> {
-  const observed = await observeHostedSessionProvider(authority);
-  let dispatched = 0;
-  if (observed.coordination.disposition === 'dispatch') {
-    const envelopesByKey = new Map(
-      authority.providerEnvelopes.map((providerEnvelope) => [
-        providerEnvelope.proposal.proposedActionKey,
-        providerEnvelope
-      ])
-    );
-    for (const actionKey of observed.coordination.dispatchActionKeys) {
-      const providerEnvelope = envelopesByKey.get(actionKey);
-      if (providerEnvelope === undefined) {
-        throw new Error('coordinator selected an Action outside the authenticated parent plan.');
-      }
-      const result = await ensureVerificationActionGitHubProviderTransaction({
-        authority: {
-          envelope: providerEnvelope,
-          actionPlanClosure: authority.envelope.actionPlanClosure
-        },
-        intent: { kind: 'dispatch-child' }
-      });
-      if (result.disposition !== 'dispatched') {
-        throw new Error(`internal Action wake-up was not accepted: ${result.reason ?? result.disposition}.`);
-      }
-      dispatched += 1;
+/** Captures and publication admission for the application coordination stages.
+ * A parsed/constructed value is data. Only this invocation's retained captures,
+ * original provider readbacks and private prepared rows admit publication. */
+export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGitHubJobOrigin) {
+  const ownField = <Value extends object, Key extends keyof Value>(input: Value, key: Key): Value[Key] => {
+    if (nativeTypes.isProxy(input)) throw new TypeError('Hosted stage input cannot be a Proxy.');
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (descriptor === undefined || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) {
+      throw new TypeError('Hosted stage fields must be enumerable own data.');
     }
-  }
-  return Object.freeze({ ...observed, dispatched });
-}
-
-
-function hostedActionSelectedProviderIntent(argv: readonly string[]): string | undefined {
-  const intentIndex = argv.indexOf('--intent');
-  if (intentIndex < 0) return undefined;
-  const value = argv[intentIndex + 1];
-  return value === undefined || value.startsWith('--') ? undefined : value;
-}
-
-async function runPrepareParentPlanProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'prepare-parent-plan') return null;
-  const args = hostedActionCliArgs(argv, ['--intent', '--request', '--envelope', '--output']);
-  const sessionRequest = parseVerificationSessionHostedRequest(
-    hostedActionTransportText(args.get('--request')!, 'hosted Session request')
-  );
-  const envelope = parseHostedEnvelope(
-    JSON.parse(hostedActionTransportText(args.get('--envelope')!, 'hosted Session envelope')) as unknown
-  );
-  const parentPlan = createHostedActionParentPlan({ sessionRequest, envelope });
-  writeHostedActionJson(args.get('--output')!, parentPlan);
-  return JSON.stringify({
-    status: 'prepared',
-    artifactName: ciVerificationActionParentDispatchPlanArtifactName(
-      parentPlan.parentRunId,
-      parentPlan.parentRunAttempt
-    ),
-    payloadDigest: ciVerificationActionParentDispatchPlanPayloadDigest(parentPlan),
-    parentDispatchPlanDigest: parentPlan.parentDispatchPlanDigest,
-    proposalCount: parentPlan.proposals.length,
-    output: path.resolve(args.get('--output')!)
-  });
-}
-
-async function runVerifyParentPlanProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'verify-parent-plan') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--request', '--envelope', '--parent-plan',
-    '--parent-artifact-id', '--parent-artifact-archive-digest'
-  ]);
-  const authority = hostedActionParentAuthority({
-    requestPath: args.get('--request')!,
-    envelopePath: args.get('--envelope')!,
-    parentPlanPath: args.get('--parent-plan')!,
-    parentArtifactId: args.get('--parent-artifact-id')!,
-    parentArtifactArchiveDigest: args.get('--parent-artifact-archive-digest')!
-  });
-  return readParentPlanObservation(authority);
-}
-
-async function runCoordinateSessionProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'coordinate-session') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--request', '--envelope', '--parent-plan', '--parent-artifact-id',
-    '--parent-artifact-archive-digest', '--artifact-index'
-  ]);
-  const authority = hostedActionParentAuthority({
-    requestPath: args.get('--request')!,
-    envelopePath: args.get('--envelope')!,
-    parentPlanPath: args.get('--parent-plan')!,
-    parentArtifactId: args.get('--parent-artifact-id')!,
-    parentArtifactArchiveDigest: args.get('--parent-artifact-archive-digest')!
-  });
-  const coordinated = await coordinateHostedSessionProvider(authority);
-  writeHostedActionJson(args.get('--artifact-index')!, coordinated.artifactIndex);
-  return JSON.stringify({
-    ...coordinated.coordination,
-    dispatched: coordinated.dispatched,
-    artifactIndex: path.resolve(args.get('--artifact-index')!)
-  });
-}
-
-async function runObserveSessionProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'observe-session') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--request', '--envelope', '--parent-plan', '--parent-artifact-id',
-    '--parent-artifact-archive-digest', '--artifact-index'
-  ]);
-  const authority = hostedActionParentAuthority({
-    requestPath: args.get('--request')!,
-    envelopePath: args.get('--envelope')!,
-    parentPlanPath: args.get('--parent-plan')!,
-    parentArtifactId: args.get('--parent-artifact-id')!,
-    parentArtifactArchiveDigest: args.get('--parent-artifact-archive-digest')!
-  });
-  const observed = await observeHostedSessionProvider(authority);
-  writeHostedActionJson(args.get('--artifact-index')!, observed.artifactIndex);
-  return JSON.stringify({
-    ...observed.coordination,
-    dispatched: 0,
-    artifactIndex: path.resolve(args.get('--artifact-index')!)
-  });
-}
-
-async function runObserveActionProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'observe-action') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--provider-envelope', '--envelope', '--resolution', '--artifact-index'
-  ]);
-  const authority = hostedActionChildAuthority({
-    providerEnvelopePath: args.get('--provider-envelope')!,
-    envelopePath: args.get('--envelope')!,
-    resolutionPath: args.get('--resolution')!
-  });
-  const observed = await observeHostedActionAuthority({
-    providerEnvelope: authority.providerEnvelope,
-    envelope: authority.envelope,
-    role: 'child'
-  });
-  writeHostedActionJson(args.get('--artifact-index')!, observed.index);
-  return JSON.stringify({
-    ...observed.decision,
-    artifactIndex: path.resolve(args.get('--artifact-index')!)
-  });
-}
-
-async function runPrepareStartMarkerProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'prepare-start-marker') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--provider-envelope', '--envelope', '--resolution',
-    '--prepared-candidate-archive', '--base-dependency-closure-digest',
-    '--authenticated-git-closure-digest', '--output'
-  ]);
-  const authority = hostedActionChildAuthority({
-    providerEnvelopePath: args.get('--provider-envelope')!,
-    envelopePath: args.get('--envelope')!,
-    resolutionPath: args.get('--resolution')!
-  });
-  const archiveInventory = CodexDevelopmentInspectHostedActionArchive({
-    resolution: authority.resolution,
-    preparedCandidateArchive: args.get('--prepared-candidate-archive')!,
-    baseDependencyClosureDigest:
-      args.get('--base-dependency-closure-digest')! as VerificationActionKeyDigest,
-    authenticatedGitClosureDigest:
-      args.get('--authenticated-git-closure-digest')! as VerificationActionKeyDigest
-  });
-  const sandboxCapability = await CodexDevelopmentProbeHostedSutSandboxCapability({
-    actionKey: authority.resolution.actionPlan.action.actionKey
-  });
-  if (sandboxCapability.state === 'unknown') {
-    throw new Error(`Hosted Action sandbox pre-start capability is an ambiguous machine observation: ${
-      sandboxCapability.diagnostic ?? 'no diagnostic'
-    }`);
-  }
-  const observed = await observeHostedActionAuthority({
-    providerEnvelope: authority.providerEnvelope,
-    envelope: authority.envelope,
-    role: 'child'
-  });
-  if (observed.decision.disposition !== 'start-allowed' || !observed.decision.physicalExecutionAllowed) {
-    throw new Error(`start marker cannot be prepared from ${observed.decision.disposition}.`);
-  }
-  const marker = createVerificationActionStartMarkerV2({
-    actionKey: authority.resolution.actionPlan.action.actionKey,
-    candidateSha: authority.resolution.artifactInput.headSha,
-    executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
-    producer: currentHostedActionProducer()
-  });
-  writeVerificationActionProviderStartMarkerAtomic(args.get('--output')!, marker);
-  return JSON.stringify({
-    status: 'marker-prepared',
-    actionKey: marker.actionKey,
-    markerName: verificationActionStartMarkerNameV2(marker.actionKey),
-    markerDigest: marker.markerDigest,
-    archiveDigest: archiveInventory.archiveDigest,
-    archiveInventoryDigest: archiveInventory.inventoryDigest,
-    sandboxCapabilityState: sandboxCapability.state,
-    sandboxCapabilityDigest: ciActionDigest(sandboxCapability),
-    output: path.resolve(args.get('--output')!)
-  });
-}
-
-async function runClaimStartProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'claim-start') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--provider-envelope', '--envelope', '--resolution',
-    '--prepared-candidate-archive', '--base-dependency-closure-digest',
-    '--authenticated-git-closure-digest', '--output'
-  ]);
-  const authority = hostedActionChildAuthority({
-    providerEnvelopePath: args.get('--provider-envelope')!,
-    envelopePath: args.get('--envelope')!,
-    resolutionPath: args.get('--resolution')!
-  });
-  const before = await ensureVerificationActionGitHubProviderTransaction({
-    authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
-    intent: { kind: 'coordinate' }
-  });
-  const markerObservation = before.snapshot.startObservations[0];
-  if (before.disposition !== 'observed' || before.snapshot.startObservations.length !== 1 ||
-      markerObservation?.expired !== false || markerObservation.payload === null) {
-    throw new Error('claim-start requires one exact uploaded immutable start marker.');
-  }
-  const marker = parseVerificationActionStartMarkerV2(markerObservation.payload);
-  const claimed = await ensureVerificationActionGitHubProviderTransaction({
-    authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
-    intent: { kind: 'claim-start', marker }
-  });
-  if (claimed.disposition !== 'started' || !claimed.newlyCreatedByThisInvocation || claimed.status === null) {
-    return JSON.stringify({
-      status: 'joined',
-      actionKey: claimed.actionKey,
-      issued: false,
-      ticketDigest: null,
-      output: null,
-      reason: claimed.reason
+    return descriptor.value;
+  };
+  const ownedPure = <Value>(value: Value): Value => {
+    // Original verifier rejects proxies, accessors and non-data descendants.
+    // Only after that non-calling inspection may the native clone own them.
+    snapshotVerificationData(value, 'Hosted stage data');
+    return cloneAndDeepFreeze(value);
+  };
+  const current = (phase?: string) => {
+    const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
+    const phases = job.policyJobId === 'coordinate-verification-session'
+      ? ['prepare-parent-plan', 'coordinate-session']
+      : job.policyJobId === 'resolve-verification-action' ? ['resolve-hosted-action']
+      : job.policyJobId === 'claim-verification-action' ? ['prepare-start-marker', 'claim-start'] : [];
+    const role = job.policyJobId === 'coordinate-verification-session' ? 'control' : 'trusted';
+    if (job.role !== role || !phases.includes(job.phase)
+        || (phase !== undefined && phase !== job.phase)
+        || job.trustedDriverRoot !== path.resolve(import.meta.dir, '../../../../..')) {
+      throw new Error('Hosted coordination requires its original authenticated job and stage.');
+    }
+    return job;
+  };
+  current();
+  type Envelope = ReturnType<typeof parseHostedEnvelope>;
+  type Resolution = ReturnType<typeof CodexDevelopmentResolveHostedAction>;
+  type Authority = Readonly<{ providerEnvelope: CiVerificationActionProviderEnvelope; envelope: Envelope }>;
+  type Transaction = Awaited<ReturnType<typeof ensureVerificationActionGitHubProviderTransaction>>;
+  type InventoryInput = Parameters<typeof CodexDevelopmentInspectHostedActionArchive>[0];
+  type Inventory = ReturnType<typeof CodexDevelopmentInspectHostedActionArchive>;
+  type Ticket = ReturnType<typeof CodexDevelopmentCreateHostedActionExecutionTicket>;
+  type Marker = ReturnType<typeof createVerificationActionStartMarkerV2>;
+  type Evidence = NonNullable<ReturnType<typeof CodexDevelopmentComposeHostedEvidence>['evidence']>;
+  const texts = new Map<string, Readonly<{ file: string; label: string }>>();
+  const captures = new WeakMap<object, string>();
+  const resolutions = new WeakMap<object, Authority>();
+  const inventories = new WeakMap<object, InventoryInput>();
+  const inspectedInventories: Inventory[] = [];
+  const providerEnvelopes: CiVerificationActionProviderEnvelope[] = [];
+  const transactions: Readonly<{ authority: Authority; result: Transaction }>[] = [];
+  const plans = new WeakMap<object, Parameters<typeof createCiVerificationActionParentDispatchPlan>[0]>();
+  const markers = new WeakMap<object, Readonly<{ authority: Authority; snapshot: Transaction['snapshot']; inventory: Inventory;
+    sandboxSource: string; sandboxSelection: HostedJobRuntimeReceiptSelection }>>();
+  const ticketClaims = new WeakSet<object>();
+  const tickets = new WeakMap<object, { readonly authority: Authority; readonly snapshot: Transaction['snapshot'];
+    readonly inventory: Inventory; state: 'issued' | 'prepared' | 'consumed' }>();
+  const evidenceRows = new WeakMap<object, Parameters<typeof CodexDevelopmentComposeHostedEvidence>[0]>();
+  const prepared = new WeakSet<object>();
+  const indexRows = new WeakMap<object, Transaction['snapshot']>();
+  let sandboxCapture: Readonly<{ actionKey: VerificationActionKeyDigest; value: object; source: string; selection: HostedJobRuntimeReceiptSelection }> | undefined;
+  const readTransport = (file: string, label: string): string => {
+    current(); const source = hostedActionTransportText(file, label);
+    texts.set(source, Object.freeze({ file, label })); current(); return source;
+  };
+  const assertText = (source: string): void => {
+    const row = texts.get(source);
+    if (row === undefined || hostedActionTransportText(row.file, row.label) !== source) {
+      throw new Error('Hosted coordination input is not an unchanged original transport capture.');
+    }
+  };
+  const captured = <T extends object>(source: string, parse: (source: string) => T): T => {
+    assertText(source); const value = deepFreeze(parse(source)); captures.set(value, source); return value;
+  };
+  const capturedJson = <T extends object>(value: unknown, parse: (value: unknown) => T): T => {
+    const canonical = encodeVerificationActionData(snapshotVerificationData(value, 'Hosted captured JSON'));
+    const source = [...texts.keys()].find(text => encodeVerificationActionData(JSON.parse(text) as unknown) === canonical);
+    if (source === undefined) throw new Error('Hosted coordination parser requires original captured bytes.');
+    return captured(source, text => parse(JSON.parse(text) as unknown));
+  };
+  const assertCaptured = (value: object) => {
+    const source = captures.get(value);
+    if (source === undefined) throw new Error('Hosted coordination requires its original captured object.');
+    assertText(source);
+  };
+  const assertAuthority = (authority: Authority) => {
+    current(); assertCaptured(authority.providerEnvelope); assertCaptured(authority.envelope);
+  };
+  const resolveAction = (input: Parameters<typeof CodexDevelopmentResolveHostedAction>[0]): Resolution => {
+    input = Object.freeze({ request: ownedPure(ownField(input, 'request')), envelope: ownField(input, 'envelope') });
+    assertCaptured(input.envelope);
+    const provider = [...transactions].find(row => row.authority.envelope === input.envelope
+      && encodeVerificationActionData(row.authority.providerEnvelope.proposal) === encodeVerificationActionData(input.request));
+    const source = [...texts.keys()].find(text => {
+      try { return encodeVerificationActionData(parseCiVerificationActionProviderEnvelope(JSON.parse(text) as unknown).proposal)
+        === encodeVerificationActionData(input.request); } catch { return false; }
     });
-  }
-  const startObservation = claimed.snapshot.startObservations[0];
-  if (claimed.snapshot.startObservations.length !== 1 || startObservation?.payload === null) {
-    throw new Error('claim-start readback lost the exact start marker.');
-  }
-  const preparedCandidateInventory = CodexDevelopmentInspectHostedActionArchive({
-    resolution: authority.resolution,
-    preparedCandidateArchive: args.get('--prepared-candidate-archive')!,
-    baseDependencyClosureDigest:
-      args.get('--base-dependency-closure-digest')! as VerificationActionKeyDigest,
-    authenticatedGitClosureDigest:
-      args.get('--authenticated-git-closure-digest')! as VerificationActionKeyDigest
-  });
-  const ticket = CodexDevelopmentCreateHostedActionExecutionTicket({
-    resolution: authority.resolution,
-    marker,
-    startObservation,
-    startStatus: claimed.status,
-    preparedCandidateArtifactName:
-      `sec-verification-action-prepared-v2-${marker.actionKey.slice(7)}-run-${marker.producer.runId}` +
-      `-attempt-${marker.producer.runAttempt}`,
-    preparedCandidateInventory
-  });
-  writeHostedActionJson(args.get('--output')!, ticket);
-  return JSON.stringify({
-    status: 'ticket-issued',
-    actionKey: ticket.actionKey,
-    issued: true,
-    ticketDigest: ticket.ticketDigest,
-    output: path.resolve(args.get('--output')!)
-  });
+    const providerEnvelope = provider?.authority.providerEnvelope ?? providerEnvelopes.find(value =>
+      encodeVerificationActionData(value.proposal) === encodeVerificationActionData(input.request)) ?? (source === undefined ? undefined
+      : captured(source, text => parseCiVerificationActionProviderEnvelope(JSON.parse(text) as unknown)));
+    const result = deepFreeze(CodexDevelopmentResolveHostedAction(input));
+    if (providerEnvelope !== undefined) resolutions.set(result, Object.freeze({ providerEnvelope, envelope: input.envelope }));
+    return result;
+  };
+  const transaction = async (authority: Authority, intent: Parameters<typeof ensureVerificationActionGitHubProviderTransaction>[0]['intent']) => {
+    const selectedAuthority = Object.freeze({ providerEnvelope: ownField(authority, 'providerEnvelope'), envelope: ownField(authority, 'envelope') });
+    const selectedIntent = ownedPure(intent);
+    assertAuthority(selectedAuthority);
+    const result = await ensureVerificationActionGitHubProviderTransaction({
+      origin,
+      authority: { envelope: selectedAuthority.providerEnvelope, actionPlanClosure: selectedAuthority.envelope.actionPlanClosure }, intent: selectedIntent
+    });
+    assertAuthority(selectedAuthority);
+    const retained = deepFreeze(result); transactions.push(Object.freeze({ authority: selectedAuthority, result: retained }));
+    return retained;
+  };
+  const providerIndex = (snapshot: Transaction['snapshot']) => {
+    if (!transactions.some(row => row.result.snapshot === snapshot)) throw new Error('Provider index is not an original native readback.');
+    const index = deepFreeze(hostedActionProviderIndexFromSnapshot(snapshot)); indexRows.set(index, snapshot); return index;
+  };
+  const latest = (authority: Authority) => {
+    const row = [...transactions].reverse().find(row => row.authority.providerEnvelope === authority.providerEnvelope
+      && row.authority.envelope === authority.envelope);
+    if (row === undefined) throw new Error('Hosted preparation lacks its original provider transaction.');
+    assertAuthority(authority); return row;
+  };
+  const subjectState = (authority: Authority, snapshot: Transaction['snapshot']) => {
+    const resolution = CodexDevelopmentResolveHostedAction({ request: CodexDevelopmentParseHostedActionRequest(
+      encodeVerificationActionData(authority.providerEnvelope.proposal)), envelope: authority.envelope });
+    const index = hostedActionProviderIndexFromSnapshot(snapshot);
+    const ordered = (values: readonly unknown[]) => values.map(value => encodeVerificationActionData(value)).sort();
+    return { decision: CodexDevelopmentReduceHostedActionProviderIndex({ resolution, ...hostedActionRepositoryIdentity(), index }),
+      start: ordered(index.startObservations), terminal: ordered(index.terminalObservations),
+      anchor: ordered(index.terminalAnchorObservations),
+      status: ordered(index.providerStatusReadbacks.map(row => ({ ...row, statuses: ordered(row.statuses) }))) };
+  };
+  const fresh = async (authority: Authority, snapshot: Transaction['snapshot'], phase: string,
+    kind: 'coordinate-parent' | 'coordinate'): Promise<void> => {
+    current(phase); assertAuthority(authority);
+    const result = await transaction(authority, { kind });
+    current(phase);
+    if (result.disposition !== 'observed' || encodeVerificationActionData(subjectState(authority, snapshot))
+        !== encodeVerificationActionData(subjectState(authority, result.snapshot))) {
+      throw new Error('Hosted publication subject changed after preparation.');
+    }
+  };
+  const inspectArchive = (input: InventoryInput) => {
+    input = Object.freeze({ resolution: ownField(input, 'resolution'),
+      preparedCandidateArchive: ownField(input, 'preparedCandidateArchive'),
+      baseDependencyClosureDigest: ownField(input, 'baseDependencyClosureDigest'),
+      authenticatedGitClosureDigest: ownField(input, 'authenticatedGitClosureDigest') });
+    if (!resolutions.has(input.resolution)) throw new Error('Archive inspection requires original resolved Action capture.');
+    current(); const value = deepFreeze(CodexDevelopmentInspectHostedActionArchive(input));
+    inventories.set(value, Object.freeze({ ...input })); inspectedInventories.push(value); return value;
+  };
+  const candidateRoots = (resolution: Resolution) => {
+    const job = current('prepare-start-marker');
+    if (!resolutions.has(resolution) || sandboxCapture?.actionKey !== resolution.actionPlan.action.actionKey
+        || !('state' in sandboxCapture.value) || sandboxCapture.value.state !== 'supported') {
+      throw new Error('Candidate preparation requires its original resolved Action and authenticated supported preflight.');
+    }
+    const candidateRoot = path.resolve(job.trustedDriverRoot, ciVerificationHostedActionCandidateRoot());
+    if (inspectExactNoFollowDirectoryPresence(path.resolve(candidateRoot, 'node_modules'),
+      'Hosted Action candidate preexisting dependencies').state !== 'absent') {
+      throw new Error('Hosted Action candidate contains a foreign dependency materialization.');
+    }
+    return Object.freeze({ baseRoot: job.trustedDriverRoot, candidateRoot });
+  };
+  const assertInventory = (value: Inventory) => {
+    const input = inventories.get(value);
+    if (input === undefined || encodeVerificationActionData(CodexDevelopmentInspectHostedActionArchive(input)) !== encodeVerificationActionData(value)) {
+      throw new Error('Prepared candidate archive changed after its original inspection.');
+    }
+  };
+  const consume = (value: object) => {
+    if (!prepared.has(value)) throw new Error('Hosted writer requires its own privately prepared publication.');
+    prepared.delete(value);
+  };
+  const parentContext = () => {
+    const job = current();
+    return Object.freeze({ runId: job.runId, runAttempt: job.runAttempt, workflowSha: job.workflowSha,
+      workflowRef: process.env.GITHUB_WORKFLOW_REF ?? '', job: process.env.GITHUB_JOB ?? '' });
+  };
+  const assertPlan = (plan: CiVerificationActionParentDispatchPlan) => {
+    const input = plans.get(plan), job = current('prepare-parent-plan');
+    if (input === undefined || input.repository !== job.repository || input.parentRunId !== job.runId
+        || input.parentRunAttempt !== job.runAttempt || input.parentWorkflowSha !== job.workflowSha
+        || input.parentWorkflowRef !== `${job.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`
+        || process.env.GITHUB_JOB !== 'coordinate-verification-session'
+        || input.parentJobId !== hostedActionParentJobId(job.repository, job.runId, job.runAttempt)
+        || encodeVerificationActionData(input.parentActor) !== encodeVerificationActionData(hostedActionParentActor(job.repository))
+        || encodeVerificationActionData(createCiVerificationActionParentDispatchPlan(input)) !== encodeVerificationActionData(plan)) {
+      throw new Error('Parent publication differs from its original current coordinator and human.');
+    }
+    const requestSource = [...texts.keys()].find(source => {
+      try { const request = parseVerificationSessionHostedRequest(source); return input.proposals.every(proposal =>
+        encodeVerificationActionData(proposal.sessionRequest) === encodeVerificationActionData(request)); } catch { return false; }
+    });
+    if (requestSource === undefined) throw new Error('Parent plan lacks its original full Session request capture.');
+    assertText(requestSource);
+    const envelopeSource = [...texts.keys()].find(source => {
+      try { const envelope = parseHostedEnvelope(JSON.parse(source) as unknown);
+        return envelope.session.baseSha === job.workflowSha && encodeVerificationActionData(input.proposals)
+          === encodeVerificationActionData(envelope.actionPlanClosure.actions.map(member => createCiVerificationActionProposal({
+            sessionRequest: parseVerificationSessionHostedRequest(requestSource), proposedActionKey: member.action.actionKey
+          })).sort((left, right) => left.proposedActionKey.localeCompare(right.proposedActionKey))); } catch { return false; }
+    });
+    if (envelopeSource === undefined) throw new Error('Parent plan does not bind the complete original Session closure.');
+    assertText(envelopeSource);
+    const envelope = parseHostedEnvelope(JSON.parse(envelopeSource) as unknown);
+    if (envelope.scopeAuthorization.issuer.principalId !== input.parentActor.nodeId) {
+      throw new Error('Parent plan human differs from the original Scope issuer.');
+    }
+    for (const proposal of input.proposals) CodexDevelopmentResolveHostedAction({
+      request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(proposal)), envelope
+    });
+  };
+  return {
+    readTransport, sourceText: (source: string) => { assertText(source); return source; },
+    parseSessionRequest: (source: string) => captured(source, parseVerificationSessionHostedRequest),
+    parseEnvelope: (value: unknown) => capturedJson(value, parseHostedEnvelope),
+    parseParentPlan: (value: unknown) => capturedJson(value, parseCiVerificationActionParentDispatchPlan),
+    parseProviderEnvelope: (value: unknown) => {
+      const parsed = capturedJson(value, parseCiVerificationActionProviderEnvelope); providerEnvelopes.push(parsed); return parsed;
+    },
+    parseResolution: (source: string) => captured(source, CodexDevelopmentParseHostedActionResolution),
+    parseStartMarker: (value: unknown) => {
+      const row = transactions.find(row => row.result.snapshot.startObservations.some(start => start.payload === value));
+      if (row === undefined) throw new Error('Start marker is not an original provider readback.');
+      return deepFreeze(parseVerificationActionStartMarkerV2(value));
+    },
+    canonicalSource: encodeVerificationActionData, parseActionRequest: CodexDevelopmentParseHostedActionRequest,
+    resolveAction, createProposal: (input: Parameters<typeof createCiVerificationActionProposal>[0]) => createCiVerificationActionProposal(ownedPure(input)),
+    createProviderEnvelope: (input: Parameters<typeof createCiVerificationActionProviderEnvelope>[0]) => {
+      input = Object.freeze({ proposal: ownedPure(ownField(input, 'proposal')), parentPlan: ownField(input, 'parentPlan'),
+        parentDispatchPlanArtifactId: ownField(input, 'parentDispatchPlanArtifactId'),
+        parentDispatchPlanArchiveDigest: ownField(input, 'parentDispatchPlanArchiveDigest') });
+      assertCaptured(input.parentPlan); const value = deepFreeze(createCiVerificationActionProviderEnvelope(input));
+      const source = captures.get(input.parentPlan)!; captures.set(value, source); providerEnvelopes.push(value); return value;
+    },
+    repositoryIdentity: () => { current(); return hostedActionRepositoryIdentity(); }, parentContext,
+    assertCandidate: (resolution: Resolution) => {
+      const roots = candidateRoots(resolution);
+      CodexDevelopmentAssertPreparedHostedActionCandidate({ resolution, candidateRoot: roots.candidateRoot });
+      current('prepare-start-marker');
+    },
+    checkDependencyInputs: (resolution: Resolution) => {
+      const roots = candidateRoots(resolution);
+      const digest = CodexDevelopmentAssertHostedActionDependencyInputsV1({ ...roots, baseSha: resolution.artifactInput.baseSha });
+      current('prepare-start-marker'); return digest;
+    },
+    prepareCandidateArchive: (input: Readonly<{ resolution: Resolution; outputDirectory: string }>) => {
+      input = Object.freeze({ resolution: ownField(input, 'resolution'), outputDirectory: ownField(input, 'outputDirectory') });
+      const roots = candidateRoots(input.resolution);
+      if (path.resolve(input.outputDirectory) !== path.resolve(roots.baseRoot,
+        ciVerificationHostedJobTransportSlot('claim-verification-action', 'out', 'prepared'))) {
+        throw new Error('Prepared candidate archive output is not its sole canonical transport directory.');
+      }
+      const value = deepFreeze(CodexDevelopmentPrepareHostedActionInputs({ ...roots, ...input }));
+      current('prepare-start-marker'); return value;
+    },
+    parentJobId: hostedActionParentJobId, parentActor: hostedActionParentActor,
+    createParentPlan: (input: Parameters<typeof createCiVerificationActionParentDispatchPlan>[0]) => {
+      current('prepare-parent-plan'); const retained = ownedPure(input);
+      const plan = deepFreeze(createCiVerificationActionParentDispatchPlan(retained)); plans.set(plan, retained); return plan;
+    },
+    parentPlanArtifactName: ciVerificationActionParentDispatchPlanArtifactName,
+    parentPlanPayloadDigest: ciVerificationActionParentDispatchPlanPayloadDigest,
+    transaction, providerIndex, artifactIndexSchema: CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA,
+    reduceProvider: (input: Parameters<typeof CodexDevelopmentReduceHostedActionProviderIndex>[0]) => CodexDevelopmentReduceHostedActionProviderIndex(ownedPure(input)),
+    coordinate: (input: Parameters<typeof CodexDevelopmentCoordinateHostedActions>[0]) => CodexDevelopmentCoordinateHostedActions(ownedPure(input)),
+    inspectArchive,
+    captureSandboxCapability: async (input: Readonly<{ selection: HostedJobRuntimeReceiptSelection; actionKey: VerificationActionKeyDigest }>) => {
+      const job = current('prepare-start-marker'), selected = ownedPure(input);
+      if (selected.selection.repository !== job.repository || selected.selection.actionKey !== selected.actionKey
+          || selected.selection.policyJobId !== 'preflight-verification-action-sut'
+          || selected.selection.phase !== 'self-test-hosted-action-sandbox') throw new Error('Sandbox receipt selector differs from the original Action preflight.');
+      const proof = await withGitHubApiVerificationSession({ repositoryRoot: job.trustedDriverRoot, repository: job.repository,
+        effect: 'verification-read', deadlineAtUnixMs: job.deadlineAtUnixMs,
+        operation: capability => readAuthenticatedHostedJobRuntimeReceipt({ ...selected.selection, capability }) });
+      current('prepare-start-marker');
+      const output = hostedActionRecord(JSON.parse(proof.outputSource) as unknown, 'authenticated sandbox capability');
+      if (output.actionKey !== selected.actionKey) throw new Error('Sandbox output differs from the original selected Action.');
+      const state = output.status;
+      if (state !== 'supported' && state !== 'unsupported' && state !== 'invalidated' && state !== 'unknown') {
+        throw new Error('Authenticated sandbox capability has no original finite state.');
+      }
+      const observation = parseHostedSutCapabilityObservation(output.observation);
+      const value = deepFreeze({ ...observation, state });
+      sandboxCapture = Object.freeze({ actionKey: selected.actionKey, value, source: proof.outputSource, selection: selected.selection });
+      return value;
+    },
+    producer: () => { current(); return currentHostedActionProducer(); },
+    createStartMarker: (input: Parameters<typeof createVerificationActionStartMarkerV2>[0]) => createVerificationActionStartMarkerV2(ownedPure(input)),
+    providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    prepareMarker: (marker: Marker) => {
+      marker = ownedPure(marker);
+      current('prepare-start-marker');
+      const row = [...transactions].reverse().find(row => row.authority.providerEnvelope.proposal.proposedActionKey === marker.actionKey);
+      if (row === undefined || row.result.disposition !== 'observed' || sandboxCapture?.actionKey !== marker.actionKey
+          || !('state' in sandboxCapture.value) || sandboxCapture.value.state === 'unknown') throw new Error('Marker preparation lacks original preflight and provider facts.');
+      const resolution = CodexDevelopmentResolveHostedAction({ request: CodexDevelopmentParseHostedActionRequest(
+        encodeVerificationActionData(row.authority.providerEnvelope.proposal)), envelope: row.authority.envelope });
+      const decision = CodexDevelopmentReduceHostedActionProviderIndex({ resolution, ...hostedActionRepositoryIdentity(),
+        index: hostedActionProviderIndexFromSnapshot(row.result.snapshot) });
+      const inventory = inspectedInventories.filter(value => inventories.get(value)?.resolution.resolutionDigest === resolution.resolutionDigest);
+      if (decision.disposition !== 'start-allowed' || !decision.physicalExecutionAllowed
+          || encodeVerificationActionData(createVerificationActionStartMarkerV2({ actionKey: marker.actionKey,
+            candidateSha: resolution.artifactInput.headSha, executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+            producer: currentHostedActionProducer() })) !== encodeVerificationActionData(marker)
+          || inventory.length !== 1) throw new Error('Marker preparation differs from the exact native start admission.');
+      const value = cloneAndDeepFreeze(marker);
+      markers.set(value, Object.freeze({ authority: row.authority, snapshot: row.result.snapshot,
+        inventory: inventory[0]!, sandboxSource: sandboxCapture.source, sandboxSelection: sandboxCapture.selection })); prepared.add(value); return value;
+    },
+    writePreparedMarker: async (file: string, marker: Marker) => {
+      const row = markers.get(marker); if (row === undefined) throw new Error('Foreign or unprepared start marker.'); consume(marker);
+      const job = current('prepare-start-marker');
+      const proof = await withGitHubApiVerificationSession({ repositoryRoot: job.trustedDriverRoot, repository: job.repository,
+        effect: 'verification-read', deadlineAtUnixMs: job.deadlineAtUnixMs,
+        operation: capability => readAuthenticatedHostedJobRuntimeReceipt({ ...row.sandboxSelection, capability }) });
+      if (proof.outputSource !== row.sandboxSource) throw new Error('Original sandbox preflight source changed before marker publication.');
+      await fresh(row.authority, row.snapshot, 'prepare-start-marker', 'coordinate'); assertInventory(row.inventory);
+      if (encodeVerificationActionData(marker.producer) !== encodeVerificationActionData(currentHostedActionProducer())) throw new Error('Marker producer changed.');
+      current('prepare-start-marker'); writeVerificationActionProviderStartMarkerAtomic(file, marker);
+    },
+    startMarkerName: verificationActionStartMarkerNameV2, digest: ciActionDigest,
+    createTicket: (input: Parameters<typeof CodexDevelopmentCreateHostedActionExecutionTicket>[0]) => {
+      input = Object.freeze({ resolution: ownField(input, 'resolution'), marker: ownedPure(ownField(input, 'marker')),
+        startObservation: ownField(input, 'startObservation'), startStatus: ownField(input, 'startStatus'),
+        preparedCandidateArtifactName: ownField(input, 'preparedCandidateArtifactName'),
+        preparedCandidateInventory: ownField(input, 'preparedCandidateInventory') });
+      const authority = resolutions.get(input.resolution);
+      if (authority === undefined) throw new Error('Ticket lacks original Action resolution.');
+      const row = latest(authority), start = row.result.snapshot.startObservations[0];
+      if (row.result.disposition !== 'started' || !row.result.newlyCreatedByThisInvocation || row.result.status === null
+          || row.result.snapshot.startObservations.length !== 1 || start !== input.startObservation
+          || row.result.status !== input.startStatus || !inventories.has(input.preparedCandidateInventory)
+          || encodeVerificationActionData(input.marker.producer) !== encodeVerificationActionData(currentHostedActionProducer())) {
+        throw new Error('Ticket requires this invocation\'s original newly owned claim and archive.');
+      }
+      if (ticketClaims.has(input.startStatus)) throw new Error('This invocation\'s original start claim already issued its execution ticket.');
+      const ticket = deepFreeze(CodexDevelopmentCreateHostedActionExecutionTicket(input));
+      ticketClaims.add(input.startStatus);
+      tickets.set(ticket, { authority, snapshot: row.result.snapshot, inventory: input.preparedCandidateInventory, state: 'issued' }); return ticket;
+    },
+    prepareTicket: (ticket: Ticket) => {
+      current('claim-start'); const row = tickets.get(ticket);
+      if (row === undefined || row.state !== 'issued') throw new Error('Foreign or previously prepared execution ticket.');
+      row.state = 'prepared'; prepared.add(ticket); return ticket;
+    },
+    writePreparedTicket: async (file: string, ticket: Ticket) => {
+      const row = tickets.get(ticket);
+      if (row === undefined || row.state !== 'prepared') throw new Error('Foreign, consumed or unprepared ticket.');
+      consume(ticket); row.state = 'consumed'; tickets.delete(ticket);
+      await fresh(row.authority, row.snapshot, 'claim-start', 'coordinate'); assertInventory(row.inventory);
+      current('claim-start'); writeHostedActionJson(file, ticket);
+    },
+    prepareParentPlan: (plan: CiVerificationActionParentDispatchPlan) => { assertPlan(plan); prepared.add(plan); return plan; },
+    writePreparedParentPlan: async (file: string, plan: CiVerificationActionParentDispatchPlan) => {
+      consume(plan); assertPlan(plan); current('prepare-parent-plan'); writeHostedActionJson(file, plan);
+    },
+    writeResolution: async (file: string, resolution: Resolution) => {
+      current('resolve-hosted-action'); const authority = resolutions.get(resolution);
+      if (authority === undefined) throw new Error('Resolution lacks original captured provider authority.');
+      const result = await transaction(authority, { kind: 'coordinate' });
+      if (result.disposition !== 'observed') throw new Error('Resolution source cannot be authenticated.');
+      current('resolve-hosted-action'); assertAuthority(authority); writeHostedActionJson(file, resolution);
+    },
+    writeArtifactIndex: async (file: string, index: CodexDevelopmentHostedActionProviderIndex) => {
+      current();
+      const privateSnapshot = indexRows.get(index), ownedIndex = ownedPure(index);
+      const expected = { schema: CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA,
+        terminalObservations: transactions.filter(row => row.result.disposition === 'observed').flatMap(row => hostedActionProviderIndexFromSnapshot(row.result.snapshot).terminalObservations),
+        startObservations: transactions.filter(row => row.result.disposition === 'observed').flatMap(row => hostedActionProviderIndexFromSnapshot(row.result.snapshot).startObservations),
+        terminalAnchorObservations: transactions.filter(row => row.result.disposition === 'observed').flatMap(row => hostedActionProviderIndexFromSnapshot(row.result.snapshot).terminalAnchorObservations),
+        providerStatusReadbacks: transactions.filter(row => row.result.disposition === 'observed').flatMap(row => hostedActionProviderIndexFromSnapshot(row.result.snapshot).providerStatusReadbacks) };
+      if (privateSnapshot === undefined && encodeVerificationActionData(ownedIndex) !== encodeVerificationActionData(expected)) throw new Error('Artifact index is not the complete original native observation set.');
+      for (const row of transactions) assertAuthority(row.authority);
+      writeHostedActionJson(file, ownedIndex);
+    },
+    readEvidenceIndex: (source: string) => captured(source, text => CodexDevelopmentReadHostedActionArtifactIndex({ source: text })),
+    evidenceObservations: (index: ReturnType<typeof CodexDevelopmentReadHostedActionArtifactIndex>) => {
+      const owned = ownedPure(index); return { observations: owned.observations, startObservations: owned.startObservations,
+        terminalAnchorObservations: owned.terminalAnchorObservations, providerStatusReadbacks: owned.providerStatusReadbacks };
+    },
+    evidenceProducer: (input: Parameters<typeof CodexDevelopmentCreateVerificationEvidenceProducer>[0]) => CodexDevelopmentCreateVerificationEvidenceProducer(ownedPure(input)),
+    composeEvidence: (input: Parameters<typeof CodexDevelopmentComposeHostedEvidence>[0]) => {
+      input = Object.freeze({ envelope: ownField(input, 'envelope'),
+        observations: ownedPure(ownField(input, 'observations')), startObservations: ownedPure(ownField(input, 'startObservations')),
+        terminalAnchorObservations: ownedPure(ownField(input, 'terminalAnchorObservations')),
+        providerStatusReadbacks: ownedPure(ownField(input, 'providerStatusReadbacks')),
+        producer: ownedPure(ownField(input, 'producer')) });
+      assertCaptured(input.envelope);
+      const rows = input.envelope.actionPlanClosure.actions.map(member => transactions.find(row =>
+        row.authority.envelope === input.envelope && row.authority.providerEnvelope.proposal.proposedActionKey === member.action.actionKey
+        && row.result.disposition === 'observed'));
+      if (rows.some(row => row === undefined)) throw new Error('Evidence lacks the full original authenticated parent member census.');
+      const indices = rows.map(row => {
+        if (row === undefined) throw new Error('Missing authenticated evidence member.');
+        return hostedActionProviderIndexFromSnapshot(row.result.snapshot);
+      });
+      const expectedObservations = { observations: indices.flatMap(index => index.terminalObservations),
+        startObservations: indices.flatMap(index => index.startObservations),
+        terminalAnchorObservations: indices.flatMap(index => index.terminalAnchorObservations),
+        providerStatusReadbacks: indices.flatMap(index => index.providerStatusReadbacks) };
+      const actualObservations = { observations: input.observations, startObservations: input.startObservations,
+        terminalAnchorObservations: input.terminalAnchorObservations, providerStatusReadbacks: input.providerStatusReadbacks };
+      const job = current('coordinate-session'), actor = hostedActionParentActor(job.repository);
+      const expectedProducer = CodexDevelopmentCreateVerificationEvidenceProducer({ sourceTransport: 'github-actions',
+        workflowPath: '.github/workflows/compiler-pr-validation.yml',
+        workflowRef: `.github/workflows/compiler-pr-validation.yml@${input.envelope.session.baseSha}`,
+        workflowSha: input.envelope.session.baseSha, runId: job.runId, runAttempt: job.runAttempt, actorNodeId: actor.nodeId });
+      if (actor.nodeId !== input.envelope.scopeAuthorization.issuer.principalId
+          || encodeVerificationActionData(expectedProducer) !== encodeVerificationActionData(input.producer)
+          || encodeVerificationActionData(expectedObservations) !== encodeVerificationActionData(actualObservations)) {
+        throw new Error('Evidence composition differs from original provider observations or current human producer.');
+      }
+      const result = CodexDevelopmentComposeHostedEvidence(input);
+      if (result.evidence !== null) evidenceRows.set(result.evidence, cloneAndDeepFreeze(input)); return result;
+    },
+    prepareEvidence: (evidence: Evidence) => { current('coordinate-session'); if (!evidenceRows.has(evidence)) throw new Error('Foreign evidence.'); prepared.add(evidence); return evidence; },
+    writePreparedEvidence: async (file: string, evidence: Evidence) => {
+      const input = evidenceRows.get(evidence); if (input === undefined) throw new Error('Foreign or unprepared evidence.'); consume(evidence);
+      for (const member of input.envelope.actionPlanClosure.actions) {
+        const row = transactions.find(row => row.authority.providerEnvelope.proposal.proposedActionKey === member.action.actionKey);
+        if (row === undefined) throw new Error('Evidence member lost original authority.');
+        await fresh(row.authority, row.result.snapshot, 'coordinate-session', 'coordinate-parent');
+      }
+      const actor = hostedActionParentActor(current('coordinate-session').repository);
+      if (actor.nodeId !== input.producer.actorNodeId || actor.nodeId !== input.envelope.scopeAuthorization.issuer.principalId
+          || encodeVerificationActionData(CodexDevelopmentComposeHostedEvidence(input).evidence) !== encodeVerificationActionData(evidence)) {
+        throw new Error('Evidence producer or exact composition changed before publication.');
+      }
+      current('coordinate-session'); CodexDevelopmentWriteVerificationEvidenceV4Atomic(file, evidence);
+    }
+  };
 }
 
-async function runPrepareTerminalAnchorProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'prepare-terminal-anchor') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--provider-envelope', '--envelope', '--resolution', '--output'
-  ]);
-  const authority = hostedActionChildAuthority({
-    providerEnvelopePath: args.get('--provider-envelope')!,
-    envelopePath: args.get('--envelope')!,
-    resolutionPath: args.get('--resolution')!
-  });
-  const observed = await observeHostedActionAuthority({
-    providerEnvelope: authority.providerEnvelope,
-    envelope: authority.envelope,
-    role: 'child'
-  });
-  if (observed.decision.disposition !== 'repair-terminal-anchor' ||
-      !observed.decision.terminalAnchorRepairAllowed) {
-    throw new Error(`terminal anchor cannot be prepared from ${observed.decision.disposition}.`);
-  }
-  const startObservation = observed.index.startObservations[0];
-  const terminalObservation = observed.index.terminalObservations[0];
-  const startStatus = observed.index.providerStatusReadbacks[0]?.statuses.find(
-    (entry) => entry.state === 'pending'
-  );
-  if (startObservation?.payload === null || startObservation?.payload === undefined ||
-      startObservation.archiveDigest === null || terminalObservation?.artifact === null ||
-      terminalObservation?.artifact === undefined ||
-      terminalObservation.providerObservation.archiveDigest === null || startStatus === undefined) {
-    throw new Error('terminal anchor lacks exact authenticated start and terminal bytes.');
-  }
-  const anchor = createVerificationActionTerminalStatusAnchorV2({
-    actionKey: authority.resolution.actionPlan.action.actionKey,
-    candidateSha: authority.resolution.artifactInput.headSha,
-    startStatusId: startStatus.id,
-    startStatusNodeId: startStatus.nodeId,
-    startArtifactOriginId: startObservation.originId,
-    startArtifactName: startObservation.artifactName,
-    startArtifactArchiveDigest: startObservation.archiveDigest,
-    startMarkerDigest: startObservation.payload.markerDigest,
-    terminalArtifactOriginId: terminalObservation.providerObservation.originId,
-    terminalArtifactName: terminalObservation.providerObservation.artifactName,
-    terminalArtifactArchiveDigest: terminalObservation.providerObservation.archiveDigest,
-    terminalArtifactPayloadDigest: terminalObservation.artifact.artifactDigest as VerificationActionKeyDigest,
-    terminalAssemblerOrigin: terminalObservation.artifact.producer,
-    anchorPublisherOrigin: currentHostedActionProducer()
-  });
-  writeVerificationActionProviderTerminalAnchorAtomic(args.get('--output')!, anchor);
-  return JSON.stringify({
-    status: 'anchor-prepared',
-    actionKey: anchor.actionKey,
-    anchorName: verificationActionProviderTerminalAnchorName(anchor.actionKey),
-    anchorDigest: anchor.anchorDigest,
-    output: path.resolve(args.get('--output')!)
-  });
-}
-
-async function runAnchorTerminalProvider(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'ensure-hosted-action-provider' ||
-      hostedActionSelectedProviderIntent(argv) !== 'anchor-terminal') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--intent', '--provider-envelope', '--envelope', '--resolution'
-  ]);
-  const authority = hostedActionChildAuthority({
-    providerEnvelopePath: args.get('--provider-envelope')!,
-    envelopePath: args.get('--envelope')!,
-    resolutionPath: args.get('--resolution')!
-  });
-  const before = await ensureVerificationActionGitHubProviderTransaction({
-    authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
-    intent: { kind: 'coordinate' }
-  });
-  const anchorObservation = before.snapshot.terminalAnchorObservations[0];
-  if (before.disposition !== 'observed' || before.snapshot.terminalAnchorObservations.length !== 1 ||
-      anchorObservation?.expired !== false || anchorObservation.payload === null) {
-    throw new Error('anchor-terminal requires one exact uploaded terminal anchor.');
-  }
-  const result = await ensureVerificationActionGitHubProviderTransaction({
-    authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
-    intent: { kind: 'anchor-terminal', anchor: anchorObservation.payload }
-  });
-  if ((result.disposition !== 'terminal-anchored' && result.disposition !== 'complete') ||
-      result.status === null) {
-    throw new Error(`neutral terminal tombstone was not anchored: ${result.reason ?? result.disposition}.`);
-  }
-  const index = hostedActionProviderIndexFromSnapshot(result.snapshot);
-  const decision = CodexDevelopmentReduceHostedActionProviderIndex({
-    resolution: authority.resolution,
-    ...hostedActionRepositoryIdentity(),
-    index
-  });
-  if (decision.disposition !== 'terminal-anchored') {
-    throw new Error('neutral terminal tombstone did not read back as terminal-anchored.');
-  }
-  return JSON.stringify({
-    status: 'terminal-anchored',
-    actionKey: decision.actionKey,
-    terminalPayloadDigest: decision.terminalPayloadDigest,
-    decisionDigest: decision.decisionDigest
-  });
-}
-
-async function runAssembleHostedActionTerminal(argv: string[]): Promise<string | null> {
-  if (argv[0] !== 'assemble-hosted-action-terminal') return null;
-  const args = hostedActionCliArgs(argv, [
-    '--provider-envelope', '--envelope', '--resolution', '--ticket', '--raw-result',
-    '--expected-raw-result-digest', '--output'
-  ]);
-  const authority = hostedActionChildAuthority({
-    providerEnvelopePath: args.get('--provider-envelope')!,
-    envelopePath: args.get('--envelope')!,
-    resolutionPath: args.get('--resolution')!
-  });
-  const resolution = authority.resolution;
-  const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
-    hostedActionTransportText(args.get('--ticket')!, 'hosted Action execution ticket')
-  );
-  const rawResult = CodexDevelopmentParseHostedActionRawResult(
-    hostedActionTransportText(args.get('--raw-result')!, 'hosted Action raw result')
-  );
-  const observed = await ensureVerificationActionGitHubProviderTransaction({
-    authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
-    intent: { kind: 'coordinate' }
-  });
-  if (observed.disposition !== 'observed') {
-    throw new Error(`Hosted Action assembler provider observation returned ${observed.disposition}.`);
-  }
-  const producer = currentHostedActionProducer();
-  if (encodeVerificationActionData(producer) !== encodeVerificationActionData(ticket.producer)) {
-    throw new Error('Hosted Action terminal assembler is not the original trusted claim run.');
-  }
-  const index = hostedActionProviderIndexFromSnapshot(observed.snapshot);
-  const startObservation = index.startObservations[0];
-  const readback = index.providerStatusReadbacks[0];
-  const startStatus = readback?.statuses.find((entry) => entry.id === ticket.startStatusId);
-  if (index.startObservations.length !== 1 || startObservation === undefined || startStatus === undefined ||
-      index.terminalObservations.length !== 0 || index.terminalAnchorObservations.length !== 0) {
-    throw new Error('Hosted Action assembler does not own the sole exact unresolved start ticket.');
-  }
-  const rebuiltTicket = CodexDevelopmentCreateHostedActionExecutionTicket({
-    resolution,
-    marker: startObservation.payload!,
-    startObservation,
-    startStatus,
-    preparedCandidateArtifactName: ticket.preparedCandidateArtifactName,
-    preparedCandidateInventory: hostedSutInventoryClosureFromTicket(ticket)
-  });
-  if (rebuiltTicket.ticketDigest !== ticket.ticketDigest) {
-    throw new Error('Hosted Action assembler ticket no longer matches provider readback.');
-  }
-  const artifact = CodexDevelopmentAssembleHostedActionTerminal({
-    resolution,
-    ticket,
-    rawResult,
-    expectedRawResultDigest: args.get('--expected-raw-result-digest')! as VerificationActionKeyDigest,
-    producer
-  });
-  CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(args.get('--output')!, artifact);
-  return JSON.stringify({
-    status: artifact.result.status,
-    actionKey: artifact.actionPlan.action.actionKey,
-    artifactName: verificationActionProviderTerminalArtifactName(artifact.actionPlan.action.actionKey),
-    artifactDigest: artifact.artifactDigest,
-    output: path.resolve(args.get('--output')!)
-  });
-}
-
-async function tryRunHostedActionProvider(argv: string[]): Promise<string | null> {
-  for (const handler of [
-    runPrepareParentPlanProvider,
-    runVerifyParentPlanProvider,
-    runCoordinateSessionProvider,
-    runObserveSessionProvider,
-    runObserveActionProvider,
-    runPrepareStartMarkerProvider,
-    runClaimStartProvider,
-    runPrepareTerminalAnchorProvider,
-    runAnchorTerminalProvider
-  ] as const) {
-    const result = await handler(argv);
-    if (result !== null) return result;
-  }
-  if (argv[0] === 'ensure-hosted-action-provider') {
-    throw new Error(
-      `Unknown ensure-hosted-action-provider intent: ${hostedActionSelectedProviderIntent(argv) ?? '<missing>'}.`
-    );
-  }
-  return null;
+/** Native captures and original child effects for the application terminal flow. */
+export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHubJobOrigin) {
+  const current = (expectedPhase?: string): void => {
+    const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
+    if (job.policyJobId !== 'assemble-verification-action-terminal'
+        || !['assemble-hosted-action-terminal', 'prepare-terminal-anchor', 'anchor-terminal'].includes(job.phase)
+        || (expectedPhase !== undefined && job.phase !== expectedPhase)
+        || job.trustedDriverRoot !== path.resolve(import.meta.dir, '../../../../..')) {
+      throw new Error('Hosted terminal stage requires its original authenticated assembler invocation.');
+    }
+  };
+  current();
+  type Authority = Readonly<{ providerEnvelope: CiVerificationActionProviderEnvelope; envelope: ReturnType<typeof parseHostedEnvelope> }>;
+  type Observation = Awaited<ReturnType<typeof ensureVerificationActionGitHubProviderTransaction>>;
+  const captures = new WeakMap<object, Readonly<{ file: string; source: string; label: string }>>();
+  const preparedTerminals = new WeakMap<object, Readonly<{ authority: Authority; snapshot: Observation['snapshot']; inputs: readonly object[] }>>();
+  const preparedAnchors = new WeakMap<object, Readonly<{ authority: Authority; snapshot: Observation['snapshot'] }>>();
+  let observed: Readonly<{ authority: Authority; result: Observation }> | undefined;
+  const capture = <T extends object>(file: string, label: string, parse: (source: string) => T): T => {
+    current();
+    const source = hostedActionTransportText(file, label);
+    const value = deepFreeze(parse(source));
+    captures.set(value, Object.freeze({ file, source, label }));
+    current();
+    return value;
+  };
+  const assertCaptured = (value: object): void => {
+    const retained = captures.get(value);
+    if (retained === undefined || hostedActionTransportText(retained.file, retained.label) !== retained.source) {
+      throw new Error('Hosted terminal publication requires unchanged original captured inputs.');
+    }
+  };
+  const assertAuthority = (authority: Authority): void => {
+    assertCaptured(authority.providerEnvelope);
+    assertCaptured(authority.envelope);
+  };
+  const preparedObservation = () => {
+    current();
+    if (observed === undefined || observed.result.disposition !== 'observed') {
+      throw new Error('Hosted terminal preparation requires its authenticated provider observation.');
+    }
+    assertAuthority(observed.authority);
+    return observed;
+  };
+  const assertResolution = (resolution: ReturnType<typeof CodexDevelopmentResolveHostedAction>, authority: Authority): void => {
+    const expected = CodexDevelopmentResolveHostedAction({
+      request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(authority.providerEnvelope.proposal)),
+      envelope: authority.envelope
+    });
+    if (encodeVerificationActionData(expected) !== encodeVerificationActionData(resolution)) {
+      throw new Error('Hosted terminal preparation differs from its original authenticated Action.');
+    }
+  };
+  const freshPublication = async (prepared: Readonly<{ authority: Authority; snapshot: Observation['snapshot'] }>, phase: string): Promise<void> => {
+    current(phase);
+    assertAuthority(prepared.authority);
+    const fresh = await ensureVerificationActionGitHubProviderTransaction({
+      origin,
+      authority: { envelope: prepared.authority.providerEnvelope, actionPlanClosure: prepared.authority.envelope.actionPlanClosure },
+      intent: { kind: 'coordinate' }
+    });
+    current(phase);
+    assertAuthority(prepared.authority);
+    const subjectState = (snapshot: Observation['snapshot']) => {
+      const resolution = CodexDevelopmentResolveHostedAction({
+        request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(prepared.authority.providerEnvelope.proposal)),
+        envelope: prepared.authority.envelope
+      });
+      const index = hostedActionProviderIndexFromSnapshot(snapshot);
+      const ordered = (values: readonly unknown[]) => values.map(value => encodeVerificationActionData(value)).sort();
+      return {
+        decision: CodexDevelopmentReduceHostedActionProviderIndex({ resolution, ...hostedActionRepositoryIdentity(), index }),
+        start: ordered(index.startObservations), terminal: ordered(index.terminalObservations),
+        anchor: ordered(index.terminalAnchorObservations),
+        status: index.providerStatusReadbacks.map(readback => ({ ...readback, statuses: ordered(readback.statuses) }))
+      };
+    };
+    if (fresh.disposition !== 'observed'
+        || encodeVerificationActionData(subjectState(fresh.snapshot)) !== encodeVerificationActionData(subjectState(prepared.snapshot))) {
+      throw new Error('Hosted terminal publication provider state changed after preparation.');
+    }
+  };
+  return {
+    readProviderEnvelope: (file: string) => {
+      current();
+      const value = capture(file, 'internal Action provider envelope', source => {
+        const parsed = parseCiVerificationActionProviderEnvelope(JSON.parse(source) as unknown);
+        if (source !== `${encodeVerificationActionData(parsed)}\n`) throw new Error('Noncanonical Action provider envelope.');
+        return parsed;
+      });
+      current(); return value;
+    },
+    readHostedEnvelope: (file: string) => {
+      current(); const value = capture(file, 'parent Session envelope', source => parseHostedEnvelope(JSON.parse(source) as unknown));
+      current(); return value;
+    },
+    readResolution: (file: string) => {
+      current(); const value = capture(file, 'internal Action resolution', CodexDevelopmentParseHostedActionResolution);
+      current(); return value;
+    },
+    readExecutionTicket: (file: string) => {
+      current(); const value = capture(file, 'hosted Action execution ticket', CodexDevelopmentParseHostedActionExecutionTicket);
+      current(); return value;
+    },
+    readRawResult: (file: string) => {
+      current(); const value = capture(file, 'hosted Action raw result', CodexDevelopmentParseHostedActionRawResult);
+      current(); return value;
+    },
+    parseActionRequest: CodexDevelopmentParseHostedActionRequest,
+    resolveAction: CodexDevelopmentResolveHostedAction,
+    canonicalSource: encodeVerificationActionData,
+    coordinateChild: async (authority: Authority) => {
+      current(); assertAuthority(authority); const result = await ensureVerificationActionGitHubProviderTransaction({
+        origin,
+        authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
+        intent: { kind: 'coordinate' }
+      }); current(); assertAuthority(authority);
+      observed = Object.freeze({ authority: Object.freeze({ ...authority }), result: deepFreeze(result) });
+      return result;
+    },
+    producer: () => { current(); return currentHostedActionProducer(); },
+    repositoryIdentity: () => { current(); return hostedActionRepositoryIdentity(); },
+    providerIndex: hostedActionProviderIndexFromSnapshot,
+    reduceProvider: CodexDevelopmentReduceHostedActionProviderIndex,
+    inventoryClosureFromTicket: hostedSutInventoryClosureFromTicket,
+    rebuildTicket: CodexDevelopmentCreateHostedActionExecutionTicket,
+    assembleTerminal: (input: Parameters<typeof CodexDevelopmentAssembleHostedActionTerminal>[0]) => {
+      current('assemble-hosted-action-terminal');
+      const retained = preparedObservation();
+      assertResolution(input.resolution, retained.authority);
+      assertCaptured(input.ticket); assertCaptured(input.rawResult);
+      const producer = currentHostedActionProducer();
+      if (encodeVerificationActionData(producer) !== encodeVerificationActionData(input.producer)
+          || encodeVerificationActionData(producer) !== encodeVerificationActionData(input.ticket.producer)) {
+        throw new Error('Hosted terminal assembler is not the original trusted claim run.');
+      }
+      const index = hostedActionProviderIndexFromSnapshot(retained.result.snapshot);
+      const start = index.startObservations[0];
+      const status = index.providerStatusReadbacks[0]?.statuses.find(entry => entry.id === input.ticket.startStatusId);
+      if (index.startObservations.length !== 1 || start?.payload === null || start?.payload === undefined
+          || status === undefined || index.terminalObservations.length !== 0 || index.terminalAnchorObservations.length !== 0) {
+        throw new Error('Hosted terminal assembler requires the sole exact unresolved start ticket.');
+      }
+      const rebuilt = CodexDevelopmentCreateHostedActionExecutionTicket({ resolution: input.resolution,
+        marker: start.payload, startObservation: start, startStatus: status,
+        preparedCandidateArtifactName: input.ticket.preparedCandidateArtifactName,
+        preparedCandidateInventory: hostedSutInventoryClosureFromTicket(input.ticket) });
+      if (rebuilt.ticketDigest !== input.ticket.ticketDigest) throw new Error('Hosted terminal ticket differs from original provider readback.');
+      const artifact = deepFreeze(CodexDevelopmentAssembleHostedActionTerminal(input));
+      preparedTerminals.set(artifact, Object.freeze({ authority: retained.authority, snapshot: retained.result.snapshot,
+        inputs: Object.freeze([input.ticket, input.rawResult]) }));
+      return artifact;
+    },
+    createAnchor: (input: Parameters<typeof createVerificationActionTerminalStatusAnchorV2>[0]) => {
+      current('prepare-terminal-anchor');
+      const retained = preparedObservation();
+      const resolution = CodexDevelopmentResolveHostedAction({
+        request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(retained.authority.providerEnvelope.proposal)),
+        envelope: retained.authority.envelope
+      });
+      const index = hostedActionProviderIndexFromSnapshot(retained.result.snapshot);
+      const decision = CodexDevelopmentReduceHostedActionProviderIndex({ resolution, ...hostedActionRepositoryIdentity(), index });
+      const start = index.startObservations[0], terminal = index.terminalObservations[0];
+      const status = index.providerStatusReadbacks[0]?.statuses.find(entry => entry.state === 'pending');
+      if (decision.disposition !== 'repair-terminal-anchor' || !decision.terminalAnchorRepairAllowed
+          || start?.payload === null || start?.payload === undefined || start.archiveDigest === null
+          || terminal?.artifact === null || terminal?.artifact === undefined
+          || terminal.providerObservation.archiveDigest === null || terminal.providerObservation.payload === null || status === undefined) {
+        throw new Error('Hosted terminal anchor lacks original exact repair admission.');
+      }
+      const expected = createVerificationActionTerminalStatusAnchorV2({ actionKey: resolution.actionPlan.action.actionKey,
+        candidateSha: resolution.artifactInput.headSha, startStatusId: status.id, startStatusNodeId: status.nodeId,
+        startArtifactOriginId: start.originId, startArtifactName: start.artifactName,
+        startArtifactArchiveDigest: start.archiveDigest, startMarkerDigest: start.payload.markerDigest,
+        terminalArtifactOriginId: terminal.providerObservation.originId, terminalArtifactName: terminal.providerObservation.artifactName,
+        terminalArtifactArchiveDigest: terminal.providerObservation.archiveDigest,
+        terminalArtifactPayloadDigest: terminal.providerObservation.payload.payloadDigest,
+        terminalAssemblerOrigin: terminal.providerObservation.payload.producer, anchorPublisherOrigin: currentHostedActionProducer() });
+      const anchor = createVerificationActionTerminalStatusAnchorV2(input);
+      if (encodeVerificationActionData(anchor) !== encodeVerificationActionData(expected)) throw new Error('Hosted terminal anchor differs from original exact facts.');
+      deepFreeze(anchor);
+      preparedAnchors.set(anchor, Object.freeze({ authority: retained.authority, snapshot: retained.result.snapshot }));
+      return anchor;
+    },
+    writeTerminal: async (file: string, artifact: Parameters<typeof CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic>[1]) => {
+      const prepared = preparedTerminals.get(artifact);
+      if (prepared === undefined) throw new Error('Hosted terminal writer requires its same-invocation prepared artifact.');
+      await freshPublication(prepared, 'assemble-hosted-action-terminal');
+      if (preparedTerminals.get(artifact) !== prepared) throw new Error('Hosted terminal preparation was already consumed.');
+      for (const captured of prepared.inputs) assertCaptured(captured);
+      if (encodeVerificationActionData(artifact.producer) !== encodeVerificationActionData(currentHostedActionProducer())) {
+        throw new Error('Hosted terminal producer changed before publication.');
+      }
+      preparedTerminals.delete(artifact);
+      CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(file, artifact); current('assemble-hosted-action-terminal');
+    },
+    writeAnchor: async (file: string, anchor: Parameters<typeof writeVerificationActionProviderTerminalAnchorAtomic>[1]) => {
+      const prepared = preparedAnchors.get(anchor);
+      if (prepared === undefined) throw new Error('Hosted anchor writer requires its same-invocation prepared anchor.');
+      await freshPublication(prepared, 'prepare-terminal-anchor');
+      if (preparedAnchors.get(anchor) !== prepared) throw new Error('Hosted anchor preparation was already consumed.');
+      if (encodeVerificationActionData(anchor.anchorPublisherOrigin) !== encodeVerificationActionData(currentHostedActionProducer())) {
+        throw new Error('Hosted anchor publisher changed before publication.');
+      }
+      preparedAnchors.delete(anchor);
+      writeVerificationActionProviderTerminalAnchorAtomic(file, anchor); current('prepare-terminal-anchor');
+    },
+    anchorTerminal: async (authority: Authority, anchor: Parameters<typeof writeVerificationActionProviderTerminalAnchorAtomic>[1]) => {
+      current('anchor-terminal'); const result = await ensureVerificationActionGitHubProviderTransaction({
+        origin,
+        authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
+        intent: { kind: 'anchor-terminal', anchor }
+      }); current('anchor-terminal'); return result;
+    },
+    terminalArtifactName: verificationActionProviderTerminalArtifactName,
+    terminalAnchorName: verificationActionProviderTerminalAnchorName
+  };
 }
 
 export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[]): Promise<string> {
@@ -1720,8 +1682,6 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     });
     return JSON.stringify(result);
   }
-  const providerResult = await tryRunHostedActionProvider(argv);
-  if (providerResult !== null) return providerResult;
   if (command === 'prepare-hosted-action-inputs') {
     const args = hostedActionCliArgs(argv, [
       '--resolution', '--base-root', '--candidate-root', '--output-directory'
@@ -1743,120 +1703,6 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       archiveInventoryDigest: prepared.archiveInventory.inventoryDigest,
       baseDependencyClosureDigest: prepared.baseDependencyClosureDigest,
       authenticatedGitClosureDigest: prepared.authenticatedGitClosureDigest
-    });
-  }
-  if (command === 'self-test-hosted-action-sandbox') {
-    const args = hostedActionCliArgs(argv, ['--resolution']);
-    const resolution = CodexDevelopmentParseHostedActionResolution(
-      hostedActionTransportText(args.get('--resolution')!, 'hosted Action resolution')
-    );
-    const observation = await CodexDevelopmentProbeHostedSutSandboxCapability({
-      actionKey: resolution.actionPlan.action.actionKey
-    });
-    if (observation.state === 'unknown') {
-      throw new Error(`Hosted Action sandbox capability is a retryable unknown machine observation: ${
-        observation.diagnostic ?? 'no diagnostic'
-      }`);
-    }
-    const { state, ...physicalObservation } = observation;
-    return JSON.stringify({
-      schema: 'sec-verification-action-sut-capability-v2',
-      status: state,
-      actionKey: resolution.actionPlan.action.actionKey,
-      policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
-      observation: physicalObservation
-    });
-  }
-  if (command === 'resolve-hosted-action') {
-    const args = hostedActionCliArgs(argv, ['--provider-envelope', '--envelope', '--output']);
-    const providerEnvelope = parseCiVerificationActionProviderEnvelope(
-      JSON.parse(hostedActionTransportText(args.get('--provider-envelope')!, 'hosted Action provider envelope')) as unknown
-    );
-    const request = CodexDevelopmentParseHostedActionRequest(
-      encodeVerificationActionData(providerEnvelope.proposal)
-    );
-    const envelope = parseHostedEnvelope(
-      JSON.parse(hostedActionTransportText(args.get('--envelope')!, 'hosted Session envelope')) as unknown
-    );
-    const resolution = CodexDevelopmentResolveHostedAction({ request, envelope });
-    writeHostedActionJson(args.get('--output')!, resolution);
-    return JSON.stringify({
-      status: 'resolved',
-      actionKey: resolution.actionPlan.action.actionKey,
-      actionKeyHex: resolution.actionKeyHex,
-      resolutionDigest: resolution.resolutionDigest,
-      output: path.resolve(args.get('--output')!)
-    });
-  }
-  if (command === 'execute-hosted-action-sut') {
-    const args = hostedActionCliArgs(argv, [
-      '--resolution', '--ticket', '--prepared-candidate-archive', '--output'
-    ]);
-    const resolution = CodexDevelopmentParseHostedActionResolution(
-      hostedActionTransportText(args.get('--resolution')!, 'hosted Action resolution')
-    );
-    const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
-      hostedActionTransportText(args.get('--ticket')!, 'hosted Action execution ticket')
-    );
-    if (ticket.resolutionDigest !== resolution.resolutionDigest ||
-        ticket.actionKey !== resolution.actionPlan.action.actionKey ||
-        ticket.candidateSha !== resolution.artifactInput.headSha ||
-        ticket.candidateBytesDigest !== resolution.artifactInput.candidateBytesDigest) {
-      throw new Error('Hosted Action SUT ticket differs from the trusted resolution.');
-    }
-    const archiveInventory = CodexDevelopmentMaterializeHostedActionCandidate({
-      resolution,
-      ticket,
-      preparedCandidateArchive: args.get('--prepared-candidate-archive')!
-    });
-    const rawResult = await CodexDevelopmentExecuteHostedActionSut({
-      resolution,
-      ticket,
-      candidateArchive: args.get('--prepared-candidate-archive')!,
-      archiveInventory
-    });
-    writeHostedActionJson(args.get('--output')!, rawResult);
-    return JSON.stringify({
-      rawResultDigest: rawResult.rawResultDigest,
-      output: path.resolve(args.get('--output')!)
-    });
-  }
-  const terminalResult = await runAssembleHostedActionTerminal(argv);
-  if (terminalResult !== null) return terminalResult;
-  if (command === 'compose-hosted-evidence') {
-    const args = hostedActionCliArgs(argv, [
-      '--envelope', '--artifact-index', '--output'
-    ]);
-    const envelope = parseHostedEnvelope(
-      JSON.parse(hostedActionTransportText(args.get('--envelope')!, 'hosted Session envelope')) as unknown
-    );
-    const index = CodexDevelopmentReadHostedActionArtifactIndex({
-      source: hostedActionTransportText(args.get('--artifact-index')!, 'hosted Action artifact index')
-    });
-    const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
-      sourceTransport: 'github-actions',
-      workflowPath: '.github/workflows/compiler-pr-validation.yml',
-      workflowRef: `.github/workflows/compiler-pr-validation.yml@${envelope.session.baseSha}`,
-      workflowSha: envelope.session.baseSha,
-      runId: process.env.GITHUB_RUN_ID ?? '',
-      runAttempt: positiveEnvironmentInteger('GITHUB_RUN_ATTEMPT'),
-      actorNodeId: envelope.scopeAuthorization.issuer.principalId
-    });
-    const composed = CodexDevelopmentComposeHostedEvidence({
-      envelope,
-      observations: index.observations,
-      startObservations: index.startObservations,
-      terminalAnchorObservations: index.terminalAnchorObservations,
-      providerStatusReadbacks: index.providerStatusReadbacks,
-      producer
-    });
-    if (composed.evidence !== null) {
-      CodexDevelopmentWriteVerificationEvidenceV4Atomic(args.get('--output')!, composed.evidence);
-    }
-    return JSON.stringify({
-      ...composed.coordination,
-      evidenceWritten: composed.evidence !== null,
-      output: composed.evidence === null ? null : path.resolve(args.get('--output')!)
     });
   }
   throw new Error(`Unknown hosted Action command: ${command ?? '<missing>'}.`);

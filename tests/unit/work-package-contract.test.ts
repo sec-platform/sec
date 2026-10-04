@@ -32,7 +32,7 @@ forbiddenPaths:
 acceptance:
   - exact-head-evidence
 tests:
-  - tests/unit/codex-work-package-contract.test.ts
+  - tests/unit/work-package-contract.test.ts
 ${overrides}---
 
 # B0 Bootstrap
@@ -164,12 +164,12 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
     )).toThrow('stable positive verification revision');
   }
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
-    manifest().replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
+    manifest().replace('tests/unit/work-package-contract.test.ts', 'bun run typecheck')
   )).toThrow();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest()
       .replace('ci-verification-v19', 'ci-verification-v18')
-      .replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
+      .replace('tests/unit/work-package-contract.test.ts', 'bun run typecheck')
   )).toThrow();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('id: b0-bootstrap-v1', 'id: !custom b0-bootstrap-v1')

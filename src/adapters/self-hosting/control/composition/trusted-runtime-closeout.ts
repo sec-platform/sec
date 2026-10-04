@@ -5,12 +5,14 @@ import type { VerificationGateResult, VerificationResultStatus } from "../../../
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseArgs as parseNativeArgs } from 'node:util';
-import type { GitHubCandidateObservation, VerificationSessionArtifact } from '../../../../execution/verification/session.ts';
+import type { GitHubCandidateObservation, MainHealthLedger, VerificationSessionArtifact } from '../../../../execution/verification/session.ts';
 import type { SourceProgramTransitionAcceptanceRecord } from '../../../verification/platform/ci/contract/evidence.ts';
 import type { TrustedRuntimeSourceProgramAttemptEvidence } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
-import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import { settleResources, settleResourcesAsync, withAcquiredResource, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
+import { consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../providers/docker/runtime/linux-oci-exporter.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
@@ -56,11 +58,11 @@ import {
 import { renderIndependentReviewTrailer } from '../../../verification/platform/review/contract/stability.ts';
 import {
   executeTrustedRuntimeContainerVerification,
-  executeTrustedRuntimeMainHealth,
   executeTrustedRuntimeWorkspaceCanary,
   parseTrustedRuntimeContainerReceipt,
   parseTrustedRuntimeSourceProgramAttemptEvidence,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
+  withTrustedRuntimeMainHealthQualification,
   type SourceProgramTransitionQualification,
   type TrustedRuntimeContainerReceipt
 } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
@@ -78,13 +80,16 @@ import {
 import {
   parseGitHubClosingKeywordOccurrences
 } from '../issues/disposition.ts';
+import { assertTrustedRuntimeMainHealthPublication, type TrustedRuntimeMainHealthPublicationAdmission } from '../main-health/live-admission.ts';
 import {
   parseTrustedRuntimeMainHealthReceipt,
   trustedRuntimeMainHealthReceiptLocator,
   type TrustedRuntimeMainHealthReceipt
 } from '../main-health/main-health-observation.ts';
+import { assertTrustedRuntimePostMergeMainHealthPlanCurrent, type TrustedRuntimePostMergeMainHealthPlan } from '../main-health/post-merge-plan.ts';
 import {
   assertMainHealthGitHubReadOperationBudgetCurrent,
+  assertMainHealthPublicationAuthorityStable,
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubDefaultBranchSha,
   withMainHealthGitHubReadOperationBudget
@@ -518,13 +523,10 @@ async function assertCurrentTrustedRuntimeMainHealthSubject(input: Readonly<{
   }
 }
 
-export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
+async function withCurrentTrustedRuntimeMainHealth<T>(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-}>): Promise<Readonly<{
-  reused: boolean;
-  receipt: TrustedRuntimeMainHealthReceipt;
-}>> {
+}>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const firstFence = await observeTrustedRuntimeGitFence(repositoryRoot);
   assertOriginMatchesRepository(firstFence.originUrl, input.repository);
@@ -542,13 +544,40 @@ export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
     fail('MainHealth producer local main differs from the live default branch');
   }
 
+  return await withProducedTrustedRuntimeMainHealth({
+    repositoryRoot,
+    repository: input.repository,
+    mainSha: firstFence.headSha,
+    mainTreeSha: firstFence.treeSha,
+    assertSubjectCurrent: () => assertCurrentTrustedRuntimeMainHealthSubject({
+      repositoryRoot, repository: input.repository,
+      expectedHeadSha: firstFence.headSha, expectedTreeSha: firstFence.treeSha,
+      expectedOriginUrl: firstFence.originUrl
+    })
+  }, operation);
+}
+
+/** Internal lexical composition only: callers supply their actual owner
+ * fences. This helper never accepts a serialized proof or issues authority from
+ * an assertion callback; only the physical producer can mint the live receipt. */
+async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  assertSubjectCurrent(): Promise<void>;
+}>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
   const runtimeLayout = resolveSecRuntimeStateForRepository({
     repository: input.repository,
     repositoryRoot
   });
   const locator = trustedRuntimeMainHealthReceiptLocator({
     repositoryStateRoot: runtimeLayout.repositoryStateRoot,
-    mainSha: firstFence.headSha
+    mainSha: input.mainSha
   });
   return await withTrustedRuntimeStateAuthority({
     repositoryRoot,
@@ -558,84 +587,131 @@ export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
   }, async (authority) => {
     const stateDirectory = authority.directory(locator.directory);
     const generationLease = acquirePhysicalMutationLease(
-      stateDirectory,
-      `main-health-${firstFence.headSha}.lock`
+      stateDirectory, `main-health-${input.mainSha}.lock`
     );
     if (generationLease === null) {
       fail('MainHealth receipt generation is already active or its owner liveness is unknown');
     }
+    let generationSettled = false;
+    let primary: ResourceSettlementFailure | undefined;
     try {
-      const existing = readNoFollowOrdinaryFile(stateDirectory, locator.fileName);
-      if (existing !== null) {
-        const receipt = parseCanonicalTrustedRuntimeMainHealthReceipt(existing);
-        if (receipt.repository !== input.repository
-            || receipt.mainSha !== firstFence.headSha
-            || receipt.mainTreeSha !== firstFence.treeSha) {
-          fail('existing MainHealth receipt belongs to another exact subject');
-        }
-        // Re-enter the immutable publication owner with the exact same bytes.
-        // An interrupted predecessor may have completed the no-replace rename
-        // before its parent-directory durability boundary. This call validates
-        // the same physical final value and re-establishes durable readback.
-        const recovered = publishCanonical({
-          parent: stateDirectory,
-          name: locator.fileName,
-          value: receipt,
-          parse: parseCanonicalTrustedRuntimeMainHealthReceipt
+      // Historical JSON cannot recover production qualification. The original
+      // runtime owner performs a fresh isolated attempt and owns live reuse.
+      return await withTrustedRuntimeMainHealthQualification({
+        repositoryRoot,
+        repository: input.repository,
+        mainSha: input.mainSha,
+        mainTreeSha: input.mainTreeSha,
+        signal: input.signal,
+        qualifiedEngineExporter: input.qualifiedEngineExporter,
+        ...(input.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: input.deadlineAtUnixMs })
+      }, async (receipt) => {
+        await input.assertSubjectCurrent();
+        const receiptLocator = trustedRuntimeMainHealthReceiptLocator({
+          repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+          mainSha: input.mainSha,
+          receiptDigest: receipt.receiptDigest
         });
-        if (generationLease.recoveryPending) {
-          generationLease.acknowledgeReclaimedRecovery();
-        }
-        await assertCurrentTrustedRuntimeMainHealthSubject({
-          repositoryRoot,
-          repository: input.repository,
-          expectedHeadSha: firstFence.headSha,
-          expectedTreeSha: firstFence.treeSha,
-          expectedOriginUrl: firstFence.originUrl
+        publishCanonical({
+          parent: stateDirectory, name: receiptLocator.fileName,
+          value: receipt, parse: parseCanonicalTrustedRuntimeMainHealthReceipt
         });
-        return Object.freeze({ reused: true, receipt: recovered });
-      }
-      // Final-name absence proves an interrupted predecessor never published
-      // an adopted receipt. Any private random candidate was never authority;
-      // after this exact readback the successor may clear predecessor lineage
-      // and execute the same exact-main generation.
-      if (generationLease.recoveryPending) {
-        generationLease.acknowledgeReclaimedRecovery();
-      }
-
-      const receipt = await executeTrustedRuntimeMainHealth({
-        repositoryRoot,
-        repository: input.repository,
-        mainSha: firstFence.headSha,
-        mainTreeSha: firstFence.treeSha
+        await input.assertSubjectCurrent();
+        if (generationLease.recoveryPending) generationLease.acknowledgeReclaimedRecovery();
+        generationLease.release();
+        generationSettled = true;
+        return await operation(receipt);
       });
-
-      await assertCurrentTrustedRuntimeMainHealthSubject({
-        repositoryRoot,
-        repository: input.repository,
-        expectedHeadSha: firstFence.headSha,
-        expectedTreeSha: firstFence.treeSha,
-        expectedOriginUrl: firstFence.originUrl
-      });
-      const published = publishCanonical({
-        parent: stateDirectory,
-        name: locator.fileName,
-        value: receipt,
-        parse: parseCanonicalTrustedRuntimeMainHealthReceipt
-      });
-      await assertCurrentTrustedRuntimeMainHealthSubject({
-        repositoryRoot,
-        repository: input.repository,
-        expectedHeadSha: firstFence.headSha,
-        expectedTreeSha: firstFence.treeSha,
-        expectedOriginUrl: firstFence.originUrl
-      });
-      return Object.freeze({ reused: false, receipt: published });
+    } catch (error) {
+      primary = { label: 'MainHealth execution', error };
+      throw error;
     } finally {
-      if (generationLease.recoveryPending) generationLease.restoreReclaimedOwner();
-      else generationLease.release();
+      settleResources({ primary, cleanup: [{ label: 'MainHealth generation lease', settle: () => {
+        if (!generationSettled) {
+          if (generationLease.recoveryPending) generationLease.restoreReclaimedOwner();
+          else generationLease.release();
+        }
+      } }] });
     }
   });
+}
+
+/** The trusted driver stays at its admitted revision. Only the exact new
+ * main is materialized inside the original isolated MainHealth workspace. */
+export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin;
+  engineExporter: QualifiedContainerEngineOciExporter;
+  plan: TrustedRuntimePostMergeMainHealthPlan;
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>, operation: (health: Readonly<{
+  ledger: MainHealthLedger;
+  admission: TrustedRuntimeMainHealthPublicationAdmission;
+  observedAt: string;
+  assertCurrent(): Promise<void>;
+}>) => Promise<T>): Promise<T> {
+  input = Object.freeze({ origin: input.origin, engineExporter: input.engineExporter,
+    plan: input.plan, repositoryRoot: input.repositoryRoot, repository: input.repository,
+    mainSha: input.mainSha, mainTreeSha: input.mainTreeSha });
+  const assertSubjectCurrent = async (): Promise<void> => {
+    const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
+    if (origin.repository !== input.repository || origin.trustedDriverRoot !== input.repositoryRoot
+        || input.engineExporter.originIdentityDigest !== origin.identityDigest) {
+      fail('post-merge MainHealth origin or qualified Engine belongs to another operation');
+    }
+    const liveMain = await observeMainHealthGitHubDefaultBranchSha({ ...input, defaultBranch: 'main' });
+    if (liveMain !== input.mainSha) fail('post-merge MainHealth exact default advanced');
+  };
+  await assertSubjectCurrent();
+  const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
+  const engine = await consumeQualifiedContainerEngineOciExporter(input.engineExporter);
+  if (engine.cwd !== input.repositoryRoot || engine.deadlineAtUnixMs > origin.deadlineAtUnixMs) {
+    fail('MainHealth Engine working directory or original job budget differs');
+  }
+  return await withProducedTrustedRuntimeMainHealth({ ...input,
+    deadlineAtUnixMs: engine.deadlineAtUnixMs,
+    signal: getAuthenticatedGitHubJobOriginSignal(input.origin),
+    qualifiedEngineExporter: input.engineExporter,
+    assertSubjectCurrent
+  }, async (receipt) => {
+    const selected = await observeCanonicalMainHealthForPublication({ ...input,
+      defaultBranch: 'main', qualifiedLocalReceipt: receipt });
+    if (selected.projection.state !== 'healthy' || selected.ledger === null) {
+      fail('post-merge MainHealth canonical selection is not qualified and healthy');
+    }
+    const admission = Object.freeze({ authority: selected.authority, receipt,
+      repositoryRoot: input.repositoryRoot });
+    const assertCurrent = async (): Promise<void> => {
+      await assertSubjectCurrent();
+      const current = await observeCanonicalMainHealthForPublication({ ...input,
+        defaultBranch: 'main', qualifiedLocalReceipt: receipt });
+      if (current.projection.state !== 'healthy' || current.ledger === null) {
+        fail('post-merge MainHealth provider evidence became invalid or conflicting');
+      }
+      assertMainHealthPublicationAuthorityStable(selected.authority, current.authority);
+      assertTrustedRuntimeMainHealthPublication({ admission, ledger: selected.ledger!,
+        repository: input.repository, mainSha: input.mainSha, mainTreeSha: input.mainTreeSha,
+        now: new Date(Date.now()).toISOString() });
+    };
+    await assertCurrent();
+    return await operation(Object.freeze({ ledger: selected.ledger, admission,
+      observedAt: selected.observedAt, assertCurrent }));
+  });
+}
+
+export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): Promise<Readonly<{
+  reused: false;
+  receipt: TrustedRuntimeMainHealthReceipt;
+  authority: 'historical-evidence-only';
+}>> {
+  return await withCurrentTrustedRuntimeMainHealth(input, async (receipt) => Object.freeze({
+    reused: false as const, receipt, authority: 'historical-evidence-only' as const
+  }));
 }
 
 async function mergeExactHead(input: Readonly<{
@@ -900,6 +976,7 @@ async function executeTrustedRuntimeCandidateStage(
     const lease = acquirePhysicalMutationLease(authority.directory(leaseRoot),
       `pr-${input.prNumber}-${candidate.headSha}.lock`);
     if (lease === null) fail('this exact PR transition already has an active closeout attempt or unknown owner liveness');
+    let primary: ResourceSettlementFailure | undefined;
     try {
       const current = await github.observeCandidate(input.repository, input.prNumber);
       if (current.headSha !== candidate.headSha || current.headTreeSha !== candidate.headTreeSha) {
@@ -928,13 +1005,17 @@ async function executeTrustedRuntimeCandidateStage(
       if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
       if (preMerge.kind !== 'ready') return preMerge.value;
       return await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
+    } catch (error) {
+      primary = { label: 'trusted runtime closeout', error };
+      throw error;
     } finally {
-      try {
-        await authority.assertCurrent();
-      } finally {
-        if (lease.recoveryPending) lease.restoreReclaimedOwner();
-        else lease.release();
-      }
+      await settleResourcesAsync({ primary, cleanup: [
+        { label: 'closeout authority readback', settle: async () => { await authority.assertCurrent(); } },
+        { label: 'closeout mutation lease', settle: () => {
+          if (lease.recoveryPending) lease.restoreReclaimedOwner();
+          else lease.release();
+        } }
+      ] });
     }
   });
 }
@@ -1515,7 +1596,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
   preMerge: TrustedRuntimeCloseoutPreMerge
 ): Promise<unknown> {
   let providerMergeCommitSha: string | null = null;
-  let mergeFailure: unknown = null;
+  let mergeFailure: ResourceSettlementFailure | undefined;
   try {
     providerMergeCommitSha = (await withGitHubApiMergeWriteSession({
       repositoryRoot: preMerge.repositoryRoot,
@@ -1537,19 +1618,18 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
       }
     })).sha;
   } catch (error) {
-    mergeFailure = error;
+    mergeFailure = { label: 'merge provider', error };
   }
   let readback: GitHubCandidateObservation;
   try {
     readback = (await preMerge.github.observeCandidate(preMerge.repository, preMerge.prNumber));
   } catch (error) {
-    const providerReason = mergeFailure instanceof Error
-      ? mergeFailure.message
-      : mergeFailure === null ? 'provider reported success' : String(mergeFailure);
-    const readbackReason = error instanceof Error ? error.message : String(error);
-    fail(`AMBIGUOUS_SIDE_EFFECT: merge requires exact retry readback; provider=${providerReason}; readback=${readbackReason}`);
+    settleResources({ primary: mergeFailure, cleanup: [
+      { label: 'AMBIGUOUS_SIDE_EFFECT: merge exact readback', settle: () => { throw error; } }
+    ] });
+    throw error;
   }
-  if (readback.state !== 'MERGED' && mergeFailure !== null) throw mergeFailure;
+  if (readback.state !== 'MERGED' && mergeFailure !== undefined) throw mergeFailure.error;
   if (readback.state !== 'MERGED') {
     fail('AMBIGUOUS_SIDE_EFFECT: provider reported merge success without a merged readback');
   }

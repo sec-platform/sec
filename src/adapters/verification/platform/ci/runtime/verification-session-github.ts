@@ -1,3 +1,4 @@
+import type { VerificationSessionHostedRequest } from "../../../../../execution/verification/hosted.ts";
 /** GitHub observation and mutation adapter for the VerificationSession operator. */
 
 /**
@@ -73,7 +74,7 @@ import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanR
 import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX
 } from '../contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
+
 
 const validatedClearReviewObservations = new WeakSet<object>();
 const authorityBearingGitHubAdapters = new WeakSet<object>();
@@ -150,11 +151,7 @@ export type VerificationSessionWorkflowJoin = Readonly<{
 
 const VERIFICATION_SESSION_ARTIFACT_PUBLICATION_WINDOW_MS = 10 * 60 * 1000;
 
-interface GitHubPrincipalObservation {
-  login: string;
-  nodeId: string;
-  permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-}
+import type { GitHubPrincipalObservation } from '../../../../../execution/verification/hosted.ts';
 
 class GitHubApiFailure extends Error {
   constructor(message: string, readonly statusCode?: number) {
@@ -178,7 +175,7 @@ interface VerificationSessionGitHubTransport {
   workflowRunPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubWorkflowRunObservation> | Promise<GitHubPage<GitHubWorkflowRunObservation>>;
   workflowJobsForAttempt?(repository: string, runId: string, runAttempt: number): readonly GitHubWorkflowJobObservation[] | Promise<readonly GitHubWorkflowJobObservation[]>;
   repositoryRulesets(repository: string): unknown | Promise<unknown>;
-  dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): void | Promise<void>;
+  dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest<typeof import("../contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>): void | Promise<void>;
   pullRequestFileInventory?(
     repository: string,
     prNumber: number
@@ -2044,7 +2041,7 @@ class VerificationSessionGitHubAdapter {
           wakeupDigest: existing.wakeup.wakeupDigest, body });
   }
 
-  async ensureVerificationSessionWakeup(repository: string, request: VerificationSessionHostedRequest): Promise<void> {
+  async ensureVerificationSessionWakeup(repository: string, request: VerificationSessionHostedRequest<typeof import("../contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>): Promise<void> {
     (await this.#transport.dispatchVerificationSession(repository, request));
   }
 
@@ -2877,7 +2874,7 @@ class HttpVerificationSessionTransport implements VerificationSessionGitHubTrans
     });
   }
 
-  async dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): Promise<void> {
+  async dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest<typeof import("../contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>): Promise<void> {
     this.bindRepository(repository);
     await executeGitHubApiOperation(currentGitHubApiCapability(repository,'verification-dispatch'),
       {kind:'verification-dispatch',request:{...request}});

@@ -3,11 +3,11 @@ import path from 'node:path';
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { failureMessage } from '../../../../contracts/failure-inspection.ts';
 import {
-  type CodexDevelopmentExactGitTreeEntry,
-  CodexDevelopmentReadExactGitBlobBytesBatchFromSession,
+  type ExactGitTreeEntry,
   parseExactGitBlobInfoBatch,
   parseExactGitBlobsBatch,
-  parseExactGitTreeEntries
+  parseExactGitTreeEntries,
+  readExactGitBlobBytesBatchFromSession
 } from '../../../providers/git-read/exact-blob.ts';
 import { type GitIndexGeneration } from '../../../providers/git-read/runtime/scratch-index-generation.ts';
 import {
@@ -18,7 +18,7 @@ import {
   type GitScratchIndexTreeFailureReason,
   isolatedGitReadEnvironment
 } from '../../../providers/git-read/runtime/session.ts';
-import { type GitHubApiCapability, GitHubApiProviderError } from '../../../providers/github-api/operation-session.ts';
+import { type GitHubApiCapability, isGitHubApiProviderError } from '../../../providers/github-api/operation-session.ts';
 import { type ByteCommandResult, runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import {
@@ -30,12 +30,12 @@ import {
   withMainHealthGitHubReadSession
 } from '../main-health/work-selection-main-health.ts';
 import {
-  observeSecWorkSelectionLive,
-  observeSecWorkSelectionWithProviderV1,
-  type SecWorkSelectionProvider
+  observeWorkSelectionLive,
+  observeWorkSelectionWithProvider,
+  type WorkSelectionProvider
 } from '../work-selection/runtime.ts';
 import { parseNulList, shaValue } from './document-control-journal-codec.ts';
-import { CodexDevelopmentParseRollingMachineProjection } from './document-control-plane-contract.ts';
+import { parseRollingMachineProjection } from './document-control-plane-contract.ts';
 import {
   buildGitHubOpenInventoryCountsArgs,
   buildGitHubOpenIssuesArgs,
@@ -73,7 +73,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
   exactMainTreeSha: string;
 }>): Promise<Readonly<{
   repairDecision: Awaited<ReturnType<typeof observeCanonicalMainHealthForPublication>>['repairDecision'];
-  selection: Awaited<ReturnType<typeof observeSecWorkSelectionLive>> | null;
+  selection: Awaited<ReturnType<typeof observeWorkSelectionLive>> | null;
 }>> {
   const testActor = documentControlRoutingTestScope.getStore();
   if (testActor !== undefined) {
@@ -98,7 +98,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
         throw new Error('document-control test MainHealth snapshot drifted between T1 and T2');
       }
       const selection = second.repairDecision.routingState === 'ordinary-only'
-        ? await observeSecWorkSelectionWithProviderV1({
+        ? await observeWorkSelectionWithProvider({
             cwd: input.repositoryRoot,
             exactMain: input.exactMainSha,
             exactMainTree: input.exactMainTreeSha
@@ -128,7 +128,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
       }
       const repairDecision = second.repairDecision;
       const selection = repairDecision.routingState === 'ordinary-only'
-          ? await observeSecWorkSelectionLive({
+          ? await observeWorkSelectionLive({
             cwd: input.repositoryRoot,
             exactMain: input.exactMainSha,
             exactMainTree: input.exactMainTreeSha,
@@ -157,41 +157,41 @@ export type CommandOptions = {
  * object/index writes and GitHub calls remain separate semantic capabilities;
  * neither can inherit authority from the read session or raw transport.
  */
-export type CodexDevelopmentDocumentControlCliOperation =
+export type DocumentControlCliOperation =
   | 'git-read'
   | 'git-object-index-effect'
   | 'github-api-read'
   | 'github-effect';
 
-export type CodexDevelopmentDocumentControlCliAdmissionStatus =
+export type DocumentControlCliAdmissionStatus =
   | 'unsupported'
   | 'unknown'
   | 'unavailable';
 
-export type CodexDevelopmentDocumentControlCliAdmissionReason =
+export type DocumentControlCliAdmissionReason =
   | GitReadHostProviderResolutionReason
   | GitReadSessionFailure['reason']
   | GitScratchIndexTreeFailureReason
   | 'semantic-closure-unproven'
   | 'working-directory-binding-drift';
 
-export class CodexDevelopmentDocumentControlCliAdmissionError extends Error {
+export class DocumentControlCliAdmissionError extends Error {
   readonly code = 'DOCUMENT-CONTROL-CLI-ADMISSION-001' as const;
   readonly command: 'git' | 'gh';
-  readonly operation: CodexDevelopmentDocumentControlCliOperation;
-  readonly status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-  readonly reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+  readonly operation: DocumentControlCliOperation;
+  readonly status: DocumentControlCliAdmissionStatus;
+  readonly reason: DocumentControlCliAdmissionReason;
   readonly detailDigest: `sha256:${string}`;
 
   constructor(input: Readonly<{
     command: 'git' | 'gh';
-    operation: CodexDevelopmentDocumentControlCliOperation;
-    status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-    reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+    operation: DocumentControlCliOperation;
+    status: DocumentControlCliAdmissionStatus;
+    reason: DocumentControlCliAdmissionReason;
     detailDigest: `sha256:${string}`;
   }>) {
     super(`Document-control ${input.command} ${input.operation} admission is ${input.status}.`);
-    this.name = 'CodexDevelopmentDocumentControlCliAdmissionError';
+    this.name = 'DocumentControlCliAdmissionError';
     this.command = input.command;
     this.operation = input.operation;
     this.status = input.status;
@@ -202,7 +202,7 @@ export class CodexDevelopmentDocumentControlCliAdmissionError extends Error {
 
 const documentControlHostCliTestScope = new AsyncLocalStorage<symbol>();
 
-const documentControlHostCliTestIssuer = Symbol('sec-document-control-host-cli-test-issuer-v1');
+const documentControlHostCliTestIssuer = Symbol('document-control-host-cli-test-issuer');
 
 const documentControlGitReadScope = new AsyncLocalStorage<GitReadSession>();
 
@@ -221,7 +221,7 @@ export interface DocumentControlRoutingTestActor {
     capability: GitHubApiCapability,
     operation: () => Promise<T>
   ) => Promise<T>;
-  readonly workSelectionProvider: SecWorkSelectionProvider;
+  readonly workSelectionProvider: WorkSelectionProvider;
   readonly mainHealthEnvironment: (repositoryRoot: string) => NodeJS.ProcessEnv;
 }
 
@@ -245,7 +245,7 @@ export function createDocumentControlRoutingTestActorForTests(
  * AsyncLocalStorage binding prevents a test fixture from changing the
  * process-global production route or leaking into an unrelated async task.
  */
-export function withDocumentControlHostCliTestSessionV1<T>(
+export function withDocumentControlHostCliTestSession<T>(
   operation: () => T,
   routingActor?: DocumentControlRoutingTestActor
 ): T {
@@ -259,9 +259,9 @@ export function withDocumentControlHostCliTestSessionV1<T>(
 
 function documentControlCliFailureDigest(input: Readonly<{
   command: 'git' | 'gh';
-  operation: CodexDevelopmentDocumentControlCliOperation;
-  status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-  reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+  operation: DocumentControlCliOperation;
+  status: DocumentControlCliAdmissionStatus;
+  reason: DocumentControlCliAdmissionReason;
   sourceDetailDigest?: `sha256:${string}`;
 }>): `sha256:${string}` {
   return sha256({
@@ -273,7 +273,7 @@ function documentControlCliFailureDigest(input: Readonly<{
 function commandOperation(
   command: 'git' | 'gh',
   args: readonly string[]
-): CodexDevelopmentDocumentControlCliOperation {
+): DocumentControlCliOperation {
   if (command === 'gh') {
     // The current document-control GitHub calls are all reads.  Keep the
     // effect category explicit for future callers so a new mutation cannot
@@ -296,12 +296,12 @@ function commandOperation(
 
 export function documentControlCliFailure(
   command: 'git' | 'gh',
-  operation: CodexDevelopmentDocumentControlCliOperation,
-  status: CodexDevelopmentDocumentControlCliAdmissionStatus,
-  reason: CodexDevelopmentDocumentControlCliAdmissionReason,
+  operation: DocumentControlCliOperation,
+  status: DocumentControlCliAdmissionStatus,
+  reason: DocumentControlCliAdmissionReason,
   sourceDetailDigest?: `sha256:${string}`
-): CodexDevelopmentDocumentControlCliAdmissionError {
-  return new CodexDevelopmentDocumentControlCliAdmissionError({
+): DocumentControlCliAdmissionError {
+  return new DocumentControlCliAdmissionError({
     command,
     operation,
     status,
@@ -487,7 +487,7 @@ export async function readGitBlob(
  * caller-provided journal bytes never supply the native result. */
 export async function readControlBlobEntries(
   repositoryRoot: string,
-  entries: readonly CodexDevelopmentExactGitTreeEntry[],
+  entries: readonly ExactGitTreeEntry[],
   observeCommand?: (args: readonly string[]) => void
 ): Promise<ReadonlyMap<string, Buffer>> {
   if (entries.length > GIT_FREEZE_CONTROL_BATCH_RECORD_LIMIT) throw new Error('Control blob batch exceeds its closed path inventory.');
@@ -527,7 +527,7 @@ export async function readControlBlobEntries(
   const chargeRecords = (count: number) => {
     if (session?.consumeRecords(count) != null) throw new Error('Control blob record budget is exhausted.');
   };
-  const readRaw = async (entry: CodexDevelopmentExactGitTreeEntry, expectedBytes?: number): Promise<Buffer> => {
+  const readRaw = async (entry: ExactGitTreeEntry, expectedBytes?: number): Promise<Buffer> => {
     // Raw blob output preserves the old per-blob ceiling, including a blob
     // which exactly fills it and cannot accommodate batch protocol framing.
     const bytes = await execute(['cat-file', 'blob', entry.blobSha]);
@@ -536,13 +536,13 @@ export async function readControlBlobEntries(
     return bytes;
   };
   if (entries.length === 1) return new Map([[entries[0]!.repositoryPath, await readRaw(entries[0]!)]]);
-  const request = (selected: readonly CodexDevelopmentExactGitTreeEntry[]) =>
+  const request = (selected: readonly ExactGitTreeEntry[]) =>
     Buffer.from(`${selected.map(entry => entry.blobSha).join('\n')}\n`, 'ascii');
   const info = parseExactGitBlobInfoBatch(entries, await execute(['cat-file', '--batch-check'], request(entries)));
   chargeRecords(info.length);
   // Compute every partition before reading any payload. A failed/truncated
   // batch is never retried; all commands share the original owner budgets.
-  const chunks: Array<{ entries: CodexDevelopmentExactGitTreeEntry[]; framedBytes: number }> = [];
+  const chunks: Array<{ entries: ExactGitTreeEntry[]; framedBytes: number }> = [];
   const sizes = new Map(info.map(entry => [entry.repositoryPath, entry.byteLength]));
   for (const entry of entries) {
     const size = sizes.get(entry.repositoryPath)!;
@@ -568,7 +568,7 @@ export async function readControlBlobEntries(
     if (session !== undefined) observeCommand?.(['cat-file', '--batch']);
     const blobs = session === undefined
       ? parseExactGitBlobsBatch(chunk.entries, await execute(['cat-file', '--batch'], request(chunk.entries)), outputLimit)
-      : await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, { entries: chunk.entries, maxTotalBytes: outputLimit });
+      : await readExactGitBlobBytesBatchFromSession(session, { entries: chunk.entries, maxTotalBytes: outputLimit });
     for (const blob of blobs) {
       if (blob.byteLength !== sizes.get(blob.repositoryPath)) throw new Error('Control blob batch size changed from its exact native metadata.');
       result.set(blob.repositoryPath, Buffer.from(blob.bytes));
@@ -605,7 +605,7 @@ export async function readControlTreeBlobs(
   return blobs;
 }
 
-export function controlIndexEntries(generation: GitIndexGeneration, paths: readonly string[]): readonly CodexDevelopmentExactGitTreeEntry[] {
+export function controlIndexEntries(generation: GitIndexGeneration, paths: readonly string[]): readonly ExactGitTreeEntry[] {
   const selected = new Map([...new Set(paths)].map(repositoryPath => [Buffer.from(repositoryPath).toString('hex'), repositoryPath]));
   if (selected.size > GIT_FREEZE_CONTROL_BATCH_RECORD_LIMIT) throw new Error('Control index batch exceeds its closed path inventory.');
   return generation.entries.flatMap(entry => {
@@ -625,7 +625,7 @@ export function requireControlBlob(blobs: ReadonlyMap<string, Buffer>, repositor
 export interface ReadOnlyResolverGit {
   run(args: readonly string[], cwd: string, options?: CommandOptions): Promise<CommandResult>;
   readBlob(cwd: string, spec: string, options?: CommandOptions): Promise<Buffer | undefined>;
-  readBlobs(cwd: string, entries: readonly CodexDevelopmentExactGitTreeEntry[]): Promise<ReadonlyMap<string, Buffer>>;
+  readBlobs(cwd: string, entries: readonly ExactGitTreeEntry[]): Promise<ReadonlyMap<string, Buffer>>;
 }
 
 export type ReadOnlyResolverGitObserver = (event: Readonly<{
@@ -655,7 +655,7 @@ export function createReadOnlyResolverGit(
           : {})
       });
     },
-    readBlobs(cwd: string, entries: readonly CodexDevelopmentExactGitTreeEntry[]) {
+    readBlobs(cwd: string, entries: readonly ExactGitTreeEntry[]) {
       return readControlBlobEntries(cwd, entries, args => { observeEnvironment(args, undefined); });
     },
     async readBlob(cwd: string, spec: string, options: CommandOptions = {}) {
@@ -684,7 +684,7 @@ export async function observeCommittedCandidateProjectionSourceTreeDelta(input: 
   currentTree: string;
   rollingPlanSource: string;
 }>): Promise<readonly string[] | null> {
-  const projection = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
+  const projection = parseRollingMachineProjection(input.rollingPlanSource);
   if (projection?.schema !== 'sec-work-rolling-transition-projection-v1'
       || projection.authority.kind !== 'committed-candidate-replan') {
     return null;
@@ -716,7 +716,7 @@ export function projectDocumentControlGitHubFailure(error: unknown) {
   let providerFailure = false;
   let httpStatus: number | null = null;
   try {
-    providerFailure = error instanceof GitHubApiProviderError;
+    providerFailure = isGitHubApiProviderError(error);
     if (providerFailure) {
       const descriptor = Object.getOwnPropertyDescriptor(error, 'statusCode');
       const status: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;

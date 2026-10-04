@@ -1,11 +1,11 @@
 import { isSecRepositoryTestModulePath, SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
+  RepositoryModuleCausalRelation,
   RepositoryModuleGraph,
-  SecModuleCausalRelation,
-  SecModuleOperationObligation,
-  SecModuleOperationRole,
-  SecRepositoryModuleMembership
+  RepositoryModuleMembership,
+  RepositoryModuleOperationObligation,
+  RepositoryModuleOperationRole
 } from '../architecture/contract.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/adapters/repository/repository-audit/cli.ts' as const;
@@ -91,7 +91,7 @@ export type SourceProgramCompilationMatchInput = Readonly<{
   sourceRevision?: string;
   productionModel?: SourceProgramModel;
   files: readonly SourceProgramFileInput[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 export interface SourceProgramCompilation {
@@ -395,7 +395,7 @@ export interface SourceProgramOperationRoleProvenance {
   readonly moduleId: string;
   readonly capability: string;
   readonly operation: string;
-  readonly role: SecModuleOperationRole;
+  readonly role: RepositoryModuleOperationRole;
   readonly semanticOperation: string;
   readonly requirementId: string | null;
 }
@@ -461,7 +461,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
 
 export interface SourceProgramCausalRelationEvidence {
   readonly owner: string;
-  readonly intent: SecModuleCausalRelation;
+  readonly intent: RepositoryModuleCausalRelation;
   readonly declaration: Readonly<{
     readonly observationId: string | null;
     readonly declarationDigest: string | null;
@@ -620,7 +620,7 @@ export interface SourceProgramOwnerIntentEvidence {
 }
 
 export interface SourceProgramOperationObligationEvidence {
-  readonly obligation: SecModuleOperationObligation;
+  readonly obligation: RepositoryModuleOperationObligation;
   readonly observation: Readonly<{
     readonly status: 'unknown' | 'verified';
     readonly reason: 'consumer-closure-unresolved' | 'effect-closure-unresolved' | 'identity-unresolved' | 'verified';

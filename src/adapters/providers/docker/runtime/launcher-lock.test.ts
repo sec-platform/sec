@@ -15,7 +15,7 @@ import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/r
 import {
   externalProviderCoordinationLeaseName,
   issueExternalProviderCoordinationLeaseTestIssuerForTests,
-  secUserExternalProviderCoordinationPath,
+  userExternalProviderCoordinationPath,
   withExternalProviderCoordinationLeaseAtOwnerIssuedRoot
 } from '../../../runtime-state/workspace-state/external-provider-coordination-lease.ts';
 import {
@@ -70,7 +70,7 @@ test('Docker launcher lock exists only beneath the owner-issued directory', asyn
   process.env.LOCALAPPDATA = '';
   try {
     const owner = inspectNoFollowDirectoryChain(root, 'test-owned launcher coordination root');
-    const coordinationDirectory = secUserExternalProviderCoordinationPath({
+    const coordinationDirectory = userExternalProviderCoordinationPath({
       localAppData: root,
       repositoryRoot: process.cwd()
     });
@@ -117,7 +117,7 @@ test('Docker launcher lock reclaims a lease whose process lost its handle', asyn
   const endpointHost = 'npipe:////./pipe/dockerDesktopLinuxEngine';
   try {
     const owner = inspectNoFollowDirectoryChain(root, 'test-owned launcher recovery root');
-    const coordinationDirectory = secUserExternalProviderCoordinationPath({
+    const coordinationDirectory = userExternalProviderCoordinationPath({
       localAppData: root,
       repositoryRoot: process.cwd()
     });

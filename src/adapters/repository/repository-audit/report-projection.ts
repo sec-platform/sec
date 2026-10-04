@@ -1,11 +1,11 @@
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import type {
-  SEC_REPOSITORY_HEURISTIC_ROUTES,
-  SecAgentSkillId,
-  SecRepositorySurfaceKind
+  AgentSkillId,
+  REPOSITORY_HEURISTIC_ROUTES,
+  RepositorySurfaceKind
 } from '../../self-hosting/control/agent/skill.ts';
-import type { SecRepositoryModuleArchitectureProjection } from '../architecture/contract.ts';
-import type { SecRepositoryModulePlacementAdmission } from '../architecture/placement.ts';
+import type { RepositoryModuleArchitectureProjection } from '../architecture/contract.ts';
+import type { RepositoryModulePlacementAdmission } from '../architecture/placement.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';
 import type { SourceProgramDeclarationTopology } from '../source-program-model/declaration-topology.ts';
 import type { RepositoryAuditSeverity } from './cli-contract.ts';
@@ -20,19 +20,19 @@ export interface RepositoryAuditFinding {
   message: string;
   path?: string;
   severity: RepositoryAuditSeverity;
-  skills?: readonly SecAgentSkillId[];
+  skills?: readonly AgentSkillId[];
 }
 
-export type RepositoryModuleArchitectureWithPlacement = SecRepositoryModuleArchitectureProjection & Readonly<{
+export type RepositoryModuleArchitectureWithPlacement = RepositoryModuleArchitectureProjection & Readonly<{
   /** Same-graph admission evidence compiled from this exact source snapshot. */
-  readonly responsibilityAdmission: SecRepositoryModulePlacementAdmission;
+  readonly responsibilityAdmission: RepositoryModulePlacementAdmission;
 }>;
 
 export interface RepositoryAuditReport {
   architecture: RepositoryModuleArchitectureWithPlacement;
   declarationTopology: SourceProgramDeclarationTopology;
   behaviorCandidates: readonly BehaviorCandidate[];
-  heuristicRoutes: typeof SEC_REPOSITORY_HEURISTIC_ROUTES;
+  heuristicRoutes: typeof REPOSITORY_HEURISTIC_ROUTES;
   contentCoverage: readonly RepositoryContentCoverage[];
   findings: readonly RepositoryAuditFinding[];
   optimizations: readonly string[];
@@ -75,7 +75,7 @@ export interface RepositoryAuditReport {
     trackedPaths: number;
     unknowns: number;
   }>;
-  surfaces: Readonly<Record<SecRepositorySurfaceKind, number>>;
+  surfaces: Readonly<Record<RepositorySurfaceKind, number>>;
   unknowns: readonly string[];
 }
 
@@ -180,10 +180,10 @@ export function projectRepositoryAuditCli(
 }
 
 export type RepositoryModuleArchitectureAudit = Readonly<{
-  readonly feedbackProjections: SecRepositoryModuleArchitectureProjection['feedbackCuts'];
-  readonly reciprocalPairs: SecRepositoryModuleArchitectureProjection['reciprocalPairs'];
-  readonly strongComponents: SecRepositoryModuleArchitectureProjection['strongComponents'];
-  readonly violations: SecRepositoryModuleArchitectureProjection['violations'];
+  readonly feedbackProjections: RepositoryModuleArchitectureProjection['feedbackCuts'];
+  readonly reciprocalPairs: RepositoryModuleArchitectureProjection['reciprocalPairs'];
+  readonly strongComponents: RepositoryModuleArchitectureProjection['strongComponents'];
+  readonly violations: RepositoryModuleArchitectureProjection['violations'];
 }>;
 
 export function projectRepositoryModuleArchitectureCli(
@@ -215,7 +215,7 @@ export function projectRepositoryModuleArchitectureCli(
  * diagnostic cycle evidence, not a minimum or automatically applicable cut.
  */
 export function projectRepositoryModuleArchitectureAudit(
-  architecture: SecRepositoryModuleArchitectureProjection
+  architecture: RepositoryModuleArchitectureProjection
 ): RepositoryModuleArchitectureAudit {
   return Object.freeze({
     feedbackProjections: architecture.feedbackCuts,
@@ -226,7 +226,7 @@ export function projectRepositoryModuleArchitectureAudit(
 }
 
 export function repositoryModuleArchitectureShouldBlock(
-  architecture: Pick<SecRepositoryModuleArchitectureProjection, 'violations'>
+  architecture: Pick<RepositoryModuleArchitectureProjection, 'violations'>
 ): boolean {
   return architecture.violations.length > 0;
 }
@@ -234,7 +234,7 @@ export function repositoryModuleArchitectureShouldBlock(
 export interface BehaviorCandidate {
   line: number;
   path: string;
-  skills: readonly SecAgentSkillId[];
+  skills: readonly AgentSkillId[];
   text: string;
 }
 

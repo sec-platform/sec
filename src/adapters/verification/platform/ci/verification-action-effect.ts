@@ -16,7 +16,7 @@ import {
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../execution/verification/action.ts';
 import type { VerificationEvidence, VerificationGateEvidence } from '../../../../execution/verification/session.ts';
 import {
-  type CodexDevelopmentExactGitBlobReadOptions
+  type ExactGitBlobReadOptions
 } from '../../../providers/git-read/exact-blob.ts';
 import {
   type GitBlobBytes
@@ -64,7 +64,7 @@ export type CodexDevelopmentCiVerificationTestOptions = {
     result: VerificationGateResult;
     evidenceRefs: readonly string[];
   }> | null;
-  readExactGitBlob?: (options: CodexDevelopmentExactGitBlobReadOptions) => GitBlobBytes;
+  readExactGitBlob?: (options: ExactGitBlobReadOptions) => GitBlobBytes;
   /** Owner-issued test seam; production CLI always acquires the exact candidate projection. */
   testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
   /** Test-only pure plan seam; never exposed by the production CLI entry. */

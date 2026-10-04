@@ -9,7 +9,8 @@ import {
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS,
   CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
   CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
-  CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION
+  CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+  CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION
 } from './environment.ts';
 
 export const CI_VERIFICATION_ACTION_DISPATCH_TYPE =
@@ -178,6 +179,44 @@ export const CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT: CiVerificationExecuti
     toolchainRevision: CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
     executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
   });
+
+export const CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT: CiVerificationExecutionEnvironment =
+  Object.freeze({
+    contractRevision: CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
+    kind: 'hosted',
+    os: 'linux',
+    arch: 'x64',
+    runnerImage: 'ubuntu-24.04',
+    toolchainRevision: CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+    executionEnvironmentRevision: CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION
+  });
+
+export function resolveCiVerificationHostedExecutionEnvironment(
+  providerRevision: string
+): CiVerificationExecutionEnvironment {
+  if (providerRevision === CI_VERIFICATION_HOSTED_PROVIDER_REVISION) {
+    return CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
+  }
+  if (providerRevision === CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION) {
+    return CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+  }
+  fail('hosted execution environment revision is not one of the two closed profiles.');
+}
+
+export function parseCiVerificationHostedExecutionEnvironment(
+  value: unknown
+): CiVerificationExecutionEnvironment {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('hosted execution environment must be an object.');
+  }
+  const revision = (value as Record<string, unknown>).executionEnvironmentRevision;
+  if (typeof revision !== 'string') fail('hosted execution environment revision must be text.');
+  const expected = resolveCiVerificationHostedExecutionEnvironment(revision);
+  if (encodeVerificationActionData(value) !== encodeVerificationActionData(expected)) {
+    fail('hosted execution environment differs from its closed profile.');
+  }
+  return expected;
+}
 
 export function createCiVerificationLocalExecutionEnvironment(input: {
   readonly os: string;

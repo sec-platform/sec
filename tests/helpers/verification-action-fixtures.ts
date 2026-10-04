@@ -1,9 +1,10 @@
 import type { CiVerificationNormalizedOperation, VerificationActionKeyDigest, VerificationActionPlan } from '../../src/execution/verification/action.ts';
+import type { HostedSutSandboxReceipt } from "../../src/execution/verification/hosted.ts";
 
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 
 function verificationFixtureDigest(value: unknown): VerificationActionKeyDigest {
@@ -126,7 +127,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
   const sandboxReceipt = Object.freeze({
     ...receiptWithoutDigest,
     receiptDigest: verificationFixtureDigest(receiptWithoutDigest)
-  }) as CodexDevelopmentHostedSutSandboxReceipt;
+  }) as HostedSutSandboxReceipt<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   const observation = CodexDevelopmentFinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
     command: null,

@@ -1,5 +1,5 @@
 import { uniqueSorted } from '../../../../contracts/canonical.ts';
-import { CodexDevelopmentBuildAffectedTestInventory } from './affected.ts';
+import { buildAffectedTestInventory } from './affected.ts';
 import {
   compileTestBudgetProjection,
   getSlowTestSuitesSync,
@@ -88,7 +88,7 @@ export function selectSlowTestRiskClosure(
 
   const boundedBaselineRequired = resolveTestImpactRiskPolicies(files, provider)
     .includes('slow-risk-baseline');
-  const inventory = CodexDevelopmentBuildAffectedTestInventory(files, provider);
+  const inventory = buildAffectedTestInventory(files, provider);
   const directlyChangedSlowTests = inventory.changedSlowTests;
   // Use the batch inventory + hasTestImpactForFile (which leverages the
   // reverse-import-map) instead of per-file CodexDevelopmentBuildAffectedTestInventoryV1

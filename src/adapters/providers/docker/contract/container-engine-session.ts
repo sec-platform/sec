@@ -9,6 +9,7 @@ import type { DockerEndpointIdentity } from './daemon.ts';
 export type ContainerEngineOperation =
   | Readonly<{ kind: 'buildx-bake'; arguments: readonly string[] }>
   | Readonly<{ kind: 'buildx-build'; arguments: readonly string[] }>
+  | Readonly<{ kind: 'buildx-inspect-default'; arguments: readonly string[] }>
   | Readonly<{ kind: 'container-copy'; arguments: readonly string[] }>
   | Readonly<{ kind: 'container-create'; arguments: readonly string[] }>
   | Readonly<{ kind: 'container-exec'; arguments: readonly string[] }>
@@ -17,6 +18,7 @@ export type ContainerEngineOperation =
   | Readonly<{ kind: 'container-remove'; arguments: readonly string[] }>
   | Readonly<{ kind: 'container-run'; arguments: readonly string[] }>
   | Readonly<{ kind: 'container-start'; arguments: readonly string[] }>
+  | Readonly<{ kind: 'container-stop'; arguments: readonly string[] }>
   | Readonly<{ kind: 'image-inspect'; arguments: readonly string[] }>
   | Readonly<{ kind: 'image-list'; arguments: readonly string[] }>
   | Readonly<{ kind: 'image-remove'; arguments: readonly string[] }>

@@ -423,10 +423,10 @@ export function parseIntegrationAuthorizationOperationPublicationComment(
   return publication;
 }
 
-export function observeIntegrationAuthorizationOperationPublications(
+export async function observeIntegrationAuthorizationOperationPublications(
   repositoryRoot: string,
   input: { repository: string; pullRequestNumber: number; sessionRevision: `sha256:${string}` }
-): readonly Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>[] {
+): Promise<readonly Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>[]> {
   const endpoint = `/repos/${input.repository}/issues/${input.pullRequestNumber}/comments`;
   const inventory = listIssueComments(repositoryRoot, endpoint);
   if (inventory.comments === null) {
@@ -446,12 +446,29 @@ export function observeIntegrationAuthorizationOperationPublications(
     } catch (error) {
       throw new Error(`Integration authorization comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
-    assertHostedCommentProvenanceLive(
+    const source = await assertHostedCommentProvenanceLive(
       repositoryRoot,
       input.repository,
       comment,
       publication.provenance
     );
+    if (source !== undefined) {
+      const artifact = source.authenticatedArtifact;
+      const authorization = publication.result.authorization;
+      if (publication.sessionRevision !== artifact.session.sessionRevision
+          || publication.repository !== artifact.session.repository
+          || publication.pullRequestNumber !== artifact.session.prNumber || authorization === null
+          || authorization.baseSha !== artifact.session.baseSha
+          || authorization.baseTreeSha !== artifact.session.baseTreeSha
+          || authorization.headSha !== artifact.session.headSha || authorization.headTreeSha !== artifact.session.headTreeSha
+          || authorization.manifestDigest !== artifact.session.manifestDigest
+          || authorization.actionClosureDigest !== artifact.session.actionPlanClosureDigest
+          || authorization.evidenceDigest !== artifact.evidence.evidenceDigest
+          || authorization.scopeAuthorizationReceiptDigest !== artifact.scopeAuthorization.authorizationDigest
+          || authorization.scopeAuthorizationRevision !== artifact.scopeAuthorization.authorizationRevision) {
+        throw new Error('Delegated authorization publication differs from the independently authenticated Session, Scope or Evidence.');
+      }
+    }
     if (publication.repository !== input.repository
       || publication.pullRequestNumber !== input.pullRequestNumber) {
       throw new Error(`Integration authorization comment ${comment.id} targets a different PR.`);

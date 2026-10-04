@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import type { VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import type { DependencyMaterializationRecovery, HostedActionExecutionTicket, HostedActionResolution, HostedDependencyArchiveProjection, HostedSutInventory, PreparedTrustedBootstrapSutInputs } from "../../../../execution/verification/hosted.ts";
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
@@ -29,7 +30,7 @@ import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, type VerificationActionProviderOrigi
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY
 } from './contract/revision.ts';
-import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution } from './verification-hosted-action-contract.ts';
+
 import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 
@@ -189,7 +190,7 @@ export function assertRetainedHostedSutArchive(
 
 /** Verify prepared candidate bytes before the durable start tombstone exists. */
 export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
   candidateRoot: string;
 }>): void {
   const resolution = CodexDevelopmentParseHostedActionResolution(
@@ -236,14 +237,7 @@ export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Reado
   assertSameNoFollowDirectoryIdentity(candidateIdentity, 'Hosted Action prepared candidate root');
 }
 
-export type CodexDevelopmentHostedActionArchiveInventory = Readonly<{
-  archiveDigest: VerificationActionKeyDigest;
-  inventoryDigest: VerificationActionKeyDigest;
-  entryCount: number;
-  totalFileBytes: number;
-  dependencyClosureDigest: VerificationActionKeyDigest;
-  gitBundleDigest: VerificationActionKeyDigest;
-}>;
+
 
 const HOSTED_ACTION_DEPENDENCY_AUTHORITY_PATHS = Object.freeze([
   '.bun-version', 'bun.lock', 'bunfig.toml', 'package.json'
@@ -362,13 +356,7 @@ export type CodexDevelopmentHostedDependencyPhysicalSnapshot = Readonly<{
   entries: readonly NoFollowDirectoryTreeInventoryEntry[];
 }>;
 
-export type CodexDevelopmentHostedDependencyArchiveProjection = Readonly<{
-  schema: 'sec-hosted-dependency-archive-projection-v1';
-  entriesObserved: number;
-  linksProjected: number;
-  sourceSnapshotDigest: VerificationActionKeyDigest;
-  archiveProjectionDigest: VerificationActionKeyDigest;
-}>;
+
 
 export function CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(
   dependencyRoot: string
@@ -420,7 +408,7 @@ export function CodexDevelopmentAssertHostedDependencyArchiveProjection(input: R
   before: CodexDevelopmentHostedDependencyPhysicalSnapshot;
   after: CodexDevelopmentHostedDependencyPhysicalSnapshot;
   archiveEntries: readonly HostedActionArchiveInventoryEntry[];
-}>): CodexDevelopmentHostedDependencyArchiveProjection {
+}>): HostedDependencyArchiveProjection {
   if (input.before.schema !== 'sec-hosted-dependency-physical-snapshot-v1' ||
       input.after.schema !== 'sec-hosted-dependency-physical-snapshot-v1' ||
       JSON.stringify(input.before) !== JSON.stringify(input.after)) {
@@ -861,7 +849,7 @@ export function CodexDevelopmentInspectHostedActionArchiveInventory(
 }
 
 type HostedActionArchiveInspectionInput = Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
   preparedCandidateArchive: string;
   baseDependencyClosureDigest: VerificationActionKeyDigest;
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
@@ -871,7 +859,7 @@ type HostedActionArchiveInspectionInput = Readonly<{
 function inspectHostedActionArchiveDetailed(
   input: HostedActionArchiveInspectionInput
 ): Readonly<{
-  inventory: CodexDevelopmentHostedActionArchiveInventory;
+  inventory: HostedSutInventory;
   entries: readonly HostedActionArchiveInventoryEntry[];
 }> {
   const resolution = CodexDevelopmentParseHostedActionResolution(
@@ -933,13 +921,13 @@ function inspectHostedActionArchiveDetailed(
 
 export function CodexDevelopmentInspectHostedActionArchive(
   input: HostedActionArchiveInspectionInput
-): CodexDevelopmentHostedActionArchiveInventory {
+): HostedSutInventory {
   return inspectHostedActionArchiveDetailed(input).inventory;
 }
 
 export type CodexDevelopmentPreparedHostedActionInputs = Readonly<{
   preparedCandidateArchive: string;
-  archiveInventory: CodexDevelopmentHostedActionArchiveInventory;
+  archiveInventory: HostedSutInventory;
   baseDependencyClosureDigest: VerificationActionKeyDigest;
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
 }>;
@@ -968,10 +956,7 @@ function runHostedMaterializerCommand(
   }
 }
 
-export type CodexDevelopmentDependencyMaterializationRecovery = Readonly<{
-  attempts: 1 | 2;
-  recoveredFrom: 'none' | 'bun-tarball-extraction';
-}>;
+
 
 function dependencyMaterializationFailureDiagnostic(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 2048);
@@ -985,7 +970,7 @@ function isBunTarballExtractionFailure(error: unknown): boolean {
 
 export function CodexDevelopmentRunBoundedDependencyMaterialization(
   runExactMaterialization: () => void
-): CodexDevelopmentDependencyMaterializationRecovery {
+): DependencyMaterializationRecovery {
   try {
     runExactMaterialization();
     return Object.freeze({ attempts: 1, recoveredFrom: 'none' as const });
@@ -1009,7 +994,7 @@ export function CodexDevelopmentRunBoundedDependencyMaterialization(
 }
 
 export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
   baseRoot: string;
   candidateRoot: string;
   outputDirectory: string;
@@ -1022,6 +1007,9 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   );
   const baseRoot = realpathSync.native(path.resolve(input.baseRoot));
   const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
+  const baseRootIdentity = inspectNoFollowDirectoryChain(
+    baseRoot, 'Hosted Action preparation exact dependency base root'
+  ).target;
   const candidateRootIdentity = inspectNoFollowDirectoryChain(
     candidateRoot, 'Hosted Action preparation candidate root'
   ).target;
@@ -1085,7 +1073,10 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
     if (!(error instanceof Error && 'code' in error &&
         (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
   }
-  const dependencyRoot = path.resolve(candidateRoot, 'node_modules');
+  // Dependency authority is the exact trusted base. The retained archive
+  // producer projects that source directly, including its bounded in-root
+  // links; copying it into the untrusted candidate adds no independent fact.
+  const dependencyRoot = path.resolve(baseRoot, 'node_modules');
   const dependencyPhysicalBefore = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(dependencyRoot);
   const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchive({
     candidateRoot,
@@ -1109,6 +1100,13 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
     after: dependencyPhysicalAfter,
     archiveEntries: inspectedArchive.entries
   });
+  if (encodeVerificationActionData(hostedActionDependencyClosure({ baseRoot, candidateRoot,
+    baseSha: resolution.artifactInput.baseSha })) !== encodeVerificationActionData(dependencyClosure)
+      || gitCandidateBytes(baseRoot, ['rev-parse', 'HEAD']).toString('utf8').trim() !== baseHead
+      || gitCandidateBytes(baseRoot, ['rev-parse', 'HEAD^{tree}']).toString('utf8').trim() !== baseTree) {
+    throw new Error('Hosted Action exact base dependency authority changed during archive projection.');
+  }
+  assertSameNoFollowDirectoryIdentity(baseRootIdentity, 'Hosted Action preparation dependency base root');
   assertSameNoFollowDirectoryIdentity(candidateRootIdentity, 'Hosted Action preparation candidate root');
   return Object.freeze({
     preparedCandidateArchive,
@@ -1118,17 +1116,7 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   });
 }
 
-export type CodexDevelopmentPreparedTrustedBootstrapSutInputs = Readonly<{
-  preparedCandidateArchive: string;
-  archiveDigest: VerificationActionKeyDigest;
-  archiveInventoryDigest: VerificationActionKeyDigest;
-  dependencyClosureDigest: VerificationActionKeyDigest;
-  authenticatedGitClosureDigest: VerificationActionKeyDigest;
-  entryCount: number;
-  totalFileBytes: number;
-  dependencyMaterialization: CodexDevelopmentDependencyMaterializationRecovery;
-  dependencyArchiveProjection: CodexDevelopmentHostedDependencyArchiveProjection;
-}>;
+
 
 export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean(input: Readonly<{
   baseRoot: string;
@@ -1170,7 +1158,7 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
   baseSha: string;
   headSha: string;
   treeSha: string;
-}>): CodexDevelopmentPreparedTrustedBootstrapSutInputs {
+}>): PreparedTrustedBootstrapSutInputs {
   if (process.platform !== 'linux' || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
       !/^[0-9a-f]{40}$/u.test(input.headSha) || !/^[0-9a-f]{40}$/u.test(input.treeSha)) {
     throw new Error('Trusted bootstrap SUT input identity is invalid or unsupported on this host.');
@@ -1301,11 +1289,11 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
 }
 
 export function CodexDevelopmentMaterializeHostedActionCandidate(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  ticket: CodexDevelopmentHostedActionExecutionTicket;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
+  ticket: HostedActionExecutionTicket<import("./contract/evidence.ts").CodexDevelopmentVerificationActionArtifactProducer, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA>;
   preparedCandidateArchive: string;
   inspectArchive?: (archive: string) => unknown;
-}>): CodexDevelopmentHostedActionArchiveInventory {
+}>): HostedSutInventory {
   const resolution = CodexDevelopmentParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );

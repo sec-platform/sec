@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
 
-export const SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA =
+export const DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA =
   'sec-durable-local-execution-record' as const;
-export const SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES = 4_096 as const;
+export const DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES = 4_096 as const;
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
@@ -14,7 +14,7 @@ const digestSchema = z.custom<`sha256:${string}`>(
 );
 const nullableDigestSchema = digestSchema.nullable();
 const unsignedBaseRecordShape = {
-  schema: z.literal(SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA),
+  schema: z.literal(DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA),
   sequence: z.number().int().nonnegative().safe(),
   operationKeyDigest: digestSchema,
   previousRecordDigest: nullableDigestSchema
@@ -91,114 +91,114 @@ const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
   attemptResolutionUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict()
 ]);
 
-export type SecDurableExecutionDigest = z.infer<typeof digestSchema>;
-export type SecDurableExecutionRecord = z.infer<typeof durableExecutionRecordSchema>;
-export type SecDurableExecutionUnsignedRecord = z.infer<typeof durableExecutionUnsignedRecordSchema>;
-export type SecDurableAttemptResolutionKind = Extract<
-  SecDurableExecutionRecord,
+export type DurableExecutionDigest = z.infer<typeof digestSchema>;
+export type DurableExecutionRecord = z.infer<typeof durableExecutionRecordSchema>;
+export type DurableExecutionUnsignedRecord = z.infer<typeof durableExecutionUnsignedRecordSchema>;
+export type DurableAttemptResolutionKind = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'attempt-resolution' }
 >['resolutionKind'];
-type SecDurableExecutionIntentRecord = Extract<
-  SecDurableExecutionRecord,
+type DurableExecutionIntentRecord = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'intent' }
 >;
-export type SecDurableExecutionAttemptStartRecord = Extract<
-  SecDurableExecutionRecord,
+export type DurableExecutionAttemptStartRecord = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'attempt-start' }
 >;
-type SecDurableExecutionProviderSettlementReferenceRecord = Extract<
-  SecDurableExecutionRecord,
+type DurableExecutionProviderSettlementReferenceRecord = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'provider-settlement-reference' }
 >;
-type SecDurableExecutionDomainReadbackReferenceRecord = Extract<
-  SecDurableExecutionRecord,
+type DurableExecutionDomainReadbackReferenceRecord = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'domain-readback-reference' }
 >;
-type SecDurableExecutionLostHandleReferenceRecord = Extract<
-  SecDurableExecutionRecord,
+type DurableExecutionLostHandleReferenceRecord = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'lost-handle-reference' }
 >;
-type SecDurableExecutionAttemptResolutionRecord = Extract<
-  SecDurableExecutionRecord,
+type DurableExecutionAttemptResolutionRecord = Extract<
+  DurableExecutionRecord,
   { readonly kind: 'attempt-resolution' }
 >;
 
-interface SecDurableExecutionAttemptObservation {
-  readonly start: SecDurableExecutionAttemptStartRecord;
-  readonly providerSettlements: readonly SecDurableExecutionProviderSettlementReferenceRecord[];
-  readonly domainReadback: SecDurableExecutionDomainReadbackReferenceRecord | null;
-  readonly lostHandle: SecDurableExecutionLostHandleReferenceRecord | null;
+interface DurableExecutionAttemptObservation {
+  readonly start: DurableExecutionAttemptStartRecord;
+  readonly providerSettlements: readonly DurableExecutionProviderSettlementReferenceRecord[];
+  readonly domainReadback: DurableExecutionDomainReadbackReferenceRecord | null;
+  readonly lostHandle: DurableExecutionLostHandleReferenceRecord | null;
 }
 
 /** Durable bytes are observations only. They never authorize execution or replay. */
-export interface SecDurableExecutionJournalObservation {
-  readonly intent: SecDurableExecutionIntentRecord;
-  readonly records: readonly SecDurableExecutionRecord[];
-  readonly activeAttempt: SecDurableExecutionAttemptObservation | null;
-  readonly latestResolution: SecDurableExecutionAttemptResolutionRecord | null;
+export interface DurableExecutionJournalObservation {
+  readonly intent: DurableExecutionIntentRecord;
+  readonly records: readonly DurableExecutionRecord[];
+  readonly activeAttempt: DurableExecutionAttemptObservation | null;
+  readonly latestResolution: DurableExecutionAttemptResolutionRecord | null;
   readonly state: 'prepared' | 'running' | 'lost-handle' | 'observed' | 'retry-admitted' | 'settled';
-  readonly journalDigest: SecDurableExecutionDigest;
+  readonly journalDigest: DurableExecutionDigest;
 }
 
-export type SecDurableExecutionContractFailureKind =
+export type DurableExecutionContractFailureKind =
   | 'invalid-record'
   | 'noncanonical-record'
   | 'digest-mismatch'
   | 'invalid-transition';
 
-export class SecDurableExecutionContractError extends Error {
-  readonly kind: SecDurableExecutionContractFailureKind;
+export class DurableExecutionContractError extends Error {
+  readonly kind: DurableExecutionContractFailureKind;
 
-  constructor(kind: SecDurableExecutionContractFailureKind, message: string) {
+  constructor(kind: DurableExecutionContractFailureKind, message: string) {
     super(`Durable local execution ${message}`);
-    this.name = 'SecDurableExecutionContractError';
+    this.name = 'DurableExecutionContractError';
     this.kind = kind;
   }
 }
 
-function fail(kind: SecDurableExecutionContractFailureKind, message: string): never {
-  throw new SecDurableExecutionContractError(kind, message);
+function fail(kind: DurableExecutionContractFailureKind, message: string): never {
+  throw new DurableExecutionContractError(kind, message);
 }
 
-function unsigned(record: SecDurableExecutionRecord): SecDurableExecutionUnsignedRecord {
+function unsigned(record: DurableExecutionRecord): DurableExecutionUnsignedRecord {
   const { recordDigest: _recordDigest, ...value } = record;
   return durableExecutionUnsignedRecordSchema.parse(value);
 }
 
 /** @internal Raw record construction is private to the Runtime State journal writer. */
 export function sealDurableExecutionRecordForInternalWriter<
-  Value extends SecDurableExecutionUnsignedRecord
+  Value extends DurableExecutionUnsignedRecord
 >(
   value: Value
-): Readonly<Value & { readonly recordDigest: SecDurableExecutionDigest }> {
+): Readonly<Value & { readonly recordDigest: DurableExecutionDigest }> {
   const parsed = durableExecutionUnsignedRecordSchema.safeParse(value);
   if (!parsed.success) {
     fail('invalid-record', `unsigned record violates its strict schema: ${z.prettifyError(parsed.error)}`);
   }
   const canonical = parsed.data;
   const record = Object.assign(
-    {}, canonical, { recordDigest: sha256(canonical) as SecDurableExecutionDigest }
+    {}, canonical, { recordDigest: sha256(canonical) as DurableExecutionDigest }
   );
   if (Buffer.byteLength(JSON.stringify(canonicalJson(record)), 'utf8')
-      > SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES) {
+      > DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES) {
     fail('invalid-record', 'record exceeds its canonical byte ceiling.');
   }
   Object.freeze(record);
-  return record as unknown as Readonly<Value & { readonly recordDigest: SecDurableExecutionDigest }>;
+  return record as unknown as Readonly<Value & { readonly recordDigest: DurableExecutionDigest }>;
 }
 
-export function encodeDurableExecutionRecord(record: SecDurableExecutionRecord): string {
+export function encodeDurableExecutionRecord(record: DurableExecutionRecord): string {
   return JSON.stringify(canonicalJson(record));
 }
 
-export function parseDurableExecutionRecord(source: string): SecDurableExecutionRecord {
+export function parseDurableExecutionRecord(source: string): DurableExecutionRecord {
   const parsed = parseExactJson(source, 'Durable local execution record');
   const result = durableExecutionRecordSchema.safeParse(parsed);
   if (!result.success) {
     fail('invalid-record', `record violates its strict schema: ${z.prettifyError(result.error)}`);
   }
   const record = result.data;
-  if (Buffer.byteLength(source, 'utf8') > SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES) {
+  if (Buffer.byteLength(source, 'utf8') > DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES) {
     fail('invalid-record', 'record exceeds its canonical byte ceiling.');
   }
   const expectedDigest = sha256(unsigned(record));
@@ -209,8 +209,8 @@ export function parseDurableExecutionRecord(source: string): SecDurableExecution
 }
 
 function assertAttemptResolution(
-  resolution: SecDurableExecutionAttemptResolutionRecord,
-  attempt: SecDurableExecutionAttemptObservation
+  resolution: DurableExecutionAttemptResolutionRecord,
+  attempt: DurableExecutionAttemptObservation
 ): void {
   const providerRecordDigests = attempt.providerSettlements
     .map(({ recordDigest }) => recordDigest)
@@ -225,17 +225,17 @@ function assertAttemptResolution(
 }
 
 export function observeDurableExecutionJournal(
-  records: readonly SecDurableExecutionRecord[]
-): SecDurableExecutionJournalObservation {
+  records: readonly DurableExecutionRecord[]
+): DurableExecutionJournalObservation {
   if (records.length === 0 || records[0]?.kind !== 'intent') {
     fail('invalid-transition', 'journal must begin with exactly one intent record.');
   }
-  const intent = records[0] as SecDurableExecutionIntentRecord;
-  let previous: SecDurableExecutionRecord | null = null;
-  let active: SecDurableExecutionAttemptObservation | null = null;
-  let latestResolution: SecDurableExecutionAttemptResolutionRecord | null = null;
-  let previousAttemptStart: SecDurableExecutionAttemptStartRecord | null = null;
-  const attemptNonces = new Set<SecDurableExecutionDigest>();
+  const intent = records[0] as DurableExecutionIntentRecord;
+  let previous: DurableExecutionRecord | null = null;
+  let active: DurableExecutionAttemptObservation | null = null;
+  let latestResolution: DurableExecutionAttemptResolutionRecord | null = null;
+  let previousAttemptStart: DurableExecutionAttemptStartRecord | null = null;
+  const attemptNonces = new Set<DurableExecutionDigest>();
   for (const [index, record] of records.entries()) {
     if (record.sequence !== index
         || record.previousRecordDigest !== (previous?.recordDigest ?? null)) {
@@ -342,11 +342,11 @@ export function observeDurableExecutionJournal(
     activeAttempt: active,
     latestResolution,
     state,
-    journalDigest: sha256(records.map((record) => record.recordDigest)) as SecDurableExecutionDigest
+    journalDigest: sha256(records.map((record) => record.recordDigest)) as DurableExecutionDigest
   });
 }
 
-export function parseDurableExecutionJournal(source: string): SecDurableExecutionJournalObservation {
+export function parseDurableExecutionJournal(source: string): DurableExecutionJournalObservation {
   if (source.length === 0 || !source.endsWith('\n')) {
     fail('noncanonical-record', 'journal must contain newline-terminated canonical records.');
   }

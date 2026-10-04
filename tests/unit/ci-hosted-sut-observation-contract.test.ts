@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test';
 import type { VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
+import type { HostedActionRawResult, HostedSutSandboxReceipt } from "../../src/execution/verification/hosted.ts";
 
 
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedActionRawResult, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
@@ -83,7 +84,7 @@ function receipt(input: Readonly<{
   capability?: 'supported' | 'unsupported' | 'invalidated';
   exitCode?: number;
   clean?: boolean;
-}> = {}): CodexDevelopmentHostedSutSandboxReceipt {
+}> = {}): HostedSutSandboxReceipt<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const capability = input.capability ?? 'supported';
   const clean = input.clean ?? true;
   const executed = capability === 'supported';
@@ -163,7 +164,7 @@ function raw(input: Readonly<{
   capability?: 'supported' | 'unsupported' | 'invalidated';
   exitCode?: number;
   clean?: boolean;
-}> = {}): CodexDevelopmentHostedActionRawResult {
+}> = {}): HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const sandboxReceipt = receipt(input);
   return CodexDevelopmentFinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
@@ -179,7 +180,7 @@ function raw(input: Readonly<{
 }
 
 function reduce(
-  observation: CodexDevelopmentHostedActionRawResult,
+  observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>,
   executionAuthorization: typeof authorization = authorization
 ) {
   return CodexDevelopmentReduceHostedSutObservation({
@@ -223,7 +224,7 @@ test('raw SUT transport is observation-only and the sole reducer derives four ph
 
 test('physical command authorization and PASS settlement reject recomputed contradictory observations', () => {
   const original = raw();
-  const rehashObservation = (observation: CodexDevelopmentHostedActionRawResult): void => {
+  const rehashObservation = (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>): void => {
     const { receiptDigest: ignoredReceiptDigest, ...receiptWithoutDigest } = observation.sandboxReceipt;
     void ignoredReceiptDigest;
     (observation.sandboxReceipt as { receiptDigest: VerificationActionKeyDigest }).receiptDigest =
@@ -234,9 +235,9 @@ test('physical command authorization and PASS settlement reject recomputed contr
       canonicalDigest(rawWithoutDigest);
   };
   const forgedObservation = (
-    mutate: (observation: CodexDevelopmentHostedActionRawResult) => void
-  ): CodexDevelopmentHostedActionRawResult => {
-    const observation = structuredClone(original) as CodexDevelopmentHostedActionRawResult;
+    mutate: (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => void
+  ): HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> => {
+    const observation = structuredClone(original) as HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
     mutate(observation);
     rehashObservation(observation);
     return observation;
@@ -298,31 +299,31 @@ test('physical command authorization and PASS settlement reject recomputed contr
   expect(() => reduce(forgedProjection)).toThrow(/physical command observation/u);
 
   for (const mutate of [
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution as { outputTruncated: boolean }).outputTruncated = true;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution as { stdoutBytesObserved: number }).stdoutBytesObserved =
         CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT + 1;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution as { stderrBytesObserved: number }).stderrBytesObserved =
         CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT + 1;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt as { diagnostic: string | null }).diagnostic = 'dirty successful receipt';
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution.lifecycle as { candidateStarted: boolean }).candidateStarted = false;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution as { postExecutionInputDigest: VerificationActionKeyDigest | null })
         .postExecutionInputDigest = null;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution.lifecycle as { namespaceEstablished: boolean }).namespaceEstablished = false;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult<typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("../../src/adapters/verification/platform/ci/contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>) => {
       (observation.sandboxReceipt.execution.lifecycle as { candidateUnitSettled: boolean | null }).candidateUnitSettled = null;
     }
   ]) {

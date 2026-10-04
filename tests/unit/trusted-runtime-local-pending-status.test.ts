@@ -11,7 +11,7 @@ import { encodeVerificationActionData } from '../../src/adapters/verification/pl
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { createVerificationSessionLocalPreparationRequest } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import { parseTrustedRuntimeContainerReceipt, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID } from '../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';

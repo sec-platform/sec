@@ -9,7 +9,7 @@ import type { DevelopmentCommitAdmission } from '../../src/adapters/self-hosting
 import { runDevelopmentCommit } from '../../src/adapters/self-hosting/development/commit/operation.ts';
 
 import { decodeDocumentControlCommand, validateSourceCheckpointStatusRequest } from '../../src/adapters/self-hosting/control/documentation/document-control-cli.ts';
-import { CodexDevelopmentProjectStatusContinuation } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
+import { projectStatusContinuation } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import { resolveSourceCheckpointStatus } from '../../src/adapters/self-hosting/control/documentation/document-control-source-checkpoint.ts';
 
 function git(root: string, args: string[]): string {
@@ -75,7 +75,7 @@ test('source route works without remote/provider or Work and does not issue form
     expect(output.changes.staged).toEqual(['owned.txt']);
     expect(await readFile(index)).toEqual(before);
     expect(git(root, ['rev-parse', 'HEAD'])).toBe(base);
-    const formal = CodexDevelopmentProjectStatusContinuation({
+    const formal = projectStatusContinuation({
       repositoryRoot: root, headSha: base, candidateTreeSha: null, defaultRefState: 'unavailable',
       activeWorkPackage: { state: 'unresolved', reason: 'default-ref-unavailable' },
       pointerManifest: null, changes: null, journal: null

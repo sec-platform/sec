@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
 
 import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { settleResources } from '../../execution/resource-settlement.ts';
 import { snapshotWorkspaceCreateRequest, type WorkspaceCreateIntent, type WorkspaceCreateSession, type WorkspaceCreateTemplate, type WorkspaceTemplateBlueprint } from '../../execution/workspace-create.ts';
-import { workspaceConfigRelativePath } from '../../workspace/paths.ts';
+
 import { assertWorkspaceWriteLease, WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
 import { observePhysicalJournalMutationEntry } from '../runtime-state/physical/runtime/mutation-lease.ts';
 import {
