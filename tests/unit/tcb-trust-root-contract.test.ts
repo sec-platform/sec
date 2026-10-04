@@ -30,7 +30,9 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_TRUST_ROOT.causalRuntimePaths.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
   expect(parsed.reviewedSutEdges).toEqual([]);
-  expect(parsed.reviewedBoundaryEdges).toEqual([]);
+  expect(parsed.reviewedBoundaryEdges).toEqual([
+    'src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts'
+  ]);
   expect(parsed.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
@@ -131,6 +133,10 @@ test('policy and derived causal closure are both validated when composing the tr
   const base = SEC_TRUSTED_BOOTSTRAP_REGISTRY;
   const modules = TCB_CLOSURE_LOCK.modules;
   const syntheticModule = 'scripts/codex/untrusted.ts';
+  expect(() => createSecTrustedBootstrapTrustRoot({
+    registry: base,
+    causalRuntimePaths: [...modules, SEC_TCB_CLOSURE_RUNTIME_PATH].sort()
+  })).toThrow(`Trusted bootstrap path cannot be both staticExact and causalRuntime: ${SEC_TCB_CLOSURE_RUNTIME_PATH}.`);
   const causalFailures = [
     modules.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER),
     [...modules].reverse(),

@@ -15,9 +15,6 @@ import path from 'node:path';
 import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import { compileRepositorySourceProgramModel } from '../../src/adapters/repository/source-program-model/repository.ts';
 import {
-  TCB_REVIEWED_NETWORK_DISPATCHERS,
-  TCB_REVIEWED_PROCESS_DISPATCHERS,
-  TCB_TRUST_ROOT,
   compileTcbClosureActionResult,
   trustedRuntimeClosure as compileTrustedRuntimeClosure,
   computeTcbClosureLock,
@@ -28,10 +25,14 @@ import {
   readTcbClosureCandidateFile,
   runtimeRelativeImportsFromSource,
   selectTcbClosureCandidateAction,
+  TCB_REVIEWED_NETWORK_DISPATCHERS,
+  TCB_REVIEWED_PROCESS_DISPATCHERS,
+  TCB_TRUST_ROOT,
   verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
 } from '../../src/adapters/verification/platform/trust/compiler.ts';
-import { SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
+import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
+import { settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
 const TCB_CLOSURE_LOCK = computeTcbClosureLock(LIVE_TCB_CLOSURE);
@@ -345,7 +346,73 @@ test('TCB closure lock is the sole causal-runtime identity consumed by the trust
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_CLOSURE_LOCK.modules).toContain(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
   expect(TCB_CLOSURE_LOCK.modules.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
-  expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([]);
+  expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([
+    'src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts'
+  ]);
+});
+
+test('MainHealth compiler boundary retains exact static protection and covers its real dependencies', () => {
+  const snapshot = createTcbClosureCandidateSnapshot({
+    candidateRoot: path.resolve(import.meta.dir, '../..')
+  });
+  const options = { candidateSnapshot: snapshot };
+  const lock = generateTcbClosureLock(options);
+  const trustRoot = createSecTrustedBootstrapTrustRoot({
+    registry: SEC_TRUSTED_BOOTSTRAP_REGISTRY,
+    causalRuntimePaths: lock.modules
+  });
+  const boundary = trustedRuntimeClosure([SEC_TCB_CLOSURE_RUNTIME_PATH], options);
+  finalizeTcbClosureCandidateSnapshot(snapshot);
+
+  expect(lock.modules).toContain('src/adapters/self-hosting/control/main-health/post-merge-plan.ts');
+  expect(lock.modules).not.toContain(SEC_TCB_CLOSURE_RUNTIME_PATH);
+  expect(matchSecTrustedBootstrapPath(SEC_TCB_CLOSURE_RUNTIME_PATH, trustRoot)).toEqual({
+    kind: 'static-exact',
+    rule: SEC_TCB_CLOSURE_RUNTIME_PATH
+  });
+  expect(boundary.closure.has(SEC_TCB_CLOSURE_RUNTIME_PATH)).toBe(true);
+  for (const dependency of boundary.closure) {
+    expect(matchSecTrustedBootstrapPath(dependency, trustRoot)).not.toBeNull();
+  }
+});
+
+test('compiler boundary only cuts the reviewed importer and still observes target bytes', () => {
+  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-boundary-'));
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    const root = realpathSync.native(createdRoot);
+    const importer = 'src/adapters/self-hosting/control/main-health/post-merge-plan.ts';
+    const foreignImporter = 'src/adapters/self-hosting/control/main-health/unreviewed-plan.ts';
+    const target = SEC_TCB_CLOSURE_RUNTIME_PATH;
+    const dependency = path.posix.join(path.posix.dirname(target), 'fixture-dependency.ts');
+    const specifier = path.posix.relative(path.posix.dirname(importer), target);
+    mkdirSync(path.join(root, path.posix.dirname(importer)), { recursive: true });
+    mkdirSync(path.join(root, path.posix.dirname(target)), { recursive: true });
+    writeFileSync(path.join(root, importer), `import '${specifier}';\n`);
+    writeFileSync(path.join(root, foreignImporter), `import '${specifier}';\n`);
+    writeFileSync(path.join(root, target), "import './fixture-dependency.ts';\n");
+    writeFileSync(path.join(root, dependency), 'export const dependency = 1;\n');
+
+    const foreignSnapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
+    const foreignClosure = trustedRuntimeClosure([foreignImporter], { candidateSnapshot: foreignSnapshot });
+    finalizeTcbClosureCandidateSnapshot(foreignSnapshot);
+    expect([...foreignClosure.reviewedBoundaryEdges]).toEqual([]);
+    expect([...foreignClosure.closure].sort()).toEqual([foreignImporter, target, dependency].sort());
+
+    const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
+    const closure = trustedRuntimeClosure([importer], { candidateSnapshot: snapshot });
+    expect([...closure.closure]).toEqual([importer]);
+    expect([...closure.reviewedBoundaryEdges]).toEqual([`${importer} -> ${target}`]);
+    writeFileSync(path.join(root, target), 'export const changed = true;\n');
+    expect(() => finalizeTcbClosureCandidateSnapshot(snapshot)).toThrow('snapshot changed');
+  } catch (error) {
+    primary = { label: 'compiler-boundary-assertions', error };
+  } finally {
+    settleResources({
+      primary,
+      cleanup: [{ label: 'compiler-boundary-fixture', settle: () => rmSync(createdRoot, { recursive: true, force: true }) }]
+    });
+  }
 });
 
 test('TCB closure keeps Linux endpoint native effects in the reviewed physical owner', () => {
@@ -717,4 +784,3 @@ test('TCB HTTPS census consumes the actual static publisher source', () => {
   expect([...network]).toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
   expect(external.has(`${publisher} -> node:https`)).toBe(true);
 });
-
