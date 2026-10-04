@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "ec014e803d84dd164a937fac3ef524f874cb144cbb564c567831ab8f6bcd532e",
+  "source_set_sha256": "64aa6a8c14d524ebbf6d437330a2696b33b6d28d4fa706c9a3e9c0b2cefb6cf3",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -184,18 +184,18 @@
     },
     {
       "path": "docs/产品/术语与质量属性.md",
-      "bytes": 55263,
-      "sha256": "2debbf970b848730c83da78c8dc764e35277f30b72a4280750de4b431af67294"
+      "bytes": 60999,
+      "sha256": "5dc0426c3ed5701f97429adccfcac9ef2ef2bdb27b435ece216192f0586d8c0f"
     },
     {
       "path": "docs/任务路线.md",
-      "bytes": 12368,
-      "sha256": "2c1021afc40c8b4b03c16190f6c39ee6b754f4feb64579f4aaa49ffa9340bf30"
+      "bytes": 12570,
+      "sha256": "fddb4bacb99de2acaf7d74e932b2c666c564c7a3c6f1aeee7c7e379bbc1acc38"
     },
     {
       "path": "docs/作者/README.md",
-      "bytes": 3818,
-      "sha256": "b27c4619325c1644f4607a1faa0bb3b5cdb00bcdad71654991f7a1b9f8a46777"
+      "bytes": 3834,
+      "sha256": "ace55decec2c06f4dfccadfc04f19ca1050e41bac1a3e7e877d82c01515c97e3"
     },
     {
       "path": "docs/作者/共同语义关系.md",
@@ -214,8 +214,8 @@
     },
     {
       "path": "docs/作者/工程源/清单模块与绑定锁.md",
-      "bytes": 97103,
-      "sha256": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663"
+      "bytes": 100956,
+      "sha256": "1086f23d193d248360968dae510de17d0ce639a116e6ed10747d55c20fb820d6"
     },
     {
       "path": "docs/作者/工程源/资产与非源码.md",
@@ -264,8 +264,8 @@
     },
     {
       "path": "docs/作者/成品/工作台交互与共同状态.md",
-      "bytes": 30622,
-      "sha256": "29aab0ced8bf44ef779eb5f0dcb921ba3cd5c58921146b4172ec81da8dd26713"
+      "bytes": 35396,
+      "sha256": "bc5672b8f75bb1e0cc03b020d325480398f288433936eaadd99e1aecf932be16"
     },
     {
       "path": "docs/作者/成品/工作器组件与插件.md",
@@ -334,8 +334,8 @@
     },
     {
       "path": "docs/作者/组合/定义与接口.md",
-      "bytes": 35775,
-      "sha256": "5e37c31516be53447f4dcd956feb44016a84ec43128e56bea39dd562c6d6e032"
+      "bytes": 35906,
+      "sha256": "87c75d33f40a26294f4688c5ebcfa778450cd6395ab974ff3f24e9f7bdf0f1af"
     },
     {
       "path": "docs/作者/组合/抽象与开放定义.md",
@@ -349,8 +349,8 @@
     },
     {
       "path": "docs/作者/组合/稀疏控制与目标限定.md",
-      "bytes": 35276,
-      "sha256": "65430bc597f5654c0546db13a6c91e1b98f1a51d7cb68d50591b9f73edc2278f"
+      "bytes": 37172,
+      "sha256": "2d4e71545d8d72c003056269363f22990904ccfa79b3ecc84f42d2fec1add0e3"
     },
     {
       "path": "docs/作者/组合/结构编辑与身份保持.md",
@@ -374,8 +374,8 @@
     },
     {
       "path": "docs/作者/结构化源码.md",
-      "bytes": 40588,
-      "sha256": "9d3077d9dd52f999bdac8de0df37e0cf8025e3eb135115169c67a557a2da1ce1"
+      "bytes": 46613,
+      "sha256": "5f9e7b4c8975c661f4f2ba4313d66d4b7e280118f9620650ada084f1e21be536"
     },
     {
       "path": "docs/作者/需求关系与能力边界.md",
