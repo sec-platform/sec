@@ -29,7 +29,7 @@ import { createObservedMainHealthInput } from '../../../../self-hosting/control/
 import { CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
 import { createScopeAuthorization, createScopeAuthorizationRevision, type ScopeAuthorizationInput } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS, ciVerificationGateStep, parseCiVerificationActionPlanClosure, parseCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
@@ -207,30 +207,39 @@ export function reconstructVerificationSessionHostedFacts(input: {
     changedPaths: input.changedPaths,
     transition: input.testImpactTransition
   });
-  const environmentDigest = verificationSessionDataDigest(Object.freeze({
-    schema: 'sec-hosted-verification-environment-v1',
-    toolchainRevision: `bun@${Bun.version}`,
-    providerRevision: 'github-actions@trusted-default',
-    contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
-    trustRevision: request.expectedBaseSha
-  }));
   const issuerSemantic = Object.freeze({
     principalId: input.producerPrincipalNodeId,
     role: 'trusted-base-a0' as const,
     trustRevision: request.expectedBaseSha,
     producerIdentity: SEC_SCOPE_ISSUER_IDENTITY
   });
-  const proposalDigest = createVerificationSessionScopeProposalDigest({
-    repository: input.repository, prNumber: request.prNumber,
-    baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
-    headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
-    manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
-    authorizedPaths: input.changedPaths, profile: request.profile,
-    environmentDigest, trustRevision: request.expectedBaseSha,
-    testImpactTransitionDigest: transition.digest
-  });
-  if (proposalDigest !== request.expectedScopeProposalDigest) {
-    throw new Error('observe-hosted reconstructed Scope proposal digest differs from request.');
+  // The original request transports this choice only through its Scope digest.
+  // Recover exactly one canonical profile; a matching digest grants no runtime authority.
+  const matches = CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS.map((executionEnvironment) => {
+    const environmentDigest = verificationSessionDataDigest(Object.freeze({
+      schema: 'sec-hosted-verification-environment-v1',
+      toolchainRevision: executionEnvironment.toolchainRevision,
+      providerRevision: executionEnvironment.executionEnvironmentRevision,
+      contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
+      trustRevision: request.expectedBaseSha
+    }));
+    const proposalDigest = createVerificationSessionScopeProposalDigest({
+      repository: input.repository, prNumber: request.prNumber,
+      baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
+      headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
+      manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
+      authorizedPaths: input.changedPaths, profile: request.profile,
+      environmentDigest, trustRevision: request.expectedBaseSha,
+      testImpactTransitionDigest: transition.digest
+    });
+    return { executionEnvironment, environmentDigest, proposalDigest };
+  }).filter(({ proposalDigest }) => proposalDigest === request.expectedScopeProposalDigest);
+  if (matches.length !== 1) {
+    throw new Error('observe-hosted reconstructed Scope proposal digest must select exactly one closed hosted environment.');
+  }
+  const { executionEnvironment, environmentDigest, proposalDigest } = matches[0]!;
+  if (executionEnvironment.toolchainRevision !== `bun@${Bun.version}`) {
+    throw new Error('observe-hosted loaded Bun revision differs from the selected execution environment.');
   }
   const scopeAuthorizationRevision = createScopeAuthorizationRevision({
     repository: input.repository, prNumber: request.prNumber,
@@ -253,7 +262,8 @@ export function reconstructVerificationSessionHostedFacts(input: {
       headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
       manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
       scopeAuthorizationRevision, profile: request.profile as 'quick' | 'full',
-      toolchainRevision: `bun@${Bun.version}`, providerRevision: 'github-actions@trusted-default',
+      toolchainRevision: executionEnvironment.toolchainRevision,
+      providerRevision: executionEnvironment.executionEnvironmentRevision,
       contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
       requiredBlobs: createVerificationSessionActionDependencyRequiredBlobs(input.dependencyBlobs)
     },
@@ -639,13 +649,13 @@ export function prepareTrustedMainVerificationSession(input: {
   facts: VerificationSessionHostedFacts | null;
 }> {
   const candidate = input.candidate;
-  const executionEnvironment = input.executionEnvironment;
-  if (executionEnvironment === undefined) {
+  if (input.executionEnvironment === undefined) {
     throw new Error('VerificationSession preparation requires an explicit execution environment.');
   }
-  const providerRevision = executionEnvironment.kind === 'hosted'
-    ? 'github-actions@trusted-default'
-    : executionEnvironment.executionEnvironmentRevision;
+  const executionEnvironment = input.executionEnvironment.kind === 'hosted'
+    ? parseCiVerificationHostedExecutionEnvironment(input.executionEnvironment)
+    : input.executionEnvironment;
+  const providerRevision = executionEnvironment.executionEnvironmentRevision;
   const transition = bindVerificationSessionTestImpactTransition({
     baseSha: candidate.baseSha,
     headSha: candidate.headSha,
