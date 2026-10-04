@@ -10,7 +10,8 @@ import {
   CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
   CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
   CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
-  CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION
+  CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION,
+  createCiVerificationNativeProviderRevision
 } from './environment.ts';
 
 export const CI_VERIFICATION_ACTION_DISPATCH_TYPE =
@@ -191,11 +192,41 @@ export const CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT: CiVerificatio
     executionEnvironmentRevision: CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION
   });
 
-/** The existing closed profiles share one owner for parsing and reconstruction. */
+function nativeExecutionEnvironment(kind: 'hosted' | 'local'): CiVerificationExecutionEnvironment | null {
+  const executionEnvironmentRevision = createCiVerificationNativeProviderRevision(kind);
+  if (executionEnvironmentRevision === null) return null;
+  return Object.freeze({
+    contractRevision: CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
+    kind,
+    os: 'linux',
+    arch: 'x64',
+    runnerImage: null,
+    toolchainRevision: CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+    executionEnvironmentRevision
+  });
+}
+
+const nativeHostedExecutionEnvironment = nativeExecutionEnvironment('hosted');
+
+/** Source acceptance selects a profile; this value does not attest a live host. */
+export function createCiVerificationNativeHostedExecutionEnvironment(): CiVerificationExecutionEnvironment {
+  if (nativeHostedExecutionEnvironment === null) fail('native execution environment content is unresolved.');
+  return nativeHostedExecutionEnvironment;
+}
+
+/** No caller-supplied platform or digest can manufacture a native environment. */
+export function createCiVerificationNativeLocalExecutionEnvironment(): CiVerificationExecutionEnvironment {
+  const environment = nativeExecutionEnvironment('local');
+  if (environment === null) fail('native execution environment content is unresolved.');
+  return environment;
+}
+
+/** Parsing and Scope reconstruction consume this one closed profile collection. */
 export const CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS: readonly CiVerificationExecutionEnvironment[] =
   Object.freeze([
     CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
-    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT
+    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+    ...(nativeHostedExecutionEnvironment === null ? [] : [nativeHostedExecutionEnvironment])
   ]);
 
 export function resolveCiVerificationHostedExecutionEnvironment(
@@ -205,7 +236,7 @@ export function resolveCiVerificationHostedExecutionEnvironment(
     (value) => value.executionEnvironmentRevision === providerRevision
   );
   if (environment !== undefined) return environment;
-  fail('hosted execution environment revision is not one of the two closed profiles.');
+  fail('hosted execution environment revision is not one of the closed profiles.');
 }
 
 export function parseCiVerificationHostedExecutionEnvironment(
