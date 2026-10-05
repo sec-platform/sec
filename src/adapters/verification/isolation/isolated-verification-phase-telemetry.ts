@@ -72,21 +72,6 @@ function eventBytes(event: SemanticMutationIsolatedPhaseTelemetryEvent): Uint8Ar
   return new TextEncoder().encode(`${JSON.stringify(event)}\n`);
 }
 
-async function fsyncDirectory(directory: string): Promise<void> {
-  let handle;
-  try {
-    handle = await open(directory, 'r');
-    await handle.sync();
-  } catch (error) {
-    const code = getErrorCode(error);
-    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code ?? '')) {
-      throw error;
-    }
-  } finally {
-    await handle?.close();
-  }
-}
-
 async function publishEvent(
   stagingWorkspaceRoot: string,
   event: SemanticMutationIsolatedPhaseTelemetryEvent
@@ -103,13 +88,13 @@ async function publishEvent(
       pendingOwned = true;
       try {
         await handle.writeFile(bytes);
-        await handle.sync();
       } finally {
         await handle.close();
       }
+      // Atomic visibility is sufficient for best-effort diagnostics; these events
+      // are not recovery records and do not require power-loss durability.
       await rename(pendingPath, finalPath);
       pendingOwned = false;
-      await fsyncDirectory(root);
     } finally {
       if (pendingOwned) await rm(pendingPath, { force: true }).catch(() => undefined);
     }

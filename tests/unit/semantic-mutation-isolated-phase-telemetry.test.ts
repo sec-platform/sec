@@ -28,7 +28,7 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve };
 }
 
-test('isolated phase telemetry is durable, path-free, reset-scoped, and non-authoritative', async () => {
+test('isolated phase telemetry is atomically published, path-free, reset-scoped, and non-authoritative', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await resetSemanticMutationIsolatedPhaseTelemetry(workspaceRoot);
     for (const phase of RUNTIME_PRECOMMAND_PHASES) {
