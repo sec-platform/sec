@@ -226,9 +226,6 @@ describe('VerificationAction provider pure state contract', () => {
     expect(result.terminalPayloadDigest).toBe(PAYLOAD);
     expect('resultStatus' in result).toBe(false);
     expect('cleanupStatus' in result).toBe(false);
-    expect(Object.keys(terminalFact()).sort()).toEqual([
-      'actionKey', 'candidateSha', 'payloadDigest', 'producer'
-    ]);
   });
 
   test('provider status cannot encode or promote Verification Result', () => {

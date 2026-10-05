@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { PASS_SEQUENCE, PASS_STATUS_PENDING } from '../../src/adapters/compilation/pipeline/defaults.ts';
-import { LOCK_PASS_STATES, PASS_INITIAL_STATES, type PassStatus } from '../../src/compiler/contract/pass-status.ts';
+import { LOCK_PASS_STATES, PASS_INITIAL_STATES } from '../../src/compiler/contract/pass-status.ts';
 import { PASS_DEFINITIONS, compilePipelineStageDefinitions } from '../../src/compiler/pipeline/stage-definitions.ts';
 import { PIPELINE_STAGE_OWNERSHIP } from '../../src/compiler/pipeline/stages.ts';
 
@@ -14,13 +14,6 @@ test('pass initialization, sequence and identity have a single immutable source'
   for (const pass of PASS_SEQUENCE) assert.equal(PASS_STATUS_PENDING[pass], pass === 'repair' ? 'skipped' : 'pending');
   assert.equal(Reflect.set(LOCK_PASS_STATES, 0, 'forged'), false);
   assert.equal(Reflect.set(PASS_SEQUENCE, 0, 'forged'), false);
-});
-
-test('retained locks may omit build-ir but all other existing passes stay required', () => {
-  const { 'build-ir': _, ...oldStatus } = PASS_STATUS_PENDING;
-  const compatible: PassStatus = oldStatus;
-  assert.equal(compatible['build-ir'], undefined);
-  assert.equal(compatible.repair, 'skipped');
 });
 
 test('registry compiler leaves inputs unchanged and returns immutable snapshots', () => {

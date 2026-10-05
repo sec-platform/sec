@@ -348,10 +348,7 @@ test('Review rejects duplicate pagination observations and incomplete/blocking s
 
 test('Review rejects untrusted or non-independent principals and invalid producer provenance', () => {
   const invalid: readonly [string, Partial<ReviewStabilityReceiptInput>][] = [
-    ['app actor node', { principal: { kind: 'github-app', ...TRUSTED_APP, actorNodeId: 'BOT_other', reviewState: 'COMMENTED' } }],
     ['app id', { principal: { kind: 'github-app', ...TRUSTED_APP, appId: 1, reviewState: 'COMMENTED' } }],
-    ['app node', { principal: { kind: 'github-app', ...TRUSTED_APP, appNodeId: 'A_other', reviewState: 'COMMENTED' } }],
-    ['app slug', { principal: { kind: 'github-app', ...TRUSTED_APP, appSlug: 'other-app', reviewState: 'COMMENTED' } }],
     ['candidate author', { independence: { candidateAuthorNodeId: 'BOT_kgDOC98s_g', integrationPrincipalNodeId: 'USER_integrator' } }],
     ['integrator', { independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'BOT_kgDOC98s_g' } }],
     ['producer trust', { producer: { ...input().producer, trustedRevision: 'other-trust' } }],

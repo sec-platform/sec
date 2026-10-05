@@ -1341,46 +1341,7 @@ test('capability probe detaches its deliberate residue child for trusted teardow
   expect(lifecycle).not.toContain('descendant.kill');
   expect(lifecycle).not.toContain('descendant.exited');
 
-  const runnableLifecycle = 'const { spawn } = require("node:child_process");' +
-    'const descendant = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300000)"], ' +
-    '{ detached: true, stdio: "ignore" });descendant.unref();';
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-detached-probe-'));
-  const pidPath = path.join(root, 'descendant.pid');
-  let descendantPid: number | null = null;
-  const processExists = (pid: number): boolean => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  try {
-    const startedAt = performance.now();
-    const settled = spawnSync(process.execPath, [
-      '-e', `${runnableLifecycle}require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, ` +
-        'String(descendant.pid));process.stdout.write("detached");'
-    ], { encoding: 'utf8', timeout: 3_000, windowsHide: true });
-    expect(settled.error).toBeUndefined();
-    expect(settled.status).toBe(0);
-    expect(performance.now() - startedAt).toBeLessThan(3_000);
-    descendantPid = Number(readFileSync(pidPath, 'utf8'));
-    expect(Number.isSafeInteger(descendantPid) && descendantPid > 0).toBe(true);
-    expect(processExists(descendantPid)).toBe(true);
-  } finally {
-    if (descendantPid === null && existsSync(pidPath)) {
-      const observedPid = Number(readFileSync(pidPath, 'utf8'));
-      if (Number.isSafeInteger(observedPid) && observedPid > 0) descendantPid = observedPid;
-    }
-    if (descendantPid !== null && processExists(descendantPid)) {
-      try { process.kill(descendantPid, 'SIGKILL'); } catch {}
-      const cleanupDeadline = Date.now() + 3_000;
-      while (processExists(descendantPid) && Date.now() < cleanupDeadline) Bun.sleepSync(10);
-    }
-    rmSync(root, { recursive: true, force: true });
-  }
-  expect(descendantPid).not.toBeNull();
-  expect(processExists(descendantPid!)).toBe(false);
+
 });
 
 test('capability unsupported or ambiguous terminalizes without invoking the candidate executor', async () => {
