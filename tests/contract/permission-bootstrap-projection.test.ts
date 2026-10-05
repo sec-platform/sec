@@ -9,26 +9,22 @@ import { compilePermissionBootstrapProjection, synchronizePermissionBootstrapPro
 import { readCompilerFile, readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtures.ts';
 
 const normalizerPath = 'src/adapters/providers/github-api/repository-permission.ts';
-const maintenancePermissionPath = 'src/adapters/providers/github-api/repository-maintenance-permission.ts';
-const workflows = ['merge-gate', 'compiler-pr-validation', 'repository-maintenance', 'trusted-bootstrap']
+const workflows = ['merge-gate', 'compiler-pr-validation', 'trusted-bootstrap']
   .map((name) => `.github/workflows/${name}.yml`);
 
 async function sources(): Promise<Map<string, string>> {
   return new Map([
     [normalizerPath, await readCompilerTypeScriptMutationFixture(normalizerPath, 'transpile-input')],
-    [maintenancePermissionPath, await readCompilerTypeScriptMutationFixture(maintenancePermissionPath, 'transpile-input')],
     ...await Promise.all(workflows.map(async (file) => [file, await readCompilerFile(file)] as const))
   ]);
 }
 
-test('pre-checkout decoder and maintenance predicate regions exactly derive from their canonical owners', async () => {
+test('pre-checkout decoder regions exactly derive from their canonical owners', async () => {
   const changes = compilePermissionBootstrapProjection(await sources());
   expect(changes.map(({ path: file }) => file)).toEqual(workflows);
   expect(changes.filter(({ before, after }) => before !== after)).toEqual([]);
   expect(changes.reduce((count, { after }) => count + after.split('// BEGIN GENERATED repository-permission.ts').length - 1, 0))
-    .toBe(5);
-  expect(changes.reduce((count, { after }) => count + after.split('// BEGIN GENERATED repository-maintenance-permission.ts').length - 1, 0))
-    .toBe(1);
+    .toBe(4);
 });
 
 test('projection rejects new runtime dependencies instead of silently dropping or executing them', async () => {
@@ -44,21 +40,6 @@ test('projection rejects new runtime dependencies instead of silently dropping o
     expect(() => compilePermissionBootstrapProjection(new Map(input).set(normalizerPath, changed)))
       .toThrow(/ordinary exported function|free runtime dependency/u);
   }
-});
-
-test('maintenance predicate projection rejects missing owners, foreign runtime captures and missing regions', async () => {
-  const input = await sources();
-  const original = input.get(maintenancePermissionPath)!;
-  const missing = new Map(input);
-  missing.delete(maintenancePermissionPath);
-  expect(() => compilePermissionBootstrapProjection(missing)).toThrow('missing source');
-  expect(() => compilePermissionBootstrapProjection(new Map(input).set(maintenancePermissionPath,
-    original.replace("return role === 'admin'", "return injected || role === 'admin'"))))
-    .toThrow('unsupported free runtime dependency');
-  const workflow = workflows[2]!;
-  expect(() => compilePermissionBootstrapProjection(new Map(input).set(workflow,
-    input.get(workflow)!.replace('// END GENERATED repository-maintenance-permission.ts', ''))))
-    .toThrow('missing or duplicate');
 });
 
 test('projected functions reject host lexical captures and malformed script syntax', async () => {
@@ -182,7 +163,7 @@ test('Session and bootstrap admission consume paired responses before any truste
     expected_base: base, expected_head: head, manifest_path: manifestPath, manifest_digest: digest };
   for (const [file, job, payload, event] of [
     [workflows[1]!, 'validate-hosted-request', { payload: sessionRequest }, 'sec-verify-session-v2'],
-    [workflows[3]!, 'resolve', bootstrapRequest, 'sec-trusted-bootstrap-v1']
+    [workflows[2]!, 'resolve', bootstrapRequest, 'sec-trusted-bootstrap-v1']
   ] as const) {
     const run = (triggeringPermission: unknown) => executeScript(file, job, {
       rest: { repos: {
@@ -195,56 +176,4 @@ test('Session and bootstrap admission consume paired responses before any truste
     await expect(run(maintain)).rejects.toBe(allowed);
     await expect(run(contradictory)).rejects.toThrow(/requires maintain\/admin/u);
   }
-});
-
-test('maintenance script uses live effective permission independent of relationship metadata', async () => {
-  const { createHash } = await import('node:crypto');
-  const body = JSON.stringify({ schema: 'sec-repository-maintenance-request-v1', repository: 'sec-platform/sec', expectedMainSha: base });
-  const comment = { id: 7, issue_url: 'https://api.github.com/repos/sec-platform/sec/issues/313',
-    user: { login: 'maintainer', type: 'User' }, performed_via_github_app: null, body };
-  const env = { PAYLOAD_JSON: JSON.stringify({ schema: 'sec-repository-maintenance-dispatch-v1', issue_number: 313,
-    comment_id: 7, comment_body_sha256: `sha256:${createHash('sha256').update(body).digest('hex')}` }),
-    EVENT_NAME: 'repository_dispatch', EVENT_ACTION: 'sec-repository-maintenance-v2', WORKFLOW_SHA: base, EVENT_SHA: base };
-  const run = (permission: unknown, changed: Record<string, unknown> = {}, environment = env, diagnostics: unknown[] = []) =>
-    executeScript(workflows[2]!, 'retire', { rest: {
-      issues: { getComment: async () => ({ data: { ...comment, ...changed } }) },
-      repos: { getCollaboratorPermissionLevel: async () => ({ data: permission }) }
-    } }, environment, diagnostics);
-  expect((await run(maintain)).get('request-json')).toBe(body);
-  // The expected decisions come from the authorized maintain/admin contract, not the production predicate.
-  const permissions: ReadonlyArray<readonly [unknown, boolean]> = [
-    [{ permission: 'admin', role_name: 'admin' }, true], [maintain, true],
-    [{ permission: 'write', role_name: 'write' }, false], [{ permission: 'read', role_name: 'triage' }, false],
-    [{ permission: 'read' }, false], [{ permission: 'none' }, false], [contradictory, false],
-    [{ permission: 'admin', role_name: 'custom' }, false], [{}, false], [null, false]
-  ];
-  for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'NONE',
-    'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR', 'MANNEQUIN', undefined, null, 'private-unrecognized-value']) {
-    for (const [permission, accepted] of permissions) {
-      const result = run(permission, { author_association: association });
-      if (accepted) {
-        const outputs = await result;
-        expect(outputs.get('request-json')).toBe(body);
-        expect(outputs.has('author-association')).toBe(false);
-      } else {
-        await expect(result).rejects.toThrow('trigger comment or dispatcher authority differs');
-      }
-    }
-  }
-  for (const changed of [
-    { id: 8 }, { issue_url: 'https://api.github.com/repos/sec-platform/sec/issues/312' },
-    { user: { login: 'other', type: 'User' } }, { user: { login: 'maintainer', type: 'Bot' } },
-    { performed_via_github_app: {} }, { performed_via_github_app: undefined }, { body: body + ' ' }
-  ]) {
-    await expect(run(maintain, { author_association: 'COLLABORATOR', ...changed }))
-      .rejects.toThrow('trigger comment or dispatcher authority differs');
-  }
-  await expect(run(maintain, {}, { ...env, WORKFLOW_SHA: head })).rejects.toThrow('exact default main');
-  await expect(run(maintain, {}, { ...env, EVENT_SHA: head, WORKFLOW_SHA: head })).rejects.toThrow('bound to exact current main');
-  const diagnostics: unknown[] = [];
-  await expect(run(contradictory, { author_association: 'private-unrecognized-value' }, env, diagnostics))
-    .rejects.toThrow('trigger comment or dispatcher authority differs');
-  expect(diagnostics).toEqual([expect.objectContaining({ associationFieldPresent: true, associationShape: 'unknown', normalizedRoleAccepted: false })]);
-  expect(JSON.stringify(diagnostics)).not.toContain('private-unrecognized-value');
-  expect(JSON.stringify(diagnostics)).not.toContain('associationAccepted');
 });

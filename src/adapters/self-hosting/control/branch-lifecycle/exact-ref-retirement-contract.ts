@@ -177,28 +177,3 @@ export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
     expectedHeadSha: sha(input.expectedHeadSha, 'expectedHeadSha')
   });
 }
-
-/** Continuation data only. The effect owner must still authenticate receipts and recheck live guards. */
-export function decideExactRefBatchContinuation(input: Readonly<{
-  mode: 'fresh' | 'resume';
-  preparedState: 'present' | 'absent' | 'unknown';
-  absenceObserved: boolean;
-  recreationObserved: boolean;
-  expectedHeadSha: string;
-  currentHeadSha: string | null;
-  priorEffect: 'not-started' | 'started' | 'returned' | 'settled';
-}>): 'delete-cas' | 'retired' | 'converged-observed' | 'absent-unattributed' | 'blocked-recreation' | 'blocked-drift' | 'readback-only' | 'unsettled-identity' {
-  sha(input.expectedHeadSha, 'expectedHeadSha');
-  if (input.currentHeadSha !== null) sha(input.currentHeadSha, 'currentHeadSha');
-  if (input.currentHeadSha !== null && input.currentHeadSha !== input.expectedHeadSha) return 'blocked-drift';
-  if (input.currentHeadSha !== null && (input.absenceObserved || input.recreationObserved)) return 'blocked-recreation';
-  if (input.currentHeadSha === null && input.recreationObserved && input.priorEffect !== 'not-started') return 'unsettled-identity';
-  if (input.priorEffect !== 'not-started') {
-    if (input.currentHeadSha !== null) return 'blocked-recreation';
-    return input.priorEffect === 'started' ? 'converged-observed' : 'retired';
-  }
-  if (input.currentHeadSha === null) return 'absent-unattributed';
-  if (input.preparedState === 'absent') return 'blocked-recreation';
-  if (input.mode === 'resume') return 'readback-only';
-  return 'delete-cas';
-}

@@ -1,11 +1,6 @@
 import { expect, test } from 'bun:test';
-import { assertGitHubApiMaintenanceRequest, executeGitHubApiOperation } from '../../src/adapters/providers/github-api/operation-session.ts';
-import { issueGitHubApiTestCapability, withGitHubApiTestSession } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import {
-  assertPlannedRefSupersessionEvidence
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-supersession-review.ts';
-import {
-  decideExactRefBatchContinuation, parseExactRefRetirement, parsePlannedRefSupersessionReview
+  parseExactRefRetirement, parsePlannedRefSupersessionReview
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
 import { parseExactRemoteRefBatchRecoveryPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
@@ -50,59 +45,6 @@ test('fixed batch preparation rejects changed plans, duplicate refs and incomple
     .toThrow('fixed dispatch');
 });
 
-test('resume does not equate absence with successful CAS or replay a recreated exact OID', () => {
-  const base = { mode: 'fresh' as const, preparedState: 'present' as const, expectedHeadSha: HEAD,
-    absenceObserved: false, recreationObserved: false };
-  expect(decideExactRefBatchContinuation({ ...base, currentHeadSha: HEAD, priorEffect: 'not-started' })).toBe('delete-cas');
-  expect(decideExactRefBatchContinuation({ ...base, currentHeadSha: null, priorEffect: 'not-started' })).toBe('absent-unattributed');
-  expect(decideExactRefBatchContinuation({ ...base, currentHeadSha: null, priorEffect: 'started' })).toBe('converged-observed');
-  for (const priorEffect of ['returned', 'settled'] as const) {
-    expect(decideExactRefBatchContinuation({ ...base, currentHeadSha: null, priorEffect })).toBe('retired');
-  }
-  for (const priorEffect of ['started', 'returned', 'settled'] as const) {
-    for (const preparedState of ['present', 'absent'] as const) {
-      expect(decideExactRefBatchContinuation({ ...base, preparedState, currentHeadSha: HEAD, priorEffect })).toBe('blocked-recreation');
-    }
-  }
-  expect(decideExactRefBatchContinuation({ ...base, preparedState: 'absent', currentHeadSha: HEAD,
-    priorEffect: 'not-started' })).toBe('blocked-recreation');
-  expect(decideExactRefBatchContinuation({ ...base, currentHeadSha: MAIN, priorEffect: 'not-started' })).toBe('blocked-drift');
-  expect(decideExactRefBatchContinuation({ ...base, preparedState: 'unknown', currentHeadSha: HEAD,
-    priorEffect: 'not-started' })).toBe('delete-cas');
-  expect(decideExactRefBatchContinuation({ ...base, preparedState: 'unknown', currentHeadSha: null,
-    priorEffect: 'not-started' })).toBe('absent-unattributed');
-});
-
-test('review prose, copied evidence and test capabilities cannot authenticate a native maintenance plan', async () => {
-  expect(() => assertPlannedRefSupersessionEvidence({ review: parsePlannedRefSupersessionReview(review),
-    author: 'maintainer', requestDigest: preparation().requestDigest, receiptDigest: `sha256:${'0'.repeat(64)}` })).toThrow('owner observation');
-  let called = false;
-  const capability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', token: 'test-token-0123456789',
-    principal: { transport: 'github-rest-token', login: 'maintainer', nodeId: 'test', userId: 1, permission: 'admin' },
-    effect: 'read', transport: async () => { called = true; throw new Error('must not call provider'); } });
-  await withGitHubApiTestSession({ capability, operation: async () => {
-    expect(() => assertGitHubApiMaintenanceRequest(capability, preparation().requestDigest)).toThrow('authenticated exact');
-    await expect(executeGitHubApiOperation(capability, { kind: 'maintenance-artifact', artifactId: '1' })).rejects.toThrow('authenticated read');
-  } });
-  expect(called).toBe(false);
-});
-
-test('resume continuation is effect-free for every finite state combination, including stale or forked histories', () => {
-  for (const preparedState of ['present', 'absent', 'unknown'] as const) {
-    for (const currentHeadSha of [null, HEAD, MAIN]) {
-      for (const priorEffect of ['not-started', 'started', 'returned', 'settled'] as const) {
-        for (const absenceObserved of [false, true]) {
-          for (const recreationObserved of [false, true]) {
-            expect(decideExactRefBatchContinuation({ mode: 'resume', preparedState, currentHeadSha,
-              expectedHeadSha: HEAD, priorEffect, absenceObserved, recreationObserved })).not.toBe('delete-cas');
-          }
-        }
-      }
-    }
-  }
-});
-
-
 test('preparation v2 preserves historical absence independently of the latest present state and reads v1 conservatively', () => {
   const legacy = preparation();
   expect(parseExactRemoteRefBatchRecoveryPreparation(legacy).refs[0]!.absenceObserved).toBe(false);
@@ -114,3 +56,79 @@ test('preparation v2 preserves historical absence independently of the latest pr
   expect(() => parseExactRemoteRefBatchRecoveryPreparation({ ...current,
     refs: legacy.refs })).toThrow('fields');
 });
+
+// Reuse the provider's existing test session; the production receipt parser,
+// request compiler, archive digest check, and ZIP reader remain real.
+const api = await import('../../src/adapters/providers/github-api/operation-session.ts');
+const { issueGitHubApiTestCapability, withGitHubApiTestSession } = await import('../../src/adapters/providers/github-api/test/operation-session.ts');
+const { rawSha256 } = await import('../../src/contracts/canonical.ts');
+const { mock } = await import('bun:test');
+const { ZipFile } = require('yazl');
+let historyCapability: Parameters<typeof withGitHubApiTestSession>[0]['capability'] | undefined;
+mock.module('../../src/adapters/providers/github-api/operation-session.ts', () => ({ ...api,
+  withGitHubApiVerificationSession: async (input: Parameters<typeof api.withGitHubApiVerificationSession>[0]) => {
+    expect(input.effect).toBe('verification-read');
+    expect(input.repository).toBe('sec-platform/sec');
+    if (historyCapability === undefined) throw new Error('Missing history test session');
+    return withGitHubApiTestSession({ capability: historyCapability, operation: () => input.operation(historyCapability!) });
+  }
+}));
+const { observeExactRefBatchResumeReceipt } = await import('../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts');
+
+for (const fault of ['none', 'run', 'request', 'archive'] as const) {
+  test.serial(`historical receipt verification-read ${fault}`, async () => {
+    const prepared = preparation();
+    const receipt = { schema: 'sec-repository-maintenance-result-v3', requestDigest: prepared.requestDigest as string,
+      resumeReceipt: null, recoveryPreparation: prepared,
+      recoveryCarrier: { provider: 'github-actions-artifact', repository: 'sec-platform/sec', artifactId: 2,
+        artifactName: 'sec-repository-maintenance-recovery-10-1', artifactDigest: `sha256:${'f'.repeat(64)}`,
+        runId: 10, runAttempt: 1, requestedRetentionDays: 30,
+        createdAt: '2026-10-01T00:00:00.000Z', expiresAt: '2100-01-01T00:00:00.000Z',
+        url: 'https://github.com/sec-platform/sec/actions/runs/10/artifacts/2' },
+      progress: ['effect-started', 'effect-returned', 'absence-observed'].map(phase => ({ branch: 'fix/old', expectedHeadSha: HEAD, phase })),
+      results: [{ branch: 'fix/old', expectedHeadSha: HEAD, status: 'retired' as const, targetState: 'absent' as const,
+        effectOutcome: 'acknowledged' as const, detail: 'Original acknowledged deletion and absence readback' }] };
+    if (fault === 'request') receipt.requestDigest = `sha256:${'0'.repeat(64)}`;
+    const zip = new ZipFile();
+    zip.addBuffer(Buffer.from(JSON.stringify(receipt)), 'maintenance-result.json');
+    const archivePromise = new Response(zip.outputStream).arrayBuffer();
+    zip.end();
+    const archive = new Uint8Array(await archivePromise);
+    const archiveDigest = rawSha256(archive);
+    const received = archive.slice();
+    if (fault === 'archive') received[0] = received[0]! ^ 1;
+    const requests: string[] = [];
+    historyCapability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', token: 'test-token-0123456789',
+      principal: { transport: 'github-rest-token', login: 'reader', nodeId: 'READER', userId: 1, permission: 'read' },
+      effect: 'verification-read', transport: async (target, init) => {
+        expect(init?.method).toBe('GET'); // The historical lane can issue no mutation.
+        const url = new URL(String(target)); requests.push(url.pathname);
+        if (url.pathname.endsWith('/attempts/1')) return Response.json({ id: 10, run_attempt: 1,
+          path: '.github/workflows/repository-maintenance.yml', event: 'workflow_dispatch', status: 'completed',
+          head_sha: fault === 'run' ? HEAD : MAIN, head_branch: 'main',
+          repository: { full_name: 'sec-platform/sec' }, head_repository: { full_name: 'sec-platform/sec' },
+          actor: { type: 'User' }, display_title: `maintenance/${sha256({ requestDigest: prepared.requestDigest, resumeReceipt: null })}` });
+        if (url.pathname.endsWith('/artifacts/1')) return Response.json({ id: 1,
+          name: 'sec-repository-maintenance-result-10-1', workflow_run: { id: 10 }, expired: false,
+          size_in_bytes: archive.byteLength, digest: archiveDigest });
+        if (url.pathname.endsWith('/artifacts/1/zip')) return new Response(null, { status: 302,
+          headers: { location: 'https://fixture.blob.core.windows.net/receipt.zip' } });
+        if (url.hostname === 'fixture.blob.core.windows.net') {
+          expect(new Headers(init?.headers).has('authorization')).toBe(false);
+          return new Response(received);
+        }
+        throw new Error(`Unexpected historical read: ${url.pathname}`);
+      } });
+    try {
+      const result = observeExactRefBatchResumeReceipt({ repositoryRoot: process.cwd(), repository: prepared.repository,
+        expectedMainSha: MAIN, retirements: prepared.retirements, requestDigest: prepared.requestDigest,
+        resumeReceipt: { artifactId: '1', artifactDigest: archiveDigest, runId: '10', runAttempt: 1 } });
+      if (fault === 'none') {
+        expect((await result).results).toEqual(receipt.results);
+        expect(requests).toHaveLength(4);
+      } else {
+        await expect(result).rejects.toThrow(fault === 'run' ? 'trusted completed' : fault === 'request' ? 'fixed request' : 'archive identity');
+      }
+    } finally { historyCapability = undefined; }
+  });
+}
