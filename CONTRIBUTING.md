@@ -1,6 +1,6 @@
 # Contributing to the Engineering Workspace Compiler
 
-This repository retains the historical name `sec`; that name is not the current project definition or acronym. The Engineering Workspace Compiler is under active architecture and implementation convergence. Interfaces and contribution workflows may still change before the first stable public release.
+SEC is in development preview. Its interfaces and contribution workflow may change before a stable release.
 
 ## Before contributing
 
@@ -24,7 +24,7 @@ The current implementation uses Bun and TypeScript. Use the repository-pinned ru
 
 Install dependencies from the repository root with the package manager declared in `package.json`.
 
-Before making a change, use the repository's canonical development entry point described in [`AGENTS.md`](AGENTS.md). It resolves the current development state and the applicable authority/scope rather than treating an Issue, branch name, PR description, or stale document as execution authority.
+Before making a change, follow the development entry point in [`AGENTS.md`](AGENTS.md). It resolves the current work state and the scope of the operation.
 
 ## Change principles
 
@@ -40,7 +40,9 @@ A contribution should preserve the project's core engineering boundaries:
 
 ## Keep changes focused
 
-Prefer the smallest complete vertical change that closes one real responsibility or defect. Avoid combining unrelated architecture, dependency, workflow, documentation, and product changes into one pull request.
+Group changes around a concrete behavior or defect, including its affected callers and checks. Keep unrelated architecture, dependency, workflow, documentation, and product changes separate.
+
+Describe the problem, resulting behavior, and validation in the pull request. Update the same PR as the change develops; when a replacement is necessary, link the predecessor and successor and explain what carries over. Keep temporary diagnostic workflows and exploratory output out of the final product change. The branch lifecycle and publication rules are in [`AGENTS.md`](AGENTS.md).
 
 Do not introduce a second parser, resolver, state store, verification truth, source-of-truth document, or compatibility path when an existing owner can be extended. If a temporary migration path is necessary, give it an explicit retirement condition.
 
@@ -48,7 +50,7 @@ Do not introduce a second parser, resolver, state store, verification truth, sou
 
 Use the repository's current machine-selected verification closure rather than assuming that a fixed list of commands is always sufficient. For local development, the scripts in `package.json` expose the supported check/test entry points, while [`docs/运行/保证/README.md`](docs/运行/保证/README.md) leads to the canonical verification and evidence semantics.
 
-A green test, command exit code, generated file, or AI review does not by itself prove that a product capability is complete or safe to release. Verification claims must remain bound to the exact subject, input, environment, and evidence they actually cover.
+Report which checks ran, their results, the revision they cover, and any material gaps. Distinguish failed, blocked, and unrun checks. Link detailed logs when needed rather than copying repeated progress reports into the PR description. Local checks and source review alone do not establish release readiness.
 
 ## Documentation
 

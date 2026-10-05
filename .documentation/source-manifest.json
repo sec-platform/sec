@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "80e1aa9a47159226e34c1bd4165a80f5aa8bd7d6d9a443e0296006801b70d72f",
+  "source_set_sha256": "c4ca05bbad3e1d5df68ab492a822d2b2429f7e1fde0e1c02ae571e448d9c3903",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "bytes": 4922,
-      "sha256": "63b3698829fd7b4ee76afb251c8385a4d6d011b9354c4e7871d578ac2ee44514"
+      "bytes": 5005,
+      "sha256": "30e538a10662c5eed35fb54d8b85b2c68068e1399395c2f7f582e58761a33ee7"
     },
     {
       "path": "LICENSE",
@@ -74,18 +74,18 @@
     },
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 5936,
-      "sha256": "eb4e0cb503632364f88be97893f7badd485611c7ac09601ce9bf920e448fcba5"
+      "bytes": 5537,
+      "sha256": "26716620e9e13d43e361183fe1ebb8d27abeb7781d3dc455544c9eaa4831eb79"
     },
     {
       "path": "README.md",
-      "bytes": 4857,
-      "sha256": "70f857b83f5c0b8c3920839bbcb4c42f5c0c4c8002ae4a84b3302453dae0646f"
+      "bytes": 4487,
+      "sha256": "f1d42c3c8b669f47e262f603e4b4738edb733ec1309ba9df1c2144d287f3cc4a"
     },
     {
       "path": "README.zh-CN.md",
-      "bytes": 3029,
-      "sha256": "33b389aaa53891de08045fca545b5ae0feff846ad5c12345183347e9ceec5cde"
+      "bytes": 2924,
+      "sha256": "e5ce555779560403155c8307175a8f850ae725b21e77391e47deccfd38da52d5"
     },
     {
       "path": "REUSE.toml",
