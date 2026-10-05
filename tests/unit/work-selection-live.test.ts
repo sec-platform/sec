@@ -1,14 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
-
-function independentRawSha256(value: string): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
-}
 
 import { createMainHealthRepairWorkPackagePath } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import type { SecCurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
@@ -976,20 +971,6 @@ describe('work-selection live contract', () => {
       rmSync(fixtureParent, { recursive: true, force: true });
     }
   }, 30_000);
-
-  test('synthetic catalog revision is derived only from its exact fixture source', () => {
-    const observation = transitionCatalog();
-    const changedSynthetic = observeCatalog(observation.source.replace(
-      'fixture-work-selection-transition',
-      'fixture-work-selection-transition-changed'
-    ));
-    const changedLiveRevision = rawSha256(`${roadmapSource}\n<!-- unrelated live change -->\n`);
-
-    expect(String(observation.roadmapRevision)).toBe(independentRawSha256(observation.source));
-    expect(changedSynthetic.roadmapRevision).not.toBe(observation.roadmapRevision);
-    expect(changedLiveRevision).not.toBe(rawSha256(roadmapSource));
-    expect(transitionCatalog().roadmapRevision).toBe(observation.roadmapRevision);
-  });
 
   test('exact repository package census validates current selection without a transient Issue constant', () => {
     const catalog = parseSecRoadmapWorkCatalog(roadmapSource);

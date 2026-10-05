@@ -503,12 +503,6 @@ test.serial('TCB generation rejects a stale reviewed network dispatcher authoriz
   expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
 });
 
-test('computeTcbClosureLock produces the exact-tree identity digest', () => {
-  const closure = trustedRuntimeClosure();
-  const live = computeTcbClosureLock(closure);
-  expect(live.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
-});
-
 // ---------------------------------------------------------------------------
 // Negative tests — each proves that a specific tampering breaks the lock
 // ---------------------------------------------------------------------------

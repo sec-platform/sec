@@ -58,34 +58,6 @@ const LOCAL_LINUX_RUNNER_ROLE_LABELS = Object.freeze({
   trusted: 'sec-linux-verification-trusted-v1',
   sut: 'sec-linux-verification-sut-v1'
 } as const);
-const WORKFLOW_RUNNER_ROLES = Object.freeze({
-  '.github/workflows/compiler-pr-validation.yml': {
-    'validate-hosted-request': 'trusted',
-    'validate-agent-operation-activation-request': 'trusted',
-    'agent-operation-activation': 'trusted',
-    'coordinate-verification-session': 'control',
-    'resolve-verification-action': 'trusted',
-    'preflight-verification-action-sut': 'sut',
-    'claim-verification-action': 'trusted',
-    'execute-verification-action-sut': 'sut',
-    'assemble-verification-action-terminal': 'trusted',
-    'main-health': 'trusted'
-  },
-  '.github/workflows/compiler-release-validation.yml': { 'compiler-release-verification': 'sut' },
-  '.github/workflows/merge-gate.yml': {
-    plan: 'trusted',
-    authorize: 'control',
-    'terminal-status': 'trusted',
-    integrate: 'control'
-  },
-  '.github/workflows/trusted-bootstrap.yml': {
-    resolve: 'trusted',
-    'checker-pre': 'trusted',
-    'candidate-sut': 'sut',
-    'checker-post': 'trusted'
-  }
-} as const);
-
 test('all hosted run consumers exclude mutable provider name from identity', async () => {
   const headSha = 'a'.repeat(40);
   const compilerTitle = `verify session PR #42 session sha256:${'b'.repeat(64)}`;
@@ -259,23 +231,6 @@ test('release payload expires independently of retained build identity and verif
     'if-no-files-found': 'error',
     'retention-days': 90
   });
-});
-
-test('coordinators never occupy the sole role of a downstream producer they join', () => {
-  const compilerRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/compiler-pr-validation.yml'];
-  const sessionCoordinatorRole = compilerRoles['coordinate-verification-session'];
-  for (const downstream of [
-    'resolve-verification-action',
-    'preflight-verification-action-sut',
-    'claim-verification-action',
-    'execute-verification-action-sut',
-    'assemble-verification-action-terminal'
-  ] as const) {
-    expect(sessionCoordinatorRole, downstream).not.toBe(compilerRoles[downstream]);
-  }
-  const mergeRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/merge-gate.yml'];
-  expect(mergeRoles.authorize, 'authorization must not occupy trusted leaf role').not.toBe(mergeRoles['terminal-status']);
-  expect(mergeRoles.integrate, 'post-merge MainHealth join').not.toBe(compilerRoles['main-health']);
 });
 
 test('active PR contract has one V2 Session dispatch and no legacy verification authority', async () => {

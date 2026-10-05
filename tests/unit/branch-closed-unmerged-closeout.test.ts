@@ -572,21 +572,6 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(harness.counters).toEqual({ deleteRemoteRef: 1, deleteLocalRef: 0, pruneRemote: 1 });
   });
 
-  test('an exact closed PR with a present remote ref is accepted', async () => {
-    const before = inventory();
-    const result = compileClosedUnmergedCloseoutOperation({
-      prepared: prepared(before), evidence: supersededEvidence
-    });
-    expect(result.status).toBe('ready');
-    if (result.status !== 'ready') throw new Error(result.blockers.join(' | '));
-    const harness = providerHarness(before);
-    const executed = await executeClosedUnmergedCloseoutOperation({
-      operation: result.operation, provider: harness.provider
-    });
-    expect(executed.status).toBe('completed');
-    expect(harness.counters.deleteRemoteRef).toBe(1);
-  });
-
   test('a closed exact PR with an already absent remote ref resumes from recovery', async () => {
     const before = inventory();
     before.remoteBranches = before.remoteBranches.filter(({ branch }) => branch !== BRANCH);

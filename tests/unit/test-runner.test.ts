@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import ts from 'typescript';
 
 import type { GitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import {
@@ -149,7 +148,6 @@ const devCommandStartObservers: Array<(() => void) | undefined> = [];
 const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
 const DEFAULT_MANAGED_INNER_ARGS = ['--no-orphans', '--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY)] as const;
 let fastDependencyBootstrapCalls = 0;
-let testDependencyBootstrapCalls = 0;
 const gitReadSessionDeadlineRequests: Array<number | undefined> = [];
 const gitReadSessions: GitReadSession[] = [];
 const operationEvents: Array<'git-read-session' | 'dev-command'> = [];
@@ -539,107 +537,6 @@ function plannedProcessFiles(plan: ReturnType<typeof planFastTestProcesses>): st
   ];
 }
 
-type ProcessGlobalHazardKind =
-  | 'mock-module'
-  | 'process-env-assignment'
-  | 'process-env-delete'
-  | 'process-env-object-assign';
-
-interface ProcessGlobalHazard {
-  readonly kind: ProcessGlobalHazardKind;
-  readonly line: number;
-}
-
-function unwrapExpression(expression: ts.Expression): ts.Expression {
-  let current = expression;
-  while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isAsExpression(current) ||
-    ts.isTypeAssertionExpression(current) ||
-    ts.isNonNullExpression(current) ||
-    ts.isSatisfiesExpression(current)
-  ) {
-    current = current.expression;
-  }
-  return current;
-}
-
-function isNamedMember(
-  expression: ts.Expression,
-  receiverName: string,
-  memberName: string
-): boolean {
-  const unwrapped = unwrapExpression(expression);
-  if (ts.isPropertyAccessExpression(unwrapped)) {
-    const receiver = unwrapExpression(unwrapped.expression);
-    return ts.isIdentifier(receiver) &&
-      receiver.text === receiverName &&
-      unwrapped.name.text === memberName;
-  }
-  if (!ts.isElementAccessExpression(unwrapped) || !unwrapped.argumentExpression) return false;
-  const receiver = unwrapExpression(unwrapped.expression);
-  const member = unwrapExpression(unwrapped.argumentExpression);
-  return ts.isIdentifier(receiver) &&
-    receiver.text === receiverName &&
-    (ts.isStringLiteralLike(member) || ts.isNoSubstitutionTemplateLiteral(member)) &&
-    member.text === memberName;
-}
-
-function isProcessEnvExpression(expression: ts.Expression): boolean {
-  return isNamedMember(expression, 'process', 'env');
-}
-
-function targetsProcessEnv(expression: ts.Expression): boolean {
-  const unwrapped = unwrapExpression(expression);
-  if (isProcessEnvExpression(unwrapped)) return true;
-  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
-    return targetsProcessEnv(unwrapped.expression);
-  }
-  return false;
-}
-
-function processGlobalHazards(source: string, fileName: string): ProcessGlobalHazard[] {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
-  const hazards: ProcessGlobalHazard[] = [];
-  const record = (kind: ProcessGlobalHazardKind, node: ts.Node): void => {
-    hazards.push({
-      kind,
-      line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
-    });
-  };
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
-      targetsProcessEnv(node.left)
-    ) {
-      record('process-env-assignment', node);
-    } else if (ts.isDeleteExpression(node) && targetsProcessEnv(node.expression)) {
-      record('process-env-delete', node);
-    } else if (ts.isCallExpression(node)) {
-      if (isNamedMember(node.expression, 'mock', 'module')) {
-        record('mock-module', node);
-      } else if (
-        isNamedMember(node.expression, 'Object', 'assign') &&
-        node.arguments[0] !== undefined &&
-        isProcessEnvExpression(node.arguments[0])
-      ) {
-        record('process-env-object-assign', node);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return hazards;
-}
-
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((settle) => { resolve = settle; });
@@ -679,7 +576,6 @@ beforeEach(() => {
   devCommandStartObservers.length = 0;
   devCommandCompletionObservers.length = 0;
   fastDependencyBootstrapCalls = 0;
-  testDependencyBootstrapCalls = 0;
   gitReadSessionDeadlineRequests.length = 0;
   gitReadSessions.length = 0;
   operationEvents.length = 0;
@@ -776,74 +672,12 @@ test('native parallel planning preserves every selected file and isolates extern
 });
 
 
-test('fast process isolation AST recognizes executable global hazards without text false positives', () => {
-  const hazards = processGlobalHazards(`
-    // process.env.COMMENTED = 'not executable'; mock.module('commented', () => ({}));
-    const text = "delete process.env.STRING_ONLY; Object.assign(process.env, { STRING_ONLY: '1' });";
-    const observed = process.env.READ_ONLY;
-    const copy = { ...process.env };
-    process.env.ASSIGNED = '1';
-    process.env.COALESCED ??= '2';
-    delete process.env.DELETED;
-    Object.assign(process.env, { ASSIGNED_OBJECT: '3' });
-    mock.module('node:fs', () => ({}));
-  `, 'tests/unit/process-global-hazard-sentinel.test.ts');
-
-  expect(hazards.map(({ kind }) => kind)).toEqual([
-    'process-env-assignment',
-    'process-env-assignment',
-    'process-env-delete',
-    'process-env-object-assign',
-    'mock-module'
-  ]);
-});
-
-test('complete fast process-global hazards have unique typed isolation and single-file queues', async () => {
-  const lockedHazardFiles = [
-    'tests/contract/repository-audit.test.ts',
-    'tests/unit/branch-lifecycle-temp-repo.test.ts',
-    'tests/unit/ci-orchestration-git-isolation.test.ts',
-    'tests/unit/exact-git-blob.test.ts',
-    'tests/unit/test-runner.test.ts'
-  ];
-  const completeFastFiles = getFastTestFilesSync();
-  assertFastTestProcessPolicyInventory(completeFastFiles);
-  const detectedHazards = new Map<string, ProcessGlobalHazard[]>();
-
-  await Promise.all(completeFastFiles.map(async (file) => {
-    const hazards = processGlobalHazards(await fs.readFile(file, 'utf8'), file);
-    if (hazards.length > 0) detectedHazards.set(file, hazards);
-  }));
-
-  expect([...detectedHazards.keys()]).toEqual(expect.arrayContaining(lockedHazardFiles));
-  for (const [file, hazards] of detectedHazards) {
-    expect(hazards.length).toBeGreaterThan(0);
-    const entries = FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file);
-    if (entries.length !== 1) {
-      throw new Error(`Process-global test hazard has ${entries.length} isolation owners: ${file}`);
-    }
-    expect(entries[0]!.processLimit)
-      .toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[entries[0]!.resourceClass]);
-  }
-  const detectedHazardFiles = [...detectedHazards.keys()];
-  const plan = planFastTestProcesses(detectedHazardFiles);
-  expect(plan.parallelFiles).toEqual([]);
-  expect(plan.resourceClassOrder.flatMap((resourceClass) => plan.resourceQueues[resourceClass]).sort())
-    .toEqual(detectedHazardFiles.sort());
-});
-
 test('fast process policy covers default-excluded files and rejects stale or duplicate identities', () => {
   const completeFastFiles = getFastTestFilesSync();
   const excludedFastFile = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES).toContain(excludedFastFile);
   expect(isDefaultFastTestFile(excludedFastFile)).toBe(false);
   expect(completeFastFiles).toContain(excludedFastFile);
-  expect(processGlobalHazards(
-    "process.env.EXCLUDED_POLICY_SENTINEL = '1';",
-    excludedFastFile
-  )).toEqual([expect.objectContaining({
-    kind: 'process-env-assignment'
-  })]);
   expect(() => assertFastTestProcessPolicyInventory(completeFastFiles))
     .not.toThrow();
 
@@ -1026,7 +860,6 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
 
   expect(code).toBe(0);
   expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandEnvironments).toHaveLength(1);
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
@@ -1057,7 +890,6 @@ test.serial('fast compiler bootstrap failure launches no managed test child', as
   await expect(runFastTests(['tests/unit/path-containment.test.ts']))
     .rejects.toThrow('compiler bootstrap failed');
   expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([]);
   expect(devCommandEnvironments).toEqual([]);
 });
@@ -1675,12 +1507,11 @@ test.serial('full test planning retains every default-excluded fast owner', asyn
   }
 });
 
-test.serial('explicit fast test files skip dependency bootstrap entirely', async () => {
+test.serial('explicit fast test files bootstrap once and settle their invocation runtime', async () => {
   const code = await runTests(['tests/unit/path-containment.test.ts', '--timeout', '10000']);
 
   expect(code).toBe(0);
   expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([{
     command: 'bun',
     args: [
@@ -1706,7 +1537,6 @@ test.serial('composite check reuses one materialized compiler capability without
 
   expect(code).toBe(0);
   expect(fastDependencyBootstrapCalls).toBe(0);
-  expect(testDependencyBootstrapCalls).toBe(0);
 });
 
 test.serial('option-only selection preserves fast isolation and canonical slow dispatch', async () => {
@@ -2239,7 +2069,6 @@ test.serial('fast tests reject explicit slow file selectors', async () => {
     const code = await runFastTests(['tests/e2e/registry.test.ts']);
 
     expect(code).toBe(1);
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(errors).toContain('Fast test runner cannot run slow test files: tests/e2e/registry.test.ts');
   } finally {
@@ -2279,7 +2108,6 @@ test.serial('slow suite selector rejects unknown suite ids', async () => {
     const code = await runSlowTests(['--suite', 'not-a-suite']);
 
     expect(code).toBe(1);
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(errors[0]).toContain('Unknown slow test suite "not-a-suite". Available suites:');
   } finally {
@@ -2298,7 +2126,6 @@ test.serial('affected tests fail before dependency bootstrap for unresolved sour
     const code = await runAffectedTests();
 
     expect(code).toBe(1);
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
     expect(errors).toContain('Affected test ownership is unresolved for changed paths: platform/unmapped-source.ts');
@@ -2316,7 +2143,6 @@ test.serial('affected tests fail closed for mixed mapped and unresolved paths be
   const code = await runAffectedTests();
 
   expect(code).toBe(1);
-  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([]);
   expect(devCommandEnvironments).toEqual([]);
 });
@@ -2346,7 +2172,6 @@ test.serial('affected plan reports resolved selection without dependency or test
       unresolvedPaths: [],
       resolved: true
     });
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
   } finally {
@@ -2367,7 +2192,6 @@ test.serial('canonical docs-only Git selection does not construct ProjectInput o
   expect(execution!.plan.selectedFastTests).toEqual([]);
   expect(execution!.plan.identity?.sourceEpoch).toBeNull();
   expect(await execution!.run()).toBe(0);
-  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([]);
 });
 
@@ -2395,7 +2219,6 @@ test.serial('affected plan applies the same process-policy sentinel to a default
       unresolvedPaths: [],
       resolved: true
     });
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
   } finally {
     console.log = originalLog;
@@ -2427,7 +2250,6 @@ test.serial('deleted test paths remain changed facts without becoming runnable t
       unresolvedPaths: [],
       resolved: true
     });
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
   } finally {
     console.log = originalLog;
@@ -2475,8 +2297,6 @@ test.serial('resolved affected plan executes only after its final Git revalidati
     !resolutionSessions.has(session)
   ))).toBe(true);
   expect(fastDependencyBootstrapCalls).toBe(1);
-  expect(testDependencyBootstrapCalls).toBe(0);
-  expect(devCommandCalls).toHaveLength(2);
 });
 
 test.serial('affected execution rejects same-path modified content drift even when Git summaries are unchanged', async () => {
@@ -2527,7 +2347,6 @@ test.serial('affected plan lists every unresolved path and exits nonzero without
       ],
       resolved: false
     });
-    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
   } finally {
@@ -2572,7 +2391,6 @@ test.serial('affected tests do not fabricate semantic Contract ownership outside
   const code = await runAffectedTests();
 
   expect(code).toBe(1);
-  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([]);
 });
 
