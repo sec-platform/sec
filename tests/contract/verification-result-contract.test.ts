@@ -1,4 +1,9 @@
 import { expect, test } from 'bun:test';
+import {
+  readVerificationDataRecord,
+  snapshotVerificationData,
+  verificationDataEqual
+} from '../../src/assurance/verification/contract/data.ts';
 
 import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
@@ -913,4 +918,23 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     overall,
     { claims, gateResults: [...gates, extraGate, supportOnlyExtraGate] }
   )).not.toThrow();
+});
+
+test('verification data preserves hostile own property names without prototype mutation', () => {
+  const candidate = Object.fromEntries([
+    ['__proto__', { marker: '__proto__' }],
+    ['constructor', { marker: 'constructor' }],
+    ['prototype', { marker: 'prototype' }]
+  ]);
+  const shallow = readVerificationDataRecord(candidate);
+  const deep = snapshotVerificationData(candidate);
+  expect(Object.getPrototypeOf(shallow)).toBe(Object.prototype);
+  expect(Object.getPrototypeOf(deep as object)).toBe(Object.prototype);
+  for (const key of ['__proto__', 'constructor', 'prototype']) {
+    expect(Object.prototype.hasOwnProperty.call(shallow, key)).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(deep as object, key)).toBe(true);
+  }
+  expect((shallow['__proto__'] as { marker: string }).marker).toBe('__proto__');
+  expect(verificationDataEqual(candidate, deep)).toBe(true);
+  expect(({} as Record<string, unknown>).marker).toBeUndefined();
 });

@@ -195,7 +195,8 @@ const processCommand = (
       : (typeof value === 'string' ? value : new TextDecoder().decode(value))
   );
 
-  const isGitCommand = command === 'git' || path.basename(command).toLowerCase().startsWith('git.');
+  const executableName = path.basename(command).toLowerCase();
+  const isGitCommand = executableName === 'git' || executableName === 'git.exe';
 
   if (isGitCommand && args.includes('rev-parse')) {
     // Exact object identity for the read-session start/end fences.
@@ -237,7 +238,7 @@ mock.module('../../src/adapters/runtime-state/physical/runtime/process.ts', () =
     processCommand(command, args, 'bytes', options),
   runRetainedCommandBytes: (
     ...[boundary, args]: Parameters<typeof actualPhysicalProcess.runRetainedCommandBytes>
-  ) => Promise.resolve(processCommand(boundary.executable.childPath, args, 'bytes'))
+  ) => Promise.resolve(processCommand(boundary.executable.path, args, 'bytes'))
 }));
 
 // Git selection remains transport-only in this fixture. Source selection is
@@ -2361,7 +2362,7 @@ test.serial('affected-test Git discovery requests byte-preserving stdout through
   expect(code).toBe(0);
   expect(commandCalls.length).toBeGreaterThan(0);
   expect(commandCalls.every((call) => (
-    (call.command === 'git' || path.basename(call.command).toLowerCase().startsWith('git.'))
+    ['git', 'git.exe'].includes(path.basename(call.command).toLowerCase())
     && call.stdoutMode === 'bytes'
   ))).toBe(true);
   expect(commandCalls.some((call) => call.args.some((arg) => arg.startsWith('diff')))).toBe(true);
