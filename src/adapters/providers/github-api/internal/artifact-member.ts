@@ -13,6 +13,7 @@ const MAX_MEMBERS = 1024;
 export async function readArtifactMember(input: Readonly<{
   archive: Uint8Array;
   fileName: string;
+  chargeDecodedBytes?(bytes: number): void;
   signal: AbortSignal;
   assertCurrent(): void;
 }>): Promise<string> {
@@ -64,6 +65,7 @@ export async function readArtifactMember(input: Readonly<{
           assertCurrent();
           const chunk = await read();
           if (chunk.done) break;
+          input.chargeDecodedBytes?.(chunk.value.byteLength);
           size += chunk.value.byteLength;
           if (size > MAX_MEMBER_BYTES || size > selected!.uncompressedSize) throw new Error('Artifact member output budget exceeded');
           chunks.push(new Uint8Array(chunk.value));

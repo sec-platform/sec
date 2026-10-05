@@ -835,3 +835,135 @@ export function verifyRecoveryAuthorityHeadLive(input: {
     };
   }
 }
+/** One self-contained recovery object for the exact immutable heads of a fixed plan. */
+export function createBatchRecoveryBundle(input: Readonly<{
+  inventory: BranchLifecycleInventory;
+  refs: readonly Readonly<{ branch: string; expectedHeadSha: string }>[];
+  recoveryRoot?: string;
+}>): BranchRecoveryAuthority {
+  if (input.refs.length < 1 || input.refs.length > 64
+      || new Set(input.refs.map((ref) => ref.branch)).size !== input.refs.length) {
+    throw new Error('Batch recovery requires 1..64 distinct exact refs');
+  }
+  for (const ref of input.refs) {
+    assertGitBranchName(ref.branch);
+    assertGitSha(ref.expectedHeadSha, 'batch recovery exact head');
+  }
+  const mainSha = input.inventory.main.remoteSha;
+  if (mainSha === null) throw new Error('Batch recovery exact main is absent');
+  assertGitSha(mainSha, 'batch recovery exact main');
+  const store = acquireBranchRecoveryStore({
+    repositoryRoot: input.inventory.repository.root,
+    commonDir: input.inventory.repository.commonDir,
+    worktreeRoots: input.inventory.worktrees.map((worktree) => worktree.path),
+    ...(input.recoveryRoot === undefined ? {} : { recoveryRoot: input.recoveryRoot })
+  });
+  const identity = createHash('sha256').update(JSON.stringify({
+    repository: input.inventory.repository.fullName, mainSha, refs: input.refs
+  })).digest('hex');
+  const bundleName = `sec-branch-closeout-batch-${identity}.bundle`;
+  const bundlePath = path.join(store.root.path, bundleName);
+  const scratch = mkdtempSync(path.join(store.root.path, '.sec-recovery-batch-'));
+  try {
+    requireRecoveryGitText(scratch, ['init', '--bare', '.'], 'batch recovery repository');
+    const heads = input.refs.map((ref, index) => ({
+      sha: ref.expectedHeadSha, name: `refs/heads/recovery-${index}`
+    }));
+    heads.push({ sha: mainSha, name: 'refs/heads/recovery-main' });
+    const existing = store.read(bundleName);
+    if (existing === null) {
+      // Prefer already retained objects. Native fetch copies complete reachable history;
+      // no shallow boundary, main prerequisite, or worker workspace is a recovery dependency.
+      const localHasAll = heads.every((head) => runRecoveryGit(
+        input.inventory.repository.root, ['cat-file', '-e', `${head.sha}^{commit}`]
+      ).status === 0);
+      requireRecoveryGitText(scratch, [
+        ...(localHasAll ? [] : createBranchLifecycleGitHubCredentialArgs()),
+        'fetch', '--no-tags', '--',
+        localHasAll ? input.inventory.repository.root : input.inventory.repository.remoteUrl,
+        ...heads.map((head) => `+${head.sha}:${head.name}`)
+      ], 'batch recovery exact-object fetch');
+      for (const head of heads) {
+        const observed = requireRecoveryGitText(scratch,
+          ['rev-parse', '--verify', `${head.name}^{commit}`], 'batch recovery head');
+        if (observed !== head.sha) throw new Error('Batch recovery exact head differs');
+      }
+      const pending = path.join(scratch, 'complete.bundle');
+      requireRecoveryGitText(scratch, ['bundle', 'create', pending, '--all'], 'batch recovery creation');
+      const bytes = readFileSync(pending);
+      store.publishExclusive({ name: bundleName, bytes, validate: (published) => {
+        if (!Buffer.from(published).equals(bytes)) throw new Error('Batch recovery publication changed bytes');
+      } });
+    }
+    const digest = createHash('sha256').update(store.read(bundleName)!).digest('hex');
+    const checksum = Buffer.from(`${digest}  ${bundleName}\n`, 'utf8');
+    store.publishExclusive({ name: `${bundleName}.sha256`, bytes: checksum, validate: (published) => {
+      if (!Buffer.from(published).equals(checksum)) throw new Error('Batch recovery checksum changed');
+    } });
+    const recovery: BranchRecoveryAuthority = Object.freeze({
+      kind: 'bundle', path: bundlePath, sha256: `sha256:${digest}`, verified: true,
+      verifyOutput: 'Self-contained exact-head batch recovery; no Git prerequisites'
+    });
+    const verified = verifyRecoveryAuthorityHeadsLive({ inventory: input.inventory, recovery,
+      expectedHeads: heads.map((head) => head.sha), requireComplete: true });
+    if (verified.status !== 'success') throw new Error(verified.detail);
+    store.assertCurrent();
+    return Object.freeze({ ...recovery, verifyOutput: verified.detail });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** Verify shared bytes once, then prove every exact head and independent restorability. */
+export function verifyRecoveryAuthorityHeadsLive(input: Readonly<{
+  inventory: BranchLifecycleInventory;
+  recovery: BranchRecoveryAuthority;
+  expectedHeads: readonly string[];
+  requireComplete: boolean;
+}>): BranchCloseoutAttempt {
+  const verified = verifyRecoveryAuthorityLive(input);
+  if (verified.status !== 'success') return verified;
+  let empty: string | undefined;
+  try {
+    if (input.recovery.kind !== 'bundle') throw new Error('Batch recovery requires a native bundle');
+    const lines = requireRecoveryGitText(input.inventory.repository.root,
+      ['bundle', 'list-heads', input.recovery.path], 'batch bundle head readback');
+    const heads = new Set(lines.split(/\r?\n/u).map((line) => line.split(' ')[0]));
+    for (const head of input.expectedHeads) {
+      assertGitSha(head, 'batch recovery expected head');
+      if (!heads.has(head)) throw new Error(`Batch bundle lacks exact head ${head}`);
+    }
+    if (input.requireComplete) {
+      empty = mkdtempSync(path.join(path.dirname(input.recovery.path), '.sec-recovery-empty-'));
+      requireRecoveryGitText(empty, ['init', '--bare', '.'], 'empty recovery repository');
+      requireRecoveryGitText(empty, ['bundle', 'verify', input.recovery.path], 'independent batch recovery');
+    }
+    return { operation: 'recovery-verify', status: 'success',
+      detail: `complete exact-head batch ${input.recovery.sha256}; ${input.expectedHeads.length} heads` };
+  } catch (error) {
+    return { operation: 'recovery-verify', status: 'failed',
+      detail: error instanceof Error ? error.message : String(error) };
+  } finally {
+    if (empty !== undefined) rmSync(empty, { recursive: true, force: true });
+  }
+}
+
+/** Read semantic source from the retained full bundle, including after the live refs are gone. */
+export async function withBatchRecoverySource<T>(input: Readonly<{
+  inventory: BranchLifecycleInventory;
+  recovery: BranchRecoveryAuthority;
+  operation: (repositoryRoot: string) => Promise<T>;
+}>): Promise<T> {
+  if (input.recovery.kind !== 'bundle') throw new Error('Batch source requires a complete bundle');
+  const root = mkdtempSync(path.join(path.dirname(input.recovery.path), '.sec-recovery-source-'));
+  try {
+    requireRecoveryGitText(root, ['init', '.'], 'batch source repository');
+    requireRecoveryGitText(root, ['fetch', '--no-tags', '--', input.recovery.path,
+      '+refs/heads/*:refs/heads/*'], 'batch source materialization');
+    requireRecoveryGitText(root, ['remote', 'add', 'origin', input.inventory.repository.remoteUrl],
+      'batch source origin binding');
+    return await input.operation(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}

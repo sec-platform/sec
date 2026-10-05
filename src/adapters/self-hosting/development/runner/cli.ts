@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { SecError } from '../../../../contracts/failure.ts';
 import {
   githubCredentialBootstrapHandoffArguments,
   withGitHubCredentialBootstrap
@@ -7,7 +8,7 @@ import type { PreparedLocalAffectedCheck } from './check-runner.ts';
 
 import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import { assertSecOperationDemandGraph, compileSecOperationDemandGraph, type SecOperationDemandGraph } from '../../control/operation/demand.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
@@ -317,6 +318,21 @@ export function formatImportRecoveryCommand(selection: Readonly<{
   ].filter(Boolean).join(' ');
 }
 
+/** Imports use the fixed Source Program issuer, never an installation callback. */
+export async function admitImportCompilerCapability(demand: SecOperationDemandGraph): Promise<void> {
+  assertSecOperationDemandGraph(demand);
+  if (demand.capabilityDemands.length !== 1 || demand.capabilityDemands[0] !== 'typescript-compiler-api') {
+    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED', 'Import operation requires only the read-only TypeScript compiler API demand.');
+  }
+  try {
+    const { typeScriptCompilerIdentity, assertTypeScriptCompilerIdentity } =
+      await import('../../../repository/source-program-model/typescript-profile.ts');
+    assertTypeScriptCompilerIdentity(typeScriptCompilerIdentity());
+  } catch (cause) {
+    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED',
+      'Import compiler capability admission failed; no dependency installation was selected.', {}, { cause });
+  }
+}
 async function main(): Promise<void> {
   return withGitHubCredentialBootstrap(process.argv.slice(2), runWithCredentialBootstrap);
 }
@@ -536,7 +552,7 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
     if (target === 'imports:freeze' && args.length !== 0) usage();
     const selectedImport = target === 'imports:freeze'
       ? undefined : parseImportOperationArgs(args, { allowStaged: true });
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    await admitImportCompilerCapability(compileSecOperationDemandGraph({
       operation: target === 'imports:check'
         ? 'imports-check'
         : target === 'imports:apply'
@@ -544,11 +560,6 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
           : 'imports-freeze',
       terminalWorkIds: []
     }));
-    const handoffExitCode = await handoffDevRunnerToFreshProcess(dependencies);
-    if (handoffExitCode !== null) {
-      process.exitCode = handoffExitCode;
-      return;
-    }
     const checkStagedImports = async (candidateBase?: string) => {
       const [{ withAuthorityGitReadSession }, { GIT_READ_EXACT_TREE_OPERATION_BUDGET }, {
         checkStagedCandidateImportNormalizationWithSelection

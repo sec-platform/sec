@@ -1,20 +1,11 @@
 import {
   parseRepositoryMaintenanceRequest,
-  REPOSITORY_MAINTENANCE_ISSUE_NUMBER,
+  REPOSITORY_MAINTENANCE_REQUEST_SCHEMA,
   type MaintenanceRequest
 } from './contract.ts';
 
 const REPOSITORY_MAINTENANCE_WORKFLOW_PATH =
   '.github/workflows/repository-maintenance.yml' as const;
-
-function positiveIntegerText(value: string | undefined, label: string): number {
-  if (value === undefined || !/^[1-9][0-9]*$/u.test(value)) {
-    throw new Error(`${label} must be one positive integer`);
-  }
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed)) throw new Error(`${label} exceeds the safe integer range`);
-  return parsed;
-}
 
 export function assertHostedRepositoryMaintenanceIdentity(
   request: MaintenanceRequest,
@@ -22,28 +13,23 @@ export function assertHostedRepositoryMaintenanceIdentity(
 ): void {
   const workflowRef =
     `${request.repository}/${REPOSITORY_MAINTENANCE_WORKFLOW_PATH}@refs/heads/main`;
-  const issueNumber = positiveIntegerText(
-    environment.SEC_MAINTENANCE_ISSUE_NUMBER,
-    'SEC_MAINTENANCE_ISSUE_NUMBER'
-  );
-  positiveIntegerText(environment.SEC_MAINTENANCE_COMMENT_ID, 'SEC_MAINTENANCE_COMMENT_ID');
-  const author = environment.SEC_MAINTENANCE_COMMENT_AUTHOR;
-  if (environment.GITHUB_ACTIONS !== 'true'
+  if (request.schema !== REPOSITORY_MAINTENANCE_REQUEST_SCHEMA
+      || environment.GITHUB_ACTIONS !== 'true'
       || environment.GITHUB_SERVER_URL !== 'https://github.com'
       || environment.GITHUB_API_URL !== 'https://api.github.com'
-      || environment.GITHUB_EVENT_NAME !== 'repository_dispatch'
-      || issueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER
-      || typeof author !== 'string' || author.length === 0
-      || environment.GITHUB_ACTOR !== author
+      || environment.GITHUB_EVENT_NAME !== 'workflow_dispatch'
+      || environment.GITHUB_RUN_ATTEMPT !== '1'
+      || typeof environment.GITHUB_ACTOR !== 'string' || environment.GITHUB_ACTOR.length === 0
       || environment.GITHUB_REPOSITORY !== request.repository
       || environment.GITHUB_REF !== 'refs/heads/main'
       || environment.GITHUB_SHA !== request.expectedMainSha
       || environment.GITHUB_WORKFLOW_SHA !== request.expectedMainSha
       || environment.GITHUB_WORKFLOW_REF !== workflowRef) {
-    throw new Error(
-      'repository maintenance must execute from one explicit dispatch bound to a maintainer-authored #313 comment on exact current main'
-    );
+    throw new Error('repository maintenance requires one explicit maintainer workflow_dispatch batch on exact current main');
   }
+  // These environment fields select the lane; the original GitHub capability owner
+  // separately reads the native event, live run and maintainer permission, then binds
+  // the request digest. Caller text and this structural check cannot issue authority.
 }
 
 export function parseHostedRepositoryMaintenanceRequest(

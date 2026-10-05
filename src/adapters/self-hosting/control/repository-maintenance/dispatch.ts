@@ -1,26 +1,22 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import path from 'node:path';
 
+import { sha256 } from '../../../../contracts/canonical.ts';
 import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
+import { inspectNoFollowDirectoryChain, readNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   parseRepositoryMaintenanceRequest,
-  REPOSITORY_MAINTENANCE_ISSUE_NUMBER
+  parseRepositoryMaintenanceResumeReceipt,
+  REPOSITORY_MAINTENANCE_MAX_REQUEST_BYTES,
+  REPOSITORY_MAINTENANCE_REQUEST_SCHEMA
 } from './contract.ts';
 
-export const REPOSITORY_MAINTENANCE_DISPATCH_EVENT =
-  'sec-repository-maintenance-v2' as const;
-export const REPOSITORY_MAINTENANCE_DISPATCH_SCHEMA =
-  'sec-repository-maintenance-dispatch-v1' as const;
-
+const WORKFLOW = 'repository-maintenance.yml';
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
-
-function rawSha256(source: string): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(source, 'utf8').digest('hex')}`;
-}
 
 function gh(args: readonly string[], input?: string): string {
   const result = spawnSync('gh', args, {
@@ -38,23 +34,27 @@ function gh(args: readonly string[], input?: string): string {
   });
   if (result.status !== 0) {
     const diagnostic = `${result.stderr ?? ''}${result.error?.message ?? ''}`.trim();
-    throw new Error(`repository maintenance dispatch provider failed: ${diagnostic || 'unknown gh failure'}`);
+    throw new Error(`repository maintenance provider failed: ${diagnostic || 'unknown gh failure'}`);
   }
   return String(result.stdout ?? '').trim();
 }
 
-function positiveInteger(source: string | undefined, label: string): number {
-  if (source === undefined || !/^[1-9][0-9]*$/u.test(source)) {
-    throw new Error(`${label} must be one positive integer`);
+function readBoundedInput(filename: string, limit: number): string {
+  if (process.platform !== 'linux' && process.platform !== 'win32') {
+    throw new Error(`repository maintenance file input is unsupported on ${process.platform}; the no-follow backend requires Linux or Windows`);
   }
-  const parsed = Number(source);
-  if (!Number.isSafeInteger(parsed)) throw new Error(`${label} exceeds the safe integer range`);
-  return parsed;
+  // The CLI selects a local input, not a repository-relative authority. Prove
+  // the entire parent chain, then read only its ordinary no-follow leaf through
+  // the physical owner; never reopen the caller's pathname as a file.
+  const selected = path.resolve(filename);
+  const parent = inspectNoFollowDirectoryChain(path.dirname(selected), 'maintenance input parent');
+  const bytes = readNoFollowOrdinaryFile(parent.target, path.basename(selected), { maximumBytes: limit });
+  if (bytes === null) throw new Error('repository maintenance input is absent');
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function repository(value: string | undefined): string {
-  if (value === undefined
-      || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(value)) {
+  if (value === undefined || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(value)) {
     throw new Error('--repository must be owner/name');
   }
   return value;
@@ -77,95 +77,73 @@ export function assertRepositoryMaintenanceDispatcherPermission(value: unknown):
   return permission;
 }
 
-export function createRepositoryMaintenanceDispatchPayload(input: Readonly<{
-  issueNumber: number;
-  commentId: number;
-  commentBody: string;
-}>): Readonly<{
-  event_type: typeof REPOSITORY_MAINTENANCE_DISPATCH_EVENT;
-  client_payload: Readonly<{
-    schema: typeof REPOSITORY_MAINTENANCE_DISPATCH_SCHEMA;
-    issue_number: number;
-    comment_id: number;
-    comment_body_sha256: `sha256:${string}`;
-  }>;
+/** This is transport data. Only the original capability and lifecycle owners admit effects. */
+export function createRepositoryMaintenanceDispatchPayload(source: string, resumeSource?: string): Readonly<{
+  ref: 'main';
+  inputs: Readonly<{ request: string; request_digest: `sha256:${string}`; execution_digest: `sha256:${string}`; resume_receipt: string }>;
 }> {
-  if (input.issueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER
-      || !Number.isSafeInteger(input.commentId) || input.commentId < 1
-      || typeof input.commentBody !== 'string' || input.commentBody.length === 0) {
-    throw new Error('repository maintenance dispatch identity is invalid');
+  const request = parseRepositoryMaintenanceRequest(source);
+  if (request.schema !== REPOSITORY_MAINTENANCE_REQUEST_SCHEMA) {
+    throw new Error('new dispatch requires a v2 exact ref batch; legacy comment carriers are read-only');
   }
-  return Object.freeze({
-    event_type: REPOSITORY_MAINTENANCE_DISPATCH_EVENT,
-    client_payload: Object.freeze({
-      schema: REPOSITORY_MAINTENANCE_DISPATCH_SCHEMA,
-      issue_number: input.issueNumber,
-      comment_id: input.commentId,
-      comment_body_sha256: rawSha256(input.commentBody)
-    })
-  });
+  const resume = parseRepositoryMaintenanceResumeReceipt(resumeSource);
+  const requestDigest = sha256(request);
+  const inputs = Object.freeze({ request: source, request_digest: requestDigest,
+    execution_digest: sha256({ requestDigest, resumeReceipt: resume ?? null }), resume_receipt: resume === undefined ? '' : JSON.stringify(resume) });
+  if (Buffer.byteLength(JSON.stringify(inputs), 'utf8') > 65_535) {
+    throw new Error('workflow dispatch inputs exceed the provider payload budget');
+  }
+  return Object.freeze({ ref: 'main', inputs });
 }
 
 export function repositoryMaintenanceDispatchCli(argv: readonly string[]): string {
-  if (argv.length !== 4 || argv[0] !== '--repository' || argv[2] !== '--comment') {
-    throw new Error('usage: repository-maintenance-dispatch --repository owner/name --comment <id>');
+  if ((argv.length !== 4 && argv.length !== 6) || argv[0] !== '--repository' || argv[2] !== '--request'
+      || (argv.length === 6 && argv[4] !== '--resume-receipt')) {
+    throw new Error('usage: repository-maintenance-dispatch --repository owner/name --request <json-file> [--resume-receipt <locator-json-file>]; dispatches one hosted batch, without comments');
   }
   const repositoryName = repository(argv[1]);
-  const commentId = positiveInteger(argv[3], '--comment');
-  const comment = record(JSON.parse(gh([
-    'api',
-    `/repos/${repositoryName}/issues/comments/${commentId}`
-  ])), 'repository maintenance trigger comment');
-  const author = record(comment.user, 'repository maintenance trigger comment user');
-  if (comment.id !== commentId
-      || typeof comment.issue_url !== 'string'
-      || !comment.issue_url.endsWith(`/repos/${repositoryName}/issues/${REPOSITORY_MAINTENANCE_ISSUE_NUMBER}`)
-      || typeof comment.body !== 'string' || comment.body.length === 0
-      || typeof author.login !== 'string' || author.login.length === 0
-      || author.type !== 'User'
-      || comment.performed_via_github_app !== null) {
-    throw new Error('repository maintenance trigger comment identity is invalid');
-  }
-  const viewer = gh(['api', '/user', '--jq', '.login']);
-  if (viewer !== author.login) {
-    throw new Error('repository maintenance dispatcher must be the exact trigger comment author');
-  }
-  assertRepositoryMaintenanceDispatcherPermission(JSON.parse(gh([
-    'api',
-    `/repos/${repositoryName}/collaborators/${encodeURIComponent(viewer)}/permission`
-  ])));
-  const request = parseRepositoryMaintenanceRequest(comment.body);
+  const payload = createRepositoryMaintenanceDispatchPayload(
+    readBoundedInput(argv[3]!, REPOSITORY_MAINTENANCE_MAX_REQUEST_BYTES),
+    argv[5] === undefined ? undefined : readBoundedInput(argv[5], 1024)
+  );
+  const request = parseRepositoryMaintenanceRequest(payload.inputs.request);
   if (request.repository !== repositoryName) {
     throw new Error('repository maintenance request repository differs from dispatch repository');
   }
-  const liveMain = gh([
-    'api',
-    `/repos/${repositoryName}/git/ref/heads/main`,
-    '--jq',
-    '.object.sha'
-  ]);
+  const viewer = record(JSON.parse(gh(['api', '/user'])), 'repository maintenance dispatcher');
+  if (typeof viewer.login !== 'string' || viewer.login.length === 0 || viewer.type !== 'User') {
+    throw new Error('repository maintenance dispatcher must be an authenticated User');
+  }
+  assertRepositoryMaintenanceDispatcherPermission(JSON.parse(gh([
+    'api', `/repos/${repositoryName}/collaborators/${encodeURIComponent(viewer.login)}/permission`
+  ])));
+  const liveMain = gh(['api', `/repos/${repositoryName}/git/ref/heads/main`, '--jq', '.object.sha']);
   if (liveMain !== request.expectedMainSha) {
     throw new Error(`repository maintenance main drifted before dispatch: expected ${request.expectedMainSha}, observed ${liveMain}`);
   }
-  const payload = createRepositoryMaintenanceDispatchPayload({
-    issueNumber: REPOSITORY_MAINTENANCE_ISSUE_NUMBER,
-    commentId,
-    commentBody: comment.body
-  });
-  gh([
-    'api',
-    '--method',
-    'POST',
-    `/repos/${repositoryName}/dispatches`,
-    '--input',
-    '-'
-  ], `${JSON.stringify(payload)}\n`);
+  let response: string;
+  try {
+    response = gh([
+      'api', '--method', 'POST',
+      `/repos/${repositoryName}/actions/workflows/${WORKFLOW}/dispatches`,
+      '-H', 'X-GitHub-Api-Version: 2026-03-10', '--input', '-'
+    ], `${JSON.stringify(payload)}\n`);
+  } catch (error) {
+    throw new Error(`repository maintenance dispatch outcome is unknown; do not resend before reading workflow runs with display title maintenance/${payload.inputs.execution_digest}. Existing credentials must permit Actions(write); this command never changes credentials or scopes. ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let result: Record<string, any>;
+  try { result = record(JSON.parse(response), 'repository maintenance dispatch response'); }
+  catch { throw new Error('repository maintenance dispatch was accepted but its run identity is unknown; read workflow runs before any resend'); }
+  const runId = result.workflow_run_id;
+  if (!Number.isSafeInteger(runId) || runId < 1
+      || result.run_url !== `https://api.github.com/repos/${repositoryName}/actions/runs/${runId}`
+      || result.html_url !== `https://github.com/${repositoryName}/actions/runs/${runId}`) {
+    throw new Error('repository maintenance dispatch was accepted but its run identity is unknown; read workflow runs before any resend');
+  }
   return JSON.stringify({
-    status: 'dispatched',
-    repository: repositoryName,
-    issueNumber: REPOSITORY_MAINTENANCE_ISSUE_NUMBER,
-    commentId,
-    requestDigest: rawSha256(comment.body)
+    status: 'dispatched', transport: 'workflow_dispatch', repository: repositoryName,
+    requestDigest: sha256(request), executionDigest: payload.inputs.execution_digest, operations: request.operations.length,
+    runId, runUrl: result.html_url
   }, null, 2);
 }
 

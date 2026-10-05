@@ -20,7 +20,7 @@ test('one demand compiler derives terminal transition and no ambient execution c
   ]);
 });
 
-test('all executable operations derive the same compiler dependency capability', () => {
+test('process and verification operations demand materialization while imports demand only the compiler API', () => {
   const processIsolatedOperations = new Set([
     'test-direct-ambiguous',
     'test-direct-fast',
@@ -42,7 +42,8 @@ test('all executable operations derive the same compiler dependency capability',
     'typecheck'
   ] as const) {
     const graph = compileSecOperationDemandGraph({ operation, terminalWorkIds: [] });
-    expect(graph.capabilityDemands).toEqual(['compiler-dependency-tree']);
+    expect(graph.capabilityDemands).toEqual(operation.startsWith('imports-')
+      ? ['typescript-compiler-api'] : ['compiler-dependency-tree']);
     if (processIsolatedOperations.has(operation)) {
       expect(graph.verificationObligations).toContain('test-process-isolation');
     } else {
