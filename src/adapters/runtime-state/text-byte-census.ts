@@ -6,7 +6,7 @@
  * classify each blob according to that tree's .gitattributes policy.
  *
  * Git blob bytes are the tracked source identity. Worktree materialization
- * is a separate concern handled by worktree-settlement-contract.ts.
+ * is a separate concern handled by worktree-settlement.ts.
  */
 
 export const TEXT_BYTE_CENSUS_SCHEMA = 'sec-text-byte-census-v1' as const;

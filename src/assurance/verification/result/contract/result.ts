@@ -16,12 +16,10 @@ import { VERIFICATION_GATE_RESULT_SCHEMA } from './schema.ts';
  * applicability, reason codes, gate result schema, claim-based aggregate algorithm,
  * and legacy mapping helpers.
  *
- * Slice 1 of Issue #176 (verification-result-truth). Pure additive: does NOT modify
- * any runner/CI/Product writer. All legacy models map into this contract; lossy
- * mappings surface as unresolved/invalidated rather than silently promoting to passed.
+ * Legacy mappings with insufficient context surface as unresolved/invalidated
+ * rather than silently promoting to passed.
  *
- * Authority: config/repository/work-packages/verification-result-core-v1.md
- * Census: Issue #176 census v0.2
+ * Origin: Issue #176 (verification-result-truth), census v0.2.
  */
 
 /**
@@ -43,12 +41,12 @@ export type VerificationResultStatus =
   | 'invalidated';
 
 /**
- * How a gate's coverage was satisfied. Orthogonal to status:
+ * How a gate observation was obtained. Orthogonal to status:
  * - `executed`: ran fresh in this gate
- * - `reused`: bound to trusted Evidence (status must still be `passed`)
+ * - `reused`: bound to trusted Evidence (status is `passed` or `failed`)
  * - `not-executed`: no physical execution and no reuse
  *
- * Note: `reused` is NOT a sixth status — it is a disposition that pairs with `passed`.
+ * Note: `reused` is NOT a sixth status — it is a disposition for a retained result.
  */
 export type VerificationDisposition = 'executed' | 'reused' | 'not-executed';
 
@@ -417,11 +415,11 @@ function assertExecution(value: unknown, label: string): asserts value is Verifi
 }
 
 /**
- * Validate the cross-field invariants of a VerificationGateResultV1:
+ * Validate the cross-field invariants of a VerificationGateResult:
  * - status/disposition/reasonCode/applicability combinations
  * - execution nullness matches disposition
  * - evidenceRefs required for reused disposition
- * - environment required for executed disposition
+ * - environment required for executed or reused disposition
  */
 export function CodexDevelopmentAssertVerificationGateResult(
   value: unknown
@@ -533,7 +531,7 @@ export interface VerificationGateResultBuilderInput {
 }
 
 /**
- * Build a VerificationGateResultV1 from typed input. Validates the result before
+ * Build a VerificationGateResult from typed input. Validates the result before
  * returning. Use this instead of constructing the object literal directly to
  * guarantee cross-field invariants.
  */

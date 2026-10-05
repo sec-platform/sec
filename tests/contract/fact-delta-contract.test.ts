@@ -124,10 +124,10 @@ test('public Fact Delta v1 schema and deterministic digest contract stay frozen'
   expect(delta.deltaRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(JSON.stringify(buildFactDelta(endpoint(snapshot), endpoint(snapshot)))).toBe(JSON.stringify(delta));
 
-  const raw = buildEngineeringIR(source());
-  const lock = {} as LockFile;
-  const views = {} as SemanticViewSet;
   if (false) {
+    const raw = buildEngineeringIR(source());
+    const lock = {} as LockFile;
+    const views = {} as SemanticViewSet;
     // @ts-expect-error Raw EngineeringIR cannot cross the validated Fact Delta boundary.
     buildFactDelta({ ...endpoint(snapshot), snapshot: raw }, endpoint(snapshot));
     // @ts-expect-error Lock state cannot cross the validated Fact Delta boundary.

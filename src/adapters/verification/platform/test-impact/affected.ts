@@ -86,11 +86,11 @@ export function CodexDevelopmentBuildAffectedTestInventory(
 // ---------------------------------------------------------------------------
 //
 // Classifies the result of an affected-test selection into a trust boundary
-// and projects it to the unified VerificationGateResultV1 model (PR #204).
+// and projects it to the unified VerificationGateResult model (PR #204).
 //
 // The core problem this solves: `test-runner.ts` used to return exit 0 when
 // `sourceChanged=true && selectedFastTests=[]` even when the empty closure was
-  // caused by an unresolved selection (module read/stat failure, git discovery
+// caused by an unresolved selection (module read/stat failure, git discovery
 // failure, or unmapped ownership). That silently treated "could not determine
 // impact" as "no impact" — a false-green.
 //

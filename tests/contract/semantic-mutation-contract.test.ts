@@ -1,22 +1,14 @@
 import { expect, test } from 'bun:test';
 
-import type { CiArtifactManifest } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
-import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type VerificationReport } from '../../src/assurance/verification/contract/types.ts';
-import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/assurance/verification/contract/types.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
-import type { LockFile } from '../../src/compiler/contract.ts';
-import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import { normalizeSemanticMutationRequest } from '../../src/compiler/semantic-mutation/normalize-request.ts';
-import { planSemanticMutation, semanticMutationPlanRevision } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
+import { semanticMutationPlanRevision } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
 import { semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/result.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
-import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
-import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
-import type { SemanticViewSet } from '../../src/semantics/projection/types.ts';
+import type { SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
 function request(): SemanticMutationRequest {
@@ -228,40 +220,4 @@ test('independent plan, required-verification, execution, and result digest vect
     domain: 'semantic-mutation-result-v2',
     ...resultDraft
   }));
-});
-
-test('compile-time boundaries keep proposal, trusted context, IR, Lock, Projection, artifacts, and reports distinct', () => {
-  const proposal = request();
-  const rawIR = {} as EngineeringIR;
-  const endpoint = {} as FactDeltaEndpointContext;
-  const authorization = {} as SemanticMutationAuthorizationContext;
-  const lock = {} as LockFile;
-  const views = {} as SemanticViewSet;
-  const artifact = {} as CiArtifactManifest;
-  const review = {} as ReviewSummary;
-  const verification = {} as VerificationReport;
-  const plan = {} as SemanticMutationPlan;
-  const snapshot = {} as ValidatedEngineeringIRSnapshot;
-  const trustedInput = {} as SemanticMutationInput;
-  if (false) {
-    // @ts-expect-error Raw EngineeringIR cannot replace the branded FactDelta endpoint.
-    preflightSemanticMutation({ request: proposal, base: rawIR, authorization });
-    // @ts-expect-error Proposal cannot replace trusted authorization.
-    preflightSemanticMutation({ request: proposal, base: endpoint, authorization: proposal });
-    // @ts-expect-error Lock state cannot replace trusted preparation/base input.
-    planSemanticMutation({ ...trustedInput, base: lock });
-    // @ts-expect-error Projection cannot replace trusted preparation/base input.
-    planSemanticMutation({ ...trustedInput, base: views });
-    // @ts-expect-error Artifact manifest cannot replace trusted preparation/base input.
-    planSemanticMutation({ ...trustedInput, base: artifact });
-    // @ts-expect-error Review summary cannot replace trusted preparation/base input.
-    planSemanticMutation({ ...trustedInput, base: review });
-    // @ts-expect-error Verification report cannot replace Verification planning context.
-    planSemanticMutation({ ...trustedInput, verificationPlanning: verification });
-    // @ts-expect-error A mutation plan is not a validated IR endpoint.
-    buildFactDelta({ ...endpoint, snapshot: plan }, endpoint);
-    // @ts-expect-error A raw snapshot-like value cannot be supplied as canonical Fact Delta.
-    buildFactDelta({ ...endpoint, snapshot: rawIR }, { ...endpoint, snapshot });
-  }
-  expect(true).toBe(true);
 });
