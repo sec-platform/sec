@@ -69,11 +69,6 @@ import {
   SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH
 } from './isolation/isolated-verification-child-progress.ts';
 import {
-  resetSemanticMutationIsolatedExecutionPhaseTelemetry,
-  resetSemanticMutationIsolatedPhaseTelemetry,
-  withSemanticMutationIsolatedPhaseTelemetry
-} from './isolation/isolated-verification-phase-telemetry.ts';
-import {
   captureIsolatedRuntimeBuildNodeModulesProof,
   resolveIsolatedRuntimeDependencySources,
   revalidateIsolatedRuntimeBuildNodeModulesProof
@@ -1300,7 +1295,6 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
         'Isolated verification requires a proven process-wide fast-suite write sandbox'
       );
     }
-    await resetSemanticMutationIsolatedPhaseTelemetry(stagingWorkspaceRoot);
     if (await pathExists(path.join(stagingWorkspaceRoot, modelRelativePath, 'schema', 'db.prisma.template'))) {
       throw new Error('Isolated Prisma execution is unavailable');
     }
@@ -1522,7 +1516,6 @@ export async function runSemanticMutationIsolatedVerificationChild(
     const supervisor = supervisorOverride ?? createSemanticMutationIsolatedVerificationSupervisor();
     await commitFence();
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
-    await resetSemanticMutationIsolatedExecutionPhaseTelemetry(stagingWorkspaceRoot);
     const childOutcomePath = semanticMutationIsolatedChildOutcomePath(stagingWorkspaceRoot);
     const childOutcomePendingPath = semanticMutationIsolatedChildOutcomePendingPath(stagingWorkspaceRoot);
     const staleArtifactCleanup = retainNoFollowFileTransaction(
@@ -1553,16 +1546,11 @@ export async function runSemanticMutationIsolatedVerificationChild(
     const canIssueProofSource = productionInvocation && runtimeBindingRoot !== undefined &&
       isCanonicalWorkspaceWriteCommitFence(commitFence, workspaceRoot, workspaceWriteLease) &&
       canonicalProductionRuntimeBindingRoots.has(runtimeBindingRoot);
-    const { runnerRelativePath } =
-      await withSemanticMutationIsolatedPhaseTelemetry(
-      stagingWorkspaceRoot,
-      'runtime-materialize',
-      async () => await materializeSemanticMutationIsolatedRuntime({
-        binding: runtimeBinding,
-        commitFence,
-        stagingWorkspaceRoot
-      })
-    );
+    const { runnerRelativePath } = await materializeSemanticMutationIsolatedRuntime({
+      binding: runtimeBinding,
+      commitFence,
+      stagingWorkspaceRoot
+    });
     await commitFence();
     const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
     await ensureIsolatedProcessDirectories(writableRoot, commitFence);
