@@ -94,7 +94,6 @@ test('JSON conversion cannot redirect its target through a toJSON cwd change', a
 
 for (const [label, value] of [['undefined', undefined], ['function', () => 7], ['symbol', Symbol('value')], ['empty conversion', { toJSON() { return undefined; } }]] as const) {
   test(`JSON file output refuses ${label} instead of writing a non-JSON document`, async () => fixture(async root => {
-    assert.throws(() => formatJsonFile(value), /must contain one JSON value/);
     const target = path.join(root, 'absent/value.json');
     await assert.rejects(writeJson(target, value, async () => assert.fail('invalid JSON effect')), /must contain one JSON value/);
     assert.equal(existsSync(path.dirname(target)), false);

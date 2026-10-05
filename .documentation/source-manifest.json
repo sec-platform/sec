@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "82092e0007fd4859ec2d8a19fd822785b20b230d631836f26f4ed87dfd90151d",
+  "source_set_sha256": "1269550e8142445efb498f1f1ea9b2af078762764d8e9314cb37a30484debfb2",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -2139,8 +2139,8 @@
     },
     {
       "path": "tools/documentation/tests/test_check_design.py",
-      "bytes": 2427,
-      "sha256": "d174256723125fea74e445d604c350383ccbf83219994bab58b7d28e23c51f86"
+      "bytes": 2214,
+      "sha256": "43f9eb3e5aa000e031208311306edc9567c236b596a880fb57046a5ace0a88a9"
     },
     {
       "path": "tools/documentation/tests/test_check_documentation_identity.py",
