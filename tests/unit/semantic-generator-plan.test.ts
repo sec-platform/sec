@@ -141,8 +141,8 @@ test('validated IR owns Generator/Artifact facts and the deterministic lowering 
     { from: 'open', to: 'closed', by: 'transitionItemStatus', operationEntityId: 'operation:item:transitionItemStatus' }
   ]);
 
-  const raw = buildEngineeringIR(source);
   if (false) {
+    const raw = buildEngineeringIR(source);
     // @ts-expect-error Generator plans require the branded validated snapshot boundary.
     buildSemanticGeneratorPlan(raw, declarations(source));
   }

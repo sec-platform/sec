@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "206c8c9bff2cceb267a9589518c8699f78eae6b66dcf859a7e5c19e6108a441f",
+  "source_set_sha256": "8a072f5d1ef431c4cd8d0647185c25579975472383d1f360ab80e0b58593a5a9",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1239,8 +1239,8 @@
     },
     {
       "path": "docs/运行/权限与资源管理.md",
-      "bytes": 68440,
-      "sha256": "a9fd5bbd3859dc6c0d00e4434052bf91d37e5f9255e3f6a075c0e45895056839"
+      "bytes": 68434,
+      "sha256": "8c2ddc3211ea2d8d9359ed7e8c624cda3750b2a1cbc6bf4cb4b4fcd1cdd89725"
     },
     {
       "path": "docs/运行/跨实现调用与数据寿命.md",
