@@ -297,6 +297,29 @@ function parentJobFixture(): Record<string, unknown> {
     ] };
 }
 
+function actionJobFixtures(runId: number): Record<string, unknown>[] {
+  const step = (number: number, name: string, start: number, end: number) => ({ number, name,
+    status: 'completed', conclusion: 'success',
+    started_at: `2026-08-09T01:00:${String(start).padStart(2, '0')}Z`,
+    completed_at: `2026-08-09T01:00:${String(end).padStart(2, '0')}Z` });
+  const common = { run_id: runId, head_sha: BASE, status: 'completed', conclusion: 'success',
+    started_at: '2026-08-09T01:00:00Z', completed_at: '2026-08-09T01:00:12Z' };
+  return [
+    { ...common, id: runId * 100 + 1, name: 'claim-verification-action', steps: [
+      step(8, 'Create immutable Action start marker from fresh provider census', 1, 2),
+      step(9, 'Upload immutable Action start marker', 3, 5),
+      step(10, 'Publish durable start tombstone and issue execution ticket', 6, 7)
+    ] },
+    { ...common, id: runId * 100 + 2, name: 'assemble-verification-action-terminal', steps: [
+      step(8, 'Assemble canonical five-state terminal artifact', 1, 2),
+      step(9, 'Upload canonical terminal Action artifact', 3, 5),
+      step(10, 'Create exact post-upload terminal anchor', 6, 7),
+      step(11, 'Upload exact post-upload terminal anchor', 8, 10),
+      step(12, 'Publish neutral terminal provider tombstone', 11, 12)
+    ] }
+  ];
+}
+
 class FakeGh {
   statuses: Record<string, unknown>[] = [];
   artifacts: ArtifactFixture[] = [{
@@ -311,11 +334,13 @@ class FakeGh {
   artifactListCalls: Array<{ page: number; perPage: number }> = [];
   jobListCalls: Array<{ runId: string; runAttempt: number; page: number }> = [];
   parentJobs: Record<string, unknown>[] = [parentJobFixture()];
-  jobPageHook: ((page: number, call: number) => Readonly<{
+  actionJobsByAttempt: Record<string, Record<string, unknown>[]> = {};
+  jobPageHook: ((page: number, call: number, runId: string, runAttempt: number) => Readonly<{
     jobs?: readonly Record<string, unknown>[]; totalCount?: unknown;
   }> | null) | null = null;
   artifactMetadataOverrides: Record<string, Record<string, unknown>> = {};
   workflowSource = CANONICAL_WORKFLOW_SOURCE;
+  workflowSourceHook: ((call: number) => string | null) | null = null;
   workflowSourceCalls: Array<{ path: string; ref: string | null }> = [];
   createCalls = 0;
   dispatchCalls = 0;
@@ -371,7 +396,7 @@ class FakeGh {
       const ref = url.searchParams.get('ref');
       this.workflowSourceCalls.push({ path: '.github/workflows/compiler-pr-validation.yml', ref });
       if (ref !== BASE) return this.fail('unexpected workflow source revision');
-      const bytes = Buffer.from(this.workflowSource, 'utf8');
+      const bytes = Buffer.from(this.workflowSourceHook?.(this.workflowSourceCalls.length) ?? this.workflowSource, 'utf8');
       return this.json({ type: 'file', path: '.github/workflows/compiler-pr-validation.yml', encoding: 'base64',
         content: bytes.toString('base64'), size: bytes.byteLength,
         sha: createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex') });
@@ -380,10 +405,13 @@ class FakeGh {
     if (jobsMatch !== null) {
       const page = Number(url.searchParams.get('page'));
       this.jobListCalls.push({ runId: jobsMatch[1]!, runAttempt: Number(jobsMatch[2]), page });
-      const override = this.jobPageHook?.(page, this.jobListCalls.length) ?? null;
+      const runId = jobsMatch[1]!, runAttempt = Number(jobsMatch[2]);
+      const jobs = runId === PARENT_RUN_ID ? this.parentJobs
+        : this.actionJobsByAttempt[`${runId}:${runAttempt}`] ??= actionJobFixtures(Number(runId));
+      const override = this.jobPageHook?.(page, this.jobListCalls.length, runId, runAttempt) ?? null;
       return this.json({ total_count: override !== null && Object.hasOwn(override, 'totalCount')
-        ? override.totalCount : this.parentJobs.length,
-        jobs: override?.jobs ?? this.parentJobs.slice((page - 1) * 100, page * 100) });
+        ? override.totalCount : jobs.length,
+        jobs: override?.jobs ?? jobs.slice((page - 1) * 100, page * 100) });
     }
     if (/^\/repos\/[^/]+\/[^/]+\/commits\/[0-9a-f]{40}\/statuses$/u.test(endpoint)) {
       const page = Number(url.searchParams.get('page'));
@@ -411,7 +439,10 @@ class FakeGh {
         name: artifact.name,
         expired: artifact.expired,
         workflow_run: { id: artifact.runId, head_sha: BASE },
-        created_at: '2026-08-09T01:00:03Z', updated_at: '2026-08-09T01:00:05Z',
+        created_at: artifact.fileName === 'verification-action-terminal-status-anchor.json'
+          ? '2026-08-09T01:00:08Z' : '2026-08-09T01:00:03Z',
+        updated_at: artifact.fileName === 'verification-action-terminal-status-anchor.json'
+          ? '2026-08-09T01:00:10Z' : '2026-08-09T01:00:05Z',
         size_in_bytes: archive.byteLength,
         digest: `sha256:${rawSha256Hex(archive)}`,
         ...this.artifactMetadataOverrides[String(artifact.id)]
@@ -524,6 +555,47 @@ class FakeGh {
   private fail(message: string, status = 500): Response {
     return new Response(message, { status });
   }
+}
+
+function withTerminalChain(target: FakeGh) {
+  const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifactV2({
+    actionPlan: closure.actions[0]!,
+    normalizedOperation: closure.normalizedOperations[0]!,
+    baseSha: BASE,
+    baseTreeSha: '3'.repeat(40),
+    headSha: HEAD,
+    headTreeSha: '4'.repeat(40),
+    manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
+    manifestDigest: digest('a'),
+    producer: currentOrigin
+  });
+  const terminalAnchor = createVerificationActionProviderTerminalAnchor({
+    actionKey: ACTION,
+    candidateSha: HEAD,
+    startStatusId: 101,
+    startStatusNodeId: 'STATUS_101',
+    startArtifactOriginId: '7001',
+    startArtifactName: verificationActionProviderStartArtifactName(ACTION),
+    startArtifactArchiveDigest: archiveDigestFor('verification-action-start-marker.json', JSON.stringify(marker)),
+    startMarkerDigest: marker.markerDigest,
+    terminalArtifactOriginId: '7002',
+    terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
+    terminalArtifactArchiveDigest: archiveDigestFor('verification-action-terminal-artifact.json', JSON.stringify(terminalArtifact)),
+    terminalArtifactPayloadDigest: terminalArtifact.artifactDigest as VerificationActionKeyDigest,
+    terminalAssemblerOrigin: currentOrigin,
+    anchorPublisherOrigin: currentOrigin
+  });
+  target.withMarker();
+  target.statuses = [rawStatus({ id: 101 })];
+  target.artifacts.push(
+    { id: 7002, name: verificationActionProviderTerminalArtifactName(ACTION), expired: false,
+      runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-artifact.json',
+      source: JSON.stringify(terminalArtifact) },
+    { id: 7003, name: verificationActionProviderTerminalAnchorName(ACTION), expired: false,
+      runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json',
+      source: JSON.stringify(terminalAnchor) }
+  );
+  return terminalAnchor;
 }
 
 let fakeGh = new FakeGh();
@@ -672,8 +744,9 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
           authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } });
       expect(result.disposition).toBe(completed ? 'started' : 'observed');
       expect(fakeGh.workflowSourceCalls).toContainEqual({ path: '.github/workflows/compiler-pr-validation.yml', ref: BASE });
-      expect(fakeGh.jobListCalls.length).toBeGreaterThanOrEqual(2);
-      for (const call of fakeGh.jobListCalls) expect(call).toEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 1 });
+      const parentCalls = fakeGh.jobListCalls.filter(call => call.runId === PARENT_RUN_ID);
+      expect(parentCalls.length).toBeGreaterThanOrEqual(2);
+      for (const call of parentCalls) expect(call).toEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 1 });
       expect(fakeGh.createCalls).toBe(completed ? 1 : 0);
       expect(fakeGh.dispatchCalls).toBe(0);
     }
@@ -1233,44 +1306,118 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
   });
 
+  const actionSlots = [
+    { name: 'start', artifactId: 7001, jobIndex: 0, producerIndex: 0, uploadIndex: 1, observations: 'startObservations' },
+    { name: 'terminal', artifactId: 7002, jobIndex: 1, producerIndex: 0, uploadIndex: 1, observations: 'terminalObservations' },
+    { name: 'anchor', artifactId: 7003, jobIndex: 1, producerIndex: 2, uploadIndex: 3, observations: 'terminalAnchorObservations' }
+  ] as const;
+  const isolatedSlot = (slot: typeof actionSlots[number]): Record<string, unknown> => {
+    fakeGh = new FakeGh();
+    withTerminalChain(fakeGh);
+    fakeGh.artifacts = fakeGh.artifacts.filter(artifact => artifact.id === PARENT_ARTIFACT_ID || artifact.id === slot.artifactId);
+    fakeGh.statuses = [];
+    const jobs = actionJobFixtures(Number(CURRENT_RUN_ID));
+    fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`] = jobs;
+    return jobs[slot.jobIndex]!;
+  };
+
+  for (const slot of actionSlots) {
+    test(`${slot.name} artifact retains its successful upload after later publisher failure or cancellation`, async () => {
+      for (const conclusion of [null, 'success', 'failure', 'cancelled', 'timed_out']) {
+        const job = isolatedSlot(slot);
+        expect(Object.hasOwn(job, 'run_attempt')).toBe(false);
+        if (conclusion === 'success') job.run_attempt = 1;
+        if (conclusion === null) { job.status = 'in_progress'; job.completed_at = null; }
+        job.conclusion = conclusion;
+        // The uploaded data remains useful even when the later job settlement
+        // occurs after its original execution budget. This grants no dispatch.
+        if (conclusion === 'timed_out') job.completed_at = '2026-08-10T01:00:00Z';
+        const steps = job.steps as Record<string, unknown>[];
+        steps[steps.length - 1] = { ...steps[steps.length - 1]!, status: conclusion === null ? 'in_progress' : 'completed', conclusion,
+          completed_at: job.completed_at };
+        const observed = await ensureTransaction({ origin: coordinateOrigin, authority: authority(), intent: { kind: 'coordinate' } });
+        expect(observed.snapshot[slot.observations]).toHaveLength(1);
+        expect(observed.snapshot[slot.observations][0]).toMatchObject({ expired: false, referencedOrigin: currentOrigin });
+        expect(observed.snapshot[slot.observations][0]!.payload).not.toBeNull();
+        expect(fakeGh.workflowSourceCalls).toEqual([
+          { path: '.github/workflows/compiler-pr-validation.yml', ref: BASE },
+          { path: '.github/workflows/compiler-pr-validation.yml', ref: BASE }
+        ]);
+        expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+      }
+    });
+
+    test(`${slot.name} artifact cannot borrow a different slot, attempt or producer with correct bytes`, async () => {
+      const forgeries: Array<(job: Record<string, unknown>) => void> = [
+        job => { job.name = 'coordinate-verification-session'; },
+        job => { job.head_sha = HEAD; },
+        job => { job.run_id = Number(PARENT_RUN_ID); },
+        job => { job.run_attempt = 2; }, job => { job.run_attempt = null; },
+        job => { job.conclusion = 'skipped'; },
+        job => { (job.steps as Record<string, unknown>[])[slot.producerIndex]!.conclusion = 'failure'; },
+        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.conclusion = 'skipped'; },
+        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.name = 'Upload a different slot'; },
+        job => { const steps = job.steps as Record<string, unknown>[];
+          steps[slot.uploadIndex]!.number = Number(steps[slot.producerIndex]!.number) - 1; },
+        job => { const steps = job.steps as Record<string, unknown>[];
+          steps.push({ ...steps[slot.producerIndex]!, number: 20 }); },
+        job => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...job }); },
+        job => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...job, id: Number(job.id) + 10 }); },
+        job => { job.completed_at = '2026-08-09T01:00:00Z'; }
+      ];
+      for (const forge of forgeries) {
+        const job = isolatedSlot(slot);
+        const originalBytes = fakeGh.artifacts.find(artifact => artifact.id === slot.artifactId)!.source;
+        forge(job);
+        await expect(ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } }))
+          .rejects.toThrow(/(?:Action artifact|parent workflow job)/);
+        expect(fakeGh.artifacts.find(artifact => artifact.id === slot.artifactId)!.source).toBe(originalBytes);
+        expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+      }
+    }, 30_000);
+
+    test(`${slot.name} artifact requires its actual complete upload interval inside the source job budget`, async () => {
+      const forgeries: Array<(job: Record<string, unknown>) => void> = [
+        job => { job.started_at = undefined; },
+        job => { (job.steps as Record<string, unknown>[])[slot.producerIndex]!.started_at = null; },
+        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.completed_at = null; },
+        job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.started_at = '2026-08-09T00:59:59Z'; },
+        job => { const upload = (job.steps as Record<string, unknown>[])[slot.uploadIndex]!;
+          upload.started_at = '2026-08-10T01:00:03Z'; upload.completed_at = '2026-08-10T01:00:05Z';
+          job.completed_at = '2026-08-10T01:00:12Z';
+          fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = {
+            created_at: '2026-08-10T01:00:03Z', updated_at: '2026-08-10T01:00:05Z' }; },
+        ...[{ created_at: undefined }, { updated_at: 'invalid' },
+          { created_at: '2026-08-09T01:00:00Z' }, { updated_at: '2026-08-10T01:00:00Z' },
+          { updated_at: '2026-08-09T01:00:00Z' },
+          { workflow_run: { id: Number(CURRENT_RUN_ID), head_sha: HEAD } }].map(patch =>
+          (_job: Record<string, unknown>) => { fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = patch; })
+      ];
+      for (const forge of forgeries) {
+        const job = isolatedSlot(slot);
+        forge(job);
+        await expect(ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } }))
+          .rejects.toThrow(/Action artifact/);
+        expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+      }
+    }, 30_000);
+  }
+
+  test('parent and Action upload attribution reject an extra executable workflow writer before POST', async () => {
+    const extraWriter = `${CANONICAL_WORKFLOW_SOURCE}\n  extra-writer:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo unexpected\n`;
+    for (const changedRead of [1, 2]) {
+      fakeGh = new FakeGh().withMarker();
+      fakeGh.workflowSourceHook = call => call === changedRead ? extraWriter : null;
+      await expect(ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } }))
+        .rejects.toThrow(/Hosted workflow shape: complete job census differs/);
+      expect(fakeGh.workflowSourceCalls).toHaveLength(changedRead);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  });
+
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {
-    const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifactV2({
-      actionPlan: closure.actions[0]!,
-      normalizedOperation: closure.normalizedOperations[0]!,
-      baseSha: BASE,
-      baseTreeSha: '3'.repeat(40),
-      headSha: HEAD,
-      headTreeSha: '4'.repeat(40),
-      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
-      manifestDigest: digest('a'),
-      producer: currentOrigin
-    });
-    const terminalAnchor = createVerificationActionProviderTerminalAnchor({
-      actionKey: ACTION,
-      candidateSha: HEAD,
-      startStatusId: 101,
-      startStatusNodeId: 'STATUS_101',
-      startArtifactOriginId: '7001',
-      startArtifactName: verificationActionProviderStartArtifactName(ACTION),
-      startArtifactArchiveDigest: archiveDigestFor('verification-action-start-marker.json', JSON.stringify(marker)),
-      startMarkerDigest: marker.markerDigest,
-      terminalArtifactOriginId: '7002',
-      terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
-      terminalArtifactArchiveDigest: archiveDigestFor('verification-action-terminal-artifact.json', JSON.stringify(terminalArtifact)),
-      terminalArtifactPayloadDigest: terminalArtifact.artifactDigest as VerificationActionKeyDigest,
-      terminalAssemblerOrigin: currentOrigin,
-      anchorPublisherOrigin: currentOrigin
-    });
-    fakeGh = new FakeGh().withMarker();
-    fakeGh.statuses = [rawStatus({ id: 101 })];
-    fakeGh.artifacts.push(
-      { id: 7002, name: verificationActionProviderTerminalArtifactName(ACTION), expired: false,
-        runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-artifact.json',
-        source: JSON.stringify(terminalArtifact) },
-      { id: 7003, name: verificationActionProviderTerminalAnchorName(ACTION), expired: false,
-        runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json',
-        source: JSON.stringify(terminalAnchor) }
-    );
+    fakeGh = new FakeGh();
+    const terminalAnchor = withTerminalChain(fakeGh);
     const result = await ensureTransaction({ origin: terminalOrigin, authority: authority(),
       intent: { kind: 'anchor-terminal', anchor: terminalAnchor } });
     expect(result.disposition).toBe('terminal-anchored');

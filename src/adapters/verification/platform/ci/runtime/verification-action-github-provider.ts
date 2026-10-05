@@ -7,7 +7,7 @@ import type { HostedResumeSignal } from '../../../../../execution/verification/h
 
 import { readVerificationDataRecord, snapshotVerificationData } from '../../../../../assurance/verification/contract/data.ts';
 import type { HostedSourceArtifactProjection } from '../../../../providers/github-api/contract/hosted-artifact-projections.ts';
-import { assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy, type CiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy, type CiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import { HOSTED_RESUME_DISPATCH_EVENT, HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
 import {
   assertAuthenticatedGitHubJobOriginCurrent,
@@ -911,6 +911,9 @@ async function readVerificationActionArtifactObservation<TPayload>(
   if (!canonicalEquals(origin, payloadOrigin)) {
     fail('artifact payload producing origin differs from its exact attempt readback.');
   }
+  await assertVerificationActionArtifactPublisher(transport, {
+    origin, metadata, fileName: input.expectedFileName
+  });
   return Object.freeze({
     originId: input.artifactId,
     artifactName: input.expectedArtifactName,
@@ -919,6 +922,72 @@ async function readVerificationActionArtifactObservation<TPayload>(
     payload,
     referencedOrigin: origin
   });
+}
+
+/** Metadata identifies a run, not its writer job. Only these original closed
+ * slots may supply Action data; the returned checks create no live authority. */
+async function assertVerificationActionArtifactPublisher(transport: VerificationActionGitHubProviderReadFacts,
+  input: Readonly<{ origin: VerificationActionProviderOrigin; metadata: Record<string, unknown>; fileName: string }>
+): Promise<void> {
+  const selected = input.fileName === VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE
+    ? { jobId: 'claim-verification-action', slot: 'start' }
+    : input.fileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE
+      ? { jobId: 'assemble-verification-action-terminal', slot: 'terminal' }
+      : input.fileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE
+        ? { jobId: 'assemble-verification-action-terminal', slot: 'anchor' } : null;
+  if (selected === null) fail('Action artifact has no closed publisher slot.');
+  const { origin } = input;
+  if (record(input.metadata.workflow_run, 'Action artifact run').head_sha !== origin.workflowSha) {
+    fail('Action artifact metadata source differs from its immutable producing attempt.');
+  }
+  const workflow = await transport.getCanonicalHostedWorkflowSource({ repository: origin.repository, revision: origin.workflowSha });
+  assertCiVerificationPerJobHostedWholeWorkflowShape(workflow);
+  const policy = assertCiVerificationPerJobHostedWorkflowShape(workflow, selected.jobId);
+  if (policy.workflowPath !== origin.workflowPath) fail('Action artifact publisher source workflow differs.');
+  const jobs = await readCompleteParentJobs(transport, origin.repository, origin.runId, origin.runAttempt);
+  const matches = jobs.filter(job => job.name === policy.jobName);
+  const job = matches.length === 1 ? matches[0]! : undefined;
+  if (job === undefined || job.head_sha !== origin.workflowSha || !['in_progress', 'completed'].includes(String(job.status))) {
+    fail('Action artifact publisher is not one exact source-defined job.');
+  }
+  const uploads = policy.stages.filter(stage => stage.kind === 'upload').filter(stage => stage.slot === selected.slot);
+  const producers = policy.stages.filter(stage => stage.kind === 'phase')
+    .filter(stage => uploads.length === 1 && stage.stepId === uploads[0]!.producerStepId);
+  if (uploads.length !== 1 || producers.length !== 1 || !Array.isArray(job.steps) || job.steps.length > 100) {
+    fail('Action artifact publisher has no unique closed producer/upload pair.');
+  }
+  const steps = job.steps.map((entry, index) => record(entry, `Action artifact publisher step[${index}]`));
+  const producer = steps.filter(step => step.name === producers[0]!.stepName);
+  const upload = steps.filter(step => step.name === uploads[0]!.stepName);
+  if (steps.some(step => !Number.isSafeInteger(step.number) || Number(step.number) < 1 || Number(step.number) > 100)
+      || new Set(steps.map(step => step.number)).size !== steps.length
+      || producer.length !== 1 || upload.length !== 1
+      || producer[0]!.status !== 'completed' || producer[0]!.conclusion !== 'success'
+      || upload[0]!.status !== 'completed' || upload[0]!.conclusion !== 'success'
+      || Number(producer[0]!.number) >= Number(upload[0]!.number)) {
+    fail('Action artifact producer/upload steps are absent, ambiguous, unsuccessful or unordered.');
+  }
+  const time = (value: unknown): number => providerArtifactTime(value, 'Action artifact');
+  const jobStarted = time(job.started_at), deadline = jobStarted + policy.maximumJobDurationMs;
+  const producerStarted = time(producer[0]!.started_at), producerCompleted = time(producer[0]!.completed_at);
+  const uploadStarted = time(upload[0]!.started_at), uploadCompleted = time(upload[0]!.completed_at);
+  const created = time(input.metadata.created_at), updated = time(input.metadata.updated_at);
+  if (!Number.isSafeInteger(deadline) || producerStarted < jobStarted || producerCompleted < producerStarted
+      || uploadStarted < producerCompleted || uploadCompleted < uploadStarted || uploadCompleted > deadline
+      || created < uploadStarted || updated < created || updated > uploadCompleted) {
+    fail('Action artifact is outside its source-defined producer/upload window.');
+  }
+  // A later failure/cancellation/timeout must not erase a successful immutable
+  // upload needed for start/terminal/anchor recovery. Only that upload must fit
+  // the original job budget; subsequent job settlement may occur later.
+  if (job.status === 'completed') {
+    if (!['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral'].includes(String(job.conclusion))
+        || time(job.completed_at) < uploadCompleted) {
+      fail('Action artifact publisher completion contradicts its successful upload.');
+    }
+  } else if (job.conclusion !== null || job.completed_at !== null) {
+    fail('Action artifact active publisher already has terminal facts.');
+  }
 }
 
 type VerificationActionGitHubProviderResolution = Readonly<{
@@ -1045,9 +1114,9 @@ async function readCompleteParentJobs(
   fail('parent workflow job pagination exceeded the bounded 1000-page census.');
 }
 
-function parentPlanProviderTime(value: unknown): number {
+function providerArtifactTime(value: unknown, label: string): number {
   const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
-  if (!Number.isSafeInteger(time) || time < 1) fail('parent plan provider timestamp is invalid.');
+  if (!Number.isSafeInteger(time) || time < 1) fail(`${label} provider timestamp is invalid.`);
   return time;
 }
 
@@ -1077,21 +1146,22 @@ function assertParentPlanArtifactUploadWindow(input: Readonly<{
       || Number(producer[0]!.number) >= Number(upload[0]!.number)) {
     fail('parent plan producer/upload step order is absent, ambiguous or unsuccessful.');
   }
-  const jobStarted = parentPlanProviderTime(input.job.started_at);
+  const time = (value: unknown): number => providerArtifactTime(value, 'parent plan');
+  const jobStarted = time(input.job.started_at);
   const deadline = jobStarted + input.policy.maximumJobDurationMs;
-  const producerStarted = parentPlanProviderTime(producer[0]!.started_at);
-  const producerCompleted = parentPlanProviderTime(producer[0]!.completed_at);
-  const uploadStarted = parentPlanProviderTime(upload[0]!.started_at);
-  const uploadCompleted = parentPlanProviderTime(upload[0]!.completed_at);
-  const created = parentPlanProviderTime(input.metadata.created_at);
-  const updated = parentPlanProviderTime(input.metadata.updated_at);
+  const producerStarted = time(producer[0]!.started_at);
+  const producerCompleted = time(producer[0]!.completed_at);
+  const uploadStarted = time(upload[0]!.started_at);
+  const uploadCompleted = time(upload[0]!.completed_at);
+  const created = time(input.metadata.created_at);
+  const updated = time(input.metadata.updated_at);
   if (!Number.isSafeInteger(deadline) || producerStarted < jobStarted || producerCompleted < producerStarted
       || uploadStarted < producerCompleted || uploadCompleted < uploadStarted || uploadCompleted > deadline
       || created < uploadStarted || updated < created || updated > uploadCompleted) {
     fail('parent plan artifact is outside its original producer/upload window.');
   }
   if (input.job.status === 'completed') {
-    const completed = parentPlanProviderTime(input.job.completed_at);
+    const completed = time(input.job.completed_at);
     if (completed < uploadCompleted || completed > deadline) fail('parent plan job completion differs from its original lifetime.');
   } else if (input.job.completed_at !== null || input.job.conclusion !== null) {
     fail('parent plan active job already has terminal facts.');
@@ -1230,6 +1300,7 @@ async function authenticateReferencedParentAuthority(
   const parentWorkflowSource = await transport.getCanonicalHostedWorkflowSource({
     repository: repositoryName, revision: request.expectedBaseSha
   });
+  assertCiVerificationPerJobHostedWholeWorkflowShape(parentWorkflowSource);
   const parentPolicy = assertCiVerificationPerJobHostedWorkflowShape(parentWorkflowSource, 'coordinate-verification-session');
   if (parentPolicy.workflowPath !== envelope.parentWorkflowPath || parentPolicy.jobName !== envelope.parentJobName) {
     fail('parent plan canonical source policy differs from its authenticated job.');
