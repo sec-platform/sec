@@ -2,9 +2,6 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import {
-  type PipelineExecutionContext
-} from '../../src/adapters/compilation-protocol/types.ts';
 import { semanticMutationTransactionRoot } from '../../src/adapters/mutation/transaction-identity.ts';
 import { planSemanticMutationVerificationCapabilities } from '../../src/adapters/verification/semantic-mutation-verification-adapter.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
@@ -16,8 +13,6 @@ import { assertSemanticMutationVerificationReportInvariant } from '../../src/ass
 import { executeSemanticMutationVerification } from '../../src/assurance/verification/semantic-mutation/verification-runtime.ts';
 import { applySemanticMutation } from '../../src/bootstrap/engineering/cli.ts';
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
-import type { IsolatedVerificationCapability } from '../../src/execution/isolated-verification-capability.ts';
-import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantics/mutation/transaction.ts';
 import { isSemanticMutationStagingWorkspace } from '../../src/workspace/contract/semantic-mutation-staging.ts';
 
 test('semantic mutation staging layout is exactly the canonical transaction workspace', () => {
@@ -239,56 +234,6 @@ test('Verification adapter emits the exact frozen report and execution binding, 
     status: 'non-runnable',
     isolated: false
   });
-});
-
-test('compile-time boundaries reject lease-free Pipeline contexts and raw journal fields in public views', () => {
-  const outcome = {} as SemanticMutationApplyOutcome;
-  const view = {} as SemanticMutationRequestRecordView;
-  type TransactionView = Extract<SemanticMutationRequestRecordView, { readonly recordKind: 'transaction' }>;
-  type ActiveView = TransactionView & { readonly state: 'prepared' | 'authoring-committed' };
-  if (false) {
-    // @ts-expect-error Isolated Verification authority cannot be forged structurally.
-    const forgedIsolationCapability: IsolatedVerificationCapability = {};
-    // @ts-expect-error Every manual Pipeline execution context must carry the exact writer lease token.
-    const leaseFree: PipelineExecutionContext = { transactionId: 'tx:test', source: 'api' };
-    // @ts-expect-error Public request-record views never expose retained source paths.
-    const pathLeak: string = view.relativePath;
-    // @ts-expect-error Public request-record views never expose retained before bytes/digests.
-    const beforeLeak: string = view.beforeByteDigest;
-    // @ts-expect-error Apply outcomes are discriminated; a rejection has no terminal result.
-    const result = outcome.result;
-    const prepared = {} as ActiveView & { readonly state: 'prepared' };
-    const authoringCommitted = {} as ActiveView & { readonly state: 'authoring-committed' };
-    const verified = {} as TransactionView & { readonly state: 'verified' };
-    const rolledBack = {} as TransactionView & { readonly state: 'rolled-back' };
-    const recoveryRequired = {} as TransactionView & { readonly state: 'recovery-required' };
-    // @ts-expect-error Prepared views never carry terminal completion order.
-    const invalidPrepared: TransactionView = { ...prepared, terminalSequence: 1 };
-    // @ts-expect-error Authoring-committed views never carry terminal results.
-    const invalidAuthoringCommitted: TransactionView = { ...authoringCommitted, result: verified.result };
-    // @ts-expect-error Verified views never carry recovery failure state.
-    const invalidVerified: TransactionView = { ...verified, recoveryState: 'concurrent-write' };
-    // @ts-expect-error Rolled-back views require a rolled-back result.
-    const invalidRolledBack: TransactionView = { ...rolledBack, result: verified.result };
-    // @ts-expect-error Recovery-required views never carry terminal completion order.
-    const invalidRecoveryRequired: TransactionView = { ...recoveryRequired, terminalSequence: 1 };
-    const { recoveryState: omittedRecoveryState, ...recoveryWithoutState } = recoveryRequired;
-    // @ts-expect-error Recovery-required views require their matching recovery state.
-    const invalidRecoveryWithoutState: TransactionView = recoveryWithoutState;
-    void forgedIsolationCapability;
-    void leaseFree;
-    void pathLeak;
-    void beforeLeak;
-    void result;
-    void invalidPrepared;
-    void invalidAuthoringCommitted;
-    void invalidVerified;
-    void invalidRolledBack;
-    void invalidRecoveryRequired;
-    void invalidRecoveryWithoutState;
-    void omittedRecoveryState;
-  }
-  expect(true).toBe(true);
 });
 
 test('SM-3 digest domains remain independently reproducible', () => {

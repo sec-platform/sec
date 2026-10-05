@@ -34,7 +34,7 @@ export type AffectedSelectionTrustBoundary =
 /**
  * Input to the classification. All fields are produced by the existing
  * affected-test plan pipeline (test-runner.ts + slow-risk-selection.ts +
- * affected-test-inventory.ts); this contract only consumes them.
+ * affected.ts); this contract only consumes them.
  */
 export interface AffectedSelectionClassificationInput {
   /** True when gitChangedFiles() returned null. */
@@ -73,8 +73,8 @@ export interface AffectedSelectionClassificationInput {
  *    test coverage is missing, or the selector failed silently. The runner
  *    must NOT treat this as "no impact".
  * 5. broad fallback explicitly enabled for source change with empty closure.
- * 5. fast tests selected → applicable-with-tests.
- * 6. no source change and no fast tests → applicable-no-tests (legitimate
+ * 6. fast tests selected → applicable-with-tests.
+ * 7. no source change and no fast tests → applicable-no-tests (legitimate
  *    "no impact": only slow tests, docs, or data changed).
  */
 export function classifyAffectedSelectionTrustBoundary(
@@ -110,7 +110,7 @@ export function classifyAffectedSelectionTrustBoundary(
 }
 
 /**
- * Context for projecting a trust boundary to a VerificationGateResultV1.
+ * Context for projecting a trust boundary to a VerificationGateResult.
  * The caller is responsible for providing identity fields (gate/owner/subject/digest).
  */
 export interface AffectedSelectionProjectionContext {
@@ -150,7 +150,7 @@ export function defaultAffectedSelectionProjectionContext(
 }
 
 /**
- * Project an affected-selection trust boundary to a VerificationGateResultV1.
+ * Project an affected-selection trust boundary to a VerificationGateResult.
  *
  * This projection is for the PLAN phase (before test execution). Execution
  * outcome (passed/failed) is NOT represented here — `applicable-with-tests`
@@ -158,18 +158,20 @@ export function defaultAffectedSelectionProjectionContext(
  * has run yet. After execution, the runner constructs a fresh result with
  * the actual exit code; that path is outside this contract.
  *
- * Cross-field invariants enforced by CodexDevelopmentBuildVerificationGateResultV1:
+ * Cross-field invariants enforced by CodexDevelopmentBuildVerificationGateResult:
  * - `applicability: unresolved` requires `status: invalidated`.
  * - `applicability: not-applicable` requires `status: not-run`.
  * - `status: invalidated` requires an INVALIDATED reasonCode (selection-unresolved).
  * - `status: not-run` requires a NOT_RUN reasonCode (not-applicable | not-dispatched).
- * - `disposition: not-executed` requires `execution: null` and `environment: null`.
+ * - `disposition: not-executed` requires `execution: null`.
+ * This plan projection also leaves `environment` null; other non-executed
+ * observations may retain an environment identity.
  *
  * Implementation note: this function constructs the result object directly
- * (with a local schema constant) rather than calling
- * CodexDevelopmentBuildVerificationGateResultV1, to avoid pulling
- * verification-result-contract.ts into the TCB runtime import closure.
- * The result is validated by CodexDevelopmentAssertVerificationGateResultV1
+ * (with the dependency-free canonical schema constant) rather than calling
+ * CodexDevelopmentBuildVerificationGateResult, to avoid pulling
+ * src/assurance/verification/result/contract/result.ts into the TCB runtime import closure.
+ * The result is validated by CodexDevelopmentAssertVerificationGateResult
  * in tests/contract/affected-selection-trust-boundary.test.ts.
  */
 export function projectAffectedSelectionToVerificationGateResult(
