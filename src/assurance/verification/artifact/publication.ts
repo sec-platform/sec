@@ -7,11 +7,10 @@ import type {
   VerificationReport
 } from '../contract/types.ts';
 import {
-  CodexDevelopmentSnapshotVerificationData,
-  CodexDevelopmentVerificationDataEqual
+  CodexDevelopmentSnapshotVerificationData
 } from '../result/contract/result.ts';
 import {
-  assertCanonicalVerificationArtifactSet,
+  assertVerificationArtifactSet,
   type VerificationArtifactSet
 } from './contract/artifact.ts';
 
@@ -46,27 +45,6 @@ export function snapshotVerificationPublicationArtifacts(
     acceptanceCoverage
   };
 
-  if (snapshot.verificationReport.summary.requestedLane === 'all') {
-    assertCanonicalVerificationArtifactSet(artifacts as VerificationArtifactSet);
-    return artifacts;
-  }
-
-  const fastPolicyReport = validatePolicyReport(
-    snapshot.verificationReport.fast.policyReport
-  );
-  if (!CodexDevelopmentVerificationDataEqual(
-        snapshot.verificationReport.runtime,
-        snapshot.runtimeReport
-      ) ||
-      !CodexDevelopmentVerificationDataEqual(fastPolicyReport, policyReport) ||
-      !CodexDevelopmentVerificationDataEqual(snapshot.verificationReport.policy, {
-        status: policyReport.status,
-        violations: policyReport.violations
-      }) ||
-      acceptanceCoverage.status !== snapshot.runtimeReport.status) {
-    throw new Error(
-      'Partial-lane Verification artifacts do not close over one report context'
-    );
-  }
+  assertVerificationArtifactSet(artifacts as VerificationArtifactSet);
   return artifacts;
 }

@@ -21,7 +21,7 @@ import {
   workspaceConfigRelativePath
 } from '../../workspace/paths.ts';
 import { publishExistingParentCanonicalWorkspaceFile } from '../filesystem/file-publication.ts';
-import { readOptionalCanonicalVerificationArtifactSet } from '../verification/platform/artifact/runtime/authority.ts';
+import { readOptionalVerificationArtifactSet } from '../verification/platform/artifact/runtime/authority.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
   resolveWorkspaceArtifactPath
@@ -43,10 +43,13 @@ const nativeWorkspaceRoots = [
 ] as const;
 
 function readVerificationReport(workspaceRoot: string): VerificationReport | null {
-  return readOptionalCanonicalVerificationArtifactSet(
+  const report = readOptionalVerificationArtifactSet(
     workspaceRoot,
     'Provenance Verification artifact set'
-  )?.verificationReport ?? null;
+  )?.verificationReport;
+  // Provenance may record origins after a partial diagnostic run. Its current
+  // verifiedBy projection has no lane scope, so keep complete-proof attribution.
+  return report?.summary.requestedLane === 'all' ? report : null;
 }
 
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {

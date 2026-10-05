@@ -6,6 +6,7 @@ import { writeProvenance } from '../../artifacts/provenance.ts';
 import { writeJson } from '../../filesystem/files.ts';
 import { resolveWorkspaceArtifactPath } from '../../workspace-context.ts';
 import { writeLockWithGeneratedPaths } from '../../workspace/lock.ts';
+import { readOptionalVerificationArtifactSet } from '../platform/artifact/runtime/authority.ts';
 
 export async function writeRepairPlan(
   workspaceRoot: string,
@@ -21,7 +22,12 @@ export async function writeRepairPlan(
     workspaceRoot,
     CI_ARTIFACT_FILES.graphLock
   );
-  await writeJson(repairPlanPath, validateRepairPlan(plan), commitFence);
+  const validatedPlan = validateRepairPlan(plan);
+  // Reject malformed/partial publication input before the first plan or Lock
+  // effect. Absence remains valid for this low-level provenance writer; the
+  // repair application separately requires a current, subject-bound result.
+  readOptionalVerificationArtifactSet(workspaceRoot, 'Repair publication Verification artifact set');
+  await writeJson(repairPlanPath, validatedPlan, commitFence);
   await writeLockWithGeneratedPaths(
     lockPath,
     lock,

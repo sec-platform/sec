@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { beforeEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,7 +28,11 @@ import {
 
 const digest = (value: string): SecDurableExecutionDigest =>
   `sha256:${value.padStart(64, '0')}` as SecDurableExecutionDigest;
-const operationDeadlineAtUnixMs = Date.now() + 30_000;
+let operationDeadlineAtUnixMs: number;
+
+beforeEach(() => {
+  operationDeadlineAtUnixMs = Date.now() + 30_000;
+});
 
 function boundOperation(
   run: string,
