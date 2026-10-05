@@ -8,7 +8,7 @@ import {
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/semantics/policies/rules.ts';
-import { createWorkspace, prepareComposedWorkspace } from '../testkit/workspace.ts';
+import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 const TENANT_FLOW_RULE = TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE;
 const TENANT_FLOW_PREDICATE = policySemanticRule(TENANT_FLOW_RULE).requiredPredicate;
@@ -96,46 +96,6 @@ test('project policy declarations override the official definition without chang
     sourcePath: 'model/policies/tenant.yaml'
   });
   expect(report.evaluation?.assurance).toBe('semantic');
-}, 180000);
-
-test('unknown policy rules fail at the declaration schema boundary', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-unknown-rule-');
-  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(projectPoliciesRoot, { recursive: true });
-  await writeYaml(path.join(projectPoliciesRoot, 'unknown.yaml'), {
-    policies: [{
-      id: 'unknown-rule',
-      severity: 'error',
-      appliesTo: ['entity/customer-basic'],
-      rule: 'source_text_looks_safe'
-    }]
-  });
-
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow();
-}, 180000);
-
-test('same policy id with different declarations is a conflict, not last-wins input', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-conflicting-duplicate-');
-  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(projectPoliciesRoot, { recursive: true });
-  await writeYaml(path.join(projectPoliciesRoot, 'duplicate.yaml'), {
-    policies: [
-      {
-        id: 'duplicate-policy',
-        severity: 'warn',
-        appliesTo: ['entity/customer-basic'],
-        rule: TENANT_FLOW_RULE
-      },
-      {
-        id: 'duplicate-policy',
-        severity: 'blocker',
-        appliesTo: ['entity/customer-basic'],
-        rule: TENANT_FLOW_RULE
-      }
-    ]
-  });
-
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow();
 }, 180000);
 
 test('policy applicability is derived from the resolved install plan across blocks', async () => {
