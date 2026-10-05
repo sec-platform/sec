@@ -1,7 +1,6 @@
 import path from 'node:path';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
-import { validateResolvedTemplates } from '../../adapters/verification/validate-resolved-templates.ts';
 import { getWorkspacePaths } from "../../adapters/workspace-context.ts";
 import { saveLock } from "../../adapters/workspace/lock.ts";
 import { captureManifestSelection, resolveCapturedManifestSelection } from '../../adapters/workspace/resolve-graph.ts';
@@ -15,6 +14,7 @@ import { alignInterfaces } from '../../compiler/align/align-interfaces.ts';
 import type { LockFile, ManifestEntry, PlanFile } from '../../compiler/contract.ts';
 import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 import { executePipelineStage } from './pipeline-kernel.ts';
+import { validateResolvedTemplates } from './validate-resolved-templates.ts';
 
 export async function addBlock(
   workspaceRoot = process.cwd(),
