@@ -2403,19 +2403,21 @@ test.serial('affected tests combine multiple tracked fast-test facts with policy
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toHaveLength(2);
+  expect(devCommandCalls).toHaveLength(4);
   const concurrentInvocation = devCommandCalls.find((call) => (
     Array.isArray(call.args) && invocationTestFiles(call.args).includes('tests/unit/path-containment.test.ts')
   ));
   expect(concurrentInvocation?.command).toBe('bun');
   expect(concurrentInvocation?.args[0]).toBe('test');
   expect(concurrentInvocation?.args).not.toContain('--concurrent');
-  expect(concurrentInvocation?.args).toContain('./tests/contract/usage.test.ts');
   expect(concurrentInvocation?.args).toContain('./tests/unit/path-containment.test.ts');
-  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
-    .toContain(FAST_TEST_PROCESS_POLICY_TEST_FILE);
-  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
-    .toContain(TEST_ARCHITECTURE_POLICY_TEST_FILE);
+  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
+    FAST_TEST_PROCESS_POLICY_TEST_FILE,
+    TEST_ARCHITECTURE_POLICY_TEST_FILE,
+    'tests/contract/usage.test.ts',
+    'tests/unit/path-containment.test.ts'
+  ].sort());
+  expect(devCommandCalls.every((call) => invocationTestFiles(call.args).length === 1)).toBe(true);
 });
 
 test.serial('affected tests run changed fast files with the global test-policy sentinels', async () => {

@@ -176,22 +176,23 @@ test('valid degraded lane denial is distinct from expired or identity-drifted ob
 
 test('MainHealth revision changes for every health decision field', () => {
   const base = createMainHealthLedger(healthyInput());
-  const cases: readonly [string, MainHealthLedgerInput][] = [
+  const degradedRevision = createMainHealthLedger(degradedInput()).healthRevision;
+  const cases: readonly [string, MainHealthLedgerInput, string?][] = [
     ['repository', healthyInput({ repository: 'sec-platform/other' })],
     ['defaultBranch', healthyInput({ defaultBranch: 'trunk' })],
     ['mainSha', healthyInput({ mainSha: SHA_B })],
     ['mainTreeSha', healthyInput({ mainTreeSha: TREE_B })],
     ['status', lockedInput()],
-    ['failure fingerprint', degradedInput({ failureFingerprints: [D_B] })],
-    ['owner', degradedInput({ owner: 'other-owner' })],
+    ['failure fingerprint', degradedInput({ failureFingerprints: [D_B] }), degradedRevision],
+    ['owner', degradedInput({ owner: 'other-owner' }), degradedRevision],
     ['allowed lanes', healthyInput({ allowedLanes: ['ordinary', 'repair'] })],
     ['trustRevision', healthyInput({
       trustRevision: SHA_B,
       producer: { ...producer(), trustRevision: SHA_B }
     })]
   ];
-  for (const [label, candidate] of cases) {
-    expect(createMainHealthLedger(candidate).healthRevision, label).not.toBe(base.healthRevision);
+  for (const [label, candidate, previousRevision = base.healthRevision] of cases) {
+    expect(createMainHealthLedger(candidate).healthRevision, label).not.toBe(previousRevision);
   }
 });
 

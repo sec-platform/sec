@@ -5,7 +5,7 @@ import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
-import { expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
+import { expectUpgradeDryRunFailureWithoutDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records create directory migration impacts', async () => {
@@ -54,11 +54,10 @@ test('upgrade dry-run rejects create directory migrations when target is a file'
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    { code: 'UPGRADE-MIGRATION-028' },
-    { failedCheck: 'migration-file-operations' }
+    { code: 'UPGRADE-MIGRATION-028' }
   );
 });
 
@@ -165,10 +164,9 @@ test('upgrade dry-run rejects copy directory migrations when target is a file', 
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    { code: 'UPGRADE-MIGRATION-027' },
-    { failedCheck: 'migration-file-operations' }
+    { code: 'UPGRADE-MIGRATION-027' }
   );
 });

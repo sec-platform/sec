@@ -152,9 +152,7 @@ function processIsAlive(processId: number): boolean {
   }
 }
 
-test.serial('Windows AppContainer sentinel proves no outside read/write, no network, Job fence, and recovery', async () => {
-  if (process.platform !== 'win32') return;
-
+test.serial.skipIf(process.platform !== 'win32')('Windows AppContainer sentinel proves no outside read/write, no network, Job fence, and recovery', async () => {
   const probeRoot = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-probe-'));
   const stagingRoot = path.join(probeRoot, 'staging');
   await mkdir(stagingRoot);
@@ -238,9 +236,7 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
   }
 }, 45_000);
 
-test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and executes its provider-issued conformance asset', async () => {
-  if (process.platform !== 'win32') return;
-
+test.serial.skipIf(process.platform !== 'win32')('Windows AppContainer pins attribute payloads, isolates stdio, and executes its provider-issued conformance asset', async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-bundled-compiler-'));
   const transactionDigest = 'e'.repeat(64);
   const stagingRoot = path.join(
@@ -322,9 +318,7 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
   }
 }, 60_000);
 
-test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launches or fails closed cleanly', async () => {
-  if (process.platform !== 'win32') return;
-
+test.serial.skipIf(process.platform !== 'win32')('Windows AppContainer canonical workspace just beyond MAX_PATH launches or fails closed cleanly', async () => {
   const maxPath = 260;
   const transactionDigest = 'a'.repeat(64);
   const stagingRelativePath = path.join(

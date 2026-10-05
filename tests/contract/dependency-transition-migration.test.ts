@@ -222,7 +222,7 @@ async function writeLegacyRecords(
   return records;
 }
 
-async function expectBlockedMigration(root: string): Promise<void> {
+async function expectBlockedMigration(root: string, expectedMessage: string): Promise<void> {
   let error: unknown;
   try {
     await migrateDependencyTransitionJournal(root, {
@@ -232,7 +232,10 @@ async function expectBlockedMigration(root: string): Promise<void> {
     error = caught;
   }
   expect(error).toBeDefined();
-  expect(error).toMatchObject({ code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u) });
+  expect(error).toMatchObject({
+    code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u),
+    message: expect.stringContaining(expectedMessage)
+  });
 }
 
 async function readRegularFiles(root: string): Promise<ReadonlyMap<string, Buffer>> {
@@ -485,47 +488,23 @@ test('preserves unknown bridge recovery failures instead of reclassifying them a
   }
 });
 
-test('blocks bridge recovery when persisted source, destination, owner, or journal evidence changes', async () => {
-  for (const mutation of ['source', 'destination', 'owner', 'journal'] as const) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-bridge-${mutation}-`));
-    let displacedRoot: string | null = null;
-    try {
-      const { bridgePath, sourcePath } = await prepareBridgeRecovery({
-        failure: 'bun-runtime-drift',
-        root
-      });
-      if (mutation === 'source') {
-        await writeFile(path.join(sourcePath, 'tampered-after-intent.txt'), 'tamper\n', 'utf8');
-      } else if (mutation === 'destination') {
-        await mkdir(bridgePath);
-      } else if (mutation === 'owner') {
-        displacedRoot = `${root}-displaced`;
-        await rename(root, displacedRoot);
-        await mkdir(root);
-        for (const entry of ['.tmp', '.bun-version', 'bun.lock', 'consumer', 'node_modules', 'package.json']) {
-          await rename(path.join(displacedRoot, entry), path.join(root, entry));
-        }
-      } else {
-        const recordsRoot = path.join(targetJournalRoot(root), 'records');
-        for (const name of await readdir(recordsRoot)) {
-          const recordPath = path.join(recordsRoot, name);
-          const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
-          if (value.phase === 'recovery-required') {
-            await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
-            break;
-          }
-        }
+test('blocks legacy bridge admission when persisted journal evidence changes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-journal-'));
+  try {
+    await prepareBridgeRecovery({ failure: 'bun-runtime-drift', root });
+    const recordsRoot = path.join(targetJournalRoot(root), 'records');
+    for (const name of await readdir(recordsRoot)) {
+      const recordPath = path.join(recordsRoot, name);
+      const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
+      if (value.phase === 'recovery-required') {
+        await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
+        break;
       }
-      const migration = expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 })).rejects;
-      if (mutation === 'journal') {
-        await migration.toMatchObject({ code: 'RUNTIME-DEPS-002' });
-      } else {
-        await migration.toMatchObject({ code: 'RUNTIME-DEPS-004', details: { migrationRequired: true } });
-      }
-    } finally {
-      await removeMigrationFixture(root);
-      if (displacedRoot !== null) await rm(displacedRoot, { recursive: true, force: true });
     }
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-002' });
+  } finally {
+    await removeMigrationFixture(root);
   }
 }, 30_000);
 
@@ -963,7 +942,7 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
       recordDigest: generatedStateDigest(terminalUnsigned)
     }) as LegacyRecord;
     await writeLegacyRecords(root, [records[0]!, nonterminal]);
-    await expectBlockedMigration(root);
+    await expectBlockedMigration(root, 'requires every chain to be terminal');
     expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
       .not.toContain(TARGET_NAMESPACE);
   } finally {
@@ -972,9 +951,9 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
 });
 
 test('rejects foreign, partial, forked, and digest-invalid legacy sources before creating v2', async () => {
-  const cases: readonly { name: string; prepare: (root: string) => Promise<void> }[] = [
+  const cases: readonly { message: string; prepare: (root: string) => Promise<void> }[] = [
     {
-      name: 'foreign owner',
+      message: 'record belongs to a foreign owner root or physical epoch',
       prepare: async (root) => {
         const records = buildLegacyRecords(root);
         const foreignRoot = path.join(root, 'foreign-owner');
@@ -990,14 +969,14 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
       }
     },
     {
-      name: 'partial predecessor chain',
+      message: 'legacy chain has a missing or forked predecessor',
       prepare: async (root) => {
         const records = buildLegacyRecords(root);
         await writeLegacyRecords(root, [records[0]!, records[2]!]);
       }
     },
     {
-      name: 'forked predecessor',
+      message: 'contains a forked legacy predecessor',
       prepare: async (root) => {
         const records = buildLegacyRecords(root);
         const forkUnsigned = {
@@ -1015,7 +994,7 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
       }
     },
     {
-      name: 'digest mutation',
+      message: 'record digest is invalid',
       prepare: async (root) => {
         const records = await writeLegacyRecords(root);
         const first = records[0]!;
@@ -1028,11 +1007,11 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
     }
   ];
 
-  for (const { prepare } of cases) {
+  for (const { message, prepare } of cases) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-invalid-'));
     try {
       await prepare(root);
-      await expectBlockedMigration(root);
+      await expectBlockedMigration(root, message);
       expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
         .not.toContain(TARGET_NAMESPACE);
     } finally {

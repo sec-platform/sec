@@ -229,7 +229,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     resourceClass: 'runtime-heavy',
     prRiskBaseline: true
   }),
-  slowFileSuite('e2e-compiler-smoke', 'compiler-smoke', 'compiler-smoke-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true }),
   slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
@@ -287,11 +286,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowFileSuite('e2e-policy', 'policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-prisma-merge', 'prisma-merge', 'compiler-prisma-merge-e2e'),
   slowFileSuite('e2e-private-registry', 'private-registry', 'compiler-private-registry-e2e'),
-  slowFileSuite('e2e-provenance', 'provenance', 'compiler-provenance-e2e', 120_000, {
-    parallelSafe: true,
-    resourceClass: 'runtime-heavy',
-    prRiskBaseline: true
-  }),
   slowFileSuite('e2e-registry', 'registry', 'compiler-registry-e2e'),
   slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000, {

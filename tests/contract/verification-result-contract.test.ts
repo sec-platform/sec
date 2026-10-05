@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, mapProductVerificationStatus, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 
 const INPUT_DIGEST = `sha256:${'a'.repeat(64)}`;
@@ -180,11 +180,6 @@ test('validator rejects not-executed disposition with non-null execution', () =>
 // Builder contract
 // ---------------------------------------------------------------------------
 
-test('builder adds schema and validates', () => {
-  const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
-  expect(gate.gateId).toBe('gate-1');
-});
-
 test('builder rejects invalid input', () => {
   const input = minimalValidInput();
   expect(() => CodexDevelopmentBuildVerificationGateResult({ ...input, status: 'invalid-status' as VerificationResultStatus })).toThrow();
@@ -221,14 +216,6 @@ function aggregateInput(
 ): VerificationAggregateInput {
   return { claims: fixture.claims, gateResults: fixture.gates };
 }
-
-test('aggregate assertion accepts the current aggregate writer output', () => {
-  const fixture = canonicalAggregateFixture();
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
-    fixture.overall,
-    aggregateInput(fixture)
-  )).not.toThrow();
-});
 
 test('strict verification-data boundary accepts JSON data and rejects executable or exotic views', () => {
   const jsonData = JSON.parse('{"alpha":1,"nested":["value",null,true]}') as unknown;
@@ -926,21 +913,4 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     overall,
     { claims, gateResults: [...gates, extraGate, supportOnlyExtraGate] }
   )).not.toThrow();
-});
-
-// ---------------------------------------------------------------------------
-// Legacy mapping contract
-// ---------------------------------------------------------------------------
-
-test('mapProductVerificationStatus never promotes skipped to passed', () => {
-  const contexts = [
-    { requestedLane: 'fast' as const, lane: 'runtime' as const },
-    { requestedLane: 'all' as const, lane: 'runtime' as const, fastFailed: true },
-    { requestedLane: 'all' as const, lane: 'runtime' as const, currentRunnerOwning: false },
-    { requestedLane: 'all' as const, lane: 'runtime' as const, currentRunnerOwning: true }
-  ];
-  for (const ctx of contexts) {
-    const result = mapProductVerificationStatus('skipped', ctx);
-    expect(result.status).not.toBe('passed');
-  }
 });

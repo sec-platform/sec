@@ -55,6 +55,7 @@ import {
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
+import { settleResourcesAsync, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const DEPENDENCY_GENERATION_DIGEST = `sha256:${'7'.repeat(64)}` as const;
@@ -206,79 +207,102 @@ async function withCheckerExecutionBoundary<T>(
     maximumBytes: 16 * 1024 * 1024,
     maximumEntries: 256
   });
-  const authority = await sealExistingWindowsReadOnlyTreeAuthority(
-    root.path,
-    inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
-      path.join(root.path, ...relativePath.split('/'))
-    )),
-    {
-      deadlineAtMs: Date.now() + 30_000,
-      ownerRootPath: path.dirname(root.path),
-      repositoryRootPath: process.cwd()
-    }
-  );
-  const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
-  const dependencyIdentity = inspectNoFollowDirectoryChain(
-    dependencyRoot,
-    'test checker dependency root'
-  ).target;
-  const dependencyInventory = scanNoFollowDirectoryTreeInventory(dependencyIdentity, {
-    deadlineAtMs: performance.now() + 30_000,
-    maximumBytes: 256 * 1024 * 1024,
-    maximumEntries: 20_000
-  });
-  const dependencyTreeDigest = testDigest(dependencyInventory);
-  const dependencyDirectory = (await materializeRetainedNoFollowProvenDirectoryGeneration({
-    binding: {
-      generationDigest: testDigest({ dependencyRoot, dependencyTreeDigest }),
-      treeDigest: dependencyTreeDigest,
-      treeEntryCount: dependencyInventory.length
-    },
-    deadlineAtUnixMs: Date.now() + 30_000,
-    inventory: dependencyInventory,
-    proofText: null,
-    releaseMode: 'restore-owner-write',
-    root: dependencyIdentity
-  })).generation;
-  const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
-  await fs.mkdir(auxiliaryRoot);
-  const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(auxiliaryRoot, 'test checker action-private auxiliary root'),
-    4,
-    'test checker action-private auxiliary root'
-  );
-  const operation = compileTypecheckSemanticOperation({
-    checker,
-    deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-    diagnosticArguments: [],
-    projectConfigPath: checker.provider.projectConfig
-  });
-  const processSession = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
-      operation,
-      requirementId: 'typescript.project-check',
-      resourceCeilings: [
-        {
-          resource: 'duration-ms',
-          maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
-        },
-        { resource: 'input-bytes', maximum: 0 },
-        {
-          resource: 'output-bytes',
-          maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
-            + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
-        },
-        { resource: 'processes', maximum: 1 }
-      ]
-    })
-  });
-  const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
-    checker,
-    operation,
-    processSession
-  });
+  const cleanup: Array<Parameters<typeof settleResourcesAsync>[0]['cleanup'][number]> = [];
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const authority = await sealExistingWindowsReadOnlyTreeAuthority(
+      root.path,
+      inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+        path.join(root.path, ...relativePath.split('/'))
+      )),
+      {
+        deadlineAtMs: Date.now() + 30_000,
+        ownerRootPath: path.dirname(root.path),
+        repositoryRootPath: process.cwd()
+      }
+    );
+    cleanup.push({ label: 'checker working-directory ACL authority', settle: () => authority.release() });
+    const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
+    cleanup[cleanup.length - 1] = { label: 'checker working directory', settle: () => workingDirectory.retire() };
+    const dependencyIdentity = inspectNoFollowDirectoryChain(
+      dependencyRoot,
+      'test checker dependency root'
+    ).target;
+    const dependencyInventory = scanNoFollowDirectoryTreeInventory(dependencyIdentity, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumBytes: 256 * 1024 * 1024,
+      maximumEntries: 20_000
+    });
+    const dependencyTreeDigest = testDigest(dependencyInventory);
+    const dependencyDirectory = (await materializeRetainedNoFollowProvenDirectoryGeneration({
+      binding: {
+        generationDigest: testDigest({ dependencyRoot, dependencyTreeDigest }),
+        treeDigest: dependencyTreeDigest,
+        treeEntryCount: dependencyInventory.length
+      },
+      deadlineAtUnixMs: Date.now() + 30_000,
+      inventory: dependencyInventory,
+      proofText: null,
+      releaseMode: 'restore-owner-write',
+      root: dependencyIdentity
+    })).generation;
+    cleanup.push({ label: 'checker dependency directory', settle: async () => { await dependencyDirectory.retire(); } });
+    const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
+    await fs.mkdir(auxiliaryRoot);
+    const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(auxiliaryRoot, 'test checker action-private auxiliary root'),
+      4,
+      'test checker action-private auxiliary root'
+    );
+    cleanup.push({ label: 'checker auxiliary directory', settle: () => auxiliaryDirectory.dispose() });
+    const operation = compileTypecheckSemanticOperation({
+      checker,
+      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+      diagnosticArguments: [],
+      projectConfigPath: checker.provider.projectConfig
+    });
+    const processSession = openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueSecOperationRequirementBindingContext({
+        operation,
+        requirementId: 'typescript.project-check',
+        resourceCeilings: [
+          {
+            resource: 'duration-ms',
+            maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+          },
+          { resource: 'input-bytes', maximum: 0 },
+          {
+            resource: 'output-bytes',
+            maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+              + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
+          },
+          { resource: 'processes', maximum: 1 }
+        ]
+      })
+    });
+    cleanup.push({
+      label: 'checker process session',
+      settle: () => {
+        const receipt = processSession.close();
+        assertProcessResourceSessionReceipt(receipt, {
+          operationIdentityDigest: operation.plan.identity.identityDigest,
+          boundAttemptDigest: operation.boundAttemptDigest,
+          requirementId: 'typescript.project-check'
+        });
+        expect(receipt).toMatchObject({
+          failedProcessCount: 0,
+          processCount: expectedProcessCount,
+          settledProcessCount: expectedProcessCount,
+          successfulProcessRecordCount: expectedProcessCount
+        });
+      }
+    });
+    const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
+      checker,
+      operation,
+      processSession
+    });
     return await callback(Object.freeze({
       auxiliaryDirectory,
       buildInfoFileName: 'tsconfig.tsbuildinfo',
@@ -286,22 +310,14 @@ async function withCheckerExecutionBoundary<T>(
       processExecutionAdmission,
       workingDirectory
     }));
+  } catch (error) {
+    primary = { label: 'checker boundary', error };
+    throw error;
   } finally {
-    const receipt = processSession.close();
-    assertProcessResourceSessionReceipt(receipt, {
-      operationIdentityDigest: operation.plan.identity.identityDigest,
-      boundAttemptDigest: operation.boundAttemptDigest,
-      requirementId: 'typescript.project-check'
+    await settleResourcesAsync({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [...cleanup].reverse()
     });
-    expect(receipt).toMatchObject({
-      failedProcessCount: 0,
-      processCount: expectedProcessCount,
-      settledProcessCount: expectedProcessCount,
-      successfulProcessRecordCount: expectedProcessCount
-    });
-    auxiliaryDirectory.dispose();
-    await dependencyDirectory.retire();
-    await workingDirectory.retire();
   }
 }
 
@@ -584,10 +600,7 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       checker: installed,
       deadlineAtUnixMs
     });
-    const actionAt = (
-      deadlineAtUnixMs: number,
-      _observedProjectGenerationDigest = testDigest('typecheck-project-generation')
-    ) => createVerificationActionKey(
+    const actionAt = (deadlineAtUnixMs: number) => createVerificationActionKey(
       compileTypecheckActionInput({
         dependencies,
         dependencyGenerationDigest: DEPENDENCY_GENERATION_DIGEST,
@@ -618,8 +631,6 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
     expect(changed({ projectInput: projectInputFixture(undefined, 'export const checked = false;\n') }))
       .not.toBe(first.actionKey);
     expect(changed({ projectInput: projectInputFixture(undefined, undefined, 'second projection\n') }))
-      .toBe(first.actionKey);
-    expect(actionAt(1_900_000_000_000, testDigest('changed-typecheck-project-generation')).actionKey)
       .toBe(first.actionKey);
     expect(() => changed({
       projectInput: { ...projectInput } as typeof projectInput

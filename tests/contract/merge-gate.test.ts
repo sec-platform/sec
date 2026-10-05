@@ -9,7 +9,6 @@ import {
   CodexDevelopmentEvaluateMergeGate,
   CodexDevelopmentMergeGateInputSchema,
   CodexDevelopmentMergeGateProducerIdentity,
-  CodexDevelopmentMergeGateTerminalStatusContext,
   CodexDevelopmentParseMergeGateResult,
   assertCanonicalMergeMessage,
   createMergeGateProvenance,
@@ -476,7 +475,6 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
 test('trusted current-base gate authorizes exact candidate facts without executing merge', () => {
   const result = CodexDevelopmentEvaluateMergeGate(fixture());
   expect(result.status).toBe('authorized');
-  expect(result.terminalStatusContext).toBe(CodexDevelopmentMergeGateTerminalStatusContext);
   expect(result.terminalStatusContext).toBe('sec/integration-authorization');
   expect(result.authorization.headSha).toBe(HEAD);
   expect(result.authorization.scopeAuthorizationRevision)

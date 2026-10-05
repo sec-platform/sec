@@ -52,15 +52,16 @@ test('hook installer preserves an explicit broken symlink hooks path', async () 
 
 test('managed hooks execute the installed Bun identity without inheriting its PATH entry', async () => {
   await withRepository(async (repoRoot) => {
-    const runnerRoot = path.join(repoRoot, 'src', 'development', 'runner');
+    const runnerPath = path.join(repoRoot, DEV_RUNNER_ENTRYPOINT_PATH);
+    const runnerRoot = path.dirname(runnerPath);
     await mkdir(runnerRoot, { recursive: true });
     await copyFile(
       path.resolve(import.meta.dir, '../helpers/hook-runtime-runner.ts'),
-      path.join(runnerRoot, 'cli.ts')
+      runnerPath
     );
     await writeFile(path.join(repoRoot, 'package.json'), JSON.stringify({
       scripts: {
-        'imports:check': `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} imports:check`
+        'imports:apply': `"$npm_execpath" ./${DEV_RUNNER_ENTRYPOINT_PATH} imports:apply`
       }
     }), 'utf8');
     git(repoRoot, ['add', 'package.json', DEV_RUNNER_ENTRYPOINT_PATH]);
@@ -87,7 +88,7 @@ test('managed hooks execute the installed Bun identity without inheriting its PA
       windowsHide: true
     });
     expect(committed.status).toBe(0);
-    expect(await readFile(`${marker}.imports-check`, 'utf8')).toBe(process.execPath);
+    expect(await readFile(`${marker}.imports-apply`, 'utf8')).toBe(process.execPath);
     await expect(readFile(`${marker}.deps-ensure`, 'utf8')).rejects.toThrow();
   });
 });

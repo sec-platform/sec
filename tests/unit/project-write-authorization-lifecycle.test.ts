@@ -21,7 +21,8 @@ test('the same accepted path data controls validation, digest and live projectio
 
 test('an operation lookalike cannot be coerced into semantic identity', async () => {
   const operation = { toString() { assert.fail('operation coercion'); } };
-  await assert.rejects(withProjectWriteAuthorization({ ...input(), operation: operation as never }, async () => assert.fail('execute')));
+  await assert.rejects(withProjectWriteAuthorization({ ...input(), operation: operation as never }, async () => assert.fail('execute')),
+    { code: 'PROJECT-WRITE-AUTHORIZATION-001', kind: 'invalid-operation' });
 });
 
 test('no authorization is visible during admission and nested preparation is refused', async () => {

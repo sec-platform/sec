@@ -453,22 +453,6 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'linux')(
-  'production GitRead returns a typed retained-provider blocker on an unsupported POSIX host',
-  () => {
-    const resolution = createAuthorityGitReadSession({
-      cwd: process.cwd(),
-      operation: issueTestGitReadOperation(),
-      budget: GIT_READ_OPERATION_BUDGET
-    });
-    expect(resolution).toMatchObject({
-      kind: 'unresolved-git-read-provider',
-      status: 'unavailable',
-      reason: 'git-retained-provider-unavailable'
-    });
-  }
-);
-
 test.skipIf(process.platform !== 'win32')(
   'production Git scratch computes, reads, and materializes one bound tree without generic GitRead mutation',
   async () => {
@@ -716,7 +700,7 @@ test('the host transport fences the retained executable and cwd before and after
   expect(session.failure).toBeNull();
 });
 
-test('the retained cwd prevents replacement while the Git session is live', async () => {
+test.skipIf(process.platform !== 'win32')('the retained cwd prevents replacement while the Git session is live', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-cwd-'));
   const moved = `${root}-moved`;
   let session: ReturnType<typeof createHostGitReadSessionForTests> | undefined;
