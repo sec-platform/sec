@@ -1,4 +1,4 @@
-/** Build-time only: derive pre-checkout permission decoding and maintenance qualification from their provider owners. */
+/** Build-time only: derive pre-checkout permission decoding from their provider owners. */
 import path from 'node:path';
 
 import ts from 'typescript';
@@ -16,20 +16,12 @@ const NORMALIZER = {
   begin: '// BEGIN GENERATED repository-permission.ts',
   end: '// END GENERATED repository-permission.ts'
 } as const;
-const MAINTENANCE_PERMISSION = {
-  path: 'src/adapters/providers/github-api/repository-maintenance-permission.ts',
-  name: 'isRepositoryMaintenancePermission',
-  begin: '// BEGIN GENERATED repository-maintenance-permission.ts',
-  end: '// END GENERATED repository-maintenance-permission.ts'
-} as const;
-type ProjectionSource = typeof NORMALIZER | typeof MAINTENANCE_PERMISSION;
+type ProjectionSource = typeof NORMALIZER;
 const SCRIPT_PROVIDER = 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3';
 const TARGETS = [
   ['.github/workflows/merge-gate.yml', 'jobs/plan/steps/0/github-script', NORMALIZER],
   ['.github/workflows/compiler-pr-validation.yml', 'jobs/validate-hosted-request/steps/0/github-script', NORMALIZER],
   ['.github/workflows/compiler-pr-validation.yml', 'jobs/validate-agent-operation-activation-request/steps/0/github-script', NORMALIZER],
-  ['.github/workflows/repository-maintenance.yml', 'jobs/retire/steps/0/github-script', NORMALIZER],
-  ['.github/workflows/repository-maintenance.yml', 'jobs/retire/steps/0/github-script', MAINTENANCE_PERMISSION],
   ['.github/workflows/trusted-bootstrap.yml', 'jobs/resolve/steps/0/github-script', NORMALIZER]
 ] as const;
 
@@ -121,7 +113,7 @@ function required(sources: ReadonlyMap<string, string | null>, repositoryPath: s
 export function compilePermissionBootstrapProjection(
   sources: ReadonlyMap<string, string | null>
 ): readonly PermissionBootstrapProjectionChange[] {
-  const generatedSources = new Map([NORMALIZER, MAINTENANCE_PERMISSION].map((source) =>
+  const generatedSources = new Map([NORMALIZER].map((source) =>
     [source, emitFunction(required(sources, source.path), source)] as const));
   const changes: PermissionBootstrapProjectionChange[] = [];
   for (const repositoryPath of new Set(TARGETS.map(([ownerPath]) => ownerPath))) {
@@ -202,7 +194,7 @@ export async function synchronizePermissionBootstrapProjection(root: string, mod
   if (mode !== 'check' && mode !== 'write') fail('mode must be check or write');
   const workspaceRoot = inspectNoFollowDirectoryChain(path.resolve(root), 'Permission projection workspace').target.path;
   const sources = new Map<string, string>();
-  const observations = [...new Set([NORMALIZER.path, MAINTENANCE_PERMISSION.path, ...TARGETS.map(([ownerPath]) => ownerPath)])].map((repositoryPath) => {
+  const observations = [...new Set([NORMALIZER.path, ...TARGETS.map(([ownerPath]) => ownerPath)])].map((repositoryPath) => {
     const absolute = path.join(workspaceRoot, repositoryPath);
     const parent = inspectNoFollowDirectoryChain(path.dirname(absolute), `Permission projection ${repositoryPath}`).target;
     const name = path.basename(absolute);

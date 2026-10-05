@@ -1,27 +1,13 @@
+import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
-
-import { readLinuxRetainedFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
-
 import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
-
+import { readLinuxRetainedFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
-import {
-  parseExactRemoteRefRecoveryPreparation
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
+import { parseExactRemoteRefRecoveryPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
 import { parseRepositoryMaintenanceRequest, parseRepositoryMaintenanceResumeReceipt } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
-import {
-  assertRepositoryMaintenanceDispatcherPermission,
-  createRepositoryMaintenanceDispatchPayload
-} from '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts';
-import {
-  assertHostedRepositoryMaintenanceIdentity,
-  parseHostedRepositoryMaintenanceRequest
-} from '../../src/adapters/self-hosting/control/repository-maintenance/hosted-admission.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
 const MAIN = 'a'.repeat(40);
@@ -53,57 +39,11 @@ function batchSource(count = 1): string {
   return JSON.stringify(value);
 }
 
-function environment(source = batchSource()): NodeJS.ProcessEnv {
-  return {
-    GITHUB_ACTIONS: 'true',
-    GITHUB_SERVER_URL: 'https://github.com',
-    GITHUB_API_URL: 'https://api.github.com',
-    GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'workflow_dispatch',
-    GITHUB_RUN_ATTEMPT: '1',
-    GITHUB_REF: 'refs/heads/main',
-    GITHUB_SHA: MAIN,
-    GITHUB_WORKFLOW_SHA: MAIN,
-    GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
-    GITHUB_ACTOR: 'maintainer',
-    SEC_MAINTENANCE_REQUEST_JSON: source
-  };
-}
-
 test('shared maintenance permission predicate accepts only qualified maintain/admin roles', () => {
   for (const role of ['admin', 'maintain']) expect(isRepositoryMaintenancePermission(role)).toBe(true);
   for (const role of ['OWNER', 'MEMBER', 'write', 'triage', 'read', 'none', '', null, undefined, {}, ['admin']]) {
     expect(isRepositoryMaintenancePermission(role)).toBe(false);
   }
-});
-
-test('maintenance dispatcher requires current maintain/admin before creating a workflow signal', () => {
-  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'admin' })).toBe('admin');
-  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'maintain' })).toBe('maintain');
-  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'write', role_name: 'maintain' }))
-    .toBe('maintain');
-  for (const value of [
-    { permission: 'write' },
-    { permission: 'admin', role_name: 'custom-maintainer' },
-    { permission: 'triage' },
-    { permission: 'read' },
-    { permission: 'none' },
-    {},
-    null
-  ]) {
-    expect(() => assertRepositoryMaintenanceDispatcherPermission(value))
-      .toThrow(/maintain\/admin permission|must be one object/u);
-  }
-});
-
-test('maintenance dispatch sends one exact bounded batch without a comment carrier', () => {
-  expect(createRepositoryMaintenanceDispatchPayload(batchSource(12))).toEqual({
-    ref: 'main', inputs: { request: batchSource(12), request_digest: sha256(parseRepositoryMaintenanceRequest(batchSource(12))), execution_digest: sha256({ requestDigest: sha256(parseRepositoryMaintenanceRequest(batchSource(12))), resumeReceipt: null }), resume_receipt: '' }
-  });
-  expect(() => createRepositoryMaintenanceDispatchPayload(requestSource())).toThrow('legacy');
-  expect(() => createRepositoryMaintenanceDispatchPayload(batchSource() + ' '.repeat(62_000))).toThrow('bounded byte');
-  expect(() => createRepositoryMaintenanceDispatchPayload(batchSource() + '\t'.repeat(32_800))).toThrow('provider payload budget');
 });
 
 test('v2 batch rejects duplicates, mixed lanes and unbounded or malformed requests', () => {
@@ -125,10 +65,6 @@ test('v2 batch rejects duplicates, mixed lanes and unbounded or malformed reques
 test('resume locator carries only exact provider identities, never supplied results', () => {
   const locator = { artifactId: '123', artifactDigest: `sha256:${'d'.repeat(64)}` as const, runId: '456', runAttempt: 1 };
   expect(parseRepositoryMaintenanceResumeReceipt(JSON.stringify(locator))).toEqual(locator);
-  expect(createRepositoryMaintenanceDispatchPayload(batchSource(), JSON.stringify(locator)).inputs.resume_receipt)
-    .toBe(JSON.stringify(locator));
-  expect(createRepositoryMaintenanceDispatchPayload(batchSource(), JSON.stringify(locator)).inputs.execution_digest)
-    .not.toBe(createRepositoryMaintenanceDispatchPayload(batchSource()).inputs.execution_digest);
   expect(parseRepositoryMaintenanceResumeReceipt('')).toBeUndefined();
   for (const changed of [{ results: [] }, { runAttempt: 0 }, { artifactId: '../123' }, { artifactId: '9'.repeat(30) }, { artifactDigest: 'not-a-digest' }]) {
     expect(() => parseRepositoryMaintenanceResumeReceipt(JSON.stringify({ ...locator, ...changed }))).toThrow();
@@ -312,42 +248,6 @@ test('exact ref recovery preparation binds request identity, ref state and bundl
   })).toThrow('bundle identity is invalid');
 });
 
-test('hosted maintenance selects exact main batch lane without treating environment fields as authority', () => {
-  const request = parseRepositoryMaintenanceRequest(batchSource());
-  expect(() => assertHostedRepositoryMaintenanceIdentity(request, environment())).not.toThrow();
-  for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
-    expect(() => assertHostedRepositoryMaintenanceIdentity(request, { ...environment(),
-      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association })).not.toThrow();
-  }
-  for (const changed of [
-    { GITHUB_EVENT_NAME: 'issue_comment' },
-    { GITHUB_REF: 'refs/heads/other' },
-    { GITHUB_SHA: 'c'.repeat(40) },
-    { GITHUB_WORKFLOW_SHA: 'c'.repeat(40) },
-    { GITHUB_EVENT_NAME: 'repository_dispatch' },
-    { GITHUB_ACTOR: '' },
-    { GITHUB_RUN_ATTEMPT: '2' }
-  ]) {
-    expect(() => assertHostedRepositoryMaintenanceIdentity(
-      request,
-      { ...environment(), ...changed }
-    )).toThrow();
-  }
-});
-
-test('hosted request is parsed from exact batch input without repair', () => {
-  const source = batchSource();
-  expect(parseHostedRepositoryMaintenanceRequest(environment(source)))
-    .toEqual(JSON.parse(source));
-  expect(() => parseHostedRepositoryMaintenanceRequest(
-    environment(source.replace('fix/old', 'fix/changed'))
-  )).not.toThrow();
-  expect(() => parseHostedRepositoryMaintenanceRequest({
-    ...environment(source),
-    SEC_MAINTENANCE_REQUEST_JSON: undefined
-  })).toThrow('absent');
-});
-
 test('canonical maintenance request digest changes with exact ref identity', () => {
   const left = parseRepositoryMaintenanceRequest(requestSource());
   const right = parseRepositoryMaintenanceRequest(
@@ -394,47 +294,6 @@ test('reviewed superseded ref retirement is single-ref and bound to lifecycle is
 });
 
 
-test('CLI authenticates once and dispatches one batch with exact returned run identity', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'maintenance-dispatch-'));
-  try {
-    const executable = path.join(root, 'gh');
-    const log = path.join(root, 'calls');
-    const payload = path.join(root, 'payload');
-    const request = path.join(root, 'request 计划.json');
-    writeFileSync(request, batchSource(12));
-    writeFileSync(executable, `#!/bin/sh
-printf '%s\n' "$*" >> "$DISPATCH_LOG"
-case "$*" in
-  'api /user') printf '%s' '{"login":"maintainer","type":"User"}' ;;
-  *'/permission') printf '%s' '{"permission":"admin"}' ;;
-  *'/git/ref/heads/main'*) printf '%s' '${MAIN}' ;;
-  *'--method POST'*) cat > "$DISPATCH_PAYLOAD"; if [ "$DISPATCH_FAIL" = 1 ]; then echo 'response lost' >&2; exit 2; fi; printf '%s' '{"workflow_run_id":123,"run_url":"https://api.github.com/repos/sec-platform/sec/actions/runs/123","html_url":"https://github.com/sec-platform/sec/actions/runs/123"}' ;;
-  *) echo 'unexpected provider operation' >&2; exit 3 ;;
-esac
-`);
-    chmodSync(executable, 0o755);
-    const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts');
-    const run = (fail: boolean) => spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', fail ? request : path.relative(root, request)], {
-      cwd: root, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH,
-        DISPATCH_LOG: log, DISPATCH_PAYLOAD: payload, DISPATCH_FAIL: fail ? '1' : '0' }
-    });
-    const successful = run(false);
-    expect(successful.status).toBe(0);
-    expect(JSON.parse(successful.stdout)).toMatchObject({ status: 'dispatched', runId: 123, operations: 12 });
-    expect(JSON.parse(readFileSync(payload, 'utf8'))).toEqual({ ref: 'main', inputs: { request: batchSource(12), request_digest: sha256(parseRepositoryMaintenanceRequest(batchSource(12))), execution_digest: sha256({ requestDigest: sha256(parseRepositoryMaintenanceRequest(batchSource(12))), resumeReceipt: null }), resume_receipt: '' } });
-    const calls = readFileSync(log, 'utf8');
-    expect(calls.trim().split('\n')).toHaveLength(4);
-    expect(calls).not.toContain('/issues');
-    expect(calls).toContain('/actions/workflows/repository-maintenance.yml/dispatches');
-    writeFileSync(log, '');
-    const uncertain = run(true);
-    expect(uncertain.status).not.toBe(0);
-    expect(uncertain.stderr).toContain('outcome is unknown; do not resend');
-    expect(readFileSync(log, 'utf8').match(/--method POST/gu)).toHaveLength(1);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-
 test('v4 reviews belong only to immutable v2 plans; legacy comments remain readable', () => {
   const request = JSON.parse(batchSource());
   request.operations[0].retirement = {
@@ -457,7 +316,7 @@ test('v4 reviews belong only to immutable v2 plans; legacy comments remain reada
 });
 
 
-test('dispatch input ownership rejects linked ancestors and leaves, special files and oversized request or resume before gh', () => {
+test('historical receipt input ownership rejects linked ancestors and leaves, special files and oversized request or resume before gh', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-'));
   try {
     const log = path.join(root, 'calls');
@@ -479,9 +338,9 @@ test('dispatch input ownership rejects linked ancestors and leaves, special file
     writeFileSync(invalidUtf8, Buffer.from([0xff]));
     const fifo = path.join(root, 'fifo');
     expect(spawnSync('mkfifo', [fifo]).status).toBe(0);
-    const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts');
+    const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts');
     for (const input of [leafLink, path.join(parentLink, 'request.json'), ordinary, oversized, invalidUtf8, fifo]) {
-      const result = spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', input], {
+      const result = spawnSync(process.execPath, [cli, 'read-receipt', '--request', input, '--resume-receipt', 'missing.json'], {
         timeout: 5_000, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH, DISPATCH_LOG: log }
       });
       expect(result.error).toBeUndefined();
@@ -490,7 +349,7 @@ test('dispatch input ownership rejects linked ancestors and leaves, special file
     }
     const resume = path.join(root, 'resume.json');
     writeFileSync(resume, ' '.repeat(1025));
-    const result = spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', request, '--resume-receipt', resume], {
+    const result = spawnSync(process.execPath, [cli, 'read-receipt', '--request', request, '--resume-receipt', resume], {
       timeout: 5_000, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH, DISPATCH_LOG: log }
     });
     expect(result.status).not.toBe(0);
@@ -516,13 +375,13 @@ test('the physical bounded reader rejects growth after its initial size observat
 
 
 test('unsupported file-input platforms fail explicitly without changing no-file CLI validation', () => {
-  const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts');
+  const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts');
   const source = `
-    const { repositoryMaintenanceDispatchCli } = await import(${JSON.stringify(cli)});
+    const { repositoryMaintenanceReceiptCli } = await import(${JSON.stringify(cli)});
     Object.defineProperty(process, 'platform', { value: 'darwin' });
     const messages = [];
-    for (const argv of [[], ['--repository', 'sec-platform/sec', '--request', 'request.json']]) {
-      try { repositoryMaintenanceDispatchCli(argv); } catch (error) { messages.push(error.message); }
+    for (const argv of [[], ['read-receipt', '--request', 'request.json', '--resume-receipt', 'receipt.json']]) {
+      try { await repositoryMaintenanceReceiptCli(argv); } catch (error) { messages.push(error.message); }
     }
     console.log(JSON.stringify(messages));
   `;

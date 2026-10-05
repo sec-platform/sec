@@ -7,9 +7,9 @@
  */
 export {
   GITHUB_API_READ_OPERATION_TIMEOUT_MS,
-  GITHUB_API_REQUEST_TIMEOUT_MS, GitHubApiGraphqlResponseError, GitHubApiProviderError, assertGitHubApiCapability, assertGitHubApiMaintenanceRequest, assertGitHubApiReadOperationBudgetCurrent,
+  GITHUB_API_REQUEST_TIMEOUT_MS, GitHubApiGraphqlResponseError, GitHubApiProviderError, assertGitHubApiCapability, assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
-  executeGitHubApiOperation, inspectGitHubApiCapability, observeGitHubApiMainRef, revalidateGitHubApiMaintenanceRequest, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMaintenanceOperationBudget, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
+  executeGitHubApiOperation, inspectGitHubApiCapability, observeGitHubApiMainRef, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
   withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
   withGitHubApiStatusWriteSession, withGitHubApiVerificationSession, type GitHubApiCapability,
   type GitHubApiEffect,

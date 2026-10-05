@@ -345,6 +345,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/exact-ref-batch-retirement.test.ts',
+    reason: 'process-global-historical-provider-session-mock',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/github-api-credential.test.ts',
     reason: 'process-global-environment-and-child-process',
     resourceClass: 'independent-process'

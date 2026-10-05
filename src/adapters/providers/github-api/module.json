@@ -38,8 +38,6 @@
         "withGitHubApiStatusWriteSession",
         "withGitHubApiMergeWriteSession",
         "withGitHubApiVerificationSession",
-        "revalidateGitHubApiMaintenanceRequest",
-        "revalidateGitHubApiMaintenanceRequestForTestSupport",
         "observeGitHubApiMainRef"
       ],
       "effectKinds": [
@@ -52,8 +50,7 @@
         "issueGitHubApiCapabilityForTestSupport",
         "withGitHubApiEnrollmentSessionForTestSupport",
         "withGitHubApiReadOperationBudgetForTestSupport",
-        "withGitHubApiSessionForTestSupport",
-        "revalidateGitHubApiMaintenanceRequestForTestSupport"
+        "withGitHubApiSessionForTestSupport"
       ],
       "operationRoles": [
         {
@@ -113,13 +110,6 @@
           "recovery": null
         },
         {
-          "operation": "revalidateGitHubApiMaintenanceRequest",
-          "role": "domain-owner",
-          "semanticOperation": "external-capabilities.github-api.maintenance-authority-readback",
-          "requirementId": null,
-          "recovery": null
-        },
-        {
           "operation": "observeGitHubApiMainRef",
           "role": "domain-owner",
           "semanticOperation": "external-capabilities.github-api.main-ref-readback",
@@ -138,7 +128,6 @@
       },
       "consumerSupport": {
         "consumers": [
-          "control.repository-maintenance",
           "verification.platform-ci"
         ]
       },
@@ -581,7 +570,8 @@
       },
       "consumerSupport": {
         "consumers": [
-          "verification.platform-ci"
+          "verification.platform-ci",
+          "control.branch-lifecycle"
         ]
       },
       "effect": {
@@ -617,61 +607,6 @@
           {
             "resource": "output-bytes",
             "maximum": 33554432
-          },
-          {
-            "resource": "processes",
-            "maximum": 1
-          }
-        ]
-      },
-      "futureSupport": {
-        "condition": "semantic-superset-required"
-      }
-    },
-    {
-      "operation": {
-        "kind": "capability",
-        "capability": "github-api.operation-session",
-        "operation": "revalidateGitHubApiMaintenanceRequest"
-      },
-      "consumerSupport": {
-        "consumers": [
-          "control.branch-lifecycle"
-        ]
-      },
-      "effect": {
-        "kinds": [
-          "process",
-          "provider"
-        ],
-        "failureKinds": [
-          "process.cancelled",
-          "process.deadline-exhausted",
-          "process.identity-drift",
-          "process.output-budget-exhausted",
-          "process.settlement-unproven",
-          "provider.unavailable",
-          "provider.unverified"
-        ],
-        "recovery": "idempotent-retry"
-      },
-      "evolution": {
-        "migration": "one-shot-owner-migration",
-        "retirement": "replacement-obligations-satisfied"
-      },
-      "resources": {
-        "aggregateBudgets": [
-          {
-            "resource": "duration-ms",
-            "maximum": 30000
-          },
-          {
-            "resource": "input-bytes",
-            "maximum": 4194304
-          },
-          {
-            "resource": "output-bytes",
-            "maximum": 33566720
           },
           {
             "resource": "processes",

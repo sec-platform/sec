@@ -1,7 +1,6 @@
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitHubRepositoryBinding } from '../../../providers/git-read/repository-binding.ts';
 import {
-  assertGitHubApiMaintenanceRequest,
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
   type GitHubApiCapability
@@ -18,7 +17,6 @@ import {
   branchLifecycleDigest
 } from './branch-lifecycle-audit.ts';
 
-import { parsePlannedRefSupersessionReview, type PlannedRefSupersessionReview } from './exact-ref-retirement-contract.ts';
 
 const CLOSED_SUPERSESSION_REVIEW_MARKER =
   '<!-- sec-branch-supersession-review -->\n';
@@ -240,7 +238,7 @@ function parseSupersessionReview(source: string): ParsedSupersessionReview {
 async function verifySupersessionGitReview(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  review: ParsedSupersessionReview | PlannedRefSupersessionReview;
+  review: ParsedSupersessionReview;
 }>): Promise<void> {
   const review = input.review;
   await withAuthorityGitReadSession(
@@ -452,38 +450,4 @@ export async function observeReviewedRefSupersessionEvidence(input: Readonly<{
   });
   issuedReviewedRef.add(evidence);
   return evidence;
-}
-
-export type PlannedRefSupersessionEvidence = Readonly<{
-  review: PlannedRefSupersessionReview;
-  author: string;
-  requestDigest: `sha256:${string}`;
-  receiptDigest: `sha256:${string}`;
-}>;
-
-/** The original review owner adopts native dispatch input through its existing opaque issuer. */
-export async function observePlannedRefSupersessionEvidence(input: Readonly<{
-  repositoryRoot: string;
-  capability: GitHubApiCapability;
-  requestDigest: `sha256:${string}`;
-  review: PlannedRefSupersessionReview;
-}>): Promise<PlannedRefSupersessionEvidence> {
-  const adoption = assertGitHubApiMaintenanceRequest(input.capability, input.requestDigest);
-  const review = parsePlannedRefSupersessionReview(input.review);
-  const binding = inspectGitHubApiCapability(input.capability);
-  if (review.repository !== binding.repository) {
-    throw new Error('Planned supersession repository differs from authenticated adoption');
-  }
-  await verifySupersessionGitReview({ repositoryRoot: input.repositoryRoot,
-    repository: binding.repository, review });
-  const material = Object.freeze({ review, author: adoption.actor, requestDigest: input.requestDigest });
-  const evidence = Object.freeze({ ...material, receiptDigest: branchLifecycleDigest(material) });
-  issuedReviewedRef.add(evidence);
-  return evidence;
-}
-
-export function assertPlannedRefSupersessionEvidence(value: PlannedRefSupersessionEvidence): void {
-  if (!issuedReviewedRef.has(value)) {
-    throw new Error('Planned supersession evidence requires authenticated owner observation');
-  }
 }

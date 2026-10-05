@@ -826,17 +826,11 @@ test('request grammar rejects coercible identifiers and unsupported status state
 });
 
 
-test('maintenance workflow principal admits read, branch-closeout, and exact comment writes only', () => {
-  expect(() => capability({
-    effect: 'read',
-    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  })).not.toThrow();
-  expect(() => capability({
-    effect: 'status-write',
-    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  })).toThrow('GitHub API privileged write capability requires maintain/admin user permission');
+test('retired maintenance workflow cannot issue any API capability', () => {
+  for (const effect of ['read', 'status-write', 'branch-closeout-write', 'issue-comment-write'] as const) {
+    expect(() => capability({ effect, principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
+      transport: async () => Response.json({}) })).toThrow('capability issuance input is invalid');
+  }
 });
 
 test('branch-closeout exact git commit read is SHA-addressed', async () => {
