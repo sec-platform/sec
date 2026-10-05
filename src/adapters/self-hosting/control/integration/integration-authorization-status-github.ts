@@ -418,64 +418,85 @@ async function listStatuses(
 export async function publishIntegrationAuthorizationStatus(input: Readonly<{
   result: IntegrationAuthorizationGateResult;
   targetUrl: string;
-  capability: GitHubApiCapability;
+  repositoryRoot: string;
+  expectedPrincipal: Readonly<{ login: string; nodeId: string; userId?: number }>;
 }>): Promise<IntegrationAuthorizationStatusPublication> {
   const result = input.result;
   const transitionQualification = requireIssuedIntegrationGateResult(result);
   const repositoryName = repository(result.authorization.repository);
+  const repositoryRoot = input.repositoryRoot;
   const targetUrl = bounded(input.targetUrl, 'targetUrl');
-  assertGitHubApiCapability(input.capability, repositoryName, 'status-write');
-  const capabilityPrincipal = inspectGitHubApiCapability(input.capability).principal;
-  if (capabilityPrincipal.userId === null) {
-    fail('owner-issued GitHub status capability has no numeric principal id.');
+  if (result.schema !== CodexDevelopmentTrustedRuntimeMergeGateResultSchema) {
+    fail('direct publication requires the original trusted runtime result');
   }
-  const principal = Object.freeze({
-    creatorLogin: bounded(capabilityPrincipal.login, 'creatorLogin'),
-    creatorId: positiveInteger(capabilityPrincipal.userId, 'creatorId')
-  });
-  const subjectBefore = await readDefaultBranchSubject(
-    input.capability,
-    repositoryName,
-    result.authorization.prNumber
-  );
-  const defaultBranch = exactPullSubject(subjectBefore, result);
+  const expectedPrincipal = Object.freeze({ ...input.expectedPrincipal });
+  // The original source owner may need an author-comment read session. Finish
+  // that observation before acquiring a different-effect status capability.
   await reobserveSourceProgramTransitionQualificationForEffect(transitionQualification);
-
-  const created = parseGitHubStatus(await githubJson(
-    input.capability,
-    {
-      kind: 'create-commit-status',
-      sha: result.authorization.headSha,
-      status: Object.freeze({
-        state: 'success',
-        context: CodexDevelopmentMergeGateTerminalStatusContext,
-        description: createIntegrationAuthorizationStatusDescription(result),
-        targetUrl
-      })
+  return await withGitHubApiStatusWriteSession({ repositoryRoot,
+    repository: repositoryName, operation: async (capability) => {
+    requireIssuedIntegrationGateResult(result);
+    assertGitHubApiCapability(capability, repositoryName, 'status-write');
+    const capabilityPrincipal = inspectGitHubApiCapability(capability).principal;
+    if (capabilityPrincipal.login !== expectedPrincipal.login
+        || capabilityPrincipal.nodeId !== expectedPrincipal.nodeId
+        || capabilityPrincipal.nodeId !== result.provenance.actorNodeId
+        || (expectedPrincipal.userId !== undefined && capabilityPrincipal.userId !== expectedPrincipal.userId)) {
+      fail('GitHub status capability principal differs from the exact live Gate publisher');
     }
-  ));
-  exactStatus(created, result, targetUrl, principal);
-  positiveInteger(created.id, 'created status id');
+    if (capabilityPrincipal.userId === null) {
+      fail('owner-issued GitHub status capability has no numeric principal id.');
+    }
+    const principal = Object.freeze({
+      creatorLogin: bounded(capabilityPrincipal.login, 'creatorLogin'),
+      creatorId: positiveInteger(capabilityPrincipal.userId, 'creatorId')
+    });
+    const subjectBefore = await readDefaultBranchSubject(
+      capability,
+      repositoryName,
+      result.authorization.prNumber
+    );
+    const defaultBranch = exactPullSubject(subjectBefore, result);
+    // All asynchronous observations are complete. The original result registry
+    // rechecks both borrowed live qualifications at this actual status Effect.
+    requireIssuedIntegrationGateResult(result);
 
-  const [subjectAfter, statuses] = await Promise.all([
-    readDefaultBranchSubject(input.capability, repositoryName, result.authorization.prNumber),
-    listStatuses(input.capability, result.authorization.headSha)
-  ]);
-  exactPullSubject(subjectAfter, result, defaultBranch);
-  const exact = statuses.filter((status) => status.id === created.id);
-  if (exact.length !== 1) fail('terminal status exact id is absent or duplicated in provider readback.');
-  exactStatus(exact[0]!, result, targetUrl, principal);
-  const newerSamePrincipalContext = statuses.some((status) => status.id > created.id
-    && status.context === CodexDevelopmentMergeGateTerminalStatusContext
-    && status.creator?.login === principal.creatorLogin
-    && status.creator.id === principal.creatorId);
-  if (newerSamePrincipalContext) fail('a newer terminal status exists for the same principal/context; publication is stale.');
-  return createIntegrationAuthorizationStatusPublication({
-    result,
-    targetUrl,
-    statusId: created.id,
-    principal
-  });
+    const created = parseGitHubStatus(await githubJson(
+      capability,
+      {
+        kind: 'create-commit-status',
+        sha: result.authorization.headSha,
+        status: Object.freeze({
+          state: 'success',
+          context: CodexDevelopmentMergeGateTerminalStatusContext,
+          description: createIntegrationAuthorizationStatusDescription(result),
+          targetUrl
+        })
+      }
+    ));
+    exactStatus(created, result, targetUrl, principal);
+    positiveInteger(created.id, 'created status id');
+
+    const [subjectAfter, statuses] = await Promise.all([
+      readDefaultBranchSubject(capability, repositoryName, result.authorization.prNumber),
+      listStatuses(capability, result.authorization.headSha)
+    ]);
+    exactPullSubject(subjectAfter, result, defaultBranch);
+    const exact = statuses.filter((status) => status.id === created.id);
+    if (exact.length !== 1) fail('terminal status exact id is absent or duplicated in provider readback.');
+    exactStatus(exact[0]!, result, targetUrl, principal);
+    const newerSamePrincipalContext = statuses.some((status) => status.id > created.id
+      && status.context === CodexDevelopmentMergeGateTerminalStatusContext
+      && status.creator?.login === principal.creatorLogin
+      && status.creator.id === principal.creatorId);
+    if (newerSamePrincipalContext) fail('a newer terminal status exists for the same principal/context; publication is stale.');
+    return createIntegrationAuthorizationStatusPublication({
+      result,
+      targetUrl,
+      statusId: created.id,
+      principal
+    });
+  } });
 }
 
 function parseArgs(argv: readonly string[]): Readonly<{
@@ -520,20 +541,13 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const result = parseIntegrationAuthorizationGateResult(readFileSync(args.input, 'utf8'));
   requireIssuedIntegrationGateResult(result); // Explicit migration: historical CLI input cannot publish.
-  const receipt = await withGitHubApiStatusWriteSession({
-    repositoryRoot: process.cwd(),
-    repository: result.authorization.repository,
-    operation: async (capability) => {
-      const principal = inspectGitHubApiCapability(capability).principal;
-      if (principal.login !== args.creatorLogin || principal.userId !== args.creatorId) {
-        fail('owner-issued GitHub status capability principal differs from CLI admission.');
-      }
-      return await publishIntegrationAuthorizationStatus({
-        result,
-        targetUrl: args.targetUrl,
-        capability
-      });
-    }
+  if (result.schema !== CodexDevelopmentTrustedRuntimeMergeGateResultSchema) {
+    fail('direct CLI publication requires its live trusted runtime producer');
+  }
+  const receipt = await publishIntegrationAuthorizationStatus({
+    repositoryRoot: process.cwd(), result, targetUrl: args.targetUrl,
+    expectedPrincipal: { login: args.creatorLogin, nodeId: result.provenance.actorNodeId,
+      userId: args.creatorId }
   });
   writeFileSync(args.output, `${encodeVerificationActionData(receipt)}\n`, 'utf8');
 }

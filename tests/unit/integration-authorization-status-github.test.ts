@@ -192,7 +192,8 @@ async function publishWithProvider(
     operation: async () => await publishIntegrationAuthorizationStatus({
       result: gateResult,
       targetUrl: 'https://github.com/sec-platform/sec/pull/496',
-      capability
+      repositoryRoot: process.cwd(),
+      expectedPrincipal: { login: 'sec-integrator[bot]', nodeId: 'MDQ6VXNlcjkwMDAwMQ==', userId: 900001 }
     })
   });
 }

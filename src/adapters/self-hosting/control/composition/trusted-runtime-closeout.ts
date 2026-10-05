@@ -17,7 +17,6 @@ import {
   inspectGitHubApiCapability,
   withGitHubApiMergeWriteSession,
   withGitHubApiReadSession,
-  withGitHubApiStatusWriteSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
 import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
@@ -78,11 +77,10 @@ import {
 import {
   parseGitHubClosingKeywordOccurrences
 } from '../issues/disposition.ts';
-import { assertTrustedRuntimeMainHealthPublication, type TrustedRuntimeMainHealthPublicationAdmission } from '../main-health/live-admission.ts';
+import { assertIntegrationMainHealthProducer, assertTrustedRuntimeMainHealthPublication, type TrustedRuntimeMainHealthPublicationAdmission } from '../main-health/live-admission.ts';
 import type { TrustedRuntimeMainHealthReceipt } from '../main-health/main-health-observation.ts';
 import { assertTrustedRuntimePostMergeMainHealthPlanCurrent, type TrustedRuntimePostMergeMainHealthPlan } from '../main-health/post-merge-plan.ts';
 import {
-  assertMainHealthGitHubReadOperationBudgetCurrent,
   assertMainHealthPublicationAuthorityStable,
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubDefaultBranchSha,
@@ -175,6 +173,9 @@ type TrustedRuntimeCloseoutPreMerge = Readonly<{
   manifestPath: string;
   manifestDigest: Digest;
   disposition: Awaited<ReturnType<typeof observeExactIssueDispositionPlan>>;
+  /** Lexical owner callback; never serialized into a recovery record. */
+  assertMainHealthCurrent(): Promise<void>;
+  assertMainHealthQualification(): void;
 }>;
 
 type TrustedRuntimeCloseoutOpenResult =
@@ -954,18 +955,39 @@ async function executeTrustedRuntimeCandidateStage(
           || current.baseTreeSha !== candidate.baseTreeSha || current.headTreeSha !== candidate.headTreeSha) {
         fail('PR transition drifted before serialized closeout admission');
       }
-      const preMerge = await withMainHealthGitHubReadOperationBudget({
-        repositoryRoot,
-        repository: input.repository,
-        operation: async () => await closeoutOpenCandidateWithTrustedRuntime({
-          input, repositoryRoot, github, candidate: current, sourceTransitionUseCase, stage
-        })
-      });
-      // All predecessor evidence was read and a fresh isolated assessment was
-      // adopted, or the live review barrier deliberately held this attempt.
-      if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
-      if (preMerge.kind !== 'ready') return preMerge.value;
-      return await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
+      let mergedReadback: TrustedRuntimeCloseoutMergedReadback | undefined;
+      const executePrepared = async (qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt) => {
+        const preMerge = await closeoutOpenCandidateWithTrustedRuntime({
+          input, repositoryRoot, github, candidate: current, sourceTransitionUseCase, stage,
+          ...(qualifiedLocalReceipt === undefined ? {} : { qualifiedLocalReceipt })
+        });
+        // Recovery records never revive MainHealth qualification. The original
+        // producer scope stays live through the actual merge effect/readback.
+        if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
+        if (preMerge.kind !== 'ready') return Object.freeze({ kind: 'without-merge' as const, value: preMerge.value });
+        mergedReadback = await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
+        return Object.freeze({ kind: 'merged' as const, value: mergedReadback });
+      };
+      // Public preparation and the legacy verification-only request remain
+      // read-only/V1. Only explicit complete closeout executes this producer.
+      let execution: Awaited<ReturnType<typeof executePrepared>>;
+      try {
+        execution = stage.kind === 'closeout'
+          ? await withCurrentTrustedRuntimeMainHealth({ repositoryRoot,
+              repository: input.repository }, executePrepared)
+          : await executePrepared();
+      } catch (error) {
+        if (mergedReadback !== undefined) {
+          throw new AggregateError([error],
+            `MERGED readback ${mergedReadback.candidate.mergeCommitSha} was observed; `
+            + 'MainHealth scope settlement failed after that effect. Resume original merged recovery; do not repeat the merge.');
+        }
+        throw error;
+      }
+      // The old-main proof is now revoked. New-main health and closeout belong
+      // to the original post-merge owner and must not borrow the old proof.
+      return execution.kind === 'without-merge' ? execution.value
+        : await finalizeMergedTrustedRuntime(execution.value);
     } catch (error) {
       primary = { label: 'trusted runtime closeout', error };
       throw error;
@@ -996,6 +1018,7 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
   repositoryRoot: string;
   github: VerificationSessionGitHubClient;
   candidate: GitHubCandidateObservation;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>) {
   const { input, repositoryRoot, github, candidate } = args;
   if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
@@ -1048,15 +1071,18 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
   const observedAt = new Date().toISOString();
   const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentity}@${candidate.baseSha}`;
-  const mainHealthObservation = await observeCanonicalMainHealthForPublication({
-    repositoryRoot,
-    repository: input.repository,
-    defaultBranch: candidate.baseBranch,
-    mainSha: candidate.baseSha,
-    mainTreeSha: candidate.baseTreeSha
+  const mainHealthObservation = await withMainHealthGitHubReadOperationBudget({
+    repositoryRoot, repository: input.repository,
+    operation: async () => await observeCanonicalMainHealthForPublication({
+      repositoryRoot, repository: input.repository,
+      defaultBranch: candidate.baseBranch, mainSha: candidate.baseSha,
+      mainTreeSha: candidate.baseTreeSha,
+      ...(args.qualifiedLocalReceipt === undefined ? {} : {
+        qualifiedLocalReceipt: args.qualifiedLocalReceipt
+      })
+    })
   });
   if (mainHealthObservation.ledger === null
-      || mainHealthObservation.ledger.producer.sourceTransport !== 'github-api'
       || mainHealthObservation.projection.state !== 'healthy'
       || mainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
     fail(
@@ -1065,6 +1091,13 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
     );
   }
   const mainHealthInput = mainHealthObservation.ledger;
+  const localMainHealthAdmission = args.qualifiedLocalReceipt === undefined ? undefined
+    : Object.freeze({ authority: mainHealthObservation.authority,
+        receipt: args.qualifiedLocalReceipt, repositoryRoot });
+  assertIntegrationMainHealthProducer({ ledger: mainHealthInput,
+    repository: input.repository, mainSha: candidate.baseSha,
+    mainTreeSha: candidate.baseTreeSha, now: observedAt,
+    ...(localMainHealthAdmission === undefined ? {} : { localAdmission: localMainHealthAdmission }) });
   const preparationInput = {
     repository: input.repository,
     candidate,
@@ -1185,30 +1218,24 @@ export function readLocalVerificationStatusWithTrustedRuntime(input: Readonly<{
 export async function prepareWithTrustedRuntime(input: TrustedRuntimeCandidatePreparationInput) {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
-  return await withMainHealthGitHubReadOperationBudget({
-    repositoryRoot,
-    repository: input.repository,
-    operation: async () => {
-      const candidate = await github.observeCandidate(input.repository, input.prNumber);
-      const preparation = await prepareOpenCandidateWithTrustedRuntime({
-        input, repositoryRoot, github, candidate
-      });
-      if (preparation.kind === 'waiting') {
-        return Object.freeze({ ...preparation.value, execution: 'local' as const,
-          stage: 'preparation-only' as const,
-          request: createVerificationSessionLocalPreparationRequest(preparation.request) });
-      }
-      return Object.freeze({
-        status: 'LOCAL_PREPARED' as const,
-        execution: 'local' as const,
-        stage: 'preparation-only' as const,
-        sessionRevision: preparation.prepared.envelope.session.sessionRevision,
-        request: createVerificationSessionLocalPreparationRequest(preparation.prepared.request),
-        verificationStatus: 'not-run' as const,
-        sourceQualification: 'not-run' as const,
-        integrationAuthorization: 'not-issued' as const
-      });
-    }
+  const candidate = await github.observeCandidate(input.repository, input.prNumber);
+  const preparation = await prepareOpenCandidateWithTrustedRuntime({
+    input, repositoryRoot, github, candidate
+  });
+  if (preparation.kind === 'waiting') {
+    return Object.freeze({ ...preparation.value, execution: 'local' as const,
+      stage: 'preparation-only' as const,
+      request: createVerificationSessionLocalPreparationRequest(preparation.request) });
+  }
+  return Object.freeze({
+    status: 'LOCAL_PREPARED' as const,
+    execution: 'local' as const,
+    stage: 'preparation-only' as const,
+    sessionRevision: preparation.prepared.envelope.session.sessionRevision,
+    request: createVerificationSessionLocalPreparationRequest(preparation.prepared.request),
+    verificationStatus: 'not-run' as const,
+    sourceQualification: 'not-run' as const,
+    integrationAuthorization: 'not-issued' as const
   });
 }
 
@@ -1224,10 +1251,14 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   candidate: GitHubCandidateObservation;
   sourceTransitionUseCase: TrustedRuntimeSourceTransitionUseCase;
   stage: TrustedRuntimeCandidateStage;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<TrustedRuntimeCloseoutOpenResult> {
   const { input, repositoryRoot, github, candidate, sourceTransitionUseCase } = args;
   const preparation = await prepareOpenCandidateWithTrustedRuntime({
-    input, repositoryRoot, github, candidate
+    input, repositoryRoot, github, candidate,
+    ...(args.qualifiedLocalReceipt === undefined ? {} : {
+      qualifiedLocalReceipt: args.qualifiedLocalReceipt
+    })
   });
   if (args.stage.kind === 'verification-only') {
     assertVerificationSessionLocalPreparationCurrent(args.stage.request,
@@ -1369,18 +1400,20 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         sessionRevision: artifact.session.sessionRevision,
         snapshotDigest: preMergeBarrier.snapshot.snapshotDigest })
     });
-    // T2 rereads the hosted producer. Its stable digest excludes observation
-    // time but binds producer provenance and the exact repository result, so
-    // healthy-to-healthy provenance drift cannot pass the merge gate.
-    const freshMainHealthObservation = await observeCanonicalMainHealthForPublication({
-      repositoryRoot,
-      repository: input.repository,
-      defaultBranch: candidate.baseBranch,
-      mainSha: candidate.baseSha,
-      mainTreeSha: candidate.baseTreeSha
+    // T2 reobserves the same canonical selection and borrows the original live
+    // receipt. A healthy projection alone cannot revive expired qualification.
+    const freshMainHealthObservation = await withMainHealthGitHubReadOperationBudget({
+      repositoryRoot, repository: input.repository,
+      operation: async () => await observeCanonicalMainHealthForPublication({
+        repositoryRoot, repository: input.repository,
+        defaultBranch: candidate.baseBranch, mainSha: candidate.baseSha,
+        mainTreeSha: candidate.baseTreeSha,
+        ...(args.qualifiedLocalReceipt === undefined ? {} : {
+          qualifiedLocalReceipt: args.qualifiedLocalReceipt
+        })
+      })
     });
     if (freshMainHealthObservation.ledger === null
-        || freshMainHealthObservation.ledger.producer.sourceTransport !== 'github-api'
         || freshMainHealthObservation.projection.state !== 'healthy'
         || freshMainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
       fail(
@@ -1388,10 +1421,20 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         + `${freshMainHealthObservation.repairDecision.reasonCode}`
       );
     }
+    assertMainHealthPublicationAuthorityStable(mainHealthObservation.authority, freshMainHealthObservation.authority);
     if (freshMainHealthObservation.stableDigest !== mainHealthObservation.stableDigest) {
-      fail('canonical MainHealth hosted producer provenance drifted between closeout snapshots');
+      fail('canonical MainHealth producer provenance drifted between closeout snapshots');
     }
     const freshMainHealth = freshMainHealthObservation.ledger;
+    const freshLocalMainHealthAdmission = args.qualifiedLocalReceipt === undefined ? undefined
+      : Object.freeze({ authority: freshMainHealthObservation.authority,
+          receipt: args.qualifiedLocalReceipt, repositoryRoot });
+    assertIntegrationMainHealthProducer({ ledger: freshMainHealth,
+      repository: input.repository, mainSha: candidate.baseSha,
+      mainTreeSha: candidate.baseTreeSha, now: issuedAt,
+      ...(freshLocalMainHealthAdmission === undefined ? {} : {
+        localAdmission: freshLocalMainHealthAdmission
+      }) });
     const artifactObservation = createTrustedRuntimeArtifactObservationFromDurableFile({
       artifact,
       artifactText,
@@ -1438,7 +1481,8 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       issuedAt,
       expiresAt: new Date(Date.parse(issuedAt) + 5 * 60_000).toISOString()
     });
-    const gate = CodexDevelopmentEvaluateTrustedRuntimeMergeGate(gateInput, sourceProgramTransitionQualification);
+    const gate = CodexDevelopmentEvaluateTrustedRuntimeMergeGate(gateInput,
+      sourceProgramTransitionQualification, freshLocalMainHealthAdmission);
     const gateReadback = publishCanonical({
       parent: stateDirectory,
       name: `merge-gate-${gate.resultDigest.slice(7)}.json`,
@@ -1447,22 +1491,10 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         Buffer.from(bytes).toString('utf8')
       )
     });
-    const publication = await withGitHubApiStatusWriteSession({
-      repositoryRoot,
-      repository: input.repository,
-      operation: async (capability) => {
-        const capabilityPrincipal = inspectGitHubApiCapability(capability).principal;
-        if (capabilityPrincipal.login !== principal.login
-            || capabilityPrincipal.nodeId !== principal.nodeId
-            || capabilityPrincipal.userId === null) {
-          fail('GitHub status capability principal differs from the observed maintainer');
-        }
-        return await publishIntegrationAuthorizationStatus({
-          result: gate,
-          targetUrl: `https://github.com/${input.repository}/pull/${input.prNumber}`,
-          capability
-        });
-      }
+    const publication = await publishIntegrationAuthorizationStatus({
+      repositoryRoot, result: gate,
+      targetUrl: `https://github.com/${input.repository}/pull/${input.prNumber}`,
+      expectedPrincipal: { login: principal.login, nodeId: principal.nodeId }
     });
     const statusReadback = publishCanonical({
       parent: stateDirectory,
@@ -1525,13 +1557,18 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         || immediateAuthorApproval?.providerObservationDigest !== authorApproval?.providerObservationDigest) {
       fail('external test author decision or current author role drifted before merge');
     }
-    // The read budget ends at this final pre-effect fence. Merge and its
-    // readback run after the budget owner returns, so a long provider-side
-    // mutation cannot turn a successful merge into a post-effect timeout.
-    assertMainHealthGitHubReadOperationBudgetCurrent({
-      repositoryRoot,
-      repository: input.repository
-    });
+    // T1 and T2 each ended their bounded read operation before status or merge
+    // effects. Their budgets never enclose candidate execution or write effects;
+    // the original physical MainHealth deadline still bounds live consumption.
+    let effectMainHealth = { ledger: freshMainHealth, localAdmission: freshLocalMainHealthAdmission };
+    const assertEffectMainHealth = (): void => {
+      assertIntegrationMainHealthProducer({ ledger: effectMainHealth.ledger,
+        repository: input.repository, mainSha: candidate.baseSha,
+        mainTreeSha: candidate.baseTreeSha, now: new Date().toISOString(),
+        ...(effectMainHealth.localAdmission === undefined ? {} : {
+          localAdmission: effectMainHealth.localAdmission
+        }) });
+    };
     return Object.freeze({
       kind: 'ready' as const,
       repositoryRoot,
@@ -1548,14 +1585,50 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       message,
       manifestPath,
       manifestDigest,
-      disposition
+      disposition,
+      assertMainHealthQualification: assertEffectMainHealth,
+      assertMainHealthCurrent: async () => {
+        // The earlier read budget has ended. A distinct bounded effect-time
+        // observation cannot renew the producer's original physical deadline.
+        await withMainHealthGitHubReadOperationBudget({ repositoryRoot,
+          repository: input.repository, operation: async () => {
+            const liveMain = await observeMainHealthGitHubDefaultBranchSha({
+              repositoryRoot, repository: input.repository, defaultBranch: 'main' });
+            if (liveMain !== candidate.baseSha) fail('MainHealth exact main drifted before merge effect');
+            const current = await observeCanonicalMainHealthForPublication({ repositoryRoot,
+              repository: input.repository, defaultBranch: 'main',
+              mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha,
+              ...(args.qualifiedLocalReceipt === undefined ? {} : {
+                qualifiedLocalReceipt: args.qualifiedLocalReceipt
+              }) });
+            assertMainHealthPublicationAuthorityStable(freshMainHealthObservation.authority, current.authority);
+            if (current.ledger === null || current.stableDigest !== freshMainHealthObservation.stableDigest) {
+              fail('canonical MainHealth qualification drifted before merge effect');
+            }
+            const localAdmission = args.qualifiedLocalReceipt === undefined ? undefined
+              : Object.freeze({ authority: current.authority,
+                  receipt: args.qualifiedLocalReceipt, repositoryRoot });
+            assertIntegrationMainHealthProducer({ ledger: current.ledger,
+              repository: input.repository, mainSha: candidate.baseSha,
+              mainTreeSha: candidate.baseTreeSha, now: new Date().toISOString(),
+              ...(localAdmission === undefined ? {} : { localAdmission }) });
+            effectMainHealth = { ledger: current.ledger, localAdmission };
+          } });
+      }
     });
   });
 }
 
+type TrustedRuntimeCloseoutMergedReadback = Parameters<typeof finalizeMergedTrustedRuntime>[0];
+
 async function executeTrustedRuntimeCloseoutMergeEffect(
   preMerge: TrustedRuntimeCloseoutPreMerge
-): Promise<unknown> {
+): Promise<TrustedRuntimeCloseoutMergedReadback> {
+  // Reads complete before the write capability is acquired; provider sessions
+  // never nest a read effect inside the merge effect. The live proof is checked
+  // again synchronously at the actual mutation boundary below.
+  await preMerge.assertMainHealthCurrent();
+  preMerge.assertMainHealthQualification();
   let providerMergeCommitSha: string | null = null;
   let mergeFailure: ResourceSettlementFailure | undefined;
   try {
@@ -1568,6 +1641,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
             || principal.nodeId !== preMerge.integrationPrincipal.nodeId) {
           fail('GitHub merge capability principal differs from status publication principal');
         }
+        preMerge.assertMainHealthQualification();
         return await mergeExactHead({
           repository: preMerge.repository,
           prNumber: preMerge.prNumber,
@@ -1594,7 +1668,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
   if (readback.state !== 'MERGED') {
     fail('AMBIGUOUS_SIDE_EFFECT: provider reported merge success without a merged readback');
   }
-  return (await finalizeMergedTrustedRuntime({
+  return Object.freeze({
     repositoryRoot: preMerge.repositoryRoot,
     repository: preMerge.repository,
     prNumber: preMerge.prNumber,
@@ -1605,7 +1679,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
     statusReadback: preMerge.statusReadback,
     providerMergeCommitSha,
     actionEvidenceReused: preMerge.actionEvidenceReused
-  }));
+  });
 }
 
 async function main(): Promise<void> {

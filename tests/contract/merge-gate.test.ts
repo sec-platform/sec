@@ -17,6 +17,7 @@ import {
   type CodexDevelopmentMergeGateInput
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { createTrustedRuntimeMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
@@ -1003,4 +1004,18 @@ test('valid pure Gate evaluation and parsing cannot mint direct status authority
     expect(() => requireIssuedIntegrationGateResult(candidate))
       .toThrow('actual trusted-runtime transition producer');
   }
+});
+
+// Semantic health equality cannot move a local DTO into the hosted authority lane.
+test('hosted merge gate rejects local healthy JSON without the original live runtime admission', () => {
+  const base = fixture();
+  const local = createMainHealthLedger(createTrustedRuntimeMainHealthInput({
+    schema: 'sec-trusted-runtime-main-health-observation-v1', repository: REPOSITORY,
+    mainSha: BASE, mainTreeSha: BASE_TREE, trustRevision: BASE,
+    executionId: 'data-only-not-a-live-runtime', verificationReceiptDigest: D('e'),
+    observedAt: VERIFIED_AT, expiresAt: '2026-08-09T01:00:00.000Z'
+  }));
+  expect(local.healthRevision).toBe(base.mainHealth.healthRevision);
+  expect(() => CodexDevelopmentEvaluateMergeGate({ ...base, mainHealth: local }))
+    .toThrow('original live publication admission');
 });

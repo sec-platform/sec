@@ -9,6 +9,9 @@ import path from 'node:path';
 import * as gitAuthority from '../../../src/adapters/providers/git-read/authority.ts';
 import * as githubSession from '../../../src/adapters/providers/github-api/operation-session.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { createMainHealthLedger } from '../../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { createObservedMainHealthInput } from '../../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import * as mainHealth from '../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
 import * as workPackage from '../../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import * as gitRead from '../../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
@@ -78,7 +81,9 @@ mockModule('../../../src/adapters/verification/platform/ci/contract/evidence.ts'
   parseSourceProgramTransitionAcceptanceRecord: (value: unknown) => value
 }));
 mockModule('../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts', () => ({
-  ...container, parseTrustedRuntimeContainerReceipt: (value: unknown) => value,
+  ...container,
+  withTrustedRuntimeMainHealthQualification: async () => { throw new Error('TEST_NATIVE_MAIN_HEALTH_UNAVAILABLE'); },
+  parseTrustedRuntimeContainerReceipt: (value: unknown) => value,
   parseTrustedRuntimeSourceProgramAttemptEvidence: (value: unknown) => value
 }));
 mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts', () => ({
@@ -122,9 +127,24 @@ mockModule('../../../src/adapters/self-hosting/control/task/contract/work-packag
 }));
 mockModule('../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts', () => ({
   ...mainHealth,
+  observeMainHealthGitHubDefaultBranchSha: async () => candidate.baseSha,
   withMainHealthGitHubReadOperationBudget: async (input: { operation: () => unknown }) => input.operation(),
-  observeCanonicalMainHealthForPublication: async () => ({ ledger: { producer: { sourceTransport: 'github-api' } },
-    projection: { state: 'healthy' }, repairDecision: { routingState: 'ordinary-only' } })
+  observeCanonicalMainHealthForPublication: async () => {
+    const observedAt = new Date().toISOString();
+    return { ledger: createMainHealthLedger(createObservedMainHealthInput({
+      repository: candidate.repository, mainSha: candidate.baseSha,
+      mainTreeSha: candidate.baseTreeSha, trustRevision: candidate.baseSha,
+      observedAt, expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      checks: [{ id: 1, name: CI_MAIN_HEALTH_POLICY.context, status: 'completed',
+        conclusion: 'success', headSha: candidate.baseSha, detailsUrl: null,
+        appId: CI_MAIN_HEALTH_POLICY.app.id, appNodeId: CI_MAIN_HEALTH_POLICY.app.nodeId,
+        appSlug: CI_MAIN_HEALTH_POLICY.app.slug,
+        workflowPath: CI_MAIN_HEALTH_POLICY.producer.workflowPath,
+        workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${candidate.baseSha}`,
+        eventName: 'repository_dispatch', workflowRunId: '1',
+        workflowRunDisplayTitle: `SEC main health ${candidate.baseSha} operation ${createCiMainHealthRequestOperationId(candidate.baseSha)}` }]
+    })), projection: { state: 'healthy' }, repairDecision: { routingState: 'ordinary-only' } };
+  }
 }));
 mockModule('../../../src/adapters/providers/github-api/operation-session.ts', () => ({
   ...githubSession, withGitHubApiStatusWriteSession: () => { counters.remoteWrite++; throw new Error('TEST_STATUS_FORBIDDEN'); },
