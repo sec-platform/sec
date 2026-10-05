@@ -2,24 +2,15 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { uniqueSorted } from '../../src/contracts/canonical.ts';
-import { countMatching, countPositiveValues, mergeCountSummaries, normalizeNewlines, summarizeCounts, uniqueSortedLines } from '../../src/contracts/collections.ts';
+import { countMatching, countPositiveValues, summarizeCounts, uniqueSortedLines } from '../../src/contracts/collections.ts';
 
-test('collection counting and newline normalization retain their value contracts', () => {
+test('collection counting retains its value contracts', () => {
   assert.equal(countPositiveValues([-2, 0, 1, 3, Number.NaN]), 2);
   assert.equal(countMatching(['a', 'bb', 'ccc'], (value) => value.length > 1), 2);
-  assert.deepEqual(mergeCountSummaries([
-    { id: 'b', count: 99 },
-    { id: 'a', count: 7 },
-    { id: 'b', count: 0 }
-  ]), [
-    { id: 'a', count: 1 },
-    { id: 'b', count: 2 }
-  ]);
   assert.deepEqual(summarizeCounts(['b', 'a', 'b']), [
     { id: 'a', count: 1 },
     { id: 'b', count: 2 }
   ]);
-  assert.equal(normalizeNewlines('a\r\nb\n'), 'a\nb\n');
 });
 
 test('canonical sorting preserves empty strings as string identities', () => {

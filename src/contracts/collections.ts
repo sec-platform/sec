@@ -18,10 +18,6 @@ export function countMatching<T>(values: Iterable<T>, predicate: (value: T) => b
   return count;
 }
 
-export function mergeCountSummaries<T extends string>(entries: Iterable<CountSummary<T>>): Array<CountSummary<T>> {
-  return summarizeCounts([...entries].map((entry) => entry.id));
-}
-
 export function summarizeCounts<T extends string>(values: Iterable<T>): Array<CountSummary<T>> {
   const counts = new Map<T, number>();
   for (const value of values) {
@@ -34,10 +30,6 @@ export function summarizeCounts<T extends string>(values: Iterable<T>): Array<Co
 
 export function uniqueSortedLines(value: string): string[] {
   return uniqueSorted(value.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
-}
-
-export function normalizeNewlines(value: string): string {
-  return value.replace(/\r\n/g, '\n');
 }
 
 /** Own a stable map snapshot without exporting any mutator or its backing Map.

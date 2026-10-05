@@ -2032,7 +2032,9 @@ test('candidate merge-parent observation rejects partial or malformed identity w
     mergeCommitMessage: 'provider-observed merge',
     mergeCommitParentShas: Object.freeze([BASE, '8'.repeat(40)])
   });
-  expect(async () => (await observe(new CandidateTransport(merged)))).not.toThrow();
+  expect(await observe(new CandidateTransport(merged))).toMatchObject({
+    status: 'waiting', reason: 'exact-head-independent-review-missing'
+  });
 
   for (const mergeCommitParentShas of [
     null,

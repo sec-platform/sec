@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { afterAll, test as bunTest, expect } from 'bun:test';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
   issueGitHubApiTestCapability,
   withGitHubApiTestSession,
@@ -193,7 +194,7 @@ const documentControlRoutingTestActor = createDocumentControlRoutingTestActorFor
       cwd,
       encoding: 'buffer',
       windowsHide: true,
-      env: environment === undefined ? process.env : { ...process.env, ...environment }
+      env: environment ?? canonicalGitChildEnvironment()
     });
     return {
       status: result.status,
@@ -374,7 +375,7 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
     cwd,
     encoding: 'buffer',
     windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+    env: canonicalGitChildEnvironment()
   });
   return result.status === 0 ? result.stdout : undefined;
 }
@@ -391,7 +392,7 @@ function runGit(cwd: string, args: string[]): string {
     cwd,
     encoding: 'utf8',
     windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+    env: canonicalGitChildEnvironment()
   });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);

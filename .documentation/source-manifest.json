@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "670658d4bcda3da44cb65a555168a338b600d61f77f506c5aca166cf540ef06b",
+  "source_set_sha256": "82092e0007fd4859ec2d8a19fd822785b20b230d631836f26f4ed87dfd90151d",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -594,8 +594,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 86223,
-      "sha256": "91385d4a4723eecd90decc30a3d9ad635df3bf0421d549eaff53c16cdf031c69"
+      "bytes": 86261,
+      "sha256": "f06811abf08b2c67ff621d39e512e7900f8186b0f152c4c0df0c6165098d670d"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -959,8 +959,8 @@
     },
     {
       "path": "docs/维护/阅读构建.md",
-      "bytes": 10861,
-      "sha256": "ac3af8a00d367391268e5c52bf66c996ac99d37f0edd7e098d8c87c457435a4e"
+      "bytes": 10985,
+      "sha256": "cbe6195c9d25e4809764d368cf2add0fceffb1abf000ca707237f8e2cd9dc093"
     },
     {
       "path": "docs/编译/README.md",
@@ -1529,8 +1529,8 @@
     },
     {
       "path": "examples/semantic-query/consume.ts",
-      "bytes": 3562,
-      "sha256": "1ff35fad18e0318a4d6becaeaf54b52f246aff51d2dfc2e84a49d7308d20ba0a"
+      "bytes": 3620,
+      "sha256": "df5091cc07027227a2153336dacbae1c1dae5752f51e7ca8c2d01e57e47dac4f"
     },
     {
       "path": "examples/semantic-query/input.json",

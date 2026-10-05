@@ -217,8 +217,8 @@ export async function runLocalAffectedCheck(
     return 1;
   }
   const affectedPlan = affectedExecution.plan;
-  const plan = buildLocalAffectedCheckPlan(affectedPlan);
   if (args.length === 1) {
+    const plan = buildLocalAffectedCheckPlan(affectedPlan);
     console.log(JSON.stringify(plan, null, 2));
     return affectedTestPlanExitCode(affectedPlan);
   }
