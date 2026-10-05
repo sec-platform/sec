@@ -544,11 +544,11 @@ async function observeBatchMutableBoundary(
   const active = await sharedBatchCheck(async () => {
   assertGitHubApiMaintenanceRequest(capability, input.requestDigest);
   const active = await observeActiveWorkPackage(input.repositoryRoot);
+  assertActiveWorkPackageSafe(active, []);
   if (active.repository !== input.repository || active.defaultBranch !== defaultBranch
       || active.defaultSha !== input.expectedMainSha) {
     throw new Error('Active Work Package owner identity drifted at the effect boundary');
   }
-  assertActiveWorkPackageSafe(active, []);
   await assertLiveMain(capability, defaultBranch, input.expectedMainSha);
   await assertBatchRecoveryCarrierLive(capability, carrier);
   return active;

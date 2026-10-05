@@ -96,6 +96,7 @@ type GitHubApiOperationBudget = {
 };
 
 type GitHubApiRequestSession = {
+  readonly repositoryRoot: string | null;
   capability: GitHubApiCapability | undefined;
   rulesetAuditorWorkflowIdentity?: NonNullable<ReturnType<typeof inspectGitHubActionsRulesetAuditorCredentialIdentity>>;
   readonly repository: string;
@@ -838,6 +839,7 @@ export function issueGitHubApiCapabilityForTestSupport(input: Readonly<{
 }
 
 function createSession(input: Readonly<{
+  repositoryRoot: string | null;
   capability?: GitHubApiCapability;
   repository: string;
   effect: GitHubApiEffect;
@@ -860,6 +862,7 @@ function createSession(input: Readonly<{
   const abortController = new AbortController();
   return {
     capability: input.capability,
+    repositoryRoot: input.repositoryRoot === null ? null : path.resolve(input.repositoryRoot),
     repository: input.repository,
     effect: input.effect,
     origin: input.origin,
@@ -1615,6 +1618,7 @@ async function runSession<T>(input: Readonly<{
     input.budget.sessionCount += 1;
   }
   const session = createSession({
+    repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     effect: input.effect,
     origin: input.origin,
@@ -1676,6 +1680,30 @@ export async function withGitHubApiVerificationSession<T>(input: Readonly<{
 }>): Promise<T> {
   if (input.effect !== 'verification-read' && input.effect !== 'verification-dispatch') throw new GitHubApiProviderError('Verification session effect is invalid');
   return await withProductionSession(input);
+}
+
+/** One closed read, borrowing an existing owner's exact session without exposing its capability.
+ * Session nesting rules remain unchanged; no callback or write operation is accepted. */
+export async function observeGitHubApiMainRef(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): Promise<unknown> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const repository = input.repository;
+  const current = requestSession.getStore();
+  if (current !== undefined) {
+    if (current.repository !== repository || current.repositoryRoot !== repositoryRoot
+        || (current.effect !== 'read' && current.effect !== 'branch-closeout-write')
+        || current.capability === undefined) {
+      throw new GitHubApiProviderError('Main ref observation cannot borrow this repository/root/effect session');
+    }
+    remaining(current);
+    const result = await executeGitHubApiOperation(current.capability, { kind: 'git-ref', branch: 'main' });
+    remaining(current);
+    return result;
+  }
+  return await withGitHubApiReadSession({ repositoryRoot, repository,
+    operation: capability => executeGitHubApiOperation(capability, { kind: 'git-ref', branch: 'main' }) });
 }
 
 export async function withGitHubApiReadSession<T>(input: Readonly<{
@@ -1812,6 +1840,7 @@ export function assertGitHubApiReadOperationBudgetCurrent(input: Readonly<{
 }
 
 export async function withGitHubApiSessionForTestSupport<T>(input: Readonly<{
+  repositoryRoot?: string;
   capability: GitHubApiCapability;
   operation: () => Promise<T>;
   now?: () => number;
@@ -1830,6 +1859,7 @@ export async function withGitHubApiSessionForTestSupport<T>(input: Readonly<{
     return await input.operation();
   }
   const session = createSession({
+    repositoryRoot: input.repositoryRoot ?? null,
     capability: input.capability,
     repository: value.repository,
     effect: value.effect,
