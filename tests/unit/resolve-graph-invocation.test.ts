@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
@@ -109,6 +109,7 @@ for (const compatibleId of ['block/a', 'block/z']) {
       assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
       assert.equal(lock.resolvedBlocks[0]!.manifestPath,
         `registry/${compatibleId.replaceAll('/', '.')}/block.manifest.yaml`);
+      assert.equal(existsSync(path.join(f.root, 'src')), false);
     } finally { f.cleanup(); }
   });
 }
@@ -124,9 +125,14 @@ test('an exclusively incompatible catalog reports missing before resource lookup
     f.plan.blocks = [{ id: 'block/app' }];
     await assert.rejects(resolveGraph(f.root, f.plan), error => {
       assert.equal((error as { code?: string }).code, 'RESOLVE-MISSING-001');
-      assert.match((error as Error).message, /cap\/base/);
+      assert.match((error as Error).message, /cap\/base.*stack-compatible catalog/);
+      const failure = error as { details?: { candidateDomain?: string; stack?: string }; cause?: unknown };
+      assert.equal(failure.details?.candidateDomain, 'stack-compatible');
+      assert.equal(failure.details?.stack, 'typescript-library');
+      assert.ok(failure.cause instanceof Error);
       return true;
     });
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
   } finally { f.cleanup(); }
 });
 
@@ -142,6 +148,7 @@ test('an explicit incompatible choice retains ALIGN rejection before closure and
       assert.equal((error as { code?: string }).code, 'ALIGN-STACK-001');
       return true;
     });
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
   } finally { f.cleanup(); }
 });
 
@@ -160,6 +167,7 @@ test('multiple compatible automatic providers still reject as ambiguous before r
       assert.match((error as Error).message, /Ambiguous providers/);
       return true;
     });
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
   } finally { f.cleanup(); }
 });
 

@@ -1,8 +1,9 @@
 import { CodedFailure } from '../../contracts/failure.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import type { RegistryManifestResolution } from '../../contracts/registry-source.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { assertManifestStackCompatibility, isManifestStackCompatible } from '../align/align-interfaces.ts';
-import type { LockFile, ManifestEntry, PlanFile } from '../contract.ts';
+import { SUPPORTED_STACK, type LockFile, type ManifestEntry, type PlanFile } from '../contract.ts';
 import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
 import { resolveManifestGraph } from './manifest-graph.ts';
 
@@ -61,8 +62,18 @@ export function prepareManifestResolution(
   }
   // Hard conditions define the automatic candidate domain before ambiguity or
   // closure selection. Explicit choices still fail through their original rule.
-  const graph = resolveManifestGraph(explicitEntries,
-    allEntries.filter(({ manifest }) => isManifestStackCompatible(manifest.stackProfiles)));
+  const compatibleEntries = allEntries.filter(({ manifest }) => isManifestStackCompatible(manifest.stackProfiles));
+  let graph: ReturnType<typeof resolveManifestGraph>;
+  try {
+    graph = resolveManifestGraph(explicitEntries, compatibleEntries);
+  } catch (error) {
+    if (error instanceof CodedFailure && error.code === 'RESOLVE-MISSING-001') {
+      throw new CodedFailure(error.code, `${error.message} in the stack-compatible catalog for ${SUPPORTED_STACK}`, {
+        candidateDomain: 'stack-compatible', stack: SUPPORTED_STACK, causeDetails: error.details
+      }, { cause: error });
+    }
+    throw error;
+  }
   const resolvedBlocks = graph.entries.map((entry, index) => ({
     id: entry.manifest.id,
     version: entry.manifest.version,
@@ -79,5 +90,11 @@ export function prepareManifestResolution(
       action: install.kind, from: install.from, to: install.to }))
   );
   assertInstallTargetOwnership(installDescriptors);
-  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors };
+  const registryResolutions: RegistryManifestResolution[] = graph.entries.flatMap(entry => entry.registryResolution ? [{
+    blockId: entry.manifest.id,
+    selected: { version: entry.manifest.version, registrySourceId: entry.registrySourceId,
+      registryKind: entry.registryKind, registryLocation: entry.registryLocation, registryPath: entry.registryPath },
+    resolution: structuredClone(entry.registryResolution)
+  }] : []);
+  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors, registryResolutions };
 }

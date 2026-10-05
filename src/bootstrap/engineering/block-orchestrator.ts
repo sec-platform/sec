@@ -9,9 +9,9 @@ import { loadPlan } from '../../adapters/workspace/sources/load-plan.ts';
 import { writeYaml } from '../../adapters/workspace/yaml.ts';
 import { addBlockToPlan } from '../../application/add-block.ts';
 import { runPipelinePass } from '../../application/pipeline-pass.ts';
-import { resolveWorkspacePlan } from '../../application/resolve-workspace.ts';
+import { resolveWorkspacePlan, type WorkspaceResolutionResult } from '../../application/resolve-workspace.ts';
 import { alignInterfaces } from '../../compiler/align/align-interfaces.ts';
-import type { LockFile, ManifestEntry, PlanFile } from '../../compiler/contract.ts';
+import type { ManifestEntry, PlanFile } from '../../compiler/contract.ts';
 import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 import { executePipelineStage } from './pipeline-kernel.ts';
 import { validateResolvedTemplates } from './validate-resolved-templates.ts';
@@ -28,6 +28,7 @@ export async function addBlock(
     readonly version: string;
     readonly registrySourceId: string;
     readonly registryKind: ManifestEntry['registryKind'];
+    readonly registryResolution?: ManifestEntry['registryResolution'];
   };
 }> {
   workspaceRoot = path.resolve(workspaceRoot);
@@ -47,7 +48,7 @@ export async function addBlock(
 async function resolveWorkspaceCore(
   workspaceRoot: string,
   context: PipelineExecutionContext
-): Promise<{ plan: PlanFile; lock: LockFile }> {
+): Promise<WorkspaceResolutionResult & { plan: PlanFile }> {
   const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
   const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
   return resolveWorkspacePlan({
@@ -70,7 +71,7 @@ async function resolveWorkspaceCore(
 export async function resolveWorkspace(
   workspaceRoot = process.cwd(),
   context?: PipelineExecutionContext
-): Promise<{ plan: PlanFile; lock: LockFile }> {
+): Promise<WorkspaceResolutionResult & { plan: PlanFile }> {
   workspaceRoot = path.resolve(workspaceRoot);
   return executePipelineStage(
     workspaceRoot,
