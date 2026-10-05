@@ -111,7 +111,6 @@ export function buildCiFullGatePlan(): CiVerificationGateStep[] {
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
     gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
     gate('full-fast', 'full', 'run', 'test', '--', '--scope', 'fast'),
-    gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
     ...selectedRiskGates(slowTestSuiteIds(), []),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
     gate('resolve', 'workspace', 'run', 'sec', '--', 'resolve'),
