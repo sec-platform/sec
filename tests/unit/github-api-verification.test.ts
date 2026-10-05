@@ -228,3 +228,22 @@ for (const errors of [[{message:"Cannot query field 'unknown' on type 'PullReque
     expect(error.schemaUnsupported).toBe(Array.isArray(errors)&&errors[0]?.message.startsWith('Cannot query'));
   });
 }
+
+
+test('artifact member charges its decoded bytes to the borrowing operation budget', async () => {
+  let charged = 0;
+  const value = await readArtifactMember({ archive: Buffer.from(ZIP_VECTORS.good, 'base64'),
+    fileName: 'artifact.json', signal: new AbortController().signal, assertCurrent() {},
+    chargeDecodedBytes(bytes) { charged += bytes; } });
+  expect(value).toBe('{"ok":true}');
+  expect(charged).toBe(Buffer.byteLength(value, 'utf8'));
+});
+
+test('decoded-byte budget rejection stops artifact reading without returning partial data', async () => {
+  let charged = 0;
+  await expect(readArtifactMember({ archive: Buffer.from(ZIP_VECTORS.good, 'base64'),
+    fileName: 'artifact.json', signal: new AbortController().signal, assertCurrent() {},
+    chargeDecodedBytes(bytes) { charged += bytes; throw new Error('borrowed decoded budget exhausted'); }
+  })).rejects.toThrow('borrowed decoded budget exhausted');
+  expect(charged).toBeGreaterThan(0);
+});

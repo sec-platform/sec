@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { rawSha256 } from '../../../../contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { readArtifactMember } from './artifact-member.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
@@ -73,12 +74,17 @@ type GitHubApiCapabilityBinding = Readonly<{
   effect: GitHubApiEffect;
   transport: GitHubApiTransport;
   origin: 'production' | 'test';
+  maintenance?: Readonly<{ requestDigest: `sha256:${string}`; actor: string;
+    runId: string; runAttempt: 1; workflowSha: string; executionDigest: `sha256:${string}`;
+    resumeReceiptDigest: `sha256:${string}` | null;
+    refs: readonly Readonly<{ branch: string; expectedHeadSha: string }>[] }>;
 }>;
 
 type GitHubApiOperationBudget = {
   readonly repositoryRoot: string;
   readonly repository: string;
   readonly effect: GitHubApiEffect;
+  readonly maintenanceRequestDigest?: `sha256:${string}`;
   readonly origin: 'production' | 'test';
   readonly now: () => number;
   readonly deadlineAt: number;
@@ -109,6 +115,10 @@ type GitHubApiRequestSession = {
 };
 
 export type GitHubApiOperation =
+  | Readonly<{ kind: 'maintenance-artifact-text'; artifactId: string; artifactName: string; runId: string; archiveDigest: string; fileName: 'maintenance-result.json' }>
+  | Readonly<{ kind: 'maintenance-artifact'; artifactId: string }>
+  | Readonly<{ kind: 'maintenance-artifact-archive'; artifactId: string }>
+  | Readonly<{ kind: 'maintenance-workflow-run-attempt'; runId: string; runAttempt: number }>
   | Readonly<{ kind: 'verification-artifact-text'; artifactId: string; artifactName: string; runId: string; archiveDigest: string | null; fileName: string }>
   | Readonly<{ kind: 'verification-artifact-archive'; artifactId: string }>
   | Readonly<{ kind: 'verification-query'; document: string; variables: Readonly<Record<string, unknown>> }>
@@ -316,6 +326,8 @@ function compileOperation(
       && kind !== 'issue-comment'
       && kind !== 'create-issue-comment'
       && kind !== 'open-pulls-page'
+      && kind !== 'workflow-run'
+      && kind !== 'maintenance-artifact'
       && kind !== 'delete-ref-cas') {
     throw new GitHubApiProviderError(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
@@ -384,9 +396,12 @@ function compileOperation(
       if (!/^(?:[0-9a-f]{10}|[0-9a-f]{40})$/u.test(operation.locator)) throw new GitHubApiProviderError('Commit locator is invalid');
       return read(`/repos/${repo}/commits/${operation.locator}`);
     }
+    case 'maintenance-artifact-archive':
     case 'verification-artifact-archive': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}/zip`);
+    case 'maintenance-artifact':
     case 'verification-artifact': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}`);
     case 'verification-artifacts': return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'maintenance-workflow-run-attempt': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}`);
     case 'verification-workflow-runs': return read(`/repos/${repo}/actions/runs?head_sha=${sha(operation.headSha)}&per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-jobs': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
     case 'verification-repository-comments': return read(`/repos/${repo}/issues/comments?per_page=100&sort=created&direction=desc&page=${page(operation.page)}`);
@@ -600,6 +615,85 @@ export function inspectGitHubApiCapability(capability: GitHubApiCapability): Rea
   });
 }
 
+/** A digest only selects the native dispatch plan already authenticated at enrollment. */
+export function assertGitHubApiMaintenanceRequest(
+  capability: GitHubApiCapability,
+  requestDigest: `sha256:${string}`
+): Readonly<{ actor: string; resumeReceiptDigest: `sha256:${string}` | null }> {
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (value.origin !== 'production' || session?.capability !== capability
+      || value.maintenance?.requestDigest !== requestDigest) {
+    throw new GitHubApiProviderError('Maintenance plan requires the authenticated exact dispatch capability');
+  }
+  if (session.operationBudget?.maintenanceRequestDigest !== undefined
+      && session.operationBudget.maintenanceRequestDigest !== requestDigest) {
+    throw new GitHubApiProviderError('Maintenance capability differs from its shared operation budget');
+  }
+  remaining(session);
+  return Object.freeze({ actor: value.maintenance.actor, resumeReceiptDigest: value.maintenance.resumeReceiptDigest });
+}
+
+type MaintenanceBinding = NonNullable<GitHubApiCapabilityBinding['maintenance']>;
+
+function assertLiveMaintenanceRun(value: unknown, repository: string, identity: MaintenanceBinding): void {
+  const run = value as Record<string, any> | null;
+  if (run === null || typeof run !== 'object' || Array.isArray(run)
+      || String(run.id) !== identity.runId || run.run_attempt !== identity.runAttempt
+      || !['.github/workflows/repository-maintenance.yml', '.github/workflows/repository-maintenance.yml@main',
+        '.github/workflows/repository-maintenance.yml@refs/heads/main'].includes(String(run.path))
+      || run.display_title !== `maintenance/${identity.executionDigest}`
+      || run.event !== 'workflow_dispatch' || run.status !== 'in_progress' || run.conclusion !== null
+      || run.head_sha !== identity.workflowSha || run.head_branch !== 'main'
+      || run.repository?.full_name !== repository || run.head_repository?.full_name !== repository
+      || run.actor?.login !== identity.actor || run.actor?.type !== 'User'
+      || run.triggering_actor?.login !== identity.actor || run.triggering_actor?.type !== 'User') {
+    throw new GitHubApiProviderError('Maintenance live workflow run differs from its captured dispatch');
+  }
+}
+
+async function observeCurrentMaintenanceAuthority(
+  capability: GitHubApiCapability,
+  identity: MaintenanceBinding
+): Promise<void> {
+  const repository = binding(capability).repository;
+  const currentRepository = await executeGitHubApiOperation(capability, { kind: 'repository' });
+  if (currentRepository === null || typeof currentRepository !== 'object' || Array.isArray(currentRepository)
+      || (currentRepository as Record<string, unknown>).full_name !== repository
+      || (currentRepository as Record<string, unknown>).default_branch !== 'main') {
+    throw new GitHubApiProviderError('Maintenance current repository/default branch changed');
+  }
+  const permission = normalizeGitHubRepositoryPermission(await executeGitHubApiOperation(capability, {
+    kind: 'collaborator-permission', login: identity.actor
+  }));
+  if (!isRepositoryMaintenancePermission(permission)) {
+    throw new GitHubApiProviderError('Maintenance actor no longer has current maintain/admin permission');
+  }
+  assertLiveMaintenanceRun(await executeGitHubApiOperation(capability, {
+    kind: 'workflow-run', runId: identity.runId
+  }), repository, identity);
+}
+
+/** Refresh mutable authority from the original captured binding, never new environment selectors. */
+export async function revalidateGitHubApiMaintenanceRequest(
+  capability: GitHubApiCapability,
+  requestDigest: `sha256:${string}`
+): Promise<void> {
+  assertGitHubApiMaintenanceRequest(capability, requestDigest);
+  await observeCurrentMaintenanceAuthority(capability, binding(capability).maintenance!);
+}
+
+/** Test-only observer seam: no production capability, registry entry or Effect authority is issued. */
+export async function revalidateGitHubApiMaintenanceRequestForTestSupport(
+  capability: GitHubApiCapability,
+  identity: MaintenanceBinding
+): Promise<void> {
+  if (binding(capability).origin !== 'test') {
+    throw new GitHubApiProviderError('Maintenance observer test seam requires a test-origin capability');
+  }
+  await observeCurrentMaintenanceAuthority(capability, Object.freeze({ ...identity }));
+}
+
 export function assertGitHubApiCapability(
   capability: GitHubApiCapability,
   repositoryName: string,
@@ -648,6 +742,7 @@ function issueCapability(input: Readonly<{
   effect: GitHubApiEffect;
   transport: GitHubApiTransport;
   origin: 'production' | 'test';
+  maintenance?: GitHubApiCapabilityBinding['maintenance'];
 }>): GitHubApiCapability {
   repository(input.repository);
   const userPrincipalValid = input.principal.transport === 'github-rest-token'
@@ -725,7 +820,8 @@ function issueCapability(input: Readonly<{
     principal: Object.freeze({ ...input.principal }),
     effect: input.effect,
     transport: input.transport,
-    origin: input.origin
+    origin: input.origin,
+    ...(input.maintenance === undefined ? {} : { maintenance: input.maintenance })
   }));
   return capability;
 }
@@ -848,7 +944,7 @@ async function executeWithToken<T>(
     const failure = error instanceof GitHubApiProviderError || error instanceof ResourceCompositeSettlementError
       ? error
       : new GitHubApiProviderError(
-        `GitHub API ${compiled.kind} transport unavailable: ${isNativeAborted(session.abortController.signal) ? 'operation deadline exceeded' : compiled.kind.startsWith('verification-artifact') ? 'artifact resource unavailable' : error instanceof Error ? error.message : String(error)}`
+        `GitHub API ${compiled.kind} transport unavailable: ${isNativeAborted(session.abortController.signal) ? 'operation deadline exceeded' : (compiled.kind.startsWith('verification-artifact') || compiled.kind.startsWith('maintenance-artifact')) ? 'artifact resource unavailable' : error instanceof Error ? error.message : String(error)}`
       );
     firstFailure ??= { error: failure };
     return failure;
@@ -859,7 +955,7 @@ async function executeWithToken<T>(
     try {
       let response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
-        redirect: compiled.kind === 'verification-artifact-archive' ? 'manual' : 'error',
+        redirect: (compiled.kind === 'verification-artifact-archive' || compiled.kind === 'maintenance-artifact-archive') ? 'manual' : 'error',
         headers: {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${token}`,
@@ -870,7 +966,7 @@ async function executeWithToken<T>(
         signal: transportSignal,
         ...(body === undefined ? {} : { body })
       });
-      if (compiled.kind === 'verification-artifact-archive') {
+      if ((compiled.kind === 'verification-artifact-archive' || compiled.kind === 'maintenance-artifact-archive')) {
         const location = response.headers.get('location');
         const status = response.status;
         if (response.body !== null) await withOwnedByteStreamReader(response.body, async () => undefined, session.abortController.signal);
@@ -929,7 +1025,7 @@ async function executeWithToken<T>(
             );
             return null as T;
           }
-          if (compiled.kind === 'verification-artifact-archive') {
+          if ((compiled.kind === 'verification-artifact-archive' || compiled.kind === 'maintenance-artifact-archive')) {
             if (response.status !== 200) throw new GitHubApiProviderError('Artifact download returned an invalid status', response.status);
             const chunks: Uint8Array[] = [];
             let length = 0;
@@ -955,7 +1051,7 @@ async function executeWithToken<T>(
           chunks.push(decoder.decode());
           const source = chunks.join('');
           if (!response.ok) throw new GitHubApiProviderError(
-            `GitHub API ${compiled.kind} failed with HTTP ${response.status}${compiled.kind.startsWith('verification-artifact') ? '' : `: ${source.slice(-2048)}`}`, response.status
+            `GitHub API ${compiled.kind} failed with HTTP ${response.status}${(compiled.kind.startsWith('verification-artifact') || compiled.kind.startsWith('maintenance-artifact')) ? '' : `: ${source.slice(-2048)}`}`, response.status
           );
           let value: unknown;
           try { value = JSON.parse(source); }
@@ -974,7 +1070,7 @@ async function executeWithToken<T>(
         } catch (error) { throw captureFailure(error); }
       }, session.abortController.signal);
     } catch (error) {
-      if (error instanceof ResourceCompositeSettlementError && compiled.kind.startsWith('verification-artifact')) {
+      if (error instanceof ResourceCompositeSettlementError && (compiled.kind.startsWith('verification-artifact') || compiled.kind.startsWith('maintenance-artifact'))) {
         const safe = new ResourceCompositeSettlementError(error.failures.map(failure => ({label:failure.label,
           error:new GitHubApiProviderError('Artifact response settlement unavailable')})));
         session.responseSettlementFailures.push(safe); throw captureFailure(safe);
@@ -1011,9 +1107,31 @@ export async function executeGitHubApiOperation(
     throw new GitHubApiProviderError('GitHub API request requires the active exact operation session');
   }
   const kind = operation.kind;
+  if (value.maintenance !== undefined && ['create-issue-comment', 'update-issue-comment', 'delete-issue-comment'].includes(kind)) {
+    throw new GitHubApiProviderError('Fixed batch maintenance has no comment effects');
+  }
   if (value.effect === 'ruleset-read'
       && kind !== 'effective-branch-rules' && kind !== 'ruleset') {
     throw new GitHubApiProviderError('GitHub API ruleset-read permits only ruleset observations after enrollment');
+  }
+  if (kind.startsWith('maintenance-')) {
+    if (value.origin !== 'production' || value.maintenance === undefined
+        || (value.effect !== 'read' && !(kind === 'maintenance-artifact' && value.effect === 'branch-closeout-write'))) {
+      throw new GitHubApiProviderError('Maintenance artifact observation requires its authenticated read session');
+    }
+  }
+  if (kind === 'maintenance-artifact-text') {
+    const input = operation as Extract<GitHubApiOperation, { kind: 'maintenance-artifact-text' }>;
+    if (input.fileName !== 'maintenance-result.json'
+        || !/^sec-repository-maintenance-result-[1-9][0-9]*-[1-9][0-9]*$/u.test(input.artifactName)
+        || !/^sha256:[0-9a-f]{64}$/u.test(input.archiveDigest)) {
+      throw new GitHubApiProviderError('Maintenance result artifact locator is invalid');
+    }
+    const readback = await readVerifiedGitHubArtifactArchive(capability, { ...input, maintenance: true });
+    return await readArtifactMember({ archive: readback.archive, fileName: input.fileName,
+      signal: readback.session.abortController.signal,
+      chargeDecodedBytes: (bytes) => { recordResponseBytes(readback.session, bytes); },
+      assertCurrent: () => { remaining(readback.session); } });
   }
   if (kind === 'verification-artifact-text') {
     const input = operation as Extract<GitHubApiOperation,{kind:'verification-artifact-text'}>;
@@ -1030,12 +1148,19 @@ export async function executeGitHubApiOperation(
       'GitHub API exact ref deletion requires branch-closeout-write authority'
     );
   }
+  if (value.maintenance !== undefined && value.maintenance.resumeReceiptDigest !== null) {
+    throw new GitHubApiProviderError('Resumed maintenance is readback-only; no ref CAS may be replayed or started');
+  }
   const deleteOperation = operation as Extract<GitHubApiOperation, { kind: 'delete-ref-cas' }>;
   const branch = deleteOperation.branch;
   const expectedOldSha = deleteOperation.expectedOldSha;
   assertGitBranchName(branch, 'GitHub API exact ref deletion branch');
   boundedText(branch, 'branch', 255);
   sha(expectedOldSha);
+  if (value.maintenance !== undefined && !value.maintenance.refs.some((ref) =>
+    ref.branch === branch && ref.expectedHeadSha === expectedOldSha)) {
+    throw new GitHubApiProviderError('Exact ref deletion is outside the authenticated maintenance plan');
+  }
   const capturedOperation: GitHubApiOperation = Object.freeze({
     kind: 'delete-ref-cas', branch, expectedOldSha
   });
@@ -1091,15 +1216,21 @@ export async function executeGitHubApiOperation(
   return mutation;
 }
 
-async function readGitHubArtifactText(capability: GitHubApiCapability, input: Readonly<{
+async function readVerifiedGitHubArtifactArchive(capability: GitHubApiCapability, input: Readonly<{
   artifactId: string; artifactName: string; runId: string;
-  archiveDigest: string | null; fileName: string;
-}>): Promise<string> {
+  archiveDigest: string | null;
+  maintenance?: true;
+}>): Promise<Readonly<{ archive: Uint8Array; session: GitHubApiRequestSession; providerArchiveDigest: string | null }>> {
   input = Object.freeze({...input});
   const value = binding(capability);
   const session = requestSession.getStore();
-  if (session?.capability !== capability || value.effect !== 'verification-read') throw new GitHubApiProviderError('Artifact read requires its live verification session');
-  const raw = await executeGitHubApiOperation(capability,{kind:'verification-artifact',artifactId:input.artifactId});
+  const maintenance = input.maintenance === true;
+  if (session?.capability !== capability || (maintenance
+      ? value.origin !== 'production' || value.effect !== 'read' || value.maintenance === undefined
+      : value.effect !== 'verification-read')) {
+    throw new GitHubApiProviderError('Artifact read requires its live qualified session');
+  }
+  const raw = await executeGitHubApiOperation(capability,{kind: maintenance ? 'maintenance-artifact' : 'verification-artifact',artifactId:input.artifactId});
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new GitHubApiProviderError('Artifact metadata is invalid');
   const metadata = raw as Record<string, any>;
   if (String(metadata.id) !== input.artifactId || metadata.name !== input.artifactName ||
@@ -1109,9 +1240,18 @@ async function readGitHubArtifactText(capability: GitHubApiCapability, input: Re
       (metadata.digest !== null && metadata.digest !== undefined && !/^sha256:[0-9a-f]{64}$/u.test(metadata.digest))) {
     throw new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
   }
-  const archive = await executeGitHubApiOperation(capability,{kind:'verification-artifact-archive',artifactId:input.artifactId});
+  const archive = await executeGitHubApiOperation(capability,{kind: maintenance ? 'maintenance-artifact-archive' : 'verification-artifact-archive',artifactId:input.artifactId});
   if (!(archive instanceof Uint8Array) || archive.byteLength !== metadata.size_in_bytes ||
       (metadata.digest != null && rawSha256(archive) !== metadata.digest)) throw new GitHubApiProviderError('Artifact archive identity does not match metadata');
+  return Object.freeze({ archive, session, providerArchiveDigest: metadata.digest ?? null });
+}
+
+async function readGitHubArtifactText(capability: GitHubApiCapability, input: Readonly<{
+  artifactId: string; artifactName: string; runId: string;
+  archiveDigest: string | null; fileName: string;
+}>): Promise<string> {
+  input = Object.freeze({ ...input });
+  const { archive, session } = await readVerifiedGitHubArtifactArchive(capability, input);
   return await readArtifactMember({archive,fileName:input.fileName,signal:session.abortController.signal,
     assertCurrent:() => { remaining(session); }});
 }
@@ -1240,6 +1380,63 @@ async function assertRulesetAuditorWorkflowRun(
   }
 }
 
+async function observeMaintenanceDispatchPlan(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport,
+  identity: NonNullable<ReturnType<typeof inspectGitHubActionsRepositoryMaintenanceCredentialIdentity>>
+): Promise<GitHubApiCapabilityBinding['maintenance']> {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (typeof eventPath !== 'string' || !path.isAbsolute(eventPath)) {
+    throw new GitHubApiProviderError('Maintenance native event path is absent');
+  }
+  // The event is the native workflow input, never an environment-supplied plan substitute.
+  const bytes = readFileSync(eventPath);
+  if (bytes.length > 256 * 1024) throw new GitHubApiProviderError('Maintenance native event exceeds its bound');
+  const event = JSON.parse(bytes.toString('utf8')) as Record<string, any>;
+  const source = event?.inputs?.request;
+  if (typeof source !== 'string' || source !== process.env.SEC_MAINTENANCE_REQUEST_JSON
+      || event.inputs.request_digest !== identity.requestDigest
+      || event.inputs.execution_digest !== identity.executionDigest
+      || (event.inputs.resume_receipt ?? '') !== (process.env.SEC_MAINTENANCE_RESUME_RECEIPT ?? '')
+      || event.sender?.login !== identity.actor || event.sender?.type !== 'User'
+      || event.repository?.full_name !== session.repository
+      || (event.ref !== 'refs/heads/main' && event.ref !== 'main')) {
+    throw new GitHubApiProviderError('Maintenance native dispatch input or sender differs');
+  }
+  const request = JSON.parse(source) as Record<string, any>;
+  if (sha256(request) !== identity.requestDigest || request.repository !== session.repository
+      || request.expectedMainSha !== identity.workflowSha
+      || request.schema !== 'sec-repository-maintenance-request-v2'
+      || !Array.isArray(request.operations) || request.operations.length < 1 || request.operations.length > 64) {
+    throw new GitHubApiProviderError('Maintenance exact dispatch plan differs');
+  }
+  const refs = request.operations.map((operation: any) => {
+    const item = operation?.retirement;
+    if (operation?.kind !== 'exact-ref-retirement' || !Array.isArray(item?.branches)
+        || item.branches.length !== 1 || typeof item.branches[0] !== 'string'
+        || item.branches[0] === 'main' || typeof item.expectedHeadSha !== 'string') {
+      throw new GitHubApiProviderError('Maintenance dispatch ref identity is invalid');
+    }
+    assertGitBranchName(item.branches[0], 'Maintenance dispatch branch');
+    sha(item.expectedHeadSha);
+    return Object.freeze({ branch: item.branches[0], expectedHeadSha: item.expectedHeadSha });
+  });
+  if (new Set(refs.map((ref: { branch: string }) => ref.branch)).size !== refs.length) {
+    throw new GitHubApiProviderError('Maintenance dispatch contains duplicate refs');
+  }
+  const observed = await executeWithToken<unknown>(session, token, transport,
+    { kind: 'workflow-run', runId: identity.runId });
+  const admitted: MaintenanceBinding = Object.freeze({
+    requestDigest: identity.requestDigest, actor: identity.actor,
+    runId: identity.runId, runAttempt: 1, workflowSha: identity.workflowSha,
+    executionDigest: identity.executionDigest, resumeReceiptDigest: identity.resumeReceiptDigest,
+    refs: Object.freeze(refs)
+  });
+  assertLiveMaintenanceRun(observed, session.repository, admitted);
+  return admitted;
+}
+
 type TokenReader = (
   repositoryRoot: string,
   session: GitHubApiRequestSession
@@ -1286,6 +1483,12 @@ async function enroll(input: Readonly<{
       throw new GitHubApiProviderError('GitHub Actions token is not bound to this repository');
     }
     if (maintenanceWorkflowIdentity !== null) {
+      if ((repositoryValue as Record<string, unknown>).default_branch !== 'main') {
+        throw new GitHubApiProviderError('Maintenance live default branch differs from exact main');
+      }
+      if (input.effect !== 'read' && input.effect !== 'branch-closeout-write') {
+        throw new GitHubApiProviderError('Batch maintenance permits only read and branch-closeout-write');
+      }
       const permissionValue = await executeWithToken<unknown>(
         session,
         token,
@@ -1300,7 +1503,10 @@ async function enroll(input: Readonly<{
       }
     }
     if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read') throw new GitHubApiProviderError('Verification workflow credentials are read-only');
+    const maintenance = maintenanceWorkflowIdentity === null ? undefined
+      : await observeMaintenanceDispatchPlan(session, token, input.transport, maintenanceWorkflowIdentity);
     const capability = issueCapability({
+      ...(maintenance === undefined ? {} : { maintenance }),
       repository: input.repository,
       token,
       principal: Object.freeze({
@@ -1397,7 +1603,9 @@ async function runSession<T>(input: Readonly<{
   if (input.budget !== undefined) {
     const remainingBudget = input.budget.deadlineAt - input.budget.now();
     if (input.budget.repositoryRoot !== path.resolve(input.repositoryRoot)
-        || input.budget.repository !== input.repository || input.budget.effect !== input.effect
+        || input.budget.repository !== input.repository
+        || (input.budget.effect !== input.effect && !(input.budget.maintenanceRequestDigest !== undefined
+          && input.effect === 'read'))
         || input.budget.origin !== input.origin || remainingBudget <= 0) {
       throw new GitHubApiProviderError('GitHub API parent operation budget boundary is invalid');
     }
@@ -1525,6 +1733,32 @@ export async function withGitHubApiRunnerAdminSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'runner-admin' });
+}
+
+/** Reuse the original aggregate budget for one fixed maintenance batch across its narrow sessions. */
+export async function withGitHubApiMaintenanceOperationBudget<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  requestDigest: `sha256:${string}`;
+  operation: () => Promise<T>;
+}>): Promise<T> {
+  const current = operationBudget.getStore();
+  if (current !== undefined) {
+    if (current.repositoryRoot !== path.resolve(input.repositoryRoot)
+        || current.repository !== input.repository || current.origin !== 'production'
+        || current.maintenanceRequestDigest !== input.requestDigest
+        || current.deadlineAt - current.now() <= 0) {
+      throw new GitHubApiProviderError('Maintenance batch aggregate budget identity or deadline differs');
+    }
+    return input.operation();
+  }
+  const now = Date.now;
+  const budget: GitHubApiOperationBudget = { repositoryRoot: path.resolve(input.repositoryRoot),
+    repository: repository(input.repository), effect: 'branch-closeout-write', origin: 'production',
+    maintenanceRequestDigest: input.requestDigest, now,
+    deadlineAt: now() + GITHUB_API_READ_OPERATION_TIMEOUT_MS, maxSessions: 66,
+    sessionCount: 0, requestCount: 0, requestBytes: 0, responseBytes: 0 };
+  return operationBudget.run(budget, input.operation);
 }
 
 export async function withGitHubApiReadOperationBudget<T>(input: Readonly<{
