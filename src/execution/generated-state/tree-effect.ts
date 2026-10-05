@@ -1,6 +1,6 @@
 import { withAcquiredResource } from '../resource-settlement.ts';
 import type { GeneratedStateCleanupOperationState } from './cleanup-budget.ts';
-import type { GeneratedStateDirectoryObservation } from './registration-port.ts';
+import type { GeneratedStateDirectoryObservation } from './registration-contract.ts';
 
 export interface GeneratedStateNativeOperationResource { readonly kind: 'generated-state-native-operation-resource'; }
 export interface GeneratedStateOperationSession { readonly kind: 'generated-state-operation-session'; }

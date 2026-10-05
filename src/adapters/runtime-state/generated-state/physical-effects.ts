@@ -27,7 +27,7 @@ import {
 } from '../physical/runtime/physical-no-follow.ts';
 import { runCommandBytes, type ByteCommandResult } from '../physical/runtime/process.ts';
 import { parseWorktreeRetirementIntent } from './journal-codec.ts';
-import { loadCleanupIntent } from './journals.ts';
+import { loadCleanupIntent } from './journal-read.ts';
 import { observeGeneratedStatePhysicalRoot, openRuntimeStoreReadOnly, readRegistrationLedgerObservation, samePhysicalIdentity } from './registration-store.ts';
 const MAXIMUM_CLEANUP_ENTRIES = 100_000;
 const MAXIMUM_CLEANUP_BYTES = 2 * 1024 * 1024 * 1024;

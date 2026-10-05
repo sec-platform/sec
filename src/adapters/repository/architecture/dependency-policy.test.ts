@@ -80,7 +80,7 @@ test('the tracked source tree has exactly the ten canonical responsibilities', (
   expect(actual).toEqual([...CANONICAL_SOURCE_MODULES].sort());
 });
 
-test('the actual current source graph has no forbidden canonical-module edge', () => {
+test('the actual current source graph preserves canonical edges and acyclic generated-state and verification owners', () => {
   const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
   const sourceRoot = nodePath.join(repositoryRoot, 'src');
   const files: string[] = [];
@@ -101,10 +101,16 @@ test('the actual current source graph has no forbidden canonical-module edge', (
     files,
     readSource: (repositoryPath) => readFileSync(nodePath.join(repositoryRoot, repositoryPath), 'utf8')
   });
-  const violations = collectCanonicalSourceBoundaryViolations(
-    graph,
-    compileRepositoryModuleMembership(repositoryRoot)
-  );
+  const membership = compileRepositoryModuleMembership(repositoryRoot);
+  const violations = collectCanonicalSourceBoundaryViolations(graph, membership);
+  const acyclicOwnerRoots = [
+    'src/adapters/runtime-state/generated-state/',
+    'src/execution/generated-state/',
+    'src/execution/verification/'
+  ];
+  expect(compileRepositoryModuleTopologyProjection(graph, membership).fileStrongComponents.filter(component =>
+    component.paths.some(repositoryPath => acyclicOwnerRoots.some(root => repositoryPath.startsWith(root)))
+  )).toEqual([]);
   expect(violations.filter(({ code }) =>
     code === 'canonical-module-dependency' || code === 'noncanonical-source-root' || code === 'core-no-host-io'
   )).toEqual([]);

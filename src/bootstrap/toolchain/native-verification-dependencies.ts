@@ -1,5 +1,8 @@
 import { fstatSync, lstatSync, realpathSync } from 'node:fs';
+import path from 'node:path';
 
+import { withAuthorityGitReadSession } from '../../adapters/providers/git-read/authority.ts';
+import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../adapters/providers/git-read/runtime/budget.ts';
 import { linuxImmutableRepositoryInputPrerequisites } from '../../adapters/runtime-state/physical/runtime/linux-immutable-repository-input.ts';
 import { directoryTreeEntryPosixOwnership } from '../../adapters/runtime-state/physical/runtime/physical-directory-tree.ts';
 import { linuxRetainedFilesystemObservation } from '../../adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
@@ -7,9 +10,11 @@ import {
   assertPhysicalGenerationRetirementReceipt,
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
+  inspectNoFollowDirectoryLeaf,
   materializeRetainedNoFollowProvenDirectoryGeneration,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
+  retireNoFollowDirectoryTree,
   scanNoFollowDirectoryTreeInventory,
   type NoFollowDirectoryTreeInventoryEntry,
   type RetainedNoFollowOrdinaryFile
@@ -19,6 +24,7 @@ import {
   projectCompilerDepsReadyState,
   type CompilerDepsReadyState
 } from '../../adapters/toolchain/dependencies/runtime.ts';
+import { COMPILER_DEPS_BINDING_FILE } from '../../adapters/toolchain/dependencies/runtime/materialization-binding.ts';
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationControls,
@@ -30,6 +36,7 @@ import {
   runtimeDependencySourceGeneration,
   runtimeDependencyTreeIdentity
 } from '../../adapters/toolchain/dependencies/runtime/source-generation.ts';
+import { parseHostedSutCandidatePreparation, type HostedSutCandidatePreparation } from '../../adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { compilerRoot } from '../../adapters/workspace-context.ts';
 import { canonicalJson, compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../contracts/exact-json.ts';
@@ -45,7 +52,7 @@ const MANIFEST_NAME = 'dependency-content-manifest.json';
 const MAXIMUM_PACKET_BYTES = 4_096;
 const MAXIMUM_MANIFEST_BYTES = 32 * 1024 * 1024;
 const KINDS = Object.freeze([
-  'source-program', 'verification-action', 'main-health', 'hosted-sut', 'dependency-canary'
+  'source-program', 'verification-action', 'main-health', 'hosted-sut', 'dependency-canary', 'hosted-candidate'
 ] as const);
 type Kind = (typeof KINDS)[number];
 type Digest = `sha256:${string}`;
@@ -55,6 +62,7 @@ type Request = Readonly<{
   kind: Kind;
   deadlineAtUnixMs: number;
   transportDigest: Digest;
+  candidate?: HostedSutCandidatePreparation;
 }>;
 type ContentEntry = Readonly<{ path: string; mode: number }> & (
   | Readonly<{ type: 'directory' }>
@@ -70,29 +78,44 @@ function fail(message: string): never {
  * transport, process, filesystem or privileged execution authority. */
 export function parseNativeVerificationDependencyRequest(bytes: Uint8Array): Request {
   const value = parseExactJsonBytes(bytes, 'Native dependency setup request', {
+    maximumInputBytes: MAXIMUM_PACKET_BYTES, maximumDepth: 3
+  }) as Partial<Request>;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('request is not an object');
+  if (value.kind !== 'hosted-candidate') parseExactJsonBytes(bytes, 'Native dependency setup request', {
     maximumInputBytes: MAXIMUM_PACKET_BYTES, maximumDepth: 2
-  }, { rootObjectKeys: ['schema', 'phase', 'kind', 'deadlineAtUnixMs', 'transportDigest'] }) as Partial<Request>;
+  });
+  const keys = ['schema', 'phase', 'kind', 'deadlineAtUnixMs', 'transportDigest',
+    ...(value.kind === 'hosted-candidate' ? ['candidate'] : [])];
+  if (Object.keys(value).sort().join(',') !== keys.sort().join(',')) fail('request fields are not exact');
+
   if (value.schema !== 'sec-native-verification-dependency-setup-v1'
       || (value.phase !== 'prepare' && value.phase !== 'observe')
       || !KINDS.some(kind => kind === value.kind)
       || !Number.isSafeInteger(value.deadlineAtUnixMs) || value.deadlineAtUnixMs! <= 0
       || typeof value.transportDigest !== 'string'
       || !/^sha256:[0-9a-f]{64}$/u.test(value.transportDigest)) fail('request fields are invalid');
+  if (value.kind === 'hosted-candidate') {
+    const candidate = parseHostedSutCandidatePreparation(value.candidate);
+    if (candidate.deadlineAtUnixMs !== value.deadlineAtUnixMs) fail('candidate deadline differs from original operation');
+    return Object.freeze({ ...value, candidate }) as Request;
+  }
   return Object.freeze(value as Request);
 }
 
-function assertSetupProcess(phase: Request['phase']): void {
+function assertSetupProcess(request: Request): void {
+  const { phase } = request;
+  const candidate = request.kind === 'hosted-candidate';
   if (process.platform !== 'linux' || process.arch !== 'x64'
       || process.getuid?.() !== 65_532 || process.geteuid?.() !== 65_532
       || process.getgid?.() !== 65_532 || process.getegid?.() !== 65_532
       || !linuxImmutableRepositoryInputPrerequisites()
-      || realpathSync(process.execPath) !== '/usr/local/bin/bun'
+      || realpathSync(process.execPath) !== (candidate ? '/tool/bin/bun' : '/usr/local/bin/bun')
       || compilerRoot !== TRUSTED_ROOT || process.cwd() !== TRUSTED_ROOT
       || (phase === 'prepare'
         ? process.env.NODE_PATH !== `${CONTENT_ROOT}/node_modules`
         : process.env.NODE_PATH !== undefined)
-      || process.env.SEC_STATE_HOME !== '/sec-runtime/output/state'
-      || process.env.SEC_CACHE_HOME !== '/sec-runtime/output/cache') {
+      || process.env.SEC_STATE_HOME !== (candidate ? '/home/sut/.local/state/sec' : '/sec-runtime/output/state')
+      || process.env.SEC_CACHE_HOME !== (candidate ? '/home/sut/.cache/sec' : '/sec-runtime/output/cache')) {
     fail('fixed nonprivileged execution identity is unavailable');
   }
 }
@@ -190,10 +213,26 @@ function assertTransportContents(input: Readonly<{
   assertManifestFile(input.file);
   const manifest = parseExactJsonBytes(input.file.readBytes(), 'Native dependency transport manifest', {
     maximumInputBytes: MAXIMUM_MANIFEST_BYTES, maximumDepth: 4
-  }, { rootObjectKeys: ['schema', 'bundleDigest', 'nodeModulesArchiveDigest', 'entries', 'contentDigest', 'transportDigest'] }) as Record<string, unknown>;
+  }) as Record<string, unknown>;
+  const inner = input.request.kind === 'hosted-candidate';
+  const keys = inner ? ['schema', 'candidate', 'entries', 'contentDigest', 'transportDigest']
+    : ['schema', 'bundleDigest', 'nodeModulesArchiveDigest', 'entries', 'contentDigest', 'transportDigest'];
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)
+      || Object.keys(manifest).sort().join(',') !== keys.sort().join(',')) fail('transport manifest fields differ');
   const entries = contentEntries(input.inventory);
   const validDigest = (value: unknown): value is Digest => typeof value === 'string'
     && /^sha256:[0-9a-f]{64}$/u.test(value);
+  if (inner) {
+    const candidate = parseHostedSutCandidatePreparation(manifest.candidate);
+    if (manifest.schema !== 'sec-hosted-candidate-dependency-content-v1'
+        || JSON.stringify(canonicalJson(candidate)) !== JSON.stringify(canonicalJson(input.request.candidate))
+        || manifest.contentDigest !== sha256(entries)
+        || JSON.stringify(canonicalJson(manifest.entries)) !== JSON.stringify(canonicalJson(entries))
+        || manifest.transportDigest !== sha256({ candidate, contentDigest: manifest.contentDigest })
+        || manifest.transportDigest !== input.request.transportDigest) fail('candidate transport differs from original Action/content');
+    assertManifestFile(input.file);
+    return;
+  }
   if (manifest.schema !== 'sec-native-dependency-content-transport-v1'
       || !validDigest(manifest.bundleDigest) || !validDigest(manifest.nodeModulesArchiveDigest)
       || !validDigest(manifest.contentDigest) || !validDigest(manifest.transportDigest)
@@ -213,11 +252,123 @@ function projection(ready: CompilerDepsReadyState) {
     requiresFreshProcess: ready.requiresFreshProcess });
 }
 
+/** Data comparison only. The original importer excludes exactly this runtime-
+ * bound control file and publishes a fresh binding for the actual target.
+ * Every package member still participates; no copied binding grants authority. */
+export function assertHostedCandidateDependencyPayload(
+  rawInventory: readonly NoFollowDirectoryTreeInventoryEntry[],
+  contentInventory: readonly NoFollowDirectoryTreeInventoryEntry[]
+): void {
+  const payload = (entries: readonly NoFollowDirectoryTreeInventoryEntry[], prefix: string) => entries
+    .filter(entry => {
+      if (prefix + entry.relativePath !== `node_modules/${COMPILER_DEPS_BINDING_FILE}`) return true;
+      if (entry.kind !== 'file') fail('regenerated dependency binding is not an ordinary file');
+      return false;
+    }).map(entry => {
+      const member = prefix + entry.relativePath;
+      let target: string | null = null;
+      if (entry.kind === 'link') {
+        const spelling = entry.linkTarget;
+        if (spelling === null || spelling.includes('\0') || spelling.includes('\\') || path.posix.isAbsolute(spelling)) {
+          fail('candidate dependency link is not normalized archive content');
+        }
+        const normalized = path.posix.normalize(path.posix.join(path.posix.dirname(member), spelling));
+        if (!normalized.startsWith('node_modules/') || normalized === member || member.startsWith(`${normalized}/`)) {
+          fail('candidate dependency link escapes its exact root or targets itself/ancestor');
+        }
+        // Preserve relative spelling exactly: collapsing "x/.." can change
+        // meaning when x is itself a symlink. Only absolute in-root transport
+        // links were normalized by the fixed copier, as by the archive owner.
+        target = spelling;
+      }
+      return { path: member, kind: entry.kind, size: entry.kind === 'file' ? entry.size : 0,
+        digest: entry.kind === 'file' ? entry.byteDigest : null, target,
+        executable: entry.permissionMode === undefined || entry.permissionMode === null ? null : entry.permissionMode & 0o111 };
+    }).sort((left, right) => compareCodeUnits(left.path, right.path));
+  const expected = contentInventory.filter(entry => entry.relativePath.startsWith('node_modules/'));
+  if (sha256(payload(rawInventory, 'node_modules/')) !== sha256(payload(expected, ''))) {
+    fail('candidate dependency archive bytes, membership, links or executable modes differ from trusted source');
+  }
+}
+
+/** The fixed inner launcher has not started candidate code. Reobserve the
+ * actual candidate/base subject and raw dependency bytes before replacing the
+ * data-only archive projection with an original issued generation. */
+async function assertAndRetireHostedCandidateInputs(candidate: HostedSutCandidatePreparation,
+  contentInventory: readonly NoFollowDirectoryTreeInventoryEntry[],
+  controls: ReturnType<typeof runtimeDependencyOperationControls>): Promise<void> {
+  const context = runtimeDependencyOperationContext(controls);
+  const workspace = inspectNoFollowDirectoryChain('/workspace', 'Hosted candidate dependency target');
+  const trusted = inspectNoFollowDirectoryChain(TRUSTED_ROOT, 'Hosted candidate trusted source');
+  const archive = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(INPUT_ROOT), 'prepared-candidate.tar');
+  try {
+    if (archive.stdioSourceDescriptor === null) fail('candidate archive has no retained Linux descriptor');
+    const info = fstatSync(archive.stdioSourceDescriptor, { bigint: true });
+    if (info.size > 6_442_450_944n || info.uid !== 0n || info.gid !== 0n || info.nlink !== 1n || (info.mode & 0o7777n) !== 0o444n
+        || archive.digest().byteDigest !== candidate.archiveDigest) fail('candidate retained archive differs');
+    await withAuthorityGitReadSession({ cwd: '/workspace', deadlineAtUnixMs: context.deadlineAtUnixMs,
+      signal: context.signal, budget: GIT_READ_DEFAULT_OPERATION_BUDGET }, async git => {
+      for (const [selector, expected] of [[`${candidate.baseSha}^{commit}`, candidate.baseSha],
+        [`${candidate.baseSha}^{tree}`, candidate.baseTreeSha], ['HEAD', candidate.headSha],
+        ['HEAD^{tree}', candidate.headTreeSha]] as const) {
+        const observed = await git.run(['rev-parse', '--verify', '--end-of-options', selector]);
+        if (observed.kind !== 'completed' || observed.result.code !== 0
+            || Buffer.from(observed.result.stdout).toString('utf8') !== `${expected}\n`) fail('candidate Git subject differs');
+      }
+    });
+    const raw = inspectNoFollowDirectoryLeaf(workspace.target, 'node_modules', 'Hosted candidate dependency data');
+    if (raw === null) fail('candidate dependency data is absent');
+    const rawInventory = scanNoFollowDirectoryTreeInventory(raw, { deadlineAtMs: context.deadlineAtMonotonicMs,
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES, maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+      includePermissionMode: true, includeByteDigest: true, signal: context.signal });
+    assertHostedCandidateDependencyPayload(rawInventory, contentInventory);
+    const rawMetadata = lstatSync(raw.path, { bigint: true });
+    if (rawMetadata.uid !== 65_532n || rawMetadata.gid !== 65_532n
+        || String(rawMetadata.dev) !== raw.device || String(rawMetadata.ino) !== raw.inode
+        || rawInventory.some(entry => entry.kind !== 'link' && (() => {
+          const owner = directoryTreeEntryPosixOwnership(entry);
+          return owner?.ownerUserId !== 65_532n || owner.ownerGroupId !== 65_532n;
+        })())) fail('candidate dependency data is not the setup-owned private copy');
+    for (const name of ['.bun-version', 'bun.lock', 'package.json', 'bunfig.toml']) {
+      if (name === 'bunfig.toml' && !contentInventory.some(entry => entry.relativePath === name)) continue;
+      const base = retainNoFollowOrdinaryFile(trusted, name);
+      const target = retainNoFollowOrdinaryFile(workspace, name);
+      try {
+        if (!Buffer.from(base.readBytes()).equals(Buffer.from(target.readBytes()))) fail('candidate dependency input differs from exact base');
+        base.assertCurrent(); target.assertCurrent();
+      } finally { try { target.dispose(); } finally { base.dispose(); } }
+    }
+    const reserved = inspectNoFollowDirectoryLeaf(workspace.target, '.sec-trusted-input', 'Hosted candidate retained inputs');
+    if (reserved === null) fail('candidate retained inputs are absent');
+    for (const [name, expected] of [['candidate.bundle', candidate.gitBundleDigest],
+      ['dependency-closure.json', candidate.dependencyClosureDigest]] as const) {
+      const member = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(reserved.path), name);
+      try { if (member.digest().byteDigest !== expected) fail('candidate retained input bytes differ'); member.assertCurrent(); }
+      finally { member.dispose(); }
+    }
+    const reservedInventory = scanNoFollowDirectoryTreeInventory(reserved, { deadlineAtMs: context.deadlineAtMonotonicMs,
+      maximumBytes: 6_442_450_944, maximumEntries: 2, signal: context.signal });
+    if (reservedInventory.length !== 2 || reservedInventory.some(entry => entry.kind !== 'file'
+        || !['candidate.bundle', 'dependency-closure.json'].includes(entry.relativePath))) fail('candidate retained input inventory differs');
+    archive.assertCurrent();
+    assertSameNoFollowDirectoryIdentity(workspace.target, 'Hosted candidate dependency target before import');
+    retireNoFollowDirectoryTree({ root: reserved, parent: workspace.target, inventory: reservedInventory,
+      deadlineAtMonotonicMs: context.deadlineAtMonotonicMs });
+    retireNoFollowDirectoryTree({ root: raw, parent: workspace.target, inventory: rawInventory,
+      // Only the admitted private archive copy needs temporary owner write.
+      // The original retirement owner pins identity/modes and recovers failure.
+      // Neither borrowed outer input nor the retained content proof is passed.
+      restoreOwnerPermissions: true, deadlineAtMonotonicMs: context.deadlineAtMonotonicMs });
+  } finally { archive.dispose(); }
+}
+
 async function execute(request: Request): Promise<unknown> {
-  assertSetupProcess(request.phase);
+  assertSetupProcess(request);
   const controls = runtimeDependencyOperationControls({ deadlineAtUnixMs: request.deadlineAtUnixMs });
   const context = runtimeDependencyOperationContext(controls);
   const remaining = () => runtimeDependencyOperationRemainingMs(controls, 'Native dependency setup');
+  const inner = request.kind === 'hosted-candidate';
+  const workspaceRoot = inner ? '/workspace' : WORKSPACE_ROOT;
   const workspaceRequired = request.kind !== 'source-program' && request.kind !== 'dependency-canary';
   const manifest = retainTransportManifest();
   try {
@@ -231,7 +382,7 @@ async function execute(request: Request): Promise<unknown> {
     });
     const observed = inventory();
     assertTransportContents({ file: manifest, inventory: observed, request });
-    let trusted: CompilerDepsReadyState;
+    let trusted: CompilerDepsReadyState | null = null;
     let workspace: CompilerDepsReadyState | null = null;
     let contentRetirement: 'released' | 'not-retained' = 'not-retained';
     if (request.phase === 'prepare') {
@@ -254,10 +405,11 @@ async function execute(request: Request): Promise<unknown> {
       let failed = false;
       let prepared: CompilerDepsReadyState | undefined;
       try {
-        const operation = createDependencyOperation({ workspaceRoot: TRUSTED_ROOT });
+        if (inner) await assertAndRetireHostedCandidateInputs(request.candidate!, currentInventory, controls);
+        const operation = createDependencyOperation({ workspaceRoot: inner ? workspaceRoot : TRUSTED_ROOT });
         prepared = await operation.ensureCompilerDepsReadyFromRetainedContent(retained.generation,
           { deadlineAtUnixMs: context.deadlineAtUnixMs, installMode: 'offline-copy-only' });
-        if (workspaceRequired) {
+        if (workspaceRequired && !inner) {
           workspace = await createDependencyOperation({ workspaceRoot: WORKSPACE_ROOT })
             .ensureCompilerDepsReadyFromGeneration(prepared.executionGenerationAuthority,
               { deadlineAtUnixMs: context.deadlineAtUnixMs, installMode: 'offline-copy-only' });
@@ -273,7 +425,8 @@ async function execute(request: Request): Promise<unknown> {
         throw error;
       }
       if (failed) throw primary;
-      trusted = prepared!;
+      if (inner) workspace = prepared!;
+      else trusted = prepared!;
     } else {
       const observe = async (root: string): Promise<CompilerDepsReadyState> => {
         const authority = await observeCompilerDependencyExecutionGenerationAuthority(
@@ -283,10 +436,10 @@ async function execute(request: Request): Promise<unknown> {
         if (ready.requiresFreshProcess) fail('fresh observation still requires another process transition');
         return ready;
       };
-      trusted = await observe(TRUSTED_ROOT);
+      if (!inner) trusted = await observe(TRUSTED_ROOT);
       if (workspaceRequired) {
-        workspace = await observe(WORKSPACE_ROOT);
-        if (workspace.executionGenerationAuthority.generationDigest !== trusted.executionGenerationAuthority.generationDigest) {
+        workspace = await observe(workspaceRoot);
+        if (!inner && workspace.executionGenerationAuthority.generationDigest !== trusted!.executionGenerationAuthority.generationDigest) {
           fail('workspace does not consume the original trusted compiler generation');
         }
       }
@@ -297,7 +450,7 @@ async function execute(request: Request): Promise<unknown> {
     return Object.freeze({ schema: 'sec-native-verification-dependency-result-v1', authority: 'projection-only',
       phase: request.phase, kind: request.kind, deadlineAtUnixMs: request.deadlineAtUnixMs,
       transportDigest: request.transportDigest, status: request.phase === 'prepare' ? 'prepared' : 'observed',
-      contentRetirement, trusted: projection(trusted), workspace: workspace === null ? null : projection(workspace) });
+      contentRetirement, trusted: trusted === null ? null : projection(trusted), workspace: workspace === null ? null : projection(workspace) });
   } finally { manifest.dispose(); }
 }
 

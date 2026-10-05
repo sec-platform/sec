@@ -4,15 +4,22 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
+import { HOSTED_SESSION_WAKE_KEY_SCHEMA } from '../../src/execution/verification/hosted.ts';
 
+import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
 import type { AuthenticatedGitHubJobOrigin, AuthenticatedGitHubJobOriginObservation } from '../../src/adapters/providers/github-api/hosted-job-origin.ts';
 import { SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionProviderEnvelope } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
+import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, finalizeVerificationSessionResumeArtifact, parseHostedSessionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CI_VERIFICATION_SESSION_DISPATCH_TYPE, hostedSessionArtifactName } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
 import { ciActionDigest, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentResolveHostedAction, parseHostedEnvelope } from '../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts';
+import { createReviewSnapshotDigest, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers/verification-action-fixtures.ts';
 
 const REPOSITORY = 'openai/sec';
@@ -356,11 +363,14 @@ class FakeGh {
   lastDownloadedArtifactId: number | null = null;
   downloadedArtifactIds: number[] = [];
   currentRunOverrides: Record<string, unknown> = {};
+  parentRunOverrides: Record<string, unknown> = {};
   currentSuiteOverrides: Record<string, unknown> = {};
   exactRunOverrides: Record<string, Record<string, unknown>> = {};
   exactSuiteOverrides: Record<string, Record<string, unknown>> = {};
   parentPermission: Record<string, unknown> = { permission: 'write', role_name: 'maintain' };
   parentPermissionUser: { login: string; id: number; node_id: string; type: string } = { login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User' };
+  permissionCalls = 0;
+  permissionHook: ((call: number) => Record<string, unknown> | null) | null = null;
   exactRunFailures = new Set<string>();
   latestRunAttempts: Record<string, number> = {};
   latestRunCalls: string[] = [];
@@ -397,7 +407,9 @@ class FakeGh {
       return this.json({ id: 300, path: '.github/workflows/compiler-pr-validation.yml', state: 'active' });
     }
     if (endpoint === `/repos/${REPOSITORY}/collaborators/${parentActor.login}/permission`) {
-      return this.json({ ...this.parentPermission, user: this.parentPermissionUser });
+      this.permissionCalls += 1;
+      return this.json({ ...this.parentPermission, user: this.parentPermissionUser,
+        ...this.permissionHook?.(this.permissionCalls) });
     }
     if (endpoint === `/repos/${REPOSITORY}/contents/.github/workflows/compiler-pr-validation.yml`) {
       const ref = url.searchParams.get('ref');
@@ -498,7 +510,8 @@ class FakeGh {
           name: `verify session PR #42 session ${SESSION}`,
           display_title: `verify session PR #42 session ${SESSION}`, actor: {
             login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User'
-          }, repository: { id: REPOSITORY_ID, full_name: REPOSITORY }
+          }, repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
+          ...this.parentRunOverrides
         });
       }
       return this.json({
@@ -635,6 +648,191 @@ function resolutionMembersFixture() {
     'hosted-action-resolution.json': `${encodeVerificationActionData(resolution)}\n`,
     'hosted-envelope.json': `${encodeVerificationActionData(hosted)}\n`
   });
+}
+
+
+const DELEGATED_RUN_ID = '9400';
+const DELEGATED_ARTIFACT_ID = 7005;
+
+function delegatedSessionFixture() {
+  // Complete historical data through the original constructors and decoders.
+  // These finite provider facts never constitute a live accepted native profile.
+  const scopeInput = {
+    repository: REPOSITORY, prNumber: 42, baseSha: BASE, baseTreeSha: '3'.repeat(40),
+    headSha: HEAD, headTreeSha: '4'.repeat(40), manifestPath: sessionRequest.manifestPath,
+    manifestDigest: digest('a'), proposalDigest: digest('d'), authorizedPaths: ['src/example.ts'],
+    sessionProposalDigest: digest('d'), actionPlanClosureDigest: digest('a'), profile: 'quick',
+    environmentDigest: digest('b'), issuer: { principalId: parentActor.nodeId,
+      role: 'trusted-base-a0' as const, trustRevision: BASE, producerIdentity: 'provider-delegated-data',
+      sourceTransport: 'github-actions' as const, sourceRunId: DELEGATED_RUN_ID,
+      sourceRef: 'refs/heads/main', sourceDigest: digest('c') },
+    issuedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T04:00:00.000Z'
+  };
+  const provisionalScope = createScopeAuthorization(scopeInput);
+  const actionPlanClosure = buildCiVerificationActionPlanClosure({
+    candidate: { baseSha: BASE, baseTreeSha: scopeInput.baseTreeSha, headSha: HEAD,
+      headTreeSha: scopeInput.headTreeSha, manifestPath: scopeInput.manifestPath,
+      manifestDigest: scopeInput.manifestDigest, scopeAuthorizationRevision: provisionalScope.authorizationRevision,
+      profile: 'quick', toolchainRevision: 'bun@1.3.14', providerRevision: 'github-actions@trusted-default',
+      contractRevision: 'ci-verification-v19', requiredBlobs: [
+        { path: '.bun-version', digest: digest('c') }, { path: 'bun.lock', digest: digest('d') },
+        { path: 'bunfig.toml', digest: digest('e') }, { path: 'package.json', digest: digest('f') }
+      ] },
+    gates: [{ id: 'typecheck', phase: 'quick', argv: ['bun', 'run', 'typecheck'], runtime: 'bun',
+      environment: {}, coveredScopeIds: ['runtime'] }]
+  });
+  const scopeAuthorization = createScopeAuthorization({ ...scopeInput,
+    actionPlanClosureDigest: actionPlanClosure.actionPlanDigest });
+  const mainHealth = createMainHealthLedger({ repository: REPOSITORY, defaultBranch: 'main',
+    mainSha: BASE, mainTreeSha: scopeInput.baseTreeSha, status: 'healthy', failureFingerprints: [],
+    owner: null, repairWorkPackage: null, allowedLanes: ['ordinary'], trustRevision: BASE,
+    observedAt: scopeInput.issuedAt, expiresAt: scopeInput.expiresAt,
+    producer: { identity: 'provider-delegated-data', trustRevision: BASE, sourceTransport: 'github-api',
+      sourceRunId: PARENT_RUN_ID, sourceRef: 'refs/heads/main', sourceDigest: digest('a') } });
+  const session = createVerificationSession({ sessionId: 'provider-delegated-data', createdAt: scopeInput.issuedAt,
+    repository: REPOSITORY, prNumber: 42, baseSha: BASE, baseTreeSha: scopeInput.baseTreeSha,
+    headSha: HEAD, headTreeSha: scopeInput.headTreeSha, manifestPath: scopeInput.manifestPath,
+    manifestDigest: scopeInput.manifestDigest, sessionProposalDigest: scopeAuthorization.sessionProposalDigest,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
+    actionPlanClosureDigest: actionPlanClosure.actionPlanDigest, profile: 'quick', environmentDigest: scopeInput.environmentDigest,
+    trustRevision: BASE, reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
+    evidenceRequirementDigest: digest('d'), integrationPolicyDigest: digest('e'),
+    mainHealthRef: { mainSha: BASE, mainTreeSha: mainHealth.mainTreeSha,
+      healthRevision: mainHealth.healthRevision, ledgerReceiptDigest: mainHealth.ledgerDigest } });
+  const reviewSnapshot = { paginationComplete: true as const, reviewedHeadSha: HEAD,
+    reviewPageDigests: [digest('a')], threadPageDigests: [digest('b')], reviewCount: 1,
+    threadCount: 0, unresolvedBlockingThreadCount: 0 as const, requestChangesPrincipalIds: [] as const };
+  const snapshot = { ...reviewSnapshot, snapshotDigest: createReviewSnapshotDigest(reviewSnapshot) };
+  const preGateReview = createReviewStabilityReceipt({ stage: 'pre-expensive', repository: REPOSITORY,
+    prNumber: 42, sessionRevision: session.sessionRevision,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest, headSha: HEAD,
+    headTreeSha: session.headTreeSha, policy: SEC_REVIEW_STABILITY_POLICY,
+    principal: { kind: 'human', nodeId: 'REVIEWER', approvalState: 'APPROVED' },
+    independence: { candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: parentActor.nodeId },
+    producer: { identity: REVIEW_OBSERVER_PRODUCER_IDENTITY, executionIdentity: 'provider-delegated-data',
+      providerIdentity: 'github', candidateWriteCapability: 'read-only',
+      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
+      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision, sourceTransport: 'github-graphql',
+      sourceRunId: PARENT_RUN_ID, sourceRef: `github://${REPOSITORY}/pull/42@${HEAD}`,
+      sourceDigest: snapshot.snapshotDigest }, snapshot,
+    reviewedAt: scopeInput.issuedAt, expiresAt: scopeInput.expiresAt });
+  const request = { ...sessionRequest, expectedScopeProposalDigest: scopeAuthorization.sessionProposalDigest,
+    expectedActionPlanDigest: actionPlanClosure.actionPlanDigest, expectedSessionRevision: session.sessionRevision,
+    reviewPolicyDigest: session.reviewPolicyDigest };
+  const actionKey = actionPlanClosure.actions[0]!.action.actionKey;
+  const proposed = createCiVerificationActionProposal({ sessionRequest: request, proposedActionKey: actionKey });
+  const plan = createCiVerificationActionParentDispatchPlan({ repositoryId: String(REPOSITORY_ID), repository: REPOSITORY,
+    parentRunId: PARENT_RUN_ID, parentRunAttempt: 1, parentJobId: String(PARENT_JOB_ID),
+    parentWorkflowRef: `${REPOSITORY}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+    parentWorkflowSha: BASE, parentActor, proposals: [proposed] });
+  const parentText = `${encodeVerificationActionData(plan)}\n`;
+  const providerEnvelope = createCiVerificationActionProviderEnvelope({ proposal: proposed, parentPlan: plan,
+    parentDispatchPlanArtifactId: String(PARENT_ARTIFACT_ID),
+    parentDispatchPlanArchiveDigest: archiveDigestFor('verification-action-parent-dispatch-plan.json', parentText) });
+  const hostedBody = { schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA, requestOperationId: request.requestOperationId,
+    scopeAuthorization, preGateReview, mainHealth, session, actionPlanClosure };
+  const hosted = parseHostedEnvelope({ ...hostedBody, envelopeDigest: ciActionDigest(hostedBody) });
+  const resolution = CodexDevelopmentResolveHostedAction({
+    request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(proposed)), envelope: hosted });
+  const start = createVerificationActionProviderStartMarker({ actionKey, candidateSha: HEAD,
+    executionEnvironmentRevision: 'hosted', producer: currentOrigin });
+  const startText = `${encodeVerificationActionData(start)}\n`;
+  const terminal = buildUnsupportedVerificationActionTerminalArtifactV2({ actionPlan: actionPlanClosure.actions[0]!,
+    normalizedOperation: actionPlanClosure.normalizedOperations[0]!, baseSha: BASE, baseTreeSha: session.baseTreeSha,
+    headSha: HEAD, headTreeSha: session.headTreeSha, manifestPath: session.manifestPath,
+    manifestDigest: session.manifestDigest, producer: currentOrigin });
+  const terminalText = `${encodeVerificationActionData(terminal)}\n`;
+  const anchor = createVerificationActionProviderTerminalAnchor({ actionKey, candidateSha: HEAD,
+    startStatusId: 101, startStatusNodeId: 'STATUS_101', startArtifactOriginId: '7001',
+    startArtifactName: verificationActionProviderStartArtifactName(actionKey),
+    startArtifactArchiveDigest: archiveDigestFor('verification-action-start-marker.json', startText),
+    startMarkerDigest: start.markerDigest, terminalArtifactOriginId: '7002',
+    terminalArtifactName: verificationActionProviderTerminalArtifactName(actionKey),
+    terminalArtifactArchiveDigest: archiveDigestFor('verification-action-terminal-artifact.json', terminalText),
+    terminalArtifactPayloadDigest: terminal.artifactDigest as VerificationActionKeyDigest,
+    terminalAssemblerOrigin: currentOrigin, anchorPublisherOrigin: currentOrigin });
+  const completedAction = { providerEnvelope, runId: CURRENT_RUN_ID, runAttempt: 1,
+    terminalArtifactId: '7002', terminalArtifactName: anchor.terminalArtifactName,
+    terminalArchiveDigest: anchor.terminalArtifactArchiveDigest, terminalPayloadDigest: anchor.terminalArtifactPayloadDigest };
+  const emitter = { repositoryId: String(REPOSITORY_ID), repository: REPOSITORY,
+    workflowPath: '.github/workflows/merge-gate.yml' as const, workflowSha: BASE, runId: '9300', runAttempt: 1,
+    jobId: '6300', checkRunId: '5300', policyJobId: 'integrate' as const,
+    phase: 'resume-verification-session' as const, stepName: 'Resume canonical verification Session' as const, stepNumber: 5 };
+  const signalBody = { schema: HOSTED_RESUME_SIGNAL_SCHEMA,
+    wakeKey: ciActionDigest({ schema: HOSTED_SESSION_WAKE_KEY_SCHEMA, completedAction }), completedAction, emitter };
+  const signal = parseHostedResumeDispatchSignal(encodeVerificationActionData({ ...signalBody, signalDigest: ciActionDigest(signalBody) }));
+  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({ sourceTransport: 'github-actions',
+    workflowPath: '.github/workflows/compiler-pr-validation.yml', workflowRef: currentOrigin.workflowRef,
+    workflowSha: BASE, runId: DELEGATED_RUN_ID, runAttempt: 1, actorNodeId: bot.nodeId });
+  const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({ contractRevision: 'ci-verification-v19',
+    sessionRevision: session.sessionRevision, sessionProposalDigest: session.sessionProposalDigest,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision, scopeAuthorizationDigest: scopeAuthorization.authorizationDigest,
+    reviewReceiptDigest: preGateReview.receiptDigest, mainHealthRevision: mainHealth.healthRevision,
+    mainHealthDigest: mainHealth.ledgerDigest, trustRevision: BASE, profile: 'quick', baseSha: BASE,
+    baseTreeSha: session.baseTreeSha, headSha: HEAD, headTreeSha: session.headTreeSha,
+    manifestPath: session.manifestPath, manifestDigest: session.manifestDigest, producer,
+    actionPlan: actionPlanClosure, status: 'unsupported', startedAt: '2026-08-09T01:00:00.000Z',
+    finishedAt: '2026-08-09T01:00:12.000Z', gates: [{ action: terminal.actionPlan.action,
+      result: terminal.result, cleanup: terminal.cleanup }], evidenceRefs: [], invalidationRules: ['Original cause changes'] });
+  const artifact = finalizeVerificationSessionResumeArtifact({ scopeAuthorization, session, preGateReview, mainHealth,
+    evidence, producer, sourceCause: { kind: 'hosted-action-resume', signal,
+      actionPlanClosureDigest: actionPlanClosure.actionPlanDigest, requestOperationId: request.requestOperationId,
+      scopeAuthorizationDigest: scopeAuthorization.authorizationDigest, sessionRevision: session.sessionRevision } });
+  const artifactText = `${encodeVerificationActionData(artifact)}\n`;
+  const selector = parseHostedSessionTerminalArtifact(artifactText);
+  if (selector.schema !== 'verification-session-delegated-terminal') throw new Error('delegated fixture schema drift');
+  const artifactName = hostedSessionArtifactName({ prNumber: 42, sessionRevision: session.sessionRevision,
+    runId: DELEGATED_RUN_ID, runAttempt: 1 });
+  const members = { 'verification-action-provider-envelope.json': `${encodeVerificationActionData(providerEnvelope)}\n`,
+    'hosted-action-resolution.json': `${encodeVerificationActionData(resolution)}\n`,
+    'hosted-envelope.json': `${encodeVerificationActionData(hosted)}\n` };
+  const target = new FakeGh();
+  target.artifacts = [
+    { id: PARENT_ARTIFACT_ID, name: providerEnvelope.parentDispatchPlanArtifactName, expired: false,
+      runId: Number(PARENT_RUN_ID), fileName: 'verification-action-parent-dispatch-plan.json', source: parentText },
+    { id: 7001, name: anchor.startArtifactName, expired: false, runId: Number(CURRENT_RUN_ID),
+      fileName: 'verification-action-start-marker.json', source: startText },
+    { id: 7002, name: anchor.terminalArtifactName, expired: false, runId: Number(CURRENT_RUN_ID),
+      fileName: 'verification-action-terminal-artifact.json', source: terminalText },
+    { id: 7003, name: verificationActionProviderTerminalAnchorName(actionKey), expired: false,
+      runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json', source: `${encodeVerificationActionData(anchor)}\n` },
+    { id: 7004, name: provider.hostedActionResolutionArtifactName(actionKey, CURRENT_RUN_ID, 1), expired: false,
+      runId: Number(CURRENT_RUN_ID), fileName: 'hosted-action-resolution.json', source: members['hosted-action-resolution.json'], members },
+    { id: DELEGATED_ARTIFACT_ID, name: artifactName, expired: false, runId: Number(DELEGATED_RUN_ID),
+      fileName: 'verification-session-artifact.json', source: artifactText }
+  ];
+  target.statuses = [rawStatus({ id: 101, context: verificationActionProviderStatusContext(actionKey),
+    description: verificationActionProviderStartDescription(start.markerDigest) }),
+    rawStatus({ id: 102, context: verificationActionProviderStatusContext(actionKey), state: 'success',
+      description: verificationActionProviderTerminalDescription(anchor.anchorDigest) })];
+  target.parentRunOverrides = { name: `verify session PR #42 session ${session.sessionRevision}`,
+    display_title: `verify session PR #42 session ${session.sessionRevision}` };
+  const human = { login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User' };
+  target.exactRunOverrides[`${PARENT_RUN_ID}:1`] = { workflow_id: 300, head_branch: 'main', actor: human, triggering_actor: human };
+  target.exactRunOverrides[`${DELEGATED_RUN_ID}:1`] = { head_branch: 'main', status: 'completed', conclusion: 'success',
+    actor: botRecord, triggering_actor: botRecord };
+  target.exactRunOverrides['9300:1'] = { path: emitter.workflowPath, event: 'workflow_run', head_branch: 'main', check_suite_id: 5300 };
+  target.actionJobsByAttempt['9300:1'] = [{ id: 6300, name: 'integrate', run_id: 9300, run_attempt: 1,
+    head_sha: BASE, check_run_url: `https://api.github.com/repos/${REPOSITORY}/check-runs/5300`,
+    steps: [{ number: 5, name: emitter.stepName, status: 'completed', conclusion: 'success' }] }];
+  const job: Record<string, unknown> = { id: 6400, name: 'receive-verification-session-resume', run_id: Number(DELEGATED_RUN_ID),
+    head_sha: BASE, status: 'completed', conclusion: 'success', started_at: '2026-08-09T01:01:00Z', completed_at: '2026-08-09T01:01:12Z',
+    steps: [{ number: 5, name: 'Resume original authenticated Verification Session', status: 'completed', conclusion: 'success',
+      started_at: '2026-08-09T01:01:01Z', completed_at: '2026-08-09T01:01:02Z' },
+    { number: 6, name: 'Upload complete original resume dispatch outcome observations', status: 'completed', conclusion: 'success',
+      started_at: '2026-08-09T01:01:03Z', completed_at: '2026-08-09T01:01:05Z' },
+    { number: 7, name: 'Upload resumed terminal Verification Session artifact', status: 'completed', conclusion: 'success',
+      started_at: '2026-08-09T01:01:06Z', completed_at: '2026-08-09T01:01:10Z' }] };
+  target.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`] = [job];
+  target.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)] = { created_at: '2026-08-09T01:01:06Z', updated_at: '2026-08-09T01:01:10Z' };
+  const origin = createProviderOrigin('receive-verification-session-resume', 'receive-verification-session-resume',
+    'Resume original authenticated Verification Session', 5);
+  trustedEnvironment(providerEnvelope);
+  fakeGh = target;
+  return { artifact: selector, artifactText, artifactId: String(DELEGATED_ARTIFACT_ID), origin,
+    job, artifactName, hosted, actionPlanClosure, providerEnvelope };
 }
 
 let fakeGh = new FakeGh();
@@ -1563,6 +1761,201 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.downloadedArtifactIds).toEqual([]);
     expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
   });
+
+
+  test('delegated source reads original canonical data and binds only its exact selector and live origin', async () => {
+    for (const explicitAttempt of [false, true]) {
+      const value = delegatedSessionFixture();
+      expect(Object.hasOwn(value.job, 'run_attempt')).toBe(false);
+      if (explicitAttempt) value.job.run_attempt = 1;
+      const observed = await provider.authenticateHistoricalHostedSessionTerminalSource(value);
+      expect(observed.authenticatedArtifact).toEqual(value.artifact);
+      expect(observed.authenticatedArtifact).not.toBe(value.artifact);
+      expect(observed.authenticatedArtifact.evidence.status).toBe('unsupported');
+      expect(observed.artifactByteDigest).toBe(`sha256:${rawSha256Hex(Buffer.from(value.artifactText))}`);
+      expect(observed.archiveDigest).toBe(archiveDigestFor('verification-session-artifact.json', value.artifactText));
+      expect(observed.originalRequest.expectedSessionRevision).toBe(value.artifact.session.sessionRevision);
+      expect(observed.parentActor).toEqual(parentActor);
+      expect(fakeGh.jobListCalls.some(call => call.runId === DELEGATED_RUN_ID && call.runAttempt === 1)).toBe(true);
+      const before = fakeGh.downloadedArtifactIds.length;
+      const current = await provider.assertHistoricalHostedSessionTerminalSourceCurrent(value);
+      expect(current.authenticatedArtifact).toEqual(observed.authenticatedArtifact);
+      expect(fakeGh.downloadedArtifactIds.length).toBeGreaterThan(before);
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent({ origin: value.origin,
+        artifact: parseHostedSessionTerminalArtifact(value.artifactText) })).rejects.toThrow('unqualified');
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent({ origin: resumeOrigin,
+        artifact: value.artifact })).rejects.toThrow('unqualified');
+      await expect(provider.authenticateHistoricalHostedSessionTerminalSource(value)).rejects.toThrow('already has');
+      provider.closeHistoricalHostedSessionTerminalSource(value);
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('local delegated source observation performs the full read and never qualifies the selector', async () => {
+    const value = delegatedSessionFixture();
+    const observed = await provider.observeHistoricalHostedSessionTerminalSourceForLocalRead({
+      repositoryRoot: process.cwd(), repository: REPOSITORY, artifactId: value.artifactId,
+      artifactName: value.artifactName, artifactDigest: value.artifact.artifactDigest as VerificationActionKeyDigest,
+      archiveDigest: archiveDigestFor('verification-session-artifact.json', value.artifactText) });
+    expect(observed.authenticatedArtifact).toEqual(value.artifact);
+    expect(observed.artifactDigest).toBe(value.artifact.artifactDigest);
+    expect(observed.archiveDigest).toBe(archiveDigestFor('verification-session-artifact.json', value.artifactText));
+    expect(fakeGh.downloadedArtifactIds.filter(id => id === DELEGATED_ARTIFACT_ID)).toHaveLength(2);
+    await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
+    expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+  });
+
+  for (const field of ['artifactDigest', 'archiveDigest'] as const) {
+    for (const malformed of [true, false]) {
+      test(`local delegated source rejects ${field} with ${malformed ? 'malformed encoding' : 'a different canonical digest'}`, async () => {
+        const value = delegatedSessionFixture();
+        const original = { artifactDigest: value.artifact.artifactDigest as VerificationActionKeyDigest,
+          archiveDigest: archiveDigestFor('verification-session-artifact.json', value.artifactText) };
+        const wrong = malformed ? 'sha256:not-a-canonical-digest' as const : digest('0');
+        expect(wrong).not.toBe(original[field]);
+        const locator = { repositoryRoot: process.cwd(), repository: REPOSITORY,
+          artifactId: value.artifactId, artifactName: value.artifactName, ...original, [field]: wrong };
+        await expect(provider.observeHistoricalHostedSessionTerminalSourceForLocalRead(locator)).rejects.toThrow(
+          malformed ? 'Digest does not match' : field === 'archiveDigest'
+            ? 'does not bind its exact sole archive bytes' : 'differs from its canonical parsed source');
+        expect(fakeGh.downloadedArtifactIds).toEqual(malformed ? [] : [DELEGATED_ARTIFACT_ID]);
+        expect(fakeGh.jobListCalls).toEqual([]);
+        await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
+        expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+      });
+    }
+  }
+
+  test('delegated source requires whole-workflow, exact attempt, unique receiver and successful ordered session upload', async () => {
+    const forgeries: Array<(value: ReturnType<typeof delegatedSessionFixture>) => void> = [
+      value => { value.job.run_attempt = null; }, value => { value.job.run_attempt = 2; },
+      value => { value.job.run_attempt = '1'; }, value => { value.job.run_id = 9401; },
+      value => { value.job.head_sha = HEAD; }, value => { value.job.name = 'coordinate-verification-session'; },
+      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job }); },
+      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job, id: 6401 }); },
+      _value => { fakeGh.jobPageHook = (_page, _call, runId) => runId === DELEGATED_RUN_ID ? { totalCount: 2 } : null; },
+      value => { value.job.steps = []; },
+      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[0]!, number: 8 }); },
+      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[2]!, number: 8 }); },
+      value => { (value.job.steps as Record<string, unknown>[])[0]!.conclusion = 'failure'; },
+      value => { (value.job.steps as Record<string, unknown>[])[2]!.conclusion = 'skipped'; },
+      value => { (value.job.steps as Record<string, unknown>[])[2]!.number = 4; },
+      value => { (value.job.steps as Record<string, unknown>[])[2]!.name = 'Upload complete original resume dispatch outcome observations'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.number = 5; },
+      value => { value.job.status = 'in_progress'; value.job.conclusion = null; value.job.completed_at = null; },
+      ...['failure', 'cancelled', 'timed_out'].map(conclusion =>
+        (value: ReturnType<typeof delegatedSessionFixture>) => { value.job.conclusion = conclusion; }),
+      _value => { fakeGh.exactRunOverrides[`${DELEGATED_RUN_ID}:1`]!.conclusion = 'failure'; },
+      _value => { fakeGh.workflowSourceHook = call => call === 1
+        ? `${CANONICAL_WORKFLOW_SOURCE}\n  extra-session-writer:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo unexpected\n` : null; }
+    ];
+    for (const forge of forgeries) {
+      const value = delegatedSessionFixture();
+      const bytes = fixtureArchive(fakeGh.artifacts.find(entry => entry.id === DELEGATED_ARTIFACT_ID)!);
+      forge(value);
+      await expect(provider.authenticateHistoricalHostedSessionTerminalSource(value)).rejects.toThrow();
+      expect(fixtureArchive(fakeGh.artifacts.find(entry => entry.id === DELEGATED_ARTIFACT_ID)!)).toEqual(bytes);
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
+      expect(fakeGh.exactAttemptCalls.some(call => call.runId === '9300')).toBe(false);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('delegated archive must remain in its actual session upload interval and original producer budget', async () => {
+    const forgeries: Array<(value: ReturnType<typeof delegatedSessionFixture>) => void> = [
+      value => { value.job.started_at = undefined; }, value => { value.job.completed_at = '2026-08-09T01:01:09Z'; },
+      value => { (value.job.steps as Record<string, unknown>[])[0]!.started_at = null; },
+      value => { (value.job.steps as Record<string, unknown>[])[0]!.completed_at = '2026-08-09T01:01:00Z'; },
+      value => { (value.job.steps as Record<string, unknown>[])[2]!.started_at = '2026-08-09T01:01:01Z'; },
+      value => { (value.job.steps as Record<string, unknown>[])[2]!.completed_at = null; },
+      value => { (value.job.steps as Record<string, unknown>[])[2]!.completed_at = '2026-08-09T01:01:05Z'; },
+      value => { const upload = (value.job.steps as Record<string, unknown>[])[2]!;
+        upload.started_at = '2026-08-10T01:01:06Z'; upload.completed_at = '2026-08-10T01:01:10Z';
+        value.job.completed_at = '2026-08-10T01:01:12Z';
+        fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)] = {
+          created_at: upload.started_at, updated_at: upload.completed_at }; },
+      ...[{ created_at: undefined }, { updated_at: undefined }, { created_at: 'invalid' },
+        { created_at: '2026-08-09T01:01:05Z' }, { updated_at: '2026-08-09T01:01:11Z' },
+        { updated_at: '2026-08-09T01:01:05Z' },
+        { workflow_run: { id: Number(DELEGATED_RUN_ID), head_sha: HEAD } }].map(patch =>
+        (_value: ReturnType<typeof delegatedSessionFixture>) => {
+          Object.assign(fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)]!, patch);
+        })
+    ];
+    for (const forge of forgeries) {
+      const value = delegatedSessionFixture();
+      forge(value);
+      await expect(provider.authenticateHistoricalHostedSessionTerminalSource(value)).rejects.toThrow();
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
+      expect(fakeGh.exactAttemptCalls.some(call => call.runId === '9300')).toBe(false);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('delegated source preserves exact archive, original cause, human readback and lexical origin', async () => {
+    for (const mode of ['member', 'missing-member', 'digest', 'cause', 'action', 'emitter', 'parent', 'human', 'permission-drift', 'closed-origin'] as const) {
+      const value = delegatedSessionFixture();
+      const index = fakeGh.artifacts.findIndex(entry => entry.id === DELEGATED_ARTIFACT_ID);
+      if (mode === 'member') fakeGh.artifacts[index] = { ...fakeGh.artifacts[index]!,
+        members: { 'verification-session-artifact.json': value.artifactText, 'extra.json': '{}\n' } };
+      if (mode === 'missing-member') fakeGh.artifacts[index] = { ...fakeGh.artifacts[index]!,
+        members: { 'other.json': value.artifactText } };
+      if (mode === 'digest') Object.assign(fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)]!, { digest: digest('f') });
+      if (mode === 'cause' || mode === 'action' || mode === 'emitter') {
+        const raw = JSON.parse(value.artifactText);
+        if (mode === 'cause') raw.sourceCause.requestOperationId = digest('0');
+        else {
+          if (mode === 'emitter') raw.sourceCause.signal.emitter.runId = '9301';
+          else {
+            raw.sourceCause.signal.completedAction.terminalPayloadDigest = digest('0');
+            raw.sourceCause.signal.wakeKey = ciActionDigest({ schema: HOSTED_SESSION_WAKE_KEY_SCHEMA,
+              completedAction: raw.sourceCause.signal.completedAction });
+          }
+          const { signalDigest: _old, ...body } = raw.sourceCause.signal;
+          raw.sourceCause.signal.signalDigest = ciActionDigest(body);
+        }
+        const { artifactDigest: _old, ...body } = raw;
+        raw.artifactDigest = ciActionDigest(body);
+        const source = `${encodeVerificationActionData(raw)}\n`;
+        value.artifact = raw;
+        value.artifactText = source;
+        fakeGh.artifacts[index] = { ...fakeGh.artifacts[index]!, source };
+      }
+      if (mode === 'parent') fakeGh.parentRunOverrides.display_title = 'verify session PR #42 session substituted';
+      if (mode === 'human') fakeGh.parentPermissionUser.node_id = 'OTHER_HUMAN';
+      if (mode === 'permission-drift') fakeGh.permissionHook = call => call >= 3
+        ? { permission: 'read', role_name: 'read' } : null;
+      if (mode === 'closed-origin') fakeGh.workflowSourceHook = () => { originRecords.delete(value.origin); return null; };
+      await expect(provider.authenticateHistoricalHostedSessionTerminalSource(value)).rejects.toThrow();
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
+      if (mode === 'cause') expect(fakeGh.downloadedArtifactIds).toEqual([]);
+      if (mode === 'permission-drift') expect(fakeGh.permissionCalls).toBe(3);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+    const value = delegatedSessionFixture();
+    await expect(provider.authenticateHistoricalHostedSessionTerminalSource({ ...value,
+      origin: {} as AuthenticatedGitHubJobOrigin })).rejects.toThrow('unregistered test provider origin');
+    expect(fakeGh.downloadedArtifactIds).toEqual([]);
+  }, 30_000);
+
+  test('delegated current readback rejects later archive drift and selector mutation', async () => {
+    for (const mode of ['window', 'archive', 'selector'] as const) {
+      const value = delegatedSessionFixture();
+      await provider.authenticateHistoricalHostedSessionTerminalSource(value);
+      if (mode === 'window') {
+        Object.assign(fakeGh.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)]!, { updated_at: '2026-08-09T01:01:11Z' });
+      } else if (mode === 'archive') {
+        const index = fakeGh.artifacts.findIndex(entry => entry.id === DELEGATED_ARTIFACT_ID);
+        fakeGh.artifacts[index] = { ...fakeGh.artifacts[index]!, source: `${value.artifactText}\n` };
+      } else {
+        (value.artifact as { artifactDigest: string }).artifactDigest = digest('f');
+      }
+      await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow();
+      provider.closeHistoricalHostedSessionTerminalSource(value);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
 
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {
     fakeGh = new FakeGh();

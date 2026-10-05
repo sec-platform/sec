@@ -7,8 +7,8 @@ import type {
   HostedSessionArtifactTransport, HostedSessionTerminalArtifact, HostedSquashMergeResponse, HostedVerificationCommand, VerificationSessionHostedEnvelope, VerificationSessionHostedFacts, VerificationSessionHostedRequest
 } from "../execution/verification/hosted.ts";
 import { HOSTED_SESSION_WAKE_KEY_SCHEMA } from '../execution/verification/hosted.ts';
-import type { HostedIntegrationEffectPlan, HostedIntegrationPhase, HostedIntegrationRoute, IntegrationAuthorizationOperationPublication, IssueDisposition, IssueDispositionPlan, MergeGateProvenance, MergeGateResult } from '../execution/verification/integration.ts';
-import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof, VerificationSession, VerificationSessionRuntimeOutcome } from '../execution/verification/session.ts';
+import type { HostedIntegrationEffectPlan, HostedIntegrationPhase, HostedIntegrationRoute, IntegrationAuthorizationOperationPublication, IssueDisposition, IssueDispositionPlan, MergeGateProvenance, MergeGateResult, TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource } from '../execution/verification/integration.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, TrustedRuntimeProof, VerificationSession, VerificationSessionRuntimeOutcome } from '../execution/verification/session.ts';
 import { resumeVerificationSession, type VerificationSessionResumeExternal, type VerificationSessionResumeGitHub, type VerificationSessionResumePorts } from './verification-session-resume.ts';
 
 export { HOSTED_VERIFICATION_COMMANDS, type HostedVerificationCommand } from '../execution/verification/hosted.ts';

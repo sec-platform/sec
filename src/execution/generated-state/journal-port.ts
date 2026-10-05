@@ -9,7 +9,7 @@ import type {
 } from './contract.ts';
 import { generatedStateDigest } from './contract.ts';
 import type { GeneratedStateProviderSettlementEvidence } from './provider-effect.ts';
-import type { GeneratedStateNativeMutationResource, GeneratedStateNativeResource, GeneratedStatePublicationAuthority } from './registration-port.ts';
+import type { GeneratedStateNativeMutationResource, GeneratedStateNativeResource, GeneratedStatePublicationAuthority } from './registration-contract.ts';
 import type { GeneratedStateNativeTerminalEvidence } from './terminal-receipt.ts';
 
 export interface GeneratedStateCleanupIntent {

@@ -3,13 +3,8 @@ import type {
   GitHubPrincipalObservation, HostedSessionTerminalArtifact, IntegrationAuthorizationPublicationObservation, VerificationSessionCloseoutObservation, VerificationSessionJournalEventKind, VerificationSessionJournalReadback,
   VerificationSessionOperationClaim, VerificationSessionStage
 } from "../execution/verification/hosted.ts";
-import type { IntegrationAuthorization, MergeGateResult } from '../execution/verification/integration.ts';
-import type {
-  Digest, GitHubCandidateObservation, GitHubReviewBarrierObservation, MainHealthLedger,
-  PlatformEnforcementObservation, ReviewStabilityReceipt, ScopeAuthorization,
-  TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof,
-  VerificationSession, VerificationSessionRuntimeOutcome
-} from '../execution/verification/session.ts';
+import type { IntegrationAuthorization, MergeGateResult, TrustedArtifactProvenance, TrustedIntegrationAuthorizationSource } from '../execution/verification/integration.ts';
+import type { Digest, GitHubCandidateObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, ScopeAuthorization, TrustedRuntimeProof, VerificationSession, VerificationSessionRuntimeOutcome } from '../execution/verification/session.ts';
 
 /** Native payloads keep their original concrete type through the application. */
 export interface VerificationSessionResumeExternal<

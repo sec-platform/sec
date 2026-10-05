@@ -18,6 +18,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { createHostedSutCandidatePreparation, hostedSutCandidateArgv, hostedSutCandidateGuardArgv, hostedSutCandidatePreparationFromPlan } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../src/assurance/verification/contract/revision.ts";
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
@@ -2341,5 +2342,53 @@ test('CI V3 reader binds exact raw plan bytes and preserves observed base checks
     expect(JSON.stringify(evidence)).toContain(bytesDigest(v3));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test('candidate readonly preparation follows the original normalized Action and preserves workspace writers', () => {
+  // Expected access is independently stated; the phase label is deliberately
+  // varied and cannot grant or remove the actual source fence.
+  for (const [id, phase, argv, expected] of [
+    ['direct-test', 'workspace', ['bun', 'test', 'tests/unit/ci-verification-execution.test.ts'], 'read-only'],
+    ['fast', 'full', ['bun', 'run', 'test', '--', '--scope', 'fast'], 'read-only'],
+    ['affected', 'quick', ['bun', 'run', 'test', '--', '--affected'], 'read-only'],
+    ['check-plan', 'quick', ['bun', 'run', 'check', '--', '--affected', '--plan'], 'read-only'],
+    ['resolve', 'workspace', ['bun', 'run', 'sec', '--', 'resolve'], 'writable'],
+    ['lock', 'workspace', ['bun', 'run', 'sec', '--', 'lock'], 'writable'],
+    ['warmup', 'full', ['bun', 'run', 'sec', '--', 'deps', 'warmup'], 'writable']
+  ] as const) {
+    const resolution = hostedResolution([{ id, phase, argv, runtime: 'bun', environment: {}, coveredScopeIds: [] }]);
+    const operation = resolution.actionPlanClosure.normalizedOperations[0]!;
+    const ticket = hostedTicket(resolution);
+    const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+      resolutionDigest: resolution.resolutionDigest, ticketDigest: ticket.ticketDigest,
+      actionPlan: resolution.actionPlan, normalizedOperation: operation,
+      candidateSha: resolution.artifactInput.headSha,
+      candidateBytesDigest: resolution.artifactInput.candidateBytesDigest as VerificationActionKeyDigest,
+      manifestPath: resolution.artifactInput.manifestPath,
+      inventoryClosure: { archiveDigest: ticket.preparedCandidateArchiveDigest,
+        inventoryDigest: ticket.preparedCandidateInventoryDigest, entryCount: ticket.preparedCandidateEntryCount,
+        totalFileBytes: ticket.preparedCandidateTotalFileBytes, dependencyClosureDigest: ticket.baseDependencyClosureDigest,
+        gitBundleDigest: ticket.authenticatedGitClosureDigest }, producer: hostedProducer });
+    const preparation = createHostedSutCandidatePreparation({ operation, authorization, deadlineAtUnixMs: 1_900_000_000_000 });
+    expect(preparation.inputAccess).toBe(expected);
+    expect(preparation).toMatchObject({ baseSha: BASE, baseTreeSha: BASE_TREE, headSha: HEAD, headTreeSha: TREE,
+      actionKey: resolution.actionPlan.action.actionKey, archiveDigest: ticket.preparedCandidateArchiveDigest });
+    const input = { actionKey: authorization.actionKey, candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
+      bunExecutable: '/trusted/bin/bun', baseSha: BASE, headSha: HEAD, normalizedArgv: authorization.normalizedArgv,
+      candidateEnvironment: CodexDevelopmentHostedSutCandidateEnvironment({ normalizedOperation: operation, manifestPath: MANIFEST_PATH }),
+      executionAuthorization: authorization, candidatePreparation: preparation };
+    const plan = buildHostedSutSandboxCommandPlan(input);
+    expect(hostedSutCandidatePreparationFromPlan(plan)).toEqual(preparation);
+    expect(hostedSutCandidateArgv(plan)).toEqual(['/tool/bin/bun', ...argv.slice(1)]);
+    expect(hostedSutCandidateGuardArgv(plan) === null).toBe(expected === 'writable');
+    for (const patch of [{ actionKey: digest('f') }, { authorizationDigest: digest('f') },
+      { archiveDigest: digest('f') }, { inventoryDigest: digest('f') }, { baseSha: HEAD },
+      { inputAccess: expected === 'read-only' ? 'writable' as const : 'read-only' as const }]) {
+      expect(() => buildHostedSutSandboxCommandPlan({ ...input, candidatePreparation: { ...preparation, ...patch } })).toThrow();
+    }
+    expect(() => createHostedSutCandidatePreparation({ operation, authorization: { ...authorization,
+      operationSemanticDigest: digest('f') }, deadlineAtUnixMs: preparation.deadlineAtUnixMs })).toThrow();
   }
 });

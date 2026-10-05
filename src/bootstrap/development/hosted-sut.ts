@@ -9,11 +9,11 @@ import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTa
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../adapters/verification/platform/action/contract/environment.ts';
 import type { VerificationActionProviderOrigin } from '../../adapters/verification/platform/action/contract/provider.ts';
 import { encodeHostedSutNativeControl, parseHostedSutNativeOuterCorrelation, type HostedSutNativeOuterCorrelation } from '../../adapters/verification/platform/ci/contract/hosted-job-runtime.ts';
-import { buildHostedSutSandboxCommandPlan, hostedSutCapabilityCommandPlan, hostedSutTeardownCommandPlan } from '../../adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
+import { buildHostedSutSandboxCommandPlan, createHostedSutCandidatePreparation, hostedSutCapabilityCommandPlan, hostedSutTeardownCommandPlan } from '../../adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, hostedSutCleanupComplete, hostedSutLifecycleComplete } from '../../adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../adapters/verification/platform/ci/contract/revision.ts';
 import { CodexDevelopmentFailureTail, type CodexDevelopmentGateProcessResult } from '../../adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
-import { assertHostedSutSupervisorLive, createHostedSutSupervisor, HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST, HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID, HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS, type HostedSutSupervisor } from '../../adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
+import { assertHostedSutSupervisorLive, createHostedSutSupervisor, getHostedSutSupervisorDeadlineAtUnixMs, HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST, HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID, HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS, type HostedSutSupervisor } from '../../adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
 import { CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution } from '../../adapters/verification/platform/ci/verification-hosted-action-contract.ts';
 import { assertRetainedHostedSutArchive, hostedActionFileDigest, retainHostedSutArchive, type CodexDevelopmentRetainedHostedSutArchive } from '../../adapters/verification/platform/ci/verification-materialization.ts';
 import { finalizeHostedSutSandboxReceipt, hostedSutRootIsolationReceipt, syntheticHostedSutSandboxProcessObservation } from '../../adapters/verification/platform/ci/verification-sut.ts';
@@ -67,7 +67,7 @@ export function prepareHostedActionSutInputs(input: Parameters<typeof prepareHos
   });
 }
 
-function bindHostedSutPorts(supervisor: HostedSutSupervisor): NativeSutPorts {
+function bindHostedSutPorts(supervisor: HostedSutSupervisor, prepared?: ReturnType<typeof prepareHostedActionSutInputs>): NativeSutPorts {
   return {
     platform: process.platform, bunExecutable: realpathSync.native(process.execPath),
     unitNonce: randomBytes(16).toString('hex'),
@@ -81,7 +81,17 @@ function bindHostedSutPorts(supervisor: HostedSutSupervisor): NativeSutPorts {
     candidateEnvironment: CodexDevelopmentHostedSutCandidateEnvironment,
     createCapabilityPlan: hostedSutCapabilityCommandPlan,
     createTeardownPlan: hostedSutTeardownCommandPlan,
-    createExecutionPlan: buildHostedSutSandboxCommandPlan,
+    createExecutionPlan: input => {
+      assertHostedSutSupervisorLive(supervisor);
+      if (prepared === undefined || input.executionAuthorization !== prepared.executionAuthorization
+          || input.actionKey !== prepared.resolution.actionPlan.action.actionKey) {
+        throw new Error('Native candidate preparation requires the original prepared Action.');
+      }
+      return buildHostedSutSandboxCommandPlan({ ...input, candidatePreparation: createHostedSutCandidatePreparation({
+        operation: prepared.normalizedOperation, authorization: prepared.executionAuthorization,
+        deadlineAtUnixMs: getHostedSutSupervisorDeadlineAtUnixMs(supervisor)
+      }) });
+    },
     normalizedArgv: ciVerificationNormalizedOperationArgv,
     resolveAuthorizedOperation: resolveCiVerificationDevRunnerTarget,
     run: (plan, archive) => {
@@ -187,11 +197,13 @@ async function runNativeUnitEntry(): Promise<void> {
       readResolution: () => resolution, issueInvocation: () => supervisor,
       probe: (input, observed) => probeHostedSutCapability(input, bindHostedSutPorts(observed)),
       policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
-    }) : await executeHostedActionSut(prepareHostedActionSutInputs({ resolution,
-      ticket: CodexDevelopmentParseHostedActionExecutionTicket(encodeVerificationActionData(request.ticket)),
-      candidateArchive: HOSTED_SUT_NATIVE_ARCHIVE_PATH,
-      archiveInventory: request.archiveInventory as Parameters<typeof prepareHostedActionSutInputs>[0]['archiveInventory']
-    }), bindHostedSutPorts(supervisor));
+    }) : await (async () => {
+      const prepared = prepareHostedActionSutInputs({ resolution,
+        ticket: CodexDevelopmentParseHostedActionExecutionTicket(encodeVerificationActionData(request.ticket)),
+        candidateArchive: HOSTED_SUT_NATIVE_ARCHIVE_PATH,
+        archiveInventory: request.archiveInventory as Parameters<typeof prepareHostedActionSutInputs>[0]['archiveInventory'] });
+      return await executeHostedActionSut(prepared, bindHostedSutPorts(supervisor, prepared));
+    })();
   } catch (error) {
     primary = { label: 'Hosted native inner SUT', error };
     throw error;

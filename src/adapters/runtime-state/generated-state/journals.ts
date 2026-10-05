@@ -12,7 +12,7 @@ import {
   type GeneratedStatePhysicalIdentity
 } from '../../../execution/generated-state/contract.ts';
 import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
-import type { GeneratedStateCleanupIntent, GeneratedStateDisposalReceiptKey, GeneratedStateJournalMutationBackend } from '../../../execution/generated-state/journal-port.ts';
+import type { GeneratedStateDisposalReceiptKey, GeneratedStateJournalMutationBackend } from '../../../execution/generated-state/journal-port.ts';
 import { consumeGeneratedStateProviderSettlement } from '../../../execution/generated-state/provider-effect.ts';
 import type { GeneratedStateNativeResource } from '../../../execution/generated-state/registration-port.ts';
 import { consumeGeneratedStatePublication } from '../../../execution/generated-state/registration-session.ts';
@@ -24,16 +24,17 @@ import {
   parseGeneratedStateCleanupIntentBytes, parseGeneratedStateDisposalReceiptBytes,
   parseWorktreeRetirementIntent
 } from './journal-codec.ts';
+import { loadCleanupIntent, transactionPointerPath } from './journal-read.ts';
 import { assertGeneratedStateNativeOperationBinding } from './physical-effects.ts';
 import {
   observeGeneratedStatePhysicalRoot,
   readRegistrationLedgerObservation,
-  registrationKey,
   retainedGeneratedStateMutationStore,
   retainedGeneratedStateObservationStore,
   samePhysicalIdentity,
   type GeneratedStateRuntimeStore
 } from './registration-store.ts';
+export { loadCleanupIntent, transactionPointerPath } from './journal-read.ts';
 
 const disposalEvidence = new WeakMap<object, Readonly<{ resource: GeneratedStateNativeResource;
   workspaceRoot: string; key: GeneratedStateDisposalReceiptKey; bytes: string }>>();
@@ -279,15 +280,6 @@ export function createGeneratedStateJournalMutationBackend(): GeneratedStateJour
       return settlement;
     }
   } satisfies GeneratedStateJournalMutationBackend);
-}
-
-export function transactionPointerPath(store: GeneratedStateRuntimeStore, relativePath: string): string {
-  return path.join(store.transactionsRoot, `current-${registrationKey(relativePath)}.json`);
-}
-
-export function loadCleanupIntent(store: GeneratedStateRuntimeStore, relativePath: string): GeneratedStateCleanupIntent | null {
-  const locator = transactionPointerPath(store, relativePath);
-  return store.fs.exists(locator) ? parseGeneratedStateCleanupIntentBytes(store.fs.readText(locator), relativePath) : null;
 }
 
 export function generatedStateDisposalReceiptPath(

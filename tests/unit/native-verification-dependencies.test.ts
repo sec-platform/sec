@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { parseNativeVerificationDependencyRequest } from '../../src/bootstrap/toolchain/native-verification-dependencies.ts';
+import type { NoFollowDirectoryTreeInventoryEntry } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertHostedCandidateDependencyPayload, parseNativeVerificationDependencyRequest } from '../../src/bootstrap/toolchain/native-verification-dependencies.ts';
 import { ExactJsonError, type ExactJsonFailureKind } from '../../src/contracts/exact-json.ts';
 
 const request = Object.freeze({
@@ -87,4 +88,59 @@ test('native dependency request enforces byte and recursive-container limits bef
   Object.defineProperty(overLimit, 'byteLength', { value: 1 });
   expectJsonFailure(overLimit, 'input-too-large');
   expectJsonFailure(bytes({ ...request, kind: { nested: { value: 'source-program' } } }), 'depth-limit');
+});
+
+
+const innerCandidate = Object.freeze({ schema: 'sec-hosted-candidate-preparation-v1',
+  actionKey: `sha256:${'1'.repeat(64)}`, resolutionDigest: `sha256:${'2'.repeat(64)}`,
+  authorizationDigest: `sha256:${'3'.repeat(64)}`, operationSemanticDigest: `sha256:${'4'.repeat(64)}`,
+  baseSha: 'a'.repeat(40), baseTreeSha: 'b'.repeat(40), headSha: 'c'.repeat(40), headTreeSha: 'd'.repeat(40),
+  archiveDigest: `sha256:${'5'.repeat(64)}`, inventoryDigest: `sha256:${'6'.repeat(64)}`,
+  dependencyClosureDigest: `sha256:${'7'.repeat(64)}`, gitBundleDigest: `sha256:${'8'.repeat(64)}`,
+  deadlineAtUnixMs: request.deadlineAtUnixMs, inputAccess: 'read-only' });
+
+test('inner candidate is a closed distinct target context, not an arbitrary-root request', () => {
+  for (const phase of ['prepare', 'observe'] as const) {
+    const wire = { ...request, phase, kind: 'hosted-candidate' as const, candidate: innerCandidate };
+    expect(parseNativeVerificationDependencyRequest(bytes(wire))).toEqual(wire);
+    for (const patch of [{ root: '/elsewhere' }, { phase: 'install' }, { kind: 'hosted-sut' },
+      { candidate: undefined }, { candidate: { ...innerCandidate, targetRoot: '/workspace' } },
+      { candidate: { ...innerCandidate, deadlineAtUnixMs: request.deadlineAtUnixMs + 1 } },
+      { candidate: { ...innerCandidate, inputAccess: 'caller-chooses' } },
+      { candidate: { ...innerCandidate, authority: true } }]) {
+      expect(() => parseNativeVerificationDependencyRequest(bytes({ ...wire, ...patch }))).toThrow();
+    }
+  }
+  expect(() => parseNativeVerificationDependencyRequest(bytes({ ...request, candidate: innerCandidate }))).toThrow();
+});
+
+test('candidate payload admits missing or differently bound regenerated metadata and retains all package obligations', () => {
+  // These inventories are comparison data, never physical issuer capabilities.
+  const member = (relativePath: string, patch: Partial<NoFollowDirectoryTreeInventoryEntry> = {}): NoFollowDirectoryTreeInventoryEntry => ({
+    relativePath, kind: 'file', device: '1', inode: '2', size: 4,
+    contentDigest: `sha256:${'1'.repeat(64)}`, byteDigest: `sha256:${'2'.repeat(64)}`,
+    linkTarget: null, permissionMode: 0o444, ...patch
+  });
+  const raw = [member('package', { kind: 'directory', size: 0, permissionMode: 0o555 }),
+    member('package/tool.js', { permissionMode: 0o555 }), member('.bin', { kind: 'directory', size: 0, permissionMode: 0o555 }),
+    member('.bin/tool', { kind: 'link', size: 0, linkTarget: '../package/tool.js', permissionMode: null }),
+    member('package/.sec-private-payload')];
+  const control = '.sec-compiler-deps-binding-v5.json';
+  const trusted = [...raw.map(entry => ({ ...entry, relativePath: `node_modules/${entry.relativePath}` })),
+    member(`node_modules/${control}`)];
+  expect(() => assertHostedCandidateDependencyPayload(raw, trusted)).not.toThrow();
+  expect(() => assertHostedCandidateDependencyPayload([...raw, member(control, {
+    byteDigest: `sha256:${'3'.repeat(64)}`, size: 500
+  })], trusted)).not.toThrow();
+  // Relative spellings remain exact; collapsing x/.. could traverse a symlink.
+  for (const changed of [raw.slice(0, -1), [...raw, member('.sec-other')],
+    raw.map(entry => entry.relativePath !== 'package/tool.js' ? entry : { ...entry, byteDigest: `sha256:${'4'.repeat(64)}` as const }),
+    raw.map(entry => entry.relativePath !== 'package/tool.js' ? entry : { ...entry, permissionMode: 0o444 }),
+    ...['../../outside', '/workspace/node_modules/package/tool.js', '../package/other.js', './tool', '..',
+      '../package/../package/tool.js', '../package\\tool.js'].map(linkTarget =>
+      raw.map(entry => entry.kind !== 'link' ? entry : { ...entry, linkTarget })),
+    [...raw, member(control, { kind: 'link', linkTarget: 'package/tool.js' })],
+    [...raw, member(control, { kind: 'directory' })]]) {
+    expect(() => assertHostedCandidateDependencyPayload(changed, trusted)).toThrow();
+  }
 });

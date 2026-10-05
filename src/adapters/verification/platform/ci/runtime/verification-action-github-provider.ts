@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { deepFreeze } from '../../../../../contracts/canonical.ts';
+import { parseDigest } from '../../../../../contracts/digest.ts';
 import { failureMessage } from '../../../../../contracts/failure-inspection.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../../execution/verification/action.ts';
 import type { HostedResumeSignal } from '../../../../../execution/verification/hosted.ts';
@@ -925,7 +926,7 @@ async function readVerificationActionArtifactObservation<TPayload>(
 }
 
 /** Metadata identifies a run, not its writer job. Only these original closed
- * slots may supply Action data; the returned job facts create no live authority. */
+ * slots may supply Action or delegated Session data; returned facts create no live authority. */
 async function assertVerificationActionArtifactPublisher(transport: VerificationActionGitHubProviderReadFacts,
   input: Readonly<{ origin: VerificationActionProviderOrigin; metadata: Record<string, unknown>; fileName: string }>
 ): Promise<Readonly<{ jobId: string; status: string; conclusion: string | null }>> {
@@ -936,7 +937,9 @@ async function assertVerificationActionArtifactPublisher(transport: Verification
       : input.fileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE
         ? { jobId: 'assemble-verification-action-terminal', slot: 'anchor' }
         : input.fileName === 'hosted-action-resolution.json'
-          ? { jobId: 'resolve-verification-action', slot: 'resolution' } : null;
+          ? { jobId: 'resolve-verification-action', slot: 'resolution' }
+          : input.fileName === 'verification-session-artifact.json'
+            ? { jobId: 'receive-verification-session-resume', slot: 'session' } : null;
   if (selected === null) fail('Action artifact has no closed publisher slot.');
   const { origin } = input;
   if (record(input.metadata.workflow_run, 'Action artifact run').head_sha !== origin.workflowSha) {
@@ -2325,7 +2328,7 @@ export async function observeHistoricalHostedSessionTerminalSourceForLocalRead(i
 }>) {
   const captured = Object.freeze({ repositoryRoot: input.repositoryRoot, repository: repository(input.repository),
     artifactId: positiveId(input.artifactId, 'local historical Session artifact id'), artifactName: input.artifactName,
-    artifactDigest: digest(input.artifactDigest), archiveDigest: digest(input.archiveDigest) });
+    artifactDigest: parseDigest(input.artifactDigest, 'sha256'), archiveDigest: parseDigest(input.archiveDigest, 'sha256') });
   return await withGitHubApiVerificationSession({ repositoryRoot: captured.repositoryRoot,
     repository: captured.repository, effect: 'verification-read', operation: async capability => {
       const scope = await createHistoricalSourceReadScope(capability, captured.repository, null);
@@ -2433,10 +2436,6 @@ async function readHistoricalHostedSessionSourceFacts(scope: HistoricalSourceRea
     repositoryId: authenticatedRepository.repositoryId, repository: authenticatedRepository.repositoryName,
     runId, runAttempt: producer.runAttempt
   });
-  const receiverWorkflowSource = await transport.getCanonicalHostedWorkflowSource({
-    repository: authenticatedRepository.repositoryName, revision: producer.workflowSha
-  });
-  assertCiVerificationPerJobHostedWorkflowShape(receiverWorkflowSource, 'receive-verification-session-resume');
   const receiverRun = record(await transport.getWorkflowRunAttempt({
     repository: authenticatedRepository.repositoryName, runId, runAttempt: producer.runAttempt
   }), 'historical Session receiver attempt');
@@ -2447,21 +2446,11 @@ async function readHistoricalHostedSessionSourceFacts(scope: HistoricalSourceRea
       receiverRun.head_branch !== 'main' || receiverRun.status !== 'completed' || receiverRun.conclusion !== 'success') {
     fail('historical Session receiver attempt is not its exact completed canonical producer.');
   }
-  const jobs = await readCompleteParentJobs(transport, authenticatedRepository.repositoryName, runId, producer.runAttempt);
-  const receivers = jobs.filter((job) => job.name === 'receive-verification-session-resume');
-  const receiver = receivers.length === 1 ? receivers[0] : undefined;
-  const steps = receiver !== undefined && Array.isArray(receiver.steps)
-    ? receiver.steps.map((step, index) => record(step, `historical receiver step[${index}]`)) : [];
-  const finalizers = steps.filter((step) => step.name === 'Resume original authenticated Verification Session');
-  const uploads = steps.filter((step) => step.name === 'Upload resumed terminal Verification Session artifact');
-  if (receiver === undefined || receiver.run_id !== Number(runId) || receiver.run_attempt !== producer.runAttempt ||
-      receiver.head_sha !== producer.workflowSha || receiver.status !== 'completed' || receiver.conclusion !== 'success' ||
-      finalizers.length !== 1 || uploads.length !== 1 ||
-      finalizers[0]!.status !== 'completed' || finalizers[0]!.conclusion !== 'success' ||
-      uploads[0]!.status !== 'completed' || uploads[0]!.conclusion !== 'success' ||
-      !Number.isSafeInteger(finalizers[0]!.number) || !Number.isSafeInteger(uploads[0]!.number) ||
-      Number(finalizers[0]!.number) >= Number(uploads[0]!.number)) {
-    fail('historical Session lacks its exact successful receiver finalizer and upload provenance.');
+  const publisher = await assertVerificationActionArtifactPublisher(transport, {
+    origin: receiverOrigin, metadata, fileName: 'verification-session-artifact.json'
+  });
+  if (publisher.status !== 'completed' || publisher.conclusion !== 'success') {
+    fail('historical Session receiver is not its exact completed successful publisher.');
   }
   const signal = artifact.sourceCause.signal;
   await authenticateHistoricalHostedResumeEmitter(transport, signal, authenticatedRepository);
