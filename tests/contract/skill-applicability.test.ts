@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import { expect, test } from 'bun:test';
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { assertWorkerOperationReadPlanMatches, projectWorkerOperationReadClosure } from '../../src/adapters/self-hosting/control/agent/operation-read-plan.ts';
 import { projectWorkerTaskCapsuleObservation } from '../../src/adapters/self-hosting/control/agent/task-capsule-host.ts';
@@ -48,6 +49,7 @@ function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationRe
 function gitOutput(args: readonly string[]): string {
   const result = spawnSync('git', args, {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });
@@ -58,6 +60,7 @@ function gitOutput(args: readonly string[]): string {
 function gitOutputOrNull(args: readonly string[]): string | null {
   const result = spawnSync('git', args, {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });
@@ -67,6 +70,7 @@ function gitOutputOrNull(args: readonly string[]): string | null {
 function gitNulPaths(args: readonly string[]): string[] {
   const result = spawnSync('git', args, {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });

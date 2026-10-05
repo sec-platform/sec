@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
   compileSecOperationReadPlan,
   SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
@@ -32,6 +33,7 @@ function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationRe
 function gitHead(): string {
   const result = spawnSync('git', ['rev-parse', 'HEAD'], {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });

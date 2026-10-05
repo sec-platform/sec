@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { projectRepositorySourceGovernance } from '../../src/adapters/repository/repository-audit/cli.ts';
 import {
   classifySecRepositorySurface,
@@ -46,6 +47,7 @@ function parseSkill(source: string): { body: string; frontmatter: SkillFrontmatt
 function trackedRepositoryFiles(): string[] {
   const result = spawnSync('git', ['ls-files', '-z'], {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });

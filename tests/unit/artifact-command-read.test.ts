@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { readRequiredJson } from '../../src/adapters/workspace/required-artifact-read.ts';
-import { presentRequiredValue } from '../../src/entry/cli/required-value-presentation.ts';
+import { executeArtifactCommandInput } from '../../src/entry/cli/artifact-command-execution.ts';
 
 async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-artifact-read-'));
@@ -55,11 +55,15 @@ test('native path errors retain their platform code and only ENOENT is translate
 test('read failure emits no success frame', async () => {
   let writes = 0; const log = console.log; console.log = () => { writes++; };
   try {
-    await assert.rejects(presentRequiredValue(
-      async () => { throw new Error('missing fixture'); },
-      { json: true, compact: true },
-      () => assert.fail('format on missing value')
-    ));
+    const failure = new Error('missing fixture');
+    await assert.rejects(executeArtifactCommandInput(
+      { kind: 'manifest', output: { json: true, compact: true } },
+      {
+        readManifest: async () => { throw failure; },
+        observeManifest: async () => assert.fail('observe on manifest read'),
+        generate: async () => assert.fail('generate on manifest read')
+      }
+    ), (error: unknown) => error === failure);
     assert.equal(writes, 0);
   } finally { console.log = log; }
 });

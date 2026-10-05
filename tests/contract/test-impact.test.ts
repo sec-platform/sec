@@ -244,20 +244,33 @@ test('deleted local dependency makes selection unresolved', () => {
   });
 });
 
-test('imported machine data uses the same reverse dependency graph', () => {
+test('imported machine data retains exact consumers for present and missing sources', () => {
   const data = 'src/compiler/virtual-registry.json';
   const consumer = 'src/compiler/virtual-registry-consumer.ts';
   const selected = 'tests/unit/virtual-registry-consumer.test.ts';
-  const provider = sourceProvider({
-      [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
-      [selected]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;"
-  });
+  const unrelated = 'tests/unit/virtual-unrelated.test.ts';
+  const sources = {
+    [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
+    [selected]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;",
+    'src/compiler/virtual-unrelated.ts': 'export const unrelated = true;',
+    [unrelated]: "import { unrelated } from '../../src/compiler/virtual-unrelated.ts'; void unrelated;"
+  };
 
-  expect(selectTestsForSources([data], provider)).toEqual({
-    fast: [selected],
-    slow: [],
-    owners: ['compiler']
-  });
+  for (const dataPresent of [true, false]) {
+    const provider = sourceProvider({
+      ...sources,
+      ...(dataPresent ? { [data]: '{"enabled":true}\n' } : {})
+    });
+    expect(resolveTestImpactSelectionTrustBoundary(provider)).toEqual({
+      selectionResolved: dataPresent,
+      unresolvedModuleFiles: dataPresent ? [] : [consumer]
+    });
+    expect(selectTestsForSources([data], provider)).toEqual({
+      fast: [selected],
+      slow: [],
+      owners: ['compiler']
+    });
+  }
 });
 
 test('non-code product inputs reach tests through semantic module owners', () => {

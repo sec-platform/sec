@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import {
   buildReferenceDriftCommands,
@@ -29,10 +30,10 @@ async function withReferenceGitFixture<T>(
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-reference-drift-'));
   const referenceRoot = path.join(root, 'examples', 'reference-workspace');
   try {
-    expect((await runCommand('git', ['init', '--quiet'], { cwd: root })).code).toBe(0);
+    expect((await runCommand('git', ['init', '--quiet'], { cwd: root, env: canonicalGitChildEnvironment(), envMode: 'replace' })).code).toBe(0);
     await fs.mkdir(referenceRoot, { recursive: true });
     await fs.writeFile(path.join(referenceRoot, 'sec.yaml'), 'name: baseline\n', 'utf8');
-    expect((await runCommand('git', ['add', '--', 'examples/reference-workspace/sec.yaml'], { cwd: root })).code).toBe(0);
+    expect((await runCommand('git', ['add', '--', 'examples/reference-workspace/sec.yaml'], { cwd: root, env: canonicalGitChildEnvironment(), envMode: 'replace' })).code).toBe(0);
     return await callback(root, referenceRoot);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

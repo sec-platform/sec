@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
   CodexDevelopmentClassifyWorkPackageCensus,
   CodexDevelopmentParseActivePointer
@@ -14,6 +15,7 @@ const PACKAGE_DIR = path.join(ROOT, 'config/repository/work-packages');
 function defaultBytes(repositoryPath: string): Uint8Array | null {
   const result = spawnSync('git', ['show', `refs/remotes/origin/main:${repositoryPath}`], {
     cwd: ROOT,
+    env: canonicalGitChildEnvironment(),
     windowsHide: true,
     encoding: null,
     maxBuffer: 2 * 1024 * 1024
