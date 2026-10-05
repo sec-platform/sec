@@ -1,29 +1,29 @@
 #!/usr/bin/env bun
 
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { BranchRecoveryAuthority } from '../../../../execution/verification/branch-closeout.ts';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
+import type { BranchRecoveryAuthority } from '../../../../execution/verification/branch-closeout.ts';
 import {
+  assertGitHubApiMaintenanceRequest,
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
   withGitHubApiReadSession
 } from '../../../providers/github-api/operation-session.ts';
-import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
-import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
-
 import {
-  parseExactRemoteRefRecoveryPreparation,
-  prepareExactRemoteRefRecovery,
-  retireExactRemoteRefs,
-  type ExactRemoteRefRecoveryPreparation
+  observeExactRefBatchResumeReceipt,
+  parseExactRemoteRefBatchRecoveryPreparation,
+  prepareExactRemoteRefBatchRecovery,
+  retireExactRemoteRefBatch,
+  type ExactRefBatchRecoveryCarrier,
+  type ExactRemoteRefBatchRecoveryPreparation
 } from '../branch-lifecycle/exact-ref-retirement.ts';
 import {
-  retireExactIssueComment,
-  retireMaintenanceTriggerComment
-} from './comment-retirement.ts';
-import type { MaintenanceRequest } from './contract.ts';
+  parseRepositoryMaintenanceResumeReceipt,
+  REPOSITORY_MAINTENANCE_RECOVERY_RETENTION_DAYS,
+  type MaintenanceRequest
+} from './contract.ts';
 import {
   assertHostedRepositoryMaintenanceIdentity,
   parseHostedRepositoryMaintenanceRequest
@@ -32,88 +32,129 @@ import {
 export { parseRepositoryMaintenanceRequest } from './contract.ts';
 
 const HOSTED_RECOVERY_PREPARATION_SCHEMA =
-  'sec-repository-maintenance-hosted-recovery-preparation-v1' as const;
-const HOSTED_RECOVERY_CARRIER_ROOT =
-  '/tmp/sec-repository-maintenance-carrier' as const;
-const HOSTED_RECOVERY_PREPARATION_FILE =
-  'recovery-preparation.json' as const;
-const HOSTED_RECOVERY_BUNDLE_FILE = 'recovery.bundle' as const;
-const HOSTED_RECOVERY_CHECKSUM_FILE = 'recovery.bundle.sha256' as const;
+  'sec-repository-maintenance-hosted-recovery-preparation-v2' as const;
+const HOSTED_RECOVERY_CARRIER_ROOT = '/tmp/sec-repository-maintenance-carrier';
+const HOSTED_RECOVERY_PREPARATION_FILE = 'recovery-preparation.json';
+const HOSTED_RECOVERY_BUNDLE_FILE = 'recovery.bundle';
+const HOSTED_RECOVERY_CHECKSUM_FILE = 'recovery.bundle.sha256';
+const HOSTED_RESULT_FILE = 'maintenance-result.json';
 
 type HostedRecoveryPreparation = Readonly<{
   schema: typeof HOSTED_RECOVERY_PREPARATION_SCHEMA;
   requestDigest: `sha256:${string}`;
-  required: boolean;
-  refPreparation: ExactRemoteRefRecoveryPreparation | null;
+  required: true;
+  refPreparation: ExactRemoteRefBatchRecoveryPreparation;
+  reusedCarrier: HostedRecoveryCarrier | null;
 }>;
 
-type HostedRecoveryCarrier = Readonly<{
-  artifactId: number;
-  artifactName: string;
-  artifactDigest: `sha256:${string}`;
-  runId: number;
-  runAttempt: number;
-}>;
+type HostedRecoveryCarrier = ExactRefBatchRecoveryCarrier;
 
 type HostedPreEffectRecovery = Readonly<{
-  refState: 'present' | 'absent';
-  recovery: BranchRecoveryAuthority | null;
-  carrier: HostedRecoveryCarrier | null;
+  preparation: ExactRemoteRefBatchRecoveryPreparation;
+  recovery: BranchRecoveryAuthority;
+  carrier: HostedRecoveryCarrier;
 }>;
 
-function exactRefOperation(request: MaintenanceRequest) {
-  return request.operations.find((operation) => operation.kind === 'exact-ref-retirement');
+function retirements(request: MaintenanceRequest) {
+  return request.operations.map((operation) => {
+    if (operation.kind !== 'exact-ref-retirement') {
+      throw new Error('hosted batch only accepts exact ref retirement');
+    }
+    return operation.retirement;
+  });
+}
+
+function record(value: unknown, label: string): Record<string, any> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be one object`);
+  }
+  return value as Record<string, any>;
 }
 
 function parseHostedRecoveryPreparation(value: unknown): HostedRecoveryPreparation {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('hosted maintenance recovery preparation must be one object');
-  }
-  const input = value as Record<string, unknown>;
-  const keys = Object.keys(input).sort();
-  const expected = ['schema', 'requestDigest', 'required', 'refPreparation'].sort();
-  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
-    throw new Error('hosted maintenance recovery preparation fields are invalid');
-  }
-  if (input.schema !== HOSTED_RECOVERY_PREPARATION_SCHEMA
+  const input = record(value, 'hosted maintenance recovery preparation');
+  const expected = ['schema', 'requestDigest', 'required', 'refPreparation', 'reusedCarrier'].sort();
+  const actual = Object.keys(input).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)
+      || input.schema !== HOSTED_RECOVERY_PREPARATION_SCHEMA
       || typeof input.requestDigest !== 'string'
       || !/^sha256:[0-9a-f]{64}$/u.test(input.requestDigest)
-      || typeof input.required !== 'boolean') {
+      || input.required !== true) {
     throw new Error('hosted maintenance recovery preparation identity is invalid');
-  }
-  const refPreparation = input.refPreparation === null
-    ? null
-    : parseExactRemoteRefRecoveryPreparation(input.refPreparation);
-  if (input.required !== (refPreparation?.recovery !== null && refPreparation !== null)) {
-    throw new Error('hosted maintenance recovery requirement differs from its exact preparation');
   }
   return Object.freeze({
     schema: HOSTED_RECOVERY_PREPARATION_SCHEMA,
     requestDigest: input.requestDigest as `sha256:${string}`,
-    required: input.required,
-    refPreparation
+    required: true,
+    refPreparation: parseExactRemoteRefBatchRecoveryPreparation(input.refPreparation),
+    reusedCarrier: input.reusedCarrier === null ? null : parseCarrier(input.reusedCarrier)
   });
 }
 
-function assertHostedRecoveryCarrierPlatform(): void {
+function hostedPath(file: string): string {
   if (process.platform !== 'linux') {
     throw new Error('hosted repository maintenance recovery carrier requires Linux');
   }
+  return path.join(HOSTED_RECOVERY_CARRIER_ROOT, file);
 }
 
-function hostedRecoveryPreparationPath(): string {
-  return path.join(HOSTED_RECOVERY_CARRIER_ROOT, HOSTED_RECOVERY_PREPARATION_FILE);
+function parseCarrier(value: unknown): HostedRecoveryCarrier {
+  const carrier = record(value, 'recovery carrier');
+  if (carrier.provider !== 'github-actions-artifact' || typeof carrier.repository !== 'string'
+      || !Number.isSafeInteger(carrier.artifactId) || carrier.artifactId < 1
+      || !Number.isSafeInteger(carrier.runId) || carrier.runId < 1
+      || !Number.isSafeInteger(carrier.runAttempt) || carrier.runAttempt < 1
+      || carrier.artifactName !== `sec-repository-maintenance-recovery-${carrier.runId}-${carrier.runAttempt}`
+      || typeof carrier.artifactDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(carrier.artifactDigest)
+      || carrier.requestedRetentionDays !== REPOSITORY_MAINTENANCE_RECOVERY_RETENTION_DAYS
+      || typeof carrier.createdAt !== 'string' || !Number.isFinite(Date.parse(carrier.createdAt))
+      || typeof carrier.expiresAt !== 'string' || !Number.isFinite(Date.parse(carrier.expiresAt))
+      || carrier.url !== `https://github.com/${carrier.repository}/actions/runs/${carrier.runId}/artifacts/${carrier.artifactId}`) {
+    throw new Error('recovery carrier locator is invalid');
+  }
+  return Object.freeze({ provider: carrier.provider, repository: carrier.repository,
+    artifactId: carrier.artifactId, artifactName: carrier.artifactName,
+    artifactDigest: carrier.artifactDigest as `sha256:${string}`, runId: carrier.runId, runAttempt: carrier.runAttempt,
+    requestedRetentionDays: carrier.requestedRetentionDays, createdAt: carrier.createdAt,
+    expiresAt: carrier.expiresAt, url: carrier.url });
 }
 
-function hostedRecoveryReadbackRoot(): string {
-  return path.join(HOSTED_RECOVERY_CARRIER_ROOT, 'readback');
+function persistReceipt(value: unknown): void {
+  const target = hostedPath(HOSTED_RESULT_FILE);
+  const temporary = `${target}.tmp`;
+  const fd = openSync(temporary, 'wx', 0o600);
+  try { writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`); fsyncSync(fd); }
+  finally { closeSync(fd); }
+  renameSync(temporary, target);
+  const directory = openSync(HOSTED_RECOVERY_CARRIER_ROOT, 'r');
+  try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-function readHostedRecoveryPreparation(): HostedRecoveryPreparation {
-  assertHostedRecoveryCarrierPlatform();
-  return parseHostedRecoveryPreparation(JSON.parse(
-    readFileSync(hostedRecoveryPreparationPath(), 'utf8')
-  ));
+async function assertRepositoryMaintenancePreflight(input: Readonly<{
+  repositoryRoot: string;
+  request: MaintenanceRequest;
+  environment: NodeJS.ProcessEnv;
+}>): Promise<void> {
+  assertHostedRepositoryMaintenanceIdentity(input.request, input.environment);
+  await withGitHubApiReadSession({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.request.repository,
+    operation: async (capability) => {
+      const binding = inspectGitHubApiCapability(capability);
+      if (binding.origin !== 'production' || binding.principal.transport !== 'github-actions-token') {
+        throw new Error('repository maintenance requires the production hosted capability owner');
+      }
+      assertGitHubApiMaintenanceRequest(capability, sha256(input.request));
+      const repository = record(await executeGitHubApiOperation(capability, { kind: 'repository' }), 'repository');
+      if (repository.full_name !== input.request.repository || repository.default_branch !== 'main') {
+        throw new Error('repository maintenance repository identity is invalid');
+      }
+      const main = record(await executeGitHubApiOperation(capability, { kind: 'git-ref', branch: 'main' }), 'main');
+      if (main.object?.sha !== input.request.expectedMainSha) {
+        throw new Error('repository maintenance live main drifted');
+      }
+    }
+  });
 }
 
 async function prepareHostedRecovery(input: Readonly<{
@@ -121,118 +162,34 @@ async function prepareHostedRecovery(input: Readonly<{
   request: MaintenanceRequest;
   environment: NodeJS.ProcessEnv;
 }>): Promise<HostedRecoveryPreparation> {
-  await assertRepositoryMaintenancePreflight({
-    repositoryRoot: input.repositoryRoot,
-    request: input.request,
-    environment: input.environment
-  });
-  const operation = exactRefOperation(input.request);
-  if (operation === undefined) {
+  await assertRepositoryMaintenancePreflight(input);
+  const requestDigest = sha256(input.request);
+  const resumeReceipt = parseRepositoryMaintenanceResumeReceipt(input.environment.SEC_MAINTENANCE_RESUME_RECEIPT);
+  if (resumeReceipt !== undefined) {
+    const observation = await observeExactRefBatchResumeReceipt({
+      repositoryRoot: input.repositoryRoot, repository: input.request.repository,
+      expectedMainSha: input.request.expectedMainSha, requestDigest,
+      retirements: retirements(input.request), resumeReceipt
+    });
     return Object.freeze({
-      schema: HOSTED_RECOVERY_PREPARATION_SCHEMA,
-      requestDigest: sha256(input.request),
-      required: false,
-      refPreparation: null
+      schema: HOSTED_RECOVERY_PREPARATION_SCHEMA, requestDigest, required: true,
+      refPreparation: observation.recoveryPreparation,
+      reusedCarrier: parseCarrier(observation.recoveryCarrier)
     });
   }
-  const refPreparation = await prepareExactRemoteRefRecovery({
+  const refPreparation = await prepareExactRemoteRefBatchRecovery({
     repositoryRoot: input.repositoryRoot,
     repository: input.request.repository,
     expectedMainSha: input.request.expectedMainSha,
-    retirement: operation.retirement
+    retirements: retirements(input.request),
+    requestDigest
   });
   return Object.freeze({
     schema: HOSTED_RECOVERY_PREPARATION_SCHEMA,
-    requestDigest: sha256(input.request),
-    required: refPreparation.recovery !== null,
-    refPreparation
-  });
-}
-
-function loadPreEffectRecovery(input: Readonly<{
-  request: MaintenanceRequest;
-  environment: NodeJS.ProcessEnv;
-}>): HostedPreEffectRecovery | undefined {
-  const operation = exactRefOperation(input.request);
-  if (operation === undefined) return undefined;
-  const local = readHostedRecoveryPreparation();
-  if (local.requestDigest !== sha256(input.request)
-      || local.refPreparation === null
-      || local.refPreparation.repository !== input.request.repository
-      || local.refPreparation.expectedMainSha !== input.request.expectedMainSha
-      || sha256(local.refPreparation.retirement) !== sha256(operation.retirement)) {
-    throw new Error('pre-effect recovery preparation differs from the exact maintenance request');
-  }
-
-  let preparation = local;
-  let recovery: BranchRecoveryAuthority | null = null;
-  let carrier: HostedRecoveryCarrier | null = null;
-  if (local.required) {
-    const root = hostedRecoveryReadbackRoot();
-    const downloadedPreparationPath = path.join(root, HOSTED_RECOVERY_PREPARATION_FILE);
-    if (!existsSync(downloadedPreparationPath)) {
-      throw new Error('published recovery artifact does not contain its exact preparation');
-    }
-    const downloaded = parseHostedRecoveryPreparation(JSON.parse(
-      readFileSync(downloadedPreparationPath, 'utf8')
-    ));
-    if (sha256(downloaded) !== sha256(local)) {
-      throw new Error('downloaded recovery preparation differs from the pre-upload preparation');
-    }
-    preparation = downloaded;
-    const bundle = downloaded.refPreparation?.recovery;
-    if (bundle === null || bundle === undefined) {
-      throw new Error('published recovery artifact lacks the required bundle identity');
-    }
-    const bundlePath = path.join(root, HOSTED_RECOVERY_BUNDLE_FILE);
-    const checksumPath = path.join(root, HOSTED_RECOVERY_CHECKSUM_FILE);
-    if (!existsSync(bundlePath) || !existsSync(checksumPath)) {
-      throw new Error('published recovery artifact fixed bundle files are absent');
-    }
-    recovery = Object.freeze({
-      kind: 'bundle' as const,
-      path: bundlePath,
-      sha256: bundle.sha256,
-      verified: true,
-      verifyOutput: bundle.verifyOutput
-    });
-
-    const artifactId = positiveEnvironmentInteger(
-      input.environment.SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID,
-      'SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID'
-    );
-    const runId = positiveEnvironmentInteger(
-      input.environment.SEC_MAINTENANCE_RECOVERY_RUN_ID,
-      'SEC_MAINTENANCE_RECOVERY_RUN_ID'
-    );
-    const runAttempt = positiveEnvironmentInteger(
-      input.environment.SEC_MAINTENANCE_RECOVERY_RUN_ATTEMPT,
-      'SEC_MAINTENANCE_RECOVERY_RUN_ATTEMPT'
-    );
-    const artifactName = input.environment.SEC_MAINTENANCE_RECOVERY_ARTIFACT_NAME;
-    const artifactDigest = input.environment.SEC_MAINTENANCE_RECOVERY_ARTIFACT_DIGEST;
-    if (typeof artifactName !== 'string'
-        || !/^sec-repository-maintenance-recovery-[1-9][0-9]*-[1-9][0-9]*$/u.test(artifactName)
-        || artifactName !== `sec-repository-maintenance-recovery-${runId}-${runAttempt}`
-        || typeof artifactDigest !== 'string'
-        || !/^sha256:[0-9a-f]{64}$/u.test(artifactDigest)) {
-      throw new Error('published recovery artifact durable locator is invalid');
-    }
-    carrier = Object.freeze({
-      artifactId,
-      artifactName,
-      artifactDigest: artifactDigest as `sha256:${string}`,
-      runId,
-      runAttempt
-    });
-  }
-  if (preparation.refPreparation === null) {
-    throw new Error('exact ref recovery preparation disappeared during readback');
-  }
-  return Object.freeze({
-    refState: preparation.refPreparation.refState,
-    recovery,
-    carrier
+    requestDigest,
+    required: true,
+    refPreparation,
+    reusedCarrier: null
   });
 }
 
@@ -245,190 +202,164 @@ function positiveEnvironmentInteger(value: string | undefined, label: string): n
   return parsed;
 }
 
-async function assertRepositoryMaintenancePreflight(input: Readonly<{
+async function loadPreEffectRecovery(input: Readonly<{
   repositoryRoot: string;
   request: MaintenanceRequest;
   environment: NodeJS.ProcessEnv;
-}>): Promise<void> {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  assertHostedRepositoryMaintenanceIdentity(input.request, input.environment);
-  const actor = input.environment.GITHUB_ACTOR;
-  if (typeof actor !== 'string' || actor.length === 0) {
-    throw new Error('repository maintenance actor is absent');
+}>): Promise<HostedPreEffectRecovery> {
+  const local = parseHostedRecoveryPreparation(JSON.parse(
+    readFileSync(hostedPath(HOSTED_RECOVERY_PREPARATION_FILE), 'utf8')
+  ));
+  const downloaded = parseHostedRecoveryPreparation(JSON.parse(
+    readFileSync(hostedPath(`readback/${HOSTED_RECOVERY_PREPARATION_FILE}`), 'utf8')
+  ));
+  const preparation = downloaded.refPreparation;
+  if (sha256(local.refPreparation) !== sha256(downloaded.refPreparation)
+      || local.requestDigest !== downloaded.requestDigest
+      || downloaded.requestDigest !== sha256(input.request)
+      || preparation.repository !== input.request.repository
+      || preparation.expectedMainSha !== input.request.expectedMainSha
+      || preparation.requestDigest !== sha256(input.request)
+      || sha256(preparation.retirements) !== sha256(retirements(input.request))) {
+    throw new Error('downloaded recovery preparation differs from the exact maintenance batch');
   }
-  await withGitHubApiReadSession({
-    repositoryRoot,
+  const bundlePath = hostedPath(`readback/${HOSTED_RECOVERY_BUNDLE_FILE}`);
+  const checksumPath = hostedPath(`readback/${HOSTED_RECOVERY_CHECKSUM_FILE}`);
+  if (!existsSync(bundlePath) || !existsSync(checksumPath)) {
+    throw new Error('published recovery artifact fixed bundle files are absent');
+  }
+  const recovery = Object.freeze({
+    kind: 'bundle' as const,
+    path: bundlePath,
+    sha256: preparation.recovery.sha256,
+    verified: true,
+    verifyOutput: preparation.recovery.verifyOutput
+  });
+  const artifactId = positiveEnvironmentInteger(input.environment.SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID, 'recovery artifact ID');
+  const runId = positiveEnvironmentInteger(input.environment.SEC_MAINTENANCE_RECOVERY_RUN_ID, 'recovery run ID');
+  const runAttempt = positiveEnvironmentInteger(input.environment.SEC_MAINTENANCE_RECOVERY_RUN_ATTEMPT, 'recovery run attempt');
+  const artifactName = `sec-repository-maintenance-recovery-${runId}-${runAttempt}`;
+  const digest = input.environment.SEC_MAINTENANCE_RECOVERY_ARTIFACT_DIGEST;
+  if (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest)
+      || artifactName !== input.environment.SEC_MAINTENANCE_RECOVERY_ARTIFACT_NAME
+      || (local.reusedCarrier === null && (String(runId) !== input.environment.GITHUB_RUN_ID
+        || String(runAttempt) !== input.environment.GITHUB_RUN_ATTEMPT))
+      || (local.reusedCarrier !== null && (artifactId !== local.reusedCarrier.artifactId
+        || runId !== local.reusedCarrier.runId || runAttempt !== local.reusedCarrier.runAttempt
+        || digest !== local.reusedCarrier.artifactDigest))) {
+    throw new Error('recovery artifact identity differs from the current hosted run');
+  }
+  const carrier = await withGitHubApiReadSession({
+    repositoryRoot: input.repositoryRoot,
     repository: input.request.repository,
-    operation: async (capability) => {
-      const binding = inspectGitHubApiCapability(capability);
-      if (binding.repository !== input.request.repository
-          || binding.effect !== 'read'
-          || binding.origin !== 'production'
-          || binding.principal.transport !== 'github-actions-token') {
-        throw new Error('repository maintenance read preflight capability is invalid');
+    operation: async (capability): Promise<HostedRecoveryCarrier> => {
+      assertGitHubApiMaintenanceRequest(capability, sha256(input.request));
+      const artifact = record(await executeGitHubApiOperation(capability, {
+        kind: 'maintenance-artifact', artifactId: String(artifactId)
+      }), 'recovery artifact');
+      const run = record(await executeGitHubApiOperation(capability, {
+        kind: 'maintenance-workflow-run-attempt', runId: String(runId), runAttempt
+      }), 'recovery run');
+      if (artifact.id !== artifactId || artifact.name !== artifactName
+          || artifact.digest !== digest || artifact.expired !== false
+          || !Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes < 1
+          || artifact.workflow_run?.id !== runId
+          || artifact.workflow_run?.head_sha !== input.request.expectedMainSha
+          || run.id !== runId || run.run_attempt !== runAttempt
+          || run.head_sha !== input.request.expectedMainSha || run.event !== 'workflow_dispatch'
+          || !['.github/workflows/repository-maintenance.yml',
+            '.github/workflows/repository-maintenance.yml@main',
+            '.github/workflows/repository-maintenance.yml@refs/heads/main'].includes(run.path)
+          || run.display_title !== `maintenance/${sha256({ requestDigest: sha256(input.request), resumeReceipt: null })}`
+          || typeof artifact.created_at !== 'string' || !Number.isFinite(Date.parse(artifact.created_at))
+          || typeof artifact.expires_at !== 'string' || !Number.isFinite(Date.parse(artifact.expires_at))
+          || Date.parse(artifact.expires_at) <= Date.now()
+          || Date.parse(artifact.expires_at) <= Date.parse(artifact.created_at)) {
+        throw new Error('recovery artifact provider provenance or retention readback differs');
       }
-      const repository = await executeGitHubApiOperation(capability, { kind: 'repository' });
-      if (repository === null || typeof repository !== 'object' || Array.isArray(repository)
-          || (repository as Record<string, unknown>).full_name !== input.request.repository
-          || (repository as Record<string, unknown>).default_branch !== 'main') {
-        throw new Error('repository maintenance repository identity is invalid');
-      }
-      const triggerCommentId = positiveEnvironmentInteger(
-        input.environment.SEC_MAINTENANCE_COMMENT_ID,
-        'SEC_MAINTENANCE_COMMENT_ID'
-      );
-      const trigger = await executeGitHubApiOperation(capability, {
-        kind: 'issue-comment',
-        commentId: triggerCommentId
+      return Object.freeze({
+        provider: 'github-actions-artifact', repository: input.request.repository,
+        artifactId, artifactName, artifactDigest: digest as `sha256:${string}`, runId, runAttempt,
+        requestedRetentionDays: REPOSITORY_MAINTENANCE_RECOVERY_RETENTION_DAYS,
+        createdAt: artifact.created_at, expiresAt: artifact.expires_at,
+        url: `https://github.com/${input.request.repository}/actions/runs/${runId}/artifacts/${artifactId}`
       });
-      if (trigger === null || typeof trigger !== 'object' || Array.isArray(trigger)) {
-        throw new Error('repository maintenance trigger comment readback is invalid');
-      }
-      const triggerRecord = trigger as Record<string, any>;
-      const triggerUser = triggerRecord.user;
-      if (triggerRecord.id !== triggerCommentId
-          || triggerRecord.issue_url !== `https://api.github.com/repos/${input.request.repository}/issues/313`
-          || triggerRecord.body !== input.environment.SEC_MAINTENANCE_REQUEST_JSON
-          || triggerRecord.performed_via_github_app !== null
-          || triggerUser === null || typeof triggerUser !== 'object' || Array.isArray(triggerUser)
-          || triggerUser.login !== actor
-          || triggerUser.login !== input.environment.SEC_MAINTENANCE_COMMENT_AUTHOR
-          || triggerUser.type !== 'User') {
-        throw new Error('repository maintenance trigger comment exact readback differs from dispatch authority');
-      }
-      const permission = await executeGitHubApiOperation(capability, {
-        kind: 'collaborator-permission',
-        login: actor
-      });
-      const role = normalizeGitHubRepositoryPermission(permission);
-      if (!isRepositoryMaintenancePermission(role)) {
-        throw new Error(`repository maintenance actor ${actor} lacks maintain/admin permission`);
-      }
-      const main = await executeGitHubApiOperation(capability, { kind: 'git-ref', branch: 'main' });
-      const object = main !== null && typeof main === 'object' && !Array.isArray(main)
-        ? (main as Record<string, unknown>).object
-        : null;
-      const liveSha = object !== null && typeof object === 'object' && !Array.isArray(object)
-        ? (object as Record<string, unknown>).sha
-        : null;
-      if (liveSha !== input.request.expectedMainSha) {
-        throw new Error(
-          `repository maintenance live main drifted: expected ${input.request.expectedMainSha}, observed ${String(liveSha)}`
-        );
-      }
     }
   });
+  return Object.freeze({ preparation, recovery, carrier });
 }
 
 export async function executeRepositoryMaintenance(input: Readonly<{
   repositoryRoot: string;
   request: MaintenanceRequest;
   environment?: NodeJS.ProcessEnv;
-  preEffectRecovery?: HostedPreEffectRecovery;
 }>): Promise<Readonly<{
-  schema: 'sec-repository-maintenance-result-v2';
+  schema: 'sec-repository-maintenance-result-v3';
   requestDigest: `sha256:${string}`;
+  recoveryCarrier: HostedRecoveryCarrier;
   completed: number;
+  targetConverged: number;
   results: readonly unknown[];
 }>> {
-  const environment = input.environment ?? process.env;
   const repositoryRoot = path.resolve(input.repositoryRoot);
   await assertRepositoryMaintenancePreflight({
-    repositoryRoot,
-    request: input.request,
-    environment
+    repositoryRoot, request: input.request, environment: input.environment ?? process.env
   });
-
-  const triggeringCommentId = positiveEnvironmentInteger(
-    environment.SEC_MAINTENANCE_COMMENT_ID,
-    'SEC_MAINTENANCE_COMMENT_ID'
-  );
-  const results: unknown[] = [];
-  for (const operation of input.request.operations) {
-    if (operation.kind === 'exact-ref-retirement') {
-      const durable = input.preEffectRecovery;
-      if (durable === undefined) {
-        throw new Error('exact ref maintenance cannot execute without pre-effect recovery preparation');
-      }
-      results.push(Object.freeze({
-        kind: operation.kind,
-        recoveryCarrier: durable.carrier,
-        ...(await retireExactRemoteRefs({
-          repositoryRoot,
-          repository: input.request.repository,
-          expectedMainSha: input.request.expectedMainSha,
-          retirement: operation.retirement,
-          preEffectRecovery: Object.freeze({
-            refState: durable.refState,
-            recovery: durable.recovery
-          })
-        }))
-      }));
-      continue;
-    }
-    results.push(Object.freeze({
-      kind: operation.kind,
-      ...(await retireExactIssueComment({
-        repositoryRoot,
-        repository: input.request.repository,
-        retirement: operation.retirement,
-        triggeringCommentId
-      }))
-    }));
-  }
-  return Object.freeze({
-    schema: 'sec-repository-maintenance-result-v2',
-    requestDigest: sha256(input.request),
-    completed: results.length,
-    results: Object.freeze(results)
+  const durable = await loadPreEffectRecovery({
+    repositoryRoot, request: input.request, environment: input.environment ?? process.env
   });
+  const resumeReceipt = parseRepositoryMaintenanceResumeReceipt((input.environment ?? process.env).SEC_MAINTENANCE_RESUME_RECEIPT);
+  const resume = resumeReceipt === undefined ? undefined : await observeExactRefBatchResumeReceipt({
+    repositoryRoot, repository: input.request.repository, expectedMainSha: input.request.expectedMainSha,
+    requestDigest: sha256(input.request), retirements: retirements(input.request), resumeReceipt
+  });
+  const progress = [...(resume?.progress ?? [])];
+  const results = [...(resume?.results ?? [])];
+  const receipt = () => ({
+    schema: 'sec-repository-maintenance-result-v3', requestDigest: sha256(input.request),
+    recoveryCarrier: durable.carrier, recoveryPreparation: durable.preparation,
+    resumeReceipt: resumeReceipt ?? null, progress, results
+  });
+  persistReceipt(receipt());
+  const result = await retireExactRemoteRefBatch({
+    repositoryRoot, repository: input.request.repository,
+    expectedMainSha: input.request.expectedMainSha,
+    retirements: retirements(input.request), requestDigest: sha256(input.request),
+    preEffectRecovery: {
+      preparation: durable.preparation,
+      recovery: durable.recovery
+    },
+    recoveryCarrier: durable.carrier,
+    resumeObservation: resume,
+    onResult: (row) => {
+      const previous = results.findIndex((value) => value.branch === row.branch);
+      if (previous === -1) results.push(row); else results[previous] = row;
+      persistReceipt(receipt());
+    },
+    onProgress: (row) => { progress.push(row); persistReceipt(receipt()); }
+  });
+  const terminal = Object.freeze({
+    ...receipt(), schema: 'sec-repository-maintenance-result-v3' as const,
+    completed: result.completed, targetConverged: result.targetConverged, results: result.results
+  });
+  persistReceipt(terminal);
+  return terminal;
 }
 
 export async function repositoryMaintenanceCli(argv: readonly string[]): Promise<string> {
-  if (argv.length > 1
-      || (argv.length === 1
-        && argv[0] !== '--json'
-        && argv[0] !== 'prepare-recovery'
-        && argv[0] !== 'retire-trigger')) {
-    throw new Error('usage: repository-maintenance [--json] | prepare-recovery | retire-trigger');
+  if (argv.length > 1 || (argv.length === 1 && argv[0] !== '--json' && argv[0] !== 'prepare-recovery')) {
+    throw new Error('usage: repository-maintenance [--json] | prepare-recovery; local callers use dispatch.ts --repository owner/name --request <json-file> for one hosted batch');
+  }
+  if (process.env.GITHUB_ACTIONS !== 'true') {
+    throw new Error('local direct retirement has no supported durable recovery provider; use dispatch.ts --repository owner/name --request <json-file> for one hosted batch, without public comments');
   }
   const request = parseHostedRepositoryMaintenanceRequest(process.env);
-  if (argv.length === 1 && argv[0] === 'prepare-recovery') {
-    return JSON.stringify(await prepareHostedRecovery({
-      repositoryRoot: process.cwd(),
-      request,
-      environment: process.env
-    }), null, 2);
+  const input = { repositoryRoot: process.cwd(), request, environment: process.env };
+  if (argv[0] === 'prepare-recovery') {
+    return JSON.stringify(await prepareHostedRecovery(input), null, 2);
   }
-  if (argv.length === 1 && argv[0] === 'retire-trigger') {
-    const issueNumber = positiveEnvironmentInteger(
-      process.env.SEC_MAINTENANCE_ISSUE_NUMBER,
-      'SEC_MAINTENANCE_ISSUE_NUMBER'
-    );
-    const commentId = positiveEnvironmentInteger(
-      process.env.SEC_MAINTENANCE_COMMENT_ID,
-      'SEC_MAINTENANCE_COMMENT_ID'
-    );
-    const exactBody = process.env.SEC_MAINTENANCE_REQUEST_JSON;
-    if (exactBody === undefined) throw new Error('SEC_MAINTENANCE_REQUEST_JSON is absent');
-    await retireMaintenanceTriggerComment({
-      repositoryRoot: process.cwd(),
-      repository: request.repository,
-      request,
-      commentId,
-      issueNumber,
-      exactBody
-    });
-    return JSON.stringify({ status: 'retired-trigger', commentId });
-  }
-  const result = await executeRepositoryMaintenance({
-    repositoryRoot: process.cwd(),
-    request,
-    preEffectRecovery: loadPreEffectRecovery({
-      request,
-      environment: process.env
-    })
-  });
+  const result = await executeRepositoryMaintenance(input);
+  if (result.completed !== request.operations.length) process.exitCode = 1;
   return JSON.stringify(result, null, argv.includes('--json') ? 2 : 0);
 }
 

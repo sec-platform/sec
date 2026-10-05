@@ -112,7 +112,7 @@ test.serial('acquires one token through the retained fixed command and scrubs am
   }
 });
 
-test.serial('recognizes only the exact repository-maintenance dispatch workflow identity', () => {
+test.serial('retired comment dispatch selectors cannot downgrade native batch plan authority', () => {
   const source: NodeJS.ProcessEnv = {
     GITHUB_ACTIONS: 'true',
     GITHUB_SERVER_URL: 'https://github.com',
@@ -130,33 +130,10 @@ test.serial('recognizes only the exact repository-maintenance dispatch workflow 
     SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
     GH_TOKEN: 'ghs_actions-token-0123456789'
   };
-  expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
-    source,
-    'sec-platform/sec'
-  )).toEqual({
-    repository: 'sec-platform/sec',
-    workflowRef:
-      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
-    workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    issueNumber: 313,
-    commentId: 42,
-    actor: 'maintainer'
-  });
+  expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, 'sec-platform/sec')).toBeNull();
   for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
     expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity({ ...source,
-      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association }, 'sec-platform/sec'))
-      .toEqual(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, 'sec-platform/sec'));
-  }
-  for (const changed of [
-    { GITHUB_EVENT_NAME: 'issue_comment' },
-    { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
-    { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
-    { GITHUB_ACTOR: 'other' }
-  ]) {
-    expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
-      { ...source, ...changed },
-      'sec-platform/sec'
-    )).toBeNull();
+      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association }, 'sec-platform/sec')).toBeNull();
   }
 });
 
@@ -169,15 +146,20 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
     process.env.GITHUB_SERVER_URL = 'https://github.com';
     process.env.GITHUB_API_URL = 'https://api.github.com';
     process.env.GITHUB_REPOSITORY = 'sec-platform/sec';
-    process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
+    process.env.GITHUB_EVENT_NAME = 'workflow_dispatch';
+    process.env.GITHUB_RUN_ID = '100';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.SEC_MAINTENANCE_REQUEST_JSON = JSON.stringify({
+      schema: 'sec-repository-maintenance-request-v2', repository: 'sec-platform/sec',
+      expectedMainSha: 'a'.repeat(40), operations: [{ kind: 'exact-ref-retirement', retirement: {
+        classification: 'transport-only', branches: ['transport/old'], expectedHeadSha: 'b'.repeat(40)
+      } }]
+    });
     process.env.GITHUB_REF = 'refs/heads/main';
     process.env.GITHUB_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     process.env.GITHUB_WORKFLOW_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     process.env.GITHUB_WORKFLOW_REF =
       'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main';
-    process.env.SEC_MAINTENANCE_ISSUE_NUMBER = '313';
-    process.env.SEC_MAINTENANCE_COMMENT_ID = '42';
-    process.env.SEC_MAINTENANCE_COMMENT_AUTHOR = 'maintainer';
     process.env.GITHUB_ACTOR = 'maintainer';
     process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
     process.env.GITHUB_TOKEN = 'must-not-forward';
@@ -261,6 +243,48 @@ test.skipIf(process.platform !== 'linux').serial('reads through an explicitly bo
     expect(observed.environment.GH_CONFIG_DIR).toBe('/proc/self/fd/4');
     expect(observed.environment.HOME).toBeNull();
     expect(observed.environment.GH_TOKEN).toBeNull();
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, original);
+  }
+});
+
+test.serial('native maintenance batch credential selectors bind an exact plan but do not themselves issue authority', () => {
+  const request = { schema: 'sec-repository-maintenance-request-v2', repository: 'sec-platform/sec',
+    expectedMainSha: 'a'.repeat(40), operations: [{ kind: 'exact-ref-retirement', retirement: {
+      classification: 'transport-only', branches: ['transport/old'], expectedHeadSha: 'b'.repeat(40)
+    } }] };
+  const source: NodeJS.ProcessEnv = {
+    GITHUB_ACTIONS: 'true', GITHUB_SERVER_URL: 'https://github.com', GITHUB_API_URL: 'https://api.github.com',
+    GITHUB_REPOSITORY: request.repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+    GITHUB_SHA: request.expectedMainSha, GITHUB_WORKFLOW_SHA: request.expectedMainSha,
+    GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
+    GITHUB_ACTOR: 'maintainer', GITHUB_RUN_ID: '100', GITHUB_RUN_ATTEMPT: '1',
+    SEC_MAINTENANCE_REQUEST_JSON: JSON.stringify(request), GH_TOKEN: 'ghs_actions-token-0123456789'
+  };
+  expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, request.repository)).toMatchObject({
+    repository: request.repository, actor: 'maintainer', runId: '100', runAttempt: 1,
+    requestDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+    executionDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u), resumeReceiptDigest: null
+  });
+  for (const changed of [
+    { GITHUB_SHA: 'b'.repeat(40) }, { GITHUB_RUN_ID: '0' }, { GITHUB_RUN_ATTEMPT: '0' }, { GITHUB_RUN_ATTEMPT: '2' },
+    { GITHUB_ACTOR: 'github-actions[bot]' }, { SEC_MAINTENANCE_REQUEST_JSON: '{' },
+    { SEC_MAINTENANCE_REQUEST_JSON: JSON.stringify({ ...request, expectedMainSha: 'b'.repeat(40) }) }
+  ]) expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity({ ...source, ...changed }, request.repository)).toBeNull();
+});
+
+
+test.serial('an Actions token with a retired dispatch selector fails instead of falling back to stored auth', async () => {
+  const original = { ...process.env };
+  try {
+    process.env.GITHUB_ACTIONS = 'true';
+    process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
+    process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
+    await expect(readGitHubToken({ cwd: import.meta.dir, repository: 'sec-platform/sec', hostname: 'github.com',
+      deadlineAtUnixMs: Date.now() + 10_000 })).rejects.toMatchObject({
+        code: 'github-credential-unavailable', reason: 'admission'
+      });
   } finally {
     for (const key of Object.keys(process.env)) delete process.env[key];
     Object.assign(process.env, original);

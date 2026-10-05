@@ -76,9 +76,12 @@ export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
   repository: string;
   workflowRef: string;
   workflowSha: string;
-  issueNumber: 313;
-  commentId: number;
   actor: string;
+  requestDigest: `sha256:${string}`;
+  executionDigest: `sha256:${string}`;
+  resumeReceiptDigest: `sha256:${string}` | null;
+  runId: string;
+  runAttempt: number;
 }>;
 
 type GitHubCredentialSource = 'stored-gh-auth' | 'explicit-private-gh-config' | 'github-actions-token';
@@ -98,46 +101,44 @@ export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
   source: Readonly<NodeJS.ProcessEnv>,
   repository: string
 ): GitHubActionsRepositoryMaintenanceCredentialIdentity | null {
-  const workflowRef =
-    `${repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
-  const workflowSha = environmentValue(source, 'GITHUB_WORKFLOW_SHA');
-  const token = environmentValue(source, 'GH_TOKEN');
-  const issueNumber = environmentValue(source, 'SEC_MAINTENANCE_ISSUE_NUMBER');
-  const commentId = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_ID');
-  const commentAuthor = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_AUTHOR');
-  const actor = environmentValue(source, 'GITHUB_ACTOR');
+  const workflowRef = `${repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
+  const get = (key: string) => environmentValue(source, key);
+  const workflowSha = get('GITHUB_WORKFLOW_SHA');
+  const token = get('GH_TOKEN');
+  const actor = get('GITHUB_ACTOR');
+  const requestSource = get('SEC_MAINTENANCE_REQUEST_JSON');
+  const runId = get('GITHUB_RUN_ID');
+  const runAttempt = get('GITHUB_RUN_ATTEMPT');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
-      || environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
-      || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
-      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com'
-      || environmentValue(source, 'GITHUB_REPOSITORY') !== repository
-      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'repository_dispatch'
-      || environmentValue(source, 'GITHUB_REF') !== 'refs/heads/main'
-      || environmentValue(source, 'GITHUB_WORKFLOW_REF') !== workflowRef
-      || typeof workflowSha !== 'string'
-      || !/^[0-9a-f]{40}$/u.test(workflowSha)
-      || environmentValue(source, 'GITHUB_SHA') !== workflowSha
-      || issueNumber !== '313'
-      || typeof commentId !== 'string' || !/^[1-9][0-9]*$/u.test(commentId)
-      || !Number.isSafeInteger(Number(commentId))
-      || typeof commentAuthor !== 'string' || commentAuthor.length === 0
-      || commentAuthor !== actor
-      || token === undefined) {
-    return null;
-  }
-  if (token.length === 0 || token !== token.trim()
-      || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
+      || get('GITHUB_ACTIONS') !== 'true' || get('GITHUB_SERVER_URL') !== 'https://github.com'
+      || get('GITHUB_API_URL') !== 'https://api.github.com' || get('GITHUB_REPOSITORY') !== repository
+      || get('GITHUB_EVENT_NAME') !== 'workflow_dispatch' || get('GITHUB_REF') !== 'refs/heads/main'
+      || get('GITHUB_WORKFLOW_REF') !== workflowRef || typeof workflowSha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(workflowSha) || get('GITHUB_SHA') !== workflowSha
+      || typeof actor !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(actor)
+      || typeof requestSource !== 'string' || Buffer.byteLength(requestSource, 'utf8') > 60 * 1024
+      || typeof runId !== 'string' || !/^[1-9][0-9]*$/u.test(runId) || !Number.isSafeInteger(Number(runId))
+      || typeof runAttempt !== 'string' || !/^[1-9][0-9]*$/u.test(runAttempt)
+      || Number(runAttempt) !== 1 || token === undefined) return null;
+  if (token.length === 0 || token !== token.trim() || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
       || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(token)) {
     throw new GitHubCredentialUnavailableError('token');
   }
-  return Object.freeze({
-    repository,
-    workflowRef,
-    workflowSha,
-    issueNumber: 313,
-    commentId: Number(commentId),
-    actor: commentAuthor
-  });
+  let request: unknown;
+  try { request = JSON.parse(requestSource); } catch { return null; }
+  if (request === null || typeof request !== 'object' || Array.isArray(request)) return null;
+  const value = request as Record<string, unknown>;
+  if (value.schema !== 'sec-repository-maintenance-request-v2'
+      || value.repository !== repository || value.expectedMainSha !== workflowSha) return null;
+  const resumeSource = get('SEC_MAINTENANCE_RESUME_RECEIPT');
+  let resumeReceipt: unknown = null;
+  try { if (resumeSource !== undefined && resumeSource.trim() !== '') resumeReceipt = JSON.parse(resumeSource); }
+  catch { return null; }
+  const requestDigest = sha256(request);
+  return Object.freeze({ repository, workflowRef, workflowSha, actor, requestDigest,
+    executionDigest: sha256({ requestDigest, resumeReceipt }),
+    resumeReceiptDigest: resumeReceipt === null ? null : sha256(resumeReceipt),
+    runId, runAttempt: 1 });
 }
 
 function githubActionsCredentialToken(
@@ -145,7 +146,13 @@ function githubActionsCredentialToken(
   repository: string
 ): string | undefined {
   const maintenance = inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, repository);
-  if (maintenance === null) return undefined;
+  if (maintenance === null) {
+    if (environmentValue(source, 'GITHUB_ACTIONS') === 'true'
+        && environmentValue(source, 'GH_TOKEN') !== undefined) {
+      throw new GitHubCredentialUnavailableError('admission');
+    }
+    return undefined;
+  }
   return environmentValue(source, 'GH_TOKEN');
 }
 
