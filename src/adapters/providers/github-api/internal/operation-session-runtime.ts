@@ -1,12 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, readlinkSync } from 'node:fs';
+import { readlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalEquals, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../../../contracts/exact-json.ts';
 import { failureMessage } from '../../../../contracts/failure-inspection.ts';
 import { readArtifactMember, readArtifactMembers } from './artifact-member.ts';
+import { readMaintenanceNativeEvent } from './maintenance-native-event.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 import { isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from '../../../../contracts/native-abort.ts';
@@ -1937,16 +1938,16 @@ async function observeMaintenanceDispatchPlan(
   session: GitHubApiRequestSession,
   token: string,
   transport: GitHubApiTransport,
+  repositoryRoot: string,
   identity: NonNullable<ReturnType<typeof inspectGitHubActionsRepositoryMaintenanceCredentialIdentity>>
 ): Promise<GitHubApiCapabilityBinding['maintenance']> {
-  const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (typeof eventPath !== 'string' || !path.isAbsolute(eventPath)) {
-    throw new GitHubApiProviderError('Maintenance native event path is absent');
-  }
-  // The event is the native workflow input, never an environment-supplied plan substitute.
-  const bytes = readFileSync(eventPath);
-  if (bytes.length > 256 * 1024) throw new GitHubApiProviderError('Maintenance native event exceeds its bound');
-  const event = JSON.parse(bytes.toString('utf8')) as Record<string, any>;
+  remaining(session);
+  const bytes = await readMaintenanceNativeEvent({ repositoryRoot, repository: session.repository,
+    advertisedEventPath: process.env.GITHUB_EVENT_PATH });
+  remaining(session);
+  recordResponseBytes(session, bytes.byteLength);
+  // Bounded local bytes remain data: the original native plan and live run checks below issue authority.
+  const event = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as Record<string, any>;
   const source = event?.inputs?.request;
   if (typeof source !== 'string' || source !== process.env.SEC_MAINTENANCE_REQUEST_JSON
       || event.inputs.request_digest !== identity.requestDigest
@@ -2071,7 +2072,7 @@ async function enroll(input: Readonly<{
       throw new GitHubApiProviderError('Verification workflow credentials are read-only outside the authenticated resume phase');
     }
     const maintenance = maintenanceWorkflowIdentity === null ? undefined
-      : await observeMaintenanceDispatchPlan(session, token, input.transport, maintenanceWorkflowIdentity);
+      : await observeMaintenanceDispatchPlan(session, token, input.transport, input.repositoryRoot, maintenanceWorkflowIdentity);
     const capability = issueCapability({
       ...(maintenance === undefined ? {} : { maintenance }),
       repository: input.repository,

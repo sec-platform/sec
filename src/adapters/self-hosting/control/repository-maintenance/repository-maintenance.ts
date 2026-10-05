@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
@@ -29,6 +29,8 @@ import {
   parseHostedRepositoryMaintenanceRequest
 } from './hosted-admission.ts';
 
+import { withPrivateMaintenanceReceiptWriter } from './receipt-file.ts';
+
 export { parseRepositoryMaintenanceRequest } from './contract.ts';
 
 const HOSTED_RECOVERY_PREPARATION_SCHEMA =
@@ -37,7 +39,6 @@ const HOSTED_RECOVERY_CARRIER_ROOT = '/tmp/sec-repository-maintenance-carrier';
 const HOSTED_RECOVERY_PREPARATION_FILE = 'recovery-preparation.json';
 const HOSTED_RECOVERY_BUNDLE_FILE = 'recovery.bundle';
 const HOSTED_RECOVERY_CHECKSUM_FILE = 'recovery.bundle.sha256';
-const HOSTED_RESULT_FILE = 'maintenance-result.json';
 
 type HostedRecoveryPreparation = Readonly<{
   schema: typeof HOSTED_RECOVERY_PREPARATION_SCHEMA;
@@ -119,16 +120,6 @@ function parseCarrier(value: unknown): HostedRecoveryCarrier {
     expiresAt: carrier.expiresAt, url: carrier.url });
 }
 
-function persistReceipt(value: unknown): void {
-  const target = hostedPath(HOSTED_RESULT_FILE);
-  const temporary = `${target}.tmp`;
-  const fd = openSync(temporary, 'wx', 0o600);
-  try { writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`); fsyncSync(fd); }
-  finally { closeSync(fd); }
-  renameSync(temporary, target);
-  const directory = openSync(HOSTED_RECOVERY_CARRIER_ROOT, 'r');
-  try { fsyncSync(directory); } finally { closeSync(directory); }
-}
 
 async function assertRepositoryMaintenancePreflight(input: Readonly<{
   repositoryRoot: string;
@@ -320,30 +311,32 @@ export async function executeRepositoryMaintenance(input: Readonly<{
     recoveryCarrier: durable.carrier, recoveryPreparation: durable.preparation,
     resumeReceipt: resumeReceipt ?? null, progress, results
   });
-  persistReceipt(receipt());
-  const result = await retireExactRemoteRefBatch({
-    repositoryRoot, repository: input.request.repository,
-    expectedMainSha: input.request.expectedMainSha,
-    retirements: retirements(input.request), requestDigest: sha256(input.request),
-    preEffectRecovery: {
-      preparation: durable.preparation,
-      recovery: durable.recovery
-    },
-    recoveryCarrier: durable.carrier,
-    resumeObservation: resume,
-    onResult: (row) => {
-      const previous = results.findIndex((value) => value.branch === row.branch);
-      if (previous === -1) results.push(row); else results[previous] = row;
-      persistReceipt(receipt());
-    },
-    onProgress: (row) => { progress.push(row); persistReceipt(receipt()); }
+  return withPrivateMaintenanceReceiptWriter(HOSTED_RECOVERY_CARRIER_ROOT, async (persistReceipt) => {
+    persistReceipt(receipt());
+    const result = await retireExactRemoteRefBatch({
+      repositoryRoot, repository: input.request.repository,
+      expectedMainSha: input.request.expectedMainSha,
+      retirements: retirements(input.request), requestDigest: sha256(input.request),
+      preEffectRecovery: {
+        preparation: durable.preparation,
+        recovery: durable.recovery
+      },
+      recoveryCarrier: durable.carrier,
+      resumeObservation: resume,
+      onResult: (row) => {
+        const previous = results.findIndex((value) => value.branch === row.branch);
+        if (previous === -1) results.push(row); else results[previous] = row;
+        persistReceipt(receipt());
+      },
+      onProgress: (row) => { progress.push(row); persistReceipt(receipt()); }
+    });
+    const terminal = Object.freeze({
+      ...receipt(), schema: 'sec-repository-maintenance-result-v3' as const,
+      completed: result.completed, targetConverged: result.targetConverged, results: result.results
+    });
+    persistReceipt(terminal);
+    return terminal;
   });
-  const terminal = Object.freeze({
-    ...receipt(), schema: 'sec-repository-maintenance-result-v3' as const,
-    completed: result.completed, targetConverged: result.targetConverged, results: result.results
-  });
-  persistReceipt(terminal);
-  return terminal;
 }
 
 export async function repositoryMaintenanceCli(argv: readonly string[]): Promise<string> {
