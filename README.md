@@ -47,7 +47,7 @@ The canonical design corpus currently uses Chinese titles and paths:
 | Why was a design chosen, and what remains unresolved? | [Decisions](docs/决策/README.md) · [Open status](docs/状态/README.md) |
 | How is this specification maintained? | [Documentation maintenance](docs/维护/README.md) |
 
-The summaries in this root directory are reader-facing projections. Canonical definitions remain in their owning documents under `docs/**`; document identity and generated inventory are maintained under `.documentation/**`. The current corpus digest and delivery number are recorded in [`.documentation/baseline.json`](.documentation/baseline.json); they describe documentation content and do not certify implementation or release status.
+The summaries in this root directory are reader-facing projections. Canonical definitions remain in their owning documents under `docs/**`; document identity and generated inventory are maintained under `.documentation/**`. The current corpus digest is recorded in [`.documentation/source-manifest.json`](.documentation/source-manifest.json), and the delivery number is recorded in [`.documentation/baseline.json`](.documentation/baseline.json). These identify documentation content and its delivery label; they do not certify implementation or release status.
 
 ## Project status
 
