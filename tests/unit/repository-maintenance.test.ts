@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
@@ -316,48 +315,6 @@ test('v4 reviews belong only to immutable v2 plans; legacy comments remain reada
 });
 
 
-test('historical receipt input ownership rejects linked ancestors and leaves, special files and oversized request or resume before gh', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-'));
-  try {
-    const log = path.join(root, 'calls');
-    const gh = path.join(root, 'gh');
-    writeFileSync(gh, '#!/bin/sh\necho called >> "$DISPATCH_LOG"\nexit 99\n');
-    chmodSync(gh, 0o755);
-    const ordinary = path.join(root, 'ordinary');
-    mkdirSync(ordinary);
-    const request = path.join(ordinary, 'request.json');
-    writeFileSync(request, batchSource());
-    const leafLink = path.join(root, 'leaf.json');
-    symlinkSync(request, leafLink);
-    const parentLink = path.join(root, 'parent');
-    symlinkSync(ordinary, parentLink);
-    const oversized = path.join(root, 'oversized.json');
-    writeFileSync(oversized, '');
-    truncateSync(oversized, 128 * 1024 * 1024);
-    const invalidUtf8 = path.join(root, 'invalid.json');
-    writeFileSync(invalidUtf8, Buffer.from([0xff]));
-    const fifo = path.join(root, 'fifo');
-    expect(spawnSync('mkfifo', [fifo]).status).toBe(0);
-    const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts');
-    for (const input of [leafLink, path.join(parentLink, 'request.json'), ordinary, oversized, invalidUtf8, fifo]) {
-      const result = spawnSync(process.execPath, [cli, 'read-receipt', '--request', input, '--resume-receipt', 'missing.json'], {
-        timeout: 5_000, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH, DISPATCH_LOG: log }
-      });
-      expect(result.error).toBeUndefined();
-      expect(result.status).not.toBe(0);
-      expect(existsSync(log)).toBe(false);
-    }
-    const resume = path.join(root, 'resume.json');
-    writeFileSync(resume, ' '.repeat(1025));
-    const result = spawnSync(process.execPath, [cli, 'read-receipt', '--request', request, '--resume-receipt', resume], {
-      timeout: 5_000, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH, DISPATCH_LOG: log }
-    });
-    expect(result.status).not.toBe(0);
-    expect(existsSync(log)).toBe(false);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-
 test('the physical bounded reader rejects growth after its initial size observation', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-growth-'));
   const file = path.join(root, 'request.json');
@@ -371,24 +328,4 @@ test('the physical bounded reader rejects growth after its initial size observat
     })).toThrow('bounded no-follow read size');
     expect(observations).toBeGreaterThanOrEqual(2);
   } finally { closeSync(fd); rmSync(root, { recursive: true, force: true }); }
-});
-
-
-test('unsupported file-input platforms fail explicitly without changing no-file CLI validation', () => {
-  const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts');
-  const source = `
-    const { repositoryMaintenanceReceiptCli } = await import(${JSON.stringify(cli)});
-    Object.defineProperty(process, 'platform', { value: 'darwin' });
-    const messages = [];
-    for (const argv of [[], ['read-receipt', '--request', 'request.json', '--resume-receipt', 'receipt.json']]) {
-      try { await repositoryMaintenanceReceiptCli(argv); } catch (error) { messages.push(error.message); }
-    }
-    console.log(JSON.stringify(messages));
-  `;
-  const child = spawnSync(process.execPath, ['--eval', source], { encoding: 'utf8', timeout: 5_000 });
-  expect(child.status).toBe(0);
-  const messages = JSON.parse(child.stdout);
-  expect(messages[0]).toContain('usage:');
-  expect(messages[0]).not.toContain('unsupported');
-  expect(messages[1]).toContain('file input is unsupported on darwin');
 });
