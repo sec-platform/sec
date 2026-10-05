@@ -394,3 +394,254 @@ test('unpublished stage birth without a journal stays unknown and is preserved',
   expect((await fs.stat(path.join(local, stages[0]!))).ino).toBe(identity.ino);
   await expect(fs.lstat(path.join(root, 'sec.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
+
+// Observe generation data independently of the producer. The v2 journal owns
+// completion; workspace/journal mutation-lease records belong to their own
+// changing control namespace and are not payload or staging identities.
+async function generationDataSnapshot(workspaceRoot: string): Promise<unknown[]> {
+  const snapshot: unknown[] = [];
+  const visit = async (relative: string, recursive = true): Promise<void> => {
+    const target = path.join(workspaceRoot, relative);
+    let metadata: import('node:fs').BigIntStats;
+    try { metadata = await fs.lstat(target, { bigint: true }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      snapshot.push({ relative, kind: 'absent' });
+      return;
+    }
+    snapshot.push({ relative, device: String(metadata.dev), inode: String(metadata.ino), mode: String(metadata.mode),
+      kind: metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other',
+      bytes: metadata.isFile() ? (await fs.readFile(target)).toString('hex') : null });
+    if (recursive && metadata.isDirectory()) {
+      for (const name of (await fs.readdir(target)).sort()) await visit(path.posix.join(relative, name));
+    }
+  };
+  await visit('', false);
+  await visit('.sec', false);
+  const roots = new Set(['src', ...Object.keys(fixtureFiles).map(relative =>
+    relative.startsWith('.sec/') ? relative.split('/').slice(0, 2).join('/') : relative.split('/')[0]!
+  )]);
+  for (const relative of [...roots].sort()) await visit(relative);
+  await visit('.sec/workspace-create.json');
+  const stages = (await fs.readdir(path.join(workspaceRoot, '.sec')))
+    .filter(name => name.startsWith('.workspace-create-')).sort();
+  snapshot.push({ stages });
+  for (const stage of stages) await visit(path.posix.join('.sec', stage));
+  return snapshot;
+}
+
+async function prepareFixtureGeneration(workspaceRoot: string): Promise<void> {
+  const request = nativeRequest();
+  await withNativeSession(workspaceRoot, async session => {
+    expect(await session.observe()).toEqual({ phase: 'absent' });
+    await session.prepare(request.blueprint, request.intent);
+  });
+}
+
+test('a failed recovered intent barrier preserves all generation data before any payload effect', async () => {
+  const root = await createWorkspace('workspace-create-intent-barrier-failure-');
+  await prepareFixtureGeneration(root);
+  const before = await generationDataSnapshot(root);
+  const journalPath = path.join(root, '.sec/workspace-create.json');
+  expect(JSON.parse(await fs.readFile(journalPath, 'utf8')).phase).toBe('prepared');
+  const primary = new Error('fixture-intent-parent-barrier');
+  const effects: string[] = [];
+  let barrierAttempts = 0;
+  await expect(createFixtureGeneration(root, {
+    beforeParentBarrier: ({ label }) => {
+      if (label !== 'Workspace recovered intent barrier') return;
+      barrierAttempts++;
+      throw primary;
+    },
+    beforeRename: () => { effects.push('rename'); },
+    beforeCreate: () => { effects.push('create'); },
+    beforeCleanup: () => { effects.push('cleanup'); }
+  })).rejects.toBe(primary);
+  expect(barrierAttempts).toBe(1);
+  expect(effects).toEqual([]);
+  expect(await generationDataSnapshot(root)).toEqual(before);
+  for (const relative of Object.keys(fixtureFiles)) {
+    await expect(fs.lstat(path.join(root, relative))).rejects.toMatchObject({ code: 'ENOENT' });
+  }
+  // A failed barrier also releases the real session/lease, so its unchanged
+  // prepared generation can be admitted by the ordinary next invocation.
+  await createFixtureGeneration(root);
+  for (const [relative, bytes] of Object.entries(fixtureFiles)) {
+    expect(await fs.readFile(path.join(root, relative), 'utf8')).toBe(bytes);
+  }
+  expect(JSON.parse(await fs.readFile(journalPath, 'utf8')).phase).toBe('completed');
+});
+
+test('failed completion readback durability preserves the completed generation and original failure', async () => {
+  const root = await createWorkspace('workspace-create-completion-barrier-failure-');
+  await createFixtureGeneration(root);
+  const before = await generationDataSnapshot(root);
+  const primary = new Error('fixture-completion-parent-barrier');
+  const effects: string[] = [];
+  let barrierAttempts = 0;
+  await expect(createFixtureGeneration(root, {
+    beforeParentBarrier: ({ label }) => {
+      if (label !== 'Workspace recovered completion barrier') return;
+      barrierAttempts++;
+      throw primary;
+    },
+    beforeRename: () => { effects.push('rename'); },
+    beforeCreate: () => { effects.push('create'); },
+    beforeCleanup: () => { effects.push('cleanup'); }
+  })).rejects.toBe(primary);
+  expect(barrierAttempts).toBe(1);
+  expect(effects).toEqual([]);
+  expect(await generationDataSnapshot(root)).toEqual(before);
+  expect(JSON.parse(await fs.readFile(path.join(root, '.sec/workspace-create.json'), 'utf8')).phase).toBe('completed');
+  await createFixtureGeneration(root);
+  expect(await generationDataSnapshot(root)).toEqual(before);
+});
+
+test('current generation sessions close every real nested transaction and preserve primary plus cleanup failures', async () => {
+  const root = await createWorkspace('workspace-create-resource-settlement-');
+  const physicalModule = new URL('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
+  const leaseModule = new URL('../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
+  const generationModule = new URL('../../src/adapters/workspace/create-generation.ts', import.meta.url).href;
+  const applicationModule = new URL('../../src/application/workspace-initialize.ts', import.meta.url).href;
+  const recipeModule = new URL('../../src/application/workspace-create.ts', import.meta.url).href;
+  const requestModule = new URL('../../src/execution/workspace-create.ts', import.meta.url).href;
+  const settlementModule = new URL('../../src/execution/resource-settlement.ts', import.meta.url).href;
+  // Isolate module fault injection from other tests. Every acquisition, native
+  // identity, observation and effect still comes from the real factory. The
+  // wrapper calls real dispose before injecting a settlement failure.
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs/promises';
+    import path from 'node:path';
+    import { mock } from 'bun:test';
+    const physical = await import(${JSON.stringify(physicalModule)});
+    const originalRetain = physical.retainNoFollowFileTransaction;
+    let active;
+    mock.module(${JSON.stringify(physicalModule)}, () => ({ ...physical,
+      retainNoFollowFileTransaction(...args) {
+        const transaction = Reflect.apply(originalRetain, physical, args);
+        const state = active;
+        if (state === undefined) return transaction;
+        const label = args[1];
+        const record = { label, closes: 0, assertDisposed: () => {
+          assert.throws(() => transaction.assertCurrent(), /disposed/);
+        } };
+        state.acquired.push(record);
+        if (state.targetRecord === undefined && label === state.target) state.targetRecord = record;
+        // The original capability is frozen. An empty forwarding shell avoids
+        // replacing its own methods and preserves each actual method receiver.
+        return new Proxy({}, { get(_shell, property) {
+          if (property === 'dispose') return () => {
+            record.closes++;
+            transaction.dispose();
+            record.assertDisposed();
+            if (record === state.targetRecord) {
+              state.closes.push('target');
+              throw state.cleanup;
+            }
+            if (label === 'Workspace initial generation') {
+              state.closes.push('outer');
+              throw state.outerCleanup;
+            }
+          };
+          const value = Reflect.get(transaction, property, transaction);
+          if (typeof value !== 'function') return value;
+          return (...values) => {
+            if (!state.fired && state.failBody && record === state.targetRecord && property === state.method) {
+              state.fired = true;
+              throw state.primary;
+            }
+            return Reflect.apply(value, transaction, values);
+          };
+        } });
+      }
+    }));
+    const { withWorkspaceWriteLease } = await import(${JSON.stringify(leaseModule)});
+    const { openWorkspaceCreateSession } = await import(${JSON.stringify(generationModule)});
+    const { initializePreparedWorkspace } = await import(${JSON.stringify(applicationModule)});
+    const { prepareWorkspaceCreate } = await import(${JSON.stringify(recipeModule)});
+    const { snapshotWorkspaceCreateRequest } = await import(${JSON.stringify(requestModule)});
+    const { withAcquiredResource } = await import(${JSON.stringify(settlementModule)});
+    const files = () => Object.entries(${JSON.stringify(fixtureFiles)}).map(([relativePath, bytes]) => ({
+      relativePath, bytes: Buffer.from(bytes)
+    }));
+    const run = root => withWorkspaceWriteLease(root, undefined, token => initializePreparedWorkspace(
+      prepareWorkspaceCreate(undefined, { officialRegistryRelativePath: 'registry' }), {
+        loadTemplate: () => ({ directories: ['src', '.sec/workspace-write-lease'], files: [] }),
+        renderControls: () => ({ directories: [], files: files() }),
+        openSession: () => openWorkspaceCreateSession({ workspaceRoot: root, token })
+      }
+    ));
+    const prepare = root => withWorkspaceWriteLease(root, undefined, token => withAcquiredResource({
+      operationLabel: 'fixture prepared generation', resourceLabel: 'fixture real session',
+      acquire: () => openWorkspaceCreateSession({ workspaceRoot: root, token }),
+      release: session => session.dispose(),
+      use: async session => {
+        const request = snapshotWorkspaceCreateRequest('minimal', {
+          directories: ['src', '.sec/workspace-write-lease'], files: files()
+        });
+        assert.deepEqual(await session.observe(), { phase: 'absent' });
+        await session.prepare(request.blueprint, request.intent);
+      }
+    }));
+    const leaves = error => error instanceof AggregateError ? error.errors.flatMap(leaves) : [error];
+    const cases = [
+      ['fresh', 'new', 'Workspace creation fresh readback', 'observe', undefined],
+      ['staging', 'new', 'Workspace staged generation', 'createExclusive', false],
+      ['intent', 'prepared', 'Workspace recovered intent barrier', 'flushExact', undefined],
+      ['completion', 'completed', 'Workspace recovered completion barrier', 'flushExact', null],
+      ['outer', 'new', 'Workspace initial generation', 'assertCurrent', false],
+      ['successful-publication', 'new', 'Workspace initial generation', null, undefined]
+    ];
+    for (const [kind, setup, target, method, falsyPrimary] of cases) {
+      for (const falsy of [false, true]) {
+        const name = kind + (falsy ? '-falsy' : '-object');
+        const workspaceRoot = path.join(${JSON.stringify(root)}, name);
+        await fs.mkdir(workspaceRoot);
+        active = undefined;
+        if (setup === 'prepared') await prepare(workspaceRoot);
+        if (setup === 'completed') await run(workspaceRoot);
+        const state = active = {
+          target, method, failBody: method !== null, fired: false,
+          primary: falsy ? falsyPrimary : Object.freeze({ name, failure: 'primary' }),
+          cleanup: falsy ? undefined : Object.freeze({ name, failure: 'cleanup' }),
+          outerCleanup: Object.freeze({ name, failure: 'outer-cleanup' }),
+          acquired: [], closes: [], targetRecord: undefined
+        };
+        let caught = false;
+        try { await run(workspaceRoot); }
+        catch (error) {
+          caught = true;
+          assert.deepEqual(leaves(error), [
+            ...(state.failBody ? [state.primary] : []), state.cleanup,
+            ...(target === 'Workspace initial generation' ? [] : [state.outerCleanup])
+          ], name);
+        }
+        assert.equal(caught, true, name);
+        assert.equal(state.fired, state.failBody, name);
+        assert.ok(state.targetRecord, name + ': intended physical scope was not reached');
+        assert.deepEqual(state.closes, target === 'Workspace initial generation' ? ['target'] : ['target', 'outer'], name);
+        for (const record of state.acquired) {
+          assert.equal(record.closes, 1, name + ': ' + record.label);
+          record.assertDisposed();
+        }
+        active = undefined;
+        // Reacquisition proves the surrounding real writer lease was settled.
+        await withWorkspaceWriteLease(workspaceRoot, undefined, async () => {});
+        if (!state.failBody) {
+          assert.equal(JSON.parse(await fs.readFile(path.join(workspaceRoot, '.sec/workspace-create.json'), 'utf8')).phase, 'completed');
+          for (const [relative, bytes] of Object.entries(${JSON.stringify(fixtureFiles)})) {
+            assert.equal(await fs.readFile(path.join(workspaceRoot, relative), 'utf8'), bytes);
+          }
+        }
+      }
+    }
+    console.log('current generation transactions settled');
+  `;
+  const child = Bun.spawn([process.execPath, '--no-env-file', '-e', script], { stdout: 'pipe', stderr: 'pipe' });
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
+  ]);
+  expect(code, stderr).toBe(0);
+  expect(stdout.trim()).toBe('current generation transactions settled');
+});

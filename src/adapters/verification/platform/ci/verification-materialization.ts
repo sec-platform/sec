@@ -118,12 +118,18 @@ export type CodexDevelopmentRetainedHostedSutArchive = Readonly<{
   identityDigest: VerificationActionKeyDigest;
 }>;
 
+function hostedActionArchiveMaximumBytes(): number {
+  // Retain the archive owner's framing allowance for bounded PAX/long-name headers.
+  return CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes +
+    HOSTED_ACTION_ARCHIVE_MAX_ENTRIES * 8192;
+}
+
 function retainedHostedSutArchiveObservation(fileDescriptor: number): Readonly<{
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }> {
   const before = fstatSync(fileDescriptor, { bigint: true });
-  if (!before.isFile() || before.size < 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+  if (!before.isFile() || before.size < 0n || before.size > BigInt(hostedActionArchiveMaximumBytes())) {
     throw new Error('Hosted SUT retained archive is not one bounded ordinary file.');
   }
   const hash = createHash('sha256');
@@ -146,7 +152,9 @@ function retainedHostedSutArchiveObservation(fileDescriptor: number): Readonly<{
     device: value.dev.toString(),
     inode: value.ino.toString(),
     mode: value.mode.toString(),
-    size: value.size.toString()
+    size: value.size.toString(),
+    modifiedAtNs: value.mtimeNs.toString(),
+    changedAtNs: value.ctimeNs.toString()
   });
   const beforeIdentity = identity(before);
   const afterIdentity = identity(after);
@@ -163,11 +171,17 @@ export function retainHostedSutArchive(
   filePath: string,
   expectedDigest: VerificationActionKeyDigest
 ): CodexDevelopmentRetainedHostedSutArchive {
-  const noFollow = process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0;
-  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | noFollow);
+  return retainObservedHostedSutArchive(filePath, expectedDigest);
+}
+
+function retainObservedHostedSutArchive(
+  filePath: string,
+  expectedDigest?: VerificationActionKeyDigest
+): CodexDevelopmentRetainedHostedSutArchive {
+  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | (process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0));
   try {
     const observed = retainedHostedSutArchiveObservation(fileDescriptor);
-    if (observed.archiveDigest !== expectedDigest) {
+    if (expectedDigest !== undefined && observed.archiveDigest !== expectedDigest) {
       throw new Error('Hosted SUT retained archive differs from its authenticated digest.');
     }
     return Object.freeze({ fileDescriptor, ...observed });
@@ -660,40 +674,201 @@ export function CodexDevelopmentMaterializeTrustedBootstrapArchive(input: Readon
   return archivePath;
 }
 
-const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT = [
-  'import hashlib, json, sys, tarfile',
-  'result=[]',
-  'with tarfile.open(sys.argv[1], mode="r:*") as archive:',
-  '  for member in archive.getmembers():',
-  '    kind = "file" if member.isreg() else "directory" if member.isdir() else "symlink" if member.issym() else "hardlink" if member.islnk() else "unsupported"',
-  '    digest = None; physical_digest = None',
-  '    normalized = member.name[2:] if member.name.startswith("./") else member.name',
-  '    if member.isreg() or member.islnk():',
-  '      stream = archive.extractfile(member)',
-  '      hasher = hashlib.sha256(); physical_hasher = hashlib.sha256(); physical_hasher.update(b\'{"bytes":"\')',
-  '      while True:',
-  '        chunk = stream.read(1048576) if stream is not None else b""',
-  '        if not chunk: break',
-  '        hasher.update(chunk); physical_hasher.update(chunk.hex().encode("ascii"))',
-  '      physical_hasher.update(b\'"}\'); physical_digest = "sha256:" + physical_hasher.hexdigest()',
-  '      if member.isreg() and normalized in (".sec-trusted-input/candidate.bundle", ".sec-trusted-input/dependency-closure.json"): digest = "sha256:" + hasher.hexdigest()',
-  '    result.append({"path": member.name, "type": kind, "linkTarget": member.linkname if member.issym() or member.islnk() else None, "size": member.size, "mode": member.mode, "physicalContentDigest": physical_digest, "contentDigest": digest})',
-  'sys.stdout.write(json.dumps(result, ensure_ascii=True, separators=(",", ":"), sort_keys=True))'
+const HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
+
+// One source for the production decoded reader and finite in-memory boundary regressions.
+export const HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT = [
+  "class HostedArchiveDecodedBudget:",
+  "  def __init__(self, ceiling, maximum_read_bytes, discard_chunk_bytes):",
+  "    if any(type(value) is not int or value < 1 for value in (ceiling, maximum_read_bytes, discard_chunk_bytes)) or discard_chunk_bytes > maximum_read_bytes:",
+  "      raise RuntimeError(\"archive decoded budget is invalid\")",
+  "    self.remaining = ceiling",
+  "    self.maximum_read_bytes = maximum_read_bytes",
+  "    self.discard_chunk_bytes = discard_chunk_bytes",
+  "  def reserve(self, size):",
+  "    if type(size) is not int or size < 0 or size > self.remaining:",
+  "      raise RuntimeError(\"archive decoded byte bound exceeded\")",
+  "    self.remaining -= size",
+  "class HostedArchiveDecodedReader:",
+  "  def __init__(self, stream, budget):",
+  "    if stream.tell() != 0: raise RuntimeError(\"archive decoded stream is not at its origin\")",
+  "    # Retain headroom for one stdlib BufferedReader lookahead, including a failed format probe.",
+  "    budget.reserve(io.DEFAULT_BUFFER_SIZE)",
+  "    self.stream = stream; self.budget = budget; self.position = 0",
+  "  def tell(self): return self.position",
+  "  def seekable(self): return True",
+  "  def read(self, size=-1):",
+  "    if type(size) is not int or size < 0 or size > self.budget.maximum_read_bytes:",
+  "      raise RuntimeError(\"archive decoded read allocation bound exceeded\")",
+  "    # Reserve before decoding; failures/short reads do not renew the shared budget.",
+  "    self.budget.reserve(size)",
+  "    data = self.stream.read(size)",
+  "    if not isinstance(data, bytes) or len(data) > size: raise RuntimeError(\"archive decoded read exceeded its request\")",
+  "    self.position += len(data)",
+  "    return data",
+  "  def seek(self, offset, whence=0):",
+  "    if type(offset) is not int or whence not in (0, 1): raise RuntimeError(\"archive decoded seek is unsupported\")",
+  "    target = offset if whence == 0 else self.position + offset",
+  "    if target < self.position: raise RuntimeError(\"archive decoded backward seek is unsupported\")",
+  "    if target - self.position > self.budget.remaining: raise RuntimeError(\"archive decoded byte bound exceeded\")",
+  "    # Never delegate seek: decompressor seeks discard bytes outside member-size accounting.",
+  "    while self.position < target:",
+  "      if not self.read(min(self.budget.discard_chunk_bytes, target - self.position)):",
+  "        raise RuntimeError(\"archive decoded stream ended during forward seek\")",
+  "    return self.position",
+  "  def close(self): self.stream.close()"
 ].join('\n');
 
-function inspectHostedActionArchiveMetadata(archive: string, label: string): unknown {
+// TarInfo bounds extended headers before the stdlib allocates their payload.
+const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT = [
+  "import hashlib, io, json, os, resource, stat, sys, tarfile, unicodedata",
+  "max_entries, max_bytes, max_member_bytes, max_output_bytes, max_archive_bytes, max_memory_bytes, max_cpu_seconds = map(int, sys.argv[1:8])",
+  "expected_digest = sys.argv[8]",
+  "def narrow_limit(kind, ceiling):",
+  "  inherited = resource.getrlimit(kind)",
+  "  bound = min([ceiling] + [value for value in inherited if value != resource.RLIM_INFINITY])",
+  "  resource.setrlimit(kind, (bound, bound))",
+  "narrow_limit(resource.RLIMIT_AS, max_memory_bytes)",
+  "narrow_limit(resource.RLIMIT_CPU, max_cpu_seconds)",
+  "source = os.fdopen(os.dup(3), \"rb\")",
+  "identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns)",
+  "before = os.fstat(source.fileno())",
+  "if not stat.S_ISREG(before.st_mode) or before.st_size < 0 or before.st_size > max_archive_bytes: raise RuntimeError(\"archive ordinary-file bound exceeded\")",
+  "def authenticate():",
+  "  source.seek(0); hasher = hashlib.sha256(); observed = 0",
+  "  while observed < before.st_size:",
+  "    chunk = source.read(min(1048576, before.st_size - observed))",
+  "    if not chunk: raise RuntimeError(\"archive ended before retained size\")",
+  "    observed += len(chunk); hasher.update(chunk)",
+  "  if identity(before) != identity(os.fstat(source.fileno())): raise RuntimeError(\"archive identity changed during retained inventory\")",
+  "  if \"sha256:\" + hasher.hexdigest() != expected_digest: raise RuntimeError(\"archive differs from authenticated digest\")",
+  "  source.seek(0)",
+  "authenticate()",
+  HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT,
+  "decoded_budget = HostedArchiveDecodedBudget(max_archive_bytes, max_output_bytes, 1048576)",
+  "class BoundedTarFile(tarfile.TarFile):",
+  "  def __init__(self, name=None, mode=\"r\", fileobj=None, **kwargs):",
+  "    if mode != \"r\" or fileobj is None: raise RuntimeError(\"archive reader requires one retained input\")",
+  "    super().__init__(name, mode, HostedArchiveDecodedReader(fileobj, decoded_budget), **kwargs)",
+  "metadata_bytes = 0",
+  "class BoundedTarInfo(tarfile.TarInfo):",
+  "  def _proc_member(self, archive):",
+  "    global metadata_bytes",
+  "    if self.size < 0: raise RuntimeError(\"archive member size invalid\")",
+  "    if self.type in (tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK):",
+  "      metadata_bytes += self._block(self.size)",
+  "      if metadata_bytes > max_output_bytes: raise RuntimeError(\"archive metadata byte bound exceeded\")",
+  "    elif self.type not in (tarfile.REGTYPE, tarfile.AREGTYPE, tarfile.CONTTYPE, tarfile.DIRTYPE, tarfile.SYMTYPE, tarfile.LNKTYPE):",
+  "      raise RuntimeError(\"archive entry type is forbidden or unsupported\")",
+  "    elif self.size > max_member_bytes: raise RuntimeError(\"archive member byte bound exceeded\")",
+  "    return super()._proc_member(archive)",
+  "  def _proc_gnusparse_00(self, *args): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "  def _proc_gnusparse_01(self, *args): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "  def _proc_gnusparse_10(self, *args): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "def canonical(value, root=False):",
+  "  if \"\\0\" in value or \"\\\\\" in value or value.startswith(\"/\"): raise RuntimeError(\"archive path is unsafe\")",
+  "  while value.startswith(\"./\"): value = value[2:]",
+  "  value = value.rstrip(\"/\")",
+  "  if root and value in (\"\", \".\"): return None",
+  "  if not value or any(part in (\"\", \".\", \"..\") for part in value.split(\"/\")): raise RuntimeError(\"archive path is not canonical\")",
+  "  return value",
+  "def link_target(name, value, hardlink):",
+  "  if \"\\0\" in value or \"\\\\\" in value or value.startswith(\"/\"): raise RuntimeError(\"archive link is unsafe\")",
+  "  parts = [] if hardlink else name.split(\"/\")[:-1]",
+  "  for part in value.split(\"/\"):",
+  "    if part in (\"\", \".\"): continue",
+  "    if part == \"..\":",
+  "      if not parts: raise RuntimeError(\"archive link escapes its root\")",
+  "      parts.pop()",
+  "    else: parts.append(part)",
+  "  if not parts: raise RuntimeError(\"archive link target is empty\")",
+  "  return \"/\".join(parts)",
+  "result = []; by_path = {}; folded_paths = set(); links = {}; total = 0; read_bytes = 0; output_bytes = 2",
+  "with BoundedTarFile.open(fileobj=source, mode=\"r:*\", tarinfo=BoundedTarInfo) as archive:",
+  "  for member in archive:",
+  "    if len(result) >= max_entries: raise RuntimeError(\"archive entry bound exceeded\")",
+  "    if member.size < 0 or member.size > max_member_bytes: raise RuntimeError(\"archive member byte bound exceeded\")",
+  "    if member.issparse(): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "    kind = \"file\" if member.isreg() else \"directory\" if member.isdir() else \"symlink\" if member.issym() else \"hardlink\" if member.islnk() else \"unsupported\"",
+  "    if kind == \"unsupported\" or member.mode < 0 or member.mode > 0o7777 or member.mode & 0o6000: raise RuntimeError(\"archive entry type or mode is forbidden\")",
+  "    if kind != \"file\" and member.size != 0: raise RuntimeError(\"archive non-file has payload bytes\")",
+  "    normalized = canonical(member.name, member.isdir())",
+  "    if normalized is not None:",
+  "      folded = unicodedata.normalize(\"NFC\", normalized).lower()",
+  "      if folded in folded_paths: raise RuntimeError(\"archive duplicate or case-conflicting path\")",
+  "      folded_paths.add(folded)",
+  "    target = link_target(normalized, member.linkname, member.islnk()) if member.issym() or member.islnk() else None",
+  "    total += member.size if member.isreg() else 0",
+  "    if total > max_bytes: raise RuntimeError(\"archive aggregate file byte bound exceeded\")",
+  "    digest = None; physical_digest = None",
+  "    if member.isreg():",
+  "      stream = archive.extractfile(member)",
+  "      if stream is None: raise RuntimeError(\"archive ordinary payload is missing\")",
+  "      hasher = hashlib.sha256(); physical_hasher = hashlib.sha256(); physical_hasher.update(b'{\"bytes\":\"'); observed = 0",
+  "      with stream:",
+  "        while observed < member.size:",
+  "          chunk = stream.read(min(1048576, member.size - observed, max_bytes - read_bytes))",
+  "          if not chunk: raise RuntimeError(\"archive ordinary payload is truncated\")",
+  "          observed += len(chunk); read_bytes += len(chunk)",
+  "          if observed > member.size or read_bytes > max_bytes: raise RuntimeError(\"archive content read bound exceeded\")",
+  "          hasher.update(chunk); physical_hasher.update(chunk.hex().encode(\"ascii\"))",
+  "      physical_hasher.update(b'\"}'); physical_digest = \"sha256:\" + physical_hasher.hexdigest()",
+  "      if normalized in (\".sec-trusted-input/candidate.bundle\", \".sec-trusted-input/dependency-closure.json\"): digest = \"sha256:\" + hasher.hexdigest()",
+  "    entry = {\"path\": member.name, \"type\": kind, \"linkTarget\": member.linkname if target is not None else None, \"size\": member.size, \"mode\": member.mode, \"physicalContentDigest\": physical_digest, \"contentDigest\": digest}",
+  "    # Charge the final hardlink digest before retaining another result, not after json.dumps(result).",
+  "    charged_entry = dict(entry)",
+  "    if member.islnk(): charged_entry[\"physicalContentDigest\"] = \"sha256:\" + \"0\" * 64",
+  "    output_bytes += len(json.dumps(charged_entry, ensure_ascii=True, separators=(\",\", \":\"), sort_keys=True)) + 1",
+  "    if output_bytes > max_output_bytes: raise RuntimeError(\"archive inventory output byte bound exceeded\")",
+  "    result.append(entry)",
+  "    if normalized is not None: by_path[normalized] = entry",
+  "    if target is not None: links[normalized] = target",
+  "# Resolve hardlinks from already hashed ordinary entries, never reread their payloads.",
+  "for name, entry in by_path.items():",
+  "  if entry[\"type\"] != \"hardlink\" or entry[\"physicalContentDigest\"] is not None: continue",
+  "  pending = []; seen = set(); cursor = name",
+  "  while True:",
+  "    if cursor in seen: raise RuntimeError(\"archive hardlink cycle\")",
+  "    seen.add(cursor); target_entry = by_path.get(cursor)",
+  "    if target_entry is None or target_entry[\"type\"] not in (\"file\", \"hardlink\"): raise RuntimeError(\"archive hardlink target is absent or invalid\")",
+  "    if target_entry[\"physicalContentDigest\"] is not None: break",
+  "    pending.append(target_entry); cursor = links[cursor]",
+  "  for linked in pending: linked[\"physicalContentDigest\"] = target_entry[\"physicalContentDigest\"]",
+  "authenticate()",
+  "source.close()",
+  "# iterencode bounds each serialization step; the caller independently caps the pipe.",
+  "for chunk in json.JSONEncoder(ensure_ascii=True, separators=(\",\", \":\"), sort_keys=True).iterencode(result): sys.stdout.write(chunk)"
+].join('\n');
+
+function inspectHostedActionArchiveMetadata(
+  retained: CodexDevelopmentRetainedHostedSutArchive,
+  label: string
+): unknown {
+  assertRetainedHostedSutArchive(retained);
   const inventory = spawnSync(
     '/usr/bin/python3',
-    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT, archive],
+    ['-I', '-B', '-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT,
+      String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes),
+      String(HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES),
+      String(hostedActionArchiveMaximumBytes()),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds),
+      retained.archiveDigest],
     {
       encoding: 'utf8',
       windowsHide: true,
-      maxBuffer: 128 * 1024 * 1024,
+      maxBuffer: HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES,
+      timeout: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000,
+      killSignal: 'SIGKILL',
+      stdio: ['ignore', 'pipe', 'pipe', retained.fileDescriptor],
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }
     }
   );
-  if (inventory.status !== 0 || typeof inventory.stdout !== 'string') {
-    throw new Error(`${label} metadata is unreadable without extraction.`);
+  assertRetainedHostedSutArchive(retained);
+  if (inventory.error !== undefined || inventory.status !== 0 || typeof inventory.stdout !== 'string') {
+    throw new Error(`${label} metadata is unreadable within retained archive bounds: ${String(inventory.stderr).slice(0, 1024)}`);
   }
   return JSON.parse(inventory.stdout) as unknown;
 }
@@ -764,6 +939,10 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
     if (!['directory', 'file', 'hardlink', 'symlink'].includes(value.type)) {
       throw new Error(`Hosted Action archive entry type is forbidden: ${value.type}.`);
     }
+    if (Number(value.size) > CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes ||
+        (value.type !== 'file' && Number(value.size) !== 0)) {
+      throw new Error('Hosted Action archive member bytes exceed the file bound or non-file payload is present.');
+    }
     const entryPath = canonicalHostedArchivePath(value.path, 'entry path', value.type === 'directory');
     if (entryPath === null) continue;
     if ((Number(value.mode) & 0o6000) !== 0) {
@@ -781,9 +960,6 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
       : null;
     if (linkTarget === null && value.linkTarget !== null) {
       throw new Error(`Hosted Action archive ordinary entry has a link target: ${entryPath}.`);
-    }
-    if (linkTarget !== null && Number(value.size) !== 0) {
-      throw new Error(`Hosted Action archive link has nonzero payload bytes: ${entryPath}.`);
     }
     const trustedContentPath = entryPath === '.sec-trusted-input/candidate.bundle' ||
       entryPath === '.sec-trusted-input/dependency-closure.json';
@@ -817,14 +993,23 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
     if (entry.type === 'hardlink' && entry.physicalContentDigest !== target.physicalContentDigest) {
       throw new Error(`Hosted Action archive hardlink content differs from its target: ${entry.path}.`);
     }
-    const seen = new Set<string>([entry.path]);
-    let cursor: HostedActionArchiveInventoryEntry | undefined = target;
-    while (cursor?.linkTarget !== null) {
-      if (seen.has(cursor.path)) throw new Error(`Hosted Action archive link cycle is forbidden: ${entry.path}.`);
-      seen.add(cursor.path);
-      cursor = byPath.get(cursor.linkTarget);
-      if (cursor === undefined) throw new Error(`Hosted Action archive link chain is incomplete: ${entry.path}.`);
+  }
+  // Cache only this immutable inventory's node identities. Shared tails are
+  // checked once; path-only or cross-inventory cache entries cannot bless a node.
+  const complete = new Set<HostedActionArchiveInventoryEntry>();
+  for (const entry of entries) {
+    const pending: HostedActionArchiveInventoryEntry[] = [];
+    const seen = new Set<HostedActionArchiveInventoryEntry>();
+    let cursor = entry;
+    while (cursor.linkTarget !== null && !complete.has(cursor)) {
+      if (seen.has(cursor)) throw new Error(`Hosted Action archive link cycle is forbidden: ${entry.path}.`);
+      seen.add(cursor);
+      pending.push(cursor);
+      const target = byPath.get(cursor.linkTarget);
+      if (target === undefined) throw new Error(`Hosted Action archive link chain is incomplete: ${entry.path}.`);
+      cursor = target;
     }
+    for (const node of pending) complete.add(node);
   }
   const totalFileBytes = entries.reduce((total, entry) => total + (entry.type === 'file' ? entry.size : 0), 0);
   if (!Number.isSafeInteger(totalFileBytes) ||
@@ -843,9 +1028,14 @@ export function CodexDevelopmentInspectHostedActionArchiveInventory(
   archive: string,
   label: string = 'Hosted Action archive inventory'
 ): ReturnType<typeof CodexDevelopmentValidateHostedActionArchiveInventory> {
-  return CodexDevelopmentValidateHostedActionArchiveInventory(
-    inspectHostedActionArchiveMetadata(archive, label)
-  );
+  const retained = retainObservedHostedSutArchive(archive);
+  try {
+    return CodexDevelopmentValidateHostedActionArchiveInventory(
+      inspectHostedActionArchiveMetadata(retained, label)
+    );
+  } finally {
+    closeSync(retained.fileDescriptor);
+  }
 }
 
 type HostedActionArchiveInspectionInput = Readonly<{
@@ -869,20 +1059,17 @@ function inspectHostedActionArchiveDetailed(
       !/^sha256:[0-9a-f]{64}$/u.test(input.authenticatedGitClosureDigest)) {
     throw new Error('Hosted Action archive expected Git or dependency closure digest is invalid.');
   }
-  const archive = realpathSync.native(path.resolve(input.preparedCandidateArchive));
-  const archiveStat = lstatSync(archive);
-  const archiveDigest = hostedActionFileDigest(archive);
-  if (!archiveStat.isFile()) {
-    throw new Error('Hosted Action prepared candidate archive is not one ordinary file.');
-  }
+  const archive = path.resolve(input.preparedCandidateArchive);
+  const retained = retainObservedHostedSutArchive(archive);
+  const archiveDigest = retained.archiveDigest;
   let rawInventory: unknown;
-  if (input.inspectArchive !== undefined) {
-    rawInventory = input.inspectArchive(archive);
-  } else {
-    rawInventory = inspectHostedActionArchiveMetadata(
-      archive,
-      'Hosted Action prepared candidate archive'
-    );
+  try {
+    rawInventory = input.inspectArchive === undefined
+      ? inspectHostedActionArchiveMetadata(retained, 'Hosted Action prepared candidate archive')
+      : input.inspectArchive(archive);
+    assertRetainedHostedSutArchive(retained);
+  } finally {
+    closeSync(retained.fileDescriptor);
   }
   const validated = CodexDevelopmentValidateHostedActionArchiveInventory(rawInventory);
   for (const required of [

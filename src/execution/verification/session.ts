@@ -290,6 +290,9 @@ export interface GitHubActionsArtifactObservation {
   artifactName: string;
   /** Provider-supplied digest of the immutable artifact archive, when available. */
   archiveDigest: SessionDigest | null;
+  /** Provider timestamps are required by consumers that bind a producer window. */
+  createdAt?: string;
+  updatedAt?: string;
   workflowPath: string;
   workflowRef: string;
   workflowSha: string;

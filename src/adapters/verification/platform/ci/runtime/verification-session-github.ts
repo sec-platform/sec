@@ -2521,6 +2521,8 @@ class HttpVerificationSessionTransport implements VerificationSessionGitHubTrans
       workflowRef: `${workflowPath}@${workflowSha}`, workflowSha, runId: canonicalRunId,
       runAttempt: attemptAuthority.runAttempt, eventName: String(run.event), actorNodeId: actor.node_id,
       actorPermission: (await this.collaboratorPermission(repository, actor.login)), archiveDigest,
+      ...(typeof artifact.created_at === 'string' ? { createdAt: artifact.created_at } : {}),
+      ...(typeof artifact.updated_at === 'string' ? { updatedAt: artifact.updated_at } : {}),
       expired: artifact.expired === true };
   }
 

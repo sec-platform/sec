@@ -17,6 +17,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../src/assurance/verification/contract/revision.ts";
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
@@ -50,6 +51,7 @@ import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_P
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
+import { HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT } from '../../src/adapters/verification/platform/ci/verification-materialization.ts';
 import { observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
 import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertHostedActionParentEvent, CodexDevelopmentAssertHostedDependencyArchiveProjection, CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean, CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot, CodexDevelopmentCiVerificationMainForTests, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentHostedDependencyMaterializerEnvironment, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentInspectHostedActionArchiveInventory, CodexDevelopmentMaterializeTrustedBootstrapArchive, CodexDevelopmentProbeHostedSutSandboxCapability, CodexDevelopmentRunBoundedDependencyMaterialization, CodexDevelopmentValidateHostedActionArchiveInventory, HOSTED_SUT_CAPABILITY_ASSERTION, hostedCandidateProcessEnvironment, TRUSTED_BOOTSTRAP_SUT_HARNESS, type CodexDevelopmentHostedActionArtifactObservation } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
@@ -1537,19 +1539,183 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
     [entry('missing', 'hardlink', { linkTarget: 'absent' })],
     [entry('dup'), entry('dup')],
     [entry('Case'), entry('case')],
-    [entry('setuid', 'file', { mode: 0o4755 })]
+    [entry('setuid', 'file', { mode: 0o4755 })],
+    [entry('oversize', 'file', { size: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes + 1 })],
+    [entry('directory-payload', 'directory', { size: 1 })]
   ];
   for (const inventory of hostile) {
     expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
       ...trusted, ...inventory
     ])).toThrow();
   }
+  const forwardChain = Array.from({ length: 32 }, (_, index) => entry(`chain-${index}`, 'hardlink', {
+    linkTarget: index === 31 ? 'package.json' : `chain-${index + 1}`
+  }));
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
+    ...forwardChain,
+    entry('shared-tail-a', 'hardlink', { linkTarget: 'chain-15' }),
+    entry('shared-tail-b', 'hardlink', { linkTarget: 'chain-15' }),
+    ...trusted
+  ])).not.toThrow();
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
+    ...trusted,
+    ...forwardChain.map((value) => value.path === 'chain-31'
+      ? { ...value, linkTarget: 'chain-0' }
+      : value)
+  ])).toThrow(/link cycle/u);
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory(
+    Array(250_001).fill(entry('excess-entry'))
+  )).toThrow(/entry bound/u);
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory(
+    Array.from({ length: 17 }, (_, index) => entry(`aggregate-${index}`, 'file', {
+      size: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes
+    }))
+  )).toThrow(/workspace bound/u);
   expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
     ...trusted,
     entry('loop', 'directory'),
     entry('loop/child', 'directory'),
     entry('loop/child/link', 'symlink', { linkTarget: '..' })
   ])).toThrow(/targets itself or an ancestor/u);
+});
+
+test('archive decoded read and discard share one budget across finite streams and format probes', () => {
+  // Future execution stays behind the formal test owner. This fixture has only
+  // 16 in-memory bytes and never opens an archive, file descriptor or decompressor.
+  const result = spawnSync('/usr/bin/python3', ['-I', '-B', '-c', [
+    'import io, json',
+    HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT,
+      "class FiniteStream:",
+      "  def __init__(self, size=16): self.data = bytes(range(size)); self.position = 0; self.reads = []; self.seeks = 0",
+      "  def tell(self): return self.position",
+      "  def read(self, size):",
+      "    self.reads.append(size)",
+      "    data = self.data[self.position:self.position + size]; self.position += len(data)",
+      "    return data",
+      "  def seek(self, *args):",
+      "    self.seeks += 1",
+      "    raise RuntimeError(\"underlying seek must never be delegated\")",
+      "  def close(self): pass",
+      "def rejection(operation):",
+      "  try: operation()",
+      "  except RuntimeError as error: return str(error)",
+      "  raise AssertionError(\"bounded reader accepted a forbidden operation\")",
+      "budget = HostedArchiveDecodedBudget(io.DEFAULT_BUFFER_SIZE + 16, 4, 3)",
+      "stream = FiniteStream(); reader = HostedArchiveDecodedReader(stream, budget)",
+      "first = list(reader.read(4))",
+      "# Advancing the actual stream is charged even when the consumer reports zero logical payload.",
+      "logical_member_bytes = 0",
+      "position = reader.seek(12)",
+      "last = list(reader.read(4))",
+      "rejected = [",
+      "  rejection(lambda: reader.read(1)),",
+      "  rejection(lambda: reader.read(5)),",
+      "  rejection(lambda: reader.read()),",
+      "  rejection(lambda: reader.seek(17)),",
+      "  rejection(lambda: reader.seek(0)),",
+      "  rejection(lambda: reader.seek(0, 2))",
+      "]",
+      "shared = HostedArchiveDecodedBudget(2 * io.DEFAULT_BUFFER_SIZE + 6, 4, 3)",
+      "first_probe = HostedArchiveDecodedReader(FiniteStream(), shared); first_probe.read(4)",
+      "second_probe = HostedArchiveDecodedReader(FiniteStream(), shared); second_probe.read(2)",
+      "probe_rejection = rejection(lambda: HostedArchiveDecodedReader(FiniteStream(), shared))",
+      "partial_budget = HostedArchiveDecodedBudget(io.DEFAULT_BUFFER_SIZE + 8, 4, 3)",
+      "partial_stream = FiniteStream(2); partial = HostedArchiveDecodedReader(partial_stream, partial_budget)",
+      "partial_rejection = rejection(lambda: partial.seek(4))",
+      "print(json.dumps({\"first\": first, \"last\": last, \"position\": position, \"finalPosition\": reader.tell(), \"remaining\": budget.remaining, \"reads\": stream.reads, \"seeks\": stream.seeks, \"rejected\": rejected, \"sharedRemaining\": shared.remaining, \"probeRejection\": probe_rejection, \"partialReads\": partial_stream.reads, \"partialRemaining\": partial_budget.remaining, \"partialRejection\": partial_rejection}, sort_keys=True))"
+  ].join('\n')], {
+    encoding: 'utf8', timeout: 3_000, maxBuffer: 64 * 1024,
+    env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }, windowsHide: true
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    first: [0, 1, 2, 3], last: [12, 13, 14, 15], position: 12, finalPosition: 16, remaining: 0,
+    reads: [4, 3, 3, 2, 4], seeks: 0,
+    rejected: [
+      'archive decoded byte bound exceeded',
+      'archive decoded read allocation bound exceeded',
+      'archive decoded read allocation bound exceeded',
+      'archive decoded byte bound exceeded',
+      'archive decoded backward seek is unsupported',
+      'archive decoded seek is unsupported'
+    ],
+    sharedRemaining: 0, probeRejection: 'archive decoded byte bound exceeded',
+    partialReads: [3, 2], partialRemaining: 3,
+    partialRejection: 'archive decoded stream ended during forward seek'
+  });
+});
+
+test('retained archive inventory bounds extended headers before payload and preserves compressed PAX links', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-inventory-bounds-'));
+  const archive = path.join(root, 'candidate.tar');
+  // Independent POSIX ustar fixture: the rejected large sizes have no payload.
+  const header = (name: string, type: string, size: number, target = ''): Buffer => {
+    const bytes = Buffer.alloc(512);
+    bytes.write(name, 0, 100, 'utf8');
+    bytes.write('0000644\0', 100, 'ascii');
+    bytes.write('0000000\0', 108, 'ascii');
+    bytes.write('0000000\0', 116, 'ascii');
+    bytes.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 'ascii');
+    bytes.write('00000000000\0', 136, 'ascii');
+    bytes.fill(0x20, 148, 156);
+    bytes.write(type, 156, 'ascii');
+    bytes.write(target, 157, 100, 'utf8');
+    bytes.write('ustar\0', 257, 'ascii');
+    bytes.write('00', 263, 'ascii');
+    const checksum = bytes.reduce((sum, value) => sum + value, 0);
+    bytes.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+    return bytes;
+  };
+  const payload = (bytes: Buffer): Buffer => Buffer.concat([
+    bytes, Buffer.alloc((512 - bytes.length % 512) % 512)
+  ]);
+  try {
+    for (const [type, size, diagnostic] of [
+      ['0', CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes + 1, /member byte bound/u],
+      ['x', 128 * 1024 * 1024 + 1, /metadata byte bound/u],
+      ['S', 0, /forbidden or unsupported/u],
+      ['3', 0, /forbidden or unsupported/u]
+    ] as const) {
+      writeFileSync(archive, header('hostile', type, size));
+      expect(() => CodexDevelopmentInspectHostedActionArchiveInventory(archive)).toThrow(diagnostic);
+    }
+    const longPath = `pkg/${'long-'.repeat(25)}source.txt`;
+    const paxRecord = (field: string): Buffer => {
+      const body = `${field}=${longPath}\n`;
+      let length = Buffer.byteLength(body) + 3;
+      while (length !== Buffer.byteLength(`${length} ${body}`)) {
+        length = Buffer.byteLength(`${length} ${body}`);
+      }
+      return Buffer.from(`${length} ${body}`);
+    };
+    const pax = paxRecord('path');
+    const linkPax = paxRecord('linkpath');
+    const content = Buffer.from('authenticated archive content');
+    const bytes = Buffer.concat([
+      header('extended', 'x', pax.length), payload(pax),
+      header('short', '0', content.length), payload(content),
+      header('hardlink', '1', 0, 'forward'),
+      header('extended-link', 'x', linkPax.length), payload(linkPax),
+      header('forward', '1', 0, 'short'),
+      header('symlink', '2', 0, 'forward'),
+      Buffer.alloc(1024)
+    ]);
+    for (const encoded of [bytes, gzipSync(bytes)]) {
+      writeFileSync(archive, encoded);
+      const inventory = CodexDevelopmentInspectHostedActionArchiveInventory(archive);
+      expect(inventory.totalFileBytes).toBe(content.length);
+      const ordinary = inventory.entries.find((entry) => entry.path === longPath);
+      expect(ordinary?.physicalContentDigest).toBe(bytesDigest(
+        Buffer.from(JSON.stringify({ bytes: content.toString('hex') }))
+      ));
+      expect(inventory.entries.find((entry) => entry.path === 'hardlink')?.physicalContentDigest)
+        .toBe(ordinary?.physicalContentDigest);
+      expect(inventory.entries.find((entry) => entry.path === 'symlink')?.linkTarget).toBe('forward');
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('trusted dependency archive projection binds one stable physical generation', () => {
@@ -1760,6 +1926,16 @@ test('pre-start archive inspection authenticates raw bytes and exact dependency 
       authenticatedGitClosureDigest: gitBundleDigest,
       inspectArchive: () => inventory
     })).toThrow(/differs from trusted pre-start inputs/u);
+    expect(() => CodexDevelopmentInspectHostedActionArchive({
+      resolution,
+      preparedCandidateArchive: archive,
+      baseDependencyClosureDigest: dependencyClosureDigest,
+      authenticatedGitClosureDigest: gitBundleDigest,
+      inspectArchive: () => {
+        writeFileSync(archive, 'mutated raw archive bytes');
+        return inventory;
+      }
+    })).toThrow(/changed after authentication/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

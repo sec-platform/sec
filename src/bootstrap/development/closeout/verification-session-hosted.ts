@@ -548,7 +548,7 @@ export function createHostedRecoveryVerificationPorts(input: Readonly<{
       assertCurrent();
       const facts = readAuthenticatedHostedControlStepFacts({ ctx: input.ctx, origin: input.origin });
       assertCurrent();
-      return facts;
+      return Object.freeze({ preparation: facts.preparation, upload: facts.upload });
     },
     readProducedRecoveryTransport: () => {
       const job = assertCurrent();
@@ -583,13 +583,19 @@ export function createHostedRecoveryVerificationPorts(input: Readonly<{
       const job = assertCurrent();
       const names = await readHostedAttemptRecoveryArtifactNames({ github: input.github,
         repository: job.repository, runId: job.runId, runAttempt: job.runAttempt });
+      // The absence lane must still belong to this exact active verifier after
+      // the asynchronous inventory read, just as the uploaded lane is re-read.
+      const steps = readAuthenticatedHostedControlStepFacts({ ctx: input.ctx, origin: input.origin });
+      if (steps.upload.conclusion !== 'skipped') {
+        throw new Error('Recovery absence readback no longer has its skipped upload.');
+      }
       assertCurrent();
       return names;
     },
     readVerifiedHostedRecoveryTransport: async request => {
       const job = assertCurrent();
       const transport = await readVerifiedHostedRecoveryTransport({ ctx: input.ctx, github: input.github,
-        repository: job.repository, expectedArtifactName: request.expectedArtifactName,
+        origin: input.origin, repository: job.repository, expectedArtifactName: request.expectedArtifactName,
         runId: job.runId, runAttempt: job.runAttempt });
       assertCurrent();
       return transport;
