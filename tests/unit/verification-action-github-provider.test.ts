@@ -1,14 +1,19 @@
-import { afterAll, describe, expect, mock, test } from 'bun:test';
-import { createHash } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { createHash, generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
+import { getCiVerificationPerJobHostedJobPolicy } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import * as githubApi from '../../src/adapters/providers/github-api/operation-session.ts';
+import * as provider from '../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts';
+import { settleResourcesAsync, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 import { HOSTED_SESSION_WAKE_KEY_SCHEMA } from '../../src/execution/verification/hosted.ts';
 
 import { HOSTED_RESUME_DISPATCH_EVENT, HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
-import type { AuthenticatedGitHubJobOrigin, AuthenticatedGitHubJobOriginObservation } from '../../src/adapters/providers/github-api/hosted-job-origin.ts';
-import { SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, AuthenticatedGitHubJobOriginUnavailableError, closeAuthenticatedGitHubJobOrigin, openAuthenticatedGitHubJobOrigin, type AuthenticatedGitHubJobOrigin } from '../../src/adapters/providers/github-api/hosted-job-origin.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
@@ -25,16 +30,18 @@ import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers
 
 const REPOSITORY = 'openai/sec';
 const REPOSITORY_ID = 311;
-const BASE = '1'.repeat(40);
+const REPOSITORY_ROOT = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
+let BASE: string;
+let SOURCE_TREE: string;
 const HEAD = '2'.repeat(40);
 const SESSION = `sha256:${'6'.repeat(64)}` as const;
 const PARENT_RUN_ID = '9001';
 const CURRENT_RUN_ID = '9100';
 const PARENT_ARTIFACT_ID = 7000;
 const PARENT_JOB_ID = 6001;
-const EVENT_ROOT = mkdtempSync(path.join(tmpdir(), 'sec-provider-p1-test-'));
-const EVENT_PATH = path.join(EVENT_ROOT, 'event.json');
-const CANONICAL_WORKFLOW_SOURCE = readFileSync(new URL('../../.github/workflows/compiler-pr-validation.yml', import.meta.url), 'utf8');
+let EVENT_ROOT: string | undefined;
+let EVENT_PATH: string;
+let CANONICAL_WORKFLOW_SOURCE: string;
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}`;
@@ -95,167 +102,255 @@ const rawSha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(
 const archiveDigestFor = (fileName: string, source: string): VerificationActionKeyDigest =>
   `sha256:${rawSha256Hex(storedZip(fileName, source))}`;
 
-const closure = buildCiVerificationActionPlanClosure({
-  candidate: {
-    baseSha: BASE,
-    baseTreeSha: '3'.repeat(40),
-    headSha: HEAD,
-    headTreeSha: '4'.repeat(40),
+function createProviderFixtureData(BASE: string) {
+  const closure = buildCiVerificationActionPlanClosure({
+    candidate: {
+      baseSha: BASE,
+      baseTreeSha: '3'.repeat(40),
+      headSha: HEAD,
+      headTreeSha: '4'.repeat(40),
+      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
+      manifestDigest: digest('a'),
+      scopeAuthorizationRevision: digest('b'),
+      profile: 'quick',
+      toolchainRevision: 'bun@1.3.14',
+      providerRevision: 'github-actions@trusted-default',
+      contractRevision: 'ci-verification-v19',
+      requiredBlobs: [
+        { path: '.bun-version', digest: digest('c') },
+        { path: 'bun.lock', digest: digest('d') },
+        { path: 'bunfig.toml', digest: digest('e') },
+        { path: 'package.json', digest: digest('f') }
+      ]
+    },
+    gates: [{
+      id: 'typecheck',
+      phase: 'quick',
+      argv: ['bun', 'run', 'typecheck'],
+      runtime: 'bun',
+      environment: {},
+      coveredScopeIds: ['runtime']
+    }]
+  });
+  const ACTION = closure.actions[0]!.action.actionKey;
+  const CONTEXT = verificationActionProviderStatusContext(ACTION);
+  const sessionRequest = Object.freeze({
+    schema: 'sec-verification-session-hosted-request-v1',
+    prNumber: 42,
+    expectedBaseSha: BASE,
+    expectedBaseTreeSha: '3'.repeat(40),
+    expectedHeadSha: HEAD,
+    expectedHeadTreeSha: '4'.repeat(40),
     manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
     manifestDigest: digest('a'),
-    scopeAuthorizationRevision: digest('b'),
     profile: 'quick',
-    toolchainRevision: 'bun@1.3.14',
-    providerRevision: 'github-actions@trusted-default',
-    contractRevision: 'ci-verification-v19',
-    requiredBlobs: [
-      { path: '.bun-version', digest: digest('c') },
-      { path: 'bun.lock', digest: digest('d') },
-      { path: 'bunfig.toml', digest: digest('e') },
-      { path: 'package.json', digest: digest('f') }
-    ]
-  },
-  gates: [{
-    id: 'typecheck',
-    phase: 'quick',
-    argv: ['bun', 'run', 'typecheck'],
-    runtime: 'bun',
-    environment: {},
-    coveredScopeIds: ['runtime']
-  }]
-});
-const ACTION = closure.actions[0]!.action.actionKey;
-const CONTEXT = verificationActionProviderStatusContext(ACTION);
-const sessionRequest = Object.freeze({
-  schema: 'sec-verification-session-hosted-request-v1',
-  prNumber: 42,
-  expectedBaseSha: BASE,
-  expectedBaseTreeSha: '3'.repeat(40),
-  expectedHeadSha: HEAD,
-  expectedHeadTreeSha: '4'.repeat(40),
-  manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v5.md',
-  manifestDigest: digest('a'),
-  profile: 'quick',
-  expectedScopeProposalDigest: digest('d'),
-  expectedActionPlanDigest: closure.actionPlanDigest,
-  expectedSessionRevision: SESSION,
-  reviewPolicyDigest: digest('e'),
-  requestOperationId: digest('f')
-});
-const proposal = createCiVerificationActionProposal({
-  sessionRequest,
-  proposedActionKey: ACTION
-});
-const parentActor = Object.freeze({
-  login: 'maintainer',
-  id: 42,
-  nodeId: 'MDQ6VXNlcjQy',
-  type: 'User' as const,
-  permission: 'maintain' as const
-});
-const parentPlan = createCiVerificationActionParentDispatchPlan({
-  repositoryId: String(REPOSITORY_ID),
-  repository: REPOSITORY,
-  parentRunId: PARENT_RUN_ID,
-  parentRunAttempt: 1,
-  parentJobId: String(PARENT_JOB_ID),
-  parentWorkflowRef: `${REPOSITORY}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
-  parentWorkflowSha: BASE,
-  parentActor,
-  proposals: [proposal]
-});
-const parentPlanSource = `${encodeVerificationActionData(parentPlan)}\n`;
-const envelope = createCiVerificationActionProviderEnvelope({
-  proposal,
-  parentPlan,
-  parentDispatchPlanArtifactId: String(PARENT_ARTIFACT_ID),
-  parentDispatchPlanArchiveDigest: archiveDigestFor('verification-action-parent-dispatch-plan.json', parentPlanSource)
-});
-const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
-const botRecord = Object.freeze({ login: bot.login, id: bot.id, node_id: bot.nodeId, type: bot.type });
-const currentOrigin: VerificationActionProviderOrigin = Object.freeze({
-  repositoryId: REPOSITORY_ID,
-  repository: REPOSITORY,
-  workflowPath: '.github/workflows/compiler-pr-validation.yml',
-  workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
-  workflowSha: BASE,
-  runId: CURRENT_RUN_ID,
-  runAttempt: 1,
-  appId: 15368,
-  appNodeId: 'MDM6QXBwMTUzNjg=',
-  sourceEvent: 'repository_dispatch'
-});
-const marker = createVerificationActionProviderStartMarker({
-  actionKey: ACTION,
-  candidateSha: HEAD,
-  executionEnvironmentRevision: 'hosted',
-  producer: currentOrigin
-});
+    expectedScopeProposalDigest: digest('d'),
+    expectedActionPlanDigest: closure.actionPlanDigest,
+    expectedSessionRevision: SESSION,
+    reviewPolicyDigest: digest('e'),
+    requestOperationId: digest('f')
+  });
+  const proposal = createCiVerificationActionProposal({
+    sessionRequest,
+    proposedActionKey: ACTION
+  });
+  const parentActor = Object.freeze({
+    login: 'maintainer',
+    id: 42,
+    nodeId: 'MDQ6VXNlcjQy',
+    type: 'User' as const,
+    permission: 'maintain' as const
+  });
+  const parentPlan = createCiVerificationActionParentDispatchPlan({
+    repositoryId: String(REPOSITORY_ID),
+    repository: REPOSITORY,
+    parentRunId: PARENT_RUN_ID,
+    parentRunAttempt: 1,
+    parentJobId: String(PARENT_JOB_ID),
+    parentWorkflowRef: `${REPOSITORY}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+    parentWorkflowSha: BASE,
+    parentActor,
+    proposals: [proposal]
+  });
+  const parentPlanSource = `${encodeVerificationActionData(parentPlan)}\n`;
+  const envelope = createCiVerificationActionProviderEnvelope({
+    proposal,
+    parentPlan,
+    parentDispatchPlanArtifactId: String(PARENT_ARTIFACT_ID),
+    parentDispatchPlanArchiveDigest: archiveDigestFor('verification-action-parent-dispatch-plan.json', parentPlanSource)
+  });
+  const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
+  const botRecord = Object.freeze({ login: bot.login, id: bot.id, node_id: bot.nodeId, type: bot.type });
+  const currentOrigin: VerificationActionProviderOrigin = Object.freeze({
+    repositoryId: REPOSITORY_ID,
+    repository: REPOSITORY,
+    workflowPath: '.github/workflows/compiler-pr-validation.yml',
+    workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
+    workflowSha: BASE,
+    runId: CURRENT_RUN_ID,
+    runAttempt: 1,
+    appId: 15368,
+    appNodeId: 'MDM6QXBwMTUzNjg=',
+    sourceEvent: 'repository_dispatch'
+  });
+  const marker = createVerificationActionProviderStartMarker({
+    actionKey: ACTION,
+    candidateSha: HEAD,
+    executionEnvironmentRevision: 'hosted',
+    producer: currentOrigin
+  });
+  return { closure, ACTION, CONTEXT, sessionRequest, proposal, parentActor, parentPlan, parentPlanSource, envelope, bot, botRecord, currentOrigin, marker };
+}
+
+let closure: ReturnType<typeof createProviderFixtureData>['closure'];
+let ACTION: ReturnType<typeof createProviderFixtureData>['ACTION'];
+let CONTEXT: ReturnType<typeof createProviderFixtureData>['CONTEXT'];
+let sessionRequest: ReturnType<typeof createProviderFixtureData>['sessionRequest'];
+let proposal: ReturnType<typeof createProviderFixtureData>['proposal'];
+let parentActor: ReturnType<typeof createProviderFixtureData>['parentActor'];
+let parentPlanSource: ReturnType<typeof createProviderFixtureData>['parentPlanSource'];
+let envelope: ReturnType<typeof createProviderFixtureData>['envelope'];
+let bot: ReturnType<typeof createProviderFixtureData>['bot'];
+let botRecord: ReturnType<typeof createProviderFixtureData>['botRecord'];
+let currentOrigin: ReturnType<typeof createProviderFixtureData>['currentOrigin'];
+let marker: ReturnType<typeof createProviderFixtureData>['marker'];
 const TERMINAL_PAYLOAD_DIGEST = digest('9');
 
-// The genuine hosted job origin is a platform (linux/x64 OIDC) capability that
-// cannot be issued on a developer host. The transport under test consumes only
-// its published observation surface, so the exact observation contract is
-// substituted here and every fixture origin carries its own job phase.
-type ProviderOriginPhase = Readonly<{ policyJobId: string; phase: string; stepName: string; stepNumber: number; workflowPath: string }>;
-const ORIGIN_DEADLINE_AT_UNIX_MS = Date.now() + 3_600_000;
-const originRecords = new WeakMap<object, ProviderOriginPhase & Readonly<{ signal: AbortSignal }>>();
+// Only upstream response data is substituted. Every opaque origin below is
+// issued, rechecked and closed by the real owner, including physical source,
+// retained executable, mount namespace and lifetime checks. This fixture does
+// not establish live GitHub provenance or make an unsupported host admissible.
+type OriginFixture = Readonly<{
+  policyJobId: string; phase: string; stepName: string; stepNumber: number;
+  workflowPath: string; runId: string; jobId: number; checkRunId: number;
+}>;
+const COMPILER_WORKFLOW = '.github/workflows/compiler-pr-validation.yml';
+const MERGE_WORKFLOW = '.github/workflows/merge-gate.yml';
+let ORIGIN_JOB_STARTED_AT: string;
+const ORIGIN_REQUEST_URL = 'https://fixture.actions.githubusercontent.com/_apis/distributedtask/hubs/Actions/plans/fixture/jobs/fixture/idtoken';
+const ORIGIN_REQUEST_TOKEN = 'fixture-origin-request-token';
+let originSigningKey: Readonly<{ publicKey: KeyObject; privateKey: KeyObject }>;
+let originJwks: Readonly<{ keys: readonly Record<string, unknown>[] }>;
+const originEnvironmentKeys = [
+  'GITHUB_ACTIONS', 'GITHUB_SERVER_URL', 'GITHUB_API_URL', 'GH_TOKEN',
+  'GITHUB_REPOSITORY', 'GITHUB_REPOSITORY_ID', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT',
+  'GITHUB_EVENT_NAME', 'GITHUB_SHA', 'GITHUB_REF', 'GITHUB_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA',
+  'GITHUB_ACTOR', 'GITHUB_TRIGGERING_ACTOR', 'GITHUB_EVENT_PATH', 'GITHUB_JOB',
+  'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN'
+] as const;
+let originalEnvironment: ReadonlyMap<string, string | undefined> | undefined;
+const issuedFixtureOrigins: AuthenticatedGitHubJobOrigin[] = [];
+let openingOriginFixture: OriginFixture | undefined;
+let claimOrigin: AuthenticatedGitHubJobOrigin;
+let coordinateOrigin: AuthenticatedGitHubJobOrigin;
+let parentCoordinateOrigin: AuthenticatedGitHubJobOrigin;
+let terminalOrigin: AuthenticatedGitHubJobOrigin;
+let resumeOrigin: AuthenticatedGitHubJobOrigin;
+let historicalReceiverOrigin: AuthenticatedGitHubJobOrigin;
+let closedReceiverOrigin: AuthenticatedGitHubJobOrigin;
+let disallowedMergeOrigin: AuthenticatedGitHubJobOrigin;
 
-function createProviderOrigin(policyJobId: string, phase: string, stepName: string, stepNumber: number,
-  workflowPath = '.github/workflows/compiler-pr-validation.yml'): AuthenticatedGitHubJobOrigin {
-  const origin = Object.freeze({}) as AuthenticatedGitHubJobOrigin;
-  originRecords.set(origin, Object.freeze({ policyJobId, phase, stepName, stepNumber, workflowPath, signal: new AbortController().signal }));
-  return origin;
-}
-const claimOrigin = createProviderOrigin('claim-verification-action', 'claim-start',
-  'Claim canonical verification Action start', 5);
-const coordinateOrigin = createProviderOrigin('coordinate-verification-session', 'coordinate-session',
-  'Coordinate canonical verification Session', 3);
-const terminalOrigin = createProviderOrigin('assemble-verification-action-terminal', 'anchor-terminal',
-  'Anchor canonical verification Action terminal', 9);
-const resumeOrigin = createProviderOrigin('receive-verification-session-resume', 'receive-verification-session-resume',
-  'Resume original authenticated Verification Session', 5);
-
-function providerOriginObservation(origin: AuthenticatedGitHubJobOrigin): AuthenticatedGitHubJobOriginObservation {
-  const record = originRecords.get(origin);
-  if (record === undefined) throw new Error('unregistered test provider origin');
-  const workflowSha = process.env.GITHUB_WORKFLOW_SHA ?? BASE;
-  return Object.freeze({
-    repository: process.env.GITHUB_REPOSITORY ?? REPOSITORY,
-    repositoryId: process.env.GITHUB_REPOSITORY_ID ?? String(REPOSITORY_ID),
-    workflowPath: record.workflowPath,
-    workflowSha,
-    trustedSourceSha: workflowSha,
-    trustedSourceTreeSha: '4'.repeat(40),
-    runId: process.env.GITHUB_RUN_ID ?? CURRENT_RUN_ID,
-    runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? '1'),
-    jobId: record.policyJobId,
-    checkRunId: '5002',
-    jobName: record.policyJobId,
-    role: 'control',
-    policyJobId: record.policyJobId,
-    policyDigest: `sha256:${'7'.repeat(64)}`,
-    launcherRevision: 'hosted-launcher-v1',
-    phase: record.phase,
-    stepName: record.stepName,
-    stepNumber: record.stepNumber,
-    originalDeadlineAtUnixMs: ORIGIN_DEADLINE_AT_UNIX_MS,
-    identityDigest: `sha256:${'8'.repeat(64)}`,
-    deadlineAtUnixMs: ORIGIN_DEADLINE_AT_UNIX_MS,
-    credentialExpiresAtUnixMs: ORIGIN_DEADLINE_AT_UNIX_MS + 3_600_000,
-    trustedDriverRoot: process.cwd(),
-    driverBunExecutableDigest: SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
-    workflowSourceDigest: `sha256:${'a'.repeat(64)}`,
-    launcherSourceDigest: `sha256:${'b'.repeat(64)}`
-  });
-}
-
-class TestAuthenticatedGitHubJobOriginUnavailableError extends Error {
-  readonly code = 'authenticated-github-job-origin-unavailable' as const;
-  constructor(readonly reason: 'context' | 'transport' | 'binding' | 'source' | 'expired' | 'closed') {
-    super(`Authenticated GitHub job origin unavailable (${reason}).`);
+function restoreOriginEnvironment(snapshot: ReadonlyMap<string, string | undefined>): void {
+  for (const [key, value] of snapshot) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
 }
+
+function originFixtureResponse(fixture: OriginFixture, url: URL, init?: RequestInit): Response {
+  const json = (value: unknown) => new Response(JSON.stringify(value), {
+    headers: { 'content-type': 'application/json' }
+  });
+  if ((init?.method ?? 'GET') !== 'GET' || url.username !== '' || url.password !== '' || url.hash !== '') {
+    throw new Error('Unexpected origin fixture request');
+  }
+  const request = new URL(ORIGIN_REQUEST_URL);
+  if (url.origin === request.origin && url.pathname === request.pathname) {
+    const audience = url.searchParams.get('audience');
+    if (audience === null || !/^sec:hosted-job-origin:v1:[0-9a-f-]{36}$/u.test(audience)
+        || [...url.searchParams.keys()].join(',') !== 'audience'
+        || new Headers(init?.headers).get('Authorization') !== `Bearer ${ORIGIN_REQUEST_TOKEN}`) {
+      throw new Error('Unexpected origin fixture audience or request credential');
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'fixture-origin-key' })).toString('base64url');
+    const claims = Buffer.from(JSON.stringify({ iss: 'https://token.actions.githubusercontent.com', aud: audience,
+      runner_environment: 'github-hosted', ref: 'refs/heads/main', iat: now, nbf: now, exp: now + 600,
+      repository: REPOSITORY, repository_id: String(REPOSITORY_ID),
+      workflow_ref: `${REPOSITORY}/${fixture.workflowPath}@refs/heads/main`, workflow_sha: BASE,
+      run_id: fixture.runId, run_attempt: '1', check_run_id: String(fixture.checkRunId),
+      event_name: fixture.workflowPath === MERGE_WORKFLOW ? 'workflow_run' : 'repository_dispatch',
+      jti: randomUUID() })).toString('base64url');
+    const content = `${header}.${claims}`;
+    return json({ value: `${content}.${sign('RSA-SHA256', Buffer.from(content), originSigningKey.privateKey).toString('base64url')}` });
+  }
+  if (url.href === 'https://token.actions.githubusercontent.com/.well-known/jwks') return json(originJwks);
+  if (url.origin !== 'https://api.github.com'
+      || new Headers(init?.headers).get('Authorization') !== 'Bearer ghs-provider-fixture-token') {
+    throw new Error('Unexpected origin fixture provider');
+  }
+  const repository = { id: REPOSITORY_ID, full_name: REPOSITORY, default_branch: 'main' };
+  const prefix = `/repos/${REPOSITORY}`;
+  if (url.pathname === prefix && url.search === '') return json(repository);
+  if (url.pathname === `${prefix}/branches/main` && url.search === '') {
+    return json({ name: 'main', commit: { sha: BASE, commit: { tree: { sha: SOURCE_TREE } } } });
+  }
+  if (url.pathname === `${prefix}/actions/runs/${fixture.runId}` && url.search === '') {
+    return json({ id: Number(fixture.runId), run_attempt: 1, path: fixture.workflowPath, head_sha: BASE,
+      head_branch: 'main', event: fixture.workflowPath === MERGE_WORKFLOW ? 'workflow_run' : 'repository_dispatch',
+      status: 'in_progress', conclusion: null, repository });
+  }
+  const policy = getCiVerificationPerJobHostedJobPolicy(fixture.workflowPath, fixture.policyJobId);
+  if (url.pathname === `${prefix}/actions/runs/${fixture.runId}/attempts/1/jobs`
+      && url.search === '?per_page=100&page=1') {
+    return json({ total_count: 1, jobs: [{ id: fixture.jobId, run_id: Number(fixture.runId), run_attempt: 1,
+      name: policy?.jobName ?? fixture.policyJobId, head_sha: BASE,
+      check_run_url: `https://api.github.com/repos/${REPOSITORY}/check-runs/${fixture.checkRunId}`,
+      status: 'in_progress', conclusion: null, completed_at: null,
+      labels: [policy?.runnerLabel ?? 'ubuntu-24.04'], started_at: ORIGIN_JOB_STARTED_AT,
+      steps: [{ number: fixture.stepNumber, name: fixture.stepName, status: 'in_progress', conclusion: null,
+        started_at: ORIGIN_JOB_STARTED_AT, completed_at: null }] }] });
+  }
+  if (policy?.runtime.kind === 'per-job-runtime') {
+    for (const file of [fixture.workflowPath, policy.runtime.launcherPath]) {
+      if (url.pathname === `${prefix}/contents/${file}` && url.search === `?ref=${BASE}`) {
+        const bytes = readFileSync(path.join(REPOSITORY_ROOT, file));
+        return json({ type: 'file', path: file, encoding: 'base64', content: bytes.toString('base64'), size: bytes.length });
+      }
+    }
+  }
+  throw new Error('Unexpected origin fixture URL');
+}
+
+async function openFixtureOrigin(fixture: OriginFixture): Promise<AuthenticatedGitHubJobOrigin> {
+  if (openingOriginFixture !== undefined) throw new Error('Concurrent origin fixture issuance');
+  const saved = new Map(originEnvironmentKeys.map(key => [key, process.env[key]]));
+  trustedEnvironment();
+  Object.assign(process.env, { GITHUB_JOB: fixture.policyJobId, GITHUB_RUN_ID: fixture.runId,
+    GITHUB_EVENT_NAME: fixture.workflowPath === MERGE_WORKFLOW ? 'workflow_run' : 'repository_dispatch',
+    GITHUB_WORKFLOW_REF: `${REPOSITORY}/${fixture.workflowPath}@refs/heads/main`,
+    ACTIONS_ID_TOKEN_REQUEST_URL: ORIGIN_REQUEST_URL, ACTIONS_ID_TOKEN_REQUEST_TOKEN: ORIGIN_REQUEST_TOKEN });
+  openingOriginFixture = fixture;
+  try {
+    const origin = await openAuthenticatedGitHubJobOrigin({ repositoryRoot: REPOSITORY_ROOT });
+    issuedFixtureOrigins.push(origin);
+    expect(assertAuthenticatedGitHubJobOriginCurrent(origin)).toMatchObject({
+      repository: REPOSITORY, repositoryId: String(REPOSITORY_ID), workflowSha: BASE,
+      trustedSourceSha: BASE, trustedSourceTreeSha: SOURCE_TREE, workflowPath: fixture.workflowPath,
+      policyJobId: fixture.policyJobId, phase: fixture.phase, stepName: fixture.stepName,
+      stepNumber: fixture.stepNumber, runId: fixture.runId, runAttempt: 1,
+      jobId: String(fixture.jobId), checkRunId: String(fixture.checkRunId), trustedDriverRoot: REPOSITORY_ROOT
+    });
+    return origin;
+  } finally {
+    openingOriginFixture = undefined;
+    restoreOriginEnvironment(saved);
+  }
+}
+
+const receiverFixture: OriginFixture = Object.freeze({ workflowPath: COMPILER_WORKFLOW,
+  policyJobId: 'receive-verification-session-resume', phase: 'receive-verification-session-resume',
+  stepName: 'Resume original authenticated Verification Session', stepNumber: 5,
+  runId: CURRENT_RUN_ID, jobId: 6104, checkRunId: 5104 });
 
 function rawStatus(input: Readonly<{
   id: number;
@@ -356,7 +451,7 @@ class FakeGh {
   }> | null) | null = null;
   artifactMetadataOverrides: Record<string, Record<string, unknown>> = {};
   workflowSource = CANONICAL_WORKFLOW_SOURCE;
-  workflowSourceHook: ((call: number) => string | null) | null = null;
+  workflowSourceHook: ((call: number) => string | null | Promise<string | null>) | null = null;
   workflowSourceCalls: Array<{ path: string; ref: string | null }> = [];
   createCalls = 0;
   dispatchCalls = 0;
@@ -417,7 +512,7 @@ class FakeGh {
       const ref = url.searchParams.get('ref');
       this.workflowSourceCalls.push({ path: '.github/workflows/compiler-pr-validation.yml', ref });
       if (ref !== BASE) return this.fail('unexpected workflow source revision');
-      const bytes = Buffer.from(this.workflowSourceHook?.(this.workflowSourceCalls.length) ?? this.workflowSource, 'utf8');
+      const bytes = Buffer.from(await this.workflowSourceHook?.(this.workflowSourceCalls.length) ?? this.workflowSource, 'utf8');
       return this.json({ type: 'file', path: '.github/workflows/compiler-pr-validation.yml', encoding: 'base64',
         content: bytes.toString('base64'), size: bytes.byteLength,
         sha: createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex') });
@@ -829,8 +924,7 @@ function delegatedSessionFixture() {
       started_at: '2026-08-09T01:01:06Z', completed_at: '2026-08-09T01:01:10Z' }] };
   target.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`] = [job];
   target.artifactMetadataOverrides[String(DELEGATED_ARTIFACT_ID)] = { created_at: '2026-08-09T01:01:06Z', updated_at: '2026-08-09T01:01:10Z' };
-  const origin = createProviderOrigin('receive-verification-session-resume', 'receive-verification-session-resume',
-    'Resume original authenticated Verification Session', 5);
+  const origin = historicalReceiverOrigin;
   trustedEnvironment(providerEnvelope);
   fakeGh = target;
   return { artifact: selector, artifactText, artifactId: String(DELEGATED_ARTIFACT_ID), origin,
@@ -867,28 +961,104 @@ function outcomeHistoryFixture() {
       sessionRevision, actionKeys: [actionKey] } };
 }
 
-let fakeGh = new FakeGh();
-const originalFetch = globalThis.fetch;
-globalThis.fetch = Object.assign(
-  (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> =>
-    fakeGh.fetch(input instanceof Request ? input.url : input, init) as Promise<Response>,
-  { preconnect: originalFetch.preconnect }
-);
-
-mock.module('../../src/adapters/providers/github-api/hosted-job-origin.ts', () => ({
-  assertAuthenticatedGitHubJobOriginCurrent: (origin: AuthenticatedGitHubJobOrigin) => providerOriginObservation(origin),
-  getAuthenticatedGitHubJobOriginSignal: (origin: AuthenticatedGitHubJobOrigin) => {
-    const record = originRecords.get(origin);
-    if (record === undefined) throw new Error('unregistered test provider origin');
-    return record.signal;
-  },
-  closeAuthenticatedGitHubJobOrigin: async (origin: AuthenticatedGitHubJobOrigin) => { originRecords.delete(origin); },
-  openAuthenticatedGitHubJobOrigin: async () => { throw new Error('hosted job origins are not opened in this test'); },
-  AuthenticatedGitHubJobOriginUnavailableError: TestAuthenticatedGitHubJobOriginUnavailableError
-}));
-const provider = await import('../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts');
-const githubApi = await import('../../src/adapters/providers/github-api/operation-session.ts');
+let fakeGh: FakeGh;
+let originalFetch: typeof fetch | undefined;
 const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransaction;
+
+async function closeFixtureOrigins(primary?: ResourceSettlementFailure): Promise<void> {
+  const priorFetch = originalFetch;
+  const priorEnvironment = originalEnvironment;
+  const eventRoot = EVENT_ROOT;
+  await settleResourcesAsync({ primary, cleanup: [
+    ...issuedFixtureOrigins.splice(0).map((origin, index) => ({ label: `fixture-origin-${index}`,
+      settle: () => closeAuthenticatedGitHubJobOrigin(origin) })),
+    { label: 'fixture-fetch', settle: () => {
+      if (priorFetch !== undefined) {
+        globalThis.fetch = priorFetch;
+        originalFetch = undefined;
+      }
+    } },
+    { label: 'fixture-environment', settle: () => {
+      if (priorEnvironment !== undefined) {
+        restoreOriginEnvironment(priorEnvironment);
+        originalEnvironment = undefined;
+      }
+    } },
+    { label: 'fixture-event-directory', settle: () => {
+      if (eventRoot !== undefined) {
+        rmSync(eventRoot, { recursive: true, force: true });
+        EVENT_ROOT = undefined;
+      }
+    } }
+  ] });
+}
+
+async function openFixtureOrigins(): Promise<void> {
+  // Collection only registers this lifecycle. Unsupported hosts fail the suite;
+  // this diagnostic is not an Action terminal or a successful skipped test.
+  if (process.platform !== 'linux' || process.arch !== 'x64') {
+    throw Object.assign(new Error('GitHub provider issuer fixture unsupported: requires linux/x64.'), {
+      code: 'GITHUB-PROVIDER-FIXTURE-UNSUPPORTED', status: 'unsupported'
+    });
+  }
+  try {
+    // Observe the actual loaded checkout through the original read owner. The
+    // issuer still independently requires its exact clean source and pinned Bun.
+    [BASE, SOURCE_TREE] = await withAuthorityGitReadSession({ cwd: REPOSITORY_ROOT, source: process.env,
+      budget: { maxProcesses: 2 } }, async git => {
+      const values: string[] = [];
+      for (const revision of ['HEAD', 'HEAD^{tree}']) {
+        const result = await git.run(['rev-parse', revision]);
+        if (result.kind !== 'completed' || result.result.code !== 0) throw new Error('Origin fixture source observation failed');
+        const value = Buffer.from(result.result.stdout).toString('utf8').trim();
+        if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error('Origin fixture source identity is invalid');
+        values.push(value);
+      }
+      return values as [string, string];
+    });
+    EVENT_ROOT = mkdtempSync(path.join(tmpdir(), 'sec-provider-p1-test-'));
+    EVENT_PATH = path.join(EVENT_ROOT, 'event.json');
+    CANONICAL_WORKFLOW_SOURCE = readFileSync(new URL('../../.github/workflows/compiler-pr-validation.yml', import.meta.url), 'utf8');
+    ({ closure, ACTION, CONTEXT, sessionRequest, proposal, parentActor, parentPlanSource, envelope, bot, botRecord, currentOrigin, marker } = createProviderFixtureData(BASE));
+    ORIGIN_JOB_STARTED_AT = new Date(Date.now() - 1_000).toISOString();
+    originSigningKey = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    originJwks = { keys: [{ ...originSigningKey.publicKey.export({ format: 'jwk' }),
+      kid: 'fixture-origin-key', alg: 'RS256', use: 'sig' }] };
+    fakeGh = new FakeGh();
+    originalEnvironment = new Map(originEnvironmentKeys.map(key => [key, process.env[key]]));
+    const priorFetch = globalThis.fetch;
+    originalFetch = priorFetch;
+    globalThis.fetch = Object.assign(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        if (openingOriginFixture !== undefined) return originFixtureResponse(openingOriginFixture, url, init);
+        if (url.origin !== 'https://api.github.com' && url.origin !== 'https://results-receiver.actions.githubusercontent.com') {
+          throw new Error('Unexpected provider fixture URL');
+        }
+        return await fakeGh.fetch(url, init);
+      },
+      { preconnect: priorFetch.preconnect }
+    );
+    claimOrigin = await openFixtureOrigin({ ...receiverFixture, policyJobId: 'claim-verification-action', phase: 'claim-start',
+      stepName: 'Publish durable start tombstone and issue execution ticket', stepNumber: 10, jobId: 6101, checkRunId: 5101 });
+    const coordinateFixture = { ...receiverFixture, policyJobId: 'coordinate-verification-session', phase: 'coordinate-session',
+      stepName: 'Complete original Action coordination and canonical Session', stepNumber: 7, jobId: 6102, checkRunId: 5102 };
+    coordinateOrigin = await openFixtureOrigin(coordinateFixture);
+    parentCoordinateOrigin = await openFixtureOrigin({ ...coordinateFixture, runId: PARENT_RUN_ID, jobId: PARENT_JOB_ID, checkRunId: 5001 });
+    terminalOrigin = await openFixtureOrigin({ ...receiverFixture, policyJobId: 'assemble-verification-action-terminal', phase: 'anchor-terminal',
+      stepName: 'Publish neutral terminal provider tombstone', stepNumber: 12, jobId: 6103, checkRunId: 5103 });
+    resumeOrigin = await openFixtureOrigin(receiverFixture);
+    historicalReceiverOrigin = await openFixtureOrigin(receiverFixture);
+    closedReceiverOrigin = await openFixtureOrigin(receiverFixture);
+    disallowedMergeOrigin = await openFixtureOrigin({ ...receiverFixture, workflowPath: MERGE_WORKFLOW,
+      policyJobId: 'integrate', phase: 'resume-verification-session', stepName: 'Resume canonical verification Session',
+      runId: '9300', jobId: 6300, checkRunId: 5300 });
+  } catch (error) {
+    // Keep the original issuer's unavailable result and every cleanup failure.
+    await closeFixtureOrigins({ label: 'fixture-origin-opening', error });
+    throw error;
+  }
+}
 
 function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope = envelope): void {
   Object.assign(process.env, {
@@ -957,17 +1127,15 @@ function authority(
   return { envelope: valueEnvelope, actionPlanClosure: valueClosure };
 }
 
-afterAll(() => {
-  globalThis.fetch = originalFetch;
-  rmSync(EVENT_ROOT, { recursive: true, force: true });
-});
-
 describe('VerificationAction GitHub provider authenticated transaction', () => {
+  beforeAll(openFixtureOrigins);
+  afterAll(async () => { await closeFixtureOrigins(); });
+
   test('compiler resume receiver gets the original Action transport for one child wake and cannot publish status', async () => {
     fakeGh = new FakeGh();
     trustedEnvironment();
-    // Only the existing origin observation seam is substituted. Enrollment,
-    // workflow-token binding, phase admission and transport are production code.
+    // The fixed compiler receiver was issued by the original owner. Only
+    // upstream fetch data is substituted for this provider transaction.
     await githubApi.withGitHubApiVerificationActionProviderSession({ origin: resumeOrigin,
       operation: async capability => {
         await githubApi.executeGitHubApiOperation(capability, { kind: 'verification-action-dispatch', envelope });
@@ -989,32 +1157,52 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
 
   test('resume transport rejects another workflow, phase or job before the operation callback or POST', async () => {
     const forgeries = [
-      { workflowPath: '.github/workflows/merge-gate.yml',
-        policyJobId: 'receive-verification-session-resume', phase: 'receive-verification-session-resume' },
-      { workflowPath: '.github/workflows/compiler-pr-validation.yml',
-        policyJobId: 'receive-verification-session-resume', phase: 'coordinate-session' },
-      { workflowPath: '.github/workflows/compiler-pr-validation.yml',
-        policyJobId: 'execute-verification-action-sut', phase: 'receive-verification-session-resume' }
+      { workflowPath: MERGE_WORKFLOW, policyJobId: 'receive-verification-session-resume',
+        phase: 'receive-verification-session-resume', stepName: receiverFixture.stepName,
+        rejection: 'job has no canonical runtime policy' },
+      { workflowPath: COMPILER_WORKFLOW, policyJobId: 'receive-verification-session-resume',
+        phase: 'coordinate-session', stepName: 'Complete original Action coordination and canonical Session',
+        rejection: 'active provider step is not a closed launcher phase' },
+      { workflowPath: COMPILER_WORKFLOW, policyJobId: 'execute-verification-action-sut',
+        phase: 'receive-verification-session-resume', stepName: receiverFixture.stepName,
+        rejection: 'active provider step is not a closed launcher phase' }
     ];
     for (const forged of forgeries) {
       fakeGh = new FakeGh();
       trustedEnvironment();
-      // Match the credential to the forged workflow so that origin admission,
-      // rather than a later credential mismatch, must reject the impersonation.
-      process.env.GITHUB_WORKFLOW_REF = `${REPOSITORY}/${forged.workflowPath}@refs/heads/main`;
-      const origin = createProviderOrigin(forged.policyJobId, forged.phase,
-        'Resume original authenticated Verification Session', 5, forged.workflowPath);
       let callbackCalls = 0;
-      await expect(githubApi.withGitHubApiVerificationActionProviderSession({ origin,
-        operation: async capability => {
-          callbackCalls += 1;
-          await githubApi.executeGitHubApiOperation(capability, { kind: 'verification-action-dispatch', envelope });
-        }
-      })).rejects.toThrow('Action provider transport requires its exact original job phase');
+      await expect((async () => {
+        // These combinations cannot be issued. Inject their signed/provider
+        // data at the lower seam and retain the original issuer rejection.
+        const origin = await openFixtureOrigin({ ...receiverFixture, ...forged });
+        await githubApi.withGitHubApiVerificationActionProviderSession({ origin,
+          operation: async capability => {
+            callbackCalls += 1;
+            await githubApi.executeGitHubApiOperation(capability, { kind: 'verification-action-dispatch', envelope });
+          }
+        });
+      })()).rejects.toThrow(forged.rejection);
       expect(callbackCalls).toBe(0);
       expect(fakeGh.dispatchCalls).toBe(0);
       expect(fakeGh.createCalls).toBe(0);
     }
+    fakeGh = new FakeGh();
+    trustedEnvironment();
+    process.env.GITHUB_EVENT_NAME = 'workflow_run';
+    process.env.GITHUB_WORKFLOW_REF = `${REPOSITORY}/${MERGE_WORKFLOW}@refs/heads/main`;
+    let callbackCalls = 0;
+    // A genuine original-issued merge job separately reaches the transport
+    // guard. Issuer rejection alone must not stand in for this boundary.
+    expect(assertAuthenticatedGitHubJobOriginCurrent(disallowedMergeOrigin).policyJobId).toBe('integrate');
+    await expect(githubApi.withGitHubApiVerificationActionProviderSession({ origin: disallowedMergeOrigin,
+      operation: async capability => {
+        callbackCalls += 1;
+        await githubApi.executeGitHubApiOperation(capability, { kind: 'verification-action-dispatch', envelope });
+      }
+    })).rejects.toThrow('Action provider transport requires its exact original job phase');
+    expect(callbackCalls).toBe(0);
+    expect(fakeGh.dispatchCalls).toBe(0);
+    expect(fakeGh.createCalls).toBe(0);
   });
 
   test('exact parent artifact, closure member, current bot run, and marker chain posts once', async () => {
@@ -1034,7 +1222,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     trustedParentEnvironment();
     const result = await ensureTransaction({
-      origin: coordinateOrigin,
+      origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'coordinate-parent' }
     });
@@ -1043,7 +1231,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
     fakeGh.parentPermissionUser.node_id = 'different-node';
     await expect(ensureTransaction({
-      origin: coordinateOrigin,
+      origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'coordinate-parent' }
     })).rejects.toThrow('parent actor live identity');
@@ -1064,7 +1252,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       trustedParentEnvironment();
       const result = completed
         ? await ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } })
-        : await ensureTransaction({ origin: coordinateOrigin,
+        : await ensureTransaction({ origin: parentCoordinateOrigin,
           authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } });
       expect(result.disposition).toBe(completed ? 'started' : 'observed');
       expect(fakeGh.workflowSourceCalls).toContainEqual({ path: '.github/workflows/compiler-pr-validation.yml', ref: BASE });
@@ -1089,7 +1277,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fakeGh = new FakeGh();
       forge(fakeGh);
       trustedParentEnvironment();
-      await expect(ensureTransaction({ origin: coordinateOrigin,
+      await expect(ensureTransaction({ origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
         .rejects.toThrow(/(?:source job page|parent workflow job)/);
       expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
@@ -1107,7 +1295,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fakeGh = new FakeGh();
       fillJobs(fakeGh, count);
       trustedParentEnvironment();
-      await expect(ensureTransaction({ origin: coordinateOrigin,
+      await expect(ensureTransaction({ origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } }))
         .resolves.toMatchObject({ disposition: 'observed' });
       expect(fakeGh.jobListCalls.map(call => call.page)).toEqual(count === 100 ? [1, 1] : [1, 2, 1]);
@@ -1122,7 +1310,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fillJobs(fakeGh, 101);
       forge(fakeGh);
       trustedParentEnvironment();
-      await expect(ensureTransaction({ origin: coordinateOrigin,
+      await expect(ensureTransaction({ origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
         .rejects.toThrow(/parent workflow job/);
       expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
@@ -1161,7 +1349,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fakeGh = new FakeGh();
       forge(fakeGh);
       trustedParentEnvironment();
-      await expect(ensureTransaction({ origin: coordinateOrigin,
+      await expect(ensureTransaction({ origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
         .rejects.toThrow(/parent plan/);
       expect(fakeGh.artifacts[0]!.source).toBe(parentPlanSource);
@@ -1178,7 +1366,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       fakeGh = new FakeGh();
       fakeGh.artifactMetadataOverrides[String(PARENT_ARTIFACT_ID)] = patch;
       trustedParentEnvironment();
-      await expect(ensureTransaction({ origin: coordinateOrigin,
+      await expect(ensureTransaction({ origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
         .rejects.toThrow(/parent (?:plan|dispatch plan)/);
       expect(fakeGh.artifacts[0]!.source).toBe(parentPlanSource);
@@ -1188,7 +1376,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh.workflowSource = fakeGh.workflowSource.replace('name: Upload canonical parent Action dispatch plan artifact',
       'name: Unrelated upload');
     trustedParentEnvironment();
-    await expect(ensureTransaction({ origin: coordinateOrigin,
+    await expect(ensureTransaction({ origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
       .rejects.toThrow(/Hosted workflow shape/);
     expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
@@ -1198,7 +1386,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh();
     trustedParentEnvironment();
     const result = await ensureTransaction({
-      origin: coordinateOrigin,
+      origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     });
@@ -1226,7 +1414,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       trustedParentEnvironment();
       forge();
       await expect(ensureTransaction({
-        origin: coordinateOrigin,
+        origin: parentCoordinateOrigin,
         authority: { envelope, actionPlanClosure: closure },
         intent: { kind: 'coordinate-parent' }
       })).rejects.toThrow();
@@ -1278,7 +1466,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fillInventory(fakeGh, 101);
     trustedParentEnvironment();
     const stable = await ensureTransaction({
-      origin: coordinateOrigin,
+      origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     });
@@ -1294,7 +1482,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       : null;
     trustedParentEnvironment();
     await expect(ensureTransaction({
-      origin: coordinateOrigin,
+      origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     })).rejects.toThrow(/artifact inventory page 2 is incomplete or malformed/i);
@@ -1319,7 +1507,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       : null;
     trustedParentEnvironment();
     await expect(ensureTransaction({
-      origin: coordinateOrigin,
+      origin: parentCoordinateOrigin,
       authority: { envelope, actionPlanClosure: closure },
       intent: { kind: 'dispatch-child' }
     })).rejects.toThrow(/artifact inventory total or leading boundary changed/i);
@@ -1844,7 +2032,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     }
     const value = resolutionFixture();
     await expect(provider.readHostedResumeResolutionTransport({ origin: {} as AuthenticatedGitHubJobOrigin,
-      completedAction: value.completedAction })).rejects.toThrow('unregistered test provider origin');
+      completedAction: value.completedAction })).rejects.toThrow(AuthenticatedGitHubJobOriginUnavailableError);
     expect(fakeGh.downloadedArtifactIds).toEqual([]);
     expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
   });
@@ -2013,7 +2201,10 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       if (mode === 'human') fakeGh.parentPermissionUser.node_id = 'OTHER_HUMAN';
       if (mode === 'permission-drift') fakeGh.permissionHook = call => call >= 3
         ? { permission: 'read', role_name: 'read' } : null;
-      if (mode === 'closed-origin') fakeGh.workflowSourceHook = () => { originRecords.delete(value.origin); return null; };
+      if (mode === 'closed-origin') {
+        value.origin = closedReceiverOrigin;
+        fakeGh.workflowSourceHook = async () => { await closeAuthenticatedGitHubJobOrigin(value.origin); return null; };
+      }
       await expect(provider.authenticateHistoricalHostedSessionTerminalSource(value)).rejects.toThrow();
       await expect(provider.assertHistoricalHostedSessionTerminalSourceCurrent(value)).rejects.toThrow('unqualified');
       if (mode === 'cause') expect(fakeGh.downloadedArtifactIds).toEqual([]);
@@ -2022,7 +2213,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     }
     const value = delegatedSessionFixture();
     await expect(provider.authenticateHistoricalHostedSessionTerminalSource({ ...value,
-      origin: {} as AuthenticatedGitHubJobOrigin })).rejects.toThrow('unregistered test provider origin');
+      origin: {} as AuthenticatedGitHubJobOrigin })).rejects.toThrow(AuthenticatedGitHubJobOriginUnavailableError);
     expect(fakeGh.downloadedArtifactIds).toEqual([]);
   }, 30_000);
 

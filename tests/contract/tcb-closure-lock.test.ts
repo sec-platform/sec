@@ -443,6 +443,89 @@ test('TCB closure does not treat erased provider type references as runtime tran
   )).not.toThrow();
 });
 
+test('TCB closure retains empty and inline-type ESM module evaluation edges', () => {
+  for (const statement of [
+    "import {} from './leaf.ts';",
+    "import { type T } from './leaf.ts';",
+    "export {} from './leaf.ts';",
+    "export { type T } from './leaf.ts';"
+  ]) {
+    expect(runtimeRelativeImportsFromSource('entry.ts', statement)).toEqual(['./leaf.ts']);
+    const observedExternalImports = new Set<string>();
+    expect(runtimeRelativeImportsFromSource('entry.ts', statement.replace('./leaf.ts', 'node:fs'),
+      new Set(), new Set(), observedExternalImports)).toEqual([]);
+    expect([...observedExternalImports]).toEqual(['node:fs']);
+    expect(() => runtimeRelativeImportsFromSource('entry.ts',
+      statement.replace('./leaf.ts', 'unreviewed-package')))
+      .toThrow('outside the approved relative/external policy');
+  }
+});
+
+test('TCB empty and inline-type edges cannot bypass classified external import policy', () => {
+  for (const external of ['bun', 'node:child_process', 'node:https', 'node:module', 'node:worker_threads']) {
+    for (const statement of [
+      `import {} from '${external}';`,
+      `import { type T } from '${external}';`,
+      `export {} from '${external}';`,
+      `export { type T } from '${external}';`
+    ]) {
+      expect(() => runtimeRelativeImportsFromSource('entry.ts', statement))
+        .toThrow('TCB runtime loader is outside the relative ESM closure model');
+    }
+  }
+});
+
+test('TCB empty and inline-type edges bind transitive bytes and reject an unreviewed terminal', () => {
+  const createdRoot = mkdtempSync(path.join(tmpdir(), 'sec-tcb-module-evaluation-'));
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    const root = realpathSync.native(createdRoot);
+    writeFileSync(path.join(root, 'entry.ts'), "import './bridge.ts';\n");
+    for (const statement of [
+      "import {} from './terminal.ts';",
+      "import { type T } from './terminal.ts';",
+      "export {} from './terminal.ts';",
+      "export { type T } from './terminal.ts';"
+    ]) {
+      writeFileSync(path.join(root, 'bridge.ts'), statement + '\n');
+      const terminal = 'export type T = string;\nexport const value = 1;\n';
+      writeFileSync(path.join(root, 'terminal.ts'), terminal);
+      const closure = trustedRuntimeClosure(['entry.ts'], { candidateRoot: root });
+      expect([...closure.closure].sort()).toEqual(['bridge.ts', 'entry.ts', 'terminal.ts']);
+      const lock = computeTcbClosureLock(closure, { candidateRoot: root });
+      expect(lock.modules).toEqual(['bridge.ts', 'entry.ts', 'terminal.ts']);
+      expect(lock.moduleContentDigests['terminal.ts']).toBe(rawSha256(terminal));
+
+      writeFileSync(path.join(root, 'terminal.ts'), 'export type T = string;\n'
+        + 'function unreviewedFetch() { return globalThis.fetch("https://example.invalid/tcb"); }\n'
+        + 'void unreviewedFetch();\n');
+      expect(() => trustedRuntimeClosure(['entry.ts'], { candidateRoot: root }))
+        .toThrow('unreviewed network dispatcher terminal.ts::function-declaration:unreviewedFetch::globalThis.fetch#1');
+    }
+  } catch (error) {
+    primary = { label: 'module-evaluation-assertions', error };
+  } finally {
+    settleResources({ primary, cleanup: [{ label: 'module-evaluation-fixture',
+      settle: () => rmSync(createdRoot, { recursive: true, force: true }) }] });
+  }
+});
+
+test('TCB statement-level type imports and re-exports erase module evaluation', () => {
+  for (const specifier of ['./missing.ts', 'bun', 'node:child_process', 'unreviewed-package']) {
+    for (const statement of [
+      `import type { T } from '${specifier}';`,
+      `import type * as Types from '${specifier}';`,
+      `export type { T } from '${specifier}';`,
+      `export type * from '${specifier}';`
+    ]) {
+      const observedExternalImports = new Set<string>();
+      expect(runtimeRelativeImportsFromSource('entry.ts', statement,
+        new Set(), new Set(), observedExternalImports)).toEqual([]);
+      expect([...observedExternalImports]).toEqual([]);
+    }
+  }
+});
+
 test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   const input = {
     exactTreeSha: '1'.repeat(40),
@@ -976,18 +1059,24 @@ test('TCB live census excludes the retired publisher and denies its actual HTTPS
   expect(external.has(`${publisher} -> node:https`)).toBe(false);
 });
 
-test('TCB active hosted origin source records its exact reviewed fetch dispatcher', () => {
-  const owner = 'src/adapters/providers/github-api/hosted-job-origin.ts';
-  const site = `${owner}::function-declaration:jsonRequest::globalThis.fetch#1`;
+test('TCB shared origin and session owner records both exact reviewed fetch dispatchers', () => {
+  const owner = 'src/adapters/providers/github-api/internal/operation-session-runtime.ts';
+  const sites = ['jsonRequest', 'withProductionSession'].map(name =>
+    `${owner}::function-declaration:${name}::globalThis.fetch#1`);
   const network = new Set<string>();
-  expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(site)).toBe(true);
+  for (const site of sites) expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(site)).toBe(true);
   expect(() => runtimeRelativeImportsFromSource(owner, readFileSync(owner, 'utf8'),
     new Set(), new Set(), new Set(), network)).not.toThrow();
-  expect([...network]).toEqual([site]);
+  expect([...network].sort()).toEqual(sites.sort());
+  const facade = 'src/adapters/providers/github-api/hosted-job-origin.ts';
+  const facadeNetwork = new Set<string>();
+  expect(() => runtimeRelativeImportsFromSource(facade, readFileSync(facade, 'utf8'),
+    new Set(), new Set(), new Set(), facadeNetwork)).not.toThrow();
+  expect([...facadeNetwork]).toEqual([]);
 });
 
 test('TCB active hosted origin does not credit a locally bound fetch callback', () => {
-  const owner = 'src/adapters/providers/github-api/hosted-job-origin.ts';
+  const owner = 'src/adapters/providers/github-api/internal/operation-session-runtime.ts';
   const network = new Set<string>();
   expect(() => runtimeRelativeImportsFromSource(owner,
     'function jsonRequest(fetch: (target: unknown) => unknown, target: unknown) { return fetch(target); }',

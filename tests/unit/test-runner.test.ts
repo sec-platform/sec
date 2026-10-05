@@ -47,13 +47,16 @@ import {
   compileTestInvocationExecutionPolicy,
   DEFAULT_TEST_TIMEOUT_MS,
   issueFastTestBatchExecutionPolicy,
+  observeFastTestInvocationHost,
   TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS,
+  testExecutionHostMatches,
   type FastTestBatchExecutionAdmission,
+  type TestExecutionHost,
   type TestSuiteExecutionAdmission
 } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
-import { rawSha256 } from '../../src/contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 import { settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
@@ -456,6 +459,26 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
   }
 }));
 
+// Scheduler tests substitute only the upstream host observation. The original
+// admission/inventory/policy and physical command mocks retain their own owners.
+const actualTestExecutionPolicy = await import('../../src/adapters/self-hosting/development/runner/test-execution-policy.ts');
+const observeActualFastTestInvocationHost = observeFastTestInvocationHost;
+let testExecutionHostOverride: TestExecutionHost = { os: 'linux', arch: 'x64' };
+mock.module('../../src/adapters/self-hosting/development/runner/test-execution-policy.ts', () => ({
+  ...actualTestExecutionPolicy,
+  observeFastTestInvocationHost: (admission: FastTestBatchExecutionAdmission, invocationId: string) => {
+    const observation = observeActualFastTestInvocationHost(admission, invocationId);
+    const observedHost = Object.freeze({ ...testExecutionHostOverride });
+    return Object.freeze({
+      ...observation,
+      observedHost,
+      unmetRequirements: Object.freeze(observation.hostRequirements.filter(
+        (requirement) => !testExecutionHostMatches(requirement, observedHost)
+      ))
+    });
+  }
+}));
+
 const testRunnerModule = await import('../../src/adapters/self-hosting/development/runner/test-runner.ts');
 const canonicalAffectedIssuer = (await import(
   '../../src/adapters/self-hosting/development/runner/check-affected-source.ts'
@@ -628,6 +651,7 @@ function configureTestDependencyBootstrapFailure(value: unknown): void {
 }
 
 beforeEach(() => {
+  testExecutionHostOverride = { os: 'linux', arch: 'x64' };
   previousConsoleLog = console.log;
   previousConsoleError = console.error;
   console.log = () => undefined;
@@ -954,6 +978,132 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(Object.isFrozen(admission.attempt)).toBe(true);
 });
 
+test('genuine issuer host requirements remain bound to exact inventory and policy without excluding files', () => {
+  const file = 'tests/unit/verification-action-github-provider.test.ts';
+  const ordinary = 'tests/unit/path-containment.test.ts';
+  const testInventory = testImpactFixture.provider.testInventory;
+  const budgetProjection = compileTestBudgetProjection(testInventory);
+  expect(budgetProjection.fastTestHostRequirements).toEqual([{ file, os: 'linux', arch: 'x64' }]);
+  expect(budgetProjection.fastTestFiles).toContain(file);
+  const policy = issueFastTestBatchExecutionPolicy({
+    testInventory, budgetProjection, selectedFiles: [file, ordinary], bunOptions: []
+  });
+  expect(policy.files).toEqual([file, ordinary]);
+  expect(policy.invocations.flatMap(({ files }) => files).sort()).toEqual([file, ordinary].sort());
+  const invocation = policy.invocations.find(({ files }) => files.includes(file))!;
+  expect(invocation.hostRequirements).toEqual([{ file, os: 'linux', arch: 'x64' }]);
+  expect(policy.invocations.find(({ files }) => files.includes(ordinary))!.hostRequirements).toEqual([]);
+  const { policyDigest, ...unsigned } = policy;
+  expect(policyDigest).toBe(sha256(unsigned));
+  expect(sha256({ ...unsigned, invocations: unsigned.invocations.map(
+    (value) => ({ ...value, hostRequirements: [] })
+  ) })).not.toBe(policyDigest);
+  const admission = admitFastTestBatchExecutionPolicy(policy);
+  const observation = observeActualFastTestInvocationHost(admission, invocation.id);
+  expect(observation).toMatchObject({
+    invocationId: invocation.id,
+    policyDigest,
+    testInventoryDigest: testInventory.inventoryDigest,
+    budgetProjectionDigest: budgetProjection.projectionDigest,
+    observedHost: { os: process.platform, arch: process.arch },
+    hostRequirements: invocation.hostRequirements
+  });
+  expect(Object.isFrozen(observation)).toBe(true);
+  expect(Object.isFrozen(observation.observedHost)).toBe(true);
+  expect(() => observeActualFastTestInvocationHost({ ...admission }, invocation.id))
+    .toThrow('owner-issued admission');
+  expect(() => observeActualFastTestInvocationHost(admission, 'not-selected'))
+    .toThrow('exact admitted invocation');
+  const requirement = { file, os: 'linux', arch: 'x64' };
+  expect(testExecutionHostMatches(requirement, { os: 'linux', arch: 'x64' })).toBe(true);
+  for (const host of [
+    { os: 'linux', arch: 'arm64' }, { os: 'win32', arch: 'x64' },
+    { os: 'darwin', arch: 'x64' }, { os: 'linux', arch: '' }
+  ]) expect(testExecutionHostMatches(requirement, host)).toBe(false);
+});
+
+test('removed issuer tests do not leave a phantom host requirement in the snapshot inventory', () => {
+  const snapshot = testImpactFixture.workingTreeSnapshot;
+  const file = 'tests/unit/verification-action-github-provider.test.ts';
+  const withoutIssuer = compileVirtualWorkspaceSourceSnapshot({
+    subject: Object.freeze({ kind: 'virtual-mutation' as const, provenance: Object.freeze({
+      kind: 'source-program-virtual-mutation' as const,
+      baseSnapshotDigest: snapshot.snapshotDigest,
+      mutationDigest: rawSha256('remove-issuer-host-requirement-fixture')
+    }) }),
+    files: snapshot.files.filter((value) => value.path !== file),
+    moduleMembership: snapshot.moduleMembership
+  });
+  const inventory = testBudgetDomain.issueTestInventoryProjection({ snapshot: withoutIssuer });
+  const budget = compileTestBudgetProjection(inventory);
+  expect(budget.testFiles).not.toContain(file);
+  expect(budget.fastTestHostRequirements).toEqual([]);
+});
+
+test.serial('unsupported issuer invocation is accounted once without a child or a successful skip', async () => {
+  const file = 'tests/unit/verification-action-github-provider.test.ts';
+  testExecutionHostOverride = { os: 'win32', arch: 'x64' };
+  const errors: string[] = [];
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+  expect(await runFastTests([file])).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
+  const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+  expect(receipts).toHaveLength(1);
+  const receipt = JSON.parse(receipts[0]!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length));
+  expect(receipt).toMatchObject({
+    schema: 'sec-fast-test-failure-receipt-v3', replayAuthority: 'none-diagnostic-only',
+    failures: [{ kind: 'environment-unsupported', selectedTestFiles: [file],
+      result: { status: 'unsupported', reasonCode: 'platform-unsupported', disposition: 'not-executed' },
+      hostObservation: { observedHost: { os: 'win32', arch: 'x64' },
+        hostRequirements: [{ file, os: 'linux', arch: 'x64' }],
+        unmetRequirements: [{ file, os: 'linux', arch: 'x64' }] } }]
+  });
+  expect(receipt.failures[0].terminal).toBeUndefined();
+  expect(receipt.failures[0].hostObservation.policyDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+});
+
+for (const laterExitCode of [0, 7]) {
+  test.serial(`unsupported issuer does not suppress a later independent wave or clear nonzero result (${laterExitCode})`, async () => {
+    const file = 'tests/unit/verification-action-github-provider.test.ts';
+    const ordinary = 'tests/unit/verification-action-runner.test.ts';
+    testExecutionHostOverride = { os: 'linux', arch: 'arm64' };
+    devCommandExitCodes.push(laterExitCode);
+    const errors: string[] = [];
+    console.error = (message?: unknown) => { errors.push(String(message)); };
+    const code = await runFastTests([
+      '--max-concurrency', String(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.globalBudget), file, ordinary
+    ]);
+    expect(code).toBe(laterExitCode === 0 ? 1 : laterExitCode);
+    expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args))).toEqual([ordinary]);
+    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX))
+      .map((message) => JSON.parse(message.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)));
+    expect(receipts).toHaveLength(laterExitCode === 0 ? 1 : 2);
+    expect(receipts[0]).toMatchObject({ batchIndex: 0,
+      failures: [{ kind: 'environment-unsupported', selectedTestFiles: [file] }] });
+    if (laterExitCode !== 0) expect(receipts[1]).toMatchObject({ batchIndex: 1,
+      failures: [{ kind: 'observed-command-failure', selectedTestFiles: [ordinary],
+        terminal: { kind: 'exited', exitCode: laterExitCode } }] });
+  });
+}
+
+test.serial('a host match still dispatches the real child and cannot turn issuer unavailability into a pass', async () => {
+  const file = 'tests/unit/verification-action-github-provider.test.ts';
+  testExecutionHostOverride = { os: 'linux', arch: 'x64' };
+  devCommandExitCodes.push(7);
+  devCommandObservationOverrides.push({ stderrTail: 'Authenticated GitHub job origin unavailable (source).' });
+  const errors: string[] = [];
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+  expect(await runFastTests([file])).toBe(7);
+  expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args))).toEqual([file]);
+  const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX))!;
+  expect(JSON.parse(receipt.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
+    failures: [{ kind: 'observed-command-failure', selectedTestFiles: [file],
+      terminal: { kind: 'exited', exitCode: 7 },
+      stderrTail: 'Authenticated GitHub job origin unavailable (source).' }]
+  });
+});
+
 test.skipIf(process.platform !== 'win32' && !(process.platform === 'linux' && process.arch === 'x64'))(
   'fast batch preserves the selected physical observer effects, identity and deadline',
   () => {
@@ -1277,7 +1427,7 @@ test.serial('copied TCB recovery is one-file isolated and emits an exact diagnos
       failures: Array<{ selectedTestFiles: string[]; effectiveArgv: string[] }>;
     };
     expect(receipt).toMatchObject({
-      schema: 'sec-fast-test-failure-receipt-v2',
+      schema: 'sec-fast-test-failure-receipt-v3',
       replayAuthority: 'none-diagnostic-only',
       queue: 'independent-process'
     });

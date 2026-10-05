@@ -142,7 +142,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([
-  'src/adapters/providers/github-api/hosted-job-origin.ts::function-declaration:jsonRequest::globalThis.fetch#1',
+  'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:jsonRequest::globalThis.fetch#1',
   'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:withProductionSession::globalThis.fetch#1'
 ]);
 
@@ -266,13 +266,10 @@ export function runtimeRelativeImportsFromSource(
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const clause = statement.importClause;
+      // Under the canonical verbatimModuleSyntax profile, inline type bindings
+      // erase to import {}, preserving module evaluation. Only a statement-level
+      // type modifier removes the runtime dependency.
       if (clause?.isTypeOnly) continue;
-      if (
-        clause?.namedBindings
-        && ts.isNamedImports(clause.namedBindings)
-        && clause.name === undefined
-        && clause.namedBindings.elements.every((element) => element.isTypeOnly)
-      ) continue;
       const moduleSpecifier = statement.moduleSpecifier.text;
       const namedBindings = clause?.namedBindings;
       const namespaceBindings = [
@@ -364,15 +361,11 @@ export function runtimeRelativeImportsFromSource(
       && statement.moduleSpecifier
       && ts.isStringLiteral(statement.moduleSpecifier)
     ) {
-      const hasRuntimeExport = !statement.exportClause
-        || !ts.isNamedExports(statement.exportClause)
-        || statement.exportClause.elements.some((element) => !element.isTypeOnly);
-      if (hasRuntimeExport) {
-        if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(statement.moduleSpecifier.text)) {
-          rejectUnmodeledLoader(`runtime ${statement.moduleSpecifier.text} re-export`);
-        }
-        specifiers.push(statement.moduleSpecifier.text);
+      // Empty and inline-type re-exports still evaluate the target module.
+      if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(statement.moduleSpecifier.text)) {
+        rejectUnmodeledLoader(`runtime ${statement.moduleSpecifier.text} re-export`);
       }
+      specifiers.push(statement.moduleSpecifier.text);
     }
   }
 

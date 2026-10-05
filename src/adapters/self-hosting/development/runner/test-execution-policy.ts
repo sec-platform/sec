@@ -16,7 +16,8 @@ import {
 import {
   assertTestBudgetExecutionProvenance,
   type IssuedTestInventoryProjection,
-  type TestBudgetProjection
+  type TestBudgetProjection,
+  type TestFileHostRequirement
 } from '../../../verification/platform/test-impact/contract/budget.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS } from './affected-plan-contract.ts';
@@ -76,10 +77,11 @@ type FastTestBatchInvocationPolicy = Readonly<{
   files: readonly string[];
   canonicalArgv: readonly string[];
   supervisorTimeoutMs: number;
+  hostRequirements: readonly TestFileHostRequirement[];
 }>;
 
 export type FastTestBatchExecutionPolicy = Readonly<{
-  schema: 'sec-fast-test-batch-execution-policy-v1';
+  schema: 'sec-fast-test-batch-execution-policy-v2';
   files: readonly string[];
   testInventoryDigest: `sha256:${string}`;
   budgetProjectionDigest: `sha256:${string}`;
@@ -165,7 +167,10 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
       queue,
       files: Object.freeze([...invocationFiles]),
       canonicalArgv: Object.freeze(['bun', ...args]),
-      supervisorTimeoutMs: executionPolicy.supervisorTimeoutMs
+      supervisorTimeoutMs: executionPolicy.supervisorTimeoutMs,
+      hostRequirements: budgetProjection.fastTestHostRequirements.filter(
+        ({ file }) => invocationFiles.includes(file)
+      )
     });
   };
   // SEC owns each physical child: one test file per retained process preserves
@@ -216,7 +221,7 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
     throw new Error('Fast test batch logical duration exceeds the safe integer range.');
   }
   const unsigned = deepFreeze({
-    schema: 'sec-fast-test-batch-execution-policy-v1' as const,
+    schema: 'sec-fast-test-batch-execution-policy-v2' as const,
     files,
     testInventoryDigest: testInventory.inventoryDigest,
     budgetProjectionDigest: budgetProjection.projectionDigest,
@@ -275,6 +280,51 @@ export function admitFastTestBatchExecutionPolicy(
   });
   issuedFastTestBatchExecutionAdmissions.add(admission);
   return admission;
+}
+
+export type TestExecutionHost = Readonly<{ os: string; arch: string }>;
+
+/** A pure comparison cannot establish pinned executable or fixture qualification. */
+export function testExecutionHostMatches(
+  requirement: TestFileHostRequirement,
+  observed: TestExecutionHost
+): boolean {
+  return requirement.os === observed.os && requirement.arch === observed.arch;
+}
+
+export type FastTestInvocationHostObservation = Readonly<{
+  invocationId: string;
+  policyDigest: `sha256:${string}`;
+  testInventoryDigest: `sha256:${string}`;
+  budgetProjectionDigest: `sha256:${string}`;
+  observedHost: TestExecutionHost;
+  hostRequirements: readonly TestFileHostRequirement[];
+  unmetRequirements: readonly TestFileHostRequirement[];
+}>;
+
+/** The command owner retains this process's executable for the child. Observe
+ * the necessary host selectors here, immediately before that physical dispatch.
+ * This is diagnostic preflight, not genuine issuer or Action terminal authority. */
+export function observeFastTestInvocationHost(
+  admission: FastTestBatchExecutionAdmission,
+  invocationId: string
+): FastTestInvocationHostObservation {
+  assertIssuedFastTestBatchExecutionAdmission(admission);
+  const { policy } = admission;
+  const invocation = policy.invocations.find(({ id }) => id === invocationId);
+  if (invocation === undefined) throw new Error('Test host observation requires an exact admitted invocation.');
+  const observedHost = Object.freeze({ os: process.platform, arch: process.arch });
+  return deepFreeze({
+    invocationId,
+    policyDigest: policy.policyDigest,
+    testInventoryDigest: policy.testInventoryDigest,
+    budgetProjectionDigest: policy.budgetProjectionDigest,
+    observedHost,
+    hostRequirements: invocation.hostRequirements,
+    unmetRequirements: invocation.hostRequirements.filter(
+      (requirement) => !testExecutionHostMatches(requirement, observedHost)
+    )
+  });
 }
 
 export function bindFastTestBatchExecutionAdmission(

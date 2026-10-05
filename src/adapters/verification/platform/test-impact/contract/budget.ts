@@ -17,6 +17,13 @@ export type TestBudgetLane = {
   command: string;
 };
 
+/** Necessary host selectors only; the fixture owner still admits physical resources. */
+export type TestFileHostRequirement = Readonly<{
+  file: string;
+  os: string;
+  arch: string;
+}>;
+
 export type SlowTestResourceClass = 'standard' | 'runtime-heavy';
 
 export type SlowTestSuite = {
@@ -48,6 +55,7 @@ export type TestBudgetProjection = Readonly<{
   generationKey: `sha256:${string}`;
   testFiles: readonly string[];
   fastTestFiles: readonly string[];
+  fastTestHostRequirements: readonly TestFileHostRequirement[];
   slowTestFiles: readonly string[];
   slowSuites: readonly SlowTestSuite[];
   projectionDigest: `sha256:${string}`;
@@ -60,6 +68,7 @@ export type TestBudgetContract = {
   laneCount: number;
   slowLaneCount: number;
   slowLaneIds: TestBudgetLane['id'][];
+  fastTestHostRequirements: readonly TestFileHostRequirement[];
   slowTestFileCount: number;
   slowTestFiles: readonly string[];
   slowSuiteCount: number;
@@ -341,6 +350,13 @@ const slowTestSuiteIndex = (() => {
 })();
 const NO_SLOW_TEST_SUITES: readonly string[] = Object.freeze([]);
 
+// The genuine issuer retains the loaded clean source and pinned Linux Bun.
+// A host match does not issue an origin or replace any of those checks.
+const fastTestHostRequirementDefinitions: readonly TestFileHostRequirement[] = deepFreeze([
+  { file: 'tests/unit/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
+]);
+
+
 function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSuite[] {
     const slowFileSet = new Set(slowFiles);
     const assigned = new Set<string>();
@@ -469,11 +485,18 @@ function compileExactTestBudgetProjection(
   const fastTestFiles = testFiles.filter(isFastTestFile);
   const slowTestFiles = testFiles.filter(isSlowTestFile);
   const slowSuites = buildSlowTestSuites(slowTestFiles);
+  const fastTestHostRequirements = fastTestHostRequirementDefinitions.filter(({ file }) => {
+    if (testFiles.includes(file) && !fastTestFiles.includes(file)) {
+      throw new Error(`Fast test host requirement must migrate with its execution owner: ${file}`);
+    }
+    return fastTestFiles.includes(file);
+  });
   const unsigned = deepFreeze({
     generation,
     generationKey,
     testFiles,
     fastTestFiles,
+    fastTestHostRequirements,
     slowTestFiles,
     slowSuites
   });
@@ -586,6 +609,7 @@ export function buildTestBudgetContract(
     laneCount: lanes.length,
     slowLaneCount: slowLaneIds.length,
     slowLaneIds,
+    fastTestHostRequirements: projection.fastTestHostRequirements,
     slowTestFileCount: slowFiles.length,
     slowTestFiles: slowFiles,
     slowSuiteCount: slowSuites.length,
