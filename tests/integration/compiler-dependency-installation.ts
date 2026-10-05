@@ -1,14 +1,20 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
+import * as fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import * as physicalNoFollow from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import * as dependencyTransitions from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/operation.ts';
+
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import {
+  assertPhysicalGenerationRetirementReceipt,
   inspectNoFollowDirectoryChain,
   inspectNoFollowLinkEntry,
   materializeRetainedNoFollowProvenDirectoryGeneration,
-  scanNoFollowDirectoryTreeInventory
+  scanNoFollowDirectoryTreeInventory,
+  type RetainedNoFollowProvenDirectoryGeneration
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import {
@@ -24,13 +30,14 @@ import { dependencyTransitionNamespacePaths, observeDependencyTransitionSlot } f
 import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 import {
+  observeCompilerDependencyLifecycleStateRoot,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   settleAbandonedLegacyProjection
 } from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import {
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES, runtimeDependencySourceGeneration
+  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES, runtimeDependencySourceGeneration, runtimeDependencyTreeIdentity
 } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
@@ -39,6 +46,7 @@ import {
   ensureCompilerDepsReady,
   observeCompilerDependencyExecutionGenerationAuthority
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
+import { createDependencyOperation } from '../../src/bootstrap/toolchain/dependency-operation.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
 import { createGeneratedStateCleanupOperationSession } from '../../src/execution/generated-state/cleanup-budget.ts';
 import { generatedStateDigest } from "../../src/execution/generated-state/contract.ts";
@@ -105,6 +113,18 @@ async function isolatedGeneratedStateLifecycle(
     }
     throw error;
   }
+}
+
+/** Bind the public composition to the same isolated environment as the original
+ * fixture lifecycle. The public request never receives a lifecycle capability. */
+function createCompilerFixtureDependencyOperation(root: string, lifecycle: IsolatedGeneratedStateLifecycle) {
+  const hostRoot = generatedStateFixtureRoots.get(lifecycle);
+  if (hostRoot === undefined) throw new Error('Compiler fixture environment is unavailable');
+  return createDependencyOperation({ workspaceRoot: root, environment: {
+    ...process.env,
+    SEC_CACHE_HOME: path.join(hostRoot, 'cache'),
+    SEC_STATE_HOME: path.join(hostRoot, 'state')
+  } });
 }
 
 async function removeSettledGeneratedStateFixtureRoot(
@@ -237,6 +257,40 @@ async function withCompilerTestWorkspace(
     });
   }
 
+/** A secondary target settles through the same dependency owner but does not
+ * consume the outer Effectful run's one terminal receipt before its source. */
+async function withCompilerTestConsumer(
+  context: EffectfulTestContext,
+  prefix: string,
+  run: Parameters<typeof withCompilerTestWorkspace>[2]
+): Promise<void> {
+  const root = await fs.mkdtemp(path.join(tmpdir(), prefix));
+  let lifecycle: IsolatedGeneratedStateLifecycle;
+  try {
+    lifecycle = (await createIsolatedGeneratedStateLifecycles([root], context.cleanupDeadlineAtUnixMs))[0]!;
+  } catch (error) {
+    try { await fs.rm(root, { recursive: true, force: true }); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Compiler consumer setup and cleanup failed'); }
+    throw error;
+  }
+  await settleWorkspaceCallback(() => run(root, Object.freeze({
+    deadlineAtUnixMs: context.operationDeadlineAtUnixMs,
+    generatedStateLifecycle: lifecycle,
+    signal: context.operationSignal
+  })), async () => {
+    const receipt = await disposeCompilerDependencyEnvironment(root, {
+      deadlineAtUnixMs: context.cleanupDeadlineAtUnixMs,
+      generatedStateLifecycle: lifecycle,
+      signal: context.cleanupSignal
+    }, 'compiler-test-consumer-settled');
+    assertCompilerDependencyEnvironmentRetirementReceipt(receipt, root);
+    await settleWorkspaceCleanups([
+      () => fs.rm(root, { recursive: true, force: true }),
+      () => removeSettledGeneratedStateFixtureRoot(lifecycle)
+    ]);
+  });
+}
+
 async function runFixtureGit(workspaceRoot: string, args: string[]): Promise<string> {
   const result = await runCommand('git', ['-c', 'core.longpaths=true', ...args], {
     cwd: workspaceRoot,
@@ -286,6 +340,44 @@ async function writeCompilerDependencyRoot(
     fs.writeFile(path.join(root, 'bun.lock'), lockfile, 'utf8'),
     fs.writeFile(path.join(root, '.bun-version'), `${bunVersion}\n`, 'utf8')
   ]);
+}
+
+async function withRetainedCompilerContentFixture(
+  deadlineAtUnixMs: number,
+  run: (content: RetainedNoFollowProvenDirectoryGeneration, contentRoot: string) => Promise<void>
+): Promise<void> {
+  const contentRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-cdep-content-'));
+  let content: RetainedNoFollowProvenDirectoryGeneration | undefined;
+  await settleWorkspaceCallback(async () => {
+    await writeCompilerDependencyRoot(contentRoot);
+    await installCompilerDependencyFixture(contentRoot, 'transported-content');
+    // An obsolete transport binding is data, never target-runtime authority.
+    await fs.writeFile(path.join(contentRoot, 'node_modules', '.sec-compiler-deps-binding-v5.json'),
+      '{"untrusted":"old-host-binding"}\n');
+    const root = inspectNoFollowDirectoryChain(contentRoot, 'Compiler content fixture').target;
+    const inventory = scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + deadlineAtUnixMs - Date.now(),
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
+    });
+    const tree = runtimeDependencyTreeIdentity(inventory);
+    const retained = await materializeRetainedNoFollowProvenDirectoryGeneration({
+      root,
+      inventory,
+      binding: {
+        ...tree,
+        generationDigest: generatedStateDigest({ root, ...tree, purpose: 'transport-content-fixture' })
+      },
+      proofText: null,
+      releaseMode: 'restore-owner-write',
+      deadlineAtUnixMs
+    });
+    content = retained.generation;
+    await run(content, contentRoot);
+  }, async () => {
+    if (content !== undefined) assertPhysicalGenerationRetirementReceipt(await content.retire());
+    await fs.rm(contentRoot, { recursive: true, force: true });
+  });
 }
 
 async function prepareLinkedWorktreeEpochTransition(
@@ -467,17 +559,21 @@ export {
   advanceDependencyTransition,
   armRepositoryChangeObserver,
   assertCompilerDependencyEnvironmentRetirementReceipt,
+  assertPhysicalGenerationRetirementReceipt,
   beginDependencyTransition, CodedFailure, compilerCoordinationLockPath,
   compilerDependencyLocatorWorktreeRetirementProvider,
   compilerTransitionBackupPath,
+  createCompilerFixtureDependencyOperation,
   createIsolatedGeneratedStateLifecycles,
   dependencyTransitionNamespacePaths,
+  dependencyTransitions,
   describe,
   disposeCompilerDependencyEnvironment, EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS,
   EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS, effectfulTest,
   ensureCompilerDepsReady,
   expect,
   fs,
+  fsSync,
   generatedStateDigest,
   inspectNoFollowDirectoryChain,
   inspectNoFollowLinkEntry,
@@ -485,11 +581,13 @@ export {
   markDependencyTransitionFailure,
   materializeRetainedNoFollowProvenDirectoryGeneration,
   observeCompilerDependencyExecutionGenerationAuthority,
+  observeCompilerDependencyLifecycleStateRoot,
   observeDependencyTransitionSlot,
-  path, POSIX_ROOT_PROCESS, readDependencyTransition,
+  path, physicalNoFollow, POSIX_ROOT_PROCESS, readDependencyTransition,
   readJson,
   readRuntimeDependencyOperationTelemetry,
   removeSettledGeneratedStateFixtureRoot,
+  resolveSecWorkspaceRuntimeRoots,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   runFixtureGit, RUNTIME_DEPENDENCY_PACKAGE_NAMES,
@@ -500,15 +598,19 @@ export {
   settleAbandonedLegacyProjection,
   settleEffectfulTestCleanup,
   settleRepositoryChangeObserver,
+  settleWorkspaceCallback,
   settleWorkspaceCleanups,
+  spyOn,
   test,
   tmpdir,
   transitionAbsentSlot,
   transitionRecordName,
+  withCompilerTestConsumer,
   withCompilerTestWorkspace,
   withEffectfulCompilerWorkspace,
   withLinkedCompilerTestWorkspaces,
   withLinkedWorktreeTempWorkspace,
+  withRetainedCompilerContentFixture,
   withTempWorkspace,
   writeCompilerDependencyRoot, type GeneratedStateWorktreeRetirementEffectAuthority,
   type IsolatedGeneratedStateLifecycle

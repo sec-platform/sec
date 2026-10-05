@@ -11286,7 +11286,11 @@ export async function ensureCompilerDepsReadyFromGeneration(
   const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
+  // Equal input bytes do not renew the physical target admitted by this call.
+  // Capture before source/input observation can yield to a competing rename.
+  const targetRoot = inspectNoFollowDirectoryChain(root, 'Compiler dependency generation consumer').target;
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after input observation');
   if (!canonicalEquals(identity, source.identity)) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
   }
@@ -11305,7 +11309,9 @@ export async function ensureCompilerDepsReadyFromGeneration(
   let ready: CompilerDepsReadyState | undefined;
   let primary: RuntimeDependencyCapturedFailure | undefined;
   try {
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after source retention');
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer before publication');
     // The fresh observation owns transition-capable source provenance; the
     // caller authority can contain a serialized publication projection.
     ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
@@ -11314,6 +11320,7 @@ export async function ensureCompilerDepsReadyFromGeneration(
     if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
       await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
     }
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after publication');
     assertCompilerDependencyInputsCurrent(root, identity);
   } catch (error) {
     primary = Object.freeze({ error });
@@ -11331,6 +11338,8 @@ export async function ensureCompilerDepsReadyFromGeneration(
   }
   if (primary !== undefined) throw primary.error;
   if (retirementFailure !== undefined) throw retirementFailure.error;
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after source settlement');
+  assertCompilerDependencyInputsCurrent(root, identity);
   return ready!;
 }
 

@@ -8,35 +8,428 @@ import {
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
   assertCompilerDependencyEnvironmentRetirementReceipt,
+  assertPhysicalGenerationRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
+  createCompilerFixtureDependencyOperation,
   createIsolatedGeneratedStateLifecycles,
+  dependencyTransitions,
   describe,
   disposeCompilerDependencyEnvironment,
   effectfulTest,
   ensureCompilerDepsReady,
   expect,
   fs,
+  fsSync,
   inspectNoFollowDirectoryChain,
   installCompilerDependencyFixture,
   materializeRetainedNoFollowProvenDirectoryGeneration,
   observeCompilerDependencyExecutionGenerationAuthority,
+  observeCompilerDependencyLifecycleStateRoot,
   path,
+  physicalNoFollow,
+  readJson,
   removeSettledGeneratedStateFixtureRoot,
+  resolveSecWorkspaceRuntimeRoots,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   runFixtureGit,
   scanNoFollowDirectoryTreeInventory,
   settleEffectfulTestCleanup,
+  settleWorkspaceCallback,
   settleWorkspaceCleanups,
+  spyOn,
   test,
   tmpdir,
+  withCompilerTestConsumer,
+  withCompilerTestWorkspace,
   withEffectfulCompilerWorkspace,
   withLinkedCompilerTestWorkspaces,
   withLinkedWorktreeTempWorkspace,
+  withRetainedCompilerContentFixture,
   writeCompilerDependencyRoot
 } from './compiler-dependency-installation.ts';
 
 describe('compiler dependency installation', () => {
+  effectfulTest(test,
+    'retained dependency content is requalified through the public owner without an installer',
+    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-content-target-', async (consumerRoot, operation) => {
+      await writeCompilerDependencyRoot(consumerRoot);
+      const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
+      const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
+        signal: operation.signal, installMode: 'prebound-only' as const };
+      await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
+        const ready = await target.ensureCompilerDepsReadyFromRetainedContent(content, request);
+        expect(ready.source).toBe('existing');
+        expect(ready.requiresFreshProcess).toBeTrue();
+        expect(await fs.realpath(ready.nodeModulesPath)).not.toBe(path.join(contentRoot, 'node_modules'));
+        expect(await fs.readFile(path.join(ready.nodeModulesPath, 'typescript', 'lib', 'typescript.js'), 'utf8'))
+          .toBe('transported-content:typescript\n');
+        const binding = await readJson<Record<string, unknown>>(
+          path.join(ready.nodeModulesPath, '.sec-compiler-deps-binding-v5.json'));
+        expect(binding.formatVersion).toBe('compiler-deps-binding-v5');
+        expect(binding.bunExecutablePath).toBe(await fs.realpath(process.execPath));
+        expect(binding.manifestHash).toBe(ready.manifestHash);
+        expect(binding.untrusted).toBeUndefined();
+        const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
+        expect(inventory.entries[0]!.registrationState).toBe('active');
+        const observed = await observeCompilerDependencyExecutionGenerationAuthority(request, consumerRoot);
+        expect(observed?.generationDigest).toBe(ready.executionGenerationAuthority.generationDigest);
+        content.assertCurrent();
+        await content.assertAuthorityCurrent();
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request))
+          .rejects.toThrow('absent consumer locator');
+      });
+    }));
+
+  effectfulTest(test,
+    'retained dependency content rejects forged expired disposed retired incompatible and overlapping inputs before effects',
+    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-content-reject-', async (consumerRoot, operation) => {
+      await writeCompilerDependencyRoot(consumerRoot);
+      const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
+      const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
+        signal: operation.signal, installMode: 'prebound-only' as const };
+      await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent({ ...content }, request))
+          .rejects.toThrow('physical');
+        await expect(Promise.resolve().then(() => target.ensureCompilerDepsReadyFromRetainedContent(content,
+          { ...request, deadlineAtUnixMs: Date.now() - 1 }))).rejects.toThrow();
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request, contentRoot))
+          .rejects.toThrow('physically disjoint');
+        await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'different-transport-lock\n');
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request))
+          .rejects.toThrow('content input differs: bun.lock');
+        await writeCompilerDependencyRoot(consumerRoot);
+        content.dispose();
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request)).rejects.toThrow('disposed');
+        assertPhysicalGenerationRetirementReceipt(await content.retire());
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request)).rejects.toThrow();
+        await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+      });
+    }));
+
+  effectfulTest(test,
+    'explicit public generation reuse registers a foreign compiler target with its canonical owner',
+    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-explicit-owner-', async (ownerRoot, ownerOperation) => {
+      await writeCompilerDependencyRoot(ownerRoot);
+      let installs = 0;
+      const source = await ensureCompilerDepsReady({ ...ownerOperation, materialize: async (_args, command) => {
+        installs++;
+        await installCompilerDependencyFixture(command.cwd, 'explicit-source');
+        return { code: 0, stdout: 'ok', stderr: '' };
+      } }, ownerRoot);
+      await withCompilerTestConsumer(effectful, 'sec-cdep-explicit-target-', async (consumerRoot, operation) => {
+        await writeCompilerDependencyRoot(consumerRoot);
+        const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
+        const publicOptions = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
+          installMode: 'prebound-only' as const, signal: operation.signal };
+        Object.defineProperty(publicOptions, 'generatedStateLifecycle', {
+          enumerable: true,
+          get() { throw new Error('Public generation reuse must not read a caller lifecycle'); }
+        });
+        const ready = await target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, publicOptions);
+        expect(ready.source).toBe('existing');
+        expect(ready.requiresFreshProcess).toBeTrue();
+        expect(ready.executionGenerationAuthority.generationDigest)
+          .toBe(source.executionGenerationAuthority.generationDigest);
+        expect(await fs.realpath(ready.nodeModulesPath)).toBe(await fs.realpath(source.nodeModulesPath));
+        const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
+        expect(inventory.entries[0]).toMatchObject({ owner: 'compiler-dependency-runtime',
+          ruleId: 'compiler-node-modules', registrationState: 'active' });
+        expect(inventory.entries[0]!.registrationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+        const repeated = await target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, publicOptions);
+        expect(repeated.requiresFreshProcess).toBeFalse();
+        expect(repeated.executionGenerationAuthority.generationDigest)
+          .toBe(source.executionGenerationAuthority.generationDigest);
+        expect(installs).toBe(1);
+      });
+    }));
+
+  effectfulTest(test,
+    'explicit public generation reuse rejects forged and incompatible sources before target publication',
+    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-explicit-owner-reject-', async (ownerRoot, ownerOperation) => {
+      await writeCompilerDependencyRoot(ownerRoot);
+      const source = await ensureCompilerDepsReady({ ...ownerOperation, materialize: async (_args, command) => {
+        await installCompilerDependencyFixture(command.cwd, 'explicit-source-rejection');
+        return { code: 0, stdout: 'ok', stderr: '' };
+      } }, ownerRoot);
+      await withCompilerTestConsumer(effectful, 'sec-cdep-explicit-target-reject-', async (consumerRoot, operation) => {
+        await writeCompilerDependencyRoot(consumerRoot, 'different-lock\n');
+        const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
+        const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
+          installMode: 'prebound-only' as const, signal: operation.signal };
+        await expect(target.ensureCompilerDepsReadyFromGeneration({ ...source.executionGenerationAuthority }, request))
+          .rejects.toThrow();
+        await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, request))
+          .rejects.toThrow('incompatible canonical inputs');
+        await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+        const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
+        expect(inventory.entries[0]!.registrationDigest).toBeNull();
+      });
+    }));
+
+  for (const interference of ['same-byte-directory', 'directory-alias'] as const) {
+    effectfulTest(test,
+      `explicit generation reuse rejects ${interference} target replacement across source observation`,
+      { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+        cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+      effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-pin-owner-', async (ownerRoot, ownerOperation) => {
+        await writeCompilerDependencyRoot(ownerRoot);
+        const source = await ensureCompilerDepsReady({ ...ownerOperation, materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'pinned-source');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        } }, ownerRoot);
+        await withCompilerTestConsumer(effectful, 'sec-cdep-pin-target-', async (consumerRoot, operation) => {
+          await writeCompilerDependencyRoot(consumerRoot);
+          const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
+          const inputNames = ['package.json', 'bun.lock', '.bun-version'] as const;
+          const inputs = await Promise.all(inputNames.map(name => fs.readFile(path.join(consumerRoot, name))));
+          const originalIdentity = await fs.lstat(consumerRoot, { bigint: true });
+          const parkedRoot = `${consumerRoot}.admitted`;
+          const replacementRoot = interference === 'directory-alias' ? `${consumerRoot}.replacement` : consumerRoot;
+          let parked = false;
+          let replacementReady = false;
+          await settleWorkspaceCallback(async () => {
+            await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, {
+              deadlineAtUnixMs: operation.deadlineAtUnixMs,
+              installMode: 'prebound-only', signal: operation.signal,
+              // This original public fence is awaited by source observation,
+              // after target input bytes have been admitted, before publication.
+              beforeCommit: async () => {
+                if (parked) return;
+                await fs.rename(consumerRoot, parkedRoot);
+                parked = true;
+                await fs.mkdir(replacementRoot);
+                await Promise.all(inputNames.map((name, index) =>
+                  fs.writeFile(path.join(replacementRoot, name), inputs[index]!)));
+                if (interference === 'directory-alias') {
+                  await fs.symlink(replacementRoot, consumerRoot, process.platform === 'win32' ? 'junction' : 'dir');
+                }
+                replacementReady = true;
+              }
+            })).rejects.toMatchObject({ code: interference === 'same-byte-directory'
+              ? 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' : 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+            expect(replacementReady).toBeTrue();
+            const replacementIdentity = await fs.lstat(replacementRoot, { bigint: true });
+            expect(replacementIdentity.dev).toBe(originalIdentity.dev);
+            expect(replacementIdentity.ino).not.toBe(originalIdentity.ino);
+            for (let index = 0; index < inputNames.length; index++) {
+              expect(await fs.readFile(path.join(replacementRoot, inputNames[index]!))).toEqual(inputs[index]!);
+            }
+            await expect(fs.lstat(path.join(replacementRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+            await expect(fs.lstat(path.join(replacementRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+          }, async () => {
+            if (!parked) return;
+            if (interference === 'directory-alias') {
+              const link = await fs.lstat(consumerRoot).catch(error => {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+                throw error;
+              });
+              if (link !== null) {
+                expect(link.isSymbolicLink()).toBeTrue();
+                await fs.unlink(consumerRoot);
+              }
+            } else if (replacementReady) {
+              // Even a regressed implementation's published locator must go
+              // through its original owner before the fixture root is restored.
+              const receipt = await target.disposeCompilerDependencyEnvironment(consumerRoot, {
+                deadlineAtUnixMs: effectful.cleanupDeadlineAtUnixMs, signal: effectful.cleanupSignal
+              });
+              assertCompilerDependencyEnvironmentRetirementReceipt(receipt, consumerRoot);
+            }
+            await fs.rm(replacementRoot, { recursive: true, force: true });
+            await fs.rename(parkedRoot, consumerRoot);
+          });
+        });
+        // The original outer fixture must acquire its retirement receipt. A
+        // leaked generation borrow would prevent that terminal cleanup.
+      }));
+  }
+
+  for (const cut of ['after-publication', 'during-source-retirement'] as const) {
+    // These module observers are scoped by the original Effectful fixture and
+    // serial registrar. Every call forwards to its owner, even outside this root.
+    effectfulTest(test.serial,
+      `explicit generation reuse refuses target drift ${cut} and preserves owner recovery`,
+      { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+        cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+      effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-late-owner-', async (ownerRoot, ownerOperation) => {
+        await writeCompilerDependencyRoot(ownerRoot);
+        const source = await ensureCompilerDepsReady({ ...ownerOperation, materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'late-cut-source');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        } }, ownerRoot);
+        const sourcePath = await fs.realpath(source.nodeModulesPath);
+        const stateRoot = observeCompilerDependencyLifecycleStateRoot(ownerRoot);
+        expect(stateRoot).not.toBeNull();
+        const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: ownerRoot,
+          environment: { ...process.env, SEC_STATE_HOME: stateRoot! } });
+        const consumers = path.join(roots.workspaceStateRoot, 'compiler-dependency-coordination', 'v1', 'consumers');
+        type ConsumerRecord = { leaseId: string; recordDigest: string; generationDigest: string; phase: string };
+        type ConsumerZeroReceipt = { terminal: string; purpose: string; generationDigest: string;
+          terminalRecords: { acquired: ConsumerRecord; released: ConsumerRecord & { previousRecordDigest: string } }[] };
+        await withCompilerTestConsumer(effectful, 'sec-cdep-late-target-', async (consumerRoot, operation) => {
+          await writeCompilerDependencyRoot(consumerRoot);
+          const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
+          const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
+            installMode: 'prebound-only' as const, signal: operation.signal };
+          const inputNames = ['package.json', 'bun.lock', '.bun-version'] as const;
+          const inputs = await Promise.all(inputNames.map(name => fs.readFile(path.join(consumerRoot, name))));
+          const originalIdentity = await fs.lstat(consumerRoot, { bigint: true });
+          const parkedRoot = `${consumerRoot}.published`;
+          const readLedger = dependencyTransitions.readDependencyTransitionLedger;
+          const assertReceipt = physicalNoFollow.assertPhysicalGenerationRetirementReceipt;
+          const publishDurable = physicalNoFollow.publishExclusiveDurableCanonicalFile;
+          let ledgerObserver: ReturnType<typeof spyOn> | undefined;
+          let retirementObserver: ReturnType<typeof spyOn> | undefined;
+          let settlementObserver: ReturnType<typeof spyOn> | undefined;
+          let parked = false;
+          let replacementIdentity: { dev: bigint; ino: bigint } | undefined;
+          let publication: { recordDigest: `sha256:${string}`; registrationDigest: `sha256:${string}`; locatorInode: bigint;
+            acquired: ConsumerRecord } | undefined;
+          let physicalRetirementObserved = false;
+          let sourceSettlementObserved = false;
+          // Synchronous substitution is needed inside the real synchronous
+          // receipt validator; it cannot return an unawaited mutation promise.
+          const replaceTarget = () => {
+            expect(fsSync.lstatSync(consumerRoot, { bigint: true }).ino).toBe(originalIdentity.ino);
+            fsSync.renameSync(consumerRoot, parkedRoot);
+            parked = true;
+            fsSync.mkdirSync(consumerRoot);
+            replacementIdentity = fsSync.lstatSync(consumerRoot, { bigint: true });
+            inputNames.forEach((name, index) => fsSync.writeFileSync(path.join(consumerRoot, name), inputs[index]!));
+            const replacement = fsSync.lstatSync(consumerRoot, { bigint: true });
+            expect(replacement.dev).toBe(originalIdentity.dev);
+            expect(replacement.ino).not.toBe(originalIdentity.ino);
+          };
+          const restoreTarget = async () => {
+            if (!parked) return;
+            // Only the new, fixture-owned empty target may be removed. Preserve
+            // the parked locator and registration until their original owner runs.
+            expect(await fs.lstat(parkedRoot, { bigint: true })).toMatchObject({
+              dev: originalIdentity.dev, ino: originalIdentity.ino });
+            if (replacementIdentity !== undefined) {
+              expect(await fs.lstat(consumerRoot, { bigint: true })).toMatchObject({
+                dev: replacementIdentity.dev, ino: replacementIdentity.ino });
+            }
+            await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+            await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+            await fs.rm(consumerRoot, { recursive: true, force: true });
+            await fs.rename(parkedRoot, consumerRoot);
+            parked = false;
+          };
+          await settleWorkspaceCallback(async () => {
+            try {
+              ledgerObserver = spyOn(dependencyTransitions, 'readDependencyTransitionLedger')
+                .mockImplementation(async (...args) => {
+                  const result = await Reflect.apply(readLedger, dependencyTransitions, args);
+                  if (path.resolve(args[0]) !== ownerRoot || publication !== undefined) return result;
+                  const targetLedger = await Reflect.apply(readLedger, dependencyTransitions, [consumerRoot, args[1]]);
+                  if (targetLedger?.tip?.phase !== 'complete') return result;
+                  expect(targetLedger.tip.kind).toBe('compiler-locator');
+                  expect(result?.tip?.phase).toBe('complete');
+                  const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
+                  expect(inventory.entries[0]).toMatchObject({ owner: 'compiler-dependency-runtime',
+                    ruleId: 'compiler-node-modules', registrationState: 'active' });
+                  expect(inventory.entries[0]!.registrationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+                  const locator = await fs.lstat(path.join(consumerRoot, 'node_modules'), { bigint: true });
+                  expect(locator.isSymbolicLink()).toBeTrue();
+                  expect(await fs.realpath(path.join(consumerRoot, 'node_modules'))).toBe(sourcePath);
+                  const acquiredNames = (await fs.readdir(consumers)).filter(name => name.endsWith('-acquired.json'));
+                  expect(acquiredNames).toHaveLength(1);
+                  const acquired = await readJson<ConsumerRecord>(path.join(consumers, acquiredNames[0]!));
+                  expect(acquired).toMatchObject({ phase: 'acquired', generationDigest: source.executionGenerationAuthority.generationDigest });
+                  publication = { recordDigest: targetLedger.tip.recordDigest,
+                    registrationDigest: inventory.entries[0]!.registrationDigest!, locatorInode: locator.ino, acquired };
+                  // This is the outer source-terminal read after the actual
+                  // complete publication, not a beforeCommit inside its writer.
+                  if (cut === 'after-publication') replaceTarget();
+                  return result;
+                });
+              retirementObserver = spyOn(physicalNoFollow, 'assertPhysicalGenerationRetirementReceipt')
+                .mockImplementation((receipt) => {
+                  Reflect.apply(assertReceipt, physicalNoFollow, [receipt]);
+                  if (publication === undefined || physicalRetirementObserved || receipt.root.path !== sourcePath) return;
+                  expect(receipt.terminal).toBe('released');
+                  physicalRetirementObserved = true;
+                  // The original physical retire promise has resolved. The
+                  // retained source owner must still release its durable borrow
+                  // and return its own receipt before the final target fence.
+                  if (cut === 'during-source-retirement') replaceTarget();
+                });
+              settlementObserver = spyOn(physicalNoFollow, 'publishExclusiveDurableCanonicalFile')
+                .mockImplementation((...args) => {
+                  const result = Reflect.apply(publishDurable, physicalNoFollow, args);
+                  const input = args[0];
+                  if (publication === undefined || input.parent.path !== consumers || !input.name.startsWith('zero-')) return result;
+                  // Observe the real durable receipt before original compaction
+                  // removes it. Never substitute caller bytes or its authority.
+                  const receipt = JSON.parse(fsSync.readFileSync(path.join(consumers, input.name), 'utf8')) as ConsumerZeroReceipt;
+                  if (receipt.purpose !== 'terminal-compaction') return result;
+                  expect(receipt.terminal).toBe('consumer-zero');
+                  expect(receipt.generationDigest).toBe(source.executionGenerationAuthority.generationDigest);
+                  expect(receipt.terminalRecords.some(record => record.acquired.recordDigest === publication!.acquired.recordDigest
+                    && record.released.leaseId === publication!.acquired.leaseId
+                    && record.released.previousRecordDigest === publication!.acquired.recordDigest
+                    && record.released.phase === 'released')).toBeTrue();
+                  sourceSettlementObserved = true;
+                  return result;
+                });
+              await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, request))
+                .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+                  message: expect.stringContaining(cut === 'after-publication'
+                    ? 'generation consumer after publication' : 'generation consumer after source settlement') });
+            } finally {
+              settlementObserver?.mockRestore();
+              retirementObserver?.mockRestore();
+              ledgerObserver?.mockRestore();
+            }
+            expect(publication).toBeDefined();
+            expect(parked).toBeTrue();
+            expect(physicalRetirementObserved).toBeTrue();
+            expect(sourceSettlementObserved).toBeTrue();
+            for (let index = 0; index < inputNames.length; index++) {
+              expect(await fs.readFile(path.join(consumerRoot, inputNames[index]!))).toEqual(inputs[index]!);
+            }
+            // The genuine source owner has also finished durable compaction;
+            // its acquisition and release records must no longer be live.
+            const names = await fs.readdir(consumers);
+            expect(names.filter(name => name.endsWith('-acquired.json') || name.endsWith('-released.json'))).toEqual([]);
+            await restoreTarget();
+            expect((await fs.lstat(path.join(consumerRoot, 'node_modules'), { bigint: true })).ino)
+              .toBe(publication!.locatorInode);
+            const recoveredLedger = await readLedger(consumerRoot, operation);
+            expect(recoveredLedger?.tip?.recordDigest).toBe(publication!.recordDigest);
+            const inventory = await operation.generatedStateLifecycle.inspect!(['node_modules']);
+            expect(inventory.entries[0]!.registrationDigest).toBe(publication!.registrationDigest);
+            const recovered = await target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, request);
+            expect(recovered.requiresFreshProcess).toBeFalse();
+            expect(recovered.executionGenerationAuthority.generationDigest).toBe(source.executionGenerationAuthority.generationDigest);
+            expect(await fs.realpath(recovered.nodeModulesPath)).toBe(sourcePath);
+            const receipt = await target.disposeCompilerDependencyEnvironment(consumerRoot, {
+              deadlineAtUnixMs: effectful.cleanupDeadlineAtUnixMs, signal: effectful.cleanupSignal
+            });
+            assertCompilerDependencyEnvironmentRetirementReceipt(receipt, consumerRoot);
+            expect(receipt).toMatchObject({ locatorRetirement: 'retired', nodeModulesReadback: 'absent',
+              generationCollection: 'complete', terminal: 'retired' });
+            expect(await fs.readFile(path.join(sourcePath, 'typescript', 'lib', 'typescript.js'), 'utf8'))
+              .toBe('late-cut-source:typescript\n');
+          }, restoreTarget);
+        });
+        // Original outer cleanup also requires its genuine environment receipt;
+        // any leaked source borrow prevents source generation collection.
+      }));
+  }
+
   effectfulTest(test,
     'reuses a compatible external physical generation without giving its bridge mutation ownership',
     {
