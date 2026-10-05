@@ -22,23 +22,23 @@ import {
 import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
 import { adoptSourceProgramTestAuthorDecision, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
-import { inspectExactNoFollowDirectoryPresence, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectExactNoFollowDirectoryPresence, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryDirectMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { createCiVerificationNativeLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding } from '../../../verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentParseVerificationSessionArtifact, parseSourceProgramTransitionAcceptanceRecord } from '../../../verification/platform/ci/contract/evidence.ts';
-import type { VerificationSessionLocalPreparationRequest } from '../../../verification/platform/ci/contract/session-request.ts';
+import { CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA, CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA, assertVerificationSessionLocalPreparationV2Current, type VerificationSessionLocalPreparation, type VerificationSessionLocalPreparationRequestV2 } from '../../../verification/platform/ci/contract/session-request.ts';
 import { readSessionArtifactText } from '../../../verification/platform/ci/runtime/session-artifact-files.ts';
 import { createVerificationSessionGitHubClient, type VerificationSessionGitHubClient } from '../../../verification/platform/ci/runtime/verification-session-github.ts';
 import {
   assertVerificationSessionLocalPreparationCurrent,
   createTrustedRuntimeArtifactObservationFromDurableFile,
-  createVerificationSessionLocalPreparationRequest,
   createVerificationSessionMergeOperationId,
   createVerificationSessionReviewReceipt,
   finalizeVerificationSessionHostedArtifact,
   parseVerificationSessionLocalPreparationRequest,
+  prepareLocalVerificationIntent,
   prepareTrustedMainVerificationSession,
   prepareTrustedRuntimeVerificationSession,
   prepareVerificationSessionTrustedRuntimeMergeInput,
@@ -204,7 +204,7 @@ function canonicalBytes(value: unknown): Uint8Array {
 
 type TrustedRuntimeOperatorArgs =
   | Readonly<{ mode: 'closeout'; repository: string; prNumber: number; testAuthorCommentId?: number }>
-  | Readonly<{ mode: 'verification-only'; repository: string; request: VerificationSessionLocalPreparationRequest; testAuthorCommentId?: number }>
+  | Readonly<{ mode: 'verification-only'; repository: string; request: VerificationSessionLocalPreparation; testAuthorCommentId?: number }>
   | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>
   | Readonly<{ mode: 'main-health'; repository: string }>;
 
@@ -892,17 +892,21 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
 export async function verifyWithTrustedRuntime(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  request: VerificationSessionLocalPreparationRequest;
+  request: VerificationSessionLocalPreparation;
   testAuthorCommentId?: number;
 }>, sourceTransitionUseCase?: TrustedRuntimeSourceTransitionUseCase): Promise<unknown> {
   const request = parseVerificationSessionLocalPreparationRequest(JSON.stringify(input.request));
+  if (request.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA
+      && request.request.repository !== input.repository) {
+    fail('V2 preparation belongs to another repository');
+  }
   return executeTrustedRuntimeCandidateStage({ ...input, prNumber: request.request.prNumber },
     { kind: 'verification-only', request }, sourceTransitionUseCase);
 }
 
 type TrustedRuntimeCandidateStage =
   | Readonly<{ kind: 'closeout' }>
-  | Readonly<{ kind: 'verification-only'; request: VerificationSessionLocalPreparationRequest }>;
+  | Readonly<{ kind: 'verification-only'; request: VerificationSessionLocalPreparation }>;
 
 async function executeTrustedRuntimeCandidateStage(
   input: TrustedRuntimeCandidatePreparationInput,
@@ -927,6 +931,23 @@ async function executeTrustedRuntimeCandidateStage(
   if (candidate.state !== 'MERGED'
       && (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository)) {
     fail('candidate must be one open same-repository non-draft PR or its exact merged recovery');
+  }
+  const latePreparation = stage.kind === 'verification-only'
+    && stage.request.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA
+      ? stage.request : undefined;
+  if (latePreparation !== undefined) {
+    const facts = await observeOpenCandidatePreparationFacts({ input, repositoryRoot, github, candidate });
+    assertVerificationSessionLocalPreparationV2Current(latePreparation,
+      prepareLocalVerificationIntent(facts.preparationInput));
+    // Unresolved accepted content is a real missing input, not a substitute
+    // environment or a speculative Session. No execution state is created here.
+    if (latePreparation.request.qualificationRequirements.nativeContentManifestDigest === null) {
+      return Object.freeze({ status: 'LOCAL_QUALIFICATION_UNAVAILABLE' as const,
+        stage: 'qualification-not-started' as const, execution: 'local' as const,
+        reason: 'native-runtime-content-not-accepted' as const,
+        requestOperationId: latePreparation.request.requestOperationId,
+        executionStarted: false as const, integrationAuthorization: 'not-issued' as const });
+    }
   }
   // Serialize exact PR/base/head attempts across assessment, host adoption,
   // artifact publication and the final effect/readback. A computation result
@@ -968,11 +989,12 @@ async function executeTrustedRuntimeCandidateStage(
         mergedReadback = await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
         return Object.freeze({ kind: 'merged' as const, value: mergedReadback });
       };
-      // Public preparation and the legacy verification-only request remain
-      // read-only/V1. Only explicit complete closeout executes this producer.
+      // Only an explicit execution entry may obtain qualification. V2 runs the
+      // same original producer in this operation; public prepare never does.
+      // Legacy V1 retains its original already-observed healthy provider path.
       let execution: Awaited<ReturnType<typeof executePrepared>>;
       try {
-        execution = stage.kind === 'closeout'
+        execution = stage.kind === 'closeout' || latePreparation !== undefined
           ? await withCurrentTrustedRuntimeMainHealth({ repositoryRoot,
               repository: input.repository }, executePrepared)
           : await executePrepared();
@@ -1013,14 +1035,22 @@ type TrustedRuntimeCandidatePreparationInput = Readonly<{
 /** Preparation observes and binds inputs; it does not execute candidate code or
  * produce verification evidence, publish status, or merge. Full closeout uses
  * this same preparation under its original effect lease and budget. */
-async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
+async function observeOpenCandidatePreparationFacts(args: Readonly<{
   input: TrustedRuntimeCandidatePreparationInput;
   repositoryRoot: string;
   github: VerificationSessionGitHubClient;
   candidate: GitHubCandidateObservation;
-  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>) {
-  const { input, repositoryRoot, github, candidate } = args;
+  const { input, repositoryRoot, github } = args;
+  // Source SHA equality does not freeze mutable PR metadata such as the Work
+  // Package locator. Every factual observation consumes its own fresh body.
+  const candidate = await github.observeCandidate(input.repository, input.prNumber);
+  if (candidate.repository !== input.repository || candidate.number !== input.prNumber
+      || candidate.baseSha !== args.candidate.baseSha || candidate.baseTreeSha !== args.candidate.baseTreeSha
+      || candidate.headSha !== args.candidate.headSha || candidate.headTreeSha !== args.candidate.headTreeSha
+      || candidate.baseBranch !== args.candidate.baseBranch) {
+    fail('exact PR subject changed during local preparation observation');
+  }
   if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
     fail('candidate changed before trusted-runtime verification preparation');
   }
@@ -1071,6 +1101,40 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
   const observedAt = new Date().toISOString();
   const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentity}@${candidate.baseSha}`;
+  const preparationInput = {
+    repository: input.repository, candidate, manifestPath, manifestDigest,
+    changedPaths: changed.changedPaths, testImpactTransition: changed.testImpactTransition,
+    testImpactSourceProvider: changed.testImpactSourceProvider,
+    profile: manifest.requiredProfile, integrationPrincipalNodeId: principal.nodeId,
+    producerPrincipalNodeId: principal.nodeId,
+    sourceRunId: `trusted-runtime-${candidate.headSha.slice(0, 16)}`,
+    sourceRef: runtimeRef, observedAt, reviewBarrier, dependencyBlobs, sourceProgramTransition
+  } as const;
+  return Object.freeze({ candidate, preparationInput, principal, integrationPermission,
+    observedAt, runtimeRef, sourceProgramTransition, dependencyBlobs, reviewBarrier,
+    observeAuthorApproval, authorApproval, manifestPath, manifestDigest, manifest, changed });
+}
+
+/** Qualification-dependent internal preparation. Public prepare uses only the
+ * factual reader above and never enters the MainHealth physical producer. */
+async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
+  input: TrustedRuntimeCandidatePreparationInput;
+  repositoryRoot: string;
+  github: VerificationSessionGitHubClient;
+  candidate: GitHubCandidateObservation;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
+  latePreparation?: VerificationSessionLocalPreparationRequestV2;
+}>) {
+  const { input, repositoryRoot, github } = args;
+  const facts = await observeOpenCandidatePreparationFacts({ input, repositoryRoot, github, candidate: args.candidate });
+  const { candidate, principal, integrationPermission, observedAt, runtimeRef,
+    sourceProgramTransition, dependencyBlobs, reviewBarrier, observeAuthorApproval,
+    authorApproval, manifestPath, manifestDigest, manifest, changed } = facts;
+  if (args.latePreparation !== undefined) {
+    if (args.qualifiedLocalReceipt === undefined) fail('V2 Session binding requires the original live MainHealth producer');
+    assertVerificationSessionLocalPreparationV2Current(args.latePreparation,
+      prepareLocalVerificationIntent(facts.preparationInput));
+  }
   const mainHealthObservation = await withMainHealthGitHubReadOperationBudget({
     repositoryRoot, repository: input.repository,
     operation: async () => await observeCanonicalMainHealthForPublication({
@@ -1098,25 +1162,9 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
     repository: input.repository, mainSha: candidate.baseSha,
     mainTreeSha: candidate.baseTreeSha, now: observedAt,
     ...(localMainHealthAdmission === undefined ? {} : { localAdmission: localMainHealthAdmission }) });
-  const preparationInput = {
-    repository: input.repository,
-    candidate,
-    manifestPath,
-    manifestDigest,
-    changedPaths: changed.changedPaths,
-    testImpactTransition: changed.testImpactTransition,
-    testImpactSourceProvider: changed.testImpactSourceProvider,
-    profile: manifest.requiredProfile,
-    integrationPrincipalNodeId: principal.nodeId,
-    producerPrincipalNodeId: principal.nodeId,
-    sourceRunId: `trusted-runtime-${candidate.headSha.slice(0, 16)}`,
-    sourceRef: runtimeRef,
-    observedAt,
-    reviewBarrier,
+  const preparationInput = { ...facts.preparationInput,
     mainHealthChecks: Object.freeze([]),
-    dependencyBlobs,
     executionEnvironment: createCiVerificationNativeLocalExecutionEnvironment(),
-    sourceProgramTransition,
     mainHealthInput
   } as const;
   const planning = prepareTrustedMainVerificationSession(preparationInput);
@@ -1135,11 +1183,102 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
   }
   const prepared = prepareTrustedRuntimeVerificationSession(preparationInput);
   return Object.freeze({
-    kind: 'prepared' as const, prepared, principal, integrationPermission,
+    kind: 'prepared' as const, candidate, prepared, principal, integrationPermission,
     observedAt, runtimeRef, sourceProgramTransition, dependencyBlobs,
     observeAuthorApproval, authorApproval, manifestPath, manifestDigest,
     manifest, changed, mainHealthObservation
   });
+}
+
+const LOCAL_PREPARATION_INPUT_FILE = 'local-preparation-request.json';
+
+function hasUnboundLocalPreparationRecords(directory: PhysicalDirectoryIdentity): boolean {
+  return scanNoFollowDirectoryDirectMetadata(directory, {
+    deadlineAtMs: performance.now() + 30_000, maximumEntries: 4096
+  }).length > 0;
+}
+
+function localPreparationV2StateRoot(repositoryStateRoot: string,
+  input: VerificationSessionLocalPreparationRequestV2): string {
+  return path.join(repositoryStateRoot, 'trusted-runtime', 'local-preparation-v2',
+    input.request.requestOperationId.slice(7));
+}
+
+/** Saved input only. This decoder never reconstructs execution qualification. */
+function assertStoredLocalPreparationV2(bytes: Uint8Array,
+  expected: VerificationSessionLocalPreparationRequestV2): VerificationSessionLocalPreparationRequestV2 {
+  const source = Buffer.from(bytes).toString('utf8');
+  const parsed = parseVerificationSessionLocalPreparationRequest(source);
+  if (parsed.schema !== CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA
+      || source !== `${encodeVerificationActionData(parsed)}\n`) {
+    fail('V2 preparation input is not canonical original request data');
+  }
+  assertVerificationSessionLocalPreparationV2Current(expected, parsed);
+  return parsed;
+}
+
+function readLocalVerificationV2Status(input: Readonly<{
+  repositoryRoot: string; repository: string; request: VerificationSessionLocalPreparationRequestV2;
+}>) {
+  const saved = input.request;
+  const request = saved.request;
+  if (request.repository !== input.repository) fail('V2 status belongs to another repository');
+  const layout = resolveSecRuntimeStateForRepository({
+    repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository });
+  const root = localPreparationV2StateRoot(layout.repositoryStateRoot, saved);
+  const presence = inspectExactNoFollowDirectoryPresence(root, 'V2 local verification record directory');
+  const read = (name: string) => presence.state === 'absent' ? null
+    : readNoFollowOrdinaryFile(presence.directory.target, name);
+  const preparationBytes = read(LOCAL_PREPARATION_INPUT_FILE);
+  const actionBytes = read('verification-action.json');
+  const pendingBytes = actionBytes === null ? read('verification-pending-qualification.json') : null;
+  if (preparationBytes === null && presence.state === 'present'
+      && hasUnboundLocalPreparationRecords(presence.directory.target)) {
+    fail('V2 computation has no exact stored preparation input');
+  }
+  if (preparationBytes !== null) assertStoredLocalPreparationV2(preparationBytes, saved);
+  const action = actionBytes === null ? null : parseActionBundle(actionBytes);
+  const pending = pendingBytes === null ? null : parsePendingTrustedRuntimeEvidence(pendingBytes);
+  const evidence = action?.artifact.evidence ?? pending?.evidence ?? null;
+  if (evidence !== null) {
+    CodexDevelopmentAssertVerificationEvidenceV4(evidence, {
+      baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
+      headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
+      manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
+      profile: request.profile
+    });
+  }
+  if (action !== null) {
+    const { session, scopeAuthorization } = action.artifact;
+    const requirements = request.qualificationRequirements;
+    if (session.repository !== request.repository || session.prNumber !== request.prNumber
+        || session.trustRevision !== requirements.trustedRevision
+        || session.reviewPolicyDigest !== requirements.reviewPolicyDigest
+        || session.evidenceRequirementDigest !== requirements.evidenceRequirementDigest
+        || session.integrationPolicyDigest !== requirements.integrationPolicyDigest
+        || scopeAuthorization.issuer.principalId !== request.actorNodeId
+        || encodeVerificationActionData(scopeAuthorization.authorizedPaths)
+          !== encodeVerificationActionData(request.authorizedPaths)) {
+      fail('V2 recorded Session differs from the frozen preparation requirements');
+    }
+  }
+  return Object.freeze({ status: evidence === null ? 'LOCAL_REQUEST_OBSERVED' as const : 'LOCAL_EVIDENCE_RECORDED' as const,
+    execution: 'local' as const, stage: 'read-only-projection' as const,
+    observationScope: 'saved-local-request-and-durable-records' as const,
+    savedRequest: saved, requestOperationId: request.requestOperationId,
+    preparationInputMatched: preparationBytes !== null,
+    sessionRevision: evidence?.sessionRevision ?? null,
+    verificationStatus: evidence?.status ?? 'not-observed', evidenceDigest: evidence?.evidenceDigest ?? null,
+    evidenceRecord: action !== null ? 'verification-action' as const
+      : pending !== null ? 'pending-qualification' as const : 'not-observed' as const,
+    artifactDigest: action?.artifact.artifactDigest ?? null,
+    // Saved input equality authenticates neither a live host nor the complete
+    // source observation. Original owners reobserve all of these on execution.
+    unverifiedRequestFields: Object.freeze(evidence === null ? Object.keys(request)
+      : ['sourceFactsDigest', 'verificationPlanDigest', 'sourceProgramBindingDigest',
+          'qualificationRequirements', ...(action === null ? ['repository', 'prNumber', 'actorNodeId', 'authorizedPaths'] : [])]),
+    currentSubject: 'not-observed' as const, sourceQualification: 'not-revalidated' as const,
+    integrationAuthorization: 'not-evaluated' as const, executionStarted: false as const });
 }
 
 /** Read only the original owner's durable records. Their presence is historical
@@ -1147,9 +1286,12 @@ async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
 export function readLocalVerificationStatusWithTrustedRuntime(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  request: VerificationSessionLocalPreparationRequest;
+  request: VerificationSessionLocalPreparation;
 }>) {
   const saved = parseVerificationSessionLocalPreparationRequest(JSON.stringify(input.request));
+  if (saved.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA) {
+    return readLocalVerificationV2Status({ ...input, request: saved });
+  }
   const request = saved.request;
   const layout = resolveSecRuntimeStateForRepository({
     repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository
@@ -1219,24 +1361,17 @@ export async function prepareWithTrustedRuntime(input: TrustedRuntimeCandidatePr
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
   const candidate = await github.observeCandidate(input.repository, input.prNumber);
-  const preparation = await prepareOpenCandidateWithTrustedRuntime({
-    input, repositoryRoot, github, candidate
-  });
-  if (preparation.kind === 'waiting') {
-    return Object.freeze({ ...preparation.value, execution: 'local' as const,
-      stage: 'preparation-only' as const,
-      request: createVerificationSessionLocalPreparationRequest(preparation.request) });
-  }
-  return Object.freeze({
-    status: 'LOCAL_PREPARED' as const,
-    execution: 'local' as const,
-    stage: 'preparation-only' as const,
-    sessionRevision: preparation.prepared.envelope.session.sessionRevision,
-    request: createVerificationSessionLocalPreparationRequest(preparation.prepared.request),
-    verificationStatus: 'not-run' as const,
-    sourceQualification: 'not-run' as const,
-    integrationAuthorization: 'not-issued' as const
-  });
+  const facts = await observeOpenCandidatePreparationFacts({ input, repositoryRoot, github, candidate });
+  const request = prepareLocalVerificationIntent(facts.preparationInput);
+  return Object.freeze({ status: 'LOCAL_PREPARED' as const, execution: 'local' as const,
+    stage: 'preparation-only' as const, request,
+    requestOperationId: request.request.requestOperationId,
+    qualification: 'not-run' as const,
+    unresolvedRequirements: Object.freeze(request.request.qualificationRequirements.nativeContentManifestDigest === null
+      ? ['native-runtime-content-not-accepted'] as const : []),
+    reviewReadiness: facts.reviewBarrier.status,
+    verificationStatus: 'not-run' as const, sourceQualification: 'not-run' as const,
+    integrationAuthorization: 'not-issued' as const });
 }
 
 async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
@@ -1253,19 +1388,23 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   stage: TrustedRuntimeCandidateStage;
   qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<TrustedRuntimeCloseoutOpenResult> {
-  const { input, repositoryRoot, github, candidate, sourceTransitionUseCase } = args;
+  const { input, repositoryRoot, github, sourceTransitionUseCase } = args;
   const preparation = await prepareOpenCandidateWithTrustedRuntime({
-    input, repositoryRoot, github, candidate,
+    input, repositoryRoot, github, candidate: args.candidate,
     ...(args.qualifiedLocalReceipt === undefined ? {} : {
       qualifiedLocalReceipt: args.qualifiedLocalReceipt
-    })
+    }),
+    ...(args.stage.kind === 'verification-only'
+      && args.stage.request.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA
+        ? { latePreparation: args.stage.request } : {})
   });
-  if (args.stage.kind === 'verification-only') {
+  if (args.stage.kind === 'verification-only'
+      && args.stage.request.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA) {
     assertVerificationSessionLocalPreparationCurrent(args.stage.request,
       preparation.kind === 'waiting' ? preparation.request : preparation.prepared.request);
   }
   if (preparation.kind === 'waiting') return preparation;
-  const { prepared, principal, integrationPermission, observedAt, runtimeRef,
+  const { candidate, prepared, principal, integrationPermission, observedAt, runtimeRef,
     sourceProgramTransition, dependencyBlobs, observeAuthorApproval, authorApproval,
     manifestPath, manifestDigest, manifest, changed, mainHealthObservation } = preparation;
   const envelope = prepared.envelope;
@@ -1273,8 +1412,12 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     repository: input.repository,
     repositoryRoot
   });
-  const sessionRoot = path.join(runtimeLayout.repositoryStateRoot, 'trusted-runtime', 'v1',
-    envelope.session.sessionRevision.slice(7));
+  const latePreparation = args.stage.kind === 'verification-only'
+    && args.stage.request.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA
+      ? args.stage.request : undefined;
+  const sessionRoot = latePreparation === undefined
+    ? path.join(runtimeLayout.repositoryStateRoot, 'trusted-runtime', 'v1', envelope.session.sessionRevision.slice(7))
+    : localPreparationV2StateRoot(runtimeLayout.repositoryStateRoot, latePreparation);
   return withTrustedRuntimeStateAuthority({
     repositoryRoot,
     stateRoot: runtimeLayout.stateRoot,
@@ -1286,6 +1429,16 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     const existingAction = readNoFollowOrdinaryFile(stateDirectory, actionFile);
     const pendingFile = 'verification-pending-qualification.json';
     const pendingBytes = existingAction === null ? readNoFollowOrdinaryFile(stateDirectory, pendingFile) : null;
+    if (latePreparation !== undefined) {
+      const existingPreparation = readNoFollowOrdinaryFile(stateDirectory, LOCAL_PREPARATION_INPUT_FILE);
+      if (existingPreparation === null && hasUnboundLocalPreparationRecords(stateDirectory)) {
+        fail('V2 prior computation has no exact original preparation input');
+      }
+      if (existingPreparation !== null) assertStoredLocalPreparationV2(existingPreparation, latePreparation);
+      else publishCanonical({ parent: stateDirectory, name: LOCAL_PREPARATION_INPUT_FILE,
+        value: latePreparation,
+        parse: bytes => assertStoredLocalPreparationV2(bytes, latePreparation) });
+    }
     let actionBundle: TrustedRuntimeActionBundle | null = existingAction === null
       ? null : parseActionBundle(existingAction);
     const previousVerification = actionBundle === null
@@ -1306,8 +1459,9 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         const current = await github.observeCandidate(input.repository, input.prNumber);
         if (current.state !== 'OPEN' || current.isDraft || current.isCrossRepository
             || current.baseSha !== candidate.baseSha || current.baseTreeSha !== candidate.baseTreeSha
-            || current.headSha !== candidate.headSha || current.headTreeSha !== candidate.headTreeSha) {
-          fail('exact PR subject drifted before accepted publication');
+            || current.headSha !== candidate.headSha || current.headTreeSha !== candidate.headTreeSha
+            || CodexDevelopmentParseWorkPackageLocator(current.body) !== manifestPath) {
+          fail('exact PR subject or Work Package locator drifted before accepted publication');
         }
       },
       publishAttempt: (evidence) => {
@@ -1354,7 +1508,8 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     const freshCandidate = (await github.observeCandidate(input.repository, input.prNumber));
     if (freshCandidate.headSha !== candidate.headSha || freshCandidate.baseSha !== candidate.baseSha
         || freshCandidate.headTreeSha !== candidate.headTreeSha || freshCandidate.baseTreeSha !== candidate.baseTreeSha
-        || freshCandidate.state !== 'OPEN' || freshCandidate.isDraft || freshCandidate.isCrossRepository) {
+        || freshCandidate.state !== 'OPEN' || freshCandidate.isDraft || freshCandidate.isCrossRepository
+        || CodexDevelopmentParseWorkPackageLocator(freshCandidate.body) !== manifestPath) {
       fail('candidate drifted after durable Verification');
     }
     // The explicit verification stage ends at the original durable artifact
@@ -1364,6 +1519,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         status: artifact.evidence.status === 'passed' ? 'LOCAL_VERIFIED' as const : 'LOCAL_VERIFICATION_RECORDED' as const,
         execution: 'local' as const,
         stage: 'verification-only' as const,
+        ...(latePreparation === undefined ? {} : { requestOperationId: latePreparation.request.requestOperationId }),
         sessionRevision: artifact.session.sessionRevision,
         actionPlanDigest: artifact.evidence.actionPlan.actionPlanDigest,
         artifactDigest: artifact.artifactDigest,
@@ -1537,7 +1693,8 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         || liveBeforeMerge.headTreeSha !== candidate.headTreeSha
         || liveBeforeMerge.baseSha !== candidate.baseSha
         || liveBeforeMerge.baseTreeSha !== candidate.baseTreeSha
-        || liveBeforeMerge.isDraft || liveBeforeMerge.isCrossRepository) {
+        || liveBeforeMerge.isDraft || liveBeforeMerge.isCrossRepository
+        || CodexDevelopmentParseWorkPackageLocator(liveBeforeMerge.body) !== manifestPath) {
       fail('candidate or platform observation drifted immediately before merge');
     }
     const immediateDisposition = (await observeExactIssueDispositionPlan({

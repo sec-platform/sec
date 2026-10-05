@@ -19,13 +19,15 @@ import type { SourceProgramTransitionAcceptanceRecord } from '../contract/eviden
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 
+import { SEC_LINUX_VERIFICATION_NATIVE_PROFILE, SEC_LINUX_VERIFICATION_NATIVE_PROFILE_DIGEST } from '../../../../providers/linux-verification/contract.ts';
+import { LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST } from '../../../../runtime-state/physical/contract/linux-verification-unit.ts';
 import { parseIntegrationAuthorizationOperationPublication } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import { CodexDevelopmentCreateHostedArtifactObservation, CodexDevelopmentCreateMergeGateInput, CodexDevelopmentCreateTrustedRuntimeMergeGateInput, CodexDevelopmentMergeGateProducerIdentity, CodexDevelopmentParseMergeGateResult, createMergeGateProvenance, createTrustedRuntimeArtifactObservation, createTrustedRuntimeMergeGateProvenance, type CodexDevelopmentMergeGateCandidate, type CodexDevelopmentMergeGateInput, type CodexDevelopmentTrustedRuntimeArtifactObservation, type CodexDevelopmentTrustedRuntimeMergeGateInput, type CodexDevelopmentTrustedRuntimeMergeGateProvenance } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
   SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
 } from '../../../../self-hosting/control/integration/platform-policy.ts';
 import { createMainHealthLedger, resolveOrdinaryMainHealthLane, type MainHealthLedgerInput } from '../../../../self-hosting/control/main-health/contract.ts';
-import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
+import { createObservedMainHealthInput, createTrustedRuntimeNativeMainHealthInvocation, TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
 import { createScopeAuthorization, createScopeAuthorizationRevision, type ScopeAuthorizationInput } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
@@ -42,8 +44,14 @@ import {
 } from '../contract/plan.ts';
 import {
   CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA,
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
-  type VerificationSessionLocalPreparationRequest
+  createVerificationSessionLocalPreparationRequestV2,
+  parseLocalPreparationRequestJson,
+  parseVerificationSessionLocalPreparationRequestV2,
+  type VerificationSessionLocalPreparation,
+  type VerificationSessionLocalPreparationRequest,
+  type VerificationSessionLocalPreparationRequestV2
 } from "../contract/session-request.ts";
 import { assertGitHubReviewAuthorityObservation, type VerificationSessionGitHubClient } from './verification-session-github.ts';
 import {
@@ -957,6 +965,64 @@ export function createVerificationSessionHostedRequest(input: {
   return Object.freeze({ ...semanticRequest, requestOperationId });
 }
 
+/** Read-only planning freezes source and qualification requirements, never a
+ * health verdict or a Session that has not been qualified. Dynamic physical
+ * availability is deliberately absent from this source-bound input. */
+export function prepareLocalVerificationIntent(input: Pick<Parameters<
+  typeof prepareTrustedMainVerificationSession
+>[0], 'repository' | 'candidate' | 'manifestPath' | 'manifestDigest' | 'changedPaths'
+  | 'testImpactTransition' | 'profile'
+  | 'producerPrincipalNodeId' | 'dependencyBlobs' | 'sourceProgramTransition'>
+  & Readonly<{ testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider | null }>
+): VerificationSessionLocalPreparationRequestV2 {
+  const candidate = input.candidate;
+  const transition = bindVerificationSessionTestImpactTransition({
+    baseSha: candidate.baseSha, headSha: candidate.headSha,
+    changedPaths: input.changedPaths, transition: input.testImpactTransition });
+  const plan = CodexDevelopmentBuildVerificationPlan(input.profile, input.changedPaths,
+    input.testImpactSourceProvider, transition.observation, input.sourceProgramTransition);
+  if (!plan.selectionResolved) throw new Error('local preparation verification requirements are unresolved.');
+  const profile = SEC_LINUX_VERIFICATION_NATIVE_PROFILE;
+  const sourceProgramBindingDigest = verificationSessionDataDigest(input.sourceProgramTransition ?? null);
+  return createVerificationSessionLocalPreparationRequestV2({
+    repository: input.repository, prNumber: candidate.number,
+    expectedBaseSha: candidate.baseSha, expectedBaseTreeSha: candidate.baseTreeSha,
+    expectedHeadSha: candidate.headSha, expectedHeadTreeSha: candidate.headTreeSha,
+    manifestPath: input.manifestPath, manifestDigest: input.manifestDigest,
+    profile: input.profile, authorizedPaths: [...input.changedPaths].sort(),
+    actorNodeId: input.producerPrincipalNodeId, sourceProgramBindingDigest,
+    sourceFactsDigest: verificationSessionDataDigest({
+      testImpactTransitionDigest: transition.digest,
+      requiredBlobs: createVerificationSessionActionDependencyRequiredBlobs(input.dependencyBlobs),
+      candidateAuthorNodeId: candidate.authorNodeId,
+      sourceProgramBindingDigest
+    }),
+    verificationPlanDigest: verificationSessionDataDigest({
+      contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
+      gates: plan.gates.map(ciVerificationGateStep)
+    }),
+    qualificationRequirements: {
+      trustedRevision: candidate.baseSha,
+      producerIdentity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
+      producerRuntimeIdentity: 'src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts',
+      nativeProfileDigest: SEC_LINUX_VERIFICATION_NATIVE_PROFILE_DIGEST,
+      nativeContentManifestDigest: profile.acceptedContent.status === 'accepted'
+        ? profile.acceptedContent.manifestDigest : null,
+      mainHealthMethodDigest: verificationSessionDataDigest({
+        schema: 'sec-local-main-health-requirements-v1',
+        contractDigest: LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST,
+        invocations: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map(createTrustedRuntimeNativeMainHealthInvocation)
+      }),
+      mainHealthPolicyDigest: CI_MAIN_HEALTH_POLICY_DIGEST,
+      verificationContractRevision: CI_VERIFICATION_CONTRACT_REVISION,
+      reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
+      evidenceRequirementDigest: SEC_EVIDENCE_REQUIREMENT_DIGEST,
+      integrationPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
+    },
+    purpose: 'verification-only'
+  });
+}
+
 export function createVerificationSessionLocalPreparationRequest(
   request: VerificationSessionHostedRequest<typeof import("../contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>
 ): VerificationSessionLocalPreparationRequest {
@@ -971,12 +1037,15 @@ export function createVerificationSessionLocalPreparationRequest(
 /** Decode once at the local entry; the saved input grants no execution authority. */
 export function parseVerificationSessionLocalPreparationRequest(
   source: string
-): VerificationSessionLocalPreparationRequest {
-  const value: unknown = JSON.parse(source);
+): VerificationSessionLocalPreparation {
+  const value: unknown = parseLocalPreparationRequestJson(source);
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Local preparation request must be an object.');
   }
   const record = value as Record<string, unknown>;
+  if (record.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA) {
+    return parseVerificationSessionLocalPreparationRequestV2(source);
+  }
   if (Object.keys(record).sort().join(',') !== 'authorityStage,executionPlacement,request,schema'
       || record.schema !== CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
       || record.executionPlacement !== 'local' || record.authorityStage !== 'preparation-only') {
@@ -994,6 +1063,9 @@ export function assertVerificationSessionLocalPreparationCurrent(
   current: VerificationSessionHostedRequest<typeof import("../contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>
 ): void {
   const parsed = parseVerificationSessionLocalPreparationRequest(JSON.stringify(saved));
+  if (parsed.schema !== CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA) {
+    throw new Error('V2 local preparation must obtain live qualification before binding a Session.');
+  }
   const prepared = parseVerificationSessionHostedRequest(JSON.stringify(current));
   if (encodeVerificationActionData(parsed.request) !== encodeVerificationActionData(prepared)) {
     throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
