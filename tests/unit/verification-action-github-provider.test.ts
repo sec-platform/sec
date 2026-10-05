@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 import { HOSTED_SESSION_WAKE_KEY_SCHEMA } from '../../src/execution/verification/hosted.ts';
 
-import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
+import { HOSTED_RESUME_DISPATCH_EVENT, HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../src/adapters/providers/github-api/contract/hosted-resume-dispatch.ts';
 import type { AuthenticatedGitHubJobOrigin, AuthenticatedGitHubJobOriginObservation } from '../../src/adapters/providers/github-api/hosted-job-origin.ts';
 import { SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
@@ -15,8 +15,9 @@ import { encodeVerificationActionData } from '../../src/adapters/verification/pl
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionProviderEnvelope } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, finalizeVerificationSessionResumeArtifact, parseHostedSessionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
-import { CI_VERIFICATION_SESSION_DISPATCH_TYPE, hostedSessionArtifactName } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_DISPATCH_TYPE, HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE, hostedResumeDispatchOutcomesArtifactName, hostedSessionArtifactName } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
+import { createHostedResumeDispatchOutcome, createHostedResumeDispatchOutcomeCollection, parseHostedResumeDispatchOutcomeCollection } from '../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
 import { ciActionDigest, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentResolveHostedAction, parseHostedEnvelope } from '../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
@@ -833,6 +834,36 @@ function delegatedSessionFixture() {
   fakeGh = target;
   return { artifact: selector, artifactText, artifactId: String(DELEGATED_ARTIFACT_ID), origin,
     job, artifactName, hosted, actionPlanClosure, providerEnvelope };
+}
+
+
+const OUTCOME_ARTIFACT_ID = 7006;
+function outcomeHistoryFixture() {
+  const delegated = delegatedSessionFixture();
+  const signal = delegated.artifact.sourceCause.signal;
+  const sessionRevision = delegated.artifact.session.sessionRevision;
+  const actionKey = delegated.providerEnvelope.proposal.proposedActionKey;
+  const receiver = { repository: REPOSITORY, workflowPath: '.github/workflows/compiler-pr-validation.yml' as const,
+    workflowSha: BASE, runId: DELEGATED_RUN_ID, runAttempt: 1, jobId: String(delegated.job.id) };
+  const outcome = createHostedResumeDispatchOutcome({ signal, sessionRevision, actionKey, receiver,
+    outcome: { disposition: 'unknown', publicationState: 'entered-unknown', reason: 'No settled dispatch result' },
+    recordedAt: '2026-08-09T01:01:02.000Z' });
+  const collection = createHostedResumeDispatchOutcomeCollection({ signal, sessionRevision, receiver,
+    expectedActionKeys: [actionKey], entries: [{ actionKey, recording: 'unrecorded', outcome }] });
+  const source = `${JSON.stringify(collection)}\n`;
+  const artifact: ArtifactFixture = { id: OUTCOME_ARTIFACT_ID,
+    name: hostedResumeDispatchOutcomesArtifactName(DELEGATED_RUN_ID, 1), expired: false,
+    runId: Number(DELEGATED_RUN_ID), fileName: HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE, source };
+  fakeGh.artifacts.push(artifact);
+  fakeGh.artifactMetadataOverrides[String(OUTCOME_ARTIFACT_ID)] = {
+    created_at: '2026-08-09T01:01:03Z', updated_at: '2026-08-09T01:01:05Z' };
+  fakeGh.exactRunOverrides[`${CURRENT_RUN_ID}:1`] = { head_branch: 'main', actor: botRecord, triggering_actor: botRecord };
+  writeFileSync(EVENT_PATH, JSON.stringify({ action: HOSTED_RESUME_DISPATCH_EVENT, client_payload: { payload: signal },
+    sender: botRecord, repository: { id: REPOSITORY_ID, full_name: REPOSITORY } }));
+  return { ...delegated, signal, sessionRevision, actionKey, collection, source, artifact,
+    input: { origin: delegated.origin, signal,
+      authority: { envelope: delegated.providerEnvelope, actionPlanClosure: delegated.actionPlanClosure },
+      sessionRevision, actionKeys: [actionKey] } };
 }
 
 let fakeGh = new FakeGh();
@@ -1955,6 +1986,176 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       provider.closeHistoricalHostedSessionTerminalSource(value);
       expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
     }
+  }, 30_000);
+
+
+  test('outcome history preserves original query identities and observes success or failure without granting dispatch', async () => {
+    for (const phaseConclusion of ['success', 'failure']) {
+      const value = outcomeHistoryFixture();
+      (value.job.steps as Record<string, unknown>[])[0]!.conclusion = phaseConclusion;
+      value.job.conclusion = phaseConclusion;
+      fakeGh.exactRunOverrides[`${DELEGATED_RUN_ID}:1`]!.conclusion = phaseConclusion;
+      expect(Object.hasOwn(value.job, 'run_attempt')).toBe(false);
+      if (phaseConclusion === 'success') value.job.run_attempt = 1;
+      const observed = await provider.observeHostedResumeDispatchOutcomeHistory(value.input);
+      expect(observed.disposition).toBe('observed');
+      expect(observed.use).toBe('observer-only');
+      expect(observed.observations).toHaveLength(1);
+      expect(observed.observations[0]!.collection).toEqual(value.collection);
+      expect(observed.observations[0]!.collection.sessionRevision).toBe(value.input.sessionRevision);
+      expect(observed.observations[0]!.collection.expectedActionKeys).toEqual(value.input.actionKeys);
+      expect(observed.observations[0]!.collection.entries[0]!.outcome?.outcome.publicationState).toBe('entered-unknown');
+      expect(observed.observations[0]!.archiveDigest).toBe(archiveDigestFor(HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE, value.source));
+      expect(parseHostedResumeDispatchOutcomeCollection(value.source, [value.actionKey])).toEqual(value.collection);
+      expect(fakeGh.downloadedArtifactIds).toContain(OUTCOME_ARTIFACT_ID);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('missing or expired outcome history cannot establish first or retry dispatch permission', async () => {
+    for (const mode of ['absent', 'expired', 'duplicate']) {
+      const value = outcomeHistoryFixture();
+      const index = fakeGh.artifacts.findIndex(entry => entry.id === OUTCOME_ARTIFACT_ID);
+      if (mode === 'absent') fakeGh.artifacts.splice(index, 1);
+      if (mode === 'expired') fakeGh.artifacts[index] = { ...value.artifact, expired: true };
+      if (mode === 'duplicate') fakeGh.artifacts.push({ ...value.artifact, id: 7016 });
+      const observed = await provider.observeHostedResumeDispatchOutcomeHistory(value.input);
+      expect(observed.disposition).toBe('unavailable');
+      expect(observed.use).toBe('observer-only');
+      expect(observed.observations).toEqual([]);
+      expect(observed.reason).toMatch(/(?:absence is not non-entry|missing bytes do not prove non-entry)/);
+      expect(fakeGh.downloadedArtifactIds).not.toContain(OUTCOME_ARTIFACT_ID);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  for (const field of ['sessionRevision', 'actionKeys'] as const) {
+    test(`outcome history validates ${field} without hashing supplied digest strings`, async () => {
+      for (const malformed of [true, false]) {
+        const value = outcomeHistoryFixture();
+        const wrong = malformed ? 'sha256:invalid' as const : digest('0');
+        const input = { ...value.input, ...(field === 'sessionRevision' ? { sessionRevision: wrong } : { actionKeys: [wrong] }) };
+        if (malformed) {
+          await expect(provider.observeHostedResumeDispatchOutcomeHistory(input)).rejects.toThrow('Digest does not match');
+          expect(fakeGh.downloadedArtifactIds).toEqual([]);
+        } else {
+          const observed = await provider.observeHostedResumeDispatchOutcomeHistory(input);
+          expect(observed.disposition).toBe('unavailable');
+          expect(observed.use).toBe('observer-only');
+          expect(observed.reason).toContain('query differs from its native original Session or parent members');
+          expect(fakeGh.downloadedArtifactIds).not.toContain(OUTCOME_ARTIFACT_ID);
+        }
+        expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+      }
+    }, 30_000);
+  }
+
+  test('outcome history rejects malformed, foreign or duplicate declared membership through the original parser', async () => {
+    for (const mode of ['malformed-key', 'foreign-key', 'duplicate-key', 'incomplete', 'digest', 'member', 'foreign-session', 'foreign-signal'] as const) {
+      const value = outcomeHistoryFixture();
+      const raw = JSON.parse(value.source);
+      if (mode === 'malformed-key') raw.expectedActionKeys = ['sha256:invalid'];
+      if (mode === 'foreign-key') raw.expectedActionKeys = [digest('0')];
+      if (mode === 'duplicate-key') raw.expectedActionKeys = [value.actionKey, value.actionKey];
+      if (mode === 'incomplete') raw.entries = [];
+      if (mode === 'member') raw.entries[0].actionKey = digest('0');
+      if (mode === 'foreign-session') raw.sessionRevision = digest('0');
+      if (mode === 'foreign-signal') {
+        raw.signal.emitter.jobId = '6399';
+        const { signalDigest: _oldSignal, ...signalBody } = raw.signal;
+        raw.signal.signalDigest = ciActionDigest(signalBody);
+      }
+      const { collectionDigest: _old, ...body } = raw;
+      raw.collectionDigest = mode === 'digest' ? digest('0') : ciActionDigest(body);
+      const index = fakeGh.artifacts.findIndex(entry => entry.id === OUTCOME_ARTIFACT_ID);
+      fakeGh.artifacts[index] = { ...value.artifact, source: `${JSON.stringify(raw)}\n` };
+      const observed = await provider.observeHostedResumeDispatchOutcomeHistory(value.input);
+      expect(observed.disposition).toBe('unavailable');
+      expect(observed.use).toBe('observer-only');
+      expect(observed.observations).toEqual([]);
+      expect(fakeGh.downloadedArtifactIds).toContain(OUTCOME_ARTIFACT_ID);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+    const value = outcomeHistoryFixture();
+    await expect(provider.observeHostedResumeDispatchOutcomeHistory({ ...value.input,
+      actionKeys: [value.actionKey, value.actionKey] })).rejects.toThrow('membership repeats');
+    expect(fakeGh.downloadedArtifactIds).toEqual([]);
+    expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+  }, 30_000);
+
+  test('outcome carrier requires its exact ended receiver, source-owned slot and actual upload interval', async () => {
+    const forgeries: Array<(value: ReturnType<typeof outcomeHistoryFixture>) => void> = [
+      value => { value.job.id = 6401; }, value => { value.job.run_id = 9401; },
+      value => { value.job.run_attempt = null; }, value => { value.job.run_attempt = 2; },
+      value => { value.job.run_attempt = '1'; }, value => { value.job.head_sha = HEAD; },
+      value => { value.job.name = 'coordinate-verification-session'; },
+      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job }); },
+      value => { fakeGh.actionJobsByAttempt[`${DELEGATED_RUN_ID}:1`]!.push({ ...value.job, id: 6401 }); },
+      _value => { fakeGh.jobPageHook = (_page, _call, runId) => runId === DELEGATED_RUN_ID ? { totalCount: 2 } : null; },
+      value => { value.job.status = 'in_progress'; value.job.conclusion = null; value.job.completed_at = null; },
+      value => { value.job.started_at = undefined; }, value => { value.job.completed_at = '2026-08-09T01:01:04Z'; },
+      value => { value.job.steps = []; },
+      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[0]!, number: 8 }); },
+      value => { (value.job.steps as Record<string, unknown>[])[0]!.conclusion = 'cancelled'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.conclusion = 'failure'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.name = 'Upload resumed terminal Verification Session artifact'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.number = 4; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.started_at = null; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.started_at = '2026-08-09T01:01:00Z'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.completed_at = '2026-08-09T01:01:02Z'; },
+      value => { const upload = (value.job.steps as Record<string, unknown>[])[1]!;
+        upload.started_at = '2026-08-10T01:01:03Z'; upload.completed_at = '2026-08-10T01:01:05Z';
+        value.job.completed_at = '2026-08-10T01:01:12Z';
+        fakeGh.artifactMetadataOverrides[String(OUTCOME_ARTIFACT_ID)] = { created_at: upload.started_at, updated_at: upload.completed_at }; },
+      ...[{ created_at: undefined }, { updated_at: 'invalid' }, { created_at: '2026-08-09T01:01:02Z' },
+        { updated_at: '2026-08-09T01:01:06Z' }, { updated_at: '2026-08-09T01:01:02Z' },
+        { workflow_run: { id: Number(DELEGATED_RUN_ID), head_sha: HEAD } }].map(patch =>
+        (_value: ReturnType<typeof outcomeHistoryFixture>) => {
+          Object.assign(fakeGh.artifactMetadataOverrides[String(OUTCOME_ARTIFACT_ID)]!, patch);
+        }),
+      _value => { fakeGh.workflowSourceHook = () => fakeGh.downloadedArtifactIds.includes(OUTCOME_ARTIFACT_ID)
+        ? `${CANONICAL_WORKFLOW_SOURCE}\n  extra-outcome-writer:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo unexpected\n` : null; }
+    ];
+    for (const forge of forgeries) {
+      const value = outcomeHistoryFixture();
+      forge(value);
+      const observed = await provider.observeHostedResumeDispatchOutcomeHistory(value.input);
+      expect(observed.disposition).toBe('unavailable');
+      expect(observed.use).toBe('observer-only');
+      expect(observed.observations).toEqual([]);
+      expect(fakeGh.artifacts.find(entry => entry.id === OUTCOME_ARTIFACT_ID)!.source).toBe(value.source);
+      expect(fakeGh.downloadedArtifactIds).toContain(OUTCOME_ARTIFACT_ID);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('outcome observer retains exact sole archive bytes and provider digest checks', async () => {
+    for (const mode of ['extra', 'missing', 'digest']) {
+      const value = outcomeHistoryFixture();
+      const index = fakeGh.artifacts.findIndex(entry => entry.id === OUTCOME_ARTIFACT_ID);
+      if (mode === 'extra') fakeGh.artifacts[index] = { ...value.artifact,
+        members: { [HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE]: value.source, 'extra.json': '{}\n' } };
+      if (mode === 'missing') fakeGh.artifacts[index] = { ...value.artifact, members: { 'other.json': value.source } };
+      if (mode === 'digest') Object.assign(fakeGh.artifactMetadataOverrides[String(OUTCOME_ARTIFACT_ID)]!, { digest: digest('0') });
+      const observed = await provider.observeHostedResumeDispatchOutcomeHistory(value.input);
+      expect(observed.disposition).toBe('unavailable');
+      expect(observed.use).toBe('observer-only');
+      expect(observed.observations).toEqual([]);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('outcome observations retain unavailable state if final complete inventory changes', async () => {
+    const value = outcomeHistoryFixture();
+    fakeGh.artifactPageHook = () => fakeGh.downloadedArtifactIds.includes(OUTCOME_ARTIFACT_ID)
+      ? { artifacts: [...fakeGh.artifacts, { id: 7099, name: 'unrelated-later-artifact', expired: false,
+        runId: Number(CURRENT_RUN_ID), fileName: 'unrelated.json', source: '{}\n' }] } : null;
+    const observed = await provider.observeHostedResumeDispatchOutcomeHistory(value.input);
+    expect(observed.disposition).toBe('unavailable');
+    expect(observed.use).toBe('observer-only');
+    expect(observed.reason).toContain('complete inventory changed');
+    expect(observed.observations).toHaveLength(1);
+    expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
   }, 30_000);
 
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {

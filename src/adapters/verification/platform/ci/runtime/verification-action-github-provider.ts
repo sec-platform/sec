@@ -8,7 +8,7 @@ import type { HostedResumeSignal } from '../../../../../execution/verification/h
 
 import { readVerificationDataRecord, snapshotVerificationData } from '../../../../../assurance/verification/contract/data.ts';
 import type { HostedSourceArtifactProjection } from '../../../../providers/github-api/contract/hosted-artifact-projections.ts';
-import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy, type CiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, type CiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import { HOSTED_RESUME_DISPATCH_EVENT, HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
 import {
   assertAuthenticatedGitHubJobOriginCurrent,
@@ -926,10 +926,10 @@ async function readVerificationActionArtifactObservation<TPayload>(
 }
 
 /** Metadata identifies a run, not its writer job. Only these original closed
- * slots may supply Action or delegated Session data; returned facts create no live authority. */
+ * slots may supply Action, Session or outcome data; returned facts create no live authority. */
 async function assertVerificationActionArtifactPublisher(transport: VerificationActionGitHubProviderReadFacts,
   input: Readonly<{ origin: VerificationActionProviderOrigin; metadata: Record<string, unknown>; fileName: string }>
-): Promise<Readonly<{ jobId: string; status: string; conclusion: string | null }>> {
+): Promise<Readonly<{ jobId: string; status: string; conclusion: unknown }>> {
   const selected = input.fileName === VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE
     ? { jobId: 'claim-verification-action', slot: 'start' }
     : input.fileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE
@@ -939,8 +939,13 @@ async function assertVerificationActionArtifactPublisher(transport: Verification
         : input.fileName === 'hosted-action-resolution.json'
           ? { jobId: 'resolve-verification-action', slot: 'resolution' }
           : input.fileName === 'verification-session-artifact.json'
-            ? { jobId: 'receive-verification-session-resume', slot: 'session' } : null;
+            ? { jobId: 'receive-verification-session-resume', slot: 'session' }
+            : input.fileName === HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE
+              ? { jobId: 'receive-verification-session-resume', slot: 'resume-outcomes' } : null;
   if (selected === null) fail('Action artifact has no closed publisher slot.');
+  // Outcome observations retain their original ended success-or-failure phase
+  // policy. Their job conclusion does not issue an Effect or retry permission.
+  const outcomeCarrier = selected.slot === 'resume-outcomes';
   const { origin } = input;
   if (record(input.metadata.workflow_run, 'Action artifact run').head_sha !== origin.workflowSha) {
     fail('Action artifact metadata source differs from its immutable producing attempt.');
@@ -967,7 +972,8 @@ async function assertVerificationActionArtifactPublisher(transport: Verification
   if (steps.some(step => !Number.isSafeInteger(step.number) || Number(step.number) < 1 || Number(step.number) > 100)
       || new Set(steps.map(step => step.number)).size !== steps.length
       || producer.length !== 1 || upload.length !== 1
-      || producer[0]!.status !== 'completed' || producer[0]!.conclusion !== 'success'
+      || producer[0]!.status !== 'completed'
+      || (producer[0]!.conclusion !== 'success' && !(outcomeCarrier && producer[0]!.conclusion === 'failure'))
       || upload[0]!.status !== 'completed' || upload[0]!.conclusion !== 'success'
       || Number(producer[0]!.number) >= Number(upload[0]!.number)) {
     fail('Action artifact producer/upload steps are absent, ambiguous, unsuccessful or unordered.');
@@ -986,14 +992,14 @@ async function assertVerificationActionArtifactPublisher(transport: Verification
   // upload needed for start/terminal/anchor recovery. Only that upload must fit
   // the original job budget; subsequent job settlement may occur later.
   if (job.status === 'completed') {
-    if (!['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral'].includes(String(job.conclusion))
+    if ((!outcomeCarrier && !['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral'].includes(String(job.conclusion)))
         || time(job.completed_at) < uploadCompleted) {
       fail('Action artifact publisher completion contradicts its successful upload.');
     }
   } else if (job.conclusion !== null || job.completed_at !== null) {
     fail('Action artifact active publisher already has terminal facts.');
   }
-  return Object.freeze({ jobId: String(job.id), status: String(job.status), conclusion: job.conclusion as string | null });
+  return Object.freeze({ jobId: String(job.id), status: String(job.status), conclusion: job.conclusion });
 }
 
 type VerificationActionGitHubProviderResolution = Readonly<{
@@ -2109,17 +2115,20 @@ function parseResumeDispatchHistoryCollection(source: string,
   parentPlan: Awaited<ReturnType<typeof authenticateReferencedParentAuthority>>['parentPlan']) {
   if (Buffer.byteLength(source, 'utf8') > 10 * 1024 * 1024) fail('resume outcome history exceeds the original archive member bound.');
   const declaration = readVerificationDataRecord(JSON.parse(source) as unknown, 'historical resume outcome declaration');
-  if (!Array.isArray(declaration.expectedActionKeys)) fail('historical resume outcome planned membership is absent.');
+  if (!Array.isArray(declaration.expectedActionKeys) || declaration.expectedActionKeys.length > 256) {
+    fail('historical resume outcome planned membership is absent or unbounded.');
+  }
+  const expectedActionKeys = declaration.expectedActionKeys.map(key => parseDigest(key, 'sha256'));
   const parentKeys = parentPlan.proposals.map(proposal => proposal.proposedActionKey);
   let previousIndex = -1;
-  for (const key of declaration.expectedActionKeys) {
-    const index = parentKeys.indexOf(digest(key));
+  for (const key of expectedActionKeys) {
+    const index = parentKeys.indexOf(key);
     if (index <= previousIndex) fail('historical resume planned membership is not an ordered subset of its native parent.');
     previousIndex = index;
   }
   // Declaration bytes navigate the historical plan; the unique finite parser
   // and independently authenticated original parent establish its exact census.
-  return parseHostedResumeDispatchOutcomeCollection(source, declaration.expectedActionKeys.map(digest));
+  return parseHostedResumeDispatchOutcomeCollection(source, expectedActionKeys);
 }
 
 /** Historical restrictions only. Absence cannot prove a first or retry POST. */
@@ -2138,9 +2147,9 @@ export async function observeHostedResumeDispatchOutcomeHistory(input: Readonly<
   const authorityData = readVerificationDataRecord(selected.authority, 'Resume history authority data');
   const authority = Object.freeze({ envelope: parseCiVerificationActionProviderEnvelope(authorityData.envelope),
     actionPlanClosure: parseCiVerificationActionPlanClosure(encodeVerificationActionData(authorityData.actionPlanClosure)) });
-  const sessionRevision = digest(selected.sessionRevision);
+  const sessionRevision = parseDigest(selected.sessionRevision, 'sha256');
   if (!Array.isArray(selected.actionKeys) || selected.actionKeys.length > 256) fail('resume history queried Action membership is invalid.');
-  const actionKeys = selected.actionKeys.map(digest);
+  const actionKeys = selected.actionKeys.map(key => parseDigest(key, 'sha256'));
   if (new Set(actionKeys).size !== actionKeys.length) fail('resume history queried Action membership repeats.');
   const authenticatedRepository = assertHostedResumeObservationOrigin(origin);
   const current = assertAuthenticatedGitHubJobOriginCurrent(origin);
@@ -2203,27 +2212,11 @@ export async function observeHostedResumeDispatchOutcomeHistory(input: Readonly<
           identityRecord(run.actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'historical outcome receiver actor');
           identityRecord(run.triggering_actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'historical outcome receiver initiator');
           if (run.status !== 'completed' || run.head_branch !== 'main') fail('historical outcome receiver is not its completed canonical attempt.');
-          const workflow = await scope.facts.getCanonicalHostedWorkflowSource({ repository: authenticatedRepository.repositoryName,
-            revision: producer.workflowSha });
-          assertCiVerificationPerJobHostedWorkflowShape(workflow, 'receive-verification-session-resume');
-          const policy = getCiVerificationPerJobHostedJobPolicy(producer.workflowPath, 'receive-verification-session-resume');
-          const resumeStage = policy?.stages.find(stage => stage.kind === 'phase' && stage.phase === 'receive-verification-session-resume');
-          const uploadStage = policy?.stages.find(stage => stage.kind === 'upload' && stage.slot === 'resume-outcomes');
-          if (policy === null || resumeStage === undefined || resumeStage.kind !== 'phase' ||
-              uploadStage === undefined || uploadStage.kind !== 'upload') fail('historical outcome producer has no canonical stage profile.');
-          const jobs = await readCompleteParentJobs(scope.facts, authenticatedRepository.repositoryName, producer.runId, producer.runAttempt);
-          const receivers = jobs.filter(job => job.name === policy.jobName);
-          const job = receivers.length === 1 ? receivers[0] : undefined;
-          const steps = job !== undefined && Array.isArray(job.steps) ? job.steps.map((step, index) => record(step, `outcome receiver step[${index}]`)) : [];
-          const resumes = steps.filter(step => step.name === resumeStage.stepName);
-          const uploads = steps.filter(step => step.name === uploadStage.stepName);
-          if (job === undefined || String(job.id) !== producer.jobId || job.run_id !== Number(producer.runId) ||
-              job.run_attempt !== producer.runAttempt || job.head_sha !== producer.workflowSha || job.status !== 'completed' ||
-              resumes.length !== 1 || uploads.length !== 1 || resumes[0]!.status !== 'completed' ||
-              !['success', 'failure'].includes(String(resumes[0]!.conclusion)) || uploads[0]!.status !== 'completed' ||
-              uploads[0]!.conclusion !== 'success' || !Number.isSafeInteger(resumes[0]!.number) ||
-              !Number.isSafeInteger(uploads[0]!.number) || Number(resumes[0]!.number) >= Number(uploads[0]!.number)) {
-            fail('historical outcome lacks its exact ended receiver phase and successful ordered upload.');
+          const publisher = await assertVerificationActionArtifactPublisher(scope.facts, {
+            origin: producerOrigin, metadata, fileName: HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE
+          });
+          if (publisher.jobId !== producer.jobId || publisher.status !== 'completed') {
+            fail('historical outcome lacks its exact completed receiver publisher.');
           }
           const archiveDigest = `sha256:${createHash('sha256').update(download.archiveBytes).digest('hex')}` as VerificationActionKeyDigest;
           if (metadata.digest !== undefined && metadata.digest !== null && metadata.digest !== archiveDigest) fail('historical outcome provider archive digest differs.');

@@ -513,6 +513,21 @@ test('TCB closure lock binds the reviewed causal module set', () => {
     .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
 });
 
+test('TCB runtime receipt schema permits its exact reviewed parser edge only', () => {
+  const repositoryPath = 'src/adapters/verification/platform/ci/contract/hosted-job-runtime.ts';
+  const source = "import { z } from 'zod'; export const schema = z.object({ value: z.string() }).strict();";
+  const reviewedExternalImports = new Set<string>();
+  const observedExternalImports = new Set<string>();
+  expect(runtimeRelativeImportsFromSource(
+    repositoryPath, source, new Set(), reviewedExternalImports, observedExternalImports
+  )).toEqual([]);
+  expect([...reviewedExternalImports]).toEqual([`${repositoryPath} -> zod`]);
+  expect([...observedExternalImports]).toEqual(['zod']);
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-unreviewed-receipt-parser.ts', source
+  )).toThrow('TCB runtime import is outside the approved relative/external policy');
+});
+
 test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_CLOSURE_LOCK.modules).toContain(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
