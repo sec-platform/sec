@@ -21,7 +21,7 @@ import {
   ExternalCommandTimeoutMs,
   isDocumentControlHostCliTestSession,
   observeGitHubControlFacts,
-  observeLiveDefaultSha,
+  observeLiveDefaultRef,
   optionalCommandSha,
   type ReadOnlyResolverGit,
   type ReadOnlyResolverGitObserver,
@@ -81,6 +81,7 @@ async function resolveActivationBlockedStatus(input: {
   journal: FreezeJournal | null;
   reason: 'activation-in-progress' | 'document-control-authoring-in-progress' | 'activation-observation-raced';
   terminal?: boolean;
+  liveDefaultFailure?: string;
 }): Promise<Record<string, unknown>> {
   const stateSource = await readFile(path.join(input.repositoryRoot, CurrentStatePath), 'utf8');
   const spec = CodexDevelopmentParseCurrentStateSpec(stateSource);
@@ -89,13 +90,14 @@ async function resolveActivationBlockedStatus(input: {
     input.repositoryRoot
   );
   const localDefaultSha = localDefaultShaResult.code === 0 ? localDefaultShaResult.stdout.trim() : undefined;
-  const liveDefaultSha = await observeLiveDefaultSha({
+  const liveDefaultRef = await observeLiveDefaultRef({
     repositoryRoot: input.repositoryRoot,
     repository: spec.resolver.repository,
     remote: spec.resolver.remote,
     defaultBranch: spec.resolver.defaultBranch,
     resolverGit: input.resolverGit
   });
+  const liveDefaultSha = liveDefaultRef.status === 'observed' ? liveDefaultRef.sha : undefined;
   const defaultRefState: CodexDevelopmentDefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
     ? 'unavailable'
     : localDefaultSha === liveDefaultSha ? 'fresh' : 'stale';
@@ -123,8 +125,10 @@ async function resolveActivationBlockedStatus(input: {
       defaultBranch: spec.resolver.defaultBranch,
       localDefaultSha,
       liveDefaultSha,
+      ...(liveDefaultRef.status === 'unresolved' ? { liveDefaultFailure: liveDefaultRef.reason } : {}),
       defaultRefState,
-      tree: undefined
+      tree: undefined,
+      ...(input.liveDefaultFailure === undefined ? {} : { liveDefaultFailure: input.liveDefaultFailure })
     },
     workspace: {
       headSha,
@@ -284,6 +288,9 @@ function issueActiveWorkObservation(
     manifest = strictNonEmptyString(active.manifest, 'Resolved active Work Package manifest');
   } else {
     reason = strictNonEmptyString(active.reason, 'Resolved active Work Package reason');
+    if (typeof repository.liveDefaultFailure === 'string' && repository.liveDefaultFailure.length > 0) {
+      reason += `: ${repository.liveDefaultFailure}`;
+    }
     if (state === 'none' && (repository.defaultRefState !== 'fresh' || defaultSha === null)) {
       throw new Error('No-active-work observation requires one fresh exact default ref.');
     }
@@ -380,13 +387,14 @@ async function resolveLiveControlPlaneWithGitReadSession(
     repositoryRoot
   );
   const localDefaultSha = optionalCommandSha(localDefaultShaResult, 'Local default ref');
-  const liveDefaultSha = await observeLiveDefaultSha({
+  const liveDefaultRef = await observeLiveDefaultRef({
     repositoryRoot,
     repository: spec.resolver.repository,
     remote: spec.resolver.remote,
     defaultBranch: spec.resolver.defaultBranch,
     resolverGit
   });
+  const liveDefaultSha = liveDefaultRef.status === 'observed' ? liveDefaultRef.sha : undefined;
   const defaultRefState: CodexDevelopmentDefaultRefState = (
     localDefaultSha === undefined || liveDefaultSha === undefined
       ? 'unavailable'
@@ -484,13 +492,14 @@ async function resolveLiveControlPlaneWithGitReadSession(
   );
   const headShaReadback = optionalCommandSha(headReadbackResult, 'Candidate HEAD readback');
   const localDefaultShaReadback = optionalCommandSha(localDefaultReadbackResult, 'Local default ref readback');
-  const liveDefaultShaReadback = await observeLiveDefaultSha({
+  const liveDefaultRefReadback = await observeLiveDefaultRef({
     repositoryRoot,
     repository: spec.resolver.repository,
     remote: spec.resolver.remote,
     defaultBranch: spec.resolver.defaultBranch,
     resolverGit
   });
+  const liveDefaultShaReadback = liveDefaultRefReadback.status === 'observed' ? liveDefaultRefReadback.sha : undefined;
   // The journal is the seqlock: document-control authoring publishes it before any index/worktree
   // effect, so this read must be the final volatile observation in the fence.
   const activationJournalReadbackSnapshot = await readFreezeJournalSnapshot(
@@ -526,7 +535,9 @@ async function resolveLiveControlPlaneWithGitReadSession(
       repositoryRoot,
       resolverGit,
       journal: activationJournalReadback,
-      reason: 'activation-observation-raced'
+      reason: 'activation-observation-raced',
+      ...(liveDefaultRef.status === 'unresolved' ? { liveDefaultFailure: liveDefaultRef.reason }
+        : liveDefaultRefReadback.status === 'unresolved' ? { liveDefaultFailure: liveDefaultRefReadback.reason } : {})
     });
   }
 
@@ -539,6 +550,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
       defaultBranch: spec.resolver.defaultBranch,
       localDefaultSha,
       liveDefaultSha,
+      ...(liveDefaultRef.status === 'unresolved' ? { liveDefaultFailure: liveDefaultRef.reason } : {}),
       defaultRefState,
       tree: mainTree
     },

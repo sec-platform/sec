@@ -7,6 +7,7 @@ import {
   currentGitHubApiCapability,
   executeGitHubApiOperation,
   GitHubApiProviderError as MainHealthGitHubProviderError,
+  observeGitHubApiMainRef,
   withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
   type GitHubApiCapability
@@ -703,54 +704,27 @@ export async function observeWorkSelectionGitHubBranchRefs(input: Readonly<{
   throw new MainHealthGitHubProviderError('WorkSelection GitHub branch census exceeded 100,000 refs');
 }
 
-/** Reads the live default-branch ref through the already-issued MainHealth
- * GitHub capability. This is intentionally part of the same bound resolver so
- * GH_HOST or an ambient gh CLI host cannot alter the exact-main fence. */
-async function observeMainHealthGitHubDefaultBranchShaBound(input: Readonly<{
-  repository: string;
-  defaultBranch: string;
-  capability: GitHubApiCapability;
-}>): Promise<string> {
-  if (input.defaultBranch !== 'main') {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth default branch is not the canonical main branch'
-    );
-  }
-  const value = await executeGitHubApiOperation(input.capability, {
-    kind: 'git-ref',
-    branch: input.defaultBranch
-  });
-  if (value === null || typeof value !== 'object' || Array.isArray(value)
-      || typeof (value as Record<string, unknown>).object !== 'object'
-      || (value as Record<string, unknown>).object === null
-      || Array.isArray((value as Record<string, unknown>).object)
-      || typeof ((value as Record<string, unknown>).object as Record<string, unknown>).sha
-        !== 'string'
-      || !/^[0-9a-f]{40}$/u.test(
-        ((value as Record<string, unknown>).object as Record<string, unknown>).sha as string
-      )) {
-    throw new MainHealthGitHubProviderError(
-      'MainHealth GitHub default-branch ref response is invalid'
-    );
-  }
-  return ((value as Record<string, unknown>).object as Record<string, unknown>).sha as string;
-}
-
-/** Reads the live default-branch ref through the production read session. */
+/** Observe only the canonical main ref through the original provider's closed read.
+ * A live branch-closeout session is borrowed for this one operation without
+ * opening a second effect session or passing write authority to MainHealth. */
 export async function observeMainHealthGitHubDefaultBranchSha(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   defaultBranch: string;
 }>): Promise<string> {
-  return await withMainHealthGitHubReadSession({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    operation: async () => await observeMainHealthGitHubDefaultBranchShaBound({
-      repository: input.repository,
-      defaultBranch: input.defaultBranch,
-      capability: currentGitHubApiCapability(input.repository, 'read')
-    })
-  });
+  if (input.defaultBranch !== 'main') {
+    throw new MainHealthGitHubProviderError('MainHealth default branch is not the canonical main branch');
+  }
+  const value = await observeGitHubApiMainRef({ repositoryRoot: input.repositoryRoot, repository: input.repository });
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+      || typeof (value as Record<string, unknown>).object !== 'object'
+      || (value as Record<string, unknown>).object === null
+      || Array.isArray((value as Record<string, unknown>).object)
+      || typeof ((value as Record<string, unknown>).object as Record<string, unknown>).sha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(((value as Record<string, unknown>).object as Record<string, unknown>).sha as string)) {
+    throw new MainHealthGitHubProviderError('MainHealth GitHub default-branch ref response is invalid');
+  }
+  return ((value as Record<string, unknown>).object as Record<string, unknown>).sha as string;
 }
 
 function observeHostedProvider(input: Readonly<{
