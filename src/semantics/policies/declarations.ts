@@ -60,7 +60,7 @@ export function buildLoadedPolicyScope(
   const reports: PolicySourceFileReport[] = [];
   const definitions: LoadedPolicyDefinition[] = [];
 
-  for (const source of sources) {
+  for (const source of [...sources].sort((left, right) => compareCodeUnits(left.sourcePath, right.sourcePath))) {
     const policyIds = uniqueSorted(source.spec.policies.map(policy => policy.id));
     for (const policy of source.spec.policies) {
       declaredPolicyIds.add(policy.id);

@@ -352,7 +352,9 @@ test.skipIf(process.platform === 'win32')(
       expect(called).toBe(false);
       expect(diagnostics).toHaveLength(1);
       expect(diagnostics[0]).toContain('strict-zero-write-unproven');
-      expect(diagnostics[0]).toContain('unsupported-platform');
+      // Raw Linux arming has no issued process Effect admission; other enabled hosts lack an observer.
+      const reason = process.platform === 'linux' ? 'arm-failed' : 'unsupported-platform';
+      expect(diagnostics[0]).toContain(`(${reason})`);
       expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
         .toBe('export const committed = true;\n');
     } finally {

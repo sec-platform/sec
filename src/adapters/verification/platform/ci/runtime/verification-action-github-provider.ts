@@ -925,16 +925,18 @@ async function readVerificationActionArtifactObservation<TPayload>(
 }
 
 /** Metadata identifies a run, not its writer job. Only these original closed
- * slots may supply Action data; the returned checks create no live authority. */
+ * slots may supply Action data; the returned job facts create no live authority. */
 async function assertVerificationActionArtifactPublisher(transport: VerificationActionGitHubProviderReadFacts,
   input: Readonly<{ origin: VerificationActionProviderOrigin; metadata: Record<string, unknown>; fileName: string }>
-): Promise<void> {
+): Promise<Readonly<{ jobId: string; status: string; conclusion: string | null }>> {
   const selected = input.fileName === VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE
     ? { jobId: 'claim-verification-action', slot: 'start' }
     : input.fileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE
       ? { jobId: 'assemble-verification-action-terminal', slot: 'terminal' }
       : input.fileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE
-        ? { jobId: 'assemble-verification-action-terminal', slot: 'anchor' } : null;
+        ? { jobId: 'assemble-verification-action-terminal', slot: 'anchor' }
+        : input.fileName === 'hosted-action-resolution.json'
+          ? { jobId: 'resolve-verification-action', slot: 'resolution' } : null;
   if (selected === null) fail('Action artifact has no closed publisher slot.');
   const { origin } = input;
   if (record(input.metadata.workflow_run, 'Action artifact run').head_sha !== origin.workflowSha) {
@@ -988,6 +990,7 @@ async function assertVerificationActionArtifactPublisher(transport: Verification
   } else if (job.conclusion !== null || job.completed_at !== null) {
     fail('Action artifact active publisher already has terminal facts.');
   }
+  return Object.freeze({ jobId: String(job.id), status: String(job.status), conclusion: job.conclusion as string | null });
 }
 
 type VerificationActionGitHubProviderResolution = Readonly<{
@@ -1602,25 +1605,14 @@ async function readHostedActionResolutionTransport(
   if (!canonicalEquals(origin, producingOrigin)) {
     fail('hosted Action resolution producer differs from the completed Action exact attempt.');
   }
-  const jobs = await readCompleteParentJobs(
-    transport, resolution.repository, origin.runId, origin.runAttempt
-  );
-  const producingJobs = jobs.filter((job) => job.name === 'resolve-verification-action');
-  const job = producingJobs.length === 1 ? producingJobs[0] : undefined;
-  const steps = job !== undefined && Array.isArray(job.steps)
-    ? job.steps.map((step, index) => record(step, `resolution producing step[${index}]`)) : [];
-  const buildSteps = steps.filter((step) =>
-    step.name === 'Rebuild trusted Session envelope and exact ActionKey member');
-  const uploadSteps = steps.filter((step) => step.name === 'Upload trusted Action resolution transport');
-  if (job === undefined || !Number.isSafeInteger(job.id) || Number(job.id) < 1 ||
-      String(job.run_id ?? '') !== origin.runId || job.run_attempt !== origin.runAttempt ||
-      job.head_sha !== producingOrigin.workflowSha || job.status !== 'completed' || job.conclusion !== 'success' ||
-      buildSteps.length !== 1 || uploadSteps.length !== 1 ||
-      buildSteps[0]!.status !== 'completed' || buildSteps[0]!.conclusion !== 'success' ||
-      uploadSteps[0]!.status !== 'completed' || uploadSteps[0]!.conclusion !== 'success' ||
-      !Number.isSafeInteger(buildSteps[0]!.number) || !Number.isSafeInteger(uploadSteps[0]!.number) ||
-      Number(buildSteps[0]!.number) >= Number(uploadSteps[0]!.number)) {
-    fail('hosted Action resolution producing job and steps are not the exact successful producer.');
+  const publisher = await assertVerificationActionArtifactPublisher(transport, {
+    origin, metadata, fileName: 'hosted-action-resolution.json'
+  });
+  // Resolution retains its original completed-success requirement. The shared
+  // readback above returns facts about the very same source/job/upload; later
+  // failed-job recovery of start/terminal/anchor does not authorize resolution.
+  if (publisher.status !== 'completed' || publisher.conclusion !== 'success') {
+    fail('hosted Action resolution producing job is not the exact completed successful producer.');
   }
   const download = await transport.downloadArtifact({ repository: resolution.repository, artifactId,
     artifactName, runId: producingOrigin.runId,
@@ -1641,7 +1633,7 @@ async function readHostedActionResolutionTransport(
     artifactId, artifactName, archiveDigest, artifactMetadata: metadata,
     inventoryDigest: inventory.inventoryDigest,
     providerArchiveDigest: typeof metadata.digest === 'string' ? metadata.digest : null,
-    producingOrigin: origin, producingJobId: String(job.id),
+    producingOrigin: origin, producingJobId: publisher.jobId,
     files: Object.freeze({
       'verification-action-provider-envelope.json': download.files[members[0]]!,
       'hosted-action-resolution.json': download.files[members[1]]!,

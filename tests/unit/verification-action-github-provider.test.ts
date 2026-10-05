@@ -11,6 +11,8 @@ import { encodeVerificationActionData } from '../../src/adapters/verification/pl
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionProviderEnvelope } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
+import { ciActionDigest, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentResolveHostedAction, parseHostedEnvelope } from '../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts';
 import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers/verification-action-fixtures.ts';
 
 const REPOSITORY = 'openai/sec';
@@ -29,7 +31,7 @@ const CANONICAL_WORKFLOW_SOURCE = readFileSync(new URL('../../.github/workflows/
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}`;
 
-// Deterministic single-member stored ZIP archives. The provider reads artifact
+// Deterministic finite stored ZIP archives. The provider reads artifact
 // archives through yauzl, so fixtures must be real ZIP bytes whose SHA-256 is
 // the identity declared by the envelope and anchors.
 const CRC32_TABLE = new Uint32Array(256);
@@ -44,49 +46,42 @@ function crc32(bytes: Uint8Array): number {
   return (value ^ 0xffffffff) >>> 0;
 }
 function storedZip(fileName: string, source: string): Buffer {
-  const name = Buffer.from(fileName, 'utf8');
-  const data = Buffer.from(source, 'utf8');
-  const checksum = crc32(data);
-  const local = Buffer.alloc(30);
-  local.writeUInt32LE(0x04034b50, 0);
-  local.writeUInt16LE(20, 4);
-  local.writeUInt16LE(0, 6);
-  local.writeUInt16LE(0, 8);
-  local.writeUInt16LE(0, 10);
-  local.writeUInt16LE(0x21, 12);
-  local.writeUInt32LE(checksum, 14);
-  local.writeUInt32LE(data.byteLength, 18);
-  local.writeUInt32LE(data.byteLength, 22);
-  local.writeUInt16LE(name.byteLength, 26);
-  local.writeUInt16LE(0, 28);
-  const central = Buffer.alloc(46);
-  central.writeUInt32LE(0x02014b50, 0);
-  central.writeUInt16LE(20, 4);
-  central.writeUInt16LE(20, 6);
-  central.writeUInt16LE(0, 8);
-  central.writeUInt16LE(0, 10);
-  central.writeUInt16LE(0, 12);
-  central.writeUInt16LE(0x21, 14);
-  central.writeUInt32LE(checksum, 16);
-  central.writeUInt32LE(data.byteLength, 20);
-  central.writeUInt32LE(data.byteLength, 24);
-  central.writeUInt16LE(name.byteLength, 28);
-  central.writeUInt16LE(0, 30);
-  central.writeUInt16LE(0, 32);
-  central.writeUInt16LE(0, 34);
-  central.writeUInt16LE(0, 36);
-  central.writeUInt32LE(0, 38);
-  central.writeUInt32LE(0, 42);
+  return storedZipMembers({ [fileName]: source });
+}
+function storedZipMembers(files: Readonly<Record<string, string>>): Buffer {
+  const localRecords: Buffer[] = [], centralRecords: Buffer[] = [];
+  let offset = 0;
+  for (const [fileName, source] of Object.entries(files)) {
+    const name = Buffer.from(fileName, 'utf8'), data = Buffer.from(source, 'utf8');
+    const checksum = crc32(data), local = Buffer.alloc(30), central = Buffer.alloc(46);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x21, 12);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(data.byteLength, 18);
+    local.writeUInt32LE(data.byteLength, 22);
+    local.writeUInt16LE(name.byteLength, 26);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x21, 14);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(data.byteLength, 20);
+    central.writeUInt32LE(data.byteLength, 24);
+    central.writeUInt16LE(name.byteLength, 28);
+    central.writeUInt32LE(offset, 42);
+    localRecords.push(local, name, data);
+    centralRecords.push(central, name);
+    offset += local.byteLength + name.byteLength + data.byteLength;
+  }
+  const directory = Buffer.concat(centralRecords);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(0, 4);
-  end.writeUInt16LE(0, 6);
-  end.writeUInt16LE(1, 8);
-  end.writeUInt16LE(1, 10);
-  end.writeUInt32LE(central.byteLength + name.byteLength, 12);
-  end.writeUInt32LE(local.byteLength + name.byteLength + data.byteLength, 16);
-  end.writeUInt16LE(0, 20);
-  return Buffer.concat([local, name, data, central, name, end]);
+  end.writeUInt16LE(Object.keys(files).length, 8);
+  end.writeUInt16LE(Object.keys(files).length, 10);
+  end.writeUInt32LE(directory.byteLength, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localRecords, directory, end]);
 }
 const rawSha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const archiveDigestFor = (fileName: string, source: string): VerificationActionKeyDigest =>
@@ -209,6 +204,8 @@ const coordinateOrigin = createProviderOrigin('coordinate-verification-session',
   'Coordinate canonical verification Session', 3);
 const terminalOrigin = createProviderOrigin('assemble-verification-action-terminal', 'anchor-terminal',
   'Anchor canonical verification Action terminal', 9);
+const resumeOrigin = createProviderOrigin('receive-verification-session-resume', 'receive-verification-session-resume',
+  'Resume original authenticated Verification Session', 5);
 
 function providerOriginObservation(origin: AuthenticatedGitHubJobOrigin): AuthenticatedGitHubJobOriginObservation {
   const record = originRecords.get(origin);
@@ -279,7 +276,12 @@ type ArtifactFixture = Readonly<{
   runId: number;
   fileName: string;
   source: string;
+  members?: Readonly<Record<string, string>>;
 }>;
+
+function fixtureArchive(artifact: ArtifactFixture): Buffer {
+  return artifact.members === undefined ? storedZip(artifact.fileName, artifact.source) : storedZipMembers(artifact.members);
+}
 
 // Provider response data only. The attempt-specific endpoint supplies the
 // omitted run_attempt membership; these fixtures do not issue a live origin.
@@ -298,10 +300,10 @@ function parentJobFixture(): Record<string, unknown> {
 }
 
 function actionJobFixtures(runId: number): Record<string, unknown>[] {
-  const step = (number: number, name: string, start: number, end: number) => ({ number, name,
+  const step = (number: number, name: string, start: number, end: number, clock = '01:00') => ({ number, name,
     status: 'completed', conclusion: 'success',
-    started_at: `2026-08-09T01:00:${String(start).padStart(2, '0')}Z`,
-    completed_at: `2026-08-09T01:00:${String(end).padStart(2, '0')}Z` });
+    started_at: `2026-08-09T${clock}:${String(start).padStart(2, '0')}Z`,
+    completed_at: `2026-08-09T${clock}:${String(end).padStart(2, '0')}Z` });
   const common = { run_id: runId, head_sha: BASE, status: 'completed', conclusion: 'success',
     started_at: '2026-08-09T01:00:00Z', completed_at: '2026-08-09T01:00:12Z' };
   return [
@@ -316,6 +318,11 @@ function actionJobFixtures(runId: number): Record<string, unknown>[] {
       step(10, 'Create exact post-upload terminal anchor', 6, 7),
       step(11, 'Upload exact post-upload terminal anchor', 8, 10),
       step(12, 'Publish neutral terminal provider tombstone', 11, 12)
+    ] },
+    { ...common, id: runId * 100 + 3, name: 'resolve-verification-action',
+      started_at: '2026-08-09T00:59:00Z', completed_at: '2026-08-09T00:59:12Z', steps: [
+      step(5, 'Rebuild trusted Session envelope and exact ActionKey member', 1, 2, '00:59'),
+      step(6, 'Upload trusted Action resolution transport', 3, 5, '00:59')
     ] }
   ];
 }
@@ -433,16 +440,18 @@ class FakeGh {
     if (artifactMetadataMatch !== null) {
       const artifact = this.artifacts.find((entry) => entry.id === Number(artifactMetadataMatch[1]));
       if (artifact === undefined) return this.fail('artifact not found');
-      const archive = storedZip(artifact.fileName, artifact.source);
+      const archive = fixtureArchive(artifact);
       return this.json({
         id: artifact.id,
         name: artifact.name,
         expired: artifact.expired,
         workflow_run: { id: artifact.runId, head_sha: BASE },
         created_at: artifact.fileName === 'verification-action-terminal-status-anchor.json'
-          ? '2026-08-09T01:00:08Z' : '2026-08-09T01:00:03Z',
+          ? '2026-08-09T01:00:08Z' : artifact.fileName === 'hosted-action-resolution.json'
+            ? '2026-08-09T00:59:03Z' : '2026-08-09T01:00:03Z',
         updated_at: artifact.fileName === 'verification-action-terminal-status-anchor.json'
-          ? '2026-08-09T01:00:10Z' : '2026-08-09T01:00:05Z',
+          ? '2026-08-09T01:00:10Z' : artifact.fileName === 'hosted-action-resolution.json'
+            ? '2026-08-09T00:59:05Z' : '2026-08-09T01:00:05Z',
         size_in_bytes: archive.byteLength,
         digest: `sha256:${rawSha256Hex(archive)}`,
         ...this.artifactMetadataOverrides[String(artifact.id)]
@@ -520,7 +529,7 @@ class FakeGh {
   private download(url: URL): Response {
     const artifact = this.artifacts.find((entry) => entry.id === Number(url.pathname.split('/').pop()));
     if (artifact === undefined) return this.fail('artifact download is not available', 404);
-    return new Response(storedZip(artifact.fileName, artifact.source), { status: 200 });
+    return new Response(fixtureArchive(artifact), { status: 200 });
   }
 
   private post(endpoint: string, init?: RequestInit): Response {
@@ -596,6 +605,36 @@ function withTerminalChain(target: FakeGh) {
       source: JSON.stringify(terminalAnchor) }
   );
   return terminalAnchor;
+}
+
+function resolutionMembersFixture() {
+  // These are capture/outer-decoder data. Nested Scope, Review and MainHealth
+  // declarations remain unqualified for their original downstream consumers.
+  const body = {
+    schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
+    requestOperationId: sessionRequest.requestOperationId,
+    scopeAuthorization: { repository: REPOSITORY, authorizationRevision: digest('b'), authorizationDigest: digest('5') },
+    preGateReview: { receiptDigest: digest('a') }, mainHealth: { healthRevision: digest('8'), ledgerDigest: digest('9') },
+    session: { schema: 'codex-development-verification-session-v2', sessionId: 'provider-resolution-data',
+      createdAt: '2026-08-09T01:00:00Z', repository: REPOSITORY, prNumber: sessionRequest.prNumber,
+      baseSha: BASE, baseTreeSha: sessionRequest.expectedBaseTreeSha, headSha: HEAD, headTreeSha: sessionRequest.expectedHeadTreeSha,
+      manifestPath: sessionRequest.manifestPath, manifestDigest: sessionRequest.manifestDigest,
+      sessionProposalDigest: digest('6'), scopeAuthorizationRevision: digest('b'), scopeAuthorizationReceiptDigest: digest('5'),
+      actionPlanClosureDigest: closure.actionPlanDigest, profile: sessionRequest.profile, environmentDigest: digest('b'),
+      trustRevision: BASE, reviewPolicyDigest: sessionRequest.reviewPolicyDigest, evidenceRequirementDigest: digest('d'),
+      integrationPolicyDigest: digest('e'), mainHealthRef: { healthRevision: digest('8'), ledgerReceiptDigest: digest('9') },
+      sessionRevision: SESSION },
+    actionPlanClosure: closure
+  };
+  const hosted = parseHostedEnvelope({ ...body, envelopeDigest: ciActionDigest(body) });
+  const resolution = CodexDevelopmentResolveHostedAction({
+    request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(proposal)), envelope: hosted
+  });
+  return Object.freeze({
+    'verification-action-provider-envelope.json': `${encodeVerificationActionData(envelope)}\n`,
+    'hosted-action-resolution.json': `${encodeVerificationActionData(resolution)}\n`,
+    'hosted-envelope.json': `${encodeVerificationActionData(hosted)}\n`
+  });
 }
 
 let fakeGh = new FakeGh();
@@ -1413,6 +1452,116 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       expect(fakeGh.workflowSourceCalls).toHaveLength(changedRead);
       expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
     }
+  });
+
+  const resolutionFixture = () => {
+    fakeGh = new FakeGh();
+    const anchor = withTerminalChain(fakeGh);
+    const members = resolutionMembersFixture();
+    const artifact: ArtifactFixture = { id: 7004,
+      name: provider.hostedActionResolutionArtifactName(ACTION, CURRENT_RUN_ID, 1), expired: false,
+      runId: Number(CURRENT_RUN_ID), fileName: 'hosted-action-resolution.json',
+      source: members['hosted-action-resolution.json']!, members };
+    fakeGh.artifacts.push(artifact);
+    const jobs = actionJobFixtures(Number(CURRENT_RUN_ID));
+    fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`] = jobs;
+    const job = jobs.find(entry => entry.name === 'resolve-verification-action')!;
+    const completedAction = { providerEnvelope: envelope, runId: CURRENT_RUN_ID, runAttempt: 1,
+      terminalArtifactId: '7002', terminalArtifactName: anchor.terminalArtifactName,
+      terminalArchiveDigest: anchor.terminalArtifactArchiveDigest,
+      terminalPayloadDigest: anchor.terminalArtifactPayloadDigest };
+    trustedEnvironment();
+    return { artifact, job, members, completedAction };
+  };
+
+  test('public resume resolution reader binds one real three-member archive to its original successful resolver', async () => {
+    for (const explicitAttempt of [false, true]) {
+      const value = resolutionFixture();
+      expect(Object.hasOwn(value.job, 'run_attempt')).toBe(false);
+      if (explicitAttempt) value.job.run_attempt = 1;
+      const observed = await provider.readHostedResumeResolutionTransport({ origin: resumeOrigin,
+        completedAction: value.completedAction });
+      expect(observed.files).toEqual(value.members);
+      expect(observed.producingJobId).toBe(String(value.job.id));
+      expect(observed.producingOrigin).toEqual(currentOrigin);
+      expect(observed.archiveDigest).toBe(`sha256:${rawSha256Hex(fixtureArchive(value.artifact))}`);
+      expect(CodexDevelopmentParseHostedActionResolution(observed.files['hosted-action-resolution.json']).actionKeyHex)
+        .toBe(ACTION.slice(7));
+      expect(parseHostedEnvelope(JSON.parse(observed.files['hosted-envelope.json'])).actionPlanClosure.actionPlanDigest)
+        .toBe(closure.actionPlanDigest);
+      expect(fakeGh.downloadedArtifactIds).toEqual([7002, 7004]);
+      expect(fakeGh.jobListCalls.every(call => call.runId === CURRENT_RUN_ID && call.runAttempt === 1)).toBe(true);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  });
+
+  test('resolution keeps completed-success job admission despite later-failure recovery of other Action slots', async () => {
+    for (const patch of [{ status: 'in_progress', conclusion: null, completed_at: null },
+      { conclusion: 'failure' }, { conclusion: 'cancelled' }, { conclusion: 'timed_out' }]) {
+      const value = resolutionFixture();
+      Object.assign(value.job, patch);
+      await expect(provider.readHostedResumeResolutionTransport({ origin: resumeOrigin,
+        completedAction: value.completedAction })).rejects.toThrow('resolution producing job is not the exact completed successful producer');
+      expect(fakeGh.downloadedArtifactIds).not.toContain(7004);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  });
+
+  test('resolution source, exact attempt, unique producer and upload window are mandatory before archive capture', async () => {
+    const forgeries: Array<(value: ReturnType<typeof resolutionFixture>) => void> = [
+      value => { value.job.run_attempt = null; }, value => { value.job.run_attempt = 2; },
+      value => { value.job.run_attempt = '1'; },
+      value => { value.job.head_sha = HEAD; }, value => { value.job.name = 'claim-verification-action'; },
+      value => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...value.job }); },
+      value => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...value.job, id: 9999 }); },
+      value => { value.job.steps = []; },
+      value => { const steps = value.job.steps as Record<string, unknown>[]; steps.push({ ...steps[0]!, number: 8 }); },
+      value => { (value.job.steps as Record<string, unknown>[])[0]!.conclusion = 'failure'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.number = 4; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.conclusion = 'skipped'; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.started_at = null; },
+      value => { (value.job.steps as Record<string, unknown>[])[1]!.completed_at = '2026-08-10T01:00:00Z';
+        value.job.completed_at = '2026-08-10T01:00:01Z';
+        fakeGh.artifactMetadataOverrides['7004'] = { updated_at: '2026-08-10T01:00:00Z' }; },
+      ...[{ created_at: undefined }, { updated_at: undefined }, { created_at: '2026-08-09T00:59:02Z' },
+        { updated_at: '2026-08-09T00:59:06Z' }, { updated_at: '2026-08-09T00:59:02Z' }].map(patch =>
+        (_value: ReturnType<typeof resolutionFixture>) => { fakeGh.artifactMetadataOverrides['7004'] = patch; }),
+      _value => { fakeGh.workflowSourceHook = call => call === 2
+        ? `${CANONICAL_WORKFLOW_SOURCE}\n  extra-resolution-writer:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo unexpected\n` : null; }
+    ];
+    for (const forge of forgeries) {
+      const value = resolutionFixture();
+      const originalBytes = fixtureArchive(value.artifact);
+      forge(value);
+      await expect(provider.readHostedResumeResolutionTransport({ origin: resumeOrigin,
+        completedAction: value.completedAction })).rejects.toThrow();
+      expect(fixtureArchive(value.artifact)).toEqual(originalBytes);
+      expect(fakeGh.downloadedArtifactIds).not.toContain(7004);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('resolution capture retains exact terminal identity and the finite three-member archive', async () => {
+    for (const mode of ['missing', 'extra', 'digest', 'terminal'] as const) {
+      const value = resolutionFixture();
+      if (mode === 'missing' || mode === 'extra') {
+        const members: Record<string, string> = { ...value.members };
+        if (mode === 'missing') delete members['hosted-envelope.json'];
+        else members['unrequested.json'] = '{}\n';
+        fakeGh.artifacts[fakeGh.artifacts.length - 1] = { ...value.artifact, members };
+      } else if (mode === 'digest') {
+        fakeGh.artifactMetadataOverrides['7004'] = { digest: digest('f') };
+      } else value.completedAction.terminalArchiveDigest = digest('f');
+      await expect(provider.readHostedResumeResolutionTransport({ origin: resumeOrigin,
+        completedAction: value.completedAction })).rejects.toThrow();
+      if (mode === 'terminal') expect(fakeGh.downloadedArtifactIds).not.toContain(7004);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+    const value = resolutionFixture();
+    await expect(provider.readHostedResumeResolutionTransport({ origin: {} as AuthenticatedGitHubJobOrigin,
+      completedAction: value.completedAction })).rejects.toThrow('unregistered test provider origin');
+    expect(fakeGh.downloadedArtifactIds).toEqual([]);
+    expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
   });
 
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {
