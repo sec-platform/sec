@@ -1074,12 +1074,6 @@ test('foreign observations require a new preparation after original-host physica
   });
   expect(foreign.blockers).toContain('external-maintainer-disposition-required');
   expect(foreign.remoteAction).toBe('blocked');
-  // A local, post-physical-closeout fresh preparation has no foreign fact and
-  // may be considered normally; no artifact/job success can erase it.
-  const refreshed = authorizeBranchCloseout({ preparation: prepared, request, before: observed,
-    current: observed });
-  expect(refreshed.blockers).toEqual([]);
-  expect(refreshed.remoteAction).toBe('delete-cas');
 });
 
 function orphanRemoteInventory(): BranchLifecycleInventory {

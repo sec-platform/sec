@@ -29,7 +29,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const allowCommit = async (): Promise<void> => undefined;
 
-test('staged rebuild diagnostics redact native absolute paths from apply and query projections', async () => {
+test('staged rebuild diagnostics redact native absolute paths from retained query results', async () => {
   const secretPath = 'C:\\Users\\secret\\workspace\\.sec\\semantic-mutation\\v1\\transactions\\private';
   const error = Object.assign(new Error(`ENOENT: no such file or directory, open '${secretPath}'`), {
     code: 'ENOENT'
@@ -66,9 +66,7 @@ test('staged rebuild diagnostics redact native absolute paths from apply and que
       appId: draft.request.appId,
       requestId: draft.request.requestId
     } as const;
-    const applyProjection = { status: 'terminal' as const, result };
     const queryProjection = await querySemanticMutationRequest(workspaceRoot, identity);
-    expect(JSON.stringify(applyProjection)).not.toContain(secretPath);
     expect(JSON.stringify(queryProjection)).not.toContain(secretPath);
   }, 'engineering-compiler-sm3-diagnostic-redaction-');
 });

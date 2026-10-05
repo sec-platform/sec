@@ -444,21 +444,9 @@ test('immutable execution generation isolates workspace mutation and retires its
   const dependencyFixture = await issueCompilerDependencyFixtureOperation({
     dependencies: { commander: '1.0.0' },
     dependencyRootPath,
-    devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' },
+    devDependencies: { typescript: '1.0.0' },
     lockfileBytes: 'fixture-lock\n',
     packages: [{ main: 'index.d.ts', name: 'commander', version: '1.0.0' }, {
-      main: 'dist/ts-morph-common.js',
-      name: '@ts-morph/common',
-      version: '1.0.0'
-    }, {
-      main: './script/mod.js',
-      name: 'code-block-writer',
-      version: '1.0.0'
-    }, {
-      main: 'dist/ts-morph.js',
-      name: 'ts-morph',
-      version: '1.0.0'
-    }, {
       main: './lib/typescript.js',
       name: 'typescript',
       version: '1.0.0'
