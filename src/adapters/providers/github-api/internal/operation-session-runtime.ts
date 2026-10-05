@@ -57,8 +57,7 @@ function observeActionProviderOrigin(origin: AuthenticatedGitHubJobOrigin) {
     'assemble-verification-action-terminal': ['assemble-hosted-action-terminal', 'prepare-terminal-anchor', 'anchor-terminal'],
     'receive-verification-session-resume': ['receive-verification-session-resume']
   };
-  const workflow = observed.policyJobId === 'receive-verification-session-resume'
-    ? '.github/workflows/merge-gate.yml' : '.github/workflows/compiler-pr-validation.yml';
+  const workflow = '.github/workflows/compiler-pr-validation.yml';
   if (observed.workflowPath !== workflow || !phases[observed.policyJobId]?.includes(observed.phase)) {
     throw new GitHubApiProviderError('Action provider transport requires its exact original job phase');
   }

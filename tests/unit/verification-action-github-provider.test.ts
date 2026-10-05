@@ -197,13 +197,14 @@ const TERMINAL_PAYLOAD_DIGEST = digest('9');
 // cannot be issued on a developer host. The transport under test consumes only
 // its published observation surface, so the exact observation contract is
 // substituted here and every fixture origin carries its own job phase.
-type ProviderOriginPhase = Readonly<{ policyJobId: string; phase: string; stepName: string; stepNumber: number }>;
+type ProviderOriginPhase = Readonly<{ policyJobId: string; phase: string; stepName: string; stepNumber: number; workflowPath: string }>;
 const ORIGIN_DEADLINE_AT_UNIX_MS = Date.now() + 3_600_000;
 const originRecords = new WeakMap<object, ProviderOriginPhase & Readonly<{ signal: AbortSignal }>>();
 
-function createProviderOrigin(policyJobId: string, phase: string, stepName: string, stepNumber: number): AuthenticatedGitHubJobOrigin {
+function createProviderOrigin(policyJobId: string, phase: string, stepName: string, stepNumber: number,
+  workflowPath = '.github/workflows/compiler-pr-validation.yml'): AuthenticatedGitHubJobOrigin {
   const origin = Object.freeze({}) as AuthenticatedGitHubJobOrigin;
-  originRecords.set(origin, Object.freeze({ policyJobId, phase, stepName, stepNumber, signal: new AbortController().signal }));
+  originRecords.set(origin, Object.freeze({ policyJobId, phase, stepName, stepNumber, workflowPath, signal: new AbortController().signal }));
   return origin;
 }
 const claimOrigin = createProviderOrigin('claim-verification-action', 'claim-start',
@@ -222,7 +223,7 @@ function providerOriginObservation(origin: AuthenticatedGitHubJobOrigin): Authen
   return Object.freeze({
     repository: process.env.GITHUB_REPOSITORY ?? REPOSITORY,
     repositoryId: process.env.GITHUB_REPOSITORY_ID ?? String(REPOSITORY_ID),
-    workflowPath: '.github/workflows/compiler-pr-validation.yml',
+    workflowPath: record.workflowPath,
     workflowSha,
     trustedSourceSha: workflowSha,
     trustedSourceTreeSha: '4'.repeat(40),
@@ -886,6 +887,7 @@ mock.module('../../src/adapters/providers/github-api/hosted-job-origin.ts', () =
   AuthenticatedGitHubJobOriginUnavailableError: TestAuthenticatedGitHubJobOriginUnavailableError
 }));
 const provider = await import('../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts');
+const githubApi = await import('../../src/adapters/providers/github-api/operation-session.ts');
 const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransaction;
 
 function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope = envelope): void {
@@ -961,6 +963,60 @@ afterAll(() => {
 });
 
 describe('VerificationAction GitHub provider authenticated transaction', () => {
+  test('compiler resume receiver gets the original Action transport for one child wake and cannot publish status', async () => {
+    fakeGh = new FakeGh();
+    trustedEnvironment();
+    // Only the existing origin observation seam is substituted. Enrollment,
+    // workflow-token binding, phase admission and transport are production code.
+    await githubApi.withGitHubApiVerificationActionProviderSession({ origin: resumeOrigin,
+      operation: async capability => {
+        await githubApi.executeGitHubApiOperation(capability, { kind: 'verification-action-dispatch', envelope });
+        for (const state of ['pending', 'success'] as const) {
+          await expect(githubApi.executeGitHubApiOperation(capability, {
+            kind: 'verification-action-status', actionKey: ACTION, sha: HEAD, state,
+            description: 'Receiver must not publish Action status',
+            targetUrl: verificationActionProviderRunTargetUrl(currentOrigin)
+          })).rejects.toThrow('Action status differs from its current producing phase');
+        }
+      }
+    });
+    expect(fakeGh.dispatchBodies).toEqual([{
+      event_type: 'sec-produce-verification-action-v2', client_payload: { payload: envelope }
+    }]);
+    expect(fakeGh.dispatchCalls).toBe(1);
+    expect(fakeGh.createCalls).toBe(0);
+  });
+
+  test('resume transport rejects another workflow, phase or job before the operation callback or POST', async () => {
+    const forgeries = [
+      { workflowPath: '.github/workflows/merge-gate.yml',
+        policyJobId: 'receive-verification-session-resume', phase: 'receive-verification-session-resume' },
+      { workflowPath: '.github/workflows/compiler-pr-validation.yml',
+        policyJobId: 'receive-verification-session-resume', phase: 'coordinate-session' },
+      { workflowPath: '.github/workflows/compiler-pr-validation.yml',
+        policyJobId: 'execute-verification-action-sut', phase: 'receive-verification-session-resume' }
+    ];
+    for (const forged of forgeries) {
+      fakeGh = new FakeGh();
+      trustedEnvironment();
+      // Match the credential to the forged workflow so that origin admission,
+      // rather than a later credential mismatch, must reject the impersonation.
+      process.env.GITHUB_WORKFLOW_REF = `${REPOSITORY}/${forged.workflowPath}@refs/heads/main`;
+      const origin = createProviderOrigin(forged.policyJobId, forged.phase,
+        'Resume original authenticated Verification Session', 5, forged.workflowPath);
+      let callbackCalls = 0;
+      await expect(githubApi.withGitHubApiVerificationActionProviderSession({ origin,
+        operation: async capability => {
+          callbackCalls += 1;
+          await githubApi.executeGitHubApiOperation(capability, { kind: 'verification-action-dispatch', envelope });
+        }
+      })).rejects.toThrow('Action provider transport requires its exact original job phase');
+      expect(callbackCalls).toBe(0);
+      expect(fakeGh.dispatchCalls).toBe(0);
+      expect(fakeGh.createCalls).toBe(0);
+    }
+  });
+
   test('exact parent artifact, closure member, current bot run, and marker chain posts once', async () => {
     fakeGh = new FakeGh().withMarker();
     const result = await ensureTransaction({

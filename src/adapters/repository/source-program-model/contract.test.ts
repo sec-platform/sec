@@ -29,6 +29,7 @@ import {
   compileSourceProgramVersionSuffixReductionPlan,
   parseSourceProgramSupersessionEvidence,
   projectSourceProgramTestRetirementDispositions,
+  reconcileSourceProgramTestValueWithSupersession,
   renderSourceProgramGraphCutReductionPatch,
   renderSourceProgramVersionSuffixReductionPatch,
   SourceProgramReductionAdmissionError
@@ -52,11 +53,7 @@ import {
   type SourceProgramTestAuthorDecision,
   type SourceProgramTestAuthorDecisionPayload
 } from './test-disposition-decisions.ts';
-import {
-  compileSourceProgramTestBaselineEvidence,
-  compileSourceProgramTestValue,
-  reconcileSourceProgramTestValueWithSupersession
-} from './test-value.ts';
+import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue } from './test-value.ts';
 import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,

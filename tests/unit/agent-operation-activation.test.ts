@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { selectHostedJobRuntimePhase } from '../../src/application/hosted-job-runtime.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import {
@@ -381,4 +382,74 @@ test('V3 activation reader observes the trusted document owner and preserves mis
     expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
       owner: authorityId, revision: trustedBlob, projection: null });
   });
+});
+
+// These cases exercise closed selector data only. The real origin issuer and
+// per-job policy supply the comparison pair; no native qualification is claimed.
+test('hosted phase selector returns the phase for an exact job and phase data pair', () => {
+  expect(selectHostedJobRuntimePhase({
+    argv: ['--job', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
+  })).toBe('produce-hosted');
+  expect(selectHostedJobRuntimePhase({
+    argv: ['--job', 'agent-operation-activation', '--phase', 'publish-hosted'],
+    authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'publish-hosted'
+  })).toBe('publish-hosted');
+  expect(selectHostedJobRuntimePhase({
+    argv: ['--job', 'coordinate-verification-session', '--phase', 'prepare-parent-plan'],
+    authenticatedJobId: 'coordinate-verification-session', authenticatedPhase: 'prepare-parent-plan'
+  })).toBe('prepare-parent-plan');
+});
+
+test('hosted phase selector rejects empty, incomplete and extra selector tokens', () => {
+  for (const argv of [
+    [],
+    ['--job'],
+    ['--job', 'agent-operation-activation'],
+    ['--job', 'agent-operation-activation', '--phase'],
+    ['--phase', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', 'extra'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--json'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--phase', 'publish-hosted']
+  ]) {
+    expect(() => selectHostedJobRuntimePhase({ argv,
+      authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
+    })).toThrow();
+  }
+});
+
+test('hosted phase selector compares both supplied job and phase identities exactly', () => {
+  const argv = ['--job', 'agent-operation-activation', '--phase', 'produce-hosted'];
+  for (const pair of [
+    { authenticatedJobId: 'coordinate-verification-session', authenticatedPhase: 'produce-hosted' },
+    { authenticatedJobId: 'Agent-operation-activation', authenticatedPhase: 'produce-hosted' },
+    { authenticatedJobId: 'agent-operation-activation ', authenticatedPhase: 'produce-hosted' },
+    { authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'publish-hosted' },
+    { authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'Produce-hosted' },
+    { authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted ' }
+  ]) {
+    expect(() => selectHostedJobRuntimePhase({ argv, ...pair })).toThrow();
+  }
+});
+
+test('hosted phase selector rejects reordered flags and legacy unbounded command options', () => {
+  for (const argv of [
+    ['--phase', 'produce-hosted', '--job', 'agent-operation-activation'],
+    ['--job-id', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--command', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--job', 'produce-hosted'],
+    ['--phase', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    ['--job=agent-operation-activation', '--phase=produce-hosted'],
+    ['request'], ['observe'], ['produce-hosted'], ['publish-hosted'],
+    ['produce-hosted', '--json', '--json'],
+    ['publish-hosted', '--arbitrary-program', 'candidate.js'],
+    ['produce-hosted', '--runtime-root', '.', '--candidate-root', '.', '--request', 'request.json',
+      '--output', 'output.json', '--json', '--skip-source-guard', 'true'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--arbitrary-program', 'candidate.js'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--skip-source-guard', 'true']
+  ]) {
+    expect(() => selectHostedJobRuntimePhase({ argv,
+      authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
+    })).toThrow();
+  }
 });

@@ -169,7 +169,7 @@ async function observeTrustedRuntimeProvider(input: Readonly<{
         verificationReceiptDigest: receipt.receiptDigest,
         observedAt: input.now,
         expiresAt
-      }))
+      }, receipt.schema))
     });
   } catch (error) {
     if (error instanceof PhysicalNoFollowError

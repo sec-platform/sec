@@ -18,6 +18,7 @@ import {
 import {
   TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+  createTrustedRuntimeMainHealthInput,
   createTrustedRuntimeMainHealthReceipt,
   createTrustedRuntimeNativeMainHealthInvocation,
   createTrustedRuntimeNativeMainHealthReceipt,
@@ -278,6 +279,23 @@ describe('provider-neutral trusted runtime container', () => {
     expect(trustedRuntimeMainHealthReceiptReference(receipt)).toBe(
       `live-receipt:trusted-main-health/v3/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
     );
+    const parsed = parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt));
+    const projected = createTrustedRuntimeMainHealthInput({
+      schema: 'sec-trusted-runtime-main-health-observation-v1',
+      repository: parsed.repository, mainSha: parsed.mainSha, mainTreeSha: parsed.mainTreeSha,
+      trustRevision: parsed.mainSha, executionId: parsed.executionId,
+      verificationReceiptDigest: parsed.receiptDigest, observedAt: parsed.observedAt,
+      expiresAt: '2026-10-04T00:10:00.000Z'
+    }, parsed.schema);
+    expect(projected.producer.sourceRef).toBe(
+      `live-receipt:trusted-main-health/v3/${parsed.mainSha}/${parsed.receiptDigest.slice(7)}`
+    );
+    expect(projected.producer.sourceRef).toBe(trustedRuntimeMainHealthReceiptReference(parsed));
+    expect(projected.producer.sourceDigest).toBe(parsed.receiptDigest);
+    expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
+      schema: 'sec-trusted-runtime-main-health-receipt-v2' })).toThrow('shape or fixed identity');
+    expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
+      receiptDigest: `sha256:${'f'.repeat(64)}` })).toThrow('canonical subject, plan or result bytes');
     for (const unqualified of [receipt, { ...receipt }, parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))]) {
       expect(() => assertTrustedRuntimeMainHealthQualification({ receipt: unqualified,
         repositoryRoot: process.cwd(), repository: receipt.repository, mainSha: receipt.mainSha,
@@ -348,6 +366,8 @@ describe('provider-neutral trusted runtime container', () => {
     expect(trustedRuntimeMainHealthReceiptReference(receipt)).toBe(
       `live-receipt:trusted-main-health/v2/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
     );
+    expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
+      schema: 'sec-trusted-runtime-main-health-receipt-v3' })).toThrow('shape or fixed identity');
     expect(trustedRuntimeMainHealthReceiptReference(receipt)).not.toContain('.json');
     expect(() => trustedRuntimeMainHealthReceiptReference({
       mainSha: '../main', receiptDigest: receipt.receiptDigest

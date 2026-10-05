@@ -430,6 +430,45 @@ async function generationDataSnapshot(workspaceRoot: string): Promise<unknown[]>
   return snapshot;
 }
 
+test('external destination creation before publication preserves the foreign file and original generation on retry', async () => {
+  const root = await createWorkspace('workspace-create-destination-race-');
+  const target = path.join(root, 'sec.yaml');
+  const journalPath = path.join(root, '.sec/workspace-create.json');
+  const external = Buffer.from('external author plan\n');
+  let publicationAttempts = 0;
+  let occupied: unknown[] | undefined;
+  await expect(createFixtureGeneration(root, {
+    beforeRename: async ({ sourcePath, targetPath }) => {
+      if (targetPath !== target) return;
+      publicationAttempts++;
+      expect(await fs.readFile(sourcePath, 'utf8')).toBe(fixtureFiles['sec.yaml']);
+      expect(JSON.parse(await fs.readFile(journalPath, 'utf8')).phase).toBe('prepared');
+      // The real no-replace publication must encounter this new destination.
+      // The actor creates only the foreign object; it does not inject a failure.
+      await fs.writeFile(targetPath, external, { flag: 'wx' });
+      occupied = await generationDataSnapshot(root);
+    }
+  })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' });
+  expect(publicationAttempts).toBe(1);
+  expect(occupied).toBeDefined();
+  expect(await fs.readFile(target)).toEqual(external);
+  expect(await generationDataSnapshot(root)).toEqual(occupied!);
+
+  const retryEffects: string[] = [];
+  await expect(createFixtureGeneration(root, {
+    beforeCreate: () => { retryEffects.push('create'); },
+    beforeRename: () => { retryEffects.push('rename'); },
+    beforeCleanup: () => { retryEffects.push('cleanup'); }
+  })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'changed-file:sec.yaml' } });
+  expect(retryEffects).toEqual([]);
+  expect(await fs.readFile(target)).toEqual(external);
+  // Exact bytes and identities include the original prepared journal, the
+  // staged source, the foreign destination, and every earlier publication.
+  expect(await generationDataSnapshot(root)).toEqual(occupied!);
+  await withWorkspaceWriteLease(root, undefined, async () => {});
+  expect(await generationDataSnapshot(root)).toEqual(occupied!);
+});
+
 async function prepareFixtureGeneration(workspaceRoot: string): Promise<void> {
   const request = nativeRequest();
   await withNativeSession(workspaceRoot, async session => {

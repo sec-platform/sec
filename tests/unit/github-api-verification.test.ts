@@ -160,6 +160,67 @@ test('closed verification query and write contracts reject before network',async
   expect(calls).toBe(0);
 });
 
+test('workflow run history uses an unfiltered numeric workflow endpoint and rejects malformed selectors before transport', async () => {
+  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
+  const cap = capability(async (target, init) => {
+    requests.push({ target: String(target), method: init?.method, body: init?.body });
+    return new Response('{"total_count":0,"workflow_runs":[]}');
+  });
+  await withGitHubApiTestSession({ capability: cap, operation: async () => {
+    expect(await executeGitHubApiOperation(cap, {
+      kind: 'verification-workflow-run-history', workflowId: '123', page: 2
+    })).toEqual({ total_count: 0, workflow_runs: [] });
+    expect(requests).toEqual([{
+      target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/123/runs?per_page=100&page=2',
+      method: 'GET', body: undefined
+    }]);
+    requests.length = 0;
+    for (const workflowId of ['0', '../runs', '123?status=success']) {
+      await expect(executeGitHubApiOperation(cap, {
+        kind: 'verification-workflow-run-history', workflowId, page: 1
+      })).rejects.toThrow();
+      expect(requests).toEqual([]);
+    }
+    await expect(executeGitHubApiOperation(cap, {
+      kind: 'verification-workflow-run-history', workflowId: '123', page: 0
+    })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  } });
+});
+
+test('verification provenance reads exact numeric attempt, suite, workflow and job endpoints without selector injection', async () => {
+  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
+  const cap = capability(async (target, init) => {
+    requests.push({ target: String(target), method: init?.method, body: init?.body });
+    return new Response('{}');
+  });
+  await withGitHubApiTestSession({ capability: cap, operation: async () => {
+    await executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 2 });
+    await executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: '12' });
+    await executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: '13' });
+    await executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: '14' });
+    expect(requests).toEqual([
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/runs/11/attempts/2', method: 'GET', body: undefined },
+      { target: 'https://api.github.com/repos/sec-platform/sec/check-suites/12', method: 'GET', body: undefined },
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/13', method: 'GET', body: undefined },
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/jobs/14', method: 'GET', body: undefined }
+    ]);
+    requests.length = 0;
+    for (const id of ['0', '../escape', '12?branch=main']) {
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: id, runAttempt: 1 })).rejects.toThrow();
+      expect(requests).toEqual([]);
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: id })).rejects.toThrow();
+      expect(requests).toEqual([]);
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: id })).rejects.toThrow();
+      expect(requests).toEqual([]);
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: id })).rejects.toThrow();
+      expect(requests).toEqual([]);
+    }
+    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 0 })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  } });
+});
+
 test('hosted verification credential identity rejects foreign workflow and revision',()=> {
   const source={GITHUB_ACTIONS:'true',GITHUB_SERVER_URL:'https://github.com',GITHUB_API_URL:'https://api.github.com',
     GITHUB_REPOSITORY:'sec-platform/sec',GITHUB_REF:'refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_WORKFLOW_SHA:'a'.repeat(40),

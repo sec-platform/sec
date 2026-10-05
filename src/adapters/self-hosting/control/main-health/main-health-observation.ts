@@ -308,6 +308,10 @@ export function trustedRuntimeMainHealthReceiptReference(input: Readonly<{
 }>): string {
   const mainSha = mainHealthSha(input.mainSha, 'receipt reference mainSha');
   const receiptDigest = mainHealthDigest(input.receiptDigest, 'receipt reference digest');
+  if (input.schema !== undefined && input.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA
+      && input.schema !== 'sec-trusted-runtime-main-health-receipt-v3') {
+    throw new Error('MainHealth receipt reference schema is invalid.');
+  }
   const version = input.schema === 'sec-trusted-runtime-main-health-receipt-v3' ? 'v3' : 'v2';
   return `live-receipt:trusted-main-health/${version}/${mainSha}/${receiptDigest.slice(7)}`;
 }
@@ -436,8 +440,11 @@ function boundedText(value: unknown, label: string): string {
   return value;
 }
 
+/** The receipt schema is separate from observation-v1 data. Omitting it keeps
+ * the historical V2 interpretation; live callers supply the parsed receipt's schema. */
 export function createTrustedRuntimeMainHealthInput(
-  input: TrustedRuntimeMainHealthObservation
+  input: TrustedRuntimeMainHealthObservation,
+  receiptSchema?: TrustedRuntimeMainHealthReceipt['schema']
 ): MainHealthLedgerInput {
   if (input.schema !== 'sec-trusted-runtime-main-health-observation-v1') {
     throw new Error('MainHealth trusted-runtime observation schema mismatch.');
@@ -478,7 +485,7 @@ export function createTrustedRuntimeMainHealthInput(
       sourceTransport: 'trusted-runtime-live-readback' as const,
       sourceRunId: boundedText(input.executionId, 'executionId'),
       sourceRef: trustedRuntimeMainHealthReceiptReference({
-        mainSha, receiptDigest: verificationReceiptDigest
+        mainSha, receiptDigest: verificationReceiptDigest, schema: receiptSchema
       }),
       sourceDigest: verificationReceiptDigest
     })

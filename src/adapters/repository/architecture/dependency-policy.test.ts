@@ -80,7 +80,7 @@ test('the tracked source tree has exactly the ten canonical responsibilities', (
   expect(actual).toEqual([...CANONICAL_SOURCE_MODULES].sort());
 });
 
-test('the actual current source graph preserves canonical edges and acyclic generated-state and verification owners', () => {
+test('the actual current source graph preserves canonical edges and acyclic source-program, generated-state and verification owners', () => {
   const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
   const sourceRoot = nodePath.join(repositoryRoot, 'src');
   const files: string[] = [];
@@ -104,6 +104,7 @@ test('the actual current source graph preserves canonical edges and acyclic gene
   const membership = compileRepositoryModuleMembership(repositoryRoot);
   const violations = collectCanonicalSourceBoundaryViolations(graph, membership);
   const acyclicOwnerRoots = [
+    'src/adapters/repository/source-program-model/',
     'src/adapters/runtime-state/generated-state/',
     'src/execution/generated-state/',
     'src/execution/verification/'
