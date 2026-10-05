@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
@@ -24,6 +24,7 @@ const PARENT_ARTIFACT_ID = 7000;
 const PARENT_JOB_ID = 6001;
 const EVENT_ROOT = mkdtempSync(path.join(tmpdir(), 'sec-provider-p1-test-'));
 const EVENT_PATH = path.join(EVENT_ROOT, 'event.json');
+const CANONICAL_WORKFLOW_SOURCE = readFileSync(new URL('../../.github/workflows/compiler-pr-validation.yml', import.meta.url), 'utf8');
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}`;
@@ -280,6 +281,22 @@ type ArtifactFixture = Readonly<{
   source: string;
 }>;
 
+// Provider response data only. The attempt-specific endpoint supplies the
+// omitted run_attempt membership; these fixtures do not issue a live origin.
+function parentJobFixture(): Record<string, unknown> {
+  return { id: PARENT_JOB_ID, name: 'coordinate-verification-session', run_id: Number(PARENT_RUN_ID),
+    head_sha: BASE, status: 'in_progress', conclusion: null,
+    started_at: '2026-08-09T01:00:00Z', completed_at: null,
+    steps: [
+      { number: 5, name: 'Prepare canonical parent Action dispatch plan', status: 'completed', conclusion: 'success',
+        started_at: '2026-08-09T01:00:01Z', completed_at: '2026-08-09T01:00:02Z' },
+      { number: 6, name: 'Upload canonical parent Action dispatch plan artifact', status: 'completed', conclusion: 'success',
+        started_at: '2026-08-09T01:00:03Z', completed_at: '2026-08-09T01:00:05Z' },
+      { number: 7, name: 'Complete original Action coordination and canonical Session', status: 'in_progress', conclusion: null,
+        started_at: '2026-08-09T01:00:06Z', completed_at: null }
+    ] };
+}
+
 class FakeGh {
   statuses: Record<string, unknown>[] = [];
   artifacts: ArtifactFixture[] = [{
@@ -292,6 +309,14 @@ class FakeGh {
   }];
   statusListCalls: Array<{ page: number; perPage: number }> = [];
   artifactListCalls: Array<{ page: number; perPage: number }> = [];
+  jobListCalls: Array<{ runId: string; runAttempt: number; page: number }> = [];
+  parentJobs: Record<string, unknown>[] = [parentJobFixture()];
+  jobPageHook: ((page: number, call: number) => Readonly<{
+    jobs?: readonly Record<string, unknown>[]; totalCount?: unknown;
+  }> | null) | null = null;
+  artifactMetadataOverrides: Record<string, Record<string, unknown>> = {};
+  workflowSource = CANONICAL_WORKFLOW_SOURCE;
+  workflowSourceCalls: Array<{ path: string; ref: string | null }> = [];
   createCalls = 0;
   dispatchCalls = 0;
   dispatchBodies: unknown[] = [];
@@ -342,18 +367,23 @@ class FakeGh {
     if (endpoint === `/repos/${REPOSITORY}/collaborators/${parentActor.login}/permission`) {
       return this.json({ ...this.parentPermission, user: this.parentPermissionUser });
     }
-    if (/^\/repos\/[^/]+\/[^/]+\/actions\/runs\/[1-9][0-9]*\/attempts\/[1-9][0-9]*\/jobs$/u.test(endpoint)) {
+    if (endpoint === `/repos/${REPOSITORY}/contents/.github/workflows/compiler-pr-validation.yml`) {
+      const ref = url.searchParams.get('ref');
+      this.workflowSourceCalls.push({ path: '.github/workflows/compiler-pr-validation.yml', ref });
+      if (ref !== BASE) return this.fail('unexpected workflow source revision');
+      const bytes = Buffer.from(this.workflowSource, 'utf8');
+      return this.json({ type: 'file', path: '.github/workflows/compiler-pr-validation.yml', encoding: 'base64',
+        content: bytes.toString('base64'), size: bytes.byteLength,
+        sha: createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex') });
+    }
+    const jobsMatch = /^\/repos\/[^/]+\/[^/]+\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)\/jobs$/u.exec(endpoint);
+    if (jobsMatch !== null) {
       const page = Number(url.searchParams.get('page'));
-      return this.json({ jobs: page === 1 ? [{
-        id: PARENT_JOB_ID,
-        name: 'coordinate-verification-session',
-        run_id: Number(PARENT_RUN_ID),
-        run_attempt: 1,
-        head_sha: BASE,
-        status: 'in_progress',
-        conclusion: null,
-        steps: [{ name: 'Prepare canonical parent Action dispatch plan', status: 'completed', conclusion: 'success' }]
-      }] : [] });
+      this.jobListCalls.push({ runId: jobsMatch[1]!, runAttempt: Number(jobsMatch[2]), page });
+      const override = this.jobPageHook?.(page, this.jobListCalls.length) ?? null;
+      return this.json({ total_count: override !== null && Object.hasOwn(override, 'totalCount')
+        ? override.totalCount : this.parentJobs.length,
+        jobs: override?.jobs ?? this.parentJobs.slice((page - 1) * 100, page * 100) });
     }
     if (/^\/repos\/[^/]+\/[^/]+\/commits\/[0-9a-f]{40}\/statuses$/u.test(endpoint)) {
       const page = Number(url.searchParams.get('page'));
@@ -380,9 +410,11 @@ class FakeGh {
         id: artifact.id,
         name: artifact.name,
         expired: artifact.expired,
-        workflow_run: { id: artifact.runId },
+        workflow_run: { id: artifact.runId, head_sha: BASE },
+        created_at: '2026-08-09T01:00:03Z', updated_at: '2026-08-09T01:00:05Z',
         size_in_bytes: archive.byteLength,
-        digest: `sha256:${rawSha256Hex(archive)}`
+        digest: `sha256:${rawSha256Hex(archive)}`,
+        ...this.artifactMetadataOverrides[String(artifact.id)]
       });
     }
     if (/^\/repos\/[^/]+\/[^/]+\/actions\/artifacts$/u.test(endpoint)) {
@@ -621,6 +653,149 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     })).rejects.toThrow('parent actor live identity');
     expect(fakeGh.createCalls).toBe(0);
   });
+
+  test('parent plan consumes its exact workflow source, attempt census and completed upload', async () => {
+    for (const completed of [false, true]) {
+      fakeGh = new FakeGh();
+      expect(Object.hasOwn(fakeGh.parentJobs[0]!, 'run_attempt')).toBe(false);
+      if (completed) {
+        fakeGh.withMarker();
+        Object.assign(fakeGh.parentJobs[0]!, { run_attempt: 1, status: 'completed', conclusion: 'success',
+          completed_at: '2026-08-09T01:00:07Z' });
+        Object.assign((fakeGh.parentJobs[0]!.steps as Record<string, unknown>[])[2]!, {
+          status: 'completed', conclusion: 'success', completed_at: '2026-08-09T01:00:07Z' });
+      }
+      trustedParentEnvironment();
+      const result = completed
+        ? await ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } })
+        : await ensureTransaction({ origin: coordinateOrigin,
+          authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } });
+      expect(result.disposition).toBe(completed ? 'started' : 'observed');
+      expect(fakeGh.workflowSourceCalls).toContainEqual({ path: '.github/workflows/compiler-pr-validation.yml', ref: BASE });
+      expect(fakeGh.jobListCalls.length).toBeGreaterThanOrEqual(2);
+      for (const call of fakeGh.jobListCalls) expect(call).toEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 1 });
+      expect(fakeGh.createCalls).toBe(completed ? 1 : 0);
+      expect(fakeGh.dispatchCalls).toBe(0);
+    }
+  });
+
+  test('parent job census rejects absent totals, truncated pages, duplicate identities and wrong attempts before POST', async () => {
+    const forgeries: Array<(target: FakeGh) => void> = [
+      ...[undefined, null, '1', -1, 1.5, 100_001, 0, 2].map(totalCount =>
+        (target: FakeGh) => { target.jobPageHook = () => ({ totalCount }); }),
+      target => { target.parentJobs.push({ ...target.parentJobs[0]! }); },
+      ...[{ id: 0 }, { id: '6001' }, { id: 1.5 }, { run_id: Number(CURRENT_RUN_ID) },
+        { run_attempt: null }, { run_attempt: 2 }, { run_attempt: '1' }].map(patch =>
+        (target: FakeGh) => { Object.assign(target.parentJobs[0]!, patch); })
+    ];
+    for (const forge of forgeries) {
+      fakeGh = new FakeGh();
+      forge(fakeGh);
+      trustedParentEnvironment();
+      await expect(ensureTransaction({ origin: coordinateOrigin,
+        authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
+        .rejects.toThrow(/(?:source job page|parent workflow job)/);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('parent job census preserves full pages and rejects changed totals or leading boundaries', async () => {
+    const fillJobs = (target: FakeGh, count: number): void => {
+      while (target.parentJobs.length < count) target.parentJobs.push({
+        id: 10_000 + target.parentJobs.length, name: `unrelated-${target.parentJobs.length}`,
+        run_id: Number(PARENT_RUN_ID), head_sha: BASE
+      });
+    };
+    for (const count of [100, 101]) {
+      fakeGh = new FakeGh();
+      fillJobs(fakeGh, count);
+      trustedParentEnvironment();
+      await expect(ensureTransaction({ origin: coordinateOrigin,
+        authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'coordinate-parent' } }))
+        .resolves.toMatchObject({ disposition: 'observed' });
+      expect(fakeGh.jobListCalls.map(call => call.page)).toEqual(count === 100 ? [1, 1] : [1, 2, 1]);
+    }
+    for (const forge of [
+      (target: FakeGh) => { target.jobPageHook = page => page === 2 ? { totalCount: 102 } : null; },
+      (target: FakeGh) => { target.jobPageHook = page => page === 2 ? { jobs: [target.parentJobs[0]!] } : null; },
+      (target: FakeGh) => { target.jobPageHook = (_page, call) => call === 3
+        ? { jobs: target.parentJobs.slice(0, 100).map((job, index) => index === 0 ? { ...job, id: 9999 } : job) } : null; }
+    ]) {
+      fakeGh = new FakeGh();
+      fillJobs(fakeGh, 101);
+      forge(fakeGh);
+      trustedParentEnvironment();
+      await expect(ensureTransaction({ origin: coordinateOrigin,
+        authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
+        .rejects.toThrow(/parent workflow job/);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('parent plan exact bytes cannot replace successful ordered producer and upload observations', async () => {
+    const stepPatch = (index: number, patch: Record<string, unknown>) => (target: FakeGh): void => {
+      const steps = target.parentJobs[0]!.steps as Record<string, unknown>[];
+      steps[index] = { ...steps[index]!, ...patch };
+    };
+    const forgeries: Array<(target: FakeGh) => void> = [
+      target => { target.parentJobs[0]!.steps = []; },
+      target => { (target.parentJobs[0]!.steps as unknown[]).splice(0, 1); },
+      target => { (target.parentJobs[0]!.steps as unknown[]).splice(1, 1); },
+      target => { const steps = target.parentJobs[0]!.steps as Record<string, unknown>[];
+        steps.push({ ...steps[1]!, number: 8 }); },
+      target => { const steps = target.parentJobs[0]!.steps as Record<string, unknown>[];
+        steps.push({ ...steps[0]!, number: 8 }); },
+      stepPatch(0, { number: 0 }), stepPatch(1, { number: 5 }), stepPatch(1, { number: 4 }),
+      stepPatch(0, { status: 'in_progress' }), stepPatch(0, { conclusion: 'failure' }),
+      stepPatch(1, { status: 'in_progress' }), stepPatch(1, { conclusion: 'skipped' }),
+      stepPatch(0, { started_at: '2026-08-09T00:59:59Z' }), stepPatch(0, { started_at: undefined }),
+      stepPatch(0, { completed_at: '2026-08-09T01:00:00Z' }), stepPatch(0, { completed_at: null }),
+      stepPatch(1, { started_at: '2026-08-09T01:00:01Z' }), stepPatch(1, { started_at: null }),
+      stepPatch(1, { completed_at: '2026-08-09T01:00:02Z' }), stepPatch(1, { completed_at: 'invalid' }),
+      stepPatch(1, { completed_at: '2026-08-10T01:00:00Z' }),
+      ...[{ head_sha: HEAD }, { started_at: undefined }, { started_at: '2026-08-09T01:00:02Z' },
+        { status: 'completed', conclusion: 'failure', completed_at: '2026-08-09T01:00:07Z' },
+        { status: 'completed', conclusion: 'success', completed_at: '2026-08-09T01:00:04Z' },
+        { status: 'completed', conclusion: 'success', completed_at: '2026-08-10T01:00:00Z' },
+        { completed_at: '2026-08-09T01:00:07Z' }, { conclusion: 'success' }].map(patch =>
+        (target: FakeGh) => { Object.assign(target.parentJobs[0]!, patch); })
+    ];
+    for (const forge of forgeries) {
+      fakeGh = new FakeGh();
+      forge(fakeGh);
+      trustedParentEnvironment();
+      await expect(ensureTransaction({ origin: coordinateOrigin,
+        authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
+        .rejects.toThrow(/parent plan/);
+      expect(fakeGh.artifacts[0]!.source).toBe(parentPlanSource);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+  }, 30_000);
+
+  test('parent plan artifact timestamps and exact source remain mandatory with unchanged canonical bytes', async () => {
+    for (const patch of [{ created_at: undefined }, { created_at: null }, { created_at: 'invalid' },
+      { updated_at: undefined }, { updated_at: null }, { updated_at: 'invalid' },
+      { created_at: '2026-08-09T01:00:02Z' }, { created_at: '2026-08-09T01:00:06Z' },
+      { updated_at: '2026-08-09T01:00:02Z' }, { updated_at: '2026-08-09T01:00:06Z' },
+      { workflow_run: { id: Number(PARENT_RUN_ID), head_sha: HEAD } }]) {
+      fakeGh = new FakeGh();
+      fakeGh.artifactMetadataOverrides[String(PARENT_ARTIFACT_ID)] = patch;
+      trustedParentEnvironment();
+      await expect(ensureTransaction({ origin: coordinateOrigin,
+        authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
+        .rejects.toThrow(/parent (?:plan|dispatch plan)/);
+      expect(fakeGh.artifacts[0]!.source).toBe(parentPlanSource);
+      expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+    }
+    fakeGh = new FakeGh();
+    fakeGh.workflowSource = fakeGh.workflowSource.replace('name: Upload canonical parent Action dispatch plan artifact',
+      'name: Unrelated upload');
+    trustedParentEnvironment();
+    await expect(ensureTransaction({ origin: coordinateOrigin,
+      authority: { envelope, actionPlanClosure: closure }, intent: { kind: 'dispatch-child' } }))
+      .rejects.toThrow(/Hosted workflow shape/);
+    expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
+  }, 30_000);
 
   test('parent coordinator emits one authenticated child wake-up without exposing raw dispatch', async () => {
     fakeGh = new FakeGh();

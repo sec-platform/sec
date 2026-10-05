@@ -7,7 +7,7 @@ import type { HostedResumeSignal } from '../../../../../execution/verification/h
 
 import { readVerificationDataRecord, snapshotVerificationData } from '../../../../../assurance/verification/contract/data.ts';
 import type { HostedSourceArtifactProjection } from '../../../../providers/github-api/contract/hosted-artifact-projections.ts';
-import { assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWorkflowShape, getCiVerificationPerJobHostedJobPolicy, type CiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import { HOSTED_RESUME_DISPATCH_EVENT, HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
 import {
   assertAuthenticatedGitHubJobOriginCurrent,
@@ -78,6 +78,12 @@ type GitHubProviderArtifactPage = Readonly<{
   rawResponseDigest: VerificationActionKeyDigest;
 }>;
 
+type GitHubProviderJobPage = Readonly<{
+  records: readonly unknown[];
+  totalCount: number;
+  responseDigest: VerificationActionKeyDigest;
+}>;
+
 interface GitHubExactCommitStatusReadFacts {
   listCommitStatusesPage(input: Readonly<{
     repository: string;
@@ -131,7 +137,7 @@ interface VerificationActionGitHubProviderReadFacts
     runId: string;
     runAttempt: number;
     page: number;
-  }>): Promise<GitHubProviderPage>;
+  }>): Promise<GitHubProviderJobPage>;
   downloadArtifact(input: Readonly<{
     repository: string;
     artifactId: string;
@@ -231,12 +237,14 @@ class RetainedHistoricalSourceReadFacts implements VerificationActionGitHubProvi
     return canonicalHostedWorkflowSource(await this.read({ kind: 'verification-blob', ref: input.revision,
       path: '.github/workflows/compiler-pr-validation.yml' }));
   }
-  async listWorkflowJobsPage(input: Readonly<{ repository: string; runId: string; runAttempt: number; page: number }>): Promise<GitHubProviderPage> {
+  async listWorkflowJobsPage(input: Readonly<{ repository: string; runId: string; runAttempt: number; page: number }>): Promise<GitHubProviderJobPage> {
     this.assertRepository(input.repository);
     const value = record(await this.read({ kind: 'verification-workflow-jobs',
       runId: input.runId, runAttempt: input.runAttempt, page: input.page }), 'retained source job page');
-    if (!Array.isArray(value.jobs)) fail('retained source job page is invalid.');
-    return Object.freeze({ records: value.jobs, hasNextPage: value.jobs.length === 100 });
+    if (!Array.isArray(value.jobs) || !Number.isSafeInteger(value.total_count) || Number(value.total_count) < 0) {
+      fail('retained source job page is invalid.');
+    }
+    return Object.freeze({ records: value.jobs, totalCount: Number(value.total_count), responseDigest: digest(value) });
   }
   async listArtifactsPage(input: Readonly<{ repository: string; perPage: 100; page: number }>): Promise<GitHubProviderArtifactPage> {
     this.assertRepository(input.repository);
@@ -992,6 +1000,18 @@ async function readCompleteParentJobs(
   runAttempt: number
 ): Promise<readonly Record<string, unknown>[]> {
   const jobs: Record<string, unknown>[] = [];
+  const seenJobIds = new Set<number>();
+  let frozenTotal: number | undefined;
+  let leadingDigest: VerificationActionKeyDigest | undefined;
+  const assertPage = (response: GitHubProviderJobPage, page: number): void => {
+    if (!Number.isSafeInteger(response.totalCount) || response.totalCount < 0 || response.totalCount > 100_000
+        || (frozenTotal !== undefined && response.totalCount !== frozenTotal)
+        || !Array.isArray(response.records)
+        || response.records.length !== Math.min(100, Math.max(0, response.totalCount - (page - 1) * 100))
+        || !/^sha256:[0-9a-f]{64}$/u.test(response.responseDigest)) {
+      fail(`parent workflow job page ${page} is incomplete or changed.`);
+    }
+  };
   for (let page = 1; page <= 1000; page += 1) {
     const response = await transport.listWorkflowJobsPage({
       repository: repositoryName,
@@ -999,16 +1019,83 @@ async function readCompleteParentJobs(
       runAttempt,
       page
     });
-    if (!Array.isArray(response.records) || response.records.length > 100 ||
-        (response.hasNextPage && response.records.length !== 100)) {
-      fail(`parent workflow job page ${page} is incomplete.`);
+    assertPage(response, page);
+    if (frozenTotal === undefined) {
+      frozenTotal = response.totalCount;
+      leadingDigest = response.responseDigest;
     }
-    jobs.push(...response.records.map((entry, index) =>
-      record(entry, `parent workflow job page ${page}[${index}]`)
-    ));
-    if (!response.hasNextPage) return Object.freeze(jobs);
+    for (const [index, entry] of response.records.entries()) {
+      const job = record(entry, `parent workflow job page ${page}[${index}]`);
+      // The native transport selected the exact attempt endpoint. GitHub may
+      // omit the job's run_attempt; a present contradictory value cannot rebind it.
+      if (!Number.isSafeInteger(job.id) || Number(job.id) < 1 || seenJobIds.has(Number(job.id))
+          || job.run_id !== Number(runId) || ('run_attempt' in job && job.run_attempt !== runAttempt)) {
+        fail('parent workflow job census has duplicated or foreign immutable identities.');
+      }
+      seenJobIds.add(Number(job.id));
+      jobs.push(job);
+    }
+    if (jobs.length === frozenTotal) {
+      const boundary = await transport.listWorkflowJobsPage({ repository: repositoryName, runId, runAttempt, page: 1 });
+      assertPage(boundary, 1);
+      if (boundary.responseDigest !== leadingDigest) fail('parent workflow job census changed during pagination.');
+      return Object.freeze(jobs);
+    }
   }
   fail('parent workflow job pagination exceeded the bounded 1000-page census.');
+}
+
+function parentPlanProviderTime(value: unknown): number {
+  const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  if (!Number.isSafeInteger(time) || time < 1) fail('parent plan provider timestamp is invalid.');
+  return time;
+}
+
+/** Data predicate over an already authenticated exact source/job/archive.
+ * The native source and parent authority readers remain the sole issuers. */
+function assertParentPlanArtifactUploadWindow(input: Readonly<{
+  policy: CiVerificationPerJobHostedJobPolicy; job: Record<string, unknown>;
+  metadata: Record<string, unknown>; expectedProducerStepName: string;
+}>): void {
+  const uploads = input.policy.stages.filter(stage => stage.kind === 'upload').filter(stage => stage.slot === 'parent-plan');
+  const producers = input.policy.stages.filter(stage => stage.kind === 'phase')
+    .filter(stage => stage.phase === 'prepare-parent-plan');
+  if (uploads.length !== 1 || producers.length !== 1
+      || uploads[0]!.producerStepId !== producers[0]!.stepId
+      || producers[0]!.stepName !== input.expectedProducerStepName
+      || !Array.isArray(input.job.steps) || input.job.steps.length > 100) {
+    fail('parent plan has no exact canonical producer/upload stages.');
+  }
+  const steps = input.job.steps.map((entry, index) => record(entry, `parent plan job step[${index}]`));
+  const producer = steps.filter(step => step.name === producers[0]!.stepName);
+  const upload = steps.filter(step => step.name === uploads[0]!.stepName);
+  if (steps.some(step => !Number.isSafeInteger(step.number) || Number(step.number) < 1 || Number(step.number) > 100)
+      || new Set(steps.map(step => step.number)).size !== steps.length
+      || producer.length !== 1 || upload.length !== 1
+      || producer[0]!.status !== 'completed' || producer[0]!.conclusion !== 'success'
+      || upload[0]!.status !== 'completed' || upload[0]!.conclusion !== 'success'
+      || Number(producer[0]!.number) >= Number(upload[0]!.number)) {
+    fail('parent plan producer/upload step order is absent, ambiguous or unsuccessful.');
+  }
+  const jobStarted = parentPlanProviderTime(input.job.started_at);
+  const deadline = jobStarted + input.policy.maximumJobDurationMs;
+  const producerStarted = parentPlanProviderTime(producer[0]!.started_at);
+  const producerCompleted = parentPlanProviderTime(producer[0]!.completed_at);
+  const uploadStarted = parentPlanProviderTime(upload[0]!.started_at);
+  const uploadCompleted = parentPlanProviderTime(upload[0]!.completed_at);
+  const created = parentPlanProviderTime(input.metadata.created_at);
+  const updated = parentPlanProviderTime(input.metadata.updated_at);
+  if (!Number.isSafeInteger(deadline) || producerStarted < jobStarted || producerCompleted < producerStarted
+      || uploadStarted < producerCompleted || uploadCompleted < uploadStarted || uploadCompleted > deadline
+      || created < uploadStarted || updated < created || updated > uploadCompleted) {
+    fail('parent plan artifact is outside its original producer/upload window.');
+  }
+  if (input.job.status === 'completed') {
+    const completed = parentPlanProviderTime(input.job.completed_at);
+    if (completed < uploadCompleted || completed > deadline) fail('parent plan job completion differs from its original lifetime.');
+  } else if (input.job.completed_at !== null || input.job.conclusion !== null) {
+    fail('parent plan active job already has terminal facts.');
+  }
 }
 
 async function authenticateReferencedParentAuthority(
@@ -1061,7 +1148,7 @@ async function authenticateReferencedParentAuthority(
   const parentMetadataRun = record(parentMetadata.workflow_run, 'parent artifact workflow run');
   if (parentMetadata.id !== Number(envelope.parentDispatchPlanArtifactId) ||
       parentMetadata.name !== envelope.parentDispatchPlanArtifactName || parentMetadata.expired !== false ||
-      String(parentMetadataRun.id ?? '') !== envelope.parentRunId) {
+      String(parentMetadataRun.id ?? '') !== envelope.parentRunId || parentMetadataRun.head_sha !== request.expectedBaseSha) {
     fail('parent dispatch plan artifact metadata differs from its envelope.');
   }
   const parentDownload = await transport.downloadArtifact({
@@ -1133,20 +1220,22 @@ async function authenticateReferencedParentAuthority(
     transport, repositoryName, envelope.parentRunId, envelope.parentRunAttempt
   );
   const parentJobs = jobs.filter((job) => String(job.id ?? '') === envelope.parentJobId);
-  const steps = parentJobs.length === 1 && Array.isArray(parentJobs[0]!.steps)
-    ? parentJobs[0]!.steps.map((entry, index) => record(entry, `parent plan job step[${index}]`))
-    : [];
-  const planSteps = steps.filter((step) => step.name === envelope.parentPlanStepName);
   if (parentJobs.length !== 1 || parentJobs[0]!.name !== envelope.parentJobName ||
       String(parentJobs[0]!.run_id ?? '') !== envelope.parentRunId ||
-      parentJobs[0]!.run_attempt !== envelope.parentRunAttempt ||
       parentJobs[0]!.head_sha !== request.expectedBaseSha ||
       !['in_progress', 'completed'].includes(String(parentJobs[0]!.status)) ||
-      (parentJobs[0]!.status === 'completed' && parentJobs[0]!.conclusion !== 'success') ||
-      planSteps.length !== 1 ||
-      planSteps[0]!.status !== 'completed' || planSteps[0]!.conclusion !== 'success') {
+      (parentJobs[0]!.status === 'completed' && parentJobs[0]!.conclusion !== 'success')) {
     fail('parent plan-producing job and step provenance mismatch.');
   }
+  const parentWorkflowSource = await transport.getCanonicalHostedWorkflowSource({
+    repository: repositoryName, revision: request.expectedBaseSha
+  });
+  const parentPolicy = assertCiVerificationPerJobHostedWorkflowShape(parentWorkflowSource, 'coordinate-verification-session');
+  if (parentPolicy.workflowPath !== envelope.parentWorkflowPath || parentPolicy.jobName !== envelope.parentJobName) {
+    fail('parent plan canonical source policy differs from its authenticated job.');
+  }
+  assertParentPlanArtifactUploadWindow({ policy: parentPolicy, job: parentJobs[0]!, metadata: parentMetadata,
+    expectedProducerStepName: envelope.parentPlanStepName });
 
   const expectedApp = CI_GITHUB_ACTIONS_IDENTITY_POLICY.app;
   const parentCheckSuiteId = Number(parentRun.check_suite_id);
