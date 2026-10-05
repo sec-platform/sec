@@ -40,42 +40,6 @@ function windowsControlCliProvider(): Record<string, unknown> {
   };
 }
 
-function executionTopology(): Record<string, unknown> {
-  return {
-    schema: 'sec-verification-execution-topology-v1',
-    semanticControlPlane: 'platform-neutral',
-    selection: 'required-closure-intersect-missing-or-stale',
-    environments: [
-      {
-        id: 'windows-native-control',
-        availability: 'available',
-        capabilities: ['semantic-control', 'windows-native'],
-        evidenceRole: 'owning-environment-only'
-      },
-      {
-        id: 'docker-linux-x64',
-        availability: 'available',
-        capabilities: ['linux-native-runtime'],
-        substrate: { wsl2: 'implementation-only-not-independent-evidence' },
-        localRemoteSwitch: 'same-profile-conformance-no-workflow-change'
-      },
-      {
-        id: 'darwin-native',
-        availability: 'unavailable',
-        capabilities: ['darwin-native'],
-        unrelatedDelta: 'not-applicable',
-        requiredDelta: 'typed-provider-unavailable'
-      }
-    ],
-    invariants: {
-      noPlatformSubstitution: true,
-      noSubstrateDoubleCounting: true,
-      noUnavailableProviderPass: true,
-      noWorkflowEditForLocalRemoteSwitch: true
-    }
-  };
-}
-
 function externalLedger(): Record<string, unknown> {
   const provider = (
     id: string,
@@ -100,7 +64,6 @@ function externalLedger(): Record<string, unknown> {
       repository: 'sec-platform/sec'
     },
     policy: { owner: 'docs/架构/实现供给与替换.md' },
-    executionTopology: executionTopology(),
     providers: [
       {
         id: 'codegraph',
@@ -404,14 +367,13 @@ test('external provider schema and cross-field negatives report the exact failin
       'External capability provider package-graph.capability security-analysis requires category security.'
     );
 
-    const platformSubstitution = structuredClone(base);
-    fixtureRecord(fixtureRecord(platformSubstitution.external.executionTopology).invariants)
-      .noPlatformSubstitution = false;
+    const staleTopology = structuredClone(base);
+    staleTopology.external.executionTopology = { availability: 'available' };
     await expectOneError(
       root,
-      platformSubstitution,
+      staleTopology,
       file,
-      'External capability ledger.executionTopology.invariants must all be true.'
+      'External capability ledger.executionTopology is not allowed.'
     );
 
     const weakAuthority = structuredClone(base);
@@ -681,8 +643,8 @@ test('workflow runtime catalog binds canonical Linux environment authority witho
       root,
       wrongProfile,
       'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.capability workflow-execution '
-        + 'does not permit routing profile sec-linux-verification-other.'
+      'External capability provider github-actions-local-runner '
+        + 'workflow-execution provider closure is invalid.'
     );
 
     const wrongSurface = structuredClone(state);

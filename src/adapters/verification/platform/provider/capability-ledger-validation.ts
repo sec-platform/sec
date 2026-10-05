@@ -351,56 +351,6 @@ async function validateWindowsControlCliProviderClosure(
   }
 }
 
-function validateExecutionTopology(value: unknown): void {
-  const label = 'External capability ledger.executionTopology';
-  const topology = recordValue(value, label);
-  exactKeys(topology, ['schema', 'semanticControlPlane', 'selection', 'environments', 'invariants'], label);
-  if (topology.schema !== 'sec-verification-execution-topology-v1'
-      || topology.semanticControlPlane !== 'platform-neutral'
-      || topology.selection !== 'required-closure-intersect-missing-or-stale') {
-    throw new Error(`${label} identity is invalid.`);
-  }
-  if (!Array.isArray(topology.environments) || topology.environments.length !== 3) {
-    throw new Error(`${label}.environments must contain the exact three capability environments.`);
-  }
-  const environments = topology.environments.map((entry, index) =>
-    recordValue(entry, `${label}.environments[${index}]`));
-  const [windows, linux, darwin] = environments;
-  exactKeys(windows!, ['id', 'availability', 'capabilities', 'evidenceRole'], `${label}.windows`);
-  exactKeys(linux!, [
-    'id', 'availability', 'capabilities', 'substrate', 'localRemoteSwitch'
-  ], `${label}.linux`);
-  exactKeys(darwin!, [
-    'id', 'availability', 'capabilities', 'unrelatedDelta', 'requiredDelta'
-  ], `${label}.darwin`);
-  const linuxSubstrate = recordValue(linux!.substrate, `${label}.linux.substrate`);
-  exactKeys(linuxSubstrate, ['wsl2'], `${label}.linux.substrate`);
-  if (windows!.id !== 'windows-native-control' || windows!.availability !== 'available'
-      || JSON.stringify(uniqueStrings(windows!.capabilities, `${label}.windows.capabilities`))
-        !== JSON.stringify(['semantic-control', 'windows-native'])
-      || windows!.evidenceRole !== 'owning-environment-only'
-      || linux!.id !== 'docker-linux-x64' || linux!.availability !== 'available'
-      || JSON.stringify(uniqueStrings(linux!.capabilities, `${label}.linux.capabilities`))
-        !== JSON.stringify(['linux-native-runtime'])
-      || linuxSubstrate.wsl2 !== 'implementation-only-not-independent-evidence'
-      || linux!.localRemoteSwitch !== 'same-profile-conformance-no-workflow-change'
-      || darwin!.id !== 'darwin-native' || darwin!.availability !== 'unavailable'
-      || JSON.stringify(uniqueStrings(darwin!.capabilities, `${label}.darwin.capabilities`))
-        !== JSON.stringify(['darwin-native'])
-      || darwin!.unrelatedDelta !== 'not-applicable'
-      || darwin!.requiredDelta !== 'typed-provider-unavailable') {
-    throw new Error(`${label} capability mapping is invalid.`);
-  }
-  const invariants = recordValue(topology.invariants, `${label}.invariants`);
-  exactKeys(invariants, [
-    'noPlatformSubstitution', 'noSubstrateDoubleCounting',
-    'noUnavailableProviderPass', 'noWorkflowEditForLocalRemoteSwitch'
-  ], `${label}.invariants`);
-  if (Object.values(invariants).some((entry) => entry !== true)) {
-    throw new Error(`${label}.invariants must all be true.`);
-  }
-}
-
 async function validateExternalCapabilityLedger(
   projection: ExternalCapabilityLedgerProjection,
   repositoryRoot: string
@@ -409,7 +359,7 @@ async function validateExternalCapabilityLedger(
   exactKeys(
     parsed,
     [
-      'schema', 'status', 'binding', 'policy', 'executionTopology',
+      'schema', 'status', 'binding', 'policy',
       'providers', 'invariants'
     ],
     'External capability ledger'
@@ -432,7 +382,6 @@ async function validateExternalCapabilityLedger(
   if (policy.owner !== 'docs/架构/实现供给与替换.md') {
     throw new Error('External capability ledger policy owner must be docs/架构/实现供给与替换.md.');
   }
-  validateExecutionTopology(parsed.executionTopology);
   if (!Array.isArray(parsed.providers) || parsed.providers.length === 0) {
     throw new Error('External capability providers must be a non-empty array.');
   }
