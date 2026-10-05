@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from 'node:child_process';
-import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
+import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
+import { inspectNoFollowDirectoryChain, readNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   parseRepositoryMaintenanceRequest,
   parseRepositoryMaintenanceResumeReceipt,
@@ -39,19 +40,17 @@ function gh(args: readonly string[], input?: string): string {
 }
 
 function readBoundedInput(filename: string, limit: number): string {
-  const fd = openSync(filename, constants.O_RDONLY | constants.O_NONBLOCK);
-  try {
-    if (!fstatSync(fd).isFile()) throw new Error('repository maintenance input must be a regular JSON file');
-    const bytes = Buffer.alloc(limit + 1);
-    let length = 0;
-    while (length < bytes.length) {
-      const count = readSync(fd, bytes, length, bytes.length - length, null);
-      if (count === 0) break;
-      length += count;
-    }
-    if (length > limit) throw new Error('repository maintenance input exceeds bounded byte limit');
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length));
-  } finally { closeSync(fd); }
+  if (process.platform !== 'linux' && process.platform !== 'win32') {
+    throw new Error(`repository maintenance file input is unsupported on ${process.platform}; the no-follow backend requires Linux or Windows`);
+  }
+  // The CLI selects a local input, not a repository-relative authority. Prove
+  // the entire parent chain, then read only its ordinary no-follow leaf through
+  // the physical owner; never reopen the caller's pathname as a file.
+  const selected = path.resolve(filename);
+  const parent = inspectNoFollowDirectoryChain(path.dirname(selected), 'maintenance input parent');
+  const bytes = readNoFollowOrdinaryFile(parent.target, path.basename(selected), { maximumBytes: limit });
+  if (bytes === null) throw new Error('repository maintenance input is absent');
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function repository(value: string | undefined): string {

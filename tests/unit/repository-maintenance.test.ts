@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+
+import { readLinuxRetainedFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
 
 import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
 
@@ -398,7 +400,7 @@ test('CLI authenticates once and dispatches one batch with exact returned run id
     const executable = path.join(root, 'gh');
     const log = path.join(root, 'calls');
     const payload = path.join(root, 'payload');
-    const request = path.join(root, 'request.json');
+    const request = path.join(root, 'request 计划.json');
     writeFileSync(request, batchSource(12));
     writeFileSync(executable, `#!/bin/sh
 printf '%s\n' "$*" >> "$DISPATCH_LOG"
@@ -412,8 +414,8 @@ esac
 `);
     chmodSync(executable, 0o755);
     const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts');
-    const run = (fail: boolean) => spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', request], {
-      encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH,
+    const run = (fail: boolean) => spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', fail ? request : path.relative(root, request)], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH,
         DISPATCH_LOG: log, DISPATCH_PAYLOAD: payload, DISPATCH_FAIL: fail ? '1' : '0' }
     });
     const successful = run(false);
@@ -452,4 +454,82 @@ test('v4 reviews belong only to immutable v2 plans; legacy comments remain reada
   legacy.operations[0].retirement = { classification: 'reviewed-superseded', branches: ['fix/old-0'],
     expectedHeadSha: 'b'.repeat(40), reviewIssueNumber: 313, reviewCommentId: 42 };
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(legacy))).toThrow('not mutable comment reviews');
+});
+
+
+test('dispatch input ownership rejects linked ancestors and leaves, special files and oversized request or resume before gh', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-'));
+  try {
+    const log = path.join(root, 'calls');
+    const gh = path.join(root, 'gh');
+    writeFileSync(gh, '#!/bin/sh\necho called >> "$DISPATCH_LOG"\nexit 99\n');
+    chmodSync(gh, 0o755);
+    const ordinary = path.join(root, 'ordinary');
+    mkdirSync(ordinary);
+    const request = path.join(ordinary, 'request.json');
+    writeFileSync(request, batchSource());
+    const leafLink = path.join(root, 'leaf.json');
+    symlinkSync(request, leafLink);
+    const parentLink = path.join(root, 'parent');
+    symlinkSync(ordinary, parentLink);
+    const oversized = path.join(root, 'oversized.json');
+    writeFileSync(oversized, '');
+    truncateSync(oversized, 128 * 1024 * 1024);
+    const invalidUtf8 = path.join(root, 'invalid.json');
+    writeFileSync(invalidUtf8, Buffer.from([0xff]));
+    const fifo = path.join(root, 'fifo');
+    expect(spawnSync('mkfifo', [fifo]).status).toBe(0);
+    const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts');
+    for (const input of [leafLink, path.join(parentLink, 'request.json'), ordinary, oversized, invalidUtf8, fifo]) {
+      const result = spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', input], {
+        timeout: 5_000, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH, DISPATCH_LOG: log }
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).not.toBe(0);
+      expect(existsSync(log)).toBe(false);
+    }
+    const resume = path.join(root, 'resume.json');
+    writeFileSync(resume, ' '.repeat(1025));
+    const result = spawnSync(process.execPath, [cli, '--repository', 'sec-platform/sec', '--request', request, '--resume-receipt', resume], {
+      timeout: 5_000, encoding: 'utf8', env: { ...process.env, PATH: root + path.delimiter + process.env.PATH, DISPATCH_LOG: log }
+    });
+    expect(result.status).not.toBe(0);
+    expect(existsSync(log)).toBe(false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('the physical bounded reader rejects growth after its initial size observation', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'maintenance-input-growth-'));
+  const file = path.join(root, 'request.json');
+  writeFileSync(file, '{}');
+  const fd = openSync(file, 'r');
+  try {
+    let observations = 0;
+    expect(() => readLinuxRetainedFile(fd, 'maintenance request growth fixture', 8, () => {
+      observations += 1;
+      if (observations === 2) appendFileSync(file, ' '.repeat(9));
+    })).toThrow('bounded no-follow read size');
+    expect(observations).toBeGreaterThanOrEqual(2);
+  } finally { closeSync(fd); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('unsupported file-input platforms fail explicitly without changing no-file CLI validation', () => {
+  const cli = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts');
+  const source = `
+    const { repositoryMaintenanceDispatchCli } = await import(${JSON.stringify(cli)});
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    const messages = [];
+    for (const argv of [[], ['--repository', 'sec-platform/sec', '--request', 'request.json']]) {
+      try { repositoryMaintenanceDispatchCli(argv); } catch (error) { messages.push(error.message); }
+    }
+    console.log(JSON.stringify(messages));
+  `;
+  const child = spawnSync(process.execPath, ['--eval', source], { encoding: 'utf8', timeout: 5_000 });
+  expect(child.status).toBe(0);
+  const messages = JSON.parse(child.stdout);
+  expect(messages[0]).toContain('usage:');
+  expect(messages[0]).not.toContain('unsupported');
+  expect(messages[1]).toContain('file input is unsupported on darwin');
 });
