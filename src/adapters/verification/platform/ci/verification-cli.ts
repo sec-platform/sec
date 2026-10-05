@@ -13,6 +13,7 @@ import { withAcquiredResource } from '../../../../execution/resource-settlement.
 import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import type { VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
 import type { VerificationGateEvidence } from '../../../../execution/verification/session.ts';
+import { assertGitCandidateCheckoutCurrent, gitCandidateCheckoutRecipeBinding, withGitCandidateCheckout } from '../../../providers/git-bundle/runtime.ts';
 import {
   withAuthorityGitReadOperation,
   type AuthorityGitReadOperation
@@ -22,7 +23,7 @@ import {
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
 import { ciVerificationHostedActionCandidateRoot, ciVerificationHostedJobTransportSlot } from '../../../providers/github-api/contract/hosted-job-policy.ts';
-import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import { withGitHubApiVerificationSession } from '../../../providers/github-api/operation-session.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
@@ -35,6 +36,7 @@ import {
   retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import type { ProcessResourceCommandBinding } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageAcceptsObservedBase,
@@ -87,7 +89,7 @@ import { CodexDevelopmentExecuteCiActionClosure } from './verification-action-ef
 import { CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentParseHostedActionRawResult } from './verification-coordination.ts';
 import type { CodexDevelopmentHostedActionProviderIndex } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, ciActionDigest, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, hostedActionProviderIndexFromSnapshot, INVALIDATION_RULES, parseHostedEnvelope, VERIFICATION_EVIDENCE_PATH } from './verification-hosted-action-contract.ts';
-import { CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertPreparedHostedActionCandidate, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
+import { assertPreparedHostedActionArchiveCurrent, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentPrepareHostedActionInputs, consumePreparedHostedActionArchive, createHostedActionArchiveRecipeIssuer, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
 import { writeHostedActionJson } from './verification-shared.ts';
 import { CodexDevelopmentExecuteTrustedBootstrapSut, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
@@ -1047,7 +1049,10 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
   const texts = new Map<string, Readonly<{ file: string; label: string }>>();
   const captures = new WeakMap<object, string>();
   const resolutions = new WeakMap<object, Authority>();
-  const inventories = new WeakMap<object, InventoryInput>();
+  type PreparedInputs = Awaited<ReturnType<typeof CodexDevelopmentPrepareHostedActionInputs>>;
+  type PrivatePreparation = Readonly<{ value: PreparedInputs; resolution: Resolution; operation: ProcessResourceCommandBinding }>;
+  const privatePreparations = new WeakMap<object, PrivatePreparation>();
+  const inventories = new WeakMap<object, InventoryInput & Readonly<{ privatePreparation?: PrivatePreparation }>>();
   const inspectedInventories: Inventory[] = [];
   const providerEnvelopes: CiVerificationActionProviderEnvelope[] = [];
   const transactions: Readonly<{ authority: Authority; result: Transaction }>[] = [];
@@ -1153,7 +1158,10 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
       baseDependencyClosureDigest: ownField(input, 'baseDependencyClosureDigest'),
       authenticatedGitClosureDigest: ownField(input, 'authenticatedGitClosureDigest') });
     if (!resolutions.has(input.resolution)) throw new Error('Archive inspection requires original resolved Action capture.');
-    current(); const value = deepFreeze(CodexDevelopmentInspectHostedActionArchive(input));
+    if (current().phase === 'prepare-start-marker') {
+      throw new Error('Marker preparation inspection requires its original private prepared object.');
+    }
+    const value = deepFreeze(CodexDevelopmentInspectHostedActionArchive(input));
     inventories.set(value, Object.freeze({ ...input })); inspectedInventories.push(value); return value;
   };
   const candidateRoots = (resolution: Resolution) => {
@@ -1171,7 +1179,14 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
   };
   const assertInventory = (value: Inventory) => {
     const input = inventories.get(value);
-    if (input === undefined || encodeVerificationActionData(CodexDevelopmentInspectHostedActionArchive(input)) !== encodeVerificationActionData(value)) {
+    if (input === undefined) throw new Error('Prepared archive lacks its original inventory binding.');
+    if (input.privatePreparation !== undefined) {
+      const original = input.privatePreparation;
+      if (original.value.archiveInventory !== value || original.resolution !== input.resolution) {
+        throw new Error('Private archive inventory differs from its original materializer object.');
+      }
+      assertPreparedHostedActionArchiveCurrent(original.value, original.operation);
+    } else if (encodeVerificationActionData(CodexDevelopmentInspectHostedActionArchive(input)) !== encodeVerificationActionData(value)) {
       throw new Error('Prepared candidate archive changed after its original inspection.');
     }
   };
@@ -1242,25 +1257,52 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
       const source = captures.get(input.parentPlan)!; captures.set(value, source); providerEnvelopes.push(value); return value;
     },
     repositoryIdentity: () => { current(); return hostedActionRepositoryIdentity(); }, parentContext,
-    assertCandidate: (resolution: Resolution) => {
-      const roots = candidateRoots(resolution);
-      CodexDevelopmentAssertPreparedHostedActionCandidate({ resolution, candidateRoot: roots.candidateRoot });
-      current('prepare-start-marker');
-    },
-    checkDependencyInputs: (resolution: Resolution) => {
-      const roots = candidateRoots(resolution);
-      const digest = CodexDevelopmentAssertHostedActionDependencyInputsV1({ ...roots, baseSha: resolution.artifactInput.baseSha });
-      current('prepare-start-marker'); return digest;
-    },
-    prepareCandidateArchive: (input: Readonly<{ resolution: Resolution; outputDirectory: string }>) => {
+    prepareCandidateArchive: async (input: Readonly<{ resolution: Resolution; outputDirectory: string }>) => {
       input = Object.freeze({ resolution: ownField(input, 'resolution'), outputDirectory: ownField(input, 'outputDirectory') });
       const roots = candidateRoots(input.resolution);
       if (path.resolve(input.outputDirectory) !== path.resolve(roots.baseRoot,
         ciVerificationHostedJobTransportSlot('claim-verification-action', 'out', 'prepared'))) {
         throw new Error('Prepared candidate archive output is not its sole canonical transport directory.');
       }
-      const value = deepFreeze(CodexDevelopmentPrepareHostedActionInputs({ ...roots, ...input }));
-      current('prepare-start-marker'); return value;
+      const job = current('prepare-start-marker');
+      const issuer = createHostedActionArchiveRecipeIssuer();
+      const completed = await withGitCandidateCheckout({ sourceRoot: roots.candidateRoot, trustedRoot: roots.baseRoot,
+        archiveRecipeIssuer: issuer,
+        baseSha: input.resolution.artifactInput.baseSha, headSha: input.resolution.artifactInput.headSha,
+        purpose: 'action-materialization', deadlineAtUnixMs: job.deadlineAtUnixMs,
+        signal: getAuthenticatedGitHubJobOriginSignal(origin)
+      }, async checkout => {
+        current('prepare-start-marker');
+        const value = await CodexDevelopmentPrepareHostedActionInputs({ ...roots, ...input,
+          candidateRoot: checkout.candidateRoot, checkout });
+        assertGitCandidateCheckoutCurrent(checkout);
+        current('prepare-start-marker');
+        return Object.freeze({ value, operation: gitCandidateCheckoutRecipeBinding(checkout, issuer) });
+      });
+      current('prepare-start-marker');
+      privatePreparations.set(completed.value, Object.freeze({ ...completed, resolution: input.resolution }));
+      return completed.value;
+    },
+    inspectPreparedCandidateArchive: (input: Readonly<{ resolution: Resolution; prepared: Readonly<{
+      preparedCandidateArchive: string; baseDependencyClosureDigest: VerificationActionKeyDigest;
+      authenticatedGitClosureDigest: VerificationActionKeyDigest;
+    }> }>) => {
+      const resolution = ownField(input, 'resolution');
+      const prepared = ownField(input, 'prepared');
+      current('prepare-start-marker');
+      const original = privatePreparations.get(prepared);
+      if (original === undefined || original.resolution !== resolution || original.value !== prepared
+          || !resolutions.has(resolution)) {
+        throw new Error('Prepared inspection requires the same original materializer object and Action operation.');
+      }
+      const value = consumePreparedHostedActionArchive(original.value, original.operation);
+      privatePreparations.delete(prepared);
+      current('prepare-start-marker');
+      inventories.set(value, Object.freeze({ resolution, preparedCandidateArchive: original.value.preparedCandidateArchive,
+        baseDependencyClosureDigest: original.value.baseDependencyClosureDigest,
+        authenticatedGitClosureDigest: original.value.authenticatedGitClosureDigest, privatePreparation: original }));
+      inspectedInventories.push(value);
+      return value;
     },
     parentJobId: hostedActionParentJobId, parentActor: hostedActionParentActor,
     createParentPlan: (input: Parameters<typeof createCiVerificationActionParentDispatchPlan>[0]) => {
@@ -1722,27 +1764,8 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     return JSON.stringify(result);
   }
   if (command === 'prepare-hosted-action-inputs') {
-    const args = hostedActionCliArgs(argv, [
-      '--resolution', '--base-root', '--candidate-root', '--output-directory'
-    ]);
-    const resolution = CodexDevelopmentParseHostedActionResolution(
-      hostedActionTransportText(args.get('--resolution')!, 'hosted Action resolution')
-    );
-    const prepared = CodexDevelopmentPrepareHostedActionInputs({
-      resolution,
-      baseRoot: args.get('--base-root')!,
-      candidateRoot: args.get('--candidate-root')!,
-      outputDirectory: args.get('--output-directory')!
-    });
-    return JSON.stringify({
-      status: 'prepared',
-      actionKey: resolution.actionPlan.action.actionKey,
-      preparedCandidateArchive: prepared.preparedCandidateArchive,
-      archiveDigest: prepared.archiveInventory.archiveDigest,
-      archiveInventoryDigest: prepared.archiveInventory.inventoryDigest,
-      baseDependencyClosureDigest: prepared.baseDependencyClosureDigest,
-      authenticatedGitClosureDigest: prepared.authenticatedGitClosureDigest
-    });
+    throw new Error('Hosted Action input preparation requires its original authenticated preparation ports and inherited scope.');
   }
+
   throw new Error(`Unknown hosted Action command: ${command ?? '<missing>'}.`);
 }

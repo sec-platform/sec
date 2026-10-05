@@ -270,11 +270,11 @@ test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner st
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'FINAL rule-loading fixture']));
     const targetCandidate = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     // Current published package is not activation-ready: preserve its missing-authorityRefs refusal.
-    expect(() => observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, baseManifest, [guidance]))
-      .toThrow('activation-scope-conflict');
+    await expect(observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, baseManifest, [guidance]))
+      .rejects.toThrow('activation-scope-conflict');
     // This successor fixture supplies the required registry-bound refs, without
     // claiming a hosted activation receipt or current-main package adoption.
-    const authorityOwners = observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, manifest, [guidance]);
+    const authorityOwners = await observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, manifest, [guidance]);
     const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trustedRevision}:${guidance}`])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${targetCandidate}:${guidance}`])).trim();
     const owner = authorityOwners.find(entry => entry.ref === guidance)!;

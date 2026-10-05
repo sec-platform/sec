@@ -7,7 +7,7 @@ import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '
 import { resolveSecRuntimeStateForRepository } from '../../adapters/runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../adapters/runtime-state/workspace-state/physical-authority.ts';
 
-import { assertGitCandidateBundleCurrent, closeGitCandidateBundle, createGitCandidateBundle, type GitCandidateBundle } from '../../adapters/providers/git-bundle/runtime.ts';
+import { assertGitCandidateBundleCurrent, closeGitCandidateBundle, createGitCandidateBundle, withGitCandidateCheckout, type GitCandidateBundle } from '../../adapters/providers/git-bundle/runtime.ts';
 import {
   CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST,
   ciVerificationHostedActionClaimFiles, ciVerificationHostedActionResolverFiles, ciVerificationHostedCoordinatorFiles,
@@ -1185,11 +1185,21 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
         const activation = hostedActivationNeed(origin);
         const outputPath = path.join(ensureHostedJobOutputParent(origin, 'activation'),
           AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE);
-        const result = await produceHostedAgentOperationActivation({
-          runtimeRoot: job.trustedDriverRoot,
-          candidateRoot: path.join(job.trustedDriverRoot, 'candidate'),
-          requestPath: activation.requestPath, outputPath
+        const result = await withGitCandidateCheckout({
+          sourceRoot: path.join(job.trustedDriverRoot, 'candidate'), trustedRoot: job.trustedDriverRoot,
+          baseSha: activation.request.expectedBaseSha, headSha: activation.request.expectedHeadSha,
+          purpose: 'activation-static', deadlineAtUnixMs: job.deadlineAtUnixMs,
+          signal: getAuthenticatedGitHubJobOriginSignal(origin)
+        }, async candidateCheckout => {
+          assertAuthenticatedGitHubJobOriginCurrent(origin);
+          const value = await produceHostedAgentOperationActivation({
+            runtimeRoot: job.trustedDriverRoot, candidateRoot: candidateCheckout.candidateRoot,
+            candidateCheckout, requestPath: activation.requestPath, outputPath
+          });
+          assertAuthenticatedGitHubJobOriginCurrent(origin);
+          return value;
         });
+        assertAuthenticatedGitHubJobOriginCurrent(origin);
         if (result.disposition === 'created') {
           hostedActivationPayload(origin, activation.request.phase, outputPath, result.payloadDigest);
           projectHostedStepOutputs(origin, {
@@ -1207,10 +1217,11 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
         const upload = hostedActivationUpload(origin);
         const payloadPath = hostedJobTransportSlot(origin, 'out', 'activation',
           AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE);
-        const result = publishHostedAgentOperationActivation({
+        const result = await publishHostedAgentOperationActivation({
           runtimeRoot: job.trustedDriverRoot, requestPath: activation.requestPath,
           payloadPath, artifactId: upload.artifactId, artifactDigest: upload.artifactDigest
         });
+        assertAuthenticatedGitHubJobOriginCurrent(origin);
         return JSON.stringify(result);
       }
       case 'prepare-integration-hosted':

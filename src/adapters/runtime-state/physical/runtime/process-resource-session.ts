@@ -13,17 +13,19 @@ import {
   type BoundSemanticOperation,
   type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
+import { settleResources as settlePhysicalResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { assertIndependentProviderProcessCapabilityForSession } from './independent-provider-process.ts';
 import {
   openObservedNativeProcessResourceLedger,
   type ObservedNativeProcessResourceLedgerSnapshot
 } from './observed-process.ts';
 import {
+  issueRetainedCommandBoundary,
   runRetainedCommandBytes,
   type ByteCommandResult,
   type RunRetainedCommandOptions
 } from './process.ts';
-import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
+import { assertRetainedCommandBoundaryCurrent, retainedCommandBoundaryAuxiliaryInputs, type RetainedCommandBoundary } from './retained-command-boundary.ts';
 
 export type ProcessResourceRunOptions = Omit<
   RunRetainedCommandOptions,
@@ -121,6 +123,8 @@ type ProcessResourceSessionBindingState = {
   deadlineAtMonotonicMs: number;
   signal: AbortSignal;
   closed: boolean;
+  boundCommands: Set<BoundProcessResourceCommand>;
+  commandBindings: Map<ProcessResourceCommandIssuer, ProcessResourceCommandBinding>;
 };
 const PROCESS_RESOURCE_SESSION_BINDINGS = new WeakMap<object, ProcessResourceSessionBindingState>();
 const ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS = new WeakSet<object>();
@@ -154,6 +158,245 @@ const PROCESS_RESOURCE_SESSION_RECEIPT_BINDINGS = new WeakMap<
   object,
   ProcessResourceSession
 >();
+/** Opaque identities are valid only in the original issuing module instance. */
+const BOUND_PROCESS_ISSUER = Symbol('process-resource-command-issuer');
+const BOUND_PROCESS_BINDING = Symbol('process-resource-command-binding');
+const BOUND_PROCESS_COMMAND = Symbol('bound-process-resource-command');
+export type ProcessResourceCommandIssuer = Readonly<{ [BOUND_PROCESS_ISSUER]: true }>;
+export type ProcessResourceCommandBinding = Readonly<{ [BOUND_PROCESS_BINDING]: true }>;
+export type BoundProcessResourceCommand = Readonly<{ [BOUND_PROCESS_COMMAND]: true }>;
+
+/** Fixed archive recipes need no ambient environment, stdin, callbacks or
+ * independent-provider selector. This narrower shape cannot expand run(). */
+type BoundProcessResourceCommandInput = Readonly<{
+  boundary: RetainedCommandBoundary;
+  args: readonly string[];
+  options: Readonly<{
+    env: Readonly<Record<string, string | undefined>>;
+    envMode: 'replace';
+    maxStdoutBytes: number;
+    maxStderrBytes: number;
+  }>;
+}>;
+type BoundCommandState = {
+  readonly session: ProcessResourceSession;
+  readonly binding: ProcessResourceCommandBinding;
+  readonly boundary: RetainedCommandBoundary;
+  readonly args: readonly string[];
+  readonly options: ProcessResourceRunOptions;
+  readonly resources: readonly (RetainedCommandBoundary['executable'] | RetainedCommandBoundary['workingDirectory'])[];
+  status: 'prepared' | 'running' | 'released' | 'cleanup-unknown';
+};
+const PROCESS_COMMAND_ISSUERS = new WeakSet<object>();
+const PROCESS_COMMAND_BINDINGS = new WeakMap<object, Readonly<{
+  session: ProcessResourceSession;
+  issuer: ProcessResourceCommandIssuer;
+}>>();
+const BOUND_PROCESS_COMMANDS = new WeakMap<object, BoundCommandState>();
+const BOUND_PROCESS_RESOURCE_OWNERS = new WeakMap<object, BoundProcessResourceCommand>();
+const MAXIMUM_BOUND_COMMAND_ARGUMENT_BYTES = 128 * 1024;
+
+function commandDataRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${label} must be a data record.`);
+  }
+  const captured: Record<string, unknown> = Object.create(null);
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') throw new TypeError(`${label} cannot contain symbol fields.`);
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !('value' in descriptor)) {
+      throw new TypeError(`${label} cannot contain accessors.`);
+    }
+    captured[key] = descriptor.value;
+  }
+  return captured;
+}
+
+function captureBoundCommandArguments(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) throw new TypeError('Bound command argv must be an array.');
+  const length = Object.getOwnPropertyDescriptor(value, 'length')?.value as number;
+  if (!Number.isSafeInteger(length) || length < 0 || length > MAXIMUM_BOUND_COMMAND_ARGUMENT_BYTES) {
+    throw new Error('Bound command argv exceeds its capture ceiling.');
+  }
+  const captured: string[] = [];
+  let bytes = 0;
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    const argument: unknown = descriptor !== undefined && 'value' in descriptor ? descriptor.value : undefined;
+    if (typeof argument !== 'string' || /[\0\p{Surrogate}]/u.test(argument)) {
+      throw new TypeError('Bound command argv must contain dense, well-formed string data.');
+    }
+    bytes += Buffer.byteLength(argument, 'utf8') + 1;
+    if (bytes > MAXIMUM_BOUND_COMMAND_ARGUMENT_BYTES) throw new Error('Bound command argv exceeds its capture ceiling.');
+    captured.push(argument);
+  }
+  return Object.freeze(captured);
+}
+
+function captureBoundCommandOptions(value: unknown): ProcessResourceRunOptions {
+  const data = commandDataRecord(value, 'Bound command options');
+  if (Object.keys(data).some(key => !['env', 'envMode', 'maxStdoutBytes', 'maxStderrBytes'].includes(key))
+      || data.envMode !== 'replace') {
+    throw new Error('Bound archive commands require the closed replacement-environment options.');
+  }
+  for (const key of ['maxStdoutBytes', 'maxStderrBytes']) {
+    if (!Number.isSafeInteger(data[key]) || (data[key] as number) < 0) {
+      throw new Error('Bound command output ceiling is invalid.');
+    }
+  }
+  const environment = commandDataRecord(data.env, 'Bound command environment');
+  const env: Record<string, string> = Object.create(null);
+  let bytes = 0;
+  for (const [name, entry] of Object.entries(environment)) {
+    if (name.length === 0 || /[\0=\p{Surrogate}]/u.test(name)
+        || (entry !== undefined && (typeof entry !== 'string' || /[\0\p{Surrogate}]/u.test(entry)))) {
+      throw new TypeError('Bound command environment is malformed.');
+    }
+    if (entry === undefined) continue;
+    bytes += Buffer.byteLength(name, 'utf8') + Buffer.byteLength(entry, 'utf8') + 2;
+    if (bytes > MAXIMUM_BOUND_COMMAND_ARGUMENT_BYTES) throw new Error('Bound command environment exceeds its capture ceiling.');
+    env[name] = entry;
+  }
+  return Object.freeze({ env: Object.freeze(env), envMode: 'replace' as const,
+    maxStdoutBytes: data.maxStdoutBytes as number, maxStderrBytes: data.maxStderrBytes as number });
+}
+
+function commandBindingState(session: ProcessResourceSession, binding: ProcessResourceCommandBinding) {
+  const state = binding !== null && typeof binding === 'object' ? PROCESS_COMMAND_BINDINGS.get(binding) : undefined;
+  const owner = session !== null && typeof session === 'object' ? PROCESS_RESOURCE_SESSION_BINDINGS.get(session) : undefined;
+  if (state === undefined || state.session !== session || owner === undefined
+      || !ISSUED_PROCESS_RESOURCE_SESSIONS.has(session)) {
+    throw new Error('Bound command requires its original session and issuer binding.');
+  }
+  return { state, owner };
+}
+
+/** Trusted composition keeps issue private; only identity reaches a borrower. */
+export function createProcessResourceCommandIssuer(): Readonly<{
+  identity: ProcessResourceCommandIssuer;
+  issue(binding: ProcessResourceCommandBinding, input: BoundProcessResourceCommandInput): BoundProcessResourceCommand;
+}> {
+  const identity: ProcessResourceCommandIssuer = Object.freeze({ [BOUND_PROCESS_ISSUER]: true as const });
+  PROCESS_COMMAND_ISSUERS.add(identity);
+  return Object.freeze({ identity, issue(binding: ProcessResourceCommandBinding, input: BoundProcessResourceCommandInput) {
+    const original = PROCESS_COMMAND_BINDINGS.get(binding);
+    if (original === undefined || original.issuer !== identity) {
+      throw new Error('Bound command requires its original live issuer.');
+    }
+    const { owner } = commandBindingState(original.session, binding);
+    if (owner.closed) throw new Error('Bound command requires its original live issuer.');
+    original.session.cooperativeDeadlineAtUnixMs();
+    if (owner.boundCommands.size >= owner.maximumProcesses - original.session.processCount) {
+      throw new Error('Bound command preparation exceeds the original remaining process ceiling.');
+    }
+    const data = commandDataRecord(input, 'Bound command');
+    if (Object.keys(data).some(key => !['boundary', 'args', 'options'].includes(key))) {
+      throw new TypeError('Bound command contains an unknown field.');
+    }
+    const suppliedBoundary = data.boundary as RetainedCommandBoundary;
+    assertRetainedCommandBoundaryCurrent(suppliedBoundary);
+    const args = captureBoundCommandArguments(data.args);
+    const options = captureBoundCommandOptions(data.options);
+    // Capture auxiliary records too: the original transport capability may
+    // retain an array containing caller-owned auxiliary record objects.
+    const boundary = issueRetainedCommandBoundary({
+      executable: suppliedBoundary.executable,
+      workingDirectory: suppliedBoundary.workingDirectory,
+      auxiliaryInputs: Object.freeze(retainedCommandBoundaryAuxiliaryInputs(suppliedBoundary)
+        .map(input => Object.freeze({ capability: input.capability, kind: input.kind })))
+    });
+    const resources = Object.freeze([...new Set([
+      ...retainedCommandBoundaryAuxiliaryInputs(boundary).map(input => input.capability),
+      boundary.workingDirectory, boundary.executable
+    ])]);
+    // Capture may execute Proxy traps. Recheck the original admission after
+    // every caller-controlled read; only owner-issued immutable data is used
+    // between this fence and registration. A reentrant close/issue cannot
+    // leave resources behind a previously issued positive session receipt.
+    const current = commandBindingState(original.session, binding);
+    if (current.owner !== owner || owner.closed) {
+      throw new Error('Bound command requires its original live issuer.');
+    }
+    original.session.cooperativeDeadlineAtUnixMs();
+    assertRetainedCommandBoundaryCurrent(boundary);
+    if (owner.boundCommands.size >= owner.maximumProcesses - original.session.processCount) {
+      throw new Error('Bound command preparation exceeds the original remaining process ceiling.');
+    }
+    if (resources.some(resource => BOUND_PROCESS_RESOURCE_OWNERS.has(resource))) {
+      throw new Error('A retained resource already belongs to an outstanding bound command.');
+    }
+    const command: BoundProcessResourceCommand = Object.freeze({ [BOUND_PROCESS_COMMAND]: true as const });
+    BOUND_PROCESS_COMMANDS.set(command, { session: original.session, binding, boundary, args, options,
+      resources, status: 'prepared' });
+    for (const resource of resources) BOUND_PROCESS_RESOURCE_OWNERS.set(resource, command);
+    owner.boundCommands.add(command);
+    return command;
+  } });
+}
+
+export function bindProcessResourceCommandIssuer(
+  session: ProcessResourceSession, issuer: ProcessResourceCommandIssuer
+): ProcessResourceCommandBinding {
+  const owner = session !== null && typeof session === 'object' ? PROCESS_RESOURCE_SESSION_BINDINGS.get(session) : undefined;
+  if (owner === undefined || owner.closed || issuer === null || typeof issuer !== 'object'
+      || !PROCESS_COMMAND_ISSUERS.has(issuer)) {
+    throw new Error('Command binding requires an original live session and issuer.');
+  }
+  session.cooperativeDeadlineAtUnixMs();
+  const existing = owner.commandBindings.get(issuer);
+  if (existing !== undefined) return existing;
+  const binding: ProcessResourceCommandBinding = Object.freeze({ [BOUND_PROCESS_BINDING]: true as const });
+  PROCESS_COMMAND_BINDINGS.set(binding, Object.freeze({ session, issuer }));
+  owner.commandBindings.set(issuer, binding);
+  return binding;
+}
+
+function releaseBoundCommandResources(command: BoundProcessResourceCommand, state: BoundCommandState): void {
+  state.status = 'cleanup-unknown';
+  settlePhysicalResources({ cleanup: state.resources.map((resource, index) => ({
+    label: `bound-command-resource:${index}`, settle: () => resource.dispose()
+  })) });
+  state.status = 'released';
+  PROCESS_RESOURCE_SESSION_BINDINGS.get(state.session)!.boundCommands.delete(command);
+  for (const resource of state.resources) BOUND_PROCESS_RESOURCE_OWNERS.delete(resource);
+}
+
+export async function runBoundProcessResourceCommand(
+  session: ProcessResourceSession, binding: ProcessResourceCommandBinding, command: BoundProcessResourceCommand
+): Promise<ProcessResourceRunResult> {
+  commandBindingState(session, binding);
+  const state = command !== null && typeof command === 'object' ? BOUND_PROCESS_COMMANDS.get(command) : undefined;
+  if (state === undefined || state.session !== session || state.binding !== binding) {
+    throw new Error('Bound command is not an original member of this session and issuer.');
+  }
+  if (state.status !== 'prepared') throw new Error('Bound command was already used or has unresolved cleanup.');
+  state.status = 'running';
+  let result: ProcessResourceRunResult | undefined;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    // The original run owner alone admits, accounts, cancels and joins the
+    // physical child. This wrapper never issues another process session.
+    result = await session.run(state.boundary, state.args, state.options);
+  } catch (error) { primary = { label: 'bound-command-execution', error }; }
+  settlePhysicalResources({ primary, cleanup: [{ label: 'bound-command-resources',
+    settle: () => releaseBoundCommandResources(command, state) }] });
+  // A released bound resource is not proof of child settlement. close() still
+  // consumes the original native ledger and refuses unknown physical outcomes.
+  return result!;
+}
+
+export function releasePreparedProcessResourceCommands(
+  session: ProcessResourceSession, binding: ProcessResourceCommandBinding
+): void {
+  const { owner } = commandBindingState(session, binding);
+  settlePhysicalResources({ cleanup: [...owner.boundCommands].flatMap(command => {
+    const state = BOUND_PROCESS_COMMANDS.get(command)!;
+    return state.binding === binding && state.status === 'prepared'
+      ? [{ label: 'unstarted-bound-command', settle: () => releaseBoundCommandResources(command, state) }]
+      : [];
+  }) });
+}
+
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
 
@@ -541,6 +784,9 @@ export function openProcessResourceSession(input: Readonly<{
       assertIssuedReceiver(this, 'close');
       if (active) throw new Error('Process resource session cannot close with an active child.');
       if (receipt !== null) return receipt;
+      if (PROCESS_RESOURCE_SESSION_BINDINGS.get(session)!.boundCommands.size !== 0) {
+        throw new Error('Process resource session has outstanding bound-command resources.');
+      }
       const nativeResources: ObservedNativeProcessResourceLedgerSnapshot = nativeResourceLedger.close();
       const withoutDigest = deepFreeze({
         operationIdentityDigest: input.operation.plan.identity.identityDigest,
@@ -595,7 +841,9 @@ export function openProcessResourceSession(input: Readonly<{
     deadlineAtUnixMs,
     deadlineAtMonotonicMs,
     signal: sessionController.signal,
-    closed: false
+    closed: false,
+    boundCommands: new Set(),
+    commandBindings: new Map()
   });
   return Object.freeze(session);
 }

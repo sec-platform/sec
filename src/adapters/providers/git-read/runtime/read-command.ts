@@ -1,3 +1,5 @@
+import { devNull } from 'node:os';
+
 /** Capture the actual dense argv and its byte charge before grammar checks or
  * provider callbacks. A custom iterator/getter is not a second command source.
  * Stop at the existing caller-owned byte ceiling; this issues no capability.
@@ -97,14 +99,23 @@ function gitReadArgumentsInvokeHelper(args: readonly string[]): boolean {
   ));
 }
 
+// Fixed local observation policy belongs to the command owner. Callers can
+// only add grammar-approved overrides, none of which can re-enable helpers.
+export const GIT_READ_LOCAL_HELPER_SUPPRESSION = Object.freeze([
+  '-c', `core.hooksPath=${devNull}`, '-c', 'core.fsmonitor=false',
+  '-c', `core.attributesFile=${devNull}`
+]);
+
 const GIT_READ_SAFE_CONFIG_OVERRIDES = new Set([
+  `core.hooksPath=${devNull}`,
+  `core.attributesFile=${devNull}`,
   'core.attributesFile=',
   'core.fsmonitor=false',
   'core.quotepath=false',
   'core.untrackedCache=false'
 ]);
 
-function gitReadCommandIndex(args: readonly string[]): number {
+function gitReadCommandIndex(args: readonly string[], fixedRoot: boolean): number {
   if (args.length === 1 && args[0] === '--version') return 0;
   let index = 0;
   while (index < args.length) {
@@ -116,7 +127,7 @@ function gitReadCommandIndex(args: readonly string[]): number {
       continue;
     }
     if (argument === '--git-dir' || argument === '--work-tree') {
-      if (args[index + 1] === undefined) return -1;
+      if (fixedRoot || args[index + 1] === undefined) return -1;
       index += 2;
       continue;
     }
@@ -135,12 +146,15 @@ function gitReadCommandIndex(args: readonly string[]): number {
  * with read and write modes are narrowed to their observation-only form here;
  * a semantic mutation owner must use a separately issued effect capability.
  */
-export function gitReadCommandIsObservation(args: readonly string[]): boolean {
+export function gitReadCommandIsObservation(args: readonly string[], scope?: Readonly<{
+  commands: readonly string[]; fixedRoot: boolean;
+}>): boolean {
   // The command is identified by grammar position, not a value search: a
   // --git-dir/--work-tree operand may itself be named branch, show or config.
-  const commandIndex = gitReadCommandIndex(args);
+  const commandIndex = gitReadCommandIndex(args, scope?.fixedRoot ?? false);
   if (commandIndex < 0) return false;
   const command = args[commandIndex]!;
+  if (scope !== undefined && !scope.commands.includes(command)) return false;
   if (command === '--version') return true;
   if (!GIT_READ_ONLY_COMMANDS.has(command)) return false;
   const commandArgs = args.slice(commandIndex + 1);

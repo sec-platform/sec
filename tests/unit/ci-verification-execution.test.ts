@@ -2,6 +2,7 @@ import { spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
+  chmodSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -24,7 +25,8 @@ import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } fro
 import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessObservation, HostedSutSandboxReceipt, VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
 import type { VerificationEvidence } from '../../src/execution/verification/session.ts';
 
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
+import * as physicalNoFollow from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 
 test('hosted environment data accepts both canonical profiles and rejects forged profile fields', () => {
@@ -50,13 +52,25 @@ import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/c
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 
 import {
+  GitCandidateCheckoutCleanupUnknownError,
+  gitCandidateCheckoutRecipeBinding,
+  withGitCandidateCheckout
+} from '../../src/adapters/providers/git-bundle/runtime.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
-import { HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT } from '../../src/adapters/verification/platform/ci/verification-materialization.ts';
+import {
+  assertPreparedHostedActionArchiveCurrent,
+  CodexDevelopmentPrepareHostedActionInputs,
+  consumePreparedHostedActionArchive, createHostedActionArchiveRecipeIssuer,
+  HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT
+} from '../../src/adapters/verification/platform/ci/verification-materialization.ts';
 import { observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
 import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertHostedActionParentEvent, CodexDevelopmentAssertHostedDependencyArchiveProjection, CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean, CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot, CodexDevelopmentCiVerificationMainForTests, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentHostedDependencyMaterializerEnvironment, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentInspectHostedActionArchiveInventory, CodexDevelopmentMaterializeTrustedBootstrapArchive, CodexDevelopmentProbeHostedSutSandboxCapability, CodexDevelopmentRunBoundedDependencyMaterialization, CodexDevelopmentValidateHostedActionArchiveInventory, HOSTED_SUT_CAPABILITY_ASSERTION, hostedCandidateProcessEnvironment, TRUSTED_BOOTSTRAP_SUT_HARNESS, type CodexDevelopmentHostedActionArtifactObservation } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import type { VerificationGateResult, VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { ResourceCompositeSettlementError } from '../../src/execution/resource-settlement.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
@@ -2392,3 +2406,184 @@ test('candidate readonly preparation follows the original normalized Action and 
       operationSemanticDigest: digest('f') }, deadlineAtUnixMs: preparation.deadlineAtUnixMs })).toThrow();
   }
 });
+
+function privateActionArchiveFixture() {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-action-archive-'));
+  const baseRoot = path.join(root, 'base');
+  const candidateRoot = path.join(root, 'candidate');
+  const outputDirectory = path.join(root, 'output');
+  try {
+    mkdirSync(baseRoot);
+    const sources: Record<string, string> = {
+      '.gitignore': 'node_modules/\n', '.bun-version': '1.3.14\n',
+      'bun.lock': '{}\n', 'bunfig.toml': '', 'package.json': '{}\n',
+      'input.txt': 'base input\n', [MANIFEST_PATH]: '# Private archive fixture\n'
+    };
+    for (const [name, bytes] of Object.entries(sources)) {
+      mkdirSync(path.dirname(path.join(baseRoot, name)), { recursive: true });
+      writeFileSync(path.join(baseRoot, name), bytes);
+    }
+    gitFixture(baseRoot, ['init', '--quiet']);
+    gitFixture(baseRoot, ['config', 'user.name', 'SEC Fixture']);
+    gitFixture(baseRoot, ['config', 'user.email', 'sec-fixture@example.invalid']);
+    gitFixture(baseRoot, ['add', '.']); gitFixture(baseRoot, ['commit', '--quiet', '-m', 'base']);
+    const baseSha = gitFixture(baseRoot, ['rev-parse', 'HEAD']);
+    const baseTreeSha = gitFixture(baseRoot, ['rev-parse', 'HEAD^{tree}']);
+    gitFixture(baseRoot, ['worktree', 'add', '--quiet', '--detach', candidateRoot, baseSha]);
+    sources['input.txt'] = 'candidate input\n';
+    writeFileSync(path.join(candidateRoot, 'input.txt'), sources['input.txt']);
+    // The fixed Python recipes must not import candidate module names.
+    writeFileSync(path.join(candidateRoot, 'tarfile.py'), "raise RuntimeError('candidate module must remain data')\n");
+    gitFixture(candidateRoot, ['add', '.']); gitFixture(candidateRoot, ['commit', '--quiet', '-m', 'candidate']);
+    const headSha = gitFixture(candidateRoot, ['rev-parse', 'HEAD']);
+    const headTreeSha = gitFixture(candidateRoot, ['rev-parse', 'HEAD^{tree}']);
+    mkdirSync(path.join(baseRoot, 'node_modules', 'fixture'), { recursive: true });
+    writeFileSync(path.join(baseRoot, 'node_modules', 'fixture', 'value.txt'), 'exact trusted dependency\n');
+    const candidate: CiVerificationActionCandidate = { ...hostedCandidate(), baseSha, baseTreeSha, headSha, headTreeSha,
+      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(sources[MANIFEST_PATH]!) as VerificationActionKeyDigest,
+      requiredBlobs: hostedCandidate().requiredBlobs.map(entry => ({
+        path: entry.path, digest: bytesDigest(sources[entry.path]!)
+      })) };
+    const actionPlanClosure = buildCiVerificationActionPlanClosure({ candidate, gates: [hostedGates()[0]!] });
+    const actionPlan = actionPlanClosure.actions[0]!;
+    const artifactInput = Object.freeze({ baseSha, baseTreeSha, headSha, headTreeSha,
+      manifestPath: candidate.manifestPath, manifestDigest: candidate.manifestDigest,
+      inputClosureDigest: CodexDevelopmentVerificationDigest(actionPlan.action.inputClosure),
+      candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigest({ ...candidate, action: actionPlan.action }) });
+    const core = Object.freeze({ schema: CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
+      requestDigest: digest('e'), actionKeyHex: actionPlan.action.actionKey.slice(7), actionPlan, actionPlanClosure,
+      artifactInput, executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT });
+    const resolution = Object.freeze({ ...core, resolutionDigest: CodexDevelopmentVerificationDigest(core) as VerificationActionKeyDigest });
+    return Object.freeze({ root, baseRoot, candidateRoot, outputDirectory, baseSha, headSha, resolution });
+  } catch (error) { rmSync(root, { recursive: true, force: true }); throw error; }
+}
+
+async function preparePrivateActionArchive(fixture: ReturnType<typeof privateActionArchiveFixture>) {
+  const issuer = createHostedActionArchiveRecipeIssuer();
+  let generation = '';
+  const result = await withGitCandidateCheckout({ sourceRoot: fixture.candidateRoot, trustedRoot: fixture.baseRoot,
+    baseSha: fixture.baseSha, headSha: fixture.headSha, purpose: 'action-materialization',
+    archiveRecipeIssuer: issuer, deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+    generation = path.dirname(checkout.candidateRoot);
+    const value = await CodexDevelopmentPrepareHostedActionInputs({ resolution: fixture.resolution,
+      baseRoot: fixture.baseRoot, candidateRoot: checkout.candidateRoot, outputDirectory: fixture.outputDirectory, checkout });
+    return Object.freeze({ value, operation: gitCandidateCheckoutRecipeBinding(checkout, issuer) });
+  });
+  expect(existsSync(generation)).toBe(false);
+  return result;
+}
+
+test.skipIf(process.platform !== 'linux')('actual private materializer output survives scope retirement and rejects copies, foreign operations and replay', async () => {
+  const fixture = privateActionArchiveFixture();
+  try {
+    const prepared = await preparePrivateActionArchive(fixture);
+    expect(existsSync(prepared.value.preparedCandidateArchive)).toBe(true);
+    expect(prepared.value.archiveInventory.archiveDigest).toBe(bytesDigest(readFileSync(prepared.value.preparedCandidateArchive)));
+    const issuer = createHostedActionArchiveRecipeIssuer();
+    const foreignOperation = await withGitCandidateCheckout({ sourceRoot: fixture.candidateRoot, trustedRoot: fixture.baseRoot,
+      baseSha: fixture.baseSha, headSha: fixture.headSha, purpose: 'action-materialization',
+      archiveRecipeIssuer: issuer, deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => gitCandidateCheckoutRecipeBinding(checkout, issuer));
+    expect(() => consumePreparedHostedActionArchive({ ...prepared.value }, prepared.operation)).toThrow('original materializer object');
+    expect(() => consumePreparedHostedActionArchive(prepared.value, foreignOperation)).toThrow('original materializer object');
+    assertPreparedHostedActionArchiveCurrent(prepared.value, prepared.operation);
+    expect(consumePreparedHostedActionArchive(prepared.value, prepared.operation)).toBe(prepared.value.archiveInventory);
+    expect(() => consumePreparedHostedActionArchive(prepared.value, prepared.operation)).toThrow('already consumed');
+    // The original output owner may still read current bytes; it never reissues
+    // the one consumed inventory or opens another decoder process.
+    assertPreparedHostedActionArchiveCurrent(prepared.value, prepared.operation);
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+for (const mutation of ['replace', 'bytes', 'mode'] as const) {
+  test.skipIf(process.platform !== 'linux')(`actual prepared archive rejects ${mutation} drift without rebasing its original proof`, async () => {
+    const fixture = privateActionArchiveFixture();
+    try {
+      const prepared = await preparePrivateActionArchive(fixture);
+      const archive = prepared.value.preparedCandidateArchive;
+      const bytes = readFileSync(archive);
+      if (mutation === 'replace') { renameSync(archive, `${archive}.original`); writeFileSync(archive, bytes); }
+      if (mutation === 'bytes') writeFileSync(archive, Buffer.concat([bytes, Buffer.from('changed')]));
+      if (mutation === 'mode') chmodSync(archive, 0o644);
+      expect(() => assertPreparedHostedActionArchiveCurrent(prepared.value, prepared.operation)).toThrow();
+      writeFileSync(archive, bytes);
+      expect(() => consumePreparedHostedActionArchive(prepared.value, prepared.operation)).toThrow();
+    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  });
+}
+
+for (const fault of ['candidate-acquire', 'candidate-acquire-and-base-close', 'read-and-both-closes'] as const) {
+  test.skipIf(process.platform !== 'linux')(`actual prepare settles dependency resources after ${fault}`, async () => {
+    const fixture = privateActionArchiveFixture();
+    const originalRetain = physicalNoFollow.retainNoFollowOrdinaryFile;
+    const retained: Array<ReturnType<typeof originalRetain>> = [];
+    const attempted: string[] = [];
+    const primary = new Error(`injected dependency failure: ${fault}`);
+    const cleanup = new Error(`injected dependency cleanup failure: ${fault}`);
+    let generation = '';
+    let observed: unknown;
+    let dependencyPath = '';
+    // This seam injects acquisition/read/close failure into the real producer.
+    // It retains actual files and never issues a substitute process capability.
+    const spy = spyOn(physicalNoFollow, 'retainNoFollowOrdinaryFile').mockImplementation((...args) => {
+      const label = args[3] ?? '';
+      const base = label.startsWith('Hosted dependency base authority ');
+      const candidate = label.startsWith('Hosted dependency candidate authority ');
+      if (!base && !candidate) return originalRetain(...args);
+      dependencyPath ||= args[1];
+      if (candidate && fault !== 'read-and-both-closes') throw primary;
+      const value = originalRetain(...args);
+      retained.push(value);
+      return Object.freeze({ ...value,
+        readBytes: () => {
+          if (base && fault === 'read-and-both-closes') throw primary;
+          return value.readBytes();
+        },
+        dispose: () => {
+          attempted.push(base ? 'base' : 'candidate');
+          if (fault !== 'candidate-acquire') throw cleanup;
+          value.dispose();
+        }
+      });
+    });
+    try {
+      try {
+        await withGitCandidateCheckout({ sourceRoot: fixture.candidateRoot, trustedRoot: fixture.baseRoot,
+          baseSha: fixture.baseSha, headSha: fixture.headSha, purpose: 'action-materialization',
+          archiveRecipeIssuer: createHostedActionArchiveRecipeIssuer(), deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+          generation = path.dirname(checkout.candidateRoot);
+          return CodexDevelopmentPrepareHostedActionInputs({ resolution: fixture.resolution,
+            baseRoot: fixture.baseRoot, candidateRoot: checkout.candidateRoot,
+            outputDirectory: fixture.outputDirectory, checkout });
+        });
+      } catch (error) { observed = error; }
+      // Assertions live outside the expected-failure operation. A failed
+      // assertion can never be accepted as its expected primary/close error.
+      expect(dependencyPath).not.toBe('');
+      expect(existsSync(path.join(fixture.outputDirectory, 'prepared-candidate.tar'))).toBe(false);
+      expect(attempted).toEqual(fault === 'read-and-both-closes' ? ['candidate', 'base'] : ['base']);
+      expect(retained.length).toBe(fault === 'read-and-both-closes' ? 2 : 1);
+      if (fault === 'candidate-acquire') {
+        expect(observed).toBe(primary);
+        expect(existsSync(generation)).toBe(false);
+        expect(() => retained[0]!.assertCurrent()).toThrow();
+      } else {
+        expect(observed).toBeInstanceOf(GitCandidateCheckoutCleanupUnknownError);
+        expect(existsSync(generation)).toBe(true);
+        const error = observed as GitCandidateCheckoutCleanupUnknownError;
+        expect(error.failure).toBeInstanceOf(ResourceCompositeSettlementError);
+        const scopeFailure = (error.failure as ResourceCompositeSettlementError).errors
+          .find(value => value instanceof ResourceCompositeSettlementError) as ResourceCompositeSettlementError | undefined;
+        expect(scopeFailure).toBeDefined();
+        if (scopeFailure === undefined) throw new Error('Actual dependency settlement failure was lost.');
+        expect(scopeFailure.errors).toContain(primary);
+        expect(scopeFailure.errors.filter(value => value === cleanup).length)
+          .toBe(fault === 'read-and-both-closes' ? 2 : 1);
+      }
+    } finally {
+      spy.mockRestore();
+      if (fault !== 'candidate-acquire') for (const value of retained) value.dispose();
+      if (generation !== '' && existsSync(generation)) rmSync(generation, { recursive: true, force: true });
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}

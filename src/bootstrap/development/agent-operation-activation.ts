@@ -1,3 +1,4 @@
+import { assertGitCandidateCheckoutCurrent, type GitCandidateCheckout } from '../../adapters/providers/git-bundle/runtime.ts';
 import {
   createAgentOperationActivationHostedStagePorts,
   type AgentOperationActivationHostedValues
@@ -8,14 +9,34 @@ import {
   type HostedActivationPorts
 } from '../../application/agent-operation-activation.ts';
 
-function stagePorts(): HostedActivationPorts<AgentOperationActivationHostedValues> {
-  return createAgentOperationActivationHostedStagePorts();
+function stagePorts(checkout?: GitCandidateCheckout): HostedActivationPorts<AgentOperationActivationHostedValues> {
+  return createAgentOperationActivationHostedStagePorts(checkout);
 }
 
 export async function produceHostedAgentOperationActivation(input: Readonly<{
-  runtimeRoot: string; candidateRoot: string; requestPath: string; outputPath: string;
+  runtimeRoot: string; candidateRoot: string; candidateCheckout: GitCandidateCheckout;
+  requestPath: string; outputPath: string;
 }>) {
-  return await produceActivation<AgentOperationActivationHostedValues>(input, stagePorts());
+  const checkout = input.candidateCheckout;
+  assertGitCandidateCheckoutCurrent(checkout);
+  if (checkout.purpose !== 'activation-static' || input.candidateRoot !== checkout.candidateRoot) throw new Error('Activation candidate differs from its private Git borrower.');
+  const native = stagePorts(checkout);
+  const result = await produceActivation<AgentOperationActivationHostedValues>(input, {
+    ...native,
+    workDecision: async root => {
+      assertGitCandidateCheckoutCurrent(checkout);
+      const decision = await native.workDecision(root);
+      assertGitCandidateCheckoutCurrent(checkout);
+      return decision;
+    },
+    writePayload: async (output, value) => {
+      assertGitCandidateCheckoutCurrent(checkout);
+      await native.writePayload(output, value);
+      assertGitCandidateCheckoutCurrent(checkout);
+    }
+  });
+  assertGitCandidateCheckoutCurrent(checkout);
+  return result;
 }
 
 export function publishHostedAgentOperationActivation(input: Readonly<{
