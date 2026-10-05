@@ -1,3 +1,4 @@
+/** Historical request/locator grammars. Parsing never authorizes a new maintenance effect. */
 import {
   parseExactRefRetirement,
   type ExactRefRetirement
@@ -9,8 +10,6 @@ const LEGACY_REQUEST_SCHEMA = 'sec-repository-maintenance-request-v1' as const;
 // Below GitHub's 65,535-character workflow_dispatch inputs ceiling, including envelope.
 export const REPOSITORY_MAINTENANCE_MAX_REQUEST_BYTES = 60 * 1024;
 export const REPOSITORY_MAINTENANCE_MAX_OPERATIONS = 64;
-// Requested policy only; the provider-reported expires_at is the actual deadline.
-export const REPOSITORY_MAINTENANCE_RECOVERY_RETENTION_DAYS = 30;
 
 export const REPOSITORY_MAINTENANCE_ISSUE_NUMBER = 313 as const;
 

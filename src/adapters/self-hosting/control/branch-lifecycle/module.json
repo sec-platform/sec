@@ -55,8 +55,7 @@
       "operations": [
         "observeClosedSupersessionEvidence",
         "observeProductionClosedSupersessionEvidence",
-        "observeReviewedRefSupersessionEvidence",
-        "observePlannedRefSupersessionEvidence"
+        "observeReviewedRefSupersessionEvidence"
       ],
       "effectKinds": [
         "filesystem",
@@ -66,8 +65,7 @@
       "ownerInternalOperations": [
         "observeClosedSupersessionEvidence",
         "observeProductionClosedSupersessionEvidence",
-        "observeReviewedRefSupersessionEvidence",
-        "observePlannedRefSupersessionEvidence"
+        "observeReviewedRefSupersessionEvidence"
       ],
       "operationRoles": [
         {
@@ -83,47 +81,21 @@
           "semanticOperation": "control.branch-lifecycle.reviewed-ref-supersession",
           "requirementId": null,
           "recovery": null
-        },
-        {
-          "operation": "observePlannedRefSupersessionEvidence",
-          "role": "domain-owner",
-          "semanticOperation": "control.branch-lifecycle.planned-ref-supersession",
-          "requirementId": null,
-          "recovery": null
         }
       ]
     },
     {
       "capability": "branch-lifecycle.exact-ref-retirement",
       "operations": [
-        "prepareExactRemoteRefBatchRecovery",
-        "retireExactRemoteRefBatch",
         "observeExactRefBatchResumeReceipt"
       ],
       "effectKinds": [
-        "filesystem",
         "provider"
       ],
       "ownerInternalOperations": [
-        "prepareExactRemoteRefBatchRecovery",
-        "retireExactRemoteRefBatch",
         "observeExactRefBatchResumeReceipt"
       ],
       "operationRoles": [
-        {
-          "operation": "prepareExactRemoteRefBatchRecovery",
-          "role": "domain-owner",
-          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement.prepare-batch-recovery",
-          "requirementId": null,
-          "recovery": null
-        },
-        {
-          "operation": "retireExactRemoteRefBatch",
-          "role": "domain-owner",
-          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement.batch",
-          "requirementId": null,
-          "recovery": null
-        },
         {
           "operation": "observeExactRefBatchResumeReceipt",
           "role": "domain-owner",
