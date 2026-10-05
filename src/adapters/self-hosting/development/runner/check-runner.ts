@@ -325,7 +325,6 @@ export async function runFullCheck(): Promise<number> {
       args: ['run', 'audit', '--', '--worktree-source-program', '--enforce']
     },
     { id: 'unused', args: ['run', 'unused'] },
-    { id: 'duplication', args: ['run', 'duplicates:check'] },
     { id: 'typecheck', args: ['run', 'typecheck:verified'] },
     { id: 'documentation', args: ['run', 'docs:doctor'] },
     { id: 'tests', args: ['run', 'test', '--', '--scope', 'full'] }

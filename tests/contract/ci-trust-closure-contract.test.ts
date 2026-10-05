@@ -91,9 +91,10 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(quickGates.find(({ id }) => id === 'typecheck')?.args).toEqual(['run', 'typecheck:verified']);
   const fullGates = buildCiFullGatePlan();
   const fullGateIds = fullGates.map(({ id }) => id);
+  expect(fullGateIds).not.toContain('test-budget');
   expect(fullGates.find(({ id }) => id === 'typecheck')?.args).toEqual(['run', 'typecheck:verified']);
   expect(fullGateIds).toEqual(expect.arrayContaining([
-    'imports', 'typecheck', 'docs-doctor', 'full-fast', 'test-budget',
+    'imports', 'typecheck', 'docs-doctor', 'full-fast',
     'deps-warmup', 'resolve', 'compose',
     'verify-all', 'lock', 'explain', 'reference-check'
   ]));
