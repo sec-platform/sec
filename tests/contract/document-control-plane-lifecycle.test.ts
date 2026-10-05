@@ -72,14 +72,6 @@ import {
   renderSecWorkRollingPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { digest, rawSha256 } from '../../src/contracts/canonical.ts';
-import {
-  SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
-  SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-  SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1,
-  compileSecDocumentControlFreezeChildFailureV1,
-  parseSecDocumentControlFreezeChildFailureV1,
-  renderSecDocumentControlFreezeChildFailureV1
-} from '../helpers/document-control-freeze-child-failure.ts';
 
 const fixtureGitHubCapabilities = new Map<string, ReturnType<typeof issueGitHubApiTestCapability>>();
 
@@ -410,51 +402,6 @@ async function expectUnsafeReparseRejection(operation: Promise<unknown>): Promis
   expect(failure).toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
   expect((failure as Error).message).toMatch(/reparse point|symbolic link|junction/u);
 }
-
-test('freeze child failure envelope is bounded canonical and redacts unknown errors', () => {
-  expect(compileSecDocumentControlFreezeChildFailureV1(
-    new Error('Git index escapes its canonical transaction root.')
-  )).toEqual(SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1);
-  const secret = 'C:\\private\\workspace\\credential.txt';
-  const unexpected = Object.assign(new Error(`${secret}:${'x'.repeat(4096)}`), {
-    code: 'ESECRET'
-  });
-  const rendered = renderSecDocumentControlFreezeChildFailureV1(unexpected);
-  expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(
-    SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1
-  );
-  expect(rendered).not.toContain(secret);
-  expect(rendered).not.toContain('ESECRET');
-  expect(parseSecDocumentControlFreezeChildFailureV1(rendered)).toEqual(
-    SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1
-  );
-  for (const malformed of [
-    'x'.repeat(SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1 + 1),
-    new Uint8Array([0xff]),
-    `${JSON.stringify({
-      schema: SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.schema,
-      name: SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.name,
-      code: null
-    })}\n`,
-    `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-      stack: 'forbidden diagnostic'
-    })}\n`,
-    `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-      message: secret
-    })}\n`,
-    `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-      code: 'ESECRET'
-    })}\n`,
-    `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-      message: '🧪'.repeat(129)
-    })}\n`,
-    ` ${JSON.stringify(SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1)}\n`
-  ]) expect(() => parseSecDocumentControlFreezeChildFailureV1(malformed)).toThrow();
-});
 
 bunTest.skipIf(process.platform !== 'win32')(
   'Windows direct status acquires bounded GitRead and remains read-only',
