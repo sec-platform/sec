@@ -51,8 +51,8 @@ import {
 const OPERATION = 'development.commit';
 const REQUIREMENT = 'repository.commit';
 // Provider admission, exact-candidate reads, common-directory read,
-// object/CAS, five readback commands, and the Windows commit-tree stdin worker.
-const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 13;
+// object/CAS, six readback commands, and the Windows commit-tree stdin worker.
+const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 14;
 const ADMISSION_DEADLINE_MS = 30_000;
 
 const effectGrantAuthority = createOperationEffectGrantAuthority({

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
+import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import { createHostGitReadSessionForTests } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import {
   issueDevelopmentCommitAdmission,
@@ -14,7 +15,9 @@ import {
 } from '../../src/adapters/self-hosting/development/commit-admission/operation.ts';
 import {
   acknowledgeDevelopmentCommitResult,
+  prepareDevelopmentCommitJournalsForLocalRefRetirement,
   readDevelopmentCommitOutcome,
+  recoverDevelopmentCommit,
   retireSupersededLocalDevelopmentCommitJournals,
   runDevelopmentCommit,
   settleDevelopmentCommitJournalsForRef
@@ -449,6 +452,195 @@ test('development.commit rejects missing admission before repository Effect', as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+function fixtureReflogPath(root: string): string {
+  const ref = git(root, ['symbolic-ref', 'HEAD']);
+  return path.resolve(root, git(root, ['rev-parse', '--git-path', `logs/${ref}`]));
+}
+
+for (const mode of [
+  'ordinary', 'first-entry', 'not-applied', 'missing', 'wrong-old', 'zero-old',
+  'gap', 'later-move', 'later-return', 'extra-output', 'observation-failure'
+] as const) {
+  test(`development.commit reads the exact native reflog transition: ${mode}`, async () => {
+    const { root } = await fixture();
+    try {
+      const preimage = git(root, ['rev-parse', 'HEAD']);
+      const ref = git(root, ['symbolic-ref', 'HEAD']);
+      const tree = git(root, ['write-tree']);
+      const target = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'intended target']);
+      const other = git(root, ['commit-tree', tree, '-p', preimage, '-m', 'unrelated target']);
+      const reflogPath = fixtureReflogPath(root);
+      if (mode !== 'ordinary' && mode !== 'gap') await rm(reflogPath);
+      if (mode !== 'not-applied') {
+        git(root, ['update-ref', '--create-reflog', '-m', 'development.commit', ref, target, preimage]);
+      }
+      if (mode === 'wrong-old' || mode === 'zero-old' || mode === 'gap') {
+        const lines = (await readFile(reflogPath, 'utf8')).trimEnd().split('\n');
+        lines[lines.length - 1] = lines.at(-1)!.replace(
+          preimage, mode === 'zero-old' ? '0'.repeat(preimage.length) : other
+        );
+        await writeFile(reflogPath, `${lines.join('\n')}\n`);
+      }
+      if (mode === 'missing') await rm(reflogPath);
+      if (mode === 'later-move' || mode === 'later-return') {
+        git(root, ['update-ref', '-m', 'unrelated move', ref, other, target]);
+        if (mode === 'later-return') {
+          git(root, ['update-ref', '-m', 'unrelated return', ref, target, other]);
+        }
+      }
+      if (mode === 'first-entry') {
+        expect(git(root, ['rev-list', '--walk-reflogs', ref])).toBe(target);
+        expect(git(root, ['rev-parse', '--revs-only', '--end-of-options', `${ref}@{0}`, `${ref}@{1}`]))
+          .toBe(`${target}\n${preimage}`);
+      }
+      if (mode === 'gap') {
+        const native = spawnSync('git', [
+          'rev-parse', '--revs-only', '--end-of-options', `${ref}@{0}`, `${ref}@{1}`
+        ], { cwd: root, encoding: 'utf8', windowsHide: true });
+        // Native Git can return both expected OIDs with success despite a
+        // discontinuity. The diagnostic must not be discarded by readback.
+        expect(native.status).toBe(0);
+        expect(native.stdout.trim()).toBe(`${target}\n${preimage}`);
+        expect(native.stderr.length).toBeGreaterThan(0);
+      }
+      const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+      const before = {
+        ref: git(root, ['rev-parse', ref]),
+        reflog: await readFile(reflogPath, 'utf8').catch(() => null)
+      };
+      const hostSession = createHostGitReadSessionForTests({ cwd: root });
+      const session = Object.freeze({
+        ...hostSession,
+        run: async (args: readonly string[]) => {
+          const transitionRead = args[0] === 'rev-parse' && args[1] === '--revs-only';
+          if (transitionRead && mode === 'observation-failure') {
+            return Object.freeze({
+              kind: 'unresolved-git-read-session' as const,
+              reason: 'command-error' as const,
+              detail: 'independent predecessor observation failure'
+            });
+          }
+          const command = await hostSession.run(args);
+          return transitionRead && mode === 'extra-output' && command.kind === 'completed'
+            ? Object.freeze({ ...command, result: Object.freeze({
+              ...command.result,
+              stdout: Buffer.concat([Buffer.from(command.result.stdout), Buffer.from('\n')])
+            }) })
+            : command;
+        }
+      });
+      try {
+        const journal: Parameters<typeof readDevelopmentCommitOutcome>[0]['journal'] = Object.freeze({
+          schema: 'sec-development-commit-journal-v1',
+          operation: `sha256:${'1'.repeat(64)}`,
+          attempt: `sha256:${'2'.repeat(64)}`,
+          ref, preimage, target, object: target, tree, terminal: 'unknown'
+        });
+        const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
+        expect(readback.disposition).toBe(mode === 'ordinary' || mode === 'first-entry'
+          ? 'applied' : mode === 'not-applied' ? 'not-applied' : 'unknown');
+        expect(readback.operation).toBe(journal.operation);
+        expect(readback.attempt).toBe(journal.attempt);
+        expect(git(root, ['rev-parse', ref])).toBe(before.ref);
+        expect(await readFile(reflogPath, 'utf8').catch(() => null)).toBe(before.reflog);
+      } finally {
+        await hostSession.close?.();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const mode of ['recover', 'settle-active', 'settle-historical', 'retire-superseded', 'prepare-retirement'] as const) {
+  test(`development.commit preserves its first-entry transition consumer: ${mode}`, async () => {
+    const { root } = await fixture();
+    try {
+      const reflogPath = fixtureReflogPath(root);
+      await rm(reflogPath);
+      const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'first logged candidate\n' });
+      const first = await runDevelopmentCommit(prepared.request, prepared.admission);
+      expect(first.disposition).toBe('applied');
+      expect(git(root, ['rev-list', '--walk-reflogs', first.ref])).toBe(first.target);
+      const source = await readFile(first.journalPath, 'utf8');
+      if (mode === 'recover') {
+        const original = JSON.parse(source) as Record<string, unknown>;
+        const unknown = { ...original, terminal: 'unknown' };
+        await writeFile(first.journalPath, `${JSON.stringify(unknown)}\n`);
+        const reflog = await readFile(reflogPath, 'utf8');
+        const recovered = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath: first.journalPath });
+        expect(recovered.result.disposition).toBe('applied');
+        expect(recovered.result.target).toBe(first.target);
+        expect(recovered.result.journalPath).toBe(first.journalPath);
+        expect(await readFile(first.journalPath, 'utf8')).toBe(source);
+        expect(await readFile(reflogPath, 'utf8')).toBe(reflog);
+        expect(git(root, ['rev-parse', first.ref])).toBe(first.target);
+      } else if (mode === 'prepare-retirement') {
+        const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+        const plan = await withWorkspaceWriteLease(commonDirectory, undefined, coordinatedLease =>
+          prepareDevelopmentCommitJournalsForLocalRefRetirement({
+            repositoryRoot: root, ref: first.ref, expectedHeadSha: first.target, coordinatedLease
+          }));
+        expect(plan.refState).toBe('present');
+        expect(plan.expectedHeadSha).toBe(first.target);
+        expect(await readFile(first.journalPath, 'utf8')).toBe(source);
+        expect(git(root, ['rev-parse', first.ref])).toBe(first.target);
+      } else {
+        if (mode === 'settle-historical') {
+          await writeFile(path.join(root, 'later.txt'), 'later\n');
+          git(root, ['add', 'later.txt']);
+          const laterAdmission = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'later candidate\n' });
+          expect((await runDevelopmentCommit(laterAdmission.request, laterAdmission.admission)).disposition).toBe('applied');
+        }
+        if (mode === 'retire-superseded') git(root, ['reset', '--mixed', first.preimage]);
+        const settled = mode === 'retire-superseded'
+          ? await retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: first.ref })
+          : await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: first.ref });
+        const count = mode === 'settle-historical' ? 2 : 1;
+        expect(settled).toEqual({ ref: first.ref, observed: count, retired: count });
+        await expect(lstat(first.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+}
+
+for (const consumer of ['settle', 'retire-superseded', 'prepare-retirement'] as const) {
+  test(`development.commit rejects a false oldest preimage before journal effects: ${consumer}`, async () => {
+    const { root } = await fixture();
+    try {
+      const reflogPath = fixtureReflogPath(root);
+      await rm(reflogPath);
+      const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'first logged candidate\n' });
+      const first = await runDevelopmentCommit(prepared.request, prepared.admission);
+      const source = await readFile(first.journalPath, 'utf8');
+      const other = git(root, ['commit-tree', first.tree, '-p', first.preimage, '-m', 'false predecessor']);
+      const reflog = (await readFile(reflogPath, 'utf8')).replace(first.preimage, other);
+      await writeFile(reflogPath, reflog);
+      if (consumer === 'retire-superseded') git(root, ['reset', '--mixed', first.preimage]);
+      if (consumer === 'settle') {
+        await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: first.ref }))
+          .rejects.toThrow('requires applied readback');
+      } else if (consumer === 'retire-superseded') {
+        await expect(retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: first.ref }))
+          .rejects.toThrow('lacks its exact local ref transition');
+      } else {
+        const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+        await expect(withWorkspaceWriteLease(commonDirectory, undefined, coordinatedLease =>
+          prepareDevelopmentCommitJournalsForLocalRefRetirement({
+            repositoryRoot: root, ref: first.ref, expectedHeadSha: first.target, coordinatedLease
+          }))).rejects.toThrow('requires applied readback');
+      }
+      expect(await readFile(first.journalPath, 'utf8')).toBe(source);
+      expect(git(root, ['rev-parse', first.ref]))
+        .toBe(consumer === 'retire-superseded' ? first.preimage : first.target);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+}
 
 test('development.commit keeps a failed reflog observation unknown instead of authorizing another effect', async () => {
   const { root } = await fixture();

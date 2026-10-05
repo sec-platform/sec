@@ -67,7 +67,7 @@ const MAXIMUM_JOURNAL_CENSUS_BYTES = MAXIMUM_JOURNAL_CENSUS_ENTRIES * MAXIMUM_JO
 const MAXIMUM_REF_JOURNALS = 12;
 const DEVELOPMENT_COMMIT_PROVIDER_ADMISSION_PROCESS_COUNT = 1;
 const DEVELOPMENT_COMMIT_COMMON_DIRECTORY_PROCESS_COUNT = 1;
-const DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT = 5;
+const DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT = 6;
 const DEVELOPMENT_COMMIT_MATERIALIZATION_PROCESS_COUNT = 2;
 const DEVELOPMENT_COMMIT_MATERIALIZATION_STDIN_WORKER_COUNT = 1;
 const DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT = 1;
@@ -412,6 +412,33 @@ function retireEmptyJournalDirectory(commonDirectory: string): void {
   retireNoFollowDirectoryTree({ parent, root, inventory: [], deadlineAtMonotonicMs });
 }
 
+/** Keep the historical consumers' selection predicate; the oldest entry has
+ * no preceding new OID in rev-list, so its old OID must come from native Git. */
+function developmentCommitReflogOrdinal(targets: readonly string[], journal: Journal): number {
+  return targets.findIndex((target, ordinal) => target === journal.target
+    && (targets[ordinal + 1] === journal.preimage || ordinal === targets.length - 1));
+}
+
+/** Observe one selected transition, never substitute a commit parent or scan
+ * for another match. Git's ordinal lookup exposes the oldest entry's old OID
+ * and diagnoses gaps between entries on stderr even when its exit code is 0. */
+async function readExactDevelopmentCommitRefTransition(
+  session: GitReadSession,
+  journal: Journal,
+  ordinal: number
+): Promise<boolean> {
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0) return false;
+  const command = await session.run([
+    'rev-parse', '--revs-only', '--end-of-options',
+    `${journal.ref}@{${ordinal}}`, `${journal.ref}@{${ordinal + 1}}`
+  ]);
+  if (command.kind !== 'completed' || command.result.code !== 0
+      || Buffer.byteLength(command.result.stderr) !== 0) return false;
+  const lines = Buffer.from(command.result.stdout).toString('utf8').split(/\r?\n/u);
+  return lines.length === 3 && lines[0] === journal.target
+    && lines[1] === journal.preimage && lines[2] === '';
+}
+
 export async function readDevelopmentCommitOutcome(input: Readonly<{
   session: GitReadSession;
   commonDirectory: string;
@@ -448,7 +475,7 @@ export async function readDevelopmentCommitOutcome(input: Readonly<{
     const reflogTargets = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
     const reflogContainsTarget = reflogTargets.includes(journal.target);
     const exactRefTransition = reflogTargets[0] === journal.target
-      && reflogTargets[1] === journal.preimage;
+      && await readExactDevelopmentCommitRefTransition(session, journal, 0);
     if (ref === journal.target && objectMatches && indexMatches && exactRefTransition) return 'applied';
     const objectAbsent = objectType === '' && objectBytes === '';
     if (ref === journal.preimage && (objectMatches || objectAbsent)
@@ -694,8 +721,8 @@ export async function retireSupersededLocalDevelopmentCommitJournals(input: Read
               !== JSON.stringify([`tree ${journal.tree}`])
             || JSON.stringify(headers.filter((line) => line.startsWith('parent ')))
               !== JSON.stringify([`parent ${journal.preimage}`])
-            || !transitions.some((target, index) => target === journal.target
-              && transitions[index + 1] === journal.preimage)) {
+            || !await readExactDevelopmentCommitRefTransition(
+              session, journal, developmentCommitReflogOrdinal(transitions, journal))) {
           throw new Error('Superseded commit journal lacks its exact local ref transition.');
         }
       }
@@ -746,16 +773,15 @@ export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
         const objectBytes = await commandText(session,
           ['cat-file', 'commit', journal.target],
           'read journal retirement commit').catch(() => '');
-        const active = current === journal.target
-          && transitions[0] === journal.target
-          && transitions[1] === journal.preimage;
+        const active = current === journal.target && transitions[0] === journal.target;
         const superseded = journal.terminal === 'applied'
           && journal.object === journal.target
-          && journal.target !== current
-          && transitions.some((target, index) => target === journal.target
-            && transitions[index + 1] === journal.preimage);
+          && journal.target !== current;
+        const exactTransition = (active || superseded)
+          && await readExactDevelopmentCommitRefTransition(session, journal,
+            active ? 0 : developmentCommitReflogOrdinal(transitions, journal));
         if (!objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`)
-            || (!active && !superseded)) {
+            || !exactTransition) {
           throw new Error('Development commit journal settlement requires applied readback, got unknown.');
         }
       }
@@ -1046,9 +1072,9 @@ async function normalizeLocalRefRetirementJournals(input: Readonly<{
       && JSON.stringify(parentHeaders) === JSON.stringify([`parent ${journal.preimage}`])
       && ancestry.kind === 'completed'
       && ancestry.result.code === 0;
-    const exactTransition = transitions.some((target, index) => (
-      target === journal.target && transitions[index + 1] === journal.preimage
-    ));
+    const exactTransition = await readExactDevelopmentCommitRefTransition(
+      input.session, journal, developmentCommitReflogOrdinal(transitions, journal)
+    );
     if (!exactObject || !exactTransition) {
       throw new Error(
         'Development commit local-ref retirement requires applied readback, got unknown.'

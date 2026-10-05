@@ -254,9 +254,12 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
         && commandArgs.slice(1).every((argument) => !argument.startsWith('-')));
   }
   if (command === 'for-each-ref') {
-    return commandArgs.length === 2
-      && commandArgs[0]!.startsWith('--format=')
-      && !commandArgs[1]!.startsWith('-');
+    // Exact-ref retirement bounds prefix matches at two so it can reject an
+    // ambiguous observation. Admit only that output-limiting count form.
+    const observationArgs = commandArgs[0] === '--count=2' ? commandArgs.slice(1) : commandArgs;
+    return observationArgs.length === 2
+      && observationArgs[0]!.startsWith('--format=')
+      && !observationArgs[1]!.startsWith('-');
   }
   if (command === 'diff' || command === 'diff-files' || command === 'diff-index') {
     const allowed = DIFF_FLAGS;
