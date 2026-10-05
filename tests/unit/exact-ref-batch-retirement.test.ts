@@ -78,7 +78,7 @@ const { observeExactRefBatchResumeReceipt } = await import('../../src/adapters/s
 for (const fault of ['none', 'run', 'request', 'archive'] as const) {
   test.serial(`historical receipt verification-read ${fault}`, async () => {
     const prepared = preparation();
-    const receipt = { schema: 'sec-repository-maintenance-result-v3', requestDigest: prepared.requestDigest,
+    const receipt = { schema: 'sec-repository-maintenance-result-v3', requestDigest: prepared.requestDigest as string,
       resumeReceipt: null, recoveryPreparation: prepared,
       recoveryCarrier: { provider: 'github-actions-artifact', repository: 'sec-platform/sec', artifactId: 2,
         artifactName: 'sec-repository-maintenance-recovery-10-1', artifactDigest: `sha256:${'f'.repeat(64)}`,
@@ -86,8 +86,8 @@ for (const fault of ['none', 'run', 'request', 'archive'] as const) {
         createdAt: '2026-10-01T00:00:00.000Z', expiresAt: '2100-01-01T00:00:00.000Z',
         url: 'https://github.com/sec-platform/sec/actions/runs/10/artifacts/2' },
       progress: ['effect-started', 'effect-returned', 'absence-observed'].map(phase => ({ branch: 'fix/old', expectedHeadSha: HEAD, phase })),
-      results: [{ branch: 'fix/old', expectedHeadSha: HEAD, status: 'retired', targetState: 'absent',
-        effectOutcome: 'acknowledged', detail: 'Original acknowledged deletion and absence readback' }] };
+      results: [{ branch: 'fix/old', expectedHeadSha: HEAD, status: 'retired' as const, targetState: 'absent' as const,
+        effectOutcome: 'acknowledged' as const, detail: 'Original acknowledged deletion and absence readback' }] };
     if (fault === 'request') receipt.requestDigest = `sha256:${'0'.repeat(64)}`;
     const zip = new ZipFile();
     zip.addBuffer(Buffer.from(JSON.stringify(receipt)), 'maintenance-result.json');
