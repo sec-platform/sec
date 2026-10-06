@@ -7,13 +7,16 @@ import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
 import { readOptionalCanonicalVerificationArtifactSet, readOptionalVerificationArtifactSet } from '../../src/adapters/verification/platform/artifact/runtime/authority.ts';
 import { writeRepairPlan } from '../../src/adapters/verification/repair/write-repair-plan.ts';
 import { publishVerificationArtifactSet } from '../../src/adapters/verification/verification-artifact-publication.ts';
-import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { readLockFile, saveLock } from '../../src/adapters/workspace/lock.ts';
+import { buildRepairPlan } from '../../src/application/repair-plan.ts';
+import { repairWorkspaceResult } from '../../src/application/repair-workspace.ts';
 import type { VerificationArtifactPublicationArtifacts } from '../../src/assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { repairWorkspace } from '../../src/bootstrap/engineering/repair-orchestrator.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { sha256 } from '../../src/contracts/canonical.ts';
+import { digest, sha256 } from '../../src/contracts/canonical.ts';
+import { formatJsonFile } from '../../src/contracts/json-text.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import {
   parseRepairPlanJson,
@@ -91,7 +94,10 @@ test('repair admits subject-bound diagnostics before effects and keeps all-lane 
     );
     async function publish(lane: 'fast' | 'all', failed: boolean, verify: LockFile['passStatus']['verify']) {
       const fixture = buildRepairVerificationFixture(lane, failed, verify);
-      await publishVerificationArtifactSet({ workspaceRoot, ...fixture });
+      for (const relative of [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.provenance]) {
+      await fs.mkdir(path.dirname(resolveWorkspaceArtifactPath(workspaceRoot, relative)), { recursive: true });
+    }
+    await publishVerificationArtifactSet({ workspaceRoot, ...fixture });
       return fixture;
     }
     const failed = await publish('fast', true, 'failed');
@@ -166,4 +172,84 @@ test('repair admits subject-bound diagnostics before effects and keeps all-lane 
     expect(readLockFile(workspaceRoot).passStatus.repair).toBe('skipped');
     expect(await fs.readFile(source, 'utf8')).toBe(sourceBytes);
   }, 'repair-plan-admission-');
+});
+
+
+test('repair passes its admitted tuple through planning without rereading or caller retargeting', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    const fixture = buildRepairVerificationFixture('all', false);
+    for (const relative of [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.provenance]) {
+      await fs.mkdir(path.dirname(resolveWorkspaceArtifactPath(workspaceRoot, relative)), { recursive: true });
+    }
+    await publishVerificationArtifactSet({ workspaceRoot, ...fixture });
+    const captured = readOptionalVerificationArtifactSet(workspaceRoot)!;
+    const result = await repairWorkspaceResult({ mode: 'publish' }, {
+      readLock: () => fixture.lock,
+      readVerification: () => captured,
+      buildPlan: report => {
+        fixture.lock.app.id = 'retargeted-by-plan-caller';
+        return buildRepairPlan(report);
+      },
+      publish: async (plan, lock, artifacts) => {
+        expect(artifacts).toEqual(captured);
+        for (const key of ['verificationReport', 'runtimeReport', 'policyReport', 'acceptanceCoverage'] as const) {
+          await fs.rm(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES[key]));
+        }
+        await writeRepairPlan(workspaceRoot, plan, lock, undefined, artifacts);
+      },
+      recordFailure: lock => saveLock(workspaceRoot, lock)
+    });
+    expect(result.lock.app.id).toBe('customer-admin');
+    expect(readLockFile(workspaceRoot)).toEqual(result.lock);
+  });
+});
+
+test('RepairPlan publication captures its Lock and never exposes an intermediate Lock', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    const lock = buildReviewLock();
+    await fs.mkdir(path.dirname(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance)), { recursive: true });
+    await saveLock(workspaceRoot, lock);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const before = await fs.readFile(lockPath, 'utf8');
+    const manifestPath = path.join(getWorkspacePaths(workspaceRoot).overridesRoot, 'override-manifest.yaml');
+    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.writeFile(manifestPath, 'overrides: invalid-manifest');
+    await expect(writeRepairPlan(workspaceRoot, skippedPlan, lock)).rejects.toThrow();
+    expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
+    await expect(fs.access(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await fs.rm(manifestPath);
+    let first = true;
+    await writeRepairPlan(workspaceRoot, skippedPlan, lock, async () => {
+      if (!first) return;
+      first = false;
+      lock.app.id = 'retargeted-at-commit-fence';
+    });
+    expect(readLockFile(workspaceRoot).app.id).toBe('customer-admin');
+    const provenance = await readJson<ProvenanceFile>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance));
+    expect(provenance.artifacts.find(artifact => artifact.path === CI_ARTIFACT_FILES.repairPlan)?.hash)
+      .toBe(digest(formatJsonFile(skippedPlan)));
+  });
+});
+
+
+test('RepairPlan interruption keeps the old Lock and reports the written plan without rollback', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    const lock = buildReviewLock();
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const planPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+    const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
+    await fs.mkdir(path.dirname(provenancePath), { recursive: true });
+    await saveLock(workspaceRoot, lock);
+    const before = await fs.readFile(lockPath, 'utf8');
+    const interruption = new Error('stop after the plan is visible');
+    await expect(writeRepairPlan(workspaceRoot, skippedPlan, lock, async () => {
+      const planExists = await fs.access(planPath).then(() => true, () => false);
+      if (planExists) throw interruption;
+    })).rejects.toBe(interruption);
+    expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
+    expect(await readJson<RepairPlan>(planPath)).toEqual(skippedPlan);
+    await expect(fs.access(provenancePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(lock.generatedPaths).toEqual([]);
+  });
 });

@@ -3,6 +3,7 @@ import type { VerificationReport } from '../assurance/verification/contract/type
 import { productVerificationSubjectRevision } from '../assurance/verification/project/report.ts';
 import type { LockFile } from '../compiler/contract.ts';
 import { CompilerError } from '../compiler/errors.ts';
+import { cloneAndDeepFreeze } from '../contracts/canonical.ts';
 import type { RepairPlan } from '../semantics/repair/types.ts';
 import { publishRepairPlanResult } from './repair-plan-publication.ts';
 
@@ -12,7 +13,7 @@ export interface RepairWorkspaceOperations {
   readLock(): LockFile;
   readVerification(): ValidatedVerificationArtifactSet | null;
   buildPlan(report: VerificationReport): RepairPlan;
-  publish?(plan: RepairPlan, lock: LockFile): void | PromiseLike<void>;
+  publish?(plan: RepairPlan, lock: LockFile, artifacts: ValidatedVerificationArtifactSet): void | PromiseLike<void>;
   recordFailure?(lock: LockFile): void | PromiseLike<void>;
 }
 
@@ -54,11 +55,11 @@ export async function repairWorkspaceResult(
       .some(operation => typeof operation !== 'function')) {
     throw new TypeError('Workspace repair read/plan operations must be callable');
   }
-  const lock = readLock.call(operations);
+  const lock = structuredClone(readLock.call(operations));
   if (lock.passStatus.verify !== 'failed' && lock.passStatus.verify !== 'succeeded') {
     throw new CompilerError('REPAIR-BLOCKED-002', 'verify must complete before repair');
   }
-  const artifacts = readVerification.call(operations);
+  const artifacts = cloneAndDeepFreeze(readVerification.call(operations));
   if (artifacts === null) {
     throw new CompilerError('REPAIR-BLOCKED-002', 'Verification artifact set is missing');
   }
@@ -79,5 +80,8 @@ export async function repairWorkspaceResult(
   if (typeof publish !== 'function' || typeof recordFailure !== 'function') {
     throw new TypeError('Workspace repair publication operations must be callable');
   }
-  return publishRepairPlanResult({ lock, repairPlan }, { publish, recordFailure });
+  return publishRepairPlanResult({ lock, repairPlan }, {
+    publish: (plan, currentLock) => publish.call(operations, plan, currentLock, artifacts),
+    recordFailure: currentLock => recordFailure.call(operations, currentLock)
+  });
 }

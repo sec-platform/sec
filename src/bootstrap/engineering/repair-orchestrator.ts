@@ -35,8 +35,8 @@ export async function repairWorkspace(
         const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
         const operations: RepairWorkspaceOperations = {
           ...baseOperations,
-          publish: (repairPlan, lock) =>
-            writeRepairPlan(workspaceRoot, repairPlan, lock, commitFence),
+          publish: (repairPlan, lock, artifacts) =>
+            writeRepairPlan(workspaceRoot, repairPlan, lock, commitFence, artifacts),
           recordFailure: lock => saveLock(workspaceRoot, lock, commitFence)
         };
         return repairWorkspaceResult(request, operations);
