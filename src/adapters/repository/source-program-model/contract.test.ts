@@ -2544,8 +2544,22 @@ test('supersession evidence is compact, deterministic, and reusable by exact Act
     })
   })).toThrow('exact revision-bound inputs');
   expect(compactBytes).toBeLessThan(fullBytes / 2);
-  expect(compileSourceProgramSupersessionReceipt({
+  // Extra projection fields fail grammar admission before any receipt is issued.
+  expect(() => compileSourceProgramSupersessionReceipt({
     baseline: malformedEvidence,
+    current: fixture.evidence
+  })).toThrow('exact compact evidence grammar');
+  // Valid grammar with a stale binding remains an interpretable invalid finding.
+  const staleActionKeyCanonical = Object.freeze({
+    ...validEvidence,
+    actionKey: sha256({ staleActionKey: fixture.evidence.actionKey })
+  });
+  const staleActionKeyEvidence = Object.freeze({
+    ...staleActionKeyCanonical,
+    evidenceDigest: sha256(staleActionKeyCanonical)
+  });
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: staleActionKeyEvidence,
     current: fixture.evidence
   }).findings).toContainEqual(expect.objectContaining({
     code: 'baseline-evidence-invalid'
