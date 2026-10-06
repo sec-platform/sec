@@ -448,6 +448,18 @@ function loadCleanupIntent(
   return intent;
 }
 
+/** A durable cleanup intent retains the original registration until its
+ * exact physical effects and pointer retirement settle. A new producer may
+ * not reactivate, re-sign or terminalize that responsibility. Call under the
+ * existing registration mutation lease. */
+function assertNoGeneratedStateCleanupResponsibility(store: GeneratedStateRuntimeStore, relativePath: string): void {
+  if (loadCleanupIntent(store, relativePath) !== null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration conflicts with an active cleanup responsibility: ${relativePath}.`
+    );
+  }
+}
+
 function requireRule(relativePath: string): GeneratedStateRule {
   const rule = generatedStateRuleForPath(relativePath);
   if (rule === null) {
@@ -486,6 +498,7 @@ async function registerGeneratedStateBirth(input: Readonly<{
     throw new Error(`Generated-state rule ${rule.id} is registered by its domain owner, not this lifecycle.`);
   }
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Generated-state workspace root').target;
     const observed = observeRoot(workspaceRoot, relativePath);
     if (observed.identity === null || physicalFormForObservedKind(rule, observed.kind) === null) {
@@ -547,6 +560,7 @@ async function retireGeneratedStateInStore(store: GeneratedStateRuntimeStore, in
   outcome: string;
 }>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateRegistration> {
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  assertNoGeneratedStateCleanupResponsibility(store, relativePath);
   const pointer = inspectRegistrationPointer(store, relativePath);
   const currentObservation = readRegistrationLedgerObservation(store, relativePath);
   const current = currentObservation.registration;
@@ -606,6 +620,7 @@ async function restoreGeneratedStateRegistration(input: Readonly<{
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
   const rule = requireRule(relativePath);
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const pointer = inspectRegistrationPointer(store, relativePath);
     const currentObservation = readRegistrationLedgerObservation(store, relativePath);
     const current = currentObservation.registration;
@@ -923,6 +938,7 @@ async function disposeRetiredGeneratedStateDomain(input: Readonly<{
   });
   if (retraction !== undefined) assertGeneratedStateRetirementObservation(retraction.observation);
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const observation = readRegistrationLedgerObservation(store, relativePath);
     const registration = observation.registration;
     if (registration === null) {
@@ -1090,6 +1106,7 @@ async function settleAbsentActiveGeneratedStateRegistration(input: Readonly<{
     );
   }
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const workspace = inspectNoFollowDirectoryChain(
       workspaceRoot,
       'Generated-state absent registration settlement workspace root'
@@ -1573,6 +1590,7 @@ async function worktreeRetirementDomainRegistration(
   store: GeneratedStateRuntimeStore,
   options: GeneratedStateLifecycleOptions
 ): Promise<GeneratedStateRegistration> {
+  assertNoGeneratedStateCleanupResponsibility(store, entry.relativePath);
   const planned = entry.registration;
   const outcome = `worktree-retirement:${intent.operationId}`;
   let observation = readRegistrationLedgerObservation(store, entry.relativePath);
@@ -2313,58 +2331,47 @@ export async function settleGeneratedState(input: Readonly<{
     }, { clock: options.clock });
   }
   const store = await openRuntimeStore(workspaceRoot, options);
-  for (const entry of before.entries.filter((candidate) =>
-    candidate.kind === 'missing' && candidate.registrationState === 'retired'
-  )) {
-    const registration = loadRegistration(store, entry.relativePath);
-    const intent = loadCleanupIntent(store, entry.relativePath);
-    if (registration === null || intent === null || intent.profile !== input.profile ||
-        intent.registrationDigest !== registration.registrationDigest ||
-        !sameIdentity(registration.root, intent.root)) {
-      blockers.push(`${entry.relativePath}:retired-absent-root-without-valid-intent`);
-      attempts.push(Object.freeze({
-        relativePath: entry.relativePath,
-        action: 'residue',
-        detailRef: generatedStateDigest('retired-absent-root-without-valid-intent')
-      }));
-      continue;
-    }
-    try {
-      const tombstonePath = path.join(
-        workspaceRoot, '.tmp', 'generated-state-quarantine', intent.tombstoneName
-      );
-      const tombstone = inspectExactNoFollowDirectoryPresence(
-        tombstonePath,
-        'Generated-state interrupted quarantine'
-      );
-      if (tombstone.state === 'present') {
-        if (!sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
-          throw new Error('Generated-state interrupted quarantine identity changed.');
+  for (const entry of before.entries.filter((candidate) => candidate.kind === 'missing')) {
+    await withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+      const intent = loadCleanupIntent(store, entry.relativePath);
+      const observation = readRegistrationLedgerObservation(store, entry.relativePath);
+      const registration = observation.registration ?? observation.retiredPredecessor;
+      if (intent === null && observation.registration?.phase !== 'retired') return;
+      if (registration === null || registration.phase !== 'retired' || intent === null ||
+          intent.profile !== input.profile || intent.registrationDigest !== registration.registrationDigest ||
+          !sameIdentity(registration.root, intent.root) || observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+        blockers.push(`${entry.relativePath}:retired-absent-root-without-valid-intent`);
+        attempts.push(Object.freeze({ relativePath: entry.relativePath, action: 'residue',
+          detailRef: generatedStateDigest('retired-absent-root-without-valid-intent') }));
+        return;
+      }
+      try {
+        const tombstonePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine', intent.tombstoneName);
+        const tombstone = inspectExactNoFollowDirectoryPresence(tombstonePath, 'Generated-state interrupted quarantine');
+        if (tombstone.state === 'present') {
+          if (!sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
+            throw new Error('Generated-state interrupted quarantine identity changed.');
+          }
+          deleteQuarantinedTree(tombstone.directory.target, cleanupOperation);
         }
-        deleteQuarantinedTree(tombstone.directory.target, cleanupOperation);
+        if (observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+          throw new Error('Generated-state interrupted cleanup source reappeared.');
+        }
+        const registrationLocator = registrationPath(store, entry.relativePath);
+        const transactionLocator = transactionPointerPath(store, entry.relativePath);
+        if ((!store.fs.deleteIfPresent(registrationLocator) && store.fs.exists(registrationLocator))
+            || (!store.fs.deleteIfPresent(transactionLocator) && store.fs.exists(transactionLocator))) {
+          throw new Error('Generated-state interrupted cleanup pointers remain.');
+        }
+        attempts.push(Object.freeze({ relativePath: entry.relativePath, action: 'deleted',
+          detailRef: generatedStateDigest({ intentDigest: intent.intentDigest,
+            effect: 'interrupted-cleanup-physical-absence-readback' }) }));
+      } catch (error) {
+        blockers.push(`${entry.relativePath}:interrupted-cleanup-residue`);
+        attempts.push(Object.freeze({ relativePath: entry.relativePath, action: 'residue',
+          detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error)) }));
       }
-      const registrationLocator = registrationPath(store, entry.relativePath);
-      const transactionLocator = transactionPointerPath(store, entry.relativePath);
-      if ((!store.fs.deleteIfPresent(registrationLocator) && store.fs.exists(registrationLocator))
-          || (!store.fs.deleteIfPresent(transactionLocator) && store.fs.exists(transactionLocator))) {
-        throw new Error('Generated-state interrupted cleanup pointers remain.');
-      }
-      attempts.push(Object.freeze({
-        relativePath: entry.relativePath,
-        action: 'deleted',
-        detailRef: generatedStateDigest({
-          intentDigest: intent.intentDigest,
-          effect: 'interrupted-cleanup-physical-absence-readback'
-        })
-      }));
-    } catch (error) {
-      blockers.push(`${entry.relativePath}:interrupted-cleanup-residue`);
-      attempts.push(Object.freeze({
-        relativePath: entry.relativePath,
-        action: 'residue',
-        detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error))
-      }));
-    }
+    });
   }
   if (plan.selected.length > 0) {
     const workspace = inspectNoFollowDirectoryChain(
@@ -2378,8 +2385,13 @@ export async function settleGeneratedState(input: Readonly<{
     for (const relativePath of plan.selected) {
       const entry = before.entries.find((candidate) => candidate.relativePath === relativePath)!;
       await options.beforeCleanupEffect?.(relativePath);
+      await withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+      const registration = readRegistrationLedgerObservation(store, relativePath).registration;
       const current = observeRoot(workspaceRoot, relativePath);
-      if (current.kind !== 'directory' || current.directory === null || current.identity === null
+      if (registration === null || registration.phase !== 'retired' ||
+          registration.registrationDigest !== entry.registrationDigest ||
+          !sameIdentity(registration.workspace, identityOf(workspace)) ||
+          current.kind !== 'directory' || current.directory === null || current.identity === null
           || entry.physicalIdentity === null || !sameIdentity(entry.physicalIdentity, current.identity)) {
         blockers.push(`${relativePath}:changed-after-inventory-or-unsupported-kind`);
         attempts.push(Object.freeze({
@@ -2387,10 +2399,10 @@ export async function settleGeneratedState(input: Readonly<{
           action: 'protected',
           detailRef: generatedStateDigest('changed-after-inventory-or-unsupported-kind')
         }));
-        continue;
+        return;
       }
       const tombstoneName = `q-${entry.registrationDigest!.slice('sha256:'.length, 'sha256:'.length + 48)}`;
-      const intent = Object.freeze({
+      const plannedIntent = Object.freeze({
         schema: GENERATED_STATE_CLEANUP_INTENT_SCHEMA,
         beforeInventoryDigest: before.inventoryDigest,
         profile: input.profile,
@@ -2399,9 +2411,16 @@ export async function settleGeneratedState(input: Readonly<{
         root: entry.physicalIdentity,
         tombstoneName
       });
-      const intentDigest = generatedStateDigest(intent);
+      const existingIntent = loadCleanupIntent(store, relativePath);
+      if (existingIntent !== null && (existingIntent.profile !== input.profile ||
+          existingIntent.registrationDigest !== registration.registrationDigest ||
+          !sameIdentity(existingIntent.root, registration.root))) {
+        throw new GeneratedStateProducerBindingBlockedError('Generated-state cleanup intent belongs to another responsibility.');
+      }
+      const intent = existingIntent ?? Object.freeze({ ...plannedIntent, intentDigest: generatedStateDigest(plannedIntent) });
+      const intentDigest = intent.intentDigest;
       const intentPath = path.join(store.transactionsRoot, `intent-${intentDigest.slice('sha256:'.length)}.json`);
-      const intentBytes = canonicalBytes(Object.freeze({ ...intent, intentDigest }));
+      const intentBytes = canonicalBytes(intent);
       if (!store.fs.createExclusiveFsync(intentPath, intentBytes) && store.fs.readText(intentPath) !== intentBytes) {
         throw new Error('Generated-state cleanup intent collides with different bytes.');
       }
@@ -2420,6 +2439,9 @@ export async function settleGeneratedState(input: Readonly<{
           path.join(quarantinePath, tombstoneName), 'Generated-state quarantine readback'
         ).state === 'absent';
         if (!absent) throw new Error('Generated-state quarantine residue remains after deletion.');
+        if (observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
+          throw new Error('Generated-state cleanup source reappeared before terminal publication.');
+        }
         const registrationLocator = registrationPath(store, relativePath);
         if (!store.fs.deleteIfPresent(registrationLocator) || store.fs.exists(registrationLocator)) {
           throw new Error('Generated-state retired registration remains after physical deletion.');
@@ -2441,6 +2463,7 @@ export async function settleGeneratedState(input: Readonly<{
           detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error))
         }));
       }
+      });
     }
   }
   const quarantinePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine');
@@ -2580,7 +2603,14 @@ export async function continueGeneratedStateCleanup(input: Readonly<{
   for (const relativePath of requested) {
     const entry = after.entries.find((candidate) => candidate.relativePath === relativePath);
     if (entry?.kind === 'missing' && entry.registrationState === 'missing') {
-      completed.push(relativePath);
+      // A prior cut may have retired the registration pointer but left its
+      // durable cleanup responsibility. Exhaustion/profile rejection above
+      // cannot turn that still-producer-blocking intent into completion.
+      if (store !== null && loadCleanupIntent(store, relativePath) !== null) {
+        blockers.push(`${relativePath}:cleanup-continuation-intent-unsettled`);
+      } else {
+        completed.push(relativePath);
+      }
       continue;
     }
     if (entry?.kind !== 'missing' || entry.registrationState !== 'retired' || store === null) {
@@ -2591,7 +2621,7 @@ export async function continueGeneratedStateCleanup(input: Readonly<{
     const registration = observation.registration;
     const intent = loadCleanupIntent(store, relativePath);
     if (registration === null || registration.phase !== 'retired' || intent === null ||
-        intent.registrationDigest !== registration.registrationDigest ||
+        intent.profile !== input.profile || intent.registrationDigest !== registration.registrationDigest ||
         !sameIdentity(intent.root, registration.root)) {
       blockers.push(`${relativePath}:cleanup-continuation-intent-invalid`);
       continue;

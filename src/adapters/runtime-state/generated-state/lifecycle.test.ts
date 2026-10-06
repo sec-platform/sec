@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { lstat, mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -23,6 +23,8 @@ import {
   settleGeneratedStateForWorktreeRetirement,
   type GeneratedStateWorktreeRetirementProvider
 } from './lifecycle.ts';
+
+import { openRuntimeStoreReadOnly, registrationKey, registrationPath } from './registration-store.ts';
 
 const roots: string[] = [];
 const LIFECYCLE_FIXTURE_PATH = '.tmp/dependency-installs/c.staging-lifecycle-fixture';
@@ -1160,4 +1162,146 @@ test('a foreign quarantine entry prevents a completed physical settlement', asyn
   expect(receipt.blockers).toEqual(['.tmp/generated-state-quarantine:physical-residue']);
   expect(await absent(generatedRoot)).toBe(true);
   expect(await absent(path.join(quarantineRoot, 'foreign-residue', 'keep.txt'))).toBe(false);
+});
+test('cleanup preserves a same-inode generation legitimately restored after its retired inventory', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = path.join(repositoryRoot, ...LIFECYCLE_FIXTURE_PATH.split('/'));
+  await mkdir(generatedRoot, { recursive: true });
+  const sentinel = path.join(generatedRoot, 'cache.bin');
+  await writeFile(sentinel, 'active owner exact bytes');
+  const beforeStat = await stat(generatedRoot);
+  const producer = generatedStateProducerHooks({ repositoryRoot }, options);
+  await producer.born(LIFECYCLE_FIXTURE_PATH, 'original-owner-operation');
+  const retired = await producer.retired(LIFECYCLE_FIXTURE_PATH, 'original-owner-completed');
+  if (retired === undefined) throw new Error('Native retirement did not return its original registration.');
+  const recoveringProducer = generatedStateProducerHooks({ repositoryRoot }, options);
+  let restoredDigest: string | null = null;
+  let cleanupError: unknown;
+  try {
+    await settleGeneratedState({ repositoryRoot, profile: 'automatic', relativePaths: [LIFECYCLE_FIXTURE_PATH] }, {
+      ...options,
+      beforeCleanupEffect: async () => {
+        const restored = await recoveringProducer.restore(LIFECYCLE_FIXTURE_PATH,
+          retired.registrationDigest, retired.root, 'authorized-operation-rollback');
+        restoredDigest = restored.registrationDigest;
+        expect(restored.phase).toBe('active');
+        expect((await stat(generatedRoot)).ino).toBe(beforeStat.ino);
+        expect(await readFile(sentinel, 'utf8')).toBe('active owner exact bytes');
+      }
+    });
+  } catch (error) { cleanupError = error; }
+  expect(restoredDigest).not.toBeNull();
+  // Independent owner oracle: the successful restore owns the unchanged inode.
+  expect(await readFile(sentinel, 'utf8')).toBe('active owner exact bytes');
+  expect(cleanupError).toBeUndefined();
+  const inventory = await inspectGeneratedState({ repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH] }, options);
+  expect(inventory.entries[0]?.registrationState).toBe('active');
+  expect(inventory.entries[0]?.registrationDigest).toBe(restoredDigest);
+});
+
+async function interruptedRetiredCleanupFixture() {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = path.join(repositoryRoot, ...LIFECYCLE_FIXTURE_PATH.split('/'));
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'original owned bytes');
+  const producer = generatedStateProducerHooks({ repositoryRoot }, options);
+  await producer.born(LIFECYCLE_FIXTURE_PATH, 'owned-cleanup-recovery');
+  const retired = await producer.retired(LIFECYCLE_FIXTURE_PATH, 'owner-completed');
+  if (retired === undefined) throw new Error('Native retirement did not return its original registration.');
+  const tombstone = path.join(repositoryRoot, '.tmp', 'generated-state-quarantine', `q-${retired.registrationDigest.slice(7, 55)}`);
+  const settle = (afterQuarantineEffect?: () => void) => settleGeneratedState({ repositoryRoot,
+    profile: 'automatic', relativePaths: [LIFECYCLE_FIXTURE_PATH] }, { ...options, afterQuarantineEffect });
+  const interrupted = await settle(() => { throw new Error('interrupted after owned quarantine'); });
+  expect(interrupted.terminal).toBe('partial-residue');
+  expect(await readFile(path.join(tombstone, 'cache.bin'), 'utf8')).toBe('original owned bytes');
+  const store = openRuntimeStoreReadOnly(repositoryRoot, options)!;
+  const intentPath = path.join(store.transactionsRoot, `current-${registrationKey(LIFECYCLE_FIXTURE_PATH)}.json`);
+  return { repositoryRoot, generatedRoot, tombstone, retired, options, settle, store, intentPath };
+}
+
+test('durable cleanup responsibility blocks restore after interruption and resumes the original intent', async () => {
+  const fixture = await interruptedRetiredCleanupFixture();
+  const beforeIntent = fixture.store.fs.readText(fixture.intentPath);
+  // Legitimate reverse physical move retains the original inode, but cannot
+  // silently discard the already published cleanup responsibility.
+  await rename(fixture.tombstone, fixture.generatedRoot);
+  const producer = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, fixture.options);
+  await expect(producer.restore(LIFECYCLE_FIXTURE_PATH, fixture.retired.registrationDigest,
+    fixture.retired.root, 'owner-rollback')).rejects.toThrow('active cleanup responsibility');
+  expect(fixture.store.fs.readText(fixture.intentPath)).toBe(beforeIntent);
+  expect(await readFile(path.join(fixture.generatedRoot, 'cache.bin'), 'utf8')).toBe('original owned bytes');
+  const resumed = await fixture.settle();
+  expect(fixture.store.fs.exists(fixture.intentPath)).toBe(false);
+  expect(resumed.terminal).toBe('completed');
+  expect(resumed.blockers).toEqual([]);
+  expect((await fixture.settle()).terminal).toBe('no-op');
+});
+
+test('cleanup settles its retained intent after physical deletion and registration-pointer retirement', async () => {
+  const fixture = await interruptedRetiredCleanupFixture();
+  // Model the existing publication cut after the exact physical deletion and
+  // registration-pointer retirement, before intent-pointer retirement.
+  await rm(fixture.tombstone, { recursive: true });
+  expect(fixture.store.fs.deleteIfPresent(registrationPath(fixture.store, LIFECYCLE_FIXTURE_PATH))).toBe(true);
+  expect(fixture.store.fs.exists(fixture.intentPath)).toBe(true);
+  const resumed = await fixture.settle();
+  expect(fixture.store.fs.exists(fixture.intentPath)).toBe(false);
+  expect(resumed.terminal).toBe('completed');
+  expect(resumed.blockers).toEqual([]);
+  expect((await fixture.settle()).terminal).toBe('no-op');
+});
+
+for (const blockedBy of ['cancelled', 'expired', 'wrong-profile'] as const) {
+  test(`cleanup continuation preserves an unfinished intent and resumes with fresh admission: ${blockedBy}`, async () => {
+    const fixture = await interruptedRetiredCleanupFixture();
+    // Allocate the next generation while the old inode still exists, ensuring
+    // this later lawful birth has an independent physical identity.
+    const nextGeneration = path.join(fixture.repositoryRoot, 'next-generation');
+    await mkdir(nextGeneration);
+    await writeFile(path.join(nextGeneration, 'cache.bin'), 'next owner bytes');
+    await rm(fixture.tombstone, { recursive: true });
+    expect(fixture.store.fs.deleteIfPresent(registrationPath(fixture.store, LIFECYCLE_FIXTURE_PATH))).toBe(true);
+    const originalIntent = fixture.store.fs.readText(fixture.intentPath);
+    const controller = new AbortController();
+    if (blockedBy === 'cancelled') controller.abort(new Error('original cleanup operation cancelled'));
+    const operation = createGeneratedStateCleanupOperationSession(blockedBy === 'expired'
+      ? { deadlineAtMonotonicMs: 1, monotonicNowMs: () => 2 }
+      : { deadlineAtMonotonicMs: performance.now() + 30_000, signal: controller.signal });
+    const receipt = await continueGeneratedStateCleanup({ lifecycleOptions: fixture.options,
+      repositoryRoot: fixture.repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH],
+      profile: blockedBy === 'wrong-profile' ? 'safe' : 'automatic', operation });
+    expect(fixture.store.fs.readText(fixture.intentPath)).toBe(originalIntent);
+    expect(receipt.completed).not.toContain(LIFECYCLE_FIXTURE_PATH);
+    expect(receipt.terminal).not.toBe('completed');
+    const producer = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, fixture.options);
+    await expect(producer.born(LIFECYCLE_FIXTURE_PATH, 'premature-next-owner')).rejects.toThrow('active cleanup responsibility');
+    const fresh = createGeneratedStateCleanupOperationSession({ deadlineAtMonotonicMs: performance.now() + 30_000 });
+    const recovered = await continueGeneratedStateCleanup({ lifecycleOptions: fixture.options,
+      repositoryRoot: fixture.repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH], profile: 'automatic', operation: fresh });
+    expect(recovered.terminal).toBe('completed');
+    expect(recovered.completed).toEqual([LIFECYCLE_FIXTURE_PATH]);
+    expect(fixture.store.fs.exists(fixture.intentPath)).toBe(false);
+    await rename(nextGeneration, fixture.generatedRoot);
+    await producer.born(LIFECYCLE_FIXTURE_PATH, 'lawful-next-owner');
+    expect((await producer.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
+    expect(await readFile(path.join(fixture.generatedRoot, 'cache.bin'), 'utf8')).toBe('next owner bytes');
+  });
+}
+
+test('cleanup continuation cannot borrow a different profile while the original quarantine remains', async () => {
+  const fixture = await interruptedRetiredCleanupFixture();
+  const originalIntent = fixture.store.fs.readText(fixture.intentPath);
+  const operation = createGeneratedStateCleanupOperationSession({ deadlineAtMonotonicMs: performance.now() + 30_000 });
+  const receipt = await continueGeneratedStateCleanup({ lifecycleOptions: fixture.options,
+    repositoryRoot: fixture.repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH], profile: 'safe', operation });
+  expect(fixture.store.fs.readText(fixture.intentPath)).toBe(originalIntent);
+  expect(await readFile(path.join(fixture.tombstone, 'cache.bin'), 'utf8')).toBe('original owned bytes');
+  expect(receipt.quarantined).toEqual([]);
+  expect(receipt.completed).toEqual([]);
+  expect(receipt.terminal).toBe('blocked');
+  const recovered = await continueGeneratedStateCleanup({ lifecycleOptions: fixture.options,
+    repositoryRoot: fixture.repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH], profile: 'automatic',
+    operation: createGeneratedStateCleanupOperationSession({ deadlineAtMonotonicMs: performance.now() + 30_000 }) });
+  expect(recovered.terminal).toBe('completed');
+  expect(fixture.store.fs.exists(fixture.intentPath)).toBe(false);
 });
