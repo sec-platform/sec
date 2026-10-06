@@ -2,11 +2,11 @@ import { summarizeCounts } from '../../contracts/collections.ts';
 import { stringifyJsonValue } from '../../contracts/json-text.ts';
 import type { JsonOutputOptions } from './json-output-options.ts';
 
-export function formatList(values: string[], fallback = 'none'): string {
+export function formatList(values: readonly string[], fallback = 'none'): string {
   return values.length > 0 ? values.join(', ') : fallback;
 }
 
-export function formatCounts(values: string[]): string {
+export function formatCounts(values: readonly string[]): string {
   return formatList(
     summarizeCounts(values).map((entry) => `${entry.id}=${entry.count}`)
   );
@@ -36,7 +36,7 @@ export function printJsonOrText<T>(
   console.log(options.json ? formatJson(value, options) : formatText(value));
 }
 
-export function formatSummaryEntries(entries: Array<{ id: string; count: number }>): string {
+export function formatSummaryEntries(entries: readonly Readonly<{ id: string; count: number }>[]): string {
   return entries.length > 0
     ? entries.map((entry) => `${entry.id}=${entry.count}`).join(', ')
     : 'none';

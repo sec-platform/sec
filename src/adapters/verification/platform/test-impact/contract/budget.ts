@@ -511,10 +511,6 @@ export function assertTestBudgetExecutionProvenance(
   }
 }
 
-export function getTestFilesSync(projection: TestBudgetProjection): readonly string[] {
-  return projection.testFiles;
-}
-
 export function getSlowTestFilesSync(projection: TestBudgetProjection): readonly string[] {
   return projection.slowTestFiles;
 }

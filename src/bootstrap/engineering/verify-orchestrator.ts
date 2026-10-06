@@ -142,8 +142,8 @@ function verifyWorkspaceCore(
               input.signal,
               input.beforeCommit
             ),
-          runRuntime: (mode, input) =>
-            runRuntimeVerification(workspaceRoot, mode, {
+          runRuntime: input =>
+            runRuntimeVerification(workspaceRoot, {
               beforeCommit: input.beforeCommit,
               emitTiming: input.emitTiming,
               isolated: input.isolated,

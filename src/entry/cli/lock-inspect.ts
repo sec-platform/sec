@@ -11,7 +11,7 @@ export function formatLockInspect(view: LockInspectView): string {
       `generated=${view.generatedCount}`,
       `acceptance=${view.acceptanceCount}`
     ]),
-    `Block order: ${formatList([...view.blockOrder])}`,
-    `Pass status: ${formatCounts([...view.passStates])}`
+    `Block order: ${formatList(view.blockOrder)}`,
+    `Pass status: ${formatCounts(view.passStates)}`
   ].join('\n');
 }

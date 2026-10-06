@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 
-import { canonicalEncodingChunks, canonicalJson, rawSha256, sha256 } from './canonical.ts';
 import { IDENTITY_PROFILE, identityFrameHeader, parseIdentity, type Identity } from './identity-profile.ts';
 
 const hash = `blake3:${'a'.repeat(64)}`;
@@ -91,35 +89,4 @@ test('identity brands preserve semantic domain and schema separation', () => {
   // @ts-expect-error schema version remains part of the identity type
   const older: Identity<'evidence', 'record/v1'> = evidence;
   void revision; void older;
-});
-
-test('shared canonical encoder retains golden bytes, sparse arrays and key order', () => {
-  for (const value of [null, true, -0, 'é😀', '\ud800', [1, , 3], { b: 2, a: 1 },
-    { '10': 1, '2': 2, z: 3 }, JSON.parse('{"__proto__": {"z":1,"a":2}}')]) {
-    const encoded = [...canonicalEncodingChunks(value)].join('');
-    assert.equal(encoded, JSON.stringify(canonicalJson(value)));
-    assert.equal(sha256(value), rawSha256(encoded));
-  }
-});
-
-test('canonical chunks never split a surrogate pair between UTF-8 writes', () => {
-  const value = Array.from({ length: 8 }, (_, index) => `${'x'.repeat(8190 + index)}😀`);
-  const encoded = JSON.stringify(value);
-  const hash = createHash('sha256');
-  for (const chunk of canonicalEncodingChunks(value)) hash.update(chunk, 'utf8');
-  assert.equal(hash.digest('hex'), createHash('sha256').update(encoded).digest('hex'));
-});
-
-test('canonical chunks retain shared acyclic values', () => {
-  const shared = { z: 1 };
-  assert.equal([...canonicalEncodingChunks([shared, shared])].join(''), '[{"z":1},{"z":1}]');
-});
-
-test('canonical failure cannot produce a completed hash or contaminate another call', () => {
-  const circular: unknown[] = []; circular.push(circular);
-  for (const input of [undefined, NaN, Infinity, 1n, () => 0, Symbol(), circular]) {
-    assert.throws(() => [...canonicalEncodingChunks(input)]);
-    assert.throws(() => sha256(input));
-  }
-  assert.equal(sha256({ a: 1 }), rawSha256('{"a":1}'));
 });

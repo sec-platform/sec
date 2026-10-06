@@ -5,7 +5,7 @@ function formatE2eMatrixRow(row: E2eMatrixInspectView['rows'][number]): string {
   return formatFields([
     `${row.stage}: ${row.status}`,
     row.detail,
-    `evidence=${formatList([...row.evidence])}`
+    `evidence=${formatList(row.evidence)}`
   ]);
 }
 

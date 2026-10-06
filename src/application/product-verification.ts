@@ -3,8 +3,7 @@ import type { CanonicalVerificationArtifactSet } from '../assurance/verification
 import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   shouldExecuteRuntimeVerification,
-  verificationLaneProfile,
-  type VerificationRuntimeMode
+  verificationLaneProfile
 } from '../assurance/verification/contract/lanes.ts';
 import type {
   FastVerificationLaneReport,
@@ -73,7 +72,6 @@ export interface ProductVerificationOperations<StagedProof> {
     signal?: AbortSignal;
   }>): Promise<ProductVerificationFastResult>;
   runRuntime(
-    mode: VerificationRuntimeMode,
     input: Readonly<{
       beforeCommit: () => Promise<void>;
       emitTiming: boolean | undefined;
@@ -291,7 +289,7 @@ export async function executeProductVerification<StagedProof>(
   )
     ? await (async () => {
         await boundary('verify-runtime');
-        return Reflect.apply(runRuntime, operations, [runtimeMode, {
+        return Reflect.apply(runRuntime, operations, [{
           beforeCommit,
           emitTiming: options.emitTiming,
           isolated: options.isolated,

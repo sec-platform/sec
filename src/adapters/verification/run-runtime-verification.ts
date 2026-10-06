@@ -20,8 +20,6 @@ import {
 } from './assert-isolated-staging-tree.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
 
-type RuntimeVerificationMode = 'service' | 'full';
-
 export interface IsolatedRuntimeDependencySources {
   readonly compilerModulesRoot: string;
   readonly dependencyModules: string;
@@ -140,7 +138,6 @@ async function timed<T>(label: string, emitTiming: boolean, execute: () => Promi
 
 export async function runRuntimeVerification(
   workspaceRoot: string,
-  _mode: RuntimeVerificationMode = 'full',
   options: RuntimeVerificationOptions = {}
 ): Promise<RuntimeVerificationLaneReport> {
   const isolated = options.isolated === true;

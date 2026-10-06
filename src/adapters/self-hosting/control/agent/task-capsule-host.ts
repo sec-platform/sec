@@ -8,7 +8,6 @@ import { compareCodeUnits, sha256 } from '../../../../contracts/canonical.ts';
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
   resolveSecAgentOperationActivation,
-  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES,
   SecAgentOperationActivationUnavailableError,
   type SecAgentOperationActivationReasonCode,
   type SecOperationAuthorityOwnerObservation,
@@ -27,8 +26,6 @@ import {
 
 export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA =
   'sec-task-capsule-projection-blocked-v1' as const;
-export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASONS =
-  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES;
 
 export interface SecTaskCapsuleProjectionBlocked {
   readonly schema: typeof SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA;

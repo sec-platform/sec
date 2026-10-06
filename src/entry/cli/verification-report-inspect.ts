@@ -6,7 +6,7 @@ export function formatVerificationReport(view: VerificationReportInspectView): s
     formatFields([
       `Verification report ${view.status}`,
       `requestedLane=${view.requestedLane}`,
-      `failedLanes=${formatList([...view.failedLanes])}`
+      `failedLanes=${formatList(view.failedLanes)}`
     ]),
     formatFields([
       `Fast: ${view.fast.status}`,
