@@ -30,21 +30,6 @@ test('diagnostic projection invokes neither object conversion, custom inspect no
   assert.equal(calls, 0);
 });
 
-test('revoked proxy and broken Error.message remain describable', () => {
-  const { proxy, revoke } = Proxy.revocable({}, {}); revoke();
-  assert.equal(typeof failureMessage(proxy), 'string'); assert.equal(getErrorCode(proxy), undefined);
-  const error = new Error('hidden');
-  Object.defineProperty(error, 'message', { get() { throw new Error('getter failed'); } });
-  assert.equal(typeof failureMessage(error), 'string');
-});
-
-test('error codes read once, reject nonstrings, and do not throw through the projection', () => {
-  let reads = 0;
-  assert.equal(getErrorCode({ get code() { reads++; return 'E-CODE'; } }), 'E-CODE'); assert.equal(reads, 1);
-  for (const code of [null, 0, {}, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);
-  assert.equal(getErrorCode({ get code() { throw undefined; } }), undefined);
-});
-
 test('native Error accessor fields are never invoked, including when nested', () => {
   let reads = 0;
   const error = new Error('initial');
@@ -60,6 +45,13 @@ test('native Error accessor fields are never invoked, including when nested', ()
   assert.equal(reads, 0);
 });
 
+test('error codes read once, reject nonstrings, and do not throw through the projection', () => {
+  let reads = 0;
+  assert.equal(getErrorCode({ get code() { reads++; return 'E-CODE'; } }), 'E-CODE'); assert.equal(reads, 1);
+  for (const code of [null, 0, {}, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);
+  assert.equal(getErrorCode({ get code() { throw undefined; } }), undefined);
+});
+
 test('live and revoked proxies reach no traps or renderer', () => {
   let traps = 0;
   const live = new Proxy({}, {
@@ -70,6 +62,7 @@ test('live and revoked proxies reach no traps or renderer', () => {
   });
   const { proxy: revoked, revoke } = Proxy.revocable({}, {});
   revoke();
+  assert.equal(getErrorCode(revoked), undefined);
   for (const value of [live, revoked, { nested: live }]) {
     assert.match(inspectFailureValue(value), /Proxy not inspected/u);
     assert.match(failureMessage(value), /Proxy not inspected/u);

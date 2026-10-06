@@ -478,11 +478,15 @@ afterAll(() => rmSync(EVENT_ROOT, { recursive: true, force: true }));
 describe('VerificationAction GitHub provider authenticated transaction', () => {
   test('exact parent artifact, closure member, current bot run, and marker chain posts once', async () => {
     fakeGh = new FakeGh().withMarker();
+    fakeGh.artifactMetadataOverrides[7001] = {
+      created_at: '2026-08-08T18:00:04-07:00', updated_at: '2026-08-09T01:00:04Z'
+    };
     const result = await ensureTransaction({
       authority: authority(),
       intent: { kind: 'claim-start', marker }
     });
     expect(result.disposition).toBe('started');
+    expect(result.snapshot.startObservations[0]?.payload).toEqual(marker);
     expect(result.actionKey).toBe(ACTION);
     expect(result.status).toMatchObject({ state: 'pending', context: CONTEXT });
     expect(fakeGh.createCalls).toBe(1);
@@ -490,6 +494,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
 
   test('coordinate-parent binds the current external Session run and is structurally read-only', async () => {
     fakeGh = new FakeGh();
+    fakeGh.jobTransform = (jobs) => { for (const job of jobs) delete job.run_attempt; return jobs; };
     trustedParentEnvironment();
     const result = await ensureTransaction({
       authority: { envelope, actionPlanClosure: closure },
@@ -498,6 +503,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(result.disposition).toBe('observed');
     expect(result.actionKey).toBe(ACTION);
     expect(fakeGh.createCalls).toBe(0);
+    expect(fakeGh.dispatchCalls).toBe(0);
     fakeGh.parentPermissionUser.node_id = 'different-node';
     await expect(ensureTransaction({
       authority: { envelope, actionPlanClosure: closure },
@@ -560,6 +566,11 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         source: '{}'
       });
     }
+    fakeGh.jobTransform = (jobs, runId) => runId !== PARENT_RUN_ID ? jobs : [
+      ...jobs, ...Array.from({ length: 100 }, (_, index) => ({
+        id: 10000 + index, name: `unrelated-${index}`, run_id: Number(PARENT_RUN_ID), run_attempt: 1
+      }))
+    ];
     const result = await ensureTransaction({
       authority: authority(),
       intent: { kind: 'coordinate' }
@@ -567,6 +578,8 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(result.disposition).toBe('observed');
     expect(fakeGh.statusListCalls).toContainEqual({ page: 2, perPage: 100 });
     expect(fakeGh.artifactListCalls).toContainEqual({ page: 2, perPage: 100 });
+    expect(fakeGh.jobListCalls).toContainEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 2 });
+    expect(fakeGh.createCalls).toBe(0);
   });
 
   test('artifact inventory freezes total and leading boundary before dispatch', async () => {
@@ -1055,17 +1068,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
   });
 
-  test('job census spans all pages and rejects a changing leading boundary', async () => {
-    fakeGh = new FakeGh().withMarker();
-    fakeGh.jobTransform = (jobs, runId) => runId !== PARENT_RUN_ID ? jobs : [
-      ...jobs, ...Array.from({ length: 100 }, (_, index) => ({
-        id: 10000 + index, name: `unrelated-${index}`, run_id: Number(PARENT_RUN_ID), run_attempt: 1
-      }))
-    ];
-    await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
-    expect(fakeGh.jobListCalls).toContainEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 2 });
-    expect(fakeGh.createCalls).toBe(0);
-
+  test('job census rejects a changing leading boundary', async () => {
     fakeGh = new FakeGh().withMarker();
     fakeGh.jobTransform = (jobs) => {
       if (fakeGh.jobListCalls.length === 2) jobs[0]!.id = 6999;
@@ -1074,27 +1077,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } }))
       .rejects.toThrow(/job census changed during pagination/i);
     expect(fakeGh.createCalls).toBe(0);
-  });
-
-  test('provider date-times accept equivalent explicit offsets and omitted milliseconds', async () => {
-    fakeGh = new FakeGh().withMarker();
-    fakeGh.artifactMetadataOverrides[7001] = {
-      created_at: '2026-08-08T18:00:04-07:00', updated_at: '2026-08-09T01:00:04Z'
-    };
-    const result = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
-    expect(result.snapshot.startObservations[0]?.payload).toEqual(marker);
-    expect(fakeGh.createCalls).toBe(0);
-  });
-
-  test('the exact-attempt job endpoint does not require an optional parent run_attempt field', async () => {
-    fakeGh = new FakeGh();
-    fakeGh.jobTransform = (jobs) => { for (const job of jobs) delete job.run_attempt; return jobs; };
-    trustedParentEnvironment();
-    const result = await ensureTransaction({ authority: { envelope, actionPlanClosure: closure },
-      intent: { kind: 'coordinate-parent' } });
-    expect(result.disposition).toBe('observed');
-    expect(fakeGh.createCalls).toBe(0);
-    expect(fakeGh.dispatchCalls).toBe(0);
   });
 
   test('post-publication readback never reuses an earlier upload observation', async () => {

@@ -192,10 +192,29 @@ async function readRecoveryRecord(
   throw new Error(`No durable recovery record describes ${kind}`);
 }
 
-test('upgrade recovery restores original B after schema A commits and the copy-job fence fails', async () => {
+test('upgrade recovery restores original B after sequential updates and a copy-job fence failure', async () => {
   await withRecoveryFixture(async (fixture, snapshot) => {
     await apply(fixture, snapshot, [planMigration], ['sec.yaml']);
     expect(await fs.readFile(fixture.planPath)).toEqual(appliedPlanBytes);
+    await apply(
+      fixture,
+      snapshot,
+      [
+        {
+          id: 'advance-plan-again',
+          kind: 'text-replace',
+          reason: 'Exercise a second constituent on the same path',
+          target: 'sec.yaml',
+          search: '"version": "0.2.0"',
+          replacement: '"version": "0.3.0"'
+        }
+      ],
+      ['sec.yaml']
+    );
+    const finalBytes = Buffer.from(
+      originalPlanBytes.toString('utf8').replace('"version": "0.1.0"', '"version": "0.3.0"')
+    );
+    expect(await fs.readFile(fixture.planPath)).toEqual(finalBytes);
     const copyFailure = new Error('copy-job write refused');
     let sawCommittedSchema = false;
     const failingCopyFence = async (): Promise<void> => {
@@ -232,7 +251,7 @@ test('upgrade recovery restores original B after schema A commits and the copy-j
   });
 });
 
-test('known file creation, deletion and rename roll back exact bytes, modes and absence', async () => {
+test('known file and graph-lock mutations roll back exact bytes, modes and absence', async () => {
   const deletedBytes = Buffer.from([0, 0xff, 0x80, 13, 10]);
   const renamedBytes = Buffer.from([0x81, 0, 0xfe, 10]);
   await withRecoveryFixture(
@@ -264,8 +283,16 @@ test('known file creation, deletion and rename roll back exact bytes, modes and 
       await expectAbsent(oldPath);
       await expectAbsent(deletedPath);
 
+      const changed = Buffer.from('{"fixture":"owned-lock-update"}\n');
+      await updateNoFollowMigrationFile({ root: fixture.root, targetPath: fixture.lockPath,
+        label: 'Upgrade graph lock constituent', commitFence: healthyFence,
+        recoveryIntent: snapshot.recoveryIntent, createParents: false, update: () => changed });
+      expect(await fs.readFile(fixture.lockPath)).toEqual(changed);
+
       await restoreWorkspace(snapshot, fixture.lockPath, healthyFence);
 
+      expect(await fs.readFile(fixture.lockPath)).toEqual(originalLockBytes);
+      expect(await fs.readFile(fixture.planPath)).toEqual(originalPlanBytes);
       expect(await fs.readFile(deletedPath)).toEqual(deletedBytes);
       expect(await fs.readFile(oldPath)).toEqual(renamedBytes);
       expect((await fs.stat(deletedPath)).mode & 0o777).toBe(beforeMode);
@@ -278,38 +305,6 @@ test('known file creation, deletion and rename roll back exact bytes, modes and 
       await fs.writeFile(path.join(root, 'src', 'old.bin'), renamedBytes, { mode: 0o600 });
     }
   );
-});
-
-test('two sequential updates of one file retain and restore its original B', async () => {
-  await withRecoveryFixture(async (fixture, snapshot) => {
-    await apply(fixture, snapshot, [planMigration], ['sec.yaml']);
-    expect(await fs.readFile(fixture.planPath)).toEqual(appliedPlanBytes);
-    await apply(
-      fixture,
-      snapshot,
-      [
-        {
-          id: 'advance-plan-again',
-          kind: 'text-replace',
-          reason: 'Exercise a second constituent on the same path',
-          target: 'sec.yaml',
-          search: '"version": "0.2.0"',
-          replacement: '"version": "0.3.0"'
-        }
-      ],
-      ['sec.yaml']
-    );
-    const finalBytes = Buffer.from(
-      originalPlanBytes.toString('utf8').replace('"version": "0.1.0"', '"version": "0.3.0"')
-    );
-    expect(await fs.readFile(fixture.planPath)).toEqual(finalBytes);
-    expect(await fs.readFile(path.join(snapshot.preimage.path, 'sec.yaml'))).toEqual(originalPlanBytes);
-
-    await restoreWorkspace(snapshot, fixture.lockPath, healthyFence);
-
-    expect(await fs.readFile(fixture.planPath)).toEqual(originalPlanBytes);
-    expect(await fs.readFile(fixture.lockPath)).toEqual(originalLockBytes);
-  });
 });
 
 test('interrupted rollback resumes its saved reverse state and never reapplies a forward constituent', async () => {
@@ -872,19 +867,6 @@ test('large A binds within a small metadata budget without payload copies and wr
   });
 });
 
-
-test('graph lock recovery maps its exact nested path to the sealed lock preimage', async () => {
-  await withRecoveryFixture(async (fixture, snapshot) => {
-    const changed = Buffer.from('{"fixture":"owned-lock-update"}\n');
-    await updateNoFollowMigrationFile({ root: fixture.root, targetPath: fixture.lockPath,
-      label: 'Upgrade graph lock constituent', commitFence: healthyFence,
-      recoveryIntent: snapshot.recoveryIntent, createParents: false, update: () => changed });
-    expect(await fs.readFile(fixture.lockPath)).toEqual(changed);
-    await restoreWorkspace(snapshot, fixture.lockPath, healthyFence);
-    expect(await fs.readFile(fixture.lockPath)).toEqual(originalLockBytes);
-    expect(await fs.readFile(fixture.planPath)).toEqual(originalPlanBytes);
-  });
-});
 
 test('a different graph lock path cannot retarget an issued recovery snapshot', async () => {
   await withRecoveryFixture(async (fixture, snapshot) => {

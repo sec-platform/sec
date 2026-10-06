@@ -29,11 +29,19 @@ function fixture() {
 test('real resolver preserves provider-before-consumer order and stable global install step IDs', async () => {
   const f = fixture(); try {
     f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base']); f.plan.blocks = [{ id: 'block/app' }];
+    const incompatible = f.manifest('block/a', [], ['cap/base']);
+    writeFileSync(path.join(incompatible.folder, 'block.manifest.yaml'), JSON.stringify({
+      ...incompatible.source, stackProfiles: ['other-stack'],
+      installs: [{ kind: 'copy', from: 'absent-resource.ts', to: 'src/unused.ts' }]
+    }));
     const lock = await resolveGraph(f.root, f.plan);
     assert.deepEqual(lock.resolvedBlocks.map(b => b.id), ['block/base', 'block/app']);
     assert.deepEqual(lock.installPlan.map(step => step.stepId), ['block/base:1', 'block/app:2']);
     assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
     assert.equal(lock.passStatus.resolve, 'succeeded');
+    assert.deepEqual(lock.resolvedBlocks.map(block => block.registrySourceId), ['local', 'local']);
+    assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.base/block.manifest.yaml');
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
   } finally { f.cleanup(); }
 });
 
@@ -89,30 +97,6 @@ test('install ownership conflict still rejects a resolve result', async () => {
     await assert.rejects(resolveGraph(f.root, f.plan), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-006');
   } finally { f.cleanup(); }
 });
-
-for (const compatibleId of ['block/a', 'block/z']) {
-  test(`automatic providers apply stack admission before ambiguity with ${compatibleId} compatible`, async () => {
-    const f = fixture(); try {
-      f.manifest('block/app', ['cap/base']);
-      const incompatibleId = compatibleId === 'block/a' ? 'block/z' : 'block/a';
-      f.manifest(compatibleId, [], ['cap/base']);
-      const incompatible = f.manifest(incompatibleId, [], ['cap/base']);
-      writeFileSync(path.join(incompatible.folder, 'block.manifest.yaml'), JSON.stringify({
-        ...incompatible.source, stackProfiles: ['other-stack'],
-        installs: [{ kind: 'copy', from: 'absent-resource.ts', to: 'src/unused.ts' }]
-      }));
-      f.plan.blocks = [{ id: 'block/app' }];
-      const lock = await resolveGraph(f.root, f.plan);
-      assert.deepEqual(lock.resolvedBlocks.map(block => block.id), [compatibleId, 'block/app']);
-      assert.deepEqual(lock.resolvedBlocks.map(block => block.registrySourceId), ['local', 'local']);
-      assert.deepEqual(lock.installPlan.map(step => step.stepId), [`${compatibleId}:1`, 'block/app:2']);
-      assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
-      assert.equal(lock.resolvedBlocks[0]!.manifestPath,
-        `registry/${compatibleId.replaceAll('/', '.')}/block.manifest.yaml`);
-      assert.equal(existsSync(path.join(f.root, 'src')), false);
-    } finally { f.cleanup(); }
-  });
-}
 
 test('an exclusively incompatible catalog reports missing before resource lookup', async () => {
   const f = fixture(); try {

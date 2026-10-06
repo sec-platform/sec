@@ -18,6 +18,7 @@ import { buildRepairVerificationFixture } from '../helpers/repair-fixtures.ts';
 import {
   buildPassingReviewCoverage,
   buildPassingReviewReport,
+  buildReviewLock,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
 import { writeCanonicalVerificationArtifactSetFixture } from '../helpers/verification-fixtures.ts';
@@ -170,15 +171,14 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
 
 test('buildProvenance captures its Lock before override loading suspends', async () => {
   await withTempWorkspace(async workspaceRoot => {
-    const lock = buildRepairVerificationFixture('all', false).lock;
-    lock.generatedPaths = ['src/original.ts'];
+    const lock = buildReviewLock({ generatedPaths: ['src/original.ts'] });
     const pending = buildProvenance(workspaceRoot, lock);
     lock.generatedPaths[0] = 'src/retargeted.ts';
     expect((await pending).artifacts.map(artifact => artifact.path)).toEqual(['src/original.ts']);
   });
 });
 
-test('lockProject rejects foreign subjects before effects', async () => {
+test('lockProject rejects foreign subjects before effects and captures admitted publication', async () => {
   await withTempWorkspace(async workspaceRoot => {
     const fixture = buildRepairVerificationFixture('all', false);
     for (const relative of [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.provenance]) {
@@ -199,16 +199,6 @@ test('lockProject rejects foreign subjects before effects', async () => {
     expect(effects).toBe(0);
     expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
 
-  });
-});
-
-test('lockProject captures its Lock before publication suspends', async () => {
-  await withTempWorkspace(async workspaceRoot => {
-    const fixture = buildRepairVerificationFixture('all', false);
-    for (const relative of [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.provenance]) {
-      await fs.mkdir(path.dirname(resolveWorkspaceArtifactPath(workspaceRoot, relative)), { recursive: true });
-    }
-    await publishVerificationArtifactSet({ workspaceRoot, ...fixture });
     const pending = lockProject(workspaceRoot, fixture.lock);
     fixture.lock.app.id = 'retargeted-after-admission';
     fixture.lock.passStatus.verify = 'failed';

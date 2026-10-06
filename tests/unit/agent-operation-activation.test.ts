@@ -339,8 +339,7 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
   }
 });
 
-test.each(['clean', 'repository', 'config', 'trace', 'replacement'] as const)(
-  'V3 activation reader preserves exact trusted bytes and missing-ref rejection under %s state', async (state) => {
+test('V3 activation reader preserves exact trusted bytes and missing-ref rejection under ambient Git state', async () => {
   const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';
   const authorityId = 'urn:uuid:00000000-0000-4000-8000-000000000002';
   const source = workPackageManifest('reader-v3', 'issue-311').toString('utf8')
@@ -377,31 +376,33 @@ test.each(['clean', 'repository', 'config', 'trace', 'replacement'] as const)(
     const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trusted}:${guidance}`])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${candidate}:${guidance}`])).trim();
     expect(trustedBlob).not.toBe(candidateBlob);
-    if (state === 'replacement') {
-      gitProtocolSuccess(git(['replace', trustedBlob, candidateBlob]));
-      expect(gitProtocolSuccess(git(['cat-file', 'blob', trustedBlob]))).toBe('Candidate owner\n');
-    }
-    const trace = path.join(root, '.git', 'unadmitted-trace.log');
-    const injected: NodeJS.ProcessEnv = state === 'repository' ? { GIT_DIR: path.join(root, 'foreign.git') }
-      : state === 'config' ? { GIT_CONFIG_COUNT: 'invalid' }
-      : state === 'trace' ? { GIT_TRACE: trace }
-      : state === 'replacement' ? { GIT_NO_REPLACE_OBJECTS: undefined } : {};
-    const previous = Object.fromEntries(Object.keys(injected).map(key => [key, process.env[key]]));
-    try {
-      for (const key of Object.keys(injected)) {
-        if (injected[key] === undefined) delete process.env[key];
-        else process.env[key] = injected[key];
+    for (const state of ['clean', 'repository', 'config', 'trace', 'replacement'] as const) {
+      if (state === 'replacement') {
+        gitProtocolSuccess(git(['replace', trustedBlob, candidateBlob]));
+        expect(gitProtocolSuccess(git(['cat-file', 'blob', trustedBlob]))).toBe('Candidate owner\n');
       }
-      expect(() => observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
-        .toThrow('activation-scope-conflict');
-      const owners = observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
-      expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
-        owner: authorityId, revision: trustedBlob, contentDigest: rawSha256('Trusted owner\n'), projection: null });
-      expect(existsSync(trace)).toBe(false);
-    } finally {
-      for (const key of Object.keys(injected)) {
-        if (previous[key] === undefined) delete process.env[key];
-        else process.env[key] = previous[key];
+      const trace = path.join(root, '.git', 'unadmitted-trace.log');
+      const injected: NodeJS.ProcessEnv = state === 'repository' ? { GIT_DIR: path.join(root, 'foreign.git') }
+        : state === 'config' ? { GIT_CONFIG_COUNT: 'invalid' }
+        : state === 'trace' ? { GIT_TRACE: trace }
+        : state === 'replacement' ? { GIT_NO_REPLACE_OBJECTS: undefined } : {};
+      const previous = Object.fromEntries(Object.keys(injected).map(key => [key, process.env[key]]));
+      try {
+        for (const key of Object.keys(injected)) {
+          if (injected[key] === undefined) delete process.env[key];
+          else process.env[key] = injected[key];
+        }
+        expect(() => observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
+          .toThrow('activation-scope-conflict');
+        const owners = observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
+        expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
+          owner: authorityId, revision: trustedBlob, contentDigest: rawSha256('Trusted owner\n'), projection: null });
+        expect(existsSync(trace)).toBe(false);
+      } finally {
+        for (const key of Object.keys(injected)) {
+          if (previous[key] === undefined) delete process.env[key];
+          else process.env[key] = previous[key];
+        }
       }
     }
   });

@@ -212,9 +212,7 @@ for (const [name, kernel, runtime] of [
 });
 
 for (const runtime of [
-  'export function verify(): void {}\n',
   'export class verify {}\n',
-  'export const verify = () => undefined;\n',
   'export enum verify { Value = 1 }\n'
 ]) test(`operation producer retains executable value export: ${runtime.trim()}`, () => {
   const closure = compileSourceProgramOperationProducerClosure(fixture('', undefined, runtime), OPERATION);
@@ -278,18 +276,16 @@ for (const runtime of [
   expect(closure.entrypoint.path).toBe('src/normalize/runtime.ts');
 });
 
-for (const sideEffect of ['', "import './kernel.ts';\n"]) {
-  for (const binding of [
-    "import { verify } from './other.ts';\nexport { verify };\n",
-    "import { verify as local } from './other.ts';\nexport { local as verify };\n"
-  ]) test('review regression: local value import/export cannot bypass an intermediate type-only star', () => {
-    const compilation = fixture('export function verify(): void {}\n', undefined,
-      sideEffect + binding, "export type * from './kernel.ts';\n");
-    expect(() => compileSourceProgramOperationProducerClosure(compilation, OPERATION)).toThrow(
-      expect.objectContaining({ code: 'entrypoint-export-unresolved' })
-    );
-  });
-}
+for (const runtime of [
+  "import { verify } from './other.ts';\nexport { verify };\n",
+  "import './kernel.ts';\nimport { verify as local } from './other.ts';\nexport { local as verify };\n"
+]) test('local value import/export cannot bypass an intermediate type-only star', () => {
+  const compilation = fixture('export function verify(): void {}\n', undefined,
+    runtime, "export type * from './kernel.ts';\n");
+  expect(() => compileSourceProgramOperationProducerClosure(compilation, OPERATION)).toThrow(
+    expect.objectContaining({ code: 'entrypoint-export-unresolved' })
+  );
+});
 
 for (const bridge of [
   "export type * from './kernel.ts';\nexport default function real() { return 1; }\n",

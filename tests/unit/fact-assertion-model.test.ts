@@ -144,46 +144,55 @@ test('inferred confidence 1 does not overwrite an authoritative assertion', () =
   expect(fact.assertions.find((assertion) => assertion.authority === 'inferred')?.confidence).toBe(1);
 });
 
-test('projection inferred badge and authority overlay derive from assertion summary', () => {
+test('projection preserves finite confidence boundaries, inferred badges and canonical revisions', () => {
   const input = projectionInput();
   const base = buildEngineeringIR(input);
-  const facts = new Map(base.facts.map((fact) => [fact.id, fact]));
   const contains = base.facts.find((fact) =>
     fact.subject === 'app:test' &&
     fact.predicate === 'CONTAINS' &&
     fact.object.kind === 'entity' &&
     fact.object.entityId === 'block:test/basic'
   )!;
-  addFact(facts, {
-    subject: contains.subject,
-    predicate: contains.predicate,
-    object: contains.object,
-    authority: 'inferred',
-    confidence: 0.7,
-    provenance: [{ kind: 'ai', sourceId: 'semantic-cluster-v1' }]
-  });
+  const revisions: string[] = [];
+  for (const confidence of [0, -0, 0.7, 1]) {
+    const facts = new Map(base.facts.map((fact) => [fact.id, fact]));
+    addFact(facts, {
+      subject: contains.subject,
+      predicate: contains.predicate,
+      object: contains.object,
+      authority: 'inferred',
+      confidence,
+      provenance: [{ kind: 'ai', sourceId: 'semantic-cluster-v1' }]
+    });
 
-  const pendingFacts = [...facts.values()].sort((left, right) => left.id.localeCompare(right.id));
-  const revision = semanticRevisionFor(base, pendingFacts);
-  const ir: EngineeringIR = {
-    ...base,
-    semanticRevision: revision,
-    facts: pendingFacts.map((fact) => withRevision(fact, revision))
-  };
-  const snapshot = validateEngineeringIR(ir, input);
+    const pendingFacts = [...facts.values()].sort((left, right) => left.id.localeCompare(right.id));
+    const revision = semanticRevisionFor(base, pendingFacts);
+    const ir: EngineeringIR = {
+      ...base,
+      semanticRevision: revision,
+      facts: pendingFacts.map((fact) => withRevision(fact, revision))
+    };
+    const snapshot = validateEngineeringIR(ir, input);
 
-  const view = projectArchitectureView(snapshot, 'app:test');
-  const node = view.nodes.find((entry) => entry.entityId === 'app:test');
-  const overlay = view.overlays[0]?.entries.find((entry) => entry.targetId === node?.id);
+    const inferred = snapshot.ir.facts.find((fact) => fact.id === contains.id)!.assertions
+      .find((assertion) => assertion.authority === 'inferred')!;
+    expect(Object.is(inferred.confidence, confidence)).toBe(true);
+    revisions.push(snapshot.ir.semanticRevision);
+    const view = projectArchitectureView(snapshot, 'app:test');
+    const node = view.nodes.find((entry) => entry.entityId === 'app:test');
+    const overlay = view.overlays[0]?.entries.find((entry) => entry.targetId === node?.id);
 
-  expect(node?.badges).toContain('inferred');
-  expect(overlay).toMatchObject({
-    status: 'mixed',
-    authorities: ['derived', 'inferred'],
-    hasInferred: true,
-    hasConflict: false,
-    confidence: { min: 0.7, max: 1 }
-  });
+    expect(node?.badges).toContain('inferred');
+    expect(overlay).toMatchObject({
+      status: 'mixed',
+      authorities: ['derived', 'inferred'],
+      hasInferred: true,
+      hasConflict: false,
+      confidence: { min: confidence, max: 1 }
+    });
+  }
+  expect(revisions[0]).toBe(revisions[1]);
+  expect(revisions[3]).not.toBe(revisions[0]);
 });
 
 test('assertion runtime validity is the only nested assertion data excluded from semantic revision', () => {
@@ -230,14 +239,11 @@ test('fact assertion rejects missing provenance and out-of-range confidence', ()
     () => addFact(new Map<string, SemanticFact>(), factInput({ provenance: [] })),
     'IR-AUTHORITY-002'
   );
-  expectCompilerError(
-    () => addFact(new Map<string, SemanticFact>(), factInput({ confidence: -0.01 })),
-    'IR-AUTHORITY-001'
-  );
-  expectCompilerError(
-    () => addFact(new Map<string, SemanticFact>(), factInput({ confidence: 1.01 })),
-    'IR-AUTHORITY-001'
-  );
+  for (const confidence of [Number.NaN, Infinity, -Infinity, -0.01, 1.01]) {
+    const facts = new Map<string, SemanticFact>();
+    expectCompilerError(() => addFact(facts, factInput({ confidence })), 'IR-AUTHORITY-001');
+    expect(facts.size).toBe(0);
+  }
 });
 
 
@@ -316,14 +322,6 @@ test('non-enumerable metadata key fields still reject tuple collisions with equa
   }
 });
 
-test('fact assertion rejects non-finite confidence without inserting a Fact', () => {
-  for (const confidence of [Number.NaN, Infinity, -Infinity]) {
-    const facts = new Map<string, SemanticFact>();
-    expectCompilerError(() => addFact(facts, factInput({ confidence })), 'IR-AUTHORITY-001');
-    expect(facts.size).toBe(0);
-  }
-});
-
 test('raw IR validation rejects invalid confidence despite a matching semantic revision', () => {
   const input = projectionInput();
   const base = buildEngineeringIR(input);
@@ -344,40 +342,4 @@ test('raw IR validation rejects invalid confidence despite a matching semantic r
     };
     expectCompilerError(() => validateEngineeringIR(raw, input), 'IR-AUTHORITY-001');
   }
-});
-
-test('finite confidence boundaries preserve assertion values and canonical revisions', () => {
-  const input = projectionInput();
-  const base = buildEngineeringIR(input);
-  const contains = base.facts.find((fact) =>
-    fact.subject === 'app:test' && fact.predicate === 'CONTAINS' &&
-    fact.object.kind === 'entity' && fact.object.entityId === 'block:test/basic'
-  )!;
-  const revisions: string[] = [];
-  for (const confidence of [0, -0, 1]) {
-    const facts = new Map(base.facts.map((fact) => [fact.id, fact]));
-    const factId = addFact(facts, {
-      subject: contains.subject,
-      predicate: contains.predicate,
-      object: contains.object,
-      authority: 'inferred',
-      confidence,
-      provenance: [{ kind: 'ai', sourceId: 'confidence-boundary' }]
-    });
-    const pendingFacts = [...facts.values()];
-    const revision = semanticRevisionFor(base, pendingFacts);
-    const snapshot = validateEngineeringIR({
-      ...base,
-      semanticRevision: revision,
-      facts: pendingFacts.map((fact) => withRevision(fact, revision))
-    }, input);
-    const fact = snapshot.ir.facts.find(({ id }) => id === factId)!;
-    const assertion = fact.assertions.find(({ authority }) => authority === 'inferred')!;
-    expect(Object.is(assertion.confidence, confidence)).toBe(true);
-    expect(summarizeFactAssertions(fact).confidence).toEqual({ min: confidence, max: 1 });
-    revisions.push(snapshot.ir.semanticRevision);
-  }
-  // Existing semantic JSON treats signed zero equally; one remains distinct.
-  expect(revisions[0]).toBe(revisions[1]);
-  expect(revisions[2]).not.toBe(revisions[0]);
 });

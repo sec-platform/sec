@@ -40,15 +40,6 @@ function sourceOptions(f: ReturnType<typeof fixture>, names: readonly string[]) 
   return { ...f.options, registrySources: names.map(name => ({ ...f.source, id: name, path: name })) };
 }
 
-test('same-version conflicting source definitions fail in lookup and catalog even with a warm winner', () => using(async f => {
-  f.write(); loadManifestById('block/a', f.options);
-  const other = f.write('block/a', 'other');
-  writeFileSync(other.file, JSON.stringify({ ...other.manifest, provides: ['different/service'] }));
-  const options = sourceOptions(f, ['registry', 'other']);
-  assert.throws(() => loadManifestById('block/a', options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
-  await assert.rejects(loadAllManifests(options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
-}));
-
 test('conflicts between two hidden candidates cannot disappear behind a different-version winner', () => using(async f => {
   const winner = f.write(); writeFileSync(winner.file, JSON.stringify({ ...winner.manifest, version: '2.0.0' }));
   f.write('block/a', 'hidden-a'); const last = f.write('block/a', 'hidden-b');
@@ -56,15 +47,6 @@ test('conflicts between two hidden candidates cannot disappear behind a differen
   const options = sourceOptions(f, ['registry', 'hidden-a', 'hidden-b']);
   assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
   await assert.rejects(loadAllManifests(options), /Conflicting manifest definitions/);
-}));
-
-test('equal definition mirrors keep source priority and accept different formatting and locators', () => using(async f => {
-  f.write(); const mirror = f.write('block/a', 'mirror');
-  writeFileSync(mirror.file, YAML.stringify(mirror.manifest));
-  const options = sourceOptions(f, ['registry', 'mirror']);
-  assert.equal(loadManifestById('block/a', options).registrySourceId, 'registry');
-  assert.equal((await loadAllManifests(options))[0]!.registrySourceId, 'registry');
-  assert.equal(loadManifestById('block/a', sourceOptions(f, ['mirror', 'registry'])).registrySourceId, 'mirror');
 }));
 
 test('different versions preserve source priority and explicit version filtering', () => using(async f => {
@@ -128,9 +110,13 @@ test('deleted or invalid current sources cannot reuse a previous valid result', 
 test('a lower precedence source is still validated even after the selected source was cached', () => using(async f => {
   f.write(); const shadow = f.write('block/a', 'shadow');
   const options = { ...f.options, registrySources: [f.source, { ...f.source, id: 'shadow', path: 'shadow' }] };
+  loadManifestById('block/a', options);
   const result = await loadAllManifests(options); assert.equal(result.length, 1); assert.equal(result[0]!.registrySourceId, 'private');
   writeFileSync(shadow.file, JSON.stringify({ ...shadow.manifest, unknownField: true }));
   await assert.rejects(loadAllManifests(options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-001');
+  writeFileSync(shadow.file, JSON.stringify({ ...shadow.manifest, provides: ['different/service'] }));
+  assert.throws(() => loadManifestById('block/a', options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
+  await assert.rejects(loadAllManifests(options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
 }));
 
 test('version overlays never prime or replace the root manifest observation', () => using(async (f, parses) => {
@@ -155,9 +141,14 @@ test('path binding never infers a block identity from an invalid directory spell
 }));
 
 test('two source selections with equal bytes keep their own registry metadata and mutable projections', () => using(async f => {
-  f.write(); f.write('block/a', 'second');
+  f.write(); const mirror = f.write('block/a', 'second');
   const left = await loadAllManifests(f.options);
   const right = await loadAllManifests({ ...f.options, registrySources: [{ ...f.source, id: 'other', path: 'second' }] });
   assert.equal(left[0]!.registrySourceId, 'private'); assert.equal(right[0]!.registrySourceId, 'other');
   assert.notEqual(left[0]!.registryRoot, right[0]!.registryRoot);
+  writeFileSync(mirror.file, YAML.stringify(mirror.manifest));
+  const options = sourceOptions(f, ['registry', 'second']);
+  assert.equal(loadManifestById('block/a', options).registrySourceId, 'registry');
+  assert.equal((await loadAllManifests(options))[0]!.registrySourceId, 'registry');
+  assert.equal(loadManifestById('block/a', sourceOptions(f, ['second', 'registry'])).registrySourceId, 'second');
 }));

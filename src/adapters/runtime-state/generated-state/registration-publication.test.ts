@@ -49,11 +49,10 @@ async function registrationBytes(store: GeneratedStateRuntimeStore) {
   return Promise.all(names.map(async name => [name, await readFile(path.join(store.registrationsRoot, name), 'utf8')]));
 }
 
-for (const phase of ['birth', 'retirement'] as const) {
-  for (const point of ['generation', 'ledger', 'pointer'] as const) {
-    test(`original owner resumes ${phase} after ${point} publication and retires its exact intent`, async () => {
-      const value = await fixture();
-      if (phase === 'retirement') await publish(value);
+for (const point of ['generation', 'ledger', 'pointer'] as const) {
+  test(`original owner resumes birth and retirement after ${point} publication and retires each exact intent`, async () => {
+    const value = await fixture();
+    for (const phase of ['birth', 'retirement'] as const) {
       const registration = phase === 'birth' ? value.registration
         : retireGeneratedStateRegistration(value.registration, `sha256:${'a'.repeat(64)}`);
       await expect(publish(value, registration, point)).rejects.toThrow(`publication-cut:${point}`);
@@ -68,8 +67,8 @@ for (const phase of ['birth', 'retirement'] as const) {
       await withGeneratedStateMutationLease(value.repositoryRoot, value.options, async () => undefined);
       expect(await registrationBytes(value.store)).toEqual(before);
       expect(await readFile(path.join(value.generated, 'sentinel'), 'utf8')).toBe('original physical generation');
-    });
-  }
+    }
+  });
 }
 
 for (const mutation of ['wrong-preimage', 'changed-generation', 'deleted-pointer'] as const) {
@@ -236,13 +235,15 @@ test('dependency recovery fences and settles prepared registration before lifecy
   expect(settled.previousRegistration?.registrationDigest).toBe(value.registration.registrationDigest);
 });
 
-for (const mode of ['cancelled', 'expired', 'clock-cancelled', 'cancel-during-admission', 'cancel-before-pointer'] as const) {
-  test(`disposal with ${mode} operation preserves the original prepared publication`, async () => {
-    const value = await fixture();
-    await publish(value);
-    const retired = retireGeneratedStateRegistration(value.registration, `sha256:${'d'.repeat(64)}`);
-    await expect(publish(value, retired, 'ledger')).rejects.toThrow('publication-cut:ledger');
-    const { createGeneratedStateCleanupOperationSession, generatedStateProducerHooks } = await import('./lifecycle.ts');
+test('disposal cancellation and expiry preserve the same original prepared publication', async () => {
+  const value = await fixture();
+  await publish(value);
+  const retired = retireGeneratedStateRegistration(value.registration, `sha256:${'d'.repeat(64)}`);
+  await expect(publish(value, retired, 'ledger')).rejects.toThrow('publication-cut:ledger');
+  const { createGeneratedStateCleanupOperationSession, generatedStateProducerHooks } = await import('./lifecycle.ts');
+  const before = await registrationBytes(value.store);
+  const pending = await readFile(value.journal, 'utf8');
+  for (const mode of ['cancelled', 'expired', 'clock-cancelled', 'cancel-during-admission', 'cancel-before-pointer'] as const) {
     const controller = new AbortController();
     if (mode === 'cancelled') controller.abort();
     let clockCalls = 0;
@@ -257,10 +258,8 @@ for (const mode of ['cancelled', 'expired', 'clock-cancelled', 'cancel-during-ad
       }
     });
     const producer = generatedStateProducerHooks({ repositoryRoot: value.repositoryRoot }, { ...value.options, cleanupOperation });
-    const before = await registrationBytes(value.store);
-    const pending = await readFile(value.journal, 'utf8');
     await expect(producer.disposed(relativePath, { outcome: 'owner-disposal', profile: 'automatic' })).rejects.toThrow('cleanup operation budget');
     expect(await registrationBytes(value.store)).toEqual(before);
     expect(await readFile(value.journal, 'utf8')).toBe(pending);
-  });
-}
+  }
+});

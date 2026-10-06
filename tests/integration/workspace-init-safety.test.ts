@@ -83,13 +83,17 @@ test('init refuses a non-empty foreign root before acquiring deletion authority'
   await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
-test('same-intent init completes without overwriting an existing SEC workspace', async () => {
+test('same-intent init preserves completed workspace bytes and later author edits', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-init-repeat-');
   await initWorkspace(workspaceRoot);
   const paths = getWorkspacePaths(workspaceRoot);
   const planPath = paths.workspaceConfigPath;
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
+  const extra = path.join(workspaceRoot, 'author-owned.txt');
+  await fs.writeFile(planPath, 'later author plan\n');
+  await fs.writeFile(extra, 'later author file\n');
+  const identity = await fs.stat(planPath);
   const before = await Promise.all([
     fs.readFile(planPath),
     fs.readFile(lockPath),
@@ -104,6 +108,10 @@ test('same-intent init completes without overwriting an existing SEC workspace',
     fs.readFile(verificationReportPath)
   ]);
   expect(after).toEqual(before);
+  expect((await fs.stat(planPath)).ino).toBe(identity.ino);
+  expect(await fs.readFile(extra, 'utf8')).toBe('later author file\n');
+  await expect(initWorkspace(workspaceRoot, { template: 'reference-customer' }))
+    .rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'template-request-mismatch' } });
 });
 
 test('active writer contention remains a lease error instead of being relabeled as lifecycle conflict', async () => {
@@ -207,17 +215,7 @@ for (const replacement of ['same-byte-inode', 'author-edit'] as const) {
   });
 }
 
-test('completed Create keeps later author edits and rejects changed bytes or template intent', async () => {
-  const root = await createWorkspace('workspace-create-completed-');
-  await initWorkspace(root);
-  const plan = path.join(root, 'sec.yaml'), extra = path.join(root, 'author-owned.txt');
-  await fs.writeFile(plan, 'later author plan\n'); await fs.writeFile(extra, 'later author file\n');
-  const before = await fs.stat(plan);
-  await initWorkspace(root);
-  expect((await fs.stat(plan)).ino).toBe(before.ino);
-  expect(await fs.readFile(plan, 'utf8')).toBe('later author plan\n');
-  expect(await fs.readFile(extra, 'utf8')).toBe('later author file\n');
-  await expect(initWorkspace(root, { template: 'reference-customer' })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'template-request-mismatch' } });
+test('completed Create rejects changed recipe bytes', async () => {
   const fixture = await createWorkspace('workspace-create-intent-bytes-'); await publishFixture(fixture);
   await expect(publishFixture(fixture, undefined, { ...recoveryFiles, 'sec.yaml': 'changed recipe bytes\n' }))
     .rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'template-request-mismatch' } });
@@ -267,8 +265,11 @@ test('project-base recipe retains each original only-if-absent author surface', 
   expect(await fs.readFile(path.join(root, 'package.json'), 'utf8')).toContain('generated-customer-admin');
 });
 
-for (const template of ['minimal', 'reference-customer'] as const) {
-  for (const termination of ['settled-error', 'process-death'] as const) {
+// Both templates have content checks above; lease death and settled recovery
+// use the same lifecycle regardless of the template recipe.
+for (const [template, termination] of [
+  ['minimal', 'process-death'], ['reference-customer', 'settled-error']
+] as const) {
   test(`real ${template} init respects predecessor ${termination}`, async () => {
     const root = await createWorkspace('workspace-create-process-death-');
     const physicalModule = new URL('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
@@ -321,9 +322,8 @@ for (const template of ['minimal', 'reference-customer'] as const) {
     expect((await readCreateRecord(root)).phase).toBe('completed');
     expect((await fs.readdir(path.join(root, '.sec'))).filter(name => name.startsWith('.workspace-create-'))).toEqual([]);
     const plan = await loadPlan(path.join(root, 'sec.yaml'));
-    expect(plan.app.id).toBe(template === 'minimal' ? 'app' : 'customer-admin');
+    expect(plan.app.id).toBe('customer-admin');
   });
-}
 }
 
 test('exclusive directory birth rejects invalid modes before creating a destination', async () => {

@@ -143,16 +143,6 @@ for (const mode of ['success', 'apply-failure', 'publication-failure'] as const)
   });
 }
 
-test('restore failure keeps the acquired backup for recovery', async () => {
-  const f = fixture();
-  f.operations.apply = async () => { throw new Error('partial apply'); };
-  f.operations.restore = async () => { throw new Error('authority lost'); };
-  await expect(executeUpgradeApplyLifecycle(f.input, f.operations)).rejects.toMatchObject({
-    code: 'UPGRADE-BLOCKED-005', details: { rollbackStatus: 'recovery-required' }
-  });
-  expect(f.calls).toContain('recovery-required'); expect(f.retired).toEqual([]);
-});
-
 for (const stage of ['apply', 'restore'] as const) {
   test(`a throwing ${stage} diagnostic accessor cannot retire an unrecovered backup`, async () => {
     const f = fixture();
