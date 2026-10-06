@@ -1159,11 +1159,14 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
     );
     const canonicalProductionProbe =
       buildRunnerBundle === undefined && runtimeInputSources === undefined;
-    const sources = runtimeInputSources ??
-      await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
     if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
       throw new Error('Isolated verification requires a controlled staging workspace');
     }
+    if (runtimeInputSources === undefined) {
+      await assertIsolatedStagingTree(stagingWorkspaceRoot);
+    }
+    const sources = runtimeInputSources ??
+      await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
     if (!await hasProvenFastSuiteProcessWideWriteSandbox()) {
       throw new Error(

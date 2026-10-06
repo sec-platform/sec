@@ -149,3 +149,75 @@ async function withGeneratedRuntime(run: (root: string, bootstrap: string) => Pr
     await rm(root, { recursive: true, force: true });
   }
 }
+
+
+test('isolated runtime probe admits staging before dependency preparation', () => {
+  const runtimeModule = path.resolve(import.meta.dir, '../../src/adapters/toolchain/dependencies/runtime.ts');
+  const probeModule = path.resolve(import.meta.dir, '../../src/adapters/verification/run-semantic-mutation-isolated-child.ts');
+  const sourcesModule = path.resolve(import.meta.dir, '../../src/adapters/verification/run-runtime-verification.ts');
+  const sandboxModule = path.resolve(import.meta.dir, '../../src/adapters/verification/fast-suite-sandbox-capability.ts');
+  const script = `
+    import { mock } from 'bun:test';
+    import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+    import { tmpdir } from 'node:os';
+    import path from 'node:path';
+    const [runtimeModule, probeModule, sourcesModule, sandboxModule] = process.argv.slice(1);
+    const runtime = await import(runtimeModule);
+    let preparations = 0, sourceResolutions = 0, sandboxCalls = 0;
+    let removeDuringPreparation;
+    const sources = await import(sourcesModule);
+    mock.module(sourcesModule, () => ({
+      ...sources,
+      resolveIsolatedRuntimeDependencySources: () => {
+        sourceResolutions++;
+        return { compilerModulesRoot: root, dependencyModules: root };
+      }
+    }));
+    mock.module(sandboxModule, () => ({
+      hasProvenFastSuiteProcessWideWriteSandbox: async () => { sandboxCalls++; return false; }
+    }));
+    mock.module(runtimeModule, () => ({
+      ...runtime,
+      ensureCompilerDepsReady: async () => {
+        preparations++;
+        if (removeDuringPreparation) {
+          await rm(removeDuringPreparation, { recursive: true, force: true });
+          return;
+        }
+        throw new Error('dependency preparation intercepted');
+      }
+    }));
+    const { probeSemanticMutationIsolatedRuntimeCapability: probe } = await import(probeModule);
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-probe-admission-'));
+    const stage = path.join(root, '.sec', 'semantic-mutation', 'v1', 'transactions', 'a'.repeat(64), 'workspace');
+    try {
+      const observations = [];
+      for (const rejected of [root, stage]) {
+        const before = preparations;
+        observations.push({ result: await probe(rejected), preparationCalls: preparations - before });
+      }
+      await mkdir(stage, { recursive: true });
+      const before = preparations;
+      observations.push({ result: await probe(stage), preparationCalls: preparations - before });
+      removeDuringPreparation = stage;
+      const beforeRace = preparations;
+      observations.push({ result: await probe(stage), preparationCalls: preparations - beforeRace,
+        sourceResolutions, sandboxCalls });
+      console.log(JSON.stringify(observations));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  `;
+  const child = spawnSync(process.execPath, [
+    '--no-env-file', '--no-install', '--eval', script, '--',
+    runtimeModule, probeModule, sourcesModule, sandboxModule
+  ], {
+    encoding: 'utf8', timeout: 10_000
+  });
+  expect(child.error).toBeUndefined();
+  expect(child.status, child.stderr).toBe(0);
+  expect(JSON.parse(child.stdout)).toEqual([
+    { result: { status: 'unavailable' }, preparationCalls: 0 },
+    { result: { status: 'unavailable' }, preparationCalls: 0 },
+    { result: { status: 'unavailable' }, preparationCalls: 1 },
+    { result: { status: 'unavailable' }, preparationCalls: 1, sourceResolutions: 1, sandboxCalls: 0 }
+  ]);
+});
