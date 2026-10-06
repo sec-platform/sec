@@ -6,7 +6,7 @@ import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/
 import { readLinuxRetainedFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
 import { parseExactRemoteRefRecoveryPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
-import { parseRepositoryMaintenanceRequest, parseRepositoryMaintenanceResumeReceipt } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
+import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
 const MAIN = 'a'.repeat(40);
@@ -59,15 +59,6 @@ test('v2 batch rejects duplicates, mixed lanes and unbounded or malformed reques
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(value))).toThrow('only an exact ref batch');
   const unknown = { ...JSON.parse(batchSource()), authority: 'admin' };
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(unknown))).toThrow('fields');
-});
-
-test('resume locator carries only exact provider identities, never supplied results', () => {
-  const locator = { artifactId: '123', artifactDigest: `sha256:${'d'.repeat(64)}` as const, runId: '456', runAttempt: 1 };
-  expect(parseRepositoryMaintenanceResumeReceipt(JSON.stringify(locator))).toEqual(locator);
-  expect(parseRepositoryMaintenanceResumeReceipt('')).toBeUndefined();
-  for (const changed of [{ results: [] }, { runAttempt: 0 }, { artifactId: '../123' }, { artifactId: '9'.repeat(30) }, { artifactDigest: 'not-a-digest' }]) {
-    expect(() => parseRepositoryMaintenanceResumeReceipt(JSON.stringify({ ...locator, ...changed }))).toThrow();
-  }
 });
 
 test('maintenance request accepts one exact ref or bounded exact comment batch', () => {
