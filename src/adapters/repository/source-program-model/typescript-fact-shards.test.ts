@@ -294,7 +294,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
   releaseTypeScriptSourceProgramWorkspace();
 });
 
-test('ambient declarations, global augmentations, file-set changes, and resolver graph changes force a clean compilation', () => {
+test('ambient declarations, global augmentations, and resolver graph changes force a clean compilation while an unrelated added module reuses retained fact shards', () => {
   const assertFullEquivalent = (
     initialSources: Readonly<Record<string, string>>,
     changedSources: Readonly<Record<string, string>>
@@ -321,12 +321,20 @@ test('ambient declarations, global augmentations, file-set changes, and resolver
     'src/example/augment.ts': "export {};\ndeclare global { interface Window { value: 2 } }\n",
     'src/example/use.ts': 'export const VALUE = window.value;\n'
   });
-  assertFullEquivalent({
+  // An unrelated added module changes no retained resolution: the untouched
+  // shard is reused, only the added path is invalidated, and the assembled
+  // model remains clean-compile equivalent.
+  const addedInitial = compileTypeScriptSourceProgramModelIncremental(sourceInput({
     'src/example/value.ts': 'export const VALUE = 1;\n'
-  }, {
+  }), null);
+  const addedInput = sourceInput({
     'src/example/value.ts': 'export const VALUE = 1;\n',
     'src/example/added.ts': 'export const ADDED = 1;\n'
   });
+  const added = compileTypeScriptSourceProgramModelIncremental(addedInput, addedInitial.state);
+  expect(added.mode).toBe('incremental');
+  expect(added.invalidatedPaths).toEqual(['src/example/added.ts']);
+  expect(added.model).toEqual(compileTypeScriptSourceProgramModel(addedInput));
   assertFullEquivalent({
     'src/example/consumer.ts': "import { VALUE } from './first.ts';\nexport const RESULT = VALUE;\n",
     'src/example/first.ts': 'export const VALUE = 1;\n',
