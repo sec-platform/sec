@@ -18,7 +18,7 @@ export interface FactInput {
 
 function assertFactInput(input: FactInput): void {
   const confidence = input.confidence ?? 1;
-  if (confidence < 0 || confidence > 1) {
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
     throw new CompilerError('IR-AUTHORITY-001', 'Semantic fact assertion confidence must be between 0 and 1', {
       subject: input.subject,
       predicate: input.predicate,
