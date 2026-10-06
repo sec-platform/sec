@@ -1,31 +1,34 @@
 name: Bug report
-description: Report reproducible incorrect behavior in the current main branch
+description: Report reproducible incorrect behavior that is still present in the current main branch
 title: "bug: "
 labels:
   - bug
 body:
   - type: markdown
     attributes:
-      value: Do not include secrets or undisclosed vulnerabilities. Use the Security tab for private vulnerability reports.
+      value: |
+        Do not include secrets or undisclosed vulnerabilities. Use the Security tab for private vulnerability reports.
+
+        An open Issue is a current, bounded engineering defect—not a roadmap, design archive, research notebook, or progress log. Revalidate the problem against current main before filing. If an older problem is already fixed, superseded, duplicated, or only historically interesting, do not reopen it as active backlog.
   - type: input
     id: revision
     attributes:
-      label: Exact revision
-      description: Commit SHA or released version where the behavior occurs.
+      label: Exact current revision
+      description: Commit SHA from current main where the defect was reproduced or revalidated.
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: Operating system, runtime versions, and other relevant execution conditions.
+      description: Operating system, runtime/provider versions, and other execution conditions that affect reproduction.
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
       label: Minimal reproduction
-      description: Provide the smallest complete sequence that reproduces the behavior.
+      description: Provide the smallest complete sequence that reproduces the current defect.
     validations:
       required: true
   - type: textarea
@@ -37,11 +40,28 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: Expected result
+      label: Expected result / violated contract
+      description: State the concrete expected behavior or canonical contract this result violates.
     validations:
       required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Current owner or suspected boundary
+      description: Identify the existing module, contract, document owner, or effect boundary if known. Do not create a second owner merely for this report.
   - type: textarea
     id: evidence
     attributes:
       label: Relevant evidence
-      description: Add sanitized logs, error messages, or links that help locate the responsible boundary.
+      description: Add sanitized logs, exact paths, error codes, or links that help locate the responsible boundary. Avoid repeating transient status updates as comments.
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Issue hygiene
+      options:
+        - label: I revalidated that this defect is still present on current main.
+          required: true
+        - label: I searched existing Issues/current canonical owners and am not creating a duplicate or umbrella owner.
+          required: true
+        - label: This Issue describes one bounded defect with a falsifiable completion condition, not a roadmap, archive, research plan, or status thread.
+          required: true
