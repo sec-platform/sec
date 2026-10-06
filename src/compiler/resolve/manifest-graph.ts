@@ -1,4 +1,5 @@
 import { canonicalEquals, compareCodeUnits } from '../../contracts/canonical.ts';
+import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
 import type { ManifestEntry } from '../contract/plan-manifest.ts';
 import { CompilerError } from '../errors.ts';
 import { KIND_PRIORITY } from '../registry/kind-priority.ts';
@@ -108,6 +109,7 @@ export function resolveManifestGraph(
   explicitEntries: readonly ManifestEntry[],
   catalog: readonly ManifestEntry[]
 ): Readonly<{ entries: readonly ManifestEntry[]; capabilities: readonly string[] }> {
+  assertManifestDefinitionConsistency([...explicitEntries, ...catalog]);
   const byId = new Map<string, ManifestEntry>();
   const selectedProviders: Providers = new Map();
   const queue: ManifestEntry[] = [];

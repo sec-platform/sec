@@ -2,9 +2,14 @@ import type { ManifestEntry, PlanFile } from '../contract.ts';
 import { SUPPORTED_STACK } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 
+/** Hard target condition for both explicit admission and automatic candidates. */
+export function isManifestStackCompatible(stackProfiles: readonly string[]): boolean {
+  return stackProfiles.includes(SUPPORTED_STACK);
+}
+
 /** Apply the same target-stack rule to explicit blocks and selected dependencies. */
 export function assertManifestStackCompatibility(blockId: string, stackProfiles: readonly string[]): void {
-  if (!stackProfiles.includes(SUPPORTED_STACK)) {
+  if (!isManifestStackCompatible(stackProfiles)) {
     throw new CompilerError('ALIGN-STACK-001', `Block "${blockId}" does not support ${SUPPORTED_STACK}`);
   }
 }

@@ -32,7 +32,7 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
  * unselected entries; it cannot replace an already selected block revision. */
 export async function resolveCapturedManifestSelection(selection: CapturedManifestSelection): Promise<LockFile> {
   const { workspaceRoot, input, explicitEntries } = selection;
-  const allEntries = await loadAllManifests({ workspaceRoot, registrySources: input.sources });
+  const allEntries = await loadAllManifests({ workspaceRoot, registrySources: input.sources }, explicitEntries);
   // Reject conflicting ownership before any resource lookup starts.
   const { resolvedBlocks, resolvedCapabilities, installDescriptors } = prepareManifestResolution(
     workspaceRoot, explicitEntries, allEntries

@@ -1,3 +1,4 @@
+import { canonicalEquals } from '../../contracts/canonical.ts';
 import { isSafeRelativePath } from '../../contracts/relative-path.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
 import { CompilerError } from '../errors.ts';
@@ -21,6 +22,25 @@ const MANIFEST_ROOT_FIELDS = new Set<keyof BlockManifest>([
   'contracts',
   'generators'
 ]);
+
+/** Validate effective definitions in one observed domain. Locators and resource
+ * bytes remain with their original owners; this is not package equivalence. */
+export function assertManifestDefinitionConsistency(entries: readonly ManifestEntry[]): void {
+  const definitions = new Map<string, ManifestEntry>();
+  for (const entry of entries) {
+    const key = JSON.stringify([entry.manifest.id, entry.manifest.version]);
+    const previous = definitions.get(key);
+    if (previous !== undefined && previous !== entry
+        && !canonicalEquals(previous.manifest, entry.manifest)) {
+      throw new CompilerError('RESOLVE-CONFLICT-004',
+        `Conflicting manifest definitions for "${entry.manifest.id}" version "${entry.manifest.version}"`, {
+          selectedSource: previous.registrySourceId, requestedSource: entry.registrySourceId,
+          selectedManifestPath: previous.manifestPath, requestedManifestPath: entry.manifestPath
+        });
+    }
+    if (previous === undefined) definitions.set(key, entry);
+  }
+}
 
 export function validateRegistrySource(source: PlanRegistrySource): void {
   if (!source || typeof source !== 'object' ||
