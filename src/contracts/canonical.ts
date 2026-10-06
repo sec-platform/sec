@@ -18,7 +18,8 @@ import { createSha256Hasher, type Digest } from './digest.ts';
  * - `canonicalJson` recursively sorts object keys and rejects unsupported
  *   value kinds (`undefined`, `bigint`, `function`, `symbol`, non-finite
  *   numbers, non-plain prototypes).
- * - `uniqueSortedByKey` deduplicates by key (matching its `unique` prefix).
+ * - `uniqueSortedByKey` folds canonical-equal duplicates and rejects conflicting
+ *   values under one key instead of choosing an implicit winner.
  */
 
 export function digest(value: string | Uint8Array): string {
@@ -171,12 +172,26 @@ export function uniqueSorted<Value extends string>(values: readonly Value[]): Va
   return [...new Set(values)].sort(compareCodeUnits);
 }
 
+/** Collision diagnostics do not copy the input key or values. */
+export class CanonicalKeyConflictError extends Error {
+  readonly code = 'CANONICAL-KEY-CONFLICT' as const;
+
+  constructor() {
+    super('Canonical duplicate key has conflicting values');
+    this.name = 'CanonicalKeyConflictError';
+  }
+}
+
 export function uniqueSortedByKey<Value>(
   values: readonly Value[],
   keyOf: (value: Value) => string
 ): Value[] {
   const byKey = new Map<string, Value>();
-  for (const value of values) byKey.set(keyOf(value), value);
+  for (const value of values) {
+    const key = keyOf(value);
+    if (byKey.has(key) && !canonicalEquals(byKey.get(key), value)) throw new CanonicalKeyConflictError();
+    byKey.set(key, value);
+  }
   return [...byKey.entries()]
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([, value]) => value);
