@@ -66,7 +66,7 @@ type GitHubExactCommitStatusPage = GitHubProviderPage & Readonly<{
   rawResponseDigest: VerificationActionKeyDigest;
 }>;
 
-type GitHubProviderArtifactPage = Readonly<{
+type GitHubProviderCensusPage = Readonly<{
   records: readonly unknown[];
   totalCount: number;
   rawResponseDigest: VerificationActionKeyDigest;
@@ -104,7 +104,7 @@ interface VerificationActionGitHubProviderTransport
     repository: string;
     perPage: 100;
     page: number;
-  }>): Promise<GitHubProviderArtifactPage>;
+  }>): Promise<GitHubProviderCensusPage>;
   getWorkflowRun(input: Readonly<{ repository: string; runId: string }>): Promise<unknown>;
   getWorkflowRunAttempt(input: Readonly<{
     repository: string;
@@ -121,7 +121,7 @@ interface VerificationActionGitHubProviderTransport
     runId: string;
     runAttempt: number;
     page: number;
-  }>): Promise<GitHubProviderPage>;
+  }>): Promise<GitHubProviderCensusPage>;
   downloadArtifact(input: Readonly<{
     repository: string;
     artifactId: string;
@@ -204,23 +204,26 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     runId: string;
     runAttempt: number;
     page: number;
-  }>): Promise<GitHubProviderPage> {
+  }>): Promise<GitHubProviderCensusPage> {
     if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1 ||
         !Number.isSafeInteger(input.page) || input.page < 1) fail('workflow job page request is invalid.');
-    const response = record(ghJson([
+    const raw = ghJsonWithRawDigest([
       'api', '-H', 'Accept: application/vnd.github+json',
       `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
         `/attempts/${input.runAttempt}/jobs?per_page=100&page=${input.page}`
-    ]), 'workflow job page');
-    if (!Array.isArray(response.jobs)) fail('workflow job page jobs are invalid.');
-    return Object.freeze({ records: response.jobs, hasNextPage: response.jobs.length === 100 });
+    ]);
+    const response = record(raw.value, 'workflow job page');
+    if (!Array.isArray(response.jobs) || !Number.isSafeInteger(response.total_count) ||
+        Number(response.total_count) < 0) fail('workflow job page fields are invalid.');
+    return Object.freeze({ records: response.jobs, totalCount: Number(response.total_count),
+      rawResponseDigest: raw.rawResponseDigest });
   }
 
   async listArtifactsPage(input: Readonly<{
     repository: string;
     perPage: 100;
     page: number;
-  }>): Promise<GitHubProviderArtifactPage> {
+  }>): Promise<GitHubProviderCensusPage> {
     if (!Number.isSafeInteger(input.page) || input.page < 1) {
       fail('artifact inventory page request is invalid.');
     }
@@ -870,7 +873,7 @@ async function readVerificationActionArtifactInventory(
   const artifacts: VerificationActionGitHubArtifactInventoryEntry[] = [];
   const artifactIds = new Set<string>();
   const assertPage = (
-    response: GitHubProviderArtifactPage,
+    response: GitHubProviderCensusPage,
     page: number,
     frozenTotal: number
   ): void => {
@@ -961,7 +964,8 @@ async function readVerificationActionArtifactObservation<TPayload>(
     expectedFileName: string;
     parsePayload: (source: unknown) => TPayload;
     producingOrigin: (payload: TPayload) => VerificationActionProviderOrigin;
-  }>
+  }>,
+  jobsByOrigin: Map<string, Promise<readonly Record<string, unknown>[]>>
 ): Promise<VerificationActionProviderArtifactObservation<TPayload>> {
   if (!/^[1-9][0-9]*$/u.test(input.artifactId) ||
       !/^[a-z0-9][a-z0-9-]*$/u.test(input.expectedArtifactName) ||
@@ -1012,6 +1016,26 @@ async function readVerificationActionArtifactObservation<TPayload>(
   if (!canonicalEquals(origin, payloadOrigin)) {
     fail('artifact payload producing origin differs from its exact attempt readback.');
   }
+  const selected = input.expectedFileName === VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE
+    ? { job: 'claim-verification-action', producer: 'Create immutable Action start marker from fresh provider census',
+      upload: 'Upload immutable Action start marker' }
+    : input.expectedFileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE
+      ? { job: 'assemble-verification-action-terminal', producer: 'Assemble canonical five-state terminal artifact',
+        upload: 'Upload canonical terminal Action artifact' }
+      : input.expectedFileName === VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE
+        ? { job: 'assemble-verification-action-terminal', producer: 'Create exact post-upload terminal anchor',
+          upload: 'Upload exact post-upload terminal anchor' } : null;
+  if (selected === null) fail('artifact observation has no supported upload slot.');
+  const originKey = `${origin.repository}/${origin.runId}/${origin.runAttempt}/${origin.workflowSha}`;
+  let jobs = jobsByOrigin.get(originKey);
+  if (jobs === undefined) {
+    jobs = readCompleteParentJobs(transport, origin.repository, origin.runId, origin.runAttempt);
+    jobsByOrigin.set(originKey, jobs);
+  }
+  const publishers = (await jobs).filter(job => job.name === selected.job);
+  if (publishers.length !== 1) fail('artifact upload observation has no unique expected job.');
+  assertProviderArtifactUploadObservation({ job: publishers[0]!, metadata, origin,
+    producerName: selected.producer, uploadName: selected.upload });
   return Object.freeze({
     originId: input.artifactId,
     artifactName: input.expectedArtifactName,
@@ -1100,23 +1124,95 @@ async function readCompleteParentJobs(
   runAttempt: number
 ): Promise<readonly Record<string, unknown>[]> {
   const jobs: Record<string, unknown>[] = [];
-  for (let page = 1; page <= 1000; page += 1) {
-    const response = await transport.listWorkflowJobsPage({
-      repository: repositoryName,
-      runId,
-      runAttempt,
-      page
-    });
-    if (!Array.isArray(response.records) || response.records.length > 100 ||
-        (response.hasNextPage && response.records.length !== 100)) {
-      fail(`parent workflow job page ${page} is incomplete.`);
+  const ids = new Set<number>();
+  let total: number | undefined;
+  let firstDigest: VerificationActionKeyDigest | undefined;
+  const assertPage = (response: GitHubProviderCensusPage, page: number): void => {
+    if (!Number.isSafeInteger(response.totalCount) || response.totalCount < 0 || response.totalCount > 100_000 ||
+        (total !== undefined && response.totalCount !== total) || !Array.isArray(response.records) ||
+        response.records.length !== Math.min(100, Math.max(0, response.totalCount - (page - 1) * 100)) ||
+        !/^sha256:[0-9a-f]{64}$/u.test(response.rawResponseDigest)) {
+      fail(`workflow job page ${page} is incomplete or changed.`);
     }
-    jobs.push(...response.records.map((entry, index) =>
-      record(entry, `parent workflow job page ${page}[${index}]`)
-    ));
-    if (!response.hasNextPage) return Object.freeze(jobs);
+  };
+  for (let page = 1; page <= 1000; page += 1) {
+    const response = await transport.listWorkflowJobsPage({ repository: repositoryName, runId, runAttempt, page });
+    assertPage(response, page);
+    if (total === undefined) { total = response.totalCount; firstDigest = response.rawResponseDigest; }
+    for (const [index, entry] of response.records.entries()) {
+      const job = record(entry, `workflow job page ${page}[${index}]`);
+      // The transport reads the exact-attempt endpoint; omitted run_attempt is
+      // not evidence of another attempt, but a contradictory value is rejected.
+      if (!Number.isSafeInteger(job.id) || Number(job.id) < 1 || ids.has(Number(job.id)) ||
+          job.run_id !== Number(runId) || ('run_attempt' in job && job.run_attempt !== runAttempt)) {
+        fail('workflow job census has duplicate or foreign immutable identities.');
+      }
+      ids.add(Number(job.id));
+      jobs.push(job);
+    }
+    if (jobs.length === total) {
+      const boundary = await transport.listWorkflowJobsPage({ repository: repositoryName, runId, runAttempt, page: 1 });
+      assertPage(boundary, 1);
+      if (boundary.rawResponseDigest !== firstDigest) fail('workflow job census changed during pagination.');
+      return Object.freeze(jobs);
+    }
   }
-  fail('parent workflow job pagination exceeded the bounded 1000-page census.');
+  fail('workflow job pagination exceeded the bounded 1000-page census.');
+}
+
+/** Consistency checks on exact-attempt provider observations. Names and timing
+ * do not authenticate the actual uploader or prove a source-defined writer
+ * census/lifetime; those require the original trusted executable source closure. */
+function assertProviderArtifactUploadObservation(input: Readonly<{
+  job: Record<string, unknown>; metadata: Record<string, unknown>;
+  origin: VerificationActionProviderOrigin; producerName: string; uploadName: string;
+}>): void {
+  const { job, origin } = input;
+  const metadataRun = record(input.metadata.workflow_run, 'artifact workflow run');
+  if (metadataRun.id !== Number(origin.runId) || metadataRun.head_sha !== origin.workflowSha ||
+      job.head_sha !== origin.workflowSha || !['in_progress', 'completed'].includes(String(job.status)) ||
+      !Array.isArray(job.steps) || job.steps.length > 100) {
+    fail('artifact upload job/source observation is inconsistent.');
+  }
+  const steps = job.steps.map((entry, index) => record(entry, `artifact upload job step[${index}]`));
+  const producer = steps.filter(step => step.name === input.producerName);
+  const upload = steps.filter(step => step.name === input.uploadName);
+  if (steps.some(step => !Number.isSafeInteger(step.number) || Number(step.number) < 1 || Number(step.number) > 100) ||
+      new Set(steps.map(step => step.number)).size !== steps.length || producer.length !== 1 || upload.length !== 1 ||
+      producer[0]!.status !== 'completed' || producer[0]!.conclusion !== 'success' ||
+      upload[0]!.status !== 'completed' || upload[0]!.conclusion !== 'success' ||
+      Number(producer[0]!.number) >= Number(upload[0]!.number)) {
+    fail('artifact producer/upload observations are absent, ambiguous, unsuccessful or unordered.');
+  }
+  const time = (value: unknown): number => {
+    if (typeof value !== 'string' ||
+        !/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/u.test(value)) {
+      fail('artifact provider timestamp is not a date-time.');
+    }
+    const parsed = Date.parse(value);
+    const calendarDate = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+    if (!Number.isSafeInteger(parsed) || parsed < 1 ||
+        calendarDate.toISOString().slice(0, 10) !== value.slice(0, 10)) fail('artifact provider timestamp is invalid.');
+    return parsed;
+  };
+  const jobStarted = time(job.started_at);
+  const producerStarted = time(producer[0]!.started_at), producerCompleted = time(producer[0]!.completed_at);
+  const uploadStarted = time(upload[0]!.started_at), uploadCompleted = time(upload[0]!.completed_at);
+  const created = time(input.metadata.created_at), updated = time(input.metadata.updated_at);
+  // updated_at describes artifact metadata and may advance after the upload;
+  // it is not a provider guarantee of upload completion or original lifetime.
+  if (producerStarted < jobStarted || producerCompleted < producerStarted || uploadStarted < producerCompleted ||
+      uploadCompleted < uploadStarted || created < uploadStarted || created > uploadCompleted || updated < created) {
+    fail('artifact metadata is outside its observed producer/upload window.');
+  }
+  // Later unrelated failure must not erase a successful immutable upload needed
+  // for tombstone recovery. This check never authorizes rerunning the producer.
+  if (job.status === 'completed') {
+    if (!['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral'].includes(String(job.conclusion)) ||
+        time(job.completed_at) < uploadCompleted) fail('artifact job completion contradicts its successful upload.');
+  } else if (job.conclusion !== null || job.completed_at !== null) {
+    fail('artifact active job already has terminal facts.');
+  }
 }
 
 async function authenticateVerificationActionAuthority(
@@ -1269,7 +1365,6 @@ async function authenticateVerificationActionAuthority(
   const planSteps = steps.filter((step) => step.name === envelope.parentPlanStepName);
   if (parentJobs.length !== 1 || parentJobs[0]!.name !== envelope.parentJobName ||
       String(parentJobs[0]!.run_id ?? '') !== envelope.parentRunId ||
-      parentJobs[0]!.run_attempt !== envelope.parentRunAttempt ||
       parentJobs[0]!.head_sha !== request.expectedBaseSha ||
       !['in_progress', 'completed'].includes(String(parentJobs[0]!.status)) ||
       (parentJobs[0]!.status === 'completed' && parentJobs[0]!.conclusion !== 'success') ||
@@ -1277,6 +1372,9 @@ async function authenticateVerificationActionAuthority(
       planSteps[0]!.status !== 'completed' || planSteps[0]!.conclusion !== 'success') {
     fail('parent plan-producing job and step provenance mismatch.');
   }
+  assertProviderArtifactUploadObservation({ job: parentJobs[0]!, metadata: parentMetadata,
+    origin: parentOrigin, producerName: envelope.parentPlanStepName,
+    uploadName: 'Upload canonical parent Action dispatch plan artifact' });
 
   const expectedApp = CI_GITHUB_ACTIONS_IDENTITY_POLICY.app;
   if (currentRole === 'parent-session') {
@@ -1418,6 +1516,9 @@ async function readVerificationActionGitHubProviderSnapshot(
     VerificationActionProviderTerminalAnchor
   >[] = [];
 
+  // Reuse one exact-origin census only inside this read cut. A later snapshot,
+  // including the post-publication readback, starts with fresh provider facts.
+  const jobsByOrigin = new Map<string, Promise<readonly Record<string, unknown>[]>>();
   for (const entry of artifactInventory.artifacts) {
     if (entry.artifactName === startName) {
       startObservations.push(await readVerificationActionArtifactObservation(transport, {
@@ -1428,7 +1529,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         expectedFileName: VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE,
         parsePayload: parseVerificationActionProviderStartMarker,
         producingOrigin: (payload) => payload.producer
-      }));
+      }, jobsByOrigin));
     } else if (entry.artifactName === terminalName) {
       terminalObservations.push(await readVerificationActionArtifactObservation(transport, {
         repositoryId: resolution.repositoryId,
@@ -1440,7 +1541,7 @@ async function readVerificationActionGitHubProviderSnapshot(
           encodeVerificationActionData(value)
         ),
         producingOrigin: (payload) => payload.producer
-      }));
+      }, jobsByOrigin));
     } else if (entry.artifactName === terminalAnchorName) {
       terminalAnchorObservations.push(await readVerificationActionArtifactObservation(transport, {
         repositoryId: resolution.repositoryId,
@@ -1450,7 +1551,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE,
         parsePayload: parseVerificationActionProviderTerminalAnchor,
         producingOrigin: (payload) => payload.anchorPublisherOrigin
-      }));
+      }, jobsByOrigin));
     }
   }
   return Object.freeze({

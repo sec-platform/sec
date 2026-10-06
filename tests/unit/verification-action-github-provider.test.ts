@@ -165,6 +165,10 @@ class FakeGh {
     fileName: 'verification-action-parent-dispatch-plan.json',
     source: parentPlanSource
   }];
+  jobListCalls: Array<{ runId: string; runAttempt: number; page: number }> = [];
+  jobTransform: ((jobs: Record<string, any>[], runId: string) => Record<string, any>[]) | null = null;
+  artifactMetadataOverrides: Record<number, Record<string, unknown>> = {};
+  jobTotalOverride: number | null = null;
   statusListCalls: Array<{ page: number; perPage: number }> = [];
   artifactListCalls: Array<{ page: number; perPage: number }> = [];
   createCalls = 0;
@@ -227,18 +231,37 @@ class FakeGh {
         user: this.parentPermissionUser
       }));
     }
-    if (endpoint.includes('/attempts/1/jobs?')) {
+    const jobMatch = /\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)\/jobs\?/u.exec(endpoint);
+    if (jobMatch !== null) {
+      const runId = jobMatch[1]!;
+      const runAttempt = Number(jobMatch[2]);
       const page = Number(new URL(`https://github.invalid${endpoint}`).searchParams.get('page'));
-      return this.success(JSON.stringify({ jobs: page === 1 ? [{
-        id: PARENT_JOB_ID,
-        name: 'coordinate-verification-session',
-        run_id: Number(PARENT_RUN_ID),
-        run_attempt: 1,
-        head_sha: BASE,
-        status: 'in_progress',
-        conclusion: null,
-        steps: [{ name: 'Prepare canonical parent Action dispatch plan', status: 'completed', conclusion: 'success' }]
-      }] : [] }));
+      this.jobListCalls.push({ runId, runAttempt, page });
+      const step = (name: string, number: number, start: number, end: number) => ({
+        name, number, status: 'completed', conclusion: 'success',
+        started_at: `2026-08-09T01:00:${String(start).padStart(2, '0')}.000Z`,
+        completed_at: `2026-08-09T01:00:${String(end).padStart(2, '0')}.000Z`
+      });
+      const job = (id: number, name: string, steps: unknown[]) => ({
+        id, name, run_id: Number(runId), run_attempt: runAttempt, head_sha: BASE,
+        status: 'in_progress', conclusion: null, started_at: '2026-08-09T01:00:00.000Z',
+        completed_at: null, steps
+      });
+      const jobs = runId === PARENT_RUN_ID ? [job(PARENT_JOB_ID, 'coordinate-verification-session', [
+        step('Prepare canonical parent Action dispatch plan', 8, 1, 2),
+        step('Upload canonical parent Action dispatch plan artifact', 9, 3, 5)
+      ])] : [job(6101, 'claim-verification-action', [
+        step('Create immutable Action start marker from fresh provider census', 12, 1, 2),
+        step('Upload immutable Action start marker', 13, 3, 5)
+      ]), job(6102, 'assemble-verification-action-terminal', [
+        step('Assemble canonical five-state terminal artifact', 8, 1, 2),
+        step('Upload canonical terminal Action artifact', 9, 3, 5),
+        step('Create exact post-upload terminal anchor', 10, 6, 7),
+        step('Upload exact post-upload terminal anchor', 11, 8, 10)
+      ])];
+      const observed = this.jobTransform?.(jobs, runId) ?? jobs;
+      return this.success(JSON.stringify({ total_count: this.jobTotalOverride ?? observed.length,
+        jobs: observed.slice((page - 1) * 100, page * 100) }));
     }
     if (endpoint.includes('/commits/') && endpoint.includes('/statuses?')) {
       const page = Number(new URL(`https://github.invalid${endpoint}`).searchParams.get('page'));
@@ -272,7 +295,12 @@ class FakeGh {
         id: artifact.id,
         name: artifact.name,
         expired: artifact.expired,
-        workflow_run: { id: artifact.runId }
+        created_at: artifact.fileName === 'verification-action-terminal-status-anchor.json'
+          ? '2026-08-09T01:00:09.000Z' : '2026-08-09T01:00:04.000Z',
+        updated_at: artifact.fileName === 'verification-action-terminal-status-anchor.json'
+          ? '2026-08-09T01:00:09.000Z' : '2026-08-09T01:00:04.000Z',
+        workflow_run: { id: artifact.runId, head_sha: BASE },
+        ...this.artifactMetadataOverrides[artifact.id]
       }));
     }
     const exactRunMatch = /\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u.exec(endpoint);
@@ -945,10 +973,156 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json',
         source: JSON.stringify(terminalAnchor) }
     );
+    await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    expect(fakeGh.jobListCalls.filter(call => call.runId === CURRENT_RUN_ID)).toHaveLength(2);
+    fakeGh.jobListCalls = [];
     const result = await ensureTransaction({ authority: authority(),
       intent: { kind: 'anchor-terminal', anchor: terminalAnchor } });
+    // Three artifacts share one census per snapshot; before and after the POST
+    // each independently perform census plus its stable-boundary readback.
+    expect(fakeGh.jobListCalls.filter(call => call.runId === CURRENT_RUN_ID)).toHaveLength(4);
     expect(result.disposition).toBe('terminal-anchored');
     expect(result.status?.state).toBe('success');
     expect(fakeGh.createCalls).toBe(1);
+
+    const artifacts = fakeGh.artifacts;
+    for (const uploadIndex of [1, 3]) {
+      fakeGh = new FakeGh();
+      fakeGh.artifacts = artifacts;
+      fakeGh.statuses = [rawStatus({ id: 101 })];
+      fakeGh.jobTransform = (jobs, runId) => {
+        if (runId === CURRENT_RUN_ID) jobs[1]!.steps[uploadIndex].conclusion = 'failure';
+        return jobs;
+      };
+      await expect(ensureTransaction({ authority: authority(),
+        intent: { kind: 'anchor-terminal', anchor: terminalAnchor } })).rejects.toThrow();
+      expect(fakeGh.createCalls).toBe(0);
+    }
   });
+
+  test.each([
+    ['absent claim job', (jobs: Record<string, any>[]) => jobs.slice(1)],
+    ['wrong claim name', (jobs: Record<string, any>[]) => { jobs[0]!.name = 'untrusted-upload'; return jobs; }],
+    ['foreign run', (jobs: Record<string, any>[]) => { jobs[0]!.run_id = 9999; return jobs; }],
+    ['foreign attempt', (jobs: Record<string, any>[]) => { jobs[0]!.run_attempt = 2; return jobs; }],
+    ['duplicate claim', (jobs: Record<string, any>[]) => [...jobs, { ...jobs[0], id: 6201 }]],
+    ['duplicate job identity', (jobs: Record<string, any>[]) => [...jobs, jobs[0]!]],
+    ['failed producer', (jobs: Record<string, any>[]) => { jobs[0]!.steps[0].conclusion = 'failure'; return jobs; }],
+    ['failed upload', (jobs: Record<string, any>[]) => { jobs[0]!.steps[1].conclusion = 'failure'; return jobs; }],
+    ['wrong upload slot', (jobs: Record<string, any>[]) => { jobs[0]!.steps[1].name = 'Upload untrusted raw SUT transport only'; return jobs; }],
+    ['duplicate step number', (jobs: Record<string, any>[]) => { jobs[0]!.steps[1].number = 12; return jobs; }],
+    ['reversed steps', (jobs: Record<string, any>[]) => { jobs[0]!.steps[0].number = 14; return jobs; }],
+    ['overlapping producer/upload', (jobs: Record<string, any>[]) => { jobs[0]!.steps[0].completed_at = '2026-08-09T01:00:04.000Z'; return jobs; }],
+    ['non-date-time job start', (jobs: Record<string, any>[]) => { jobs[0]!.started_at = '1'; return jobs; }],
+    ['wrong workflow head', (jobs: Record<string, any>[]) => { jobs[0]!.head_sha = '9'.repeat(40); return jobs; }],
+    ['premature job completion', (jobs: Record<string, any>[]) => {
+      Object.assign(jobs[0]!, { status: 'completed', conclusion: 'success', completed_at: '2026-08-09T01:00:01.000Z' }); return jobs;
+    }]
+  ] as const)('rejects inconsistent Action upload observations: %s', async (_label, mutate) => {
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.jobTransform = (jobs, runId) => runId === CURRENT_RUN_ID ? mutate(jobs) : jobs;
+    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } })).rejects.toThrow();
+    expect(fakeGh.createCalls).toBe(0);
+    expect(fakeGh.dispatchCalls).toBe(0);
+  });
+
+  test.each([
+    { created_at: '2026-08-09T00:59:59.000Z' },
+    { created_at: '2026-08-09T01:00:06.000Z', updated_at: '2026-08-09T01:00:06.000Z' },
+    { updated_at: '2026-08-09T01:00:03.000Z' },
+    { created_at: 'not-a-time' },
+    { updated_at: '2026-08-21' },
+    { updated_at: '9999' },
+    { updated_at: '2026-09-31T01:00:04Z' },
+    { workflow_run: { id: Number(CURRENT_RUN_ID), head_sha: '9'.repeat(40) } }
+  ])('rejects artifact metadata outside its upload observation', async (override) => {
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.artifactMetadataOverrides[7001] = override;
+    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } })).rejects.toThrow();
+    expect(fakeGh.createCalls).toBe(0);
+  });
+
+  test('rejects a parent plan with no successful upload and incomplete job census', async () => {
+    fakeGh = new FakeGh();
+    fakeGh.jobTransform = (jobs) => { jobs[0]!.steps.pop(); return jobs; };
+    trustedParentEnvironment();
+    await expect(ensureTransaction({ authority: { envelope, actionPlanClosure: closure },
+      intent: { kind: 'dispatch-child' } })).rejects.toThrow();
+    expect(fakeGh.dispatchCalls).toBe(0);
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.jobTotalOverride = 101;
+    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } })).rejects.toThrow();
+    expect(fakeGh.createCalls).toBe(0);
+  });
+
+  test('job census spans all pages and rejects a changing leading boundary', async () => {
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.jobTransform = (jobs, runId) => runId !== PARENT_RUN_ID ? jobs : [
+      ...jobs, ...Array.from({ length: 100 }, (_, index) => ({
+        id: 10000 + index, name: `unrelated-${index}`, run_id: Number(PARENT_RUN_ID), run_attempt: 1
+      }))
+    ];
+    await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    expect(fakeGh.jobListCalls).toContainEqual({ runId: PARENT_RUN_ID, runAttempt: 1, page: 2 });
+    expect(fakeGh.createCalls).toBe(0);
+
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.jobTransform = (jobs) => {
+      if (fakeGh.jobListCalls.length === 2) jobs[0]!.id = 6999;
+      return jobs;
+    };
+    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } }))
+      .rejects.toThrow(/job census changed during pagination/i);
+    expect(fakeGh.createCalls).toBe(0);
+  });
+
+  test('provider date-times accept equivalent explicit offsets and omitted milliseconds', async () => {
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.artifactMetadataOverrides[7001] = {
+      created_at: '2026-08-08T18:00:04-07:00', updated_at: '2026-08-09T01:00:04Z'
+    };
+    const result = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    expect(result.snapshot.startObservations[0]?.payload).toEqual(marker);
+    expect(fakeGh.createCalls).toBe(0);
+  });
+
+  test('the exact-attempt job endpoint does not require an optional parent run_attempt field', async () => {
+    fakeGh = new FakeGh();
+    fakeGh.jobTransform = (jobs) => { for (const job of jobs) delete job.run_attempt; return jobs; };
+    trustedParentEnvironment();
+    const result = await ensureTransaction({ authority: { envelope, actionPlanClosure: closure },
+      intent: { kind: 'coordinate-parent' } });
+    expect(result.disposition).toBe('observed');
+    expect(fakeGh.createCalls).toBe(0);
+    expect(fakeGh.dispatchCalls).toBe(0);
+  });
+
+  test('post-publication readback never reuses an earlier upload observation', async () => {
+    fakeGh = new FakeGh().withMarker();
+    fakeGh.jobTransform = (jobs, runId) => {
+      if (runId === CURRENT_RUN_ID && fakeGh.createCalls > 0) jobs[0]!.steps[1].conclusion = 'failure';
+      return jobs;
+    };
+    await expect(ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } }))
+      .rejects.toThrow(/producer\/upload observations/i);
+    expect(fakeGh.createCalls).toBe(1);
+    expect(fakeGh.jobListCalls.filter(call => call.runId === CURRENT_RUN_ID)).toHaveLength(4);
+  });
+
+  test('retains successful immutable uploads after later job failure and omitted optional attempt', async () => {
+    fakeGh = new FakeGh().withMarker();
+    // GitHub artifact metadata can be updated after the original upload ended.
+    fakeGh.artifactMetadataOverrides[7001] = { updated_at: '2026-08-21T01:00:04.000Z' };
+    fakeGh.jobTransform = (jobs, runId) => {
+      if (runId !== CURRENT_RUN_ID) return jobs;
+      delete jobs[0]!.run_attempt;
+      Object.assign(jobs[0]!, { status: 'completed', conclusion: 'failure', completed_at: '2026-08-09T02:00:00.000Z' });
+      return jobs;
+    };
+    const result = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
+    expect(result.snapshot.startObservations[0]?.payload).toEqual(marker);
+    expect(fakeGh.jobListCalls).toContainEqual({ runId: CURRENT_RUN_ID, runAttempt: 1, page: 1 });
+    expect(fakeGh.createCalls).toBe(0);
+  });
+
 });
