@@ -1704,76 +1704,145 @@ describe('compiler dependency installation', () => {
       cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
     },
     async (effectful) => {
-    await withEffectfulCompilerWorkspace(effectful, 'engineering-compiler-sealed-mutation-', async (
-      tempRoot,
-      lifecycle
-    ) => {
-      await writeCompilerDependencyRoot(tempRoot);
-      let mutated = false;
-      let mutatedPath: string | null = null;
-      await expect(ensureCompilerDepsReady({
-        deadlineAtUnixMs: effectful.operationDeadlineAtUnixMs,
-        generatedStateLifecycle: lifecycle,
-        signal: effectful.operationSignal,
-        beforeCommit: async () => {
-          if (mutated) return;
-          const backupRoot = path.join(
-            tempRoot,
-            '.tmp',
-            'dependency-installs',
-            'compiler-backups'
-          );
-          let names: string[];
-          try {
-            names = await fs.readdir(backupRoot);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-            throw error;
-          }
-          const generationName = names.find((name) => name.startsWith('generation-'));
-          if (generationName === undefined) return;
-          const target = path.join(
-            backupRoot,
-            generationName,
-            'typescript',
-            'lib',
-            'typescript.js'
-          );
-          let metadata: Awaited<ReturnType<typeof fs.lstat>>;
-          try {
-            metadata = await fs.lstat(target);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-            throw error;
-          }
-          const sealedMode = metadata.mode & 0o777;
-          if ((sealedMode & 0o222) !== 0) return;
-          await fs.chmod(target, 0o600);
-          try {
-            await fs.writeFile(target, 'mutated-after-seal\n');
-          } finally {
-            await fs.chmod(target, sealedMode);
-          }
-          mutated = true;
-          mutatedPath = target;
-        },
-        materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'post-seal-mutation');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        }
-      }, tempRoot)).rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
-      expect(mutated).toBeTrue();
-      expect(mutatedPath).not.toBeNull();
-      expect((await fs.lstat(mutatedPath!)).mode & 0o222).not.toBe(0);
-      await expect(fs.readdir(path.join(
+      let retiredRoot: string | undefined;
+      await withEffectfulCompilerWorkspace(effectful, 'engineering-compiler-sealed-mutation-', async (
         tempRoot,
-        '.tmp',
-        'dependency-installs',
-        'compiler-backups',
-        'read-only-generations'
-      ))).resolves.toEqual([]);
+        lifecycle
+      ) => {
+        retiredRoot = tempRoot;
+        await writeCompilerDependencyRoot(tempRoot);
+        const operation = {
+          deadlineAtUnixMs: effectful.operationDeadlineAtUnixMs,
+          generatedStateLifecycle: lifecycle,
+          signal: effectful.operationSignal
+        };
+        const backupRoot = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler-backups');
+        const proofRoot = path.join(backupRoot, 'read-only-generations');
+        const nodeModulesPath = path.join(tempRoot, 'node_modules');
+        let mutation: Readonly<{
+          path: string;
+          bytes: Buffer<ArrayBuffer>;
+          device: bigint;
+          inode: bigint;
+        }> | undefined;
+        const rejectedTransition = await settleWorkspaceCallback(async () => {
+          const failure = await ensureCompilerDepsReady({
+            ...operation,
+            beforeCommit: async () => {
+              if (mutation !== undefined) return;
+              let names: string[];
+              try {
+                names = await fs.readdir(backupRoot);
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+                throw error;
+              }
+              const generationName = names.find(name => name.startsWith('generation-'));
+              if (generationName === undefined) return;
+              const target = path.join(backupRoot, generationName, 'typescript', 'lib', 'typescript.js');
+              let metadata: fsSync.BigIntStats;
+              try {
+                metadata = await fs.lstat(target, { bigint: true });
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+                throw error;
+              }
+              const sealedMode = Number(metadata.mode & 0o777n);
+              if ((sealedMode & 0o222) !== 0) return;
+              mutation = {
+                path: target,
+                bytes: await fs.readFile(target),
+                device: metadata.dev,
+                inode: metadata.ino
+              };
+              await fs.chmod(target, 0o600);
+              try {
+                await fs.writeFile(target, 'mutated-after-seal\n');
+              } finally {
+                await fs.chmod(target, sealedMode);
+              }
+            },
+            materialize: async (_args, command) => {
+              await installCompilerDependencyFixture(command.cwd, 'post-seal-mutation');
+              return { code: 0, stdout: 'ok', stderr: '' };
+            }
+          }, tempRoot).then(() => null, (error: unknown) => error);
+          // The publication wrapper reports recovery responsibility; its
+          // durable predecessor must still identify the specific seal failure.
+          expect(failure).toMatchObject({
+            code: 'IMPORT-AUTHORITY-004',
+            details: {
+              recoveryRequired: true,
+              recoveryCause: 'Compiler dependency sealed generation changed before proof publication',
+              causeDetails: {
+                causeDetails: { cause: 'Linux generation proof changed.' }
+              }
+            }
+          });
+          expect(mutation).toBeDefined();
+          expect(await fs.readFile(mutation!.path, 'utf8')).toBe('mutated-after-seal\n');
+          expect((await fs.lstat(mutation!.path)).mode & 0o200).not.toBe(0);
+          await expect(fs.readdir(proofRoot)).resolves.toEqual([]);
+          await expect(fs.lstat(nodeModulesPath)).rejects.toMatchObject({ code: 'ENOENT' });
+          const pending = await readDependencyTransition(tempRoot, runtimeDependencyOperationOptions(operation));
+          expect(pending).toMatchObject({
+            kind: 'compiler-local-locator',
+            phase: 'recovery-required',
+            failure: {
+              code: 'RUNTIME-DEPS-004',
+              message: 'Compiler dependency sealed generation changed before proof publication'
+            }
+          });
+          // Unrepaired content is not disposal authority, even for the real
+          // owner. Re-entry must preserve the corrupted generation and proof absence.
+          await expect(disposeCompilerDependencyEnvironment(tempRoot, operation)).rejects.toMatchObject({
+            code: 'IMPORT-AUTHORITY-004',
+            details: { cause: 'Local compiler immutable generation binding drifted' }
+          });
+          expect(await fs.readFile(mutation!.path, 'utf8')).toBe('mutated-after-seal\n');
+          await expect(fs.readdir(proofRoot)).resolves.toEqual([]);
+          await expect(fs.lstat(nodeModulesPath)).rejects.toMatchObject({ code: 'ENOENT' });
+          return pending!;
+        }, async () => {
+          if (mutation === undefined) return;
+          // Undo only this fixture's injected bytes on the same physical file.
+          // The owner must restore write authority; no chmod, journal edit or
+          // forced generation removal may manufacture a successful cleanup.
+          const file = await fs.open(mutation.path, fsSync.constants.O_RDWR | fsSync.constants.O_NOFOLLOW);
+          try {
+            const current = await file.stat({ bigint: true });
+            expect(current.isFile()).toBeTrue();
+            expect(current.dev).toBe(mutation.device);
+            expect(current.ino).toBe(mutation.inode);
+            expect(current.mode & 0o200n).not.toBe(0n);
+            expect(await file.readFile('utf8')).toBe('mutated-after-seal\n');
+            const restored = await file.write(mutation.bytes, 0, mutation.bytes.length, 0);
+            expect(restored.bytesWritten).toBe(mutation.bytes.length);
+            await file.truncate(mutation.bytes.length);
+          } finally {
+            await file.close();
+          }
+          expect(await fs.readFile(mutation.path)).toEqual(mutation.bytes);
+        });
+        expect((await ensureCompilerDepsReady({
+          ...operation,
+          installMode: 'prebound-only',
+          materialize: async () => { throw new Error('Seal recovery must reuse the original generation.'); }
+        }, tempRoot)).source).toBe('existing');
+        const recovered = await readDependencyTransition(tempRoot, runtimeDependencyOperationOptions(operation));
+        expect(recovered).toMatchObject({
+          operationKey: rejectedTransition.operationKey,
+          phase: 'complete',
+          failure: null,
+          sourceGeneration: rejectedTransition.sourceGeneration
+        });
+        expect(await fs.realpath(nodeModulesPath)).toBe(rejectedTransition.sourceGeneration.sourcePath);
+        expect((await fs.lstat(mutation!.path)).mode & 0o222).toBe(0);
+        expect(await fs.readdir(proofRoot)).toHaveLength(1);
+      });
+      expect(retiredRoot).toBeDefined();
+      await expect(fs.lstat(retiredRoot!)).rejects.toMatchObject({ code: 'ENOENT' });
     });
-  });
 
   effectfulTest(test.skipIf(process.platform !== 'linux' || POSIX_ROOT_PROCESS),
     'restores owner write authority when sealed generation proof publication is denied',
