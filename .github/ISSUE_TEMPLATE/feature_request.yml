@@ -1,30 +1,61 @@
 name: Feature request
-description: Propose a concrete product capability or bounded improvement
+description: Propose one concrete capability or bounded improvement with a current consumer
 title: "feature: "
 labels:
   - enhancement
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Open Issues are active executable backlog. Broad architecture ideas, long-term possibility catalogs, research frontiers, and deferred capabilities belong in the canonical design corpus until a real consumer/trigger makes one bounded change actionable.
+
+        Do not open a Program/umbrella Issue merely to preserve an idea. A feature Issue needs one current outcome, one owning boundary, and observable acceptance.
   - type: textarea
     id: outcome
     attributes:
       label: Desired outcome
-      description: Describe the user-visible or engineering result you need.
+      description: Describe the concrete user-visible or engineering result you need.
+    validations:
+      required: true
+  - type: textarea
+    id: consumer
+    attributes:
+      label: Current consumer / workflow
+      description: Identify the real current consumer, workflow, or failure that makes this capability actionable now.
     validations:
       required: true
   - type: textarea
     id: current_limit
     attributes:
       label: Current limitation
-      description: Explain the concrete workflow or boundary that prevents the outcome today.
+      description: Explain the exact current-main boundary that prevents the outcome today.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and exit condition
+      description: State observable completion conditions, including failure/unsupported behavior where relevant.
     validations:
       required: true
   - type: textarea
     id: constraints
     attributes:
-      label: Constraints and examples
-      description: Include representative inputs, outputs, non-goals, and compatibility needs.
+      label: Constraints and non-goals
+      description: Include representative inputs, outputs, compatibility needs, authority/effect boundaries, and what this Issue must not absorb.
   - type: textarea
     id: evidence
     attributes:
-      label: Existing evidence or related owners
-      description: Link relevant documentation, code, issues, or external standards.
+      label: Existing evidence or canonical owners
+      description: Link current code, canonical documentation, related Issues, or external standards. Explain why an existing owner cannot already express this outcome.
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Issue hygiene
+      options:
+        - label: This request has a real current consumer or trigger; it is not speculative future parking.
+          required: true
+        - label: I checked current Issues/canonical owners and am not creating a duplicate or second source of truth.
+          required: true
+        - label: This Issue is one bounded deliverable, not a Program index, research corpus, roadmap, or recurring status log.
+          required: true
