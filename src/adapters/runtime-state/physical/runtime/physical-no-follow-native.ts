@@ -1242,7 +1242,6 @@ const WINDOWS_FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE = 0x0000_0010;
 
 export const WINDOWS_NT_FILE_RENAME_INFORMATION = 10;
 
-const WINDOWS_NT_FILE_END_OF_FILE_INFORMATION = 20;
 
 export const WINDOWS_NT_FILE_RENAME_INFORMATION_EX = 65;
 
@@ -2009,28 +2008,6 @@ export function windowsRetainedOrdinaryFileLinkCount(handle: bigint, label: stri
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} link count is invalid.`);
   }
   return links;
-}
-
-export function windowsTruncateRetainedOrdinaryFile(handle: bigint, size: number, label: string): void {
-  if (!Number.isSafeInteger(size) || size < 0) {
-    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is invalid.`);
-  }
-  const end = Buffer.alloc(8);
-  end.writeBigInt64LE(BigInt(size));
-  const ioStatus = Buffer.alloc(16);
-  const status = requireWindowsNtdll().symbols.NtSetInformationFile(
-    handle,
-    ioStatus,
-    end,
-    end.byteLength,
-    WINDOWS_NT_FILE_END_OF_FILE_INFORMATION
-  );
-  if (status < 0) {
-    throw physicalError(
-      'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
-      `${label} retained truncate failed (NTSTATUS ${status}).`
-    );
-  }
 }
 
 export function windowsWriteRetainedFile(handle: bigint, bytes: Uint8Array, label: string): void {

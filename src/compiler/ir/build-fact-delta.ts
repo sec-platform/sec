@@ -1,4 +1,4 @@
-import { cloneAndDeepFreeze, compareCodeUnits, deepFreeze } from '../../contracts/canonical.ts';
+import { compareCodeUnits, deepFreeze } from '../../contracts/canonical.ts';
 import { fail } from '../../contracts/failure.ts';
 import type { FactAssertionUpdate, FactAssertionUpdateField, FactDelta, FactDeltaEndpoint, FactDeltaEndpointContext, SemanticFactChange } from '../../semantics/engineering-ir/delta-types.ts';
 import { FACT_DELTA_CONTRACT_VERSION, FACT_DELTA_SCOPE } from '../../semantics/engineering-ir/delta-types.ts';
@@ -146,8 +146,8 @@ function assertionUpdate(
   return {
     assertionId: before.id,
     changedFields,
-    before: { confidence: before.confidence, evidence: cloneAndDeepFreeze(before.evidence) },
-    after: { confidence: after.confidence, evidence: cloneAndDeepFreeze(after.evidence) }
+    before: { confidence: before.confidence, evidence: structuredClone(before.evidence) },
+    after: { confidence: after.confidence, evidence: structuredClone(after.evidence) }
   };
 }
 
@@ -163,24 +163,24 @@ function diffAssertions(before: SemanticFact, after: SemanticFact): SemanticFact
     const toAssertion = after.assertions[toIndex];
 
     if (fromAssertion === undefined) {
-      addedAssertions.push(cloneAndDeepFreeze(toAssertion!));
+      addedAssertions.push(structuredClone(toAssertion!));
       toIndex += 1;
       continue;
     }
     if (toAssertion === undefined) {
-      removedAssertions.push(cloneAndDeepFreeze(fromAssertion));
+      removedAssertions.push(structuredClone(fromAssertion));
       fromIndex += 1;
       continue;
     }
 
     const comparison = compareCodeUnits(fromAssertion.id, toAssertion.id);
     if (comparison < 0) {
-      removedAssertions.push(cloneAndDeepFreeze(fromAssertion));
+      removedAssertions.push(structuredClone(fromAssertion));
       fromIndex += 1;
       continue;
     }
     if (comparison > 0) {
-      addedAssertions.push(cloneAndDeepFreeze(toAssertion));
+      addedAssertions.push(structuredClone(toAssertion));
       toIndex += 1;
       continue;
     }
@@ -221,24 +221,24 @@ function diffFacts(
     const toFact = after[toIndex];
 
     if (fromFact === undefined) {
-      added.push(cloneAndDeepFreeze(toFact!));
+      added.push(structuredClone(toFact!));
       toIndex += 1;
       continue;
     }
     if (toFact === undefined) {
-      removed.push(cloneAndDeepFreeze(fromFact));
+      removed.push(structuredClone(fromFact));
       fromIndex += 1;
       continue;
     }
 
     const comparison = compareCodeUnits(fromFact.id, toFact.id);
     if (comparison < 0) {
-      removed.push(cloneAndDeepFreeze(fromFact));
+      removed.push(structuredClone(fromFact));
       fromIndex += 1;
       continue;
     }
     if (comparison > 0) {
-      added.push(cloneAndDeepFreeze(toFact));
+      added.push(structuredClone(toFact));
       toIndex += 1;
       continue;
     }

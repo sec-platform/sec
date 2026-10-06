@@ -117,6 +117,10 @@ test('Fact add/remove preserves direction and object changes are remove plus add
   const forward = buildFactDelta(context(before, 'tx:before'), context(after, 'tx:after'));
   const reverse = buildFactDelta(context(after, 'tx:after'), context(before, 'tx:before'));
 
+  expectDeepFrozen(forward);
+  expectDeepFrozen(reverse);
+  expect(forward.added[0]).not.toBe(after.ir.facts.find((fact) => fact.id === forward.added[0]?.id));
+  expect(reverse.removed[0]).not.toBe(after.ir.facts.find((fact) => fact.id === reverse.removed[0]?.id));
   expect(forward.added.length).toBeGreaterThan(0);
   expect(forward.removed).toEqual([]);
   expect(reverse.added).toEqual([]);
@@ -159,6 +163,10 @@ test('Assertion add/remove and authority/provenance identity changes use set cha
   const addDelta = buildFactDelta(context(before, 'tx:before'), context(added, 'tx:added'));
   const removeDelta = buildFactDelta(context(added, 'tx:added'), context(before, 'tx:before'));
 
+  expectDeepFrozen(addDelta);
+  expectDeepFrozen(removeDelta);
+  const addedAssertion = addDelta.changed[0]?.addedAssertions[0];
+  expect(addedAssertion).not.toBe(added.ir.facts[0]!.assertions.find((assertion) => assertion.id === addedAssertion?.id));
   expect(addDelta.changed).toHaveLength(1);
   expect(addDelta.changed[0]?.addedAssertions).toHaveLength(1);
   expect(addDelta.changed[0]?.removedAssertions).toEqual([]);
@@ -189,6 +197,9 @@ test('confidence and evidence changes are explicit identity-preserving updates',
   const update = delta.changed[0]?.updatedAssertions[0];
 
   expect(delta.changed).toHaveLength(1);
+  expectDeepFrozen(delta);
+  expect(update?.before.evidence).not.toBe(before.ir.facts[0]!.assertions[0]!.evidence);
+  expect(update?.after.evidence).not.toBe(after.ir.facts[0]!.assertions[0]!.evidence);
   expect(update?.changedFields).toEqual(['confidence', 'evidence']);
   expect(update?.before.confidence).toBe(1);
   expect(update?.after).toEqual({

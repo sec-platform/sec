@@ -694,6 +694,8 @@ test('merge message trailers must derive from validated receipts; free text is r
   })).not.toThrow();
   for (const message of [
     `${title}\n\n${markers.join('\n')}\nIndependent-Exact-Head-Review: P0=0 P1=0 P2=0`,
+    `${title}\n\n${markers.join('\n')}\nIndependent-Exact-Head-Review: review=passed confidence=high`,
+    `${title}\n\n${markers.join('\n')}\n${canonicalReview}\nIndependent-Review: something-else`,
     `${title}\n\n${markers.join('\n')}\nManual-Transition-Receipt: sha256:${'c'.repeat(64)}`,
     `${title}\n\n${markers.join('\n')}\n${canonicalReview}\nCo-authored-by: Someone <someone@example.com>`,
     `${title}\n\n${markers.slice(0, -1).join('\n')}\n${canonicalReview}`

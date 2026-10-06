@@ -61,17 +61,3 @@ export function semanticViewArtifactsAreCurrent(lock: LockFile, graph: ExplainGr
     throw error;
   }
 }
-
-export function assertSemanticViewArtifactsAreCurrent(lock: LockFile, graph: ExplainGraph): void {
-  if (semanticViewArtifactsAreCurrent(lock, graph)) return;
-  throw new CompilerError(
-    'EXPLAIN-BLOCKED-006',
-    'ExplainGraph semantic projection does not match the current graph lock revision',
-    {
-      lockInputRevision: lock.semanticViews?.inputRevision,
-      lockSemanticRevision: lock.semanticViews?.semanticRevision,
-      graphInputRevision: graph.semanticViews?.inputRevision,
-      graphSemanticRevision: graph.semanticViews?.semanticRevision
-    }
-  );
-}

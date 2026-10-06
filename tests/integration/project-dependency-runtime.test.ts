@@ -49,20 +49,19 @@ async function observeCanonicalSharedDependencies(): Promise<unknown> {
 }
 
 async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
-  const runtimeSpec = await loadRuntimeDependencySpec();
-  const exactVersions = {
-    ...runtimeSpec.dependencies,
-    ...runtimeSpec.devDependencies
-  };
   await Promise.all(
     RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+      // Use installed package identity, including npm aliases, as the fixture source.
+      const installed = await readJson<{ name: string; version: string }>(
+        path.join(compilerRoot, 'node_modules', ...packageName.split('/'), 'package.json')
+      );
       const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
       await fs.mkdir(packageRoot, { recursive: true });
       await fs.writeFile(
         path.join(packageRoot, 'package.json'),
         `${JSON.stringify({
-          name: packageName,
-          version: exactVersions[packageName]
+          name: installed.name,
+          version: installed.version
         })}\n`,
         'utf8'
       );
@@ -190,6 +189,7 @@ describe('ensureProjectDependencies', () => {
           return { code: 1, stdout: '', stderr: 'unexpected' };
         },
         installMode: 'prebound-only',
+        // @ts-expect-error Retired root overrides remain outside installation authority.
         sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
       });
 
@@ -257,6 +257,7 @@ describe('ensureProjectDependencies', () => {
             return { code: 0, stdout: 'unexpected', stderr: '' };
           },
           installMode: 'prebound-only',
+          // @ts-expect-error Retired root overrides remain outside installation authority.
           sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
         })
       ).rejects.toThrow('Plan-bound dependency tree is unavailable');
@@ -269,6 +270,7 @@ describe('ensureProjectDependencies', () => {
             return { code: 0, stdout: 'unexpected', stderr: '' };
           },
           installMode: 'prebound-only',
+          // @ts-expect-error Retired root overrides remain outside installation authority.
           sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
         })
       ).rejects.toThrow('Plan-bound dependency tree is unavailable');

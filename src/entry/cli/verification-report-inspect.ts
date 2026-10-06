@@ -1,25 +1,45 @@
-import type { VerificationReportInspectView } from '../../application/verification-report-inspect.ts';
 import { formatFields, formatList } from './format-utils.ts';
 
-export function formatVerificationReport(view: VerificationReportInspectView): string {
+export type VerificationReportInspectionSource = Readonly<{
+  summary: Readonly<{
+    status: string;
+    requestedLane: string;
+    failedLanes: readonly string[];
+  }>;
+  fast: Readonly<{
+    status: string;
+    build: Readonly<{ status: string }>;
+    unit: Readonly<{ status: string }>;
+    acceptance: Readonly<{ status: string }>;
+    policy: Readonly<{ status: string }>;
+  }>;
+  runtime: Readonly<{
+    status: string;
+    build: Readonly<{ status: string }>;
+    unit: Readonly<{ status: string }>;
+    acceptance: Readonly<{ status: string }>;
+  }>;
+}>;
+
+export function formatVerificationReport(view: VerificationReportInspectionSource): string {
   return [
     formatFields([
-      `Verification report ${view.status}`,
-      `requestedLane=${view.requestedLane}`,
-      `failedLanes=${formatList(view.failedLanes)}`
+      `Verification report ${view.summary.status}`,
+      `requestedLane=${view.summary.requestedLane}`,
+      `failedLanes=${formatList(view.summary.failedLanes)}`
     ]),
     formatFields([
       `Fast: ${view.fast.status}`,
-      `build=${view.fast.buildStatus}`,
-      `unit=${view.fast.unitStatus}`,
-      `acceptance=${view.fast.acceptanceStatus}`,
-      `policy=${view.fast.policyStatus}`
+      `build=${view.fast.build.status}`,
+      `unit=${view.fast.unit.status}`,
+      `acceptance=${view.fast.acceptance.status}`,
+      `policy=${view.fast.policy.status}`
     ]),
     formatFields([
       `Runtime: ${view.runtime.status}`,
-      `build=${view.runtime.buildStatus}`,
-      `unit=${view.runtime.unitStatus}`,
-      `acceptance=${view.runtime.acceptanceStatus}`
+      `build=${view.runtime.build.status}`,
+      `unit=${view.runtime.unit.status}`,
+      `acceptance=${view.runtime.acceptance.status}`
     ])
   ].join('\n');
 }

@@ -154,11 +154,3 @@ export function deriveScenarioDefinitions(
     })
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
-
-export function deriveScenarioDefinition(
-  entities: readonly SemanticEntity[],
-  facts: readonly SemanticFact[],
-  scenarioId: string
-): ScenarioDefinition | undefined {
-  return deriveScenarioDefinitions(entities, facts).find((scenario) => scenario.id === scenarioId);
-}

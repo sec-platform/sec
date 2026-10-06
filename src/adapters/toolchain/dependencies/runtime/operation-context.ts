@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { CommitFence } from "../../../../contracts/commit-fence.ts";
 import { SecError } from '../../../../contracts/failure.ts';
 import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
@@ -36,7 +35,6 @@ export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
 /** Internal environment supplied by dependency orchestration, never public input. */
 interface RuntimeDependencyEnvironmentInput {
   now?: () => string;
-  sharedDepsRoot?: string;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -80,7 +78,7 @@ const boundOperationMethods = new WeakSet<object>();
 const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
   'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'installMode',
   'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
-  'sharedDepsRoot', 'signal', 'sleep',
+  'signal', 'sleep',
   'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
   'testCompilerPublishPlatform', 'testCompilerRename', 'testInstallLockDelete',
   'testInstallLockDeletePlatform', 'testMaterialization', 'testProjectProjectionHook'
@@ -161,7 +159,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
       return options as T & RuntimeDependencyOperationOptions;
     }
   }
-  const cwd = process.cwd();
   const guard = captureRuntimeDependencyBindingGuard(options);
   const controlsInput = captureRuntimeDependencyControlInput(options);
   assertNoUnownedParentBoundAccessors(options, controlsInput, guard);
@@ -170,7 +167,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const rematerialize = ownOption(options, 'rematerialize');
   const now = ownOption(options, 'now');
   const sleep = ownOption(options, 'sleep');
-  const sharedDepsRoot = ownOption(options, 'sharedDepsRoot');
   const generatedStateLifecycle = ownOption(options, 'generatedStateLifecycle');
   const testCompilerPublishPlatform = ownOption(options, 'testCompilerPublishPlatform');
   const testCompilerPublishHook = ownOption(options, 'testCompilerPublishHook');
@@ -181,9 +177,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const testCompilerRename = ownOption(options, 'testCompilerRename');
   const testMaterialization = ownOption(options, 'testMaterialization');
   guard(options);
-  if (sharedDepsRoot !== undefined && typeof sharedDepsRoot !== 'string') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency shared root must be a path string');
-  }
   // Reuse the request owner's boolean/mode/fence grammar. Do not maintain a
   // second coercion policy at the internal coordinator boundary.
   const request = Object.freeze({
@@ -207,7 +200,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   guard(options);
   const captured: RuntimeDependencyOperationOptions = Object.freeze({
     ...request, ...methods, ...controls, monotonicNowMs,
-    sharedDepsRoot: sharedDepsRoot === undefined ? undefined : path.resolve(cwd, sharedDepsRoot),
     generatedStateLifecycle, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
   } satisfies Record<keyof RuntimeDependencyInstallOptions, unknown>);
   issuedOperationOptions.add(captured);
