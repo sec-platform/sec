@@ -59,15 +59,6 @@ async function verifyPreviousProvenance(
   return true;
 }
 
-export async function checkProjectBeforeCompile(workspaceRoot: string): Promise<void> {
-  const baseline = readProjectBaseline(workspaceRoot);
-  if (baseline) {
-    assertProjectBaseline(workspaceRoot, baseline);
-    return;
-  }
-  await verifyPreviousProvenance(workspaceRoot, { strictMissing: false });
-}
-
 export async function checkProjectBeforeVerify(
   workspaceRoot: string,
   expectedArtifactPaths?: readonly string[]
