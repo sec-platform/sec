@@ -4,8 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
+import { observeOperationAuthorityOwners, resolveSecAgentOperationActivation } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import {
@@ -338,7 +339,8 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
   }
 });
 
-test('V3 activation reader observes the trusted document owner and preserves missing-ref rejection', async () => {
+test.each(['clean', 'repository', 'config', 'trace', 'replacement'] as const)(
+  'V3 activation reader preserves exact trusted bytes and missing-ref rejection under %s state', async (state) => {
   const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';
   const authorityId = 'urn:uuid:00000000-0000-4000-8000-000000000002';
   const source = workPackageManifest('reader-v3', 'issue-311').toString('utf8')
@@ -372,13 +374,116 @@ test('V3 activation reader observes the trusted document owner and preserves mis
     gitProtocolSuccess(git(['add', '.']));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'candidate reader fixture']));
     const candidate = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
-    expect(() => observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
-      .toThrow('activation-scope-conflict');
-    const owners = observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
     const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trusted}:${guidance}`])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${candidate}:${guidance}`])).trim();
     expect(trustedBlob).not.toBe(candidateBlob);
-    expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
-      owner: authorityId, revision: trustedBlob, projection: null });
+    if (state === 'replacement') {
+      gitProtocolSuccess(git(['replace', trustedBlob, candidateBlob]));
+      expect(gitProtocolSuccess(git(['cat-file', 'blob', trustedBlob]))).toBe('Candidate owner\n');
+    }
+    const trace = path.join(root, '.git', 'unadmitted-trace.log');
+    const injected: NodeJS.ProcessEnv = state === 'repository' ? { GIT_DIR: path.join(root, 'foreign.git') }
+      : state === 'config' ? { GIT_CONFIG_COUNT: 'invalid' }
+      : state === 'trace' ? { GIT_TRACE: trace }
+      : state === 'replacement' ? { GIT_NO_REPLACE_OBJECTS: undefined } : {};
+    const previous = Object.fromEntries(Object.keys(injected).map(key => [key, process.env[key]]));
+    try {
+      for (const key of Object.keys(injected)) {
+        if (injected[key] === undefined) delete process.env[key];
+        else process.env[key] = injected[key];
+      }
+      expect(() => observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
+        .toThrow('activation-scope-conflict');
+      const owners = observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
+      expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
+        owner: authorityId, revision: trustedBlob, contentDigest: rawSha256('Trusted owner\n'), projection: null });
+      expect(existsSync(trace)).toBe(false);
+    } finally {
+      for (const key of Object.keys(injected)) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+    }
+  });
+});
+
+
+test.skipIf(process.platform === 'win32')('activation status read suppresses repository-local fsmonitor execution', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    gitProtocolSuccess(git(['commit', '--quiet', '--allow-empty', '-m', 'status fixture']));
+    const helper = path.join(root, '.git', 'fsmonitor');
+    const sentinel = `${helper}.executed`;
+    writeFileSync(helper, '#!/bin/sh\nprintf executed > "$0.executed"\nprintf "\\0"\n', { mode: 0o755 });
+    gitProtocolSuccess(git(['config', 'core.fsmonitor', helper]));
+    gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(existsSync(sentinel)).toBe(true);
+    rmSync(sentinel);
+    // No current-state exists: the real entry stops after the clean-root reads,
+    // before any GitHub observation or publication can be requested.
+    await expect(resolveSecAgentOperationActivation(root, root)).rejects.toThrow('activation-stale');
+    expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+
+test.skipIf(process.platform === 'win32').each(['clean', 'process'] as const)(
+  'activation rejects configured %s filters before native status can execute them', async (driver) => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, '.gitattributes'), 'tracked filter=activation\n');
+    writeFileSync(path.join(root, 'tracked'), 'before\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'filter fixture']));
+    const sentinel = path.join(root, '.git', 'filter.executed');
+    const helper = `printf executed > '${sentinel}'; ${driver === 'clean' ? 'cat' : 'exit 1'}`;
+    const config = path.join(root, '.git', 'included-config');
+    gitProtocolSuccess(git(['config', '--file', config, `filter.activation.${driver}`, helper]));
+    gitProtocolSuccess(git(['config', 'include.path', config]));
+    writeFileSync(path.join(root, 'tracked'), 'AFTER!\n');
+    git(['status', '--porcelain=v2', '-z', '--untracked-files=all']);
+    expect(existsSync(sentinel)).toBe(true);
+    rmSync(sentinel);
+    await expect(resolveSecAgentOperationActivation(root, root)).rejects.toMatchObject({
+      reasonCode: 'activation-stale', blockerDigest: rawSha256('worktree-filter-helper-unavailable')
+    });
+    expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+test.skipIf(process.platform === 'win32')('activation rejects gitlinks before status can execute nested repository filters', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    const nested = path.join(root, 'nested');
+    gitProtocolSuccess(git(['init', '--quiet', nested]));
+    writeFileSync(path.join(nested, '.gitattributes'), 'tracked filter=activation\n');
+    writeFileSync(path.join(nested, 'tracked'), 'before\n');
+    gitProtocolSuccess(git(['-C', nested, 'add', '.']));
+    gitProtocolSuccess(git(['-C', nested, 'commit', '--quiet', '-m', 'nested filter fixture']));
+    const nestedHead = gitProtocolSuccess(git(['-C', nested, 'rev-parse', 'HEAD'])).trim();
+    gitProtocolSuccess(git(['update-index', '--add', '--cacheinfo', `160000,${nestedHead},nested`]));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'gitlink fixture']));
+    const sentinel = path.join(nested, '.git', 'filter.executed');
+    gitProtocolSuccess(git(['-C', nested, 'config', 'filter.activation.clean', `printf executed > '${sentinel}'; cat`]));
+    writeFileSync(path.join(nested, 'tracked'), 'AFTER!\n');
+    gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(existsSync(sentinel)).toBe(true);
+    rmSync(sentinel);
+    await expect(resolveSecAgentOperationActivation(root, root)).rejects.toMatchObject({
+      reasonCode: 'activation-stale', blockerDigest: rawSha256('worktree-submodule-observation-unavailable')
+    });
+    expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+
+test.skipIf(process.platform === 'win32')('activation preserves native dirty-worktree rejection without helper configuration', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'tracked'), 'before\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'ordinary dirty fixture']));
+    writeFileSync(path.join(root, 'tracked'), 'AFTER!\n');
+    const nativeStatus = gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(nativeStatus.length).toBeGreaterThan(0);
+    await expect(resolveSecAgentOperationActivation(root, root)).rejects.toMatchObject({
+      reasonCode: 'activation-stale', blockerDigest: rawSha256(nativeStatus)
+    });
   });
 });
