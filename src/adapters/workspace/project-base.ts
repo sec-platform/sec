@@ -1,17 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import {
   CI_ARTIFACT_FILES,
   fixedCiArtifactPaths,
   uniqueSortedCiArtifactPaths
 } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
+import { formatJsonFile } from '../../contracts/json-text.ts';
 import { emptyOverrideManifest, PROVENANCE_FORMAT_VERSION } from '../../semantics/provenance/types.ts';
-import { ensureDir, pathExists, writeJson, writeText } from "../filesystem/files.ts";
+import { ensureDir, pathExists, writeBuffer } from "../filesystem/files.ts";
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { compilerRuntimeResources } from '../toolchain/runtime/layout.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../workspace-context.ts";
-import { writeYaml } from './yaml.ts';
+import type { WorkspaceCreateFile, WorkspaceCreateMaterial } from './create-publication.ts';
 
 export const RUNTIME_DATABASE_TEMPLATE_PATH = path.join(
   compilerRuntimeResources.composeTemplates,
@@ -23,7 +25,7 @@ function childDirectories(root: string, relativePaths: readonly string[]): strin
   return relativePaths.map((relativePath) => path.join(root, relativePath));
 }
 
-function artifactParentDirectories(root: string): string[] {
+export function artifactParentDirectories(root: string): string[] {
   const relativeParents = uniqueSortedCiArtifactPaths(
     fixedCiArtifactPaths().map((artifactPath) => path.posix.dirname(artifactPath))
   );
@@ -46,10 +48,7 @@ export async function ensureCanonicalWorkspaceArtifactParents(
   }
 }
 
-export async function ensureProjectBase(
-  workspaceRoot: string,
-  commitFence?: CommitFence
-): Promise<void> {
+export async function buildProjectBaseTemplate(workspaceRoot: string): Promise<WorkspaceCreateMaterial> {
   const {
     workspaceRoot: root,
     modelRoot,
@@ -76,8 +75,7 @@ export async function ensureProjectBase(
   const policySpecPath = path.join(policiesRoot, 'policy.spec.yaml');
   const overrideManifestPath = path.join(overridesRoot, 'override-manifest.yaml');
 
-  for (const directory of [
-    root,
+  const directories = [
     modelRoot,
     modelBlocksRoot,
     privateRegistryRoot,
@@ -95,10 +93,15 @@ export async function ensureProjectBase(
     artifactsRoot,
     cacheRoot,
     workspaceWriteLeaseRoot
-  ]) {
-    await ensureDir(directory, commitFence);
-  }
-  await ensureCanonicalWorkspaceArtifactParents(root, commitFence);
+  ];
+  directories.push(...artifactParentDirectories(root));
+  const relative = (name: string) => path.relative(root, name).split(path.sep).join('/');
+  const files: WorkspaceCreateFile[] = [];
+  const text = (name: string, value: string, onlyIfAbsent?: true) => {
+    files.push({ relativePath: relative(name), bytes: Buffer.from(value), ...(onlyIfAbsent ? { onlyIfAbsent } : {}) });
+  };
+  const json = (name: string, value: unknown, onlyIfAbsent?: true) => text(name, formatJsonFile(value), onlyIfAbsent);
+  const yaml = (name: string, value: unknown, onlyIfAbsent?: true) => text(name, YAML.stringify(value, { indent: 2 }), onlyIfAbsent);
 
   for (const directory of [
     modelBlocksRoot,
@@ -108,11 +111,11 @@ export async function ensureProjectBase(
     testUnitRoot,
     runtimeTestUnitRoot
   ]) {
-    await writeText(path.join(directory, '.gitkeep'), '\n', commitFence);
+    text(path.join(directory, '.gitkeep'), '\n');
   }
 
   const runtimeDependencySpec = await loadRuntimeDependencySpec();
-  await writeJson(packageJsonPath, {
+  json(packageJsonPath, {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
       'test:fast': 'bun test tests/fast.test.ts',
@@ -121,9 +124,9 @@ export async function ensureProjectBase(
       'verify:runtime': 'bun run verify:runtime:full',
       test: 'bun run test:fast && bun run test:unit'
     }
-  }, commitFence);
+  });
 
-  await writeJson(tsconfigPath, {
+  json(tsconfigPath, {
     compilerOptions: {
       target: 'ES2022',
       module: 'ESNext',
@@ -146,24 +149,18 @@ export async function ensureProjectBase(
       'bunfig.toml'
     ],
     exclude: ['node_modules']
-  }, commitFence);
+  });
 
-  await writeText(
+  text(
     path.join(root, 'bunfig.toml'),
     `[test]\n`,
-    commitFence
   );
-  await writeText(
+  text(
     path.join(runtimeRoot, 'database.ts'),
     await readFile(RUNTIME_DATABASE_TEMPLATE_PATH, 'utf8'),
-    commitFence
   );
 
-  const prismaSchemaPath = path.join(prismaRoot, 'schema.prisma');
-  if (!(await pathExists(prismaSchemaPath))) {
-    await writeText(
-      prismaSchemaPath,
-      `generator client {
+  text(path.join(prismaRoot, 'schema.prisma'), `generator client {
   provider = "prisma-client-js"
 }
 
@@ -171,26 +168,21 @@ datasource db {
   provider = "sqlite"
   url      = "file:./dev.db"
 }
-`,
-      commitFence
-    );
-  }
+`, true);
+  yaml(policySpecPath, { policies: [] }, true);
+  json(provenancePath, { formatVersion: PROVENANCE_FORMAT_VERSION, artifacts: [] }, true);
+  yaml(overrideManifestPath, emptyOverrideManifest(), true);
 
-  if (!(await pathExists(policySpecPath))) {
-    await writeYaml(policySpecPath, {
-      policies: []
-    }, commitFence);
-  }
+  return { directories: directories.map(relative), files };
+}
 
-  if (!(await pathExists(provenancePath))) {
-    await writeJson(provenancePath, {
-      formatVersion: PROVENANCE_FORMAT_VERSION,
-      artifacts: []
-    }, commitFence);
+export async function ensureProjectBase(workspaceRoot: string, commitFence?: CommitFence): Promise<void> {
+  const root = path.resolve(workspaceRoot);
+  const material = await buildProjectBaseTemplate(root);
+  for (const relative of material.directories) await ensureDir(path.join(root, relative), commitFence);
+  for (const file of material.files) {
+    const destination = path.join(root, file.relativePath);
+    if (file.onlyIfAbsent && await pathExists(destination)) continue;
+    await writeBuffer(destination, file.bytes, commitFence);
   }
-
-  if (!(await pathExists(overrideManifestPath))) {
-    await writeYaml(overrideManifestPath, emptyOverrideManifest(), commitFence);
-  }
-
 }

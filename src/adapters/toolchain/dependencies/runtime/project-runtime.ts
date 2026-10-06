@@ -443,24 +443,28 @@ async function bindCanonicalGeneratedStateLifecycle(
     compilerDependencyCoordinationLocatorPath(root),
     'Compiler dependency generated-state locator'
   ) === null ? null : resolveCompilerDependencyCoordinationRoots(root).roots.stateRoot;
-  return Object.freeze({
-    ...options,
-    generatedStateLifecycle: generatedStateProducerHooksV1(
-      { repositoryRoot: root },
-      {
-        cleanupOperation: createGeneratedStateCleanupOperationSession({
-          deadlineAtMonotonicMs: context.deadlineAtMonotonicMs,
-          maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-          maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
-          monotonicNowMs: context.monotonicNowMs,
-          signal: context.signal
-        }),
-        ...(locatedStateRoot === null ? {} : {
-          environment: Object.freeze({ ...process.env, SEC_STATE_HOME: locatedStateRoot })
-        }),
-        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
-      }
-    )
+  const lifecycleOptions = {
+    cleanupOperation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: context.deadlineAtMonotonicMs,
+      maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+      maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+      monotonicNowMs: context.monotonicNowMs,
+      signal: context.signal
+    }),
+    ...(locatedStateRoot === null ? {} : {
+      environment: Object.freeze({ ...process.env, SEC_STATE_HOME: locatedStateRoot })
+    }),
+    worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
+  };
+  const { ensureGeneratedStateRegistrationLedger } = await import('../../../runtime-state/generated-state/registration-store.ts');
+  await runtimeDependencyOperationEffectFence(options, 'Compiler generated-state publication recovery');
+  await ensureGeneratedStateRegistrationLedger({ repositoryRoot: root }, { ...lifecycleOptions,
+    assertRegistrationPublicationRecoveryCurrent: () => {
+      runtimeDependencyOperationRemainingMs(options, 'Compiler generated-state publication recovery');
+    }
+  });
+  return Object.freeze({ ...options,
+    generatedStateLifecycle: generatedStateProducerHooksV1({ repositoryRoot: root }, lifecycleOptions)
   }) as RuntimeDependencyOperationOptions;
 }
 
@@ -482,15 +486,18 @@ async function bindGeneratedStateRecoveryLifecycle(
     monotonicNowMs: context.monotonicNowMs,
     signal: context.signal
   });
-  return Object.freeze({
-    ...options,
-    generatedStateLifecycle: generatedStateProducerHooksV1(
-      { repositoryRoot: path.resolve(root), workspaceRoot: path.resolve(root) },
-      {
-        cleanupOperation,
-        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
-      }
-    )
+  const input = { repositoryRoot: path.resolve(root), workspaceRoot: path.resolve(root) };
+  const lifecycleOptions = { cleanupOperation,
+    worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider] };
+  const { ensureGeneratedStateRegistrationLedger } = await import('../../../runtime-state/generated-state/registration-store.ts');
+  await runtimeDependencyOperationEffectFence(options, 'Dependency generated-state publication recovery');
+  await ensureGeneratedStateRegistrationLedger(input, { ...lifecycleOptions,
+    assertRegistrationPublicationRecoveryCurrent: () => {
+      runtimeDependencyOperationRemainingMs(options, 'Dependency generated-state publication recovery');
+    }
+  });
+  return Object.freeze({ ...options,
+    generatedStateLifecycle: generatedStateProducerHooksV1(input, lifecycleOptions)
   }) as RuntimeDependencyOperationOptions;
 }
 

@@ -1,18 +1,20 @@
 import { lstat, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { CompilerError } from '../../compiler/errors.ts';
-import type { CommitFence } from '../../contracts/commit-fence.ts';
-import { ensureDir } from '../filesystem/files.ts';
 import { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,
   inspectNoFollowDirectoryLeaf,
+  inspectNoFollowOrdinaryFileEntry,
   scanNoFollowDirectoryDirectMetadata,
   type NoFollowDirectoryTreeInventoryEntry
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { getWorkspacePaths } from '../workspace-context.ts';
-import { ensureCanonicalWorkspaceArtifactParents } from './project-base.ts';
+import type { WorkspaceCreateMaterial } from './create-publication.ts';
+import { artifactParentDirectories } from './project-base.ts';
+
+export const WORKSPACE_CREATE_RECORD_NAME = 'workspace-create.json';
 
 const WORKSPACE_CREATE_SURFACE_ENTRY_LIMIT = 100_000;
 const WORKSPACE_CREATE_SURFACE_CENSUS_MS = 30_000;
@@ -95,12 +97,14 @@ export async function assertWorkspaceCreateSurfaceEmpty(
         WORKSPACE_WRITE_LEASE_DIRECTORY_NAME,
         'Workspace create writer lease'
       );
-      if (lease !== null) {
+      if (lease !== null || inspectNoFollowOrdinaryFileEntry(localState, WORKSPACE_CREATE_RECORD_NAME) !== null) {
         // The canonical acquisition path is the only owner allowed to decide
         // whether this namespace is live, stale/dead, or malformed. Other
         // workspace content does not let this preflight relabel active writer
         // contention as a lifecycle conflict; the callback still validates
-        // the complete create surface after authority acquisition.
+        // the complete create surface after authority acquisition. An ordinary
+        // record leaf permits only reaching that qualified recovery check;
+        // its name or mere presence does not confer creation ownership.
         return;
       }
     }
@@ -149,11 +153,8 @@ export async function assertWorkspaceCreateSurfaceEmpty(
   }
 }
 
-/** Materialize the minimal native surface under the caller's existing fence. */
-export async function materializeMinimalWorkspace(
-  workspaceRoot: string,
-  commitFence?: CommitFence
-): Promise<void> {
+/** Pure minimal recipe; actual Create publication is owned by its publisher. */
+export function buildMinimalWorkspaceTemplate(workspaceRoot: string): WorkspaceCreateMaterial {
   const paths = getWorkspacePaths(workspaceRoot);
   const nativeWorkspaceDirectories = [
     paths.modelRoot,
@@ -169,8 +170,9 @@ export async function materializeMinimalWorkspace(
     paths.cacheRoot,
     paths.workspaceWriteLeaseRoot
   ];
-  for (const directory of nativeWorkspaceDirectories) {
-    await ensureDir(directory, commitFence);
-  }
-  await ensureCanonicalWorkspaceArtifactParents(workspaceRoot, commitFence);
+  return {
+    directories: [...nativeWorkspaceDirectories, ...artifactParentDirectories(paths.workspaceRoot)]
+      .map(directory => path.relative(paths.workspaceRoot, directory).split(path.sep).join('/')),
+    files: []
+  };
 }

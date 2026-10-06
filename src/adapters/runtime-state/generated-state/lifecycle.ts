@@ -129,7 +129,9 @@ function assertGeneratedStateCleanupOperation(
   label: string
 ): void {
   if (state === null) return;
-  if (state.signal?.aborted === true || state.monotonicNowMs() >= state.deadlineAtMonotonicMs) {
+  const abortedBeforeClock = state.signal?.aborted === true;
+  const now = abortedBeforeClock ? state.deadlineAtMonotonicMs : state.monotonicNowMs();
+  if (abortedBeforeClock || Boolean(state.signal?.aborted) || now >= state.deadlineAtMonotonicMs) {
     throw new GeneratedStateCleanupOperationExhaustedError(`${label} exceeded the cleanup operation budget.`);
   }
 }
@@ -565,16 +567,25 @@ async function retireGeneratedStateInStore(store: GeneratedStateRuntimeStore, in
   const currentObservation = readRegistrationLedgerObservation(store, relativePath);
   const current = currentObservation.registration;
   if (current === null) throw new Error('Generated-state retirement has no birth registration.');
+  const outcome = input.outcome.trim();
+  if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
+  if (current.phase === 'retired') {
+    const predecessor = currentObservation.previousRegistration;
+    if (predecessor?.phase === 'active' &&
+        (current.registrationDigest === input.expectedRegistrationDigest ||
+         predecessor.registrationDigest === input.expectedRegistrationDigest) &&
+        samePhysicalIdentity(predecessor.root, current.root) &&
+        current.retirementRef === generatedStateOwnerRetirementRef(predecessor, outcome)) {
+      // Publication recovery does not update the original producer session.
+      // Accept only its exact predecessor and the same retirement outcome.
+      return current;
+    }
+    throw new Error('Generated-state registration was retired by a different authority.');
+  }
   if (current.registrationDigest !== input.expectedRegistrationDigest) {
     throw new Error('Generated-state retirement is not bound to the producer session registration.');
   }
-  const outcome = input.outcome.trim();
-  if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
   const retirementRef = generatedStateOwnerRetirementRef(current, outcome);
-  if (current.phase === 'retired') {
-    if (current.retirementRef === retirementRef) return current;
-    throw new Error('Generated-state registration was retired by a different authority.');
-  }
   const retired = retireGeneratedStateRegistration(current, retirementRef, {
     clock: options.clock
   });
@@ -2700,6 +2711,16 @@ async function prepareGeneratedStateDisposal(input: Readonly<{
   if (outcome.length === 0) {
     throw new GeneratedStateProducerBindingBlockedError('Generated-state disposal outcome is empty.');
   }
+  // Disposal/quarantine are explicit mutation entries. Settle the original
+  // prepared registration publication before their read-only admission census.
+  const cleanupState = generatedStateCleanupOperationState(options.cleanupOperation);
+  const assertRecoveryCurrent = () => assertGeneratedStateCleanupOperation(
+    cleanupState, 'Generated-state disposal publication recovery'
+  );
+  assertRecoveryCurrent();
+  await ensureGeneratedStateRegistrationLedger({ repositoryRoot, workspaceRoot }, {
+    ...options, assertRegistrationPublicationRecoveryCurrent: assertRecoveryCurrent
+  });
   const initialStore = openRuntimeStoreReadOnly(workspaceRoot, options);
   if (initialStore === null) {
     throw new GeneratedStateProducerBindingBlockedError(

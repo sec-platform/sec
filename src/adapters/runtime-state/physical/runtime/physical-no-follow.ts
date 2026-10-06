@@ -49,6 +49,7 @@ export {
 
 export {
   createExclusiveNoFollowDirectory,
+  createExclusiveNoFollowDirectoryWithReceipt,
   createExclusiveNoFollowRandomDirectory,
   inspectNoFollowDirectoryChild,
   inspectNoFollowDirectoryLeaf
