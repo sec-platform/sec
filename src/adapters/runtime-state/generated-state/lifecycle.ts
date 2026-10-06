@@ -660,6 +660,7 @@ async function restoreGeneratedStateRegistration(input: Readonly<{
 type GeneratedStateRetirementObservationStatus =
   | 'active'
   | 'retired-present'
+  | 'retired-predecessor'
   | 'retired-domain-settled'
   | 'absent'
   | 'mismatch';
@@ -845,14 +846,22 @@ async function observeGeneratedStateRetirement(input: Readonly<{
     if (registration !== null) {
       registrationDigest = registration.registrationDigest;
       registrationPhysical = registration.root;
-      const exact = path.resolve(registration.repositoryRoot) === repositoryRoot &&
+      const exactRegistration = path.resolve(registration.repositoryRoot) === repositoryRoot &&
         registration.relativePath === relativePath && registration.ruleId === rule.id &&
         (expected?.owner === undefined || expected.owner === registration.owner) &&
         (expected?.producer === undefined || expected.producer === registration.producer) &&
         (expected?.ruleId === undefined || expected.ruleId === registration.ruleId) &&
-        (expected?.physical === undefined || samePhysicalIdentity(expected.physical, registration.root)) &&
-        observed.identity !== null && samePhysicalIdentity(observed.identity, registration.root);
-      status = !exact ? 'mismatch' : registration.phase === 'active' ? 'active' : 'retired-present';
+        (expected?.physical === undefined || samePhysicalIdentity(expected.physical, registration.root));
+      const exactPhysical = observed.identity !== null && samePhysicalIdentity(observed.identity, registration.root);
+      // A displaced retirement is a fact about the exact old registration,
+      // never authority over the object now occupying its path. Require every
+      // owner coordinate and the caller's recorded predecessor identity.
+      const exactRetiredPredecessor = exactRegistration && registration.phase === 'retired' &&
+        expected?.owner !== undefined && expected.producer !== undefined &&
+        expected.ruleId !== undefined && expected.physical !== undefined;
+      status = exactRegistration && exactPhysical
+        ? registration.phase === 'active' ? 'active' : 'retired-present'
+        : exactRetiredPredecessor ? 'retired-predecessor' : 'mismatch';
     } else if (ledger.retiredPredecessor !== null) {
       registrationDigest = ledger.retiredPredecessor.registrationDigest;
       registrationPhysical = ledger.retiredPredecessor.root;
@@ -870,7 +879,8 @@ async function observeGeneratedStateRetirement(input: Readonly<{
   } else {
     status = observed.kind === 'missing' ? 'absent' : 'mismatch';
   }
-  const physical = observed.identity ?? registrationPhysical;
+  const physical = status === 'retired-predecessor'
+    ? registrationPhysical : observed.identity ?? registrationPhysical;
   const unsigned = Object.freeze({
     schema: 'sec-generated-state-retirement-observation-v1' as const,
     status,
@@ -886,24 +896,42 @@ async function observeGeneratedStateRetirement(input: Readonly<{
   return observation;
 }
 
+export interface GeneratedStateRetiredPredecessorRetraction {
+  readonly observation: GeneratedStateRetirementObservation;
+  readonly physical: GeneratedStatePhysicalIdentity;
+  readonly retract: () => Promise<void>;
+}
+
 async function disposeRetiredGeneratedStateDomain(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
   relativePath: string;
   expected?: GeneratedStateProducerBindingExpectation;
+  retraction?: GeneratedStateRetiredPredecessorRetraction;
 }>, options: GeneratedStateLifecycleOptions = {}): Promise<boolean> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
   const rule = requireRule(relativePath);
+  const expected = input.expected === undefined ? undefined : Object.freeze({ ...input.expected,
+    ...(input.expected.physical === undefined ? {} : { physical: Object.freeze({ ...input.expected.physical }) }) });
+  const requestedRetraction = input.retraction;
+  const retraction = requestedRetraction === undefined ? undefined : Object.freeze({
+    observation: requestedRetraction.observation,
+    physical: Object.freeze({ ...requestedRetraction.physical }),
+    retract: requestedRetraction.retract.bind(requestedRetraction)
+  });
+  if (retraction !== undefined) assertGeneratedStateRetirementObservation(retraction.observation);
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
     const observation = readRegistrationLedgerObservation(store, relativePath);
     const registration = observation.registration;
     if (registration === null) {
+      if (retraction !== undefined) throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired predecessor is no longer current: ${relativePath}.`
+      );
       return observation.retiredPredecessor !== null && observeRoot(workspaceRoot, relativePath).kind === 'missing';
     }
     if (registration.phase !== 'retired') return false;
-    const expected = input.expected;
     if (path.resolve(registration.repositoryRoot) !== repositoryRoot ||
         registration.relativePath !== relativePath || registration.ruleId !== rule.id ||
         (expected?.owner !== undefined && expected.owner !== registration.owner) ||
@@ -914,7 +942,32 @@ async function disposeRetiredGeneratedStateDomain(input: Readonly<{
         `Generated-state retired domain registration is foreign: ${relativePath}.`
       );
     }
-    const observed = observeRoot(workspaceRoot, relativePath);
+    let observed = observeRoot(workspaceRoot, relativePath);
+    if (retraction !== undefined) {
+      const proof = retraction.observation;
+      if (expected?.owner === undefined || expected.producer === undefined || expected.ruleId === undefined ||
+          expected.physical === undefined || proof.status !== 'retired-predecessor' ||
+          proof.relativePath !== relativePath || proof.registrationDigest !== registration.registrationDigest ||
+          proof.physical === null || !samePhysicalIdentity(proof.physical, registration.root) ||
+          observed.kind !== 'link' || observed.identity === null ||
+          !samePhysicalIdentity(observed.identity, retraction.physical) ||
+          samePhysicalIdentity(observed.identity, registration.root) ||
+          physicalFormForObservedKind(rule, observed.kind)?.worktreeRetirement?.mode !== 'domain-retire') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state retired predecessor retraction is foreign or stale: ${relativePath}.`
+        );
+      }
+      // Keep the original ledger mutation lease across the producer's exact
+      // CAS effect. An observation alone cannot authorize disposal after a
+      // different producer has restored or replaced the registration.
+      await store.assertCurrent();
+      await retraction.retract();
+      await store.assertCurrent();
+      observed = observeRoot(workspaceRoot, relativePath);
+      if (observed.kind !== 'missing') throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired predecessor retraction did not reach absence: ${relativePath}.`
+      );
+    }
     if (observed.kind !== 'missing') {
       if (observed.identity === null || !samePhysicalIdentity(observed.identity, registration.root)) {
         throw new GeneratedStateProducerBindingBlockedError(
@@ -2853,7 +2906,8 @@ export interface GeneratedStateProducerHookSet {
   retired(relativePath: string, outcome: string): Promise<GeneratedStateRegistration | void>;
   settleRetired(
     relativePath: string,
-    expected?: GeneratedStateProducerBindingExpectation
+    expected?: GeneratedStateProducerBindingExpectation,
+    retraction?: GeneratedStateRetiredPredecessorRetraction
   ): Promise<boolean>;
   observeRetirement(
     relativePath: string,
@@ -2963,10 +3017,11 @@ export function generatedStateProducerHooks(
       producerSession.set(registration.relativePath, registration.registrationDigest);
       return registration;
     },
-    settleRetired: (relativePath, expected) => disposeRetiredGeneratedStateDomain({
+    settleRetired: (relativePath, expected, retraction) => disposeRetiredGeneratedStateDomain({
       ...producerInput,
       relativePath,
-      expected
+      expected,
+      retraction
     }, producerOptions),
     observeRetirement: (relativePath, expected) => observeGeneratedStateRetirement({
       ...producerInput,

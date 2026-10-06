@@ -651,6 +651,79 @@ test('retirement observation distinguishes exact active, retired-present, settle
   )).status).toBe('absent');
 });
 
+for (const invalidation of ['none', 'foreign-owner', 'forged-proof', 'restored-registration', 'replaced-locator', 'no-retraction'] as const) {
+  test(`retired predecessor retraction preserves owner and physical authority: ${invalidation}`, async () => {
+    const { options, repositoryRoot } = await fixture();
+    const relativePath = 'node_modules';
+    const locator = path.join(repositoryRoot, relativePath);
+    const parkedPreimage = path.join(repositoryRoot, 'old-generation');
+    const generation = path.join(repositoryRoot, 'replacement-generation');
+    await mkdir(locator);
+    await mkdir(generation);
+    const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+    await lifecycle.born(relativePath, 'predecessor-proof-fixture');
+    const registration = await lifecycle.bind(relativePath);
+    const expected = { owner: registration.owner, producer: registration.producer,
+      ruleId: registration.ruleId, physical: registration.root };
+    await lifecycle.retired(relativePath, 'fixture-predecessor-retired');
+    await rename(locator, parkedPreimage);
+    await symlink(generation, locator, process.platform === 'win32' ? 'junction' : 'dir');
+    const current = (await inspectGeneratedState({ repositoryRoot, relativePaths: [relativePath] }, options)).entries[0]!;
+    if (current.physicalIdentity === null) throw new Error('Fixture replacement identity is unavailable.');
+    const proof = await lifecycle.observeRetirement(relativePath, expected);
+    expect(proof.status).toBe('retired-predecessor');
+    expect(proof.physical).toEqual(registration.root);
+    expect((await lifecycle.observeRetirement(relativePath, { ...expected, owner: 'foreign' })).status).toBe('mismatch');
+    expect((await lifecycle.observeRetirement(relativePath, { physical: registration.root })).status).toBe('mismatch');
+    let retracts = 0;
+    const competingPath = '.tmp/dependency-installs/c.staging-retraction-lease';
+    if (invalidation === 'none') await mkdir(path.join(repositoryRoot, competingPath), { recursive: true });
+    const retraction = { observation: invalidation === 'forged-proof' ? structuredClone(proof) : proof,
+      physical: current.physicalIdentity, retract: async () => {
+        retracts += 1;
+        if (invalidation === 'none') {
+          // A different, otherwise legitimate producer cannot mutate the same
+          // owner store while the retract callback has yielded.
+          await expect(lifecycle.born(competingPath, 'competing-producer'))
+            .rejects.toThrow('mutation lease is unavailable');
+        }
+        if (invalidation !== 'no-retraction') await unlink(locator);
+      } };
+    if (invalidation === 'restored-registration') {
+      const parkedLocator = path.join(repositoryRoot, 'published-locator');
+      await rename(locator, parkedLocator);
+      await rename(parkedPreimage, locator);
+      await lifecycle.restore(relativePath, proof.registrationDigest!, registration.root, 'fixture-restore');
+      await rename(locator, parkedPreimage);
+      await rename(parkedLocator, locator);
+    } else if (invalidation === 'replaced-locator') {
+      await rename(locator, path.join(repositoryRoot, 'published-locator'));
+      await symlink(generation, locator, process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    const before = await lstat(locator, { bigint: true });
+    const result = lifecycle.settleRetired(relativePath,
+      invalidation === 'foreign-owner' ? { ...expected, owner: 'foreign' } : expected, retraction);
+    if (invalidation === 'none') {
+      expect(await result).toBeTrue();
+      expect(retracts).toBe(1);
+      expect(await absent(locator)).toBeTrue();
+      const settled = await lifecycle.observeRetirement(relativePath, expected);
+      expect(settled.status).toBe('retired-domain-settled');
+      expect(settled.registrationDigest).toBe(proof.registrationDigest);
+      expect(await lifecycle.settleRetired(relativePath, expected)).toBeTrue();
+      expect(await absent(parkedPreimage)).toBeFalse();
+      expect(await absent(generation)).toBeFalse();
+    } else {
+      if (invalidation === 'restored-registration') expect(await result).toBeFalse();
+      else await expect(result).rejects.toBeInstanceOf(GeneratedStateProducerBindingBlockedError);
+      expect(retracts).toBe(invalidation === 'no-retraction' ? 1 : 0);
+      expect((await lstat(locator, { bigint: true })).ino).toBe(before.ino);
+      expect(await absent(parkedPreimage)).toBeFalse();
+      expect(await absent(generation)).toBeFalse();
+    }
+  });
+}
+
 test('profile-bound disposal recovers its exact durable intent and issues one terminal receipt', async () => {
   const { options, repositoryRoot } = await fixture();
   await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
