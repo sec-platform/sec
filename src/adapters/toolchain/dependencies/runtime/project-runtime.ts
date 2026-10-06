@@ -3573,6 +3573,58 @@ async function migrateCompilerDependencyCoordination(
         CompilerDependencyConsumerRecord
       >>>();
       const migratedRecords = new Map<string, Buffer>();
+      let migratedRecordBytes = 0;
+      const retainConsumerRecord = (name: string, bytes: Buffer): void => {
+        if (name.includes('/')) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler consumer namespace contains nested residue');
+        }
+        const existingBytes = migratedRecords.get(name);
+        if (existingBytes !== undefined) {
+          if (!existingBytes.equals(bytes)) {
+            throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
+          }
+          return;
+        }
+        // Each namespace is bounded independently; their unique union must
+        // fit the same readback budget before any missing record is published.
+        if (migratedRecords.size >= RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES ||
+            migratedRecordBytes + bytes.byteLength > RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer migration union exceeds its bounded inventory');
+        }
+        migratedRecordBytes += bytes.byteLength;
+        migratedRecords.set(name, Buffer.from(bytes));
+        if (name.startsWith('zero-')) {
+          parseCompilerDependencyConsumerZeroReceipt(bytes, name);
+          return;
+        }
+        const record = parseCompilerDependencyConsumerRecord(bytes, name);
+        const chain = phases.get(record.leaseId) ?? {};
+        if (chain[record.phase] !== undefined) {
+          throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer chain has a duplicate phase');
+        }
+        chain[record.phase] = record;
+        phases.set(record.leaseId, chain);
+      };
+      // Runtime State may already hold records published by an earlier
+      // interrupted cutover. They are part of the migration preimage, not
+      // foreign residue. Admit their exact bytes and validate them before
+      // unioning legacy records under the same lock and physical authority.
+      const existingTargetInventory = scanNoFollowDirectoryTreeInventory(targetConsumers, {
+        deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
+        maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+        maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+        signal: runtimeDependencyOperationContext(operationOptions).signal
+      });
+      for (const entry of existingTargetInventory) {
+        if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+          throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer namespace contains unknown residue');
+        }
+        const bytes = readNoFollowOrdinaryFile(targetConsumers, entry.relativePath);
+        if (bytes === null) {
+          throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer record disappeared');
+        }
+        retainConsumerRecord(entry.relativePath, Buffer.from(bytes));
+      }
       if (legacyConsumers !== null) {
         const inventory = scanNoFollowDirectoryTreeInventory(legacyConsumers, {
           deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
@@ -3586,34 +3638,38 @@ async function migrateCompilerDependencyCoordination(
           }
           const bytes = readNoFollowOrdinaryFile(legacyConsumers, entry.relativePath);
           if (bytes === null) throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer record disappeared');
-          migratedRecords.set(entry.relativePath, Buffer.from(bytes));
-          if (entry.relativePath.startsWith('zero-')) {
-            parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath);
-          } else {
-            const record = parseCompilerDependencyConsumerRecord(bytes, entry.relativePath);
-            const chain = phases.get(record.leaseId) ?? {};
-            if (chain[record.phase] !== undefined) {
-              throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer chain has a duplicate phase');
-            }
-            chain[record.phase] = record;
-            phases.set(record.leaseId, chain);
-          }
-          const existing = readNoFollowOrdinaryFile(targetConsumers, entry.relativePath);
-          if (existing !== null) {
-            if (!Buffer.from(existing).equals(Buffer.from(bytes))) {
-              throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
-            }
-            continue;
-          }
-          publishExclusiveDurableCanonicalFile({
-            parent: targetConsumers,
-            name: entry.relativePath,
-            bytes: Buffer.from(bytes),
-            validate: (candidate) => {
-              if (!Buffer.from(candidate).equals(Buffer.from(bytes))) throw new Error('Migrated consumer bytes changed');
-            }
-          });
+          retainConsumerRecord(entry.relativePath, Buffer.from(bytes));
         }
+      }
+      if ([...phases.values()].some((chain) => {
+        const acquired = chain.acquired;
+        const released = chain.released;
+        return acquired === undefined || (released !== undefined &&
+          (released.previousRecordDigest !== acquired.recordDigest ||
+            released.generationDigest !== acquired.generationDigest ||
+            !sameHostPath(released.generationPath, acquired.generationPath) ||
+            !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)));
+      })) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found an invalid consumer chain');
+      }
+      // Validate the entire union before publishing any missing target record.
+      // Invalid chains or conflicting preimages must not poison a resumable cutover.
+      for (const [name, bytes] of migratedRecords) {
+        const existing = readNoFollowOrdinaryFile(targetConsumers, name);
+        if (existing !== null) {
+          if (!Buffer.from(existing).equals(bytes)) {
+            throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
+          }
+          continue;
+        }
+        publishExclusiveDurableCanonicalFile({
+          parent: targetConsumers,
+          name,
+          bytes,
+          validate: (candidate) => {
+            if (!Buffer.from(candidate).equals(bytes)) throw new Error('Migrated consumer bytes changed');
+          }
+        });
       }
       const targetInventory = scanNoFollowDirectoryTreeInventory(targetConsumers, {
         deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
@@ -3633,17 +3689,6 @@ async function migrateCompilerDependencyCoordination(
             !Buffer.from(actualBytes).equals(expectedBytes)) {
           throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration readback changed');
         }
-      }
-      if ([...phases.values()].some((chain) => {
-        const acquired = chain.acquired;
-        const released = chain.released;
-        return acquired === undefined || (released !== undefined &&
-          (released.previousRecordDigest !== acquired.recordDigest ||
-            released.generationDigest !== acquired.generationDigest ||
-            !sameHostPath(released.generationPath, acquired.generationPath) ||
-            !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)));
-      })) {
-        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found an invalid consumer chain');
       }
         return issueInstallLockTerminalHandoffRequest({
         compilerRootPhysical: generatedStatePhysicalIdentity(inspectNoFollowDirectoryChain(
@@ -11293,7 +11338,11 @@ export async function ensureCompilerDepsReadyFromGeneration(
   const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
+  // Equal input bytes do not renew the physical target admitted by this call.
+  // Capture before source/input observation can yield to a competing rename.
+  const targetRoot = inspectNoFollowDirectoryChain(root, 'Compiler dependency generation consumer').target;
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after input observation');
   if (!canonicalEquals(identity, source.identity)) {
     throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
   }
@@ -11312,7 +11361,9 @@ export async function ensureCompilerDepsReadyFromGeneration(
   let ready: CompilerDepsReadyState | undefined;
   let primary: RuntimeDependencyCapturedFailure | undefined;
   try {
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after source retention');
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer before publication');
     // The fresh observation owns transition-capable source provenance; the
     // caller authority can contain a serialized publication projection.
     ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
@@ -11321,6 +11372,7 @@ export async function ensureCompilerDepsReadyFromGeneration(
     if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
       await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
     }
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after publication');
     assertCompilerDependencyInputsCurrent(root, identity);
   } catch (error) {
     primary = Object.freeze({ error });
@@ -11338,6 +11390,8 @@ export async function ensureCompilerDepsReadyFromGeneration(
   }
   if (primary !== undefined) throw primary.error;
   if (retirementFailure !== undefined) throw retirementFailure.error;
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after source settlement');
+  assertCompilerDependencyInputsCurrent(root, identity);
   return ready!;
 }
 

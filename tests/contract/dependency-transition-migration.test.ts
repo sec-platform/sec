@@ -687,6 +687,135 @@ test('coordination cutover preserves an active legacy consumer on both sides', a
   }
 });
 
+test('coordination cutover unions valid Runtime State consumers with legacy records', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-preexisting-state-'));
+  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const externalGeneration = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-external-generation-'));
+  try {
+    const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
+    const runtimeConsumers = path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'v1',
+      'consumers'
+    );
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    await mkdir(legacyConsumers);
+    await mkdir(runtimeConsumers, { recursive: true });
+    const identity = inspectNoFollowDirectoryChain(externalGeneration, 'preexisting consumer fixture generation').target;
+    const makeAcquired = (subject: string) => {
+      const leaseId = generatedStateDigest(subject);
+      const unsigned = Object.freeze({
+        schema: 'sec-compiler-dependency-consumer-v1',
+        previousRecordDigest: null,
+        leaseId,
+        generationDigest: generatedStateDigest(`${subject}-generation`),
+        generationPath: externalGeneration,
+        generationPhysical: Object.freeze({
+          device: identity.device,
+          inode: identity.inode,
+          objectId: identity.objectId
+        }),
+        phase: 'acquired' as const
+      });
+      const record = Object.freeze({
+        ...unsigned,
+        recordDigest: generatedStateDigest(canonicalJson(unsigned))
+      });
+      return Object.freeze({
+        record,
+        name: `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`,
+        bytes: Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8')
+      });
+    };
+    const runtimeRecord = makeAcquired('runtime-state-preexisting-consumer');
+    const legacyRecord = makeAcquired('legacy-consumer-during-cutover');
+    const { recordDigest, ...runtimeAcquired } = runtimeRecord.record;
+    const released = { ...runtimeAcquired, phase: 'released' as const, previousRecordDigest: recordDigest };
+    const releasedName = `consumer-${released.leaseId.slice('sha256:'.length)}-released.json`;
+    const releasedBytes = Buffer.from(formatJsonFile(canonicalJson({ ...released,
+      recordDigest: generatedStateDigest(canonicalJson(released)) })));
+    await writeFile(path.join(runtimeConsumers, runtimeRecord.name), runtimeRecord.bytes);
+    // An interrupted copy can leave byte-identical duplicates, while a valid
+    // phase chain can be split across the two namespaces.
+    await writeFile(path.join(runtimeConsumers, legacyRecord.name), legacyRecord.bytes);
+    await writeFile(path.join(legacyConsumers, releasedName), releasedBytes);
+    await writeFile(path.join(legacyConsumers, legacyRecord.name), legacyRecord.bytes);
+
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+
+    expect((await readdir(runtimeConsumers)).sort())
+      .toEqual([runtimeRecord.name, releasedName, legacyRecord.name].sort());
+    for (const record of [runtimeRecord, legacyRecord, { name: releasedName, bytes: releasedBytes }]) {
+      expect(await readFile(path.join(runtimeConsumers, record.name))).toEqual(record.bytes);
+      if (record.name !== runtimeRecord.name) {
+        expect(await readFile(path.join(legacyConsumers, record.name))).toEqual(record.bytes);
+      }
+    }
+    expect((await readdir(legacyConsumers)).sort()).toEqual([releasedName, legacyRecord.name].sort());
+  } finally {
+    await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+    await rm(externalGeneration, { recursive: true, force: true });
+  }
+});
+
+for (const failure of ['foreign-bytes', 'released-only', 'unknown-residue'] as const) {
+  test(`coordination cutover preserves both consumer inputs when Runtime State has ${failure}`, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-invalid-target-'));
+    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+    try {
+      const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
+      const runtimeConsumers = path.join(runtimeRoots.workspaceStateRoot,
+        'compiler-dependency-coordination', 'v1', 'consumers');
+      await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+      await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+      await mkdir(legacyConsumers);
+      await mkdir(runtimeConsumers, { recursive: true });
+      const identity = inspectNoFollowDirectoryChain(root, 'invalid consumer union fixture').target;
+      const leaseId = generatedStateDigest('union-preimage');
+      const acquired = {
+        schema: 'sec-compiler-dependency-consumer-v1', previousRecordDigest: null,
+        leaseId, generationDigest: generatedStateDigest('union-generation'), generationPath: root,
+        generationPhysical: { device: identity.device, inode: identity.inode, objectId: identity.objectId },
+        phase: 'acquired' as const
+      };
+      const acquiredName = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+      const acquiredDigest = generatedStateDigest(canonicalJson(acquired));
+      const legacyBytes = Buffer.from(formatJsonFile(canonicalJson({ ...acquired, recordDigest: acquiredDigest })));
+      await writeFile(path.join(legacyConsumers, acquiredName), legacyBytes);
+      const foreign = failure === 'foreign-bytes'
+        ? { ...acquired, generationDigest: generatedStateDigest('foreign-generation') }
+        : { ...acquired, leaseId: generatedStateDigest('missing-consumer'), phase: 'released' as const,
+          previousRecordDigest: generatedStateDigest('missing-acquisition') };
+      const targetName = failure === 'foreign-bytes' ? acquiredName
+        : failure === 'unknown-residue' ? 'foreign.txt'
+          : `consumer-${foreign.leaseId.slice('sha256:'.length)}-released.json`;
+      const targetBytes = failure === 'unknown-residue' ? Buffer.from('foreign')
+        : Buffer.from(formatJsonFile(canonicalJson({ ...foreign,
+          recordDigest: generatedStateDigest(canonicalJson(foreign)) })));
+      await writeFile(path.join(runtimeConsumers, targetName), targetBytes);
+
+      const failureResult = await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 })
+        .then(() => null, error => error);
+      expect(failureResult).toMatchObject({ code: 'RUNTIME-DEPS-004' });
+      expect(await readdir(legacyConsumers)).toEqual([acquiredName]);
+      expect(await readFile(path.join(legacyConsumers, acquiredName))).toEqual(legacyBytes);
+      expect(await readdir(runtimeConsumers)).toEqual([targetName]);
+      expect(await readFile(path.join(runtimeConsumers, targetName))).toEqual(targetBytes);
+      expect(failureResult).toMatchObject({ message: expect.stringContaining(
+        failure === 'foreign-bytes' ? 'foreign bytes'
+          : failure === 'released-only' ? 'invalid consumer chain' : 'consumer record'
+      ) });
+    } finally {
+      await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test('coordination cutover rejects a released-only legacy consumer chain', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));
   const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
@@ -716,6 +845,8 @@ test('coordination cutover rejects a released-only legacy consumer chain', async
     await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
       .rejects.toThrow('invalid consumer chain');
     expect(await readFile(path.join(consumers, name))).toEqual(bytes);
+    expect(await readdir(path.join(runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination', 'v1', 'consumers'))).toEqual([]);
   } finally {
     await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
