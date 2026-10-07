@@ -8,7 +8,7 @@ last-reviewed: 2026-09-20
 # 动态工程控制面
 
 - `current-state.yaml` 只保存 resolver 配置和跨候选稳定的 authority 入口。
-- `rolling-plan.md` 只保存一个当前包和二至五个条件候选；候选不是授权。
+- `rolling-plan.md` 只保存一个当前包和零至五个条件候选；候选不是授权。
 - `active-work-package.md` 只保存 frozen manifest path 与 raw Git blob digest。
 
 Work Package 的版本、准确候选绑定与读者先行迁移见[清单格式与候选绑定](../../docs/开发/AI协作/规则装载与任务恢复.md#repository-work-package-format-and-binding)。
