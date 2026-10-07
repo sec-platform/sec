@@ -572,6 +572,21 @@ const CodexDevelopmentVerificationSessionArtifactSchema: VerificationSessionArti
 /** Historical accepted-attempt projection. Parsing never issues a live qualification. */
 export type SourceProgramTransitionAcceptanceRecord = Readonly<SourceProgramTransitionQualification>;
 
+/** Pure transport validation; this never restores a live qualification. */
+export function assertSourceProgramTransitionCompletionReferences(
+  completion: VerificationGateEvidence<VerificationGateResult>, outputDigest: string,
+  firstQualified: boolean
+): void {
+  const refs = completion.result.evidenceRefs;
+  const local = refs.length === 1;
+  const hosted = !firstQualified && refs.length === 2
+    && /^verification-action-artifact:sha256:[0-9a-f]{64}$/u.test(refs[1]!)
+    && completion.result.disposition === 'reused' && completion.result.execution === null;
+  if ((!local && !hosted) || refs[0] !== outputDigest) {
+    throw new Error('Source Program completion does not preserve its exact output and terminal provenance.');
+  }
+}
+
 export function parseSourceProgramTransitionAcceptanceRecord(value: unknown): SourceProgramTransitionAcceptanceRecord {
   assertObject(value, 'Source Program transition acceptance record');
   const first = value.schema === 'source-program-transition-qualification-v2';
@@ -707,11 +722,12 @@ function assertVerificationSessionArtifactFields(value: unknown, delegated: bool
       throw new Error('Legacy Source Program acceptance cannot adopt a first-qualified attempt.');
     }
     const transition = transitions[0]!;
+    if (transitions.length !== 1) throw new Error('Source Program completion requires exactly one selected Action.');
+    assertSourceProgramTransitionCompletionReferences(transition, acceptance.origin === 'first-qualified'
+      ? acceptance.sourceActionOutputDigest : acceptance.predecessorActionOutputDigest, acceptance.origin === 'first-qualified');
     if (transitions.length !== 1 || acceptance.sessionRevision !== session.sessionRevision
         || acceptance.actionKey !== transition.action.actionKey || transition.result.status !== 'passed'
-        || transition.result.evidenceRefs.length !== 1
-        || transition.result.evidenceRefs[0] !== (acceptance.origin === 'first-qualified'
-          ? acceptance.sourceActionOutputDigest : acceptance.predecessorActionOutputDigest)) {
+    ) {
       throw new Error('Source Program acceptance record does not bind the exact superseded computation.');
     }
   }

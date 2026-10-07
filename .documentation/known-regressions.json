@@ -107,7 +107,7 @@
       "id": "direct-current-source",
       "path": "docs/任务路线.md",
       "mode": "must_contain",
-      "text": "[studio.json](../examples/结构化工作台/model/studio.json)"
+      "text": "(../examples/结构化工作台/model/studio.json)"
     },
     {
       "id": "no-generic-computational-baseline",

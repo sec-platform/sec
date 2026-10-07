@@ -742,37 +742,47 @@ function githubCommandFailure(label: string, result: CommandResult): string | nu
   return `${label} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
 }
 
-export async function observeLiveDefaultSha(input: Readonly<{
+export async function observeLiveDefaultRef(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   remote: string;
   defaultBranch: string;
   resolverGit: ReadOnlyResolverGit;
   observedRemote?: (url: string) => void;
-}>): Promise<string | undefined> {
+}>): Promise<Readonly<{ status: 'observed'; sha: string } | { status: 'unresolved'; reason: string }>> {
   const remoteUrl = await input.resolverGit.run(
     ['remote', 'get-url', input.remote],
     input.repositoryRoot
   );
-  if (remoteUrl.code !== 0) return undefined;
+  if (remoteUrl.code !== 0) return Object.freeze({ status: 'unresolved', reason: 'Live default ref remote resolution failed' });
   input.observedRemote?.(remoteUrl.stdout.trim());
   const githubRepository = parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl.stdout);
   if (githubRepository !== null) {
-    if (githubRepository.toLowerCase() !== input.repository.toLowerCase()) return undefined;
+    if (githubRepository.toLowerCase() !== input.repository.toLowerCase()) return Object.freeze({ status: 'unresolved', reason: 'Live default ref remote repository differs' });
     try {
-      return await observeMainHealthGitHubDefaultBranchSha({
+      const sha = await observeMainHealthGitHubDefaultBranchSha({
         repositoryRoot: input.repositoryRoot,
         repository: input.repository,
         defaultBranch: input.defaultBranch
       });
-    } catch {
-      return undefined;
+      return Object.freeze({ status: 'observed', sha });
+    } catch (error) {
+      return Object.freeze({ status: 'unresolved', reason: `Live default ref observation failed: ${error instanceof Error ? error.message : String(error)}` });
     }
   }
-  return optionalLiveDefaultSha(await input.resolverGit.run(
+  const sha = optionalLiveDefaultSha(await input.resolverGit.run(
     ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`],
     input.repositoryRoot
   ), 'Live default ref');
+  return sha === undefined
+    ? Object.freeze({ status: 'unresolved', reason: 'Live default ref remote observation unavailable' })
+    : Object.freeze({ status: 'observed', sha });
+}
+
+/** Legacy callers retain their SHA projection; the Active Work owner consumes the full observation. */
+export async function observeLiveDefaultSha(input: Parameters<typeof observeLiveDefaultRef>[0]): Promise<string | undefined> {
+  const observed = await observeLiveDefaultRef(input);
+  return observed.status === 'observed' ? observed.sha : undefined;
 }
 
 export async function observeGitHubControlFacts(

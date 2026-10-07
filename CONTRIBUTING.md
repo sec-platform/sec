@@ -44,6 +44,22 @@ Prefer the smallest complete vertical change that closes one real responsibility
 
 Do not introduce a second parser, resolver, state store, verification truth, source-of-truth document, or compatibility path when an existing owner can be extended. If a temporary migration path is necessary, give it an explicit retirement condition.
 
+## Issue lifecycle and comments
+
+GitHub Issues are the active executable backlog, not the repository's architecture database or status journal.
+
+An open Issue should represent one current-main residual with a real owner or consumer, current evidence, bounded scope, and an observable exit condition. Long-lived architecture and product truth belongs in the canonical documents under `docs/**`; current machine state belongs to its owning repository/runtime projection. Do not create Program indexes, speculative capability parking lots, research corpora, execution handoffs, or recurring progress threads as open Issues.
+
+When current main changes, update the Issue body to state the remaining defect rather than appending another layer of stale “current” prose. Comments should add independent evidence, a material design/implementation decision, a counterexample, or a terminal receipt. Do not use comments for repeated status summaries, retry/poke messages, copied planning templates, provider quota/upsell prose, or machine transport that has a better canonical carrier.
+
+Use close reasons consistently:
+
+- `completed` — the bounded Issue result is implemented/adopted and read back;
+- `duplicate` — another Issue/owner already contains the same responsibility;
+- `not_planned` — historical/superseded/deferred material without a current executable trigger.
+
+Closed `not_planned` design material should be visibly archived rather than left looking like active backlog. Preserve genuinely useful history, but collapse or summarize it so historical plans cannot be mistaken for current authority.
+
 ## Verification
 
 Use the repository's current machine-selected verification closure rather than assuming that a fixed list of commands is always sufficient. For local development, the scripts in `package.json` expose the supported check/test entry points, while [`docs/运行/保证/README.md`](docs/运行/保证/README.md) leads to the canonical verification and evidence semantics.

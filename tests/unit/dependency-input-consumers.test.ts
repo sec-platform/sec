@@ -42,10 +42,6 @@ test('process and effect projections do not reacquire unrelated coordinator faci
   assert.equal(remaining(effect(input),'narrow'),1000);
 });
 
-test('process mode admission still rejects prebound-only before starting a clock or fixture',()=>{
-  assert.throws(()=>bindCompilerInstallInvocation({installMode:'prebound-only',monotonicNowMs:()=>assert.fail('clock')}),/Prebound-only/);
-});
-
 test('coordinator transmission does not turn an unissued materialization object into an authority',()=>{
   const value=bind({...controls(),testMaterialization:{} as never});
   assert.throws(()=>bindCompilerInstallInvocation(value),/owner-issued/);

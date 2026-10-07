@@ -1,6 +1,30 @@
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 
+export type PlannedRefSupersessionReview = Readonly<{
+  kind: 'branch-supersession-review';
+  version: 4;
+  repository: string;
+  branch: string;
+  headSha: string;
+  headTreeSha: string;
+  currentMainSha: string;
+  currentMainTreeSha: string;
+  mergeBaseSha: string;
+  mergeBaseTreeSha: string;
+  reviewer: string;
+  verdict: 'approved';
+  sourcePathSet: Readonly<{ count: number; digest: `sha256:${string}` }>;
+  assessment: string;
+  unknowns: readonly never[];
+}>;
+
 export type ExactRefRetirement =
+  | Readonly<{
+      classification: 'reviewed-plan-superseded';
+      branches: readonly [string];
+      expectedHeadSha: string;
+      review: PlannedRefSupersessionReview;
+    }>
   | Readonly<{
       classification: 'transport-only';
       branches: readonly [string];
@@ -47,11 +71,62 @@ function singleBranch(value: unknown): readonly [string] {
   return Object.freeze([value[0]] as const);
 }
 
+export function parsePlannedRefSupersessionReview(value: unknown): PlannedRefSupersessionReview {
+  const keys = ['kind', 'version', 'repository', 'branch', 'headSha', 'headTreeSha',
+    'currentMainSha', 'currentMainTreeSha', 'mergeBaseSha', 'mergeBaseTreeSha',
+    'reviewer', 'verdict', 'sourcePathSet', 'assessment', 'unknowns'];
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+      || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())) {
+    throw new Error('Planned supersession review fields are invalid');
+  }
+  const input = value as Record<string, unknown>;
+  if (input.kind !== 'branch-supersession-review' || input.version !== 4
+      || input.verdict !== 'approved' || !Array.isArray(input.unknowns) || input.unknowns.length !== 0
+      || typeof input.repository !== 'string'
+      || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(input.repository)) {
+    throw new Error('Planned supersession review is incomplete or unresolved');
+  }
+  for (const key of ['branch', 'reviewer', 'assessment']) {
+    const text = input[key];
+    if (typeof text !== 'string' || text.length === 0 || text.trim() !== text
+        || text.length > (key === 'assessment' ? 8192 : 512)
+        || /[\u0000-\u001f\u007f]/u.test(text)) {
+      throw new Error('Planned supersession review text is invalid');
+    }
+  }
+  assertGitBranchName(input.branch as string, 'Planned supersession branch');
+  for (const key of ['headSha', 'headTreeSha', 'currentMainSha', 'currentMainTreeSha',
+    'mergeBaseSha', 'mergeBaseTreeSha']) sha(input[key], key);
+  const paths = input.sourcePathSet as Record<string, unknown> | null;
+  if (paths === null || typeof paths !== 'object' || Array.isArray(paths)
+      || JSON.stringify(Object.keys(paths).sort()) !== JSON.stringify(['count', 'digest'])
+      || !Number.isSafeInteger(paths.count) || Number(paths.count) < 0
+      || typeof paths.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(paths.digest)) {
+    throw new Error('Planned supersession source path-set identity is invalid');
+  }
+  return Object.freeze({ ...input,
+    sourcePathSet: Object.freeze({ count: Number(paths.count), digest: paths.digest }),
+    unknowns: Object.freeze([]) }) as PlannedRefSupersessionReview;
+}
+
 export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('exact ref retirement must be one object');
   }
   const input = value as Record<string, unknown>;
+  if (input.classification === 'reviewed-plan-superseded') {
+    if (JSON.stringify(Object.keys(input).sort()) !== JSON.stringify(
+      ['branches', 'classification', 'expectedHeadSha', 'review'].sort())) {
+      throw new Error('Planned ref retirement fields are invalid');
+    }
+    const branches = singleBranch(input.branches);
+    const expectedHeadSha = sha(input.expectedHeadSha, 'expectedHeadSha');
+    const review = parsePlannedRefSupersessionReview(input.review);
+    if (review.branch !== branches[0] || review.headSha !== expectedHeadSha) {
+      throw new Error('Planned ref retirement differs from its exact review');
+    }
+    return Object.freeze({ classification: 'reviewed-plan-superseded', branches, expectedHeadSha, review });
+  }
   if (input.classification === 'closed-pr-superseded') {
     const keys = Object.keys(input).sort();
     const expected = ['branches', 'classification', 'expectedHeadSha', 'pullRequestNumber'].sort();

@@ -115,6 +115,10 @@ const REMOTE_CAS_SESSION_COUNT = 1;
 const RETIREMENT_SESSION_COUNT = 1;
 const RETIREMENT_GIT_READ_COUNT = 2;
 const ENROLLED_SINGLE_READ_REQUESTS = 3;
+const MAX_OPEN_PULL_PAGES = 2;
+const OPEN_PULLS_PER_PAGE = 100;
+const ENROLLED_INVENTORY_REQUESTS = ENROLLED_SINGLE_READ_REQUESTS + MAX_OPEN_PULL_PAGES;
+const ENROLLED_OPEN_PULL_REQUESTS = 2 + MAX_OPEN_PULL_PAGES;
 const ENROLLED_REVIEW_REQUESTS = 4;
 const ENROLLED_PUBLICATION_READBACK_REQUESTS = 4;
 const ENROLLED_REMOTE_CAS_REQUESTS = 4;
@@ -127,10 +131,12 @@ const WORKFLOW_SESSION_LIMIT = COMPILE_FIXED_SESSION_COUNT
   + COMMENT_PUBLICATION_COUNT * (COMMENT_PAGE_SESSION_COUNT + 1)
   + REMOTE_CAS_SESSION_COUNT
   + RETIREMENT_SESSION_COUNT;
+const OPEN_PULL_COMPLETED_LOOKUP_SESSION_COUNT = 1;
 const WORKFLOW_REQUEST_LIMIT = 2 * ENROLLED_SINGLE_READ_REQUESTS + ENROLLED_REVIEW_REQUESTS
   + COMPLETED_PREPARATION_OBSERVATION_COUNT
     * COMMENT_PAGE_SESSION_COUNT * ENROLLED_SINGLE_READ_REQUESTS
-  + EXECUTION_INVENTORY_COUNT * ENROLLED_SINGLE_READ_REQUESTS
+  + EXECUTION_INVENTORY_COUNT * ENROLLED_INVENTORY_REQUESTS
+  + OPEN_PULL_COMPLETED_LOOKUP_SESSION_COUNT * ENROLLED_OPEN_PULL_REQUESTS
   + COMMENT_OBSERVATION_COUNT * COMMENT_PAGE_SESSION_COUNT * ENROLLED_SINGLE_READ_REQUESTS
   + COMMENT_PUBLICATION_COUNT * (
     COMMENT_PAGE_SESSION_COUNT * ENROLLED_SINGLE_READ_REQUESTS
@@ -138,7 +144,7 @@ const WORKFLOW_REQUEST_LIMIT = 2 * ENROLLED_SINGLE_READ_REQUESTS + ENROLLED_REVI
   )
   + REMOTE_CAS_SESSION_COUNT * ENROLLED_REMOTE_CAS_REQUESTS
   + RETIREMENT_SESSION_COUNT * ENROLLED_RETIREMENT_REQUESTS;
-const WORKFLOW_DURATION_LIMIT_MS = WORKFLOW_SESSION_LIMIT * GITHUB_API_REQUEST_TIMEOUT_MS
+const WORKFLOW_DURATION_LIMIT_MS = (WORKFLOW_SESSION_LIMIT + OPEN_PULL_COMPLETED_LOOKUP_SESSION_COUNT) * GITHUB_API_REQUEST_TIMEOUT_MS
   + (COMPILE_FIXED_SESSION_COUNT + EXECUTION_INVENTORY_COUNT + RETIREMENT_GIT_READ_COUNT)
     * GIT_READ_OPERATION_BUDGET.deadlineMs
   + 2 * LOCAL_EFFECT_DURATION_MS;
@@ -213,7 +219,7 @@ function createWorkflowSessions(input: Readonly<{
   const withSession: BoundGitHubSession = async ({ requestCeiling, operation }) => {
     assertCurrent();
     if (!Number.isSafeInteger(requestCeiling) || requestCeiling < 1
-        || sessions + 1 > WORKFLOW_SESSION_LIMIT
+        || sessions + 1 > WORKFLOW_SESSION_LIMIT + OPEN_PULL_COMPLETED_LOOKUP_SESSION_COUNT
         || requests + requestCeiling > WORKFLOW_REQUEST_LIMIT) {
       throw new Error('Closed-unmerged GitHub workflow aggregate budget is exhausted.');
     }
@@ -324,6 +330,50 @@ export async function observeProductionClosedUnmergedPullRequest(input: Readonly
     binding.repository,
     input.pullRequestNumber
   );
+}
+
+/** Complete current open-PR census under the existing authenticated repository capability. */
+export async function observeProductionClosedUnmergedOpenPullRequests(
+  capability: GitHubApiCapability
+): Promise<readonly BranchPullRequestObservation[]> {
+  const binding = inspectGitHubApiCapability(capability);
+  const observations: BranchPullRequestObservation[] = [];
+  const numbers = new Set<number>();
+  for (let page = 1; page <= MAX_OPEN_PULL_PAGES; page += 1) {
+    const values = await executeGitHubApiOperation(capability, { kind: 'open-pulls-page', page });
+    if (!Array.isArray(values) || values.length > OPEN_PULLS_PER_PAGE) {
+      throw new Error('Current open pull request census is unavailable: invalid page.');
+    }
+    const projected = values.map((value: unknown) => {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Current open pull request census is unavailable: invalid record.');
+      }
+      const pull = value as Record<string, unknown>;
+      const head = pull.head as Record<string, unknown> | undefined;
+      const base = pull.base as Record<string, unknown> | undefined;
+      const baseRepository = base?.repo as Record<string, unknown> | undefined;
+      const headRepository = head?.repo as Record<string, unknown> | undefined;
+      if (baseRepository?.full_name !== binding.repository || pull.state !== 'open'
+          || !Number.isSafeInteger(pull.number) || Number(pull.number) < 1
+          || pull.html_url !== `https://github.com/${binding.repository}/pull/${pull.number}`
+          || (head?.repo !== null && typeof headRepository?.full_name !== 'string')) {
+        throw new Error('Current open pull request census is unavailable: repository identity differs.');
+      }
+      return { number: pull.number, headRefName: head?.ref, headRefOid: head?.sha,
+        baseRefName: base?.ref, baseRefOid: base?.sha, state: pull.state,
+        isDraft: pull.draft === true, isCrossRepository: headRepository?.full_name !== binding.repository,
+        url: pull.html_url };
+    });
+    for (const observation of parsePullRequestObservations(JSON.stringify(projected))) {
+      if (numbers.has(observation.number)) {
+        throw new Error('Current open pull request census is unavailable: duplicate pagination identity.');
+      }
+      numbers.add(observation.number);
+      observations.push(observation);
+    }
+    if (values.length < OPEN_PULLS_PER_PAGE) return Object.freeze(observations);
+  }
+  throw new Error('Current open pull request census is unavailable: bounded complete pagination exceeded.');
 }
 
 function commentRecord(value: unknown): CommentRecord {
@@ -485,6 +535,8 @@ async function observeCompletedNativeCloseout(input: Readonly<{
     throw new Error('Closed-unmerged native terminal is not completed and its preparation is absent.');
   }
   const activeWorkPackageObservation = await observeActiveWorkPackage(input.repositoryRoot);
+  const currentOpenPullRequests = await input.withSession({ requestCeiling: ENROLLED_OPEN_PULL_REQUESTS,
+    operation: observeProductionClosedUnmergedOpenPullRequests });
   const inventory = collectBranchLifecycleCloseoutTargetInventory({
     repositoryRoot: input.repositoryRoot,
     repositoryFullName: input.repository,
@@ -492,12 +544,16 @@ async function observeCompletedNativeCloseout(input: Readonly<{
     targetBranch: pull.headBranch,
     pullRequestNumber: pull.number,
     exactPullRequest: pull,
+    currentOpenPullRequests,
     preparedInventory: prepared.before
   });
   if (inventory.unknowns.length > 0
       || inventory.remoteBranches.some(({ branch }) => branch === pull.headBranch)
       || inventory.localBranches.some(({ branch }) => branch === pull.headBranch)
       || inventory.worktrees.some(({ branch }) => branch === pull.headBranch)
+      || inventory.pullRequests.some(candidate => candidate.state === 'open'
+        && (candidate.baseBranch === pull.headBranch
+          || (!candidate.isCrossRepository && candidate.headBranch === pull.headBranch)))
       || (inventory.activeWorkPackage.state === 'active'
         && inventory.activeWorkPackage.branch === pull.headBranch)) {
     throw new Error('Closed-unmerged native terminal has unresolved live branch residue.');
@@ -663,11 +719,14 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   const providerIdentity = `github-api:${binding.principal.nodeId}`;
   const observeInventory = async (): Promise<ClosedUnmergedProviderObservation<BranchLifecycleInventory>> => {
     try {
-      const [activeWorkPackageObservation, pull] = await Promise.all([
+      const [activeWorkPackageObservation, pulls] = await Promise.all([
         observeActiveWorkPackage(repositoryRoot),
-        input.withSession({ requestCeiling: ENROLLED_SINGLE_READ_REQUESTS, operation: (capability) => (
-          observeProductionClosedUnmergedPullRequest({ capability, pullRequestNumber: input.pullRequestNumber })
-        ) })
+        input.withSession({ requestCeiling: ENROLLED_INVENTORY_REQUESTS, operation: async capability => {
+          const exactPullRequest = await observeProductionClosedUnmergedPullRequest({ capability,
+            pullRequestNumber: input.pullRequestNumber });
+          const currentOpenPullRequests = await observeProductionClosedUnmergedOpenPullRequests(capability);
+          return { exactPullRequest, currentOpenPullRequests };
+        } })
       ]);
       return Object.freeze({ status: 'observed', value: collectBranchLifecycleCloseoutTargetInventory({
         repositoryRoot,
@@ -675,7 +734,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
         activeWorkPackageObservation,
         targetBranch: input.targetBranch,
         pullRequestNumber: input.pullRequestNumber,
-        exactPullRequest: pull,
+        ...pulls,
         preparedInventory: input.preparedInventory
       }) });
     } catch (error) { return Object.freeze({ status: 'unavailable', detail: error instanceof Error ? error.message : String(error) }); }

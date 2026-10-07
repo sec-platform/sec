@@ -39,7 +39,7 @@ ${overrides}---
 `;
 }
 
-function retiredManifestV2(): string {
+function retiredManifest(): string {
   return `---
 schema: codex-development-work-package-v2
 id: ci-v8-evidence-composition-bootstrap-v1
@@ -136,7 +136,7 @@ test('Work Package parser exposes one V1 authority route and rejects retired V2 
   expect(CodexDevelopmentParseWorkPackageManifest(manifest())).toEqual(
     CodexDevelopmentDecodeWorkPackageManifest(manifest())
   );
-  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2()))
+  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifest()))
     .toThrow('schema is unsupported');
   for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20'] as const) {
     expect(() => CodexDevelopmentParseWorkPackageManifest(
@@ -329,14 +329,14 @@ test('changed records reject case-insensitive flattened path collisions', () => 
   ])).toThrow('Windows-colliding');
 });
 
-function manifestV3(): string {
+function baseIndependentManifest(): string {
   return manifest()
     .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
     .replace(`base: "${BASE}"\n`, '');
 }
 
 test('Work Package V3 keeps strict plan bytes while the observed operation owns its base', () => {
-  const source = manifestV3();
+  const source = baseIndependentManifest();
   const parsed = CodexDevelopmentParseWorkPackageManifest(source);
   expect(parsed.schema).toBe('codex-development-work-package-v3');
   expect(Object.hasOwn(parsed, 'base')).toBe(false);
@@ -358,7 +358,7 @@ test('Work Package V3 keeps strict plan bytes while the observed operation owns 
 });
 
 test('Work Package V3 rejects embedded base, extra keys, retired V2 and stale CI revisions', () => {
-  const source = manifestV3();
+  const source = baseIndependentManifest();
   for (const extra of [`base: "${BASE}"`, 'unknownField: true']) {
     expect(() => CodexDevelopmentParseWorkPackageManifest(source.replace('manifestState:', `${extra}\nmanifestState:`)))
       .toThrow('must contain exactly');
@@ -366,7 +366,7 @@ test('Work Package V3 rejects embedded base, extra keys, retired V2 and stale CI
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('codex-development-work-package-v3', 'codex-development-work-package-v2')
   )).toThrow('schema is unsupported');
-  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2())).toThrow('schema is unsupported');
+  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifest())).toThrow('schema is unsupported');
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('ci-verification-v19', 'ci-verification-v18')
   )).toThrow('current CI verification revision');

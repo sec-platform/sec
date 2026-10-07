@@ -37,7 +37,8 @@
         "withGitHubApiRunnerAdminSession",
         "withGitHubApiStatusWriteSession",
         "withGitHubApiMergeWriteSession",
-        "withGitHubApiVerificationSession"
+        "withGitHubApiVerificationSession",
+        "observeGitHubApiMainRef"
       ],
       "effectKinds": [
         "process",
@@ -107,6 +108,13 @@
           "semanticOperation": "external-capabilities.github-api.verification-session",
           "requirementId": null,
           "recovery": null
+        },
+        {
+          "operation": "observeGitHubApiMainRef",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.main-ref-readback",
+          "requirementId": null,
+          "recovery": null
         }
       ]
     }
@@ -120,7 +128,6 @@
       },
       "consumerSupport": {
         "consumers": [
-          "control.repository-maintenance",
           "verification.platform-ci"
         ]
       },
@@ -563,7 +570,8 @@
       },
       "consumerSupport": {
         "consumers": [
-          "verification.platform-ci"
+          "verification.platform-ci",
+          "control.branch-lifecycle"
         ]
       },
       "effect": {
@@ -603,6 +611,61 @@
           {
             "resource": "processes",
             "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "observeGitHubApiMainRef"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.main-health"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 600000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 2
           }
         ]
       },

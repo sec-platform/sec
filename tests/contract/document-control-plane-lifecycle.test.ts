@@ -2295,7 +2295,7 @@ for (const faultAfter of [
   }, 30_000);
 }
 
-type RecoveryJournalViewV4 = Readonly<{
+type RecoveryJournalView = Readonly<{
   schema: 'sec-document-control-plane-freeze-journal-v4';
   operationId: `sha256:${string}`;
   phase: string;
@@ -2383,7 +2383,7 @@ async function readSingleActiveJournalRecovery(repositoryRoot: string): Promise<
   name: string;
   filePath: string;
   bytes: Buffer;
-  journal: RecoveryJournalViewV4;
+  journal: RecoveryJournalView;
 }>> {
   const transactionRoot = path.join(repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
   const names = (await readdir(transactionRoot)).filter((name) => JOURNAL_ACTIVE_NEXT.test(name));
@@ -2391,7 +2391,7 @@ async function readSingleActiveJournalRecovery(repositoryRoot: string): Promise<
   const name = names[0]!;
   const filePath = path.join(transactionRoot, name);
   const bytes = await readFile(filePath);
-  const journal = JSON.parse(bytes.toString('utf8')) as RecoveryJournalViewV4;
+  const journal = JSON.parse(bytes.toString('utf8')) as RecoveryJournalView;
   expect(bytes).toEqual(Buffer.from(`${JSON.stringify(journal, null, 2)}\n`, 'utf8'));
   expect(JOURNAL_ACTIVE_NEXT.exec(name)![1]).toBe(journal.operationId.slice('sha256:'.length));
   expect(JOURNAL_ACTIVE_NEXT.exec(name)![2]).toBe(journal.phase);
@@ -2595,7 +2595,7 @@ async function writeOptionalEntry(filePath: string, bytes: Buffer | null): Promi
 
 interface PublishTupleFixture {
   readonly fixture: FreezeFixture;
-  readonly journal: RecoveryJournalViewV4;
+  readonly journal: RecoveryJournalView;
   readonly paths: Readonly<{
     target: string;
     next: string;
@@ -2617,7 +2617,7 @@ async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixture> {
     faultAfter: 'after-journal-prepare'
   })).rejects.toThrow('after-journal-prepare');
   const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
   const indexPath = repositoryIndexPath(fixture.repositoryRoot);
   const artifactRoot = path.dirname(indexPath);
   const operationId = journal.operationId;
@@ -3085,7 +3085,7 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     })).rejects.toThrow('after-journal-index-published-next-install');
     const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
     const installedBytes = await readFile(journalPath);
-    const installed = JSON.parse(installedBytes.toString('utf8')) as RecoveryJournalViewV4;
+    const installed = JSON.parse(installedBytes.toString('utf8')) as RecoveryJournalView;
     expect(installed.phase).toBe('index-published');
     const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(status.activation).toEqual({
@@ -3174,7 +3174,7 @@ if (process.platform === 'linux') {
       const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
       const terminalBytes = await readFile(journalPath);
       const terminalMetadata = await lstat(journalPath);
-      const terminal = JSON.parse(terminalBytes.toString('utf8')) as RecoveryJournalViewV4;
+      const terminal = JSON.parse(terminalBytes.toString('utf8')) as RecoveryJournalView;
       expect(terminal.phase).toBe('terminal');
       const active = await readSingleActiveJournalRecovery(fixture.repositoryRoot);
       expect(active.bytes).toEqual(Buffer.from(terminalBytes));
@@ -3285,7 +3285,7 @@ if (process.platform === 'linux') {
       expect(active.journal.phase).toBe('index-published');
       const journalPath = path.join(active.transactionRoot, 'journal.json');
       const canonicalBytes = await readFile(journalPath);
-      const canonical = JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV4;
+      const canonical = JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalView;
       expect(canonical.phase).toBe('prepared');
       await expectLinuxExactS1({
         artifactRoot: active.transactionRoot,
@@ -3342,7 +3342,7 @@ if (process.platform === 'linux') {
       expect(selectedHooks).toBe(1);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe('index-published');
       const pointerPath = path.join(fixture.repositoryRoot, POINTER_PATH);
       await expectLinuxExactS1({
@@ -3398,7 +3398,7 @@ if (process.platform === 'linux') {
       expect(selectedHooks).toBe(1);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe('prepared');
       const indexPath = repositoryIndexPath(fixture.repositoryRoot);
       await expectLinuxExactS1({
@@ -3455,7 +3455,7 @@ if (process.platform === 'linux') {
       expect(active.journal.phase).toBe('terminal');
       const journalPath = path.join(active.transactionRoot, 'journal.json');
       const canonicalBytes = await readFile(journalPath);
-      expect((JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV4).phase)
+      expect((JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalView).phase)
         .toBe('rolling-published');
       await expectLinuxExactS1({
         artifactRoot: active.transactionRoot,
@@ -3504,7 +3504,7 @@ if (process.platform === 'linux') {
       })).rejects.toBe(fault);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe('pointer-published');
       const rollingPlanPath = path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md');
       await expectLinuxExactS1({
@@ -3568,7 +3568,7 @@ if (process.platform === 'linux') {
           })).rejects.toThrow(installedCase.faultAfter);
           const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
           const journal = (
-            JSON.parse(await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')) as RecoveryJournalViewV4
+            JSON.parse(await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')) as RecoveryJournalView
           );
           const indexPath = repositoryIndexPath(fixture.repositoryRoot);
           const targetPath = installedCase.kind === 'index'
@@ -4099,7 +4099,7 @@ test('freeze journal V4 separates index transport integrity and rejects every le
     })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(legacyFixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
-    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
     expect(journal).not.toHaveProperty('retainedTemporaryIndexName');
     expect(Buffer.from(journal.index.next, 'base64').byteLength).toBeGreaterThan(0);
     expect((await resolveLiveControlPlane(legacyFixture.repositoryRoot, { observeGitHub: false })).activation)
@@ -4129,7 +4129,7 @@ test('freeze journal V4 separates index transport integrity and rejects every le
     })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(digestFixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
-    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
     const mutatedIndex = Buffer.from(journal.index.next, 'base64');
     mutatedIndex[0] = mutatedIndex[0]! ^ 0xff;
     const mutated = {
@@ -4189,7 +4189,7 @@ test('closed-world transaction census rejects a legacy temporary-index residue b
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journal = JSON.parse(
       await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')
-    ) as RecoveryJournalViewV4;
+    ) as RecoveryJournalView;
     expect((await readdir(transactionRoot)).filter((name) => /^index-.*\.next$/u.test(name))).toEqual([]);
     const residueName = 'index-123-456.next';
     const residuePath = path.join(transactionRoot, residueName);
@@ -5346,7 +5346,7 @@ test('a complete terminal transaction recovers after the whole worktree moves', 
     const terminal = JSON.parse(await readFile(
       path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'),
       'utf8'
-    )) as RecoveryJournalViewV4;
+    )) as RecoveryJournalView;
     await rename(fixture.repositoryRoot, movedRoot);
     const recovered = await freezeDocumentControlPlane({
       cwd: movedRoot,
@@ -5485,7 +5485,7 @@ for (const faultAfter of ['after-journal-prepare', 'after-journal-index-publishe
       await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09', faultAfter })).rejects.toThrow(faultAfter);
       const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe(faultAfter === 'after-journal-prepare' ? 'prepared' : 'index-published');
       const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09' });

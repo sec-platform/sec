@@ -1,7 +1,7 @@
 import { failureMessage } from '../contracts/failure-inspection.ts';
 import { settleResources, type ResourceSettlementFailure } from '../execution/resource-settlement.ts';
 import type { CiVerificationActionPlanClosure, CiVerificationNormalizedOperation, VerificationActionKeyDigest, VerificationActionPlan } from '../execution/verification/action.ts';
-import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutCapabilityObservation, HostedSutCleanupObservation, HostedSutCommandPlan, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessLifecycle, HostedSutProcessObservation, HostedSutSandboxReceipt } from '../execution/verification/hosted.ts';
+import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, HostedSutCapabilityObservation, HostedSutCleanupObservation, HostedSutCommandPlan, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutProcessLifecycle, HostedSutProcessObservation, HostedSutSandboxReceipt, PreparedTrustedBootstrapSutInputs } from '../execution/verification/hosted.ts';
 
 export type HostedSutCapabilityResult = HostedSutCapabilityObservation & Readonly<{
   state: 'supported' | 'unsupported' | 'invalidated' | 'unknown';
@@ -70,6 +70,173 @@ export interface HostedSutPorts<
   finalizeRawResult(input: Omit<HostedActionRawResult<Policy, VerificationActionKeyDigest, RawResultSchema, ReceiptSchema>, 'schema' | 'rawResultDigest'>): HostedActionRawResult<Policy, VerificationActionKeyDigest, RawResultSchema, ReceiptSchema>;
 }
 
+export async function executeTrustedBootstrapSut<
+  Policy extends Readonly<{ limits: object; substrate: string; namespaces: readonly string[]; isolatedUid: number; isolatedGid: number; network: string; inputMount: string; workspace: string; outputTransport: string }>,
+  Environment extends Readonly<{ executionEnvironmentRevision: string }>, ProviderOrigin extends object,
+  ResolutionSchema extends string, TicketSchema extends string, AuthorizationSchema extends string,
+  PhysicalSchema extends string, ProviderRevision extends string, ReceiptSchema extends string,
+  RawResultSchema extends string, CommandSchema extends string,
+  ProcessResult extends Readonly<{ code: number; rawOutputDigest: string; stdout?: Uint8Array; failureTail: string }>,
+  RetainedArchive extends Readonly<{ archiveDigest: VerificationActionKeyDigest }>
+>(input: TrustedBootstrapSutInput, ports: HostedSutPorts<Policy, Environment, ProviderOrigin, ResolutionSchema, TicketSchema, AuthorizationSchema, PhysicalSchema, ProviderRevision, ReceiptSchema, RawResultSchema, CommandSchema, ProcessResult, RetainedArchive> & Readonly<{
+  sandboxPolicyDigest: VerificationActionKeyDigest;
+  prepareEvidenceRoot(): void;
+  prepareBootstrap(input: TrustedBootstrapSutInput): PreparedTrustedBootstrapSutInputs;
+  bootstrapEnvironment(input: TrustedBootstrapSutInput): Readonly<Record<string, string>>;
+  createBootstrapPlan(input: Readonly<{ bootstrapDigest: VerificationActionKeyDigest;
+    candidateArchiveDigest: VerificationActionKeyDigest; bunExecutable: string;
+    baseSha: string; headSha: string; candidateEnvironment: Readonly<Record<string, string>>;
+    unitNonce: string }>): HostedSutCommandPlan<CommandSchema, VerificationActionKeyDigest>;
+  writeEvidenceMember(name: string, value: unknown): void;
+  evidenceMemberByteDigest(name: string): string;
+  writeEvidenceText(name: string, source: string): void;
+  byteDigest(source: string): VerificationActionKeyDigest;
+  retireBootstrapInputs(prepared: PreparedTrustedBootstrapSutInputs | undefined): void;
+}>): Promise<Readonly<{ status: 'passed' | 'failed'; bootstrapDigest: VerificationActionKeyDigest;
+  receiptDigest: VerificationActionKeyDigest }>> {
+  input = JSON.parse(ports.encodeData(input)) as TrustedBootstrapSutInput;
+  const expectedKeys = ['baseRoot', 'baseSha', 'candidateRoot', 'headSha', 'manifestPath', 'outputDirectory', 'treeSha'];
+  if (input === null || typeof input !== 'object' || Array.isArray(input)
+      || Object.keys(input).sort().join('\n') !== expectedKeys.join('\n')
+      || expectedKeys.some(key => typeof (input as unknown as Record<string, unknown>)[key] !== 'string')
+      || ![input.baseSha, input.headSha, input.treeSha].every(sha => /^[0-9a-f]{40}$/u.test(sha))) {
+    throw new Error('Trusted bootstrap SUT input identity is invalid.');
+  }
+  if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
+    throw new Error('Trusted bootstrap SUT manifest path is invalid.');
+  }
+  const capability = await probeHostedSutCapability<Policy, Environment, ProviderOrigin, ResolutionSchema, TicketSchema, AuthorizationSchema, PhysicalSchema, ProviderRevision, ReceiptSchema, RawResultSchema, CommandSchema, ProcessResult, RetainedArchive>({
+    actionKey: ports.digest({ baseSha: input.baseSha, headSha: input.headSha,
+      treeSha: input.treeSha, manifestPath: input.manifestPath,
+      sandboxPolicyDigest: ports.sandboxPolicyDigest })
+  }, ports);
+  if (capability.state !== 'supported') {
+    throw new Error(`Trusted bootstrap SUT cannot start: ${capability.diagnostic ?? capability.state}`);
+  }
+  let prepared: PreparedTrustedBootstrapSutInputs | undefined;
+  let archive: RetainedArchive | undefined;
+  let primary: ResourceSettlementFailure | undefined;
+  let processFailures: readonly ResourceSettlementFailure[] = [];
+  try {
+    ports.prepareEvidenceRoot();
+    prepared = ports.prepareBootstrap(input);
+    const bootstrapDigest = ports.digest(Object.freeze({
+      schema: 'sec-trusted-bootstrap-sut-operation-v1',
+      baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
+      manifestPath: input.manifestPath, archiveDigest: prepared.archiveDigest,
+      archiveInventoryDigest: prepared.archiveInventoryDigest,
+      dependencyMaterialization: prepared.dependencyMaterialization,
+      dependencyArchiveProjection: prepared.dependencyArchiveProjection,
+      sandboxPolicyDigest: ports.sandboxPolicyDigest
+    }));
+    const environment = ports.bootstrapEnvironment(input);
+    archive = ports.retainArchive(prepared.preparedCandidateArchive, prepared.archiveDigest);
+    const plan = ports.createBootstrapPlan({ bootstrapDigest,
+      candidateArchiveDigest: archive.archiveDigest, bunExecutable: ports.bunExecutable,
+      baseSha: input.baseSha, headSha: input.headSha,
+      candidateEnvironment: environment, unitNonce: ports.unitNonce });
+    const teardownPlan = ports.createTeardownPlan({ actionKey: bootstrapDigest, unitName: plan.unitName });
+    const [execution, teardown, observationLost, rawProcessFailures] = await observeSutAttemptAndTeardown({
+      execution: plan, teardown: teardownPlan, archive,
+      run: (command, retained) => ports.run(command, retained),
+      unobserved: (code, diagnostic) => ports.unobservedProcess(code, diagnostic)
+    });
+    processFailures = rawProcessFailures;
+    let archiveStable = false;
+    let archiveFailure: string | undefined;
+    try {
+      archiveStable = ports.assertArchive(archive) === prepared.archiveDigest
+        && ports.pathDigest(prepared.preparedCandidateArchive) === prepared.archiveDigest;
+    } catch (error) { archiveFailure = failureMessage(error); }
+    let summary: Record<string, unknown> | undefined;
+    try {
+      const decoded: unknown = JSON.parse(execution.failureTail);
+      if (decoded !== null && typeof decoded === 'object' && !Array.isArray(decoded)) {
+        summary = decoded as Record<string, unknown>;
+      }
+    } catch { /* Missing or malformed raw output cannot establish a passed summary. */ }
+    const results = Array.isArray(summary?.results) ? summary.results.filter(
+      (value): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
+    ) : [];
+    const byLabel = new Map(results.filter(value => typeof value.label === 'string')
+      .map(value => [value.label as string, value]));
+    for (const [name, label] of TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS) {
+      ports.writeEvidenceMember(name, Object.freeze({
+        schema: 'sec-trusted-bootstrap-sandbox-step-observation-v1', bootstrapDigest,
+        sandboxPolicyDigest: ports.sandboxPolicyDigest, label,
+        observation: byLabel.get(label) ?? null
+      }));
+    }
+    const sumsSource = TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS.map(([name]) =>
+      `${ports.evidenceMemberByteDigest(name)}  ${name}`).join('\n') + '\n';
+    ports.writeEvidenceText('SHA256SUMS', sumsSource);
+    const cleanup = directoryCleanup(teardown);
+    const summaryIdentityPassed = summary?.schema === 'sec-trusted-bootstrap-sandbox-summary-v1'
+      && summary.baseSha === input.baseSha && summary.headSha === input.headSha
+      && summary.treeSha === input.treeSha && summary.parentSha === input.baseSha;
+    const status = !observationLost && ports.lifecycleComplete(execution.lifecycle)
+      && execution.code === 0 && !execution.outputTruncated
+      && execution.stdoutBytesObserved <= ports.outputByteLimit
+      && execution.stderrBytesObserved <= ports.outputByteLimit
+      && ports.cleanupComplete(cleanup) && archiveStable
+      && summaryIdentityPassed && summary?.status === 'passed' ? 'passed' as const : 'failed' as const;
+    const semantic = Object.freeze({
+      schema: 'sec-trusted-bootstrap-sut-receipt-v3',
+      baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
+      parentSha: input.baseSha, auxiliaryStatus: status,
+      evidenceSetDigest: ports.byteDigest(sumsSource), bootstrapDigest,
+      sandboxPolicyDigest: ports.sandboxPolicyDigest, commandPlanDigest: plan.planDigest,
+      archiveDigest: prepared.archiveDigest, archiveInventoryDigest: prepared.archiveInventoryDigest,
+      executionOutputDigest: execution.rawOutputDigest, capability: capabilityReceipt(capability),
+      executionLifecycle: execution.lifecycle, cleanup
+    });
+    const receiptDigest = ports.byteDigest(JSON.stringify(semantic));
+    ports.writeEvidenceText('sut-receipt.json', JSON.stringify({ ...semantic, receiptDigest }, null, 2) + '\n');
+    if (status !== 'passed' && processFailures.length === 0) {
+      const diagnostic = typeof summary?.diagnostic === 'string' ? summary.diagnostic
+        : archiveFailure ?? capability.diagnostic ?? execution.failureTail;
+      throw new Error(boundedSutDiagnostic(diagnostic,
+        'Trusted bootstrap candidate SUT failed inside the private sandbox.', ports.failureTail));
+    }
+    return Object.freeze({ status, bootstrapDigest, receiptDigest });
+  } catch (error) {
+    primary = { label: 'Trusted bootstrap SUT execution', error };
+    throw error;
+  } finally {
+    const retained = archive;
+    const inputs = prepared;
+    const bodyFailure = primary;
+    settleResources({ primary: processFailures[0] ?? primary, cleanup: [
+      ...processFailures.slice(1).map(failure => ({ label: failure.label,
+        settle: () => { throw failure.error; } })),
+      ...(processFailures.length === 0 || bodyFailure === undefined ? [] : [{ label: bodyFailure.label,
+        settle: () => { throw bodyFailure.error; } }]),
+      ...(retained === undefined ? [] : [{ label: 'Trusted bootstrap retained archive closeout',
+        settle: () => ports.closeArchive(retained) }]),
+      { label: 'Trusted bootstrap prepared inputs retirement',
+        settle: () => ports.retireBootstrapInputs(inputs) }
+    ] });
+  }
+}
+
+export interface TrustedBootstrapSutInput {
+  readonly baseRoot: string;
+  readonly candidateRoot: string;
+  readonly outputDirectory: string;
+  readonly baseSha: string;
+  readonly headSha: string;
+  readonly treeSha: string;
+  readonly manifestPath: string;
+}
+
+export const TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS = Object.freeze([
+  ['tcb-lock-pre.json', 'tcb-lock-pre'], ['imports.log', 'imports'],
+  ['docs-doctor.log', 'docs-doctor'], ['typecheck.log', 'typecheck'],
+  ['diff-check.log', 'diff-check'], ['focused-tests.log', 'focused-tests'],
+  ['repository-audit.json', 'repository-audit'], ['affected-plan.json', 'affected-plan'],
+  ['affected-tests.log', 'affected-tests'], ['tcb-lock-post.json', 'tcb-lock-post']
+] as const);
+
 const NOT_ATTEMPTED: HostedSutProcessLifecycle = Object.freeze({
   supervisorSpawned: false, supervisorClosed: false, supervisorCloseCode: null, supervisorSignal: null,
   namespaceEstablished: false, candidateStarted: false, candidateUnitSettled: null,
@@ -129,14 +296,16 @@ async function observeSutAttemptAndTeardown<CommandSchema extends string,
   archive?: RetainedArchive;
   run(plan: HostedSutCommandPlan<CommandSchema, VerificationActionKeyDigest>, archive?: RetainedArchive): Promise<HostedSutProcessObservation<ProcessResult>>;
   unobserved(code: number, diagnostic: string): HostedSutProcessObservation<ProcessResult>;
-}>): Promise<readonly [HostedSutProcessObservation<ProcessResult>, HostedSutProcessObservation<ProcessResult>, boolean]> {
+}>): Promise<readonly [HostedSutProcessObservation<ProcessResult>, HostedSutProcessObservation<ProcessResult>, boolean, readonly ResourceSettlementFailure[]]> {
   const failures: ResourceSettlementFailure[] = [];
+  const rawProcessFailures: ResourceSettlementFailure[] = [];
   let observed: HostedSutProcessObservation<ProcessResult> | undefined;
   let teardown: HostedSutProcessObservation<ProcessResult> | undefined;
   let executionObservationLost = false;
   try { observed = await input.run(input.execution, input.archive); }
   catch (error) {
     executionObservationLost = true;
+    rawProcessFailures.push({ label: 'Hosted SUT original execution', error });
     try { observed = input.unobserved(1, failureMessage(error)); }
     catch (presentationError) {
       failures.push({ label: 'Hosted SUT original execution', error });
@@ -145,6 +314,7 @@ async function observeSutAttemptAndTeardown<CommandSchema extends string,
   }
   try { teardown = await input.run(input.teardown); }
   catch (error) {
+    rawProcessFailures.push({ label: 'Hosted SUT original teardown', error });
     try { teardown = input.unobserved(1, failureMessage(error)); }
     catch (presentationError) {
       failures.push({ label: 'Hosted SUT original teardown', error });
@@ -157,7 +327,7 @@ async function observeSutAttemptAndTeardown<CommandSchema extends string,
     })) });
   }
   if (observed === undefined || teardown === undefined) throw new Error('Hosted SUT attempt lost its process observations.');
-  return Object.freeze([observed, teardown, executionObservationLost] as const);
+  return Object.freeze([observed, teardown, executionObservationLost, Object.freeze(rawProcessFailures)] as const);
 }
 
 export async function probeHostedSutCapability<

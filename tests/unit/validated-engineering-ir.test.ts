@@ -54,8 +54,8 @@ test('validated snapshots are produced only after the full boundary and are deep
   expect(Object.isFrozen(snapshot.ir.entities)).toBe(true);
   expect(Object.isFrozen(snapshot.ir.entities[0])).toBe(true);
 
-  const raw = buildEngineeringIR(source);
   if (false) {
+    const raw = buildEngineeringIR(source);
     // @ts-expect-error Ordinary EngineeringIR is not a ValidatedEngineeringIRSnapshot.
     indexValidatedEngineeringIR(raw);
   }

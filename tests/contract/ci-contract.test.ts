@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
+import { assertCiVerificationPerJobHostedWorkflowShape } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -482,7 +483,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   ]);
 });
 
-test('every cold SUT facade installs exact-base dependencies before its first repository module import', async () => {
+test('every per-job SUT launcher installs locked trusted source dependencies before its first phase', async () => {
   const [compiler, bootstrap] = await Promise.all([
     readCompilerFile('.github/workflows/compiler-pr-validation.yml'),
     readCompilerFile('.github/workflows/trusted-bootstrap.yml')
@@ -491,25 +492,25 @@ test('every cold SUT facade installs exact-base dependencies before its first re
     {
       workflow: bootstrap!,
       job: 'candidate-sut',
-      install: 'Install exact-base SUT facade dependencies without lifecycle scripts',
+      install: 'Install exact trusted launcher dependencies',
       entrypoint: 'Run candidate SUT through trusted private sandbox'
     },
     {
       workflow: compiler!,
       job: 'preflight-verification-action-sut',
-      install: 'Install exact-base SUT preflight dependencies without lifecycle scripts',
-      entrypoint: 'Prove hostile SUT sandbox on the capability-bearing role'
+      install: 'Install exact trusted launcher dependencies',
+      entrypoint: 'Prove hostile SUT sandbox on the executing job'
     },
     {
       workflow: compiler!,
       job: 'claim-verification-action',
-      install: 'Install exact-base Action claim dependencies without lifecycle scripts',
-      entrypoint: 'Verify exact SUT capability before candidate materialization'
+      install: 'Install exact trusted launcher dependencies',
+      entrypoint: 'Create immutable Action start marker from fresh provider census'
     },
     {
       workflow: compiler!,
       job: 'execute-verification-action-sut',
-      install: 'Install exact-base SUT facade dependencies without lifecycle scripts',
+      install: 'Install exact trusted launcher dependencies',
       entrypoint: 'Execute one normalized candidate operation without credentials'
     }
   ] as const;
@@ -518,13 +519,10 @@ test('every cold SUT facade installs exact-base dependencies before its first re
     const install = step(candidate.workflow, candidate.job, candidate.install);
     const entrypoint = step(candidate.workflow, candidate.job, candidate.entrypoint);
     expect(install['working-directory']).toBeUndefined();
-    expect(install.run).toContain('test ! -e .npmrc');
-    expect(install.run).toContain('env -i');
-    expect(install.run).toContain('HOME=/tmp/sec-hosted-dependency-home');
-    expect(install.run).toContain('TMPDIR=/tmp/sec-hosted-dependency-tmp');
-    expect(install.run).toContain('BUN_INSTALL_CACHE_DIR=/tmp/sec-hosted-dependency-home/.bun/install/cache');
-    expect(install.run).toContain('LANG=C.UTF-8');
-    expect(install.run).toContain('install --frozen-lockfile --ignore-scripts');
+    expect(install.run).toBe('exec bun --no-env-file install --frozen-lockfile --ignore-scripts');
+    expect(step(candidate.workflow, candidate.job, 'Checkout exact trusted hosted launcher').with?.ref)
+      .toBe('${{ github.workflow_sha }}');
+    expect(job.permissions?.['id-token']).toBe('write');
     expect(job.steps.indexOf(install)).toBeLessThan(job.steps.indexOf(entrypoint));
   }
   const cleanBase = step(bootstrap!, 'candidate-sut', 'Checkout clean exact base SUT input');
@@ -536,8 +534,27 @@ test('every cold SUT facade installs exact-base dependencies before its first re
   const bootstrapEntrypoint = step(
     bootstrap!, 'candidate-sut', 'Run candidate SUT through trusted private sandbox'
   );
-  expect(bootstrapEntrypoint.env?.BASE_SUT_ROOT).toBe('${{ github.workspace }}/base-sut');
-  expect(bootstrapEntrypoint.run).toContain('--base-root "$BASE_SUT_ROOT"');
+  expect(bootstrapEntrypoint.env?.SEC_HOSTED_NEEDS_JSON).toBe('${{ toJSON(needs) }}');
+  expect(bootstrapEntrypoint.run)
+    .toBe('exec bun --no-env-file src/bootstrap/development/hosted-job-runtime.ts --job candidate-sut --phase execute-trusted-bootstrap-sut');
+});
+
+test('TrustedBootstrap SUT policy rejects credential, input checkout, deadline and upload drift', async () => {
+  const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
+  expect(() => assertCiVerificationPerJobHostedWorkflowShape(source, 'candidate-sut')).not.toThrow();
+  for (const mutate of [
+    (job: Record<string, any>) => { delete job.permissions['id-token']; },
+    (job: Record<string, any>) => { job['timeout-minutes'] = 91; },
+    (job: Record<string, any>) => { job.needs = ['resolve']; },
+    (job: Record<string, any>) => { job['runs-on'] = ['self-hosted']; },
+    (job: Record<string, any>) => { job.steps.find((step: WorkflowStep) => step.name === 'Checkout exact candidate SUT only').with.ref = '${{ github.sha }}'; },
+    (job: Record<string, any>) => { job.steps.find((step: WorkflowStep) => step.name === 'Upload bounded candidate SUT artifact').if = 'success()'; },
+    (job: Record<string, any>) => { job.steps.find((step: WorkflowStep) => step.name === 'Upload bounded candidate SUT artifact').with.path += '\n${{ github.workspace }}/.tmp/foreign'; }
+  ]) {
+    const workflow = parseYaml(source) as { jobs: Record<string, Record<string, any>> };
+    mutate(workflow.jobs['candidate-sut']!);
+    expect(() => assertCiVerificationPerJobHostedWorkflowShape(JSON.stringify(workflow), 'candidate-sut')).toThrow();
+  }
 });
 
 test('hosted activation is a lightweight trusted-main artifact producer, not a candidate credential', async () => {

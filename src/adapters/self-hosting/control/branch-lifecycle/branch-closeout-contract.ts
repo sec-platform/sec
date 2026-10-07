@@ -466,9 +466,10 @@ export function authorizeBranchCloseout(input: {
 
   if (current.pullRequests.some((pullRequest) => (
     pullRequest.state === 'open'
-    && pullRequest.headBranch === preparation.branch
+    && ((!pullRequest.isCrossRepository && pullRequest.headBranch === preparation.branch)
+      || pullRequest.baseBranch === preparation.branch)
   ))) {
-    blockers.push('branch is still the head of an open PR');
+    blockers.push('branch is still consumed by an open PR');
   }
 
   if (before.unknowns.length > 0 || current.unknowns.length > 0) {

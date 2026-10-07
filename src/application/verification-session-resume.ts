@@ -97,7 +97,7 @@ export interface VerificationSessionResumePorts<
   assertArtifactProvenance(
     artifact: HostedSessionTerminalArtifact<SourceAcceptance, SourceAttemptEvidence, ContractRevision, ResultStatus, GateResult, SignalSchema>,
     provenance: TrustedArtifactProvenance, session: VerificationSession
-  ): void;
+  ): void | Promise<void>;
   integrationPlatformPolicyDigest: Digest;
   mainHealthDefaultBranch: string;
   parseMergeGateResult(source: string): MergeGateResult;
@@ -257,14 +257,14 @@ export async function resumeVerificationSession<
       return outcome({ status: 'WAITING_HOSTED_VERIFICATION', sessionRevision: session.sessionRevision,
         reason: 'trusted hosted artifact is not available', receiptDigest: null, completedStage: journal.completedStage });
     }
-    ports.assertArtifactProvenance(hosted.artifact, hosted.provenance, session);
+    await ports.assertArtifactProvenance(hosted.artifact, hosted.provenance, session);
     if (hosted.artifact.evidence.status !== 'passed') return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
       reason: `hosted verification terminal ${hosted.artifact.evidence.status}`, receiptDigest: hosted.artifact.evidence.evidenceDigest as Digest, completedStage: journal.completedStage });
     append('hosted-verification-terminal', hosted.artifact.evidence.evidenceDigest as Digest);
   }
   if (hosted === null) return outcome({ status: 'WAITING_HOSTED_VERIFICATION', sessionRevision: session.sessionRevision,
     reason: 'hosted artifact disappeared', receiptDigest: null, completedStage: journal.completedStage });
-  ports.assertArtifactProvenance(hosted.artifact, hosted.provenance, session);
+  await ports.assertArtifactProvenance(hosted.artifact, hosted.provenance, session);
 
   if (session.integrationPolicyDigest !== ports.integrationPlatformPolicyDigest) {
     throw new Error('Session integration platform policy is not the canonical no-admin policy.');

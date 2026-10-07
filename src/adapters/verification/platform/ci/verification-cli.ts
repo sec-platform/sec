@@ -46,7 +46,7 @@ import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2 } from '../action/contract/provider.ts';
+import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, parseVerificationActionProviderStartMarker, verificationActionProviderStartArtifactName, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName } from '../action/contract/provider.ts';
 import {
   writeVerificationActionProviderStartMarkerAtomic,
   writeVerificationActionProviderTerminalAnchorAtomic
@@ -54,7 +54,7 @@ import {
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentPrepareVerificationEvidenceTarget, CodexDevelopmentVerificationDigest, CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic, CodexDevelopmentWriteVerificationEvidenceV4Atomic, parseTrustedRuntimeSourceProgramActionRecord, type TrustedRuntimeSourceProgramActionRecord } from './contract/evidence.ts';
-import { parseHostedSutCapabilityObservation } from './contract/hosted-sut-observation.ts';
+import { CodexDevelopmentParseHostedActionRawResult, parseHostedSutCapabilityObservation } from './contract/hosted-sut-observation.ts';
 import {
   assertCiExpectedHead,
   CodexDevelopmentBuildVerificationPlan, type CodexDevelopmentVerificationPlanProfile
@@ -84,12 +84,12 @@ import {
 } from './runtime/verification-action-github-provider.ts';
 import type { CodexDevelopmentCiVerificationTestOptions } from './verification-action-effect.ts';
 import { CodexDevelopmentExecuteCiActionClosure } from './verification-action-effect.ts';
-import { CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentParseHostedActionRawResult } from './verification-coordination.ts';
+import { CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions } from './verification-coordination.ts';
 import type { CodexDevelopmentHostedActionProviderIndex } from './verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, ciActionDigest, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, hostedActionProviderIndexFromSnapshot, INVALIDATION_RULES, parseHostedEnvelope, VERIFICATION_EVIDENCE_PATH } from './verification-hosted-action-contract.ts';
 import { CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertPreparedHostedActionCandidate, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
 import { writeHostedActionJson } from './verification-shared.ts';
-import { CodexDevelopmentExecuteTrustedBootstrapSut, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
+import { hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
 function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
   mode: 'github-actions' | 'trusted-runtime';
@@ -862,8 +862,7 @@ export async function CodexDevelopmentCiVerificationMainForTests(
 }
 
 export const HOSTED_ACTION_COMMANDS = new Set([
-  'prepare-hosted-action-inputs',
-  'execute-trusted-bootstrap-sut'
+  'prepare-hosted-action-inputs'
 ]);
 
 export function hostedActionCliArgs(
@@ -1046,7 +1045,7 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
   type InventoryInput = Parameters<typeof CodexDevelopmentInspectHostedActionArchive>[0];
   type Inventory = ReturnType<typeof CodexDevelopmentInspectHostedActionArchive>;
   type Ticket = ReturnType<typeof CodexDevelopmentCreateHostedActionExecutionTicket>;
-  type Marker = ReturnType<typeof createVerificationActionStartMarkerV2>;
+  type Marker = ReturnType<typeof createVerificationActionProviderStartMarker>;
   type Evidence = NonNullable<ReturnType<typeof CodexDevelopmentComposeHostedEvidence>['evidence']>;
   const texts = new Map<string, Readonly<{ file: string; label: string }>>();
   const captures = new WeakMap<object, string>();
@@ -1233,7 +1232,7 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
     parseStartMarker: (value: unknown) => {
       const row = transactions.find(row => row.result.snapshot.startObservations.some(start => start.payload === value));
       if (row === undefined) throw new Error('Start marker is not an original provider readback.');
-      return deepFreeze(parseVerificationActionStartMarkerV2(value));
+      return deepFreeze(parseVerificationActionProviderStartMarker(value));
     },
     canonicalSource: encodeVerificationActionData, parseActionRequest: CodexDevelopmentParseHostedActionRequest,
     resolveAction, createProposal: (input: Parameters<typeof createCiVerificationActionProposal>[0]) => createCiVerificationActionProposal(ownedPure(input)),
@@ -1297,7 +1296,7 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
       return value;
     },
     producer: () => { current(); return currentHostedActionProducer(); },
-    createStartMarker: (input: Parameters<typeof createVerificationActionStartMarkerV2>[0]) => createVerificationActionStartMarkerV2(ownedPure(input)),
+    createStartMarker: (input: Parameters<typeof createVerificationActionProviderStartMarker>[0]) => createVerificationActionProviderStartMarker(ownedPure(input)),
     providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
     prepareMarker: (marker: Marker) => {
       marker = ownedPure(marker);
@@ -1311,7 +1310,7 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
         index: hostedActionProviderIndexFromSnapshot(row.result.snapshot) });
       const inventory = inspectedInventories.filter(value => inventories.get(value)?.resolution.resolutionDigest === resolution.resolutionDigest);
       if (decision.disposition !== 'start-allowed' || !decision.physicalExecutionAllowed
-          || encodeVerificationActionData(createVerificationActionStartMarkerV2({ actionKey: marker.actionKey,
+          || encodeVerificationActionData(createVerificationActionProviderStartMarker({ actionKey: marker.actionKey,
             candidateSha: resolution.artifactInput.headSha, executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
             producer: currentHostedActionProducer() })) !== encodeVerificationActionData(marker)
           || inventory.length !== 1) throw new Error('Marker preparation differs from the exact native start admission.');
@@ -1330,7 +1329,7 @@ export function createHostedActionCoordinationStagePorts(origin: AuthenticatedGi
       if (encodeVerificationActionData(marker.producer) !== encodeVerificationActionData(currentHostedActionProducer())) throw new Error('Marker producer changed.');
       current('prepare-start-marker'); writeVerificationActionProviderStartMarkerAtomic(file, marker);
     },
-    startMarkerName: verificationActionStartMarkerNameV2, digest: ciActionDigest,
+    startMarkerName: verificationActionProviderStartArtifactName, digest: ciActionDigest,
     createTicket: (input: Parameters<typeof CodexDevelopmentCreateHostedActionExecutionTicket>[0]) => {
       input = Object.freeze({ resolution: ownField(input, 'resolution'), marker: ownedPure(ownField(input, 'marker')),
         startObservation: ownField(input, 'startObservation'), startStatus: ownField(input, 'startStatus'),
@@ -1596,7 +1595,7 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
         inputs: Object.freeze([input.ticket, input.rawResult]) }));
       return artifact;
     },
-    createAnchor: (input: Parameters<typeof createVerificationActionTerminalStatusAnchorV2>[0]) => {
+    createAnchor: (input: Parameters<typeof createVerificationActionProviderTerminalAnchor>[0]) => {
       current('prepare-terminal-anchor');
       const retained = preparedObservation();
       const resolution = CodexDevelopmentResolveHostedAction({
@@ -1613,7 +1612,7 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
           || terminal.providerObservation.archiveDigest === null || terminal.providerObservation.payload === null || status === undefined) {
         throw new Error('Hosted terminal anchor lacks original exact repair admission.');
       }
-      const expected = createVerificationActionTerminalStatusAnchorV2({ actionKey: resolution.actionPlan.action.actionKey,
+      const expected = createVerificationActionProviderTerminalAnchor({ actionKey: resolution.actionPlan.action.actionKey,
         candidateSha: resolution.artifactInput.headSha, startStatusId: status.id, startStatusNodeId: status.nodeId,
         startArtifactOriginId: start.originId, startArtifactName: start.artifactName,
         startArtifactArchiveDigest: start.archiveDigest, startMarkerDigest: start.payload.markerDigest,
@@ -1621,7 +1620,7 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
         terminalArtifactArchiveDigest: terminal.providerObservation.archiveDigest,
         terminalArtifactPayloadDigest: terminal.providerObservation.payload.payloadDigest,
         terminalAssemblerOrigin: terminal.providerObservation.payload.producer, anchorPublisherOrigin: currentHostedActionProducer() });
-      const anchor = createVerificationActionTerminalStatusAnchorV2(input);
+      const anchor = createVerificationActionProviderTerminalAnchor(input);
       if (encodeVerificationActionData(anchor) !== encodeVerificationActionData(expected)) throw new Error('Hosted terminal anchor differs from original exact facts.');
       deepFreeze(anchor);
       preparedAnchors.set(anchor, Object.freeze({ authority: retained.authority, snapshot: retained.result.snapshot }));
@@ -1664,22 +1663,6 @@ export function createHostedActionTerminalStagePorts(origin: AuthenticatedGitHub
 
 export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[]): Promise<string> {
   const command = argv[0];
-  if (command === 'execute-trusted-bootstrap-sut') {
-    const args = hostedActionCliArgs(argv, [
-      '--base-root', '--candidate-root', '--output-directory', '--base-sha',
-      '--head-sha', '--tree-sha', '--manifest-path'
-    ]);
-    const result = await CodexDevelopmentExecuteTrustedBootstrapSut({
-      baseRoot: args.get('--base-root')!,
-      candidateRoot: args.get('--candidate-root')!,
-      outputDirectory: args.get('--output-directory')!,
-      baseSha: args.get('--base-sha')!,
-      headSha: args.get('--head-sha')!,
-      treeSha: args.get('--tree-sha')!,
-      manifestPath: args.get('--manifest-path')!
-    });
-    return JSON.stringify(result);
-  }
   if (command === 'prepare-hosted-action-inputs') {
     const args = hostedActionCliArgs(argv, [
       '--resolution', '--base-root', '--candidate-root', '--output-directory'

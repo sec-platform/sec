@@ -352,9 +352,7 @@ const mockedCreateTestInvocationRuntimeRoots = async () => {
 
 mock.module('../../src/adapters/self-hosting/development/runner/test-process-temp.ts', () => ({
   testInvocationRuntimeIsolationModeForPlatform: mockedTestInvocationRuntimeIsolationMode,
-  testInvocationRuntimeIsolationModeForPlatformV1: mockedTestInvocationRuntimeIsolationMode,
-  createTestInvocationRuntimeRoots: mockedCreateTestInvocationRuntimeRoots,
-  createTestInvocationRuntimeRootsV1: mockedCreateTestInvocationRuntimeRoots
+  createTestInvocationRuntimeRoots: mockedCreateTestInvocationRuntimeRoots
 }));
 
 mock.module('../../src/adapters/self-hosting/development/runner/command-runner.ts', () => ({

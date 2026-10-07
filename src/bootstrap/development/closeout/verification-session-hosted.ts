@@ -48,6 +48,8 @@ import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { parseHostedVerificationCommand } from '../../../entry/verification-session-hosted-cli.ts';
 import type { HostedResumeDispatchOutcomeCollection, HostedResumeSignal, VerificationSessionHostedRequest } from "../../../execution/verification/hosted.ts";
 
+import { SourceProgramTransitionAdoptionBlockedError } from '../../../adapters/repository/repository-audit/transition.ts';
+import { parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_GATE_ID } from '../../../adapters/verification/platform/action/contract/ci.ts';
 import type { SourceProgramTransitionAcceptanceRecord } from '../../../adapters/verification/platform/ci/contract/evidence.ts';
 import { readSessionArtifactText, writeCanonicalDurable, writeDurable } from '../../../adapters/verification/platform/ci/runtime/session-artifact-files.ts';
 import { closeHistoricalHostedSessionSources, type VerificationSessionScope } from '../../../adapters/verification/platform/ci/runtime/session-command.ts';
@@ -122,8 +124,13 @@ import { assertReviewStabilityReceiptCurrent } from '../../../adapters/verificat
 import { parseVerificationSession } from '../../../adapters/verification/platform/session/contract/session.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../../adapters/verification/platform/test-impact/runtime/transition.ts';
 import type { TrustedRuntimeSourceProgramAttemptEvidence } from '../../../adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
+import {
+  observeTrustedRuntimeSourceProgramTransition, qualifySourceProgramTransitionAssessment,
+  reobserveSourceProgramTransitionQualificationForEffect, type SourceProgramTransitionQualification
+} from '../../../adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import type { CI_VERIFICATION_CONTRACT_REVISION } from '../../../assurance/verification/contract/revision.ts';
 import type { VerificationGateResult, VerificationResultStatus } from '../../../assurance/verification/result/contract/result.ts';
+import { failureMessage } from '../../../contracts/failure-inspection.ts';
 import type { ScopeAuthorization, VerificationSession } from '../../../execution/verification/session.ts';
 
 type ResumePorts = VerificationSessionResumePorts<
@@ -281,6 +288,7 @@ export async function executeHostedSessionResumeReceiverCommand(input: Readonly<
   type Collection = HostedResumeDispatchOutcomeCollection<typeof HOSTED_RESUME_SIGNAL_SCHEMA>;
   const receiver: Collection['receiver'] = Object.freeze({ repository: job.repository, workflowPath: job.workflowPath,
     workflowSha: job.workflowSha, runId: job.runId, runAttempt: job.runAttempt, jobId: job.jobId });
+  let sourceQualification: SourceProgramTransitionQualification | undefined;
   return await executeHostedSessionResumeReceiver({ signal, repository: job.repository, sourceRunId: job.runId,
     sourceRef: `${job.workflowPath}@${job.workflowSha}` }, {
     ...createHostedResumeIntakePorts(input.origin),
@@ -328,8 +336,36 @@ export async function executeHostedSessionResumeReceiverCommand(input: Readonly<
       if (readback.collectionDigest !== collection.collectionDigest) throw new Error('Resume outcome transport readback changed.');
       assertAuthenticatedGitHubJobOriginCurrent(input.origin);
     },
+    qualifyCompletion: async request => {
+      assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+      const selected = request.envelope.actionPlanClosure.actions.filter(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+      if (selected.length === 0) return Object.freeze({ kind: 'qualified' as const, qualification: undefined });
+      if (selected.length !== 1) throw new Error('Receiver Source Program selection is ambiguous.');
+      const completion = request.evidence.gates.find(({ action }) => action.actionKey === selected[0]!.action.actionKey);
+      if (completion?.result.status !== 'passed') return Object.freeze({ kind: 'blocked' as const,
+        reason: 'Source Program completion is not passed; live adoption cannot be issued.', needs: Object.freeze([]) });
+      const sourceMembers = request.members.filter(member => member.proposal.proposedActionKey === selected[0]!.action.actionKey);
+      if (sourceMembers.length !== 1) throw new Error('Receiver Source Program source is absent from its original parent members.');
+      const facts = await observeTrustedRuntimeSourceProgramTransition({ repositoryRoot: job.trustedDriverRoot,
+        envelope: request.envelope, evidence: request.evidence,
+        hostedCompletion: { origin: input.origin, signal: request.signal,
+          authority: { envelope: sourceMembers[0]!, actionPlanClosure: request.envelope.actionPlanClosure } },
+        sourceProgramTransition: parseCiSourceProgramTransitionBinding({ baseSha: request.envelope.session.baseSha,
+          headSha: request.envelope.session.headSha, payloadDigest: null, approvalObservationDigest: null, approvalDigest: null }) });
+      assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+      try {
+        sourceQualification = qualifySourceProgramTransitionAssessment(facts);
+      } catch (error) {
+        if (!(error instanceof SourceProgramTransitionAdoptionBlockedError)) throw error;
+        return Object.freeze({ kind: 'blocked' as const, reason: failureMessage(error),
+          needs: error.authorInputRequired ? Object.freeze(['Current original human author adoption is required.']) : error.blockingReasons });
+      }
+      return Object.freeze({ kind: 'qualified' as const, qualification: sourceQualification });
+    },
     finalize: finalizeHostedSessionResumeArtifact,
     writeTerminal: async artifact => {
+      assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+      if (sourceQualification !== undefined) await reobserveSourceProgramTransitionQualificationForEffect(sourceQualification);
       assertAuthenticatedGitHubJobOriginCurrent(input.origin);
       writeCanonicalDurable(input.output, artifact);
       assertAuthenticatedGitHubJobOriginCurrent(input.origin);
@@ -666,8 +702,10 @@ export async function executeHostedVerificationCommand(input: Readonly<{
   const preflightPorts = createHostedIntegrationPreflightPorts(input);
   const preparationPorts = createHostedRecoveryPreparationPorts(input);
   const observationResumePorts = createVerificationSessionResumePorts({ github: input.github,
+    ctx: input.ctx,
     journalFs: createEphemeralVerificationSessionJournalFs(input.journalFs.rootPath) });
   const effectGuardResumePorts = createVerificationSessionResumePorts({ github: input.github,
+    ctx: input.ctx,
     journalFs: createEphemeralVerificationSessionJournalFs(input.journalFs.rootPath) });
   const durableResumePorts = createVerificationSessionResumePorts(input);
   try {
@@ -685,11 +723,13 @@ export async function executeHostedVerificationCommand(input: Readonly<{
 /** Captures one actual journal and one native client. No workflow body is
  * delegated: the application consumes only these original owner primitives. */
 export function createVerificationSessionResumePorts(input: Readonly<{
+  ctx?: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   journalFs: VerificationSessionJournalFileSystem;
 }>): ResumePorts {
   const github = input.github;
   const fs = input.journalFs;
+  const ctx = input.ctx;
   return {
     parseSession: session => parseVerificationSession(encodeVerificationActionData(session)),
     parseScope: scope => parseScopeAuthorization(encodeVerificationActionData(scope)),
@@ -705,7 +745,7 @@ export function createVerificationSessionResumePorts(input: Readonly<{
     createReviewReceipt: createVerificationSessionReviewReceipt,
     bindTestImpactTransition: bindVerificationSessionTestImpactTransition,
     createHostedRequest: createVerificationSessionHostedRequest,
-    assertArtifactProvenance,
+    assertArtifactProvenance: (artifact, provenance, session) => assertArtifactProvenance(artifact, provenance, session, ctx),
     integrationPlatformPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST,
     mainHealthDefaultBranch: CI_MAIN_HEALTH_POLICY.producer.branch,
     parseMergeGateResult: CodexDevelopmentParseMergeGateResult,

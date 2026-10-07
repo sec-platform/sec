@@ -40,14 +40,8 @@ const GITHUB_CREDENTIAL_REQUIREMENT = 'github-api.credential-process';
 const GITHUB_CREDENTIAL_CONTRACT_DIGEST = sha256({
   operation: GITHUB_CREDENTIAL_OPERATION,
   provider: 'github-cli',
-  credentialSources: ['stored-gh-auth', 'explicit-private-gh-config', 'github-actions-token'],
+  credentialSources: ['stored-gh-auth', 'explicit-private-gh-config'],
   linuxStoredAuthHome: 'effective-user-database',
-  githubActionsTokenEnvironment: {
-    token: 'GH_TOKEN',
-    actions: 'true',
-    serverUrl: 'https://github.com',
-    apiUrl: 'https://api.github.com'
-  },
   hostname: GITHUB_HOST,
   args: ['auth', 'token', '--hostname', GITHUB_HOST],
   credentialOutput: 'ascii-token',
@@ -72,16 +66,7 @@ export type GitHubCredentialInput = Readonly<{
   signal?: AbortSignal;
 }>;
 
-export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
-  repository: string;
-  workflowRef: string;
-  workflowSha: string;
-  issueNumber: 313;
-  commentId: number;
-  actor: string;
-}>;
-
-type GitHubCredentialSource = 'stored-gh-auth' | 'explicit-private-gh-config' | 'github-actions-token';
+type GitHubCredentialSource = 'stored-gh-auth' | 'explicit-private-gh-config';
 
 type GitHubCredentialProcessEnvironment = Readonly<{
   child: NodeJS.ProcessEnv;
@@ -94,71 +79,14 @@ function environmentValue(source: Readonly<NodeJS.ProcessEnv>, key: string): str
   return actual === undefined ? undefined : source[actual];
 }
 
-export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
-  source: Readonly<NodeJS.ProcessEnv>,
-  repository: string
-): GitHubActionsRepositoryMaintenanceCredentialIdentity | null {
-  const workflowRef =
-    `${repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
-  const workflowSha = environmentValue(source, 'GITHUB_WORKFLOW_SHA');
-  const token = environmentValue(source, 'GH_TOKEN');
-  const issueNumber = environmentValue(source, 'SEC_MAINTENANCE_ISSUE_NUMBER');
-  const commentId = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_ID');
-  const commentAuthor = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_AUTHOR');
-  const actor = environmentValue(source, 'GITHUB_ACTOR');
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
-      || environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
-      || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
-      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com'
-      || environmentValue(source, 'GITHUB_REPOSITORY') !== repository
-      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'repository_dispatch'
-      || environmentValue(source, 'GITHUB_REF') !== 'refs/heads/main'
-      || environmentValue(source, 'GITHUB_WORKFLOW_REF') !== workflowRef
-      || typeof workflowSha !== 'string'
-      || !/^[0-9a-f]{40}$/u.test(workflowSha)
-      || environmentValue(source, 'GITHUB_SHA') !== workflowSha
-      || issueNumber !== '313'
-      || typeof commentId !== 'string' || !/^[1-9][0-9]*$/u.test(commentId)
-      || !Number.isSafeInteger(Number(commentId))
-      || typeof commentAuthor !== 'string' || commentAuthor.length === 0
-      || commentAuthor !== actor
-      || token === undefined) {
-    return null;
-  }
-  if (token.length === 0 || token !== token.trim()
-      || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
-      || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(token)) {
-    throw new GitHubCredentialUnavailableError('token');
-  }
-  return Object.freeze({
-    repository,
-    workflowRef,
-    workflowSha,
-    issueNumber: 313,
-    commentId: Number(commentId),
-    actor: commentAuthor
-  });
-}
-
-function githubActionsCredentialToken(
-  source: Readonly<NodeJS.ProcessEnv>,
-  repository: string
-): string | undefined {
-  const maintenance = inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, repository);
-  if (maintenance === null) return undefined;
-  return environmentValue(source, 'GH_TOKEN');
-}
-
 /**
  * The credential child never inherits PATH, host, config, HOME or XDG selectors.
  * Linux stored auth receives HOME from the effective OS account instead; an
  * absent HOME makes gh resolve its config relative to the candidate directory.
- * A GitHub Actions token is forwarded only as GH_TOKEN from an exact github.com
- * Actions environment; the secret is excluded from the semantic operation digest.
+ * Hosted verification tokens remain inside their separate authenticated API owner.
  */
 async function githubCredentialEnvironment(
   source: Readonly<NodeJS.ProcessEnv>,
-  repository: string,
   store: ReturnType<typeof currentGitHubCredentialStore>
 ): Promise<GitHubCredentialProcessEnvironment> {
   const child: NodeJS.ProcessEnv = {
@@ -176,22 +104,20 @@ async function githubCredentialEnvironment(
       identity[key] = value;
     }
   }
-  const actionsToken = githubActionsCredentialToken(source, repository);
-  if (actionsToken !== undefined && store !== undefined) {
+  if (environmentValue(source, 'GITHUB_ACTIONS') === 'true'
+      && environmentValue(source, 'GH_TOKEN') !== undefined) {
     throw new GitHubCredentialUnavailableError('admission');
   }
-  const credentialSource: GitHubCredentialSource = actionsToken === undefined
-    ? store === undefined ? 'stored-gh-auth' : 'explicit-private-gh-config'
-    : 'github-actions-token';
+  const credentialSource: GitHubCredentialSource = store === undefined
+    ? 'stored-gh-auth' : 'explicit-private-gh-config';
   if (store !== undefined) {
     child.GH_CONFIG_DIR = store.directory.childPath;
     identity.GH_CONFIG_DIR = store.directory.childPath;
-  } else if (actionsToken === undefined && process.platform === 'linux') {
+  } else if (process.platform === 'linux') {
     const home = await resolveLinuxEffectiveUserHome();
     child.HOME = home;
     identity.HOME = home;
   }
-  if (actionsToken !== undefined) child.GH_TOKEN = actionsToken;
   return Object.freeze({
     child,
     identity: Object.freeze(identity),
@@ -345,7 +271,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
             if (remainingMs() < 1) throw new GitHubCredentialUnavailableError('deadline');
             const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
             store?.assertCurrent();
-            const environment = await githubCredentialEnvironment(process.env, repository, store);
+            const environment = await githubCredentialEnvironment(process.env, store);
             if (remainingMs() < 1) throw new GitHubCredentialUnavailableError('deadline');
             const providerIdentityDigest = sha256({
               provider: 'github-cli',

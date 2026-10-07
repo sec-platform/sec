@@ -9,11 +9,7 @@ export {
 } from './contract/hosted-sut-command-plan.ts';
 
 export {
-  CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentExecuteTrustedBootstrapSut, CodexDevelopmentProbeHostedSutSandboxCapability
-} from './verification-sut.ts';
-
-export {
-  CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentParseHostedActionRawResult
+  CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions
 } from './verification-coordination.ts';
 
 export {

@@ -73,8 +73,8 @@ mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-
   observeVerificationSessionActionDependencyBlobs: async () => []
 }));
 mockModule('../../../src/adapters/verification/platform/ci/contract/evidence.ts', () => ({
-  ...evidenceContract, CodexDevelopmentParseVerificationSessionArtifact: (source: string) => JSON.parse(source),
-  CodexDevelopmentAssertVerificationEvidenceV4: () => {},
+  ...evidenceContract, parseVerificationSessionArtifact: (source: string) => JSON.parse(source),
+  assertVerificationEvidence: () => {},
   parseSourceProgramTransitionAcceptanceRecord: (value: unknown) => value
 }));
 mockModule('../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts', () => ({
@@ -115,10 +115,10 @@ mockModule('../../../src/adapters/self-hosting/development/tooling/git/git-read.
   }
 }));
 mockModule('../../../src/adapters/self-hosting/control/task/contract/work-package.ts', () => ({
-  ...workPackage, CodexDevelopmentParseWorkPackageLocator: () => request.manifestPath,
-  CodexDevelopmentWorkPackageManifestDigest: () => request.manifestDigest,
-  CodexDevelopmentParseCurrentWorkPackageManifest: () => ({ requiredProfile: request.profile }),
-  CodexDevelopmentAssertWorkPackageOwnership: () => {}
+  ...workPackage, parseWorkPackageLocator: () => request.manifestPath,
+  workPackageManifestDigest: () => request.manifestDigest,
+  parseCurrentWorkPackageManifest: () => ({ requiredProfile: request.profile }),
+  assertWorkPackageOwnership: () => {}
 }));
 mockModule('../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts', () => ({
   ...mainHealth,

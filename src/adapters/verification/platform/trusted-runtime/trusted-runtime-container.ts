@@ -25,7 +25,7 @@ import {
   type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
-import type { VerificationSessionHostedEnvelope } from '../../../../execution/verification/hosted.ts';
+import type { HostedResumeSignal, VerificationSessionHostedEnvelope } from '../../../../execution/verification/hosted.ts';
 import type {
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
@@ -56,6 +56,7 @@ import {
 } from '../../../providers/git-bundle/runtime.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../../providers/git-read/runtime/session.ts';
+import { HOSTED_RESUME_SIGNAL_SCHEMA } from '../../../providers/github-api/contract/hosted-resume-dispatch.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import { withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
 import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
@@ -91,6 +92,9 @@ import {
   ensureLocalGitHubActionsRunnerToolchainMaterialization,
   type LocalGitHubActionsRunnerToolchainMaterialization
 } from '../ci/runtime/local-github-actions-runner.ts';
+import { observeHostedResumeActionSnapshot, type VerificationActionGitHubProviderAuthority } from '../ci/runtime/verification-action-github-provider.ts';
+import { projectHostedTerminalGate } from '../ci/verification-coordination.ts';
+import { CodexDevelopmentParseHostedActionRequest, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, hostedActionProviderIndexFromSnapshot, parseHostedEnvelope } from '../ci/verification-hosted-action-contract.ts';
 
 const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 const TRUSTED_RUNTIME_CONTAINER_SCHEMA = ENVIRONMENT.trustedRuntime.imageSchema;
@@ -301,6 +305,7 @@ const sourceProgramQualificationRecords = new WeakMap<object, Readonly<{
   attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
   approval: SourceProgramTestAuthorApproval | null;
   repositoryRoot: string;
+  hostedCompletion?: VerificationGateEvidence<VerificationGateResult>;
 }>>();
 
 export function qualifySourceProgramTransitionAssessment(input: Readonly<{
@@ -357,9 +362,11 @@ export function qualifySourceProgramTransitionAssessment(input: Readonly<{
     sessionRevision: observation.sessionRevision, observationDigest: observation.observationDigest });
   const qualification = Object.freeze({ ...canonical, qualificationDigest: digestValue(canonical) });
   issuedSourceProgramTransitionQualifications.add(qualification);
-  const repositoryRoot = transitionAttemptRoots.get(observation);
-  if (repositoryRoot === undefined) fail('fresh transition has no admitted runtime root');
-  sourceProgramQualificationRecords.set(qualification, Object.freeze({ attemptEvidence, approval: input.approval ?? null, repositoryRoot }));
+  const attemptRoot = transitionAttemptRoots.get(observation);
+  if (attemptRoot === undefined) fail('fresh transition has no admitted runtime root');
+  sourceProgramQualificationRecords.set(qualification, Object.freeze({ attemptEvidence, approval: input.approval ?? null,
+    repositoryRoot: attemptRoot.repositoryRoot,
+    ...(attemptRoot.hostedCompletion === undefined ? {} : { hostedCompletion: attemptRoot.hostedCompletion }) }));
   return qualification;
 }
 
@@ -373,6 +380,13 @@ export function assertSourceProgramTransitionQualification(
   const record = sourceProgramQualificationRecords.get(value);
   if (record === undefined) fail('Source Program acceptance lost its live producer record');
   assertTrustedRuntimeSourceProgramTransitionObservation(record.attemptEvidence.observation);
+  if (completion !== undefined && record.hostedCompletion !== undefined
+      && encodeVerificationActionData(completion) !== encodeVerificationActionData(record.hostedCompletion)) {
+    fail('Hosted Source Program completion differs from its original native terminal projection');
+  }
+  if (completion !== undefined && record.hostedCompletion === undefined && completion.result.evidenceRefs.length !== 1) {
+    fail('Local Source Program qualification cannot adopt a hosted completion projection');
+  }
   if (value.origin === 'first-qualified') {
     const sourceAction = sourceProgramObservationActions.get(record.attemptEvidence.observation);
     if (sourceAction === undefined || sourceAction.sourceActionDigest !== value.sourceActionDigest) {
@@ -2155,7 +2169,9 @@ export interface TrustedRuntimeSourceProgramAttemptEvidence {
   readonly evidenceDigest: Digest;
 }
 const transitionAttemptEvidence = new WeakMap<object, TrustedRuntimeSourceProgramAttemptEvidence>();
-const transitionAttemptRoots = new WeakMap<object, string>();
+const transitionAttemptRoots = new WeakMap<object, Readonly<{
+  repositoryRoot: string; hostedCompletion?: VerificationGateEvidence<VerificationGateResult>;
+}>>();
 
 /** Historical bytes are inspectable but never recreate a live observation. */
 export function parseTrustedRuntimeSourceProgramAttemptEvidence(value: unknown): TrustedRuntimeSourceProgramAttemptEvidence {
@@ -2199,7 +2215,12 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
   repositoryRoot: string;
   envelope: VerificationSessionHostedEnvelope<typeof import('../ci/contract/session-request.ts').VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
-  receipt: TrustedRuntimeContainerReceipt;
+  receipt?: TrustedRuntimeContainerReceipt;
+  hostedCompletion?: Readonly<{
+    origin: AuthenticatedGitHubJobOrigin;
+    signal: HostedResumeSignal<typeof HOSTED_RESUME_SIGNAL_SCHEMA>;
+    authority: VerificationActionGitHubProviderAuthority;
+  }>;
   sourceProgramTransition: CiSourceProgramTransitionBinding;
   authorApproval?: SourceProgramTestAuthorApproval;
   deadlineAtUnixMs?: number;
@@ -2210,6 +2231,60 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
   attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
 }>> {
   const binding = assertTransitionInput(input)!;
+  if (input.hostedCompletion !== undefined) {
+    if (input.receipt !== undefined) fail('Source Program observation cannot combine local and hosted completions');
+    const origin = input.hostedCompletion.origin;
+    const envelope = parseHostedEnvelope(JSON.parse(encodeVerificationActionData(input.envelope)));
+    const evidence: typeof input.evidence = JSON.parse(encodeVerificationActionData(input.evidence));
+    const hosted: Omit<NonNullable<typeof input.hostedCompletion>, 'origin'> = JSON.parse(encodeVerificationActionData({
+      signal: input.hostedCompletion.signal, authority: input.hostedCompletion.authority
+    }));
+    const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
+    if (job.phase !== 'receive-verification-session-resume' || job.repository !== envelope.session.repository
+        || path.resolve(input.repositoryRoot) !== job.trustedDriverRoot
+        || evidence.sessionRevision !== envelope.session.sessionRevision
+        || evidence.actionPlan.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest
+        || evidence.producer.workflowSha !== job.workflowSha || evidence.producer.runId !== job.runId
+        || evidence.producer.runAttempt !== job.runAttempt) {
+      fail('Hosted Source Program completion differs from its original native receiver and Session');
+    }
+    const action = envelope.actionPlanClosure.actions.find(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID)!;
+    const completion = evidence.gates.find(({ action: member }) => member.actionKey === action.action.actionKey);
+    if (completion === undefined || completion.result.status !== 'passed') fail('Hosted Source Program completion is not passed');
+    const resolution = CodexDevelopmentResolveHostedAction({
+      request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(hosted.authority.envelope.proposal)), envelope });
+    const observeCompletion = async () => {
+      assertAuthenticatedGitHubJobOriginCurrent(origin);
+      const captured = await observeHostedResumeActionSnapshot({ origin, ...hosted });
+      const index = hostedActionProviderIndexFromSnapshot(captured.snapshot);
+      const decision = CodexDevelopmentReduceHostedActionProviderIndex({ resolution, index,
+        repositoryId: Number(captured.parentPlan.repositoryId), repository: envelope.session.repository });
+      if (decision.disposition !== 'terminal-anchored') fail('Hosted Source Program native terminal is not anchored');
+      const originals = index.terminalObservations.filter(({ artifact }) => artifact?.artifactDigest === decision.terminalPayloadDigest);
+      const terminal = originals.length === 1 ? originals[0]!.artifact : null;
+      if (terminal === null || terminal.actionPlan.action.actionKey !== action.action.actionKey
+          || terminal.result.status !== 'passed' || terminal.result.evidenceRefs.length !== 1) {
+        fail('Hosted Source Program original terminal/output is not exact');
+      }
+      const gate = projectHostedTerminalGate(action.action, terminal);
+      if (encodeVerificationActionData(gate) !== encodeVerificationActionData(completion)) {
+        fail('Hosted Source Program Evidence differs from its complete canonical native terminal');
+      }
+      assertAuthenticatedGitHubJobOriginCurrent(origin);
+      return gate;
+    };
+    const before = await observeCompletion();
+    const produced = await withQualifiedHostedJobContainerEngine({ origin, execute: async qualifiedEngineExporter => executeIsolatedSourceProgramTransition({
+      repositoryRoot: job.trustedDriverRoot, envelope, binding,
+      predecessorActionOutputDigest: digest(before.result.evidenceRefs[0]!, 'Hosted Source Program original output'),
+      deadlineAtUnixMs: job.originalDeadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin), qualifiedEngineExporter
+    }) });
+    const after = await observeCompletion();
+    if (encodeVerificationActionData(before) !== encodeVerificationActionData(after)) fail('Hosted Source Program original terminal changed during physical assessment');
+    transitionAttemptRoots.set(produced.observation, Object.freeze({ repositoryRoot: job.trustedDriverRoot, hostedCompletion: after }));
+    return Object.freeze({ assessment: produced.assessment, observation: produced.observation, attemptEvidence: produced.attemptEvidence });
+  }
+  if (input.receipt === undefined) fail('Source Program local completion requires its original container receipt');
   const receipt = parseTrustedRuntimeContainerReceipt(input.receipt);
   const session = input.envelope.session;
   const action = input.envelope.actionPlanClosure.actions.find(
@@ -2236,6 +2311,7 @@ async function executeIsolatedSourceProgramTransition(input: Readonly<{
   envelope: VerificationSessionHostedEnvelope<typeof import('../ci/contract/session-request.ts').VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   binding: CiSourceProgramTransitionBinding;
   predecessorActionOutputDigest?: Digest;
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
 }>): Promise<Readonly<{
@@ -2258,6 +2334,7 @@ async function executeIsolatedSourceProgramTransition(input: Readonly<{
     baseSha: session.baseSha, headSha: session.headSha,
     operationKey: `transition-${session.sessionRevision.slice(7, 27)}`, setupMode: 'full',
     dependencyCachePolicy: 'private-authority', observeSettlement,
+    ...(input.qualifiedEngineExporter === undefined ? {} : { qualifiedEngineExporter: input.qualifiedEngineExporter }),
     deadlineAtUnixMs, signal: input.signal,
     execute: async (workspace) => await executeTrustedRuntimeContainerEngineOwnerOperation({
       session: workspace.containerEngineSession, repositoryRoot: path.resolve(input.repositoryRoot),
@@ -2320,7 +2397,7 @@ async function executeIsolatedSourceProgramTransition(input: Readonly<{
   }
   issuedSourceProgramTransitionObservations.add(observation);
   transitionAttemptEvidence.set(observation, attemptEvidence);
-  transitionAttemptRoots.set(observation, path.resolve(input.repositoryRoot));
+  transitionAttemptRoots.set(observation, Object.freeze({ repositoryRoot: path.resolve(input.repositoryRoot) }));
   return Object.freeze({ assessment: completed.assessment, observation, attemptEvidence, startedAt, finishedAt: new Date().toISOString() });
 }
 

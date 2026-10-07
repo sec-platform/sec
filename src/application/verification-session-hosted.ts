@@ -190,6 +190,7 @@ export async function executeHostedSessionResumeReceiver<RequestSchema extends s
     parentActor: Readonly<{ nodeId: string }>; parentPlan: Readonly<{ proposals: readonly Proposal[] }> }>,
   Manifest, Transition, SourceProvider, DependencyBlobs, Snapshot, Terminal, Start, Anchor, Status, Producer,
   Coordination extends Readonly<{ disposition: string; dispatchActionKeys: readonly VerificationActionKeyDigest[] }>, Evidence, Artifact,
+  Qualification,
   Dispatch extends Readonly<{ disposition: 'dispatched' | 'joined' | 'blocked' | 'unknown'; reason: string | null;
     actionKey: VerificationActionKeyDigest; publicationState: 'not-entered' | 'entered-unknown' | 'submitted'; primaryFailure?: unknown }>>(
   input: Readonly<{ signal: HostedResumeSignal<SignalSchema>; repository: string; sourceRunId: string; sourceRef: string }>,
@@ -215,8 +216,12 @@ export async function executeHostedSessionResumeReceiver<RequestSchema extends s
       recordDispatchOutcome(outcome: HostedResumeDispatchOutcome<SignalSchema>): Promise<HostedResumeDispatchRecording<SignalSchema>>;
       exportDispatchOutcomes(input: Readonly<{ envelope: VerificationSessionHostedEnvelope<EnvelopeSchema>;
         expectedActionKeys: readonly VerificationActionKeyDigest[]; entries: HostedResumeDispatchOutcomeCollection<SignalSchema>['entries'] }>): Promise<void>;
+      qualifyCompletion(input: Readonly<{ envelope: VerificationSessionHostedEnvelope<EnvelopeSchema>; evidence: Evidence;
+        signal: HostedResumeSignal<SignalSchema>; members: readonly ProviderEnvelope[] }>): Promise<
+        Readonly<{ kind: 'qualified'; qualification: Qualification | undefined }>
+        | Readonly<{ kind: 'blocked'; reason: string; needs: readonly string[] }>>;
       finalize(input: Readonly<{ envelope: VerificationSessionHostedEnvelope<EnvelopeSchema>; evidence: Evidence;
-        signal: HostedResumeSignal<SignalSchema> }>): Artifact;
+        signal: HostedResumeSignal<SignalSchema>; sourceProgramTransitionQualification?: Qualification }>): Artifact;
       writeTerminal(artifact: Artifact): Promise<void>;
     }>
 ) {
@@ -283,7 +288,11 @@ export async function executeHostedSessionResumeReceiver<RequestSchema extends s
     }
     return Object.freeze({ status: composed.coordination.disposition, coordination: composed.coordination, artifact: null });
   }
-  const artifact = ports.finalize({ envelope, evidence: composed.evidence, signal: input.signal });
+  const qualified = await ports.qualifyCompletion({ envelope, evidence: composed.evidence, signal: input.signal, members });
+  if (qualified.kind === 'blocked') return Object.freeze({ status: 'blocked' as const,
+    reason: qualified.reason, needs: qualified.needs, coordination: composed.coordination, artifact: null });
+  const artifact = ports.finalize({ envelope, evidence: composed.evidence, signal: input.signal,
+    ...(qualified.qualification === undefined ? {} : { sourceProgramTransitionQualification: qualified.qualification }) });
   await ports.writeTerminal(artifact);
   return Object.freeze({ status: 'finalized' as const, coordination: composed.coordination, artifact });
   } catch (error) {

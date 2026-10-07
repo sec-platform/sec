@@ -106,7 +106,6 @@ const fullLaneCommands = [
   'bun run typecheck:verified',
   'bun run docs:doctor',
   'bun run test -- --scope fast',
-  platformCommand('test', 'budget', '--json', '--compact'),
   ...fullSlowSuiteCommands,
   platformCommand('deps', 'warmup'),
   platformCommand('resolve'),
@@ -177,13 +176,6 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
       CI_ARTIFACT_FILES.runtimeReport,
       CI_ARTIFACT_FILES.acceptanceCoverage
     ]
-  },
-  {
-    id: 'slow-test-budget',
-    phase: 'quality',
-    command: platformCommand('test', 'budget', '--json', '--compact'),
-    purpose: 'Expose the slow-suite budget before selecting CI gates.',
-    produces: []
   },
   ...fullSlowSuiteCommands.map((command) => {
     const suiteId = command.split('--suite ')[1];

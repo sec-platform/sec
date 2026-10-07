@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "80e1aa9a47159226e34c1bd4165a80f5aa8bd7d6d9a443e0296006801b70d72f",
+  "source_set_sha256": "2ca23738358d1cb4b4aafd81f79e1d807c45abb09d27bf6e525b57173123c813",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -19,13 +19,13 @@
     },
     {
       "path": ".documentation/known-regressions.json",
-      "bytes": 4478,
-      "sha256": "653e70a9cb6e8011cf818ef15638534788434026eaacb7bf7001a6b50904ca5d"
+      "bytes": 4465,
+      "sha256": "06ffd9bc599df13d58318c7adb2f63ff4b875741d238d30aa701ded839341e71"
     },
     {
       "path": "AGENTS.md",
-      "bytes": 7766,
-      "sha256": "064f99684e63b8cb321adef5b14f81d785ad704884be40012f77cf33690665f2"
+      "bytes": 7776,
+      "sha256": "a51d101db99bcdc9e69a7469053dec88f2f57b15d74da0bf14e051bf36475165"
     },
     {
       "path": "ARCHITECTURE.md",
@@ -44,8 +44,8 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "bytes": 4922,
-      "sha256": "63b3698829fd7b4ee76afb251c8385a4d6d011b9354c4e7871d578ac2ee44514"
+      "bytes": 6532,
+      "sha256": "2563c35292d115291482801cd1eefd3c4b14938115dc6ba1ee7d536a0375b435"
     },
     {
       "path": "LICENSE",
@@ -79,8 +79,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 4857,
-      "sha256": "70f857b83f5c0b8c3920839bbcb4c42f5c0c4c8002ae4a84b3302453dae0646f"
+      "bytes": 4979,
+      "sha256": "236a797e9f69c4f75d0a21ed9e8488db59266e65113943efe8e810c40f53cc29"
     },
     {
       "path": "README.zh-CN.md",
@@ -594,8 +594,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 95011,
-      "sha256": "5619c4c251d94dc716318c232afc91cf8d5a9c6663eb9fcb1ce69f779bd2dcb6"
+      "bytes": 87982,
+      "sha256": "33940949f25720c7c9dc92c94367e31f591bd800da56bcf6bbc22b2fde51b708"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -1239,8 +1239,8 @@
     },
     {
       "path": "docs/运行/权限与资源管理.md",
-      "bytes": 68440,
-      "sha256": "a9fd5bbd3859dc6c0d00e4434052bf91d37e5f9255e3f6a075c0e45895056839"
+      "bytes": 68434,
+      "sha256": "8c2ddc3211ea2d8d9359ed7e8c624cda3750b2a1cbc6bf4cb4b4fcd1cdd89725"
     },
     {
       "path": "docs/运行/跨实现调用与数据寿命.md",

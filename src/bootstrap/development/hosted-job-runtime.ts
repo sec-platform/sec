@@ -7,6 +7,7 @@ import {
   CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST,
   ciVerificationHostedActionClaimFiles, ciVerificationHostedActionResolverFiles, ciVerificationHostedCoordinatorFiles,
   ciVerificationHostedJobTransportSlot,
+  ciVerificationTrustedBootstrapSutFiles,
   getCiVerificationPerJobHostedJobPolicy
 } from '../../adapters/providers/github-api/contract/hosted-job-policy.ts';
 import {
@@ -96,7 +97,7 @@ import {
   anchorHostedActionTerminal,
   assembleHostedActionTerminal, prepareHostedActionTerminalAnchor
 } from './hosted-action-terminal.ts';
-import { prepareHostedActionSutInputs, runHostedActionSut, runHostedSutCapabilityProbe } from './hosted-sut.ts';
+import { executeTrustedBootstrapSut, prepareHostedActionSutInputs, runHostedActionSut, runHostedSutCapabilityProbe } from './hosted-sut.ts';
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -492,6 +493,57 @@ function issueHostedSutInvocation(origin: AuthenticatedGitHubJobOrigin, actionKe
   });
 }
 
+function trustedBootstrapSutInput(origin: AuthenticatedGitHubJobOrigin) {
+  const job = assertCanonicalHostedJobPolicy(origin);
+  if (job.policyJobId !== 'candidate-sut' || job.role !== 'sut'
+      || job.workflowPath !== '.github/workflows/trusted-bootstrap.yml'
+      || job.phase !== 'execute-trusted-bootstrap-sut') {
+    throw new Error('Trusted bootstrap SUT requires its original authenticated producing phase.');
+  }
+  const source = process.env.SEC_HOSTED_NEEDS_JSON;
+  if (typeof source !== 'string' || source.length > 128 * 1024) {
+    throw new Error('Trusted bootstrap SUT predecessor transport is unavailable or unbounded.');
+  }
+  const needs = dataObject(JSON.parse(source) as unknown, 'bootstrap SUT needs');
+  if (Object.keys(needs).sort().join('\0') !== 'checker-pre\0resolve') {
+    throw new Error('Trusted bootstrap SUT predecessors differ from the original scheduling barrier.');
+  }
+  const resolve = dataObject(needs.resolve, 'bootstrap SUT resolve predecessor');
+  const checker = dataObject(needs['checker-pre'], 'bootstrap SUT checker predecessor');
+  if (resolve.result !== 'success' || checker.result !== 'success') {
+    throw new Error('Trusted bootstrap SUT requires its successful original predecessors.');
+  }
+  const outputs = dataObject(resolve.outputs, 'bootstrap SUT resolve outputs');
+  const event = dataObject(githubEvent(process.env), 'bootstrap SUT original event');
+  const payload = dataObject(event.client_payload, 'bootstrap SUT original request');
+  const baseSha = outputs.base;
+  const headSha = outputs.head;
+  const treeSha = outputs.tree;
+  const manifestPath = outputs.manifest;
+  if (typeof baseSha !== 'string' || typeof headSha !== 'string' || typeof treeSha !== 'string'
+      || ![baseSha, headSha, treeSha].every(value => /^[0-9a-f]{40}$/u.test(value))
+      || payload.schema !== 'sec-trusted-bootstrap-request-v1'
+      || baseSha !== job.trustedSourceSha || baseSha !== payload.expected_base
+      || headSha !== payload.expected_head || manifestPath !== payload.manifest_path
+      || typeof outputs['manifest-digest'] !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(outputs['manifest-digest'])
+      || outputs['manifest-digest'] !== payload.manifest_digest
+      || typeof manifestPath !== 'string'
+      || !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+    throw new Error('Trusted bootstrap SUT content differs from its original resolved request and source.');
+  }
+  const files = ciVerificationTrustedBootstrapSutFiles();
+  const root = inspectNoFollowDirectoryChain(job.trustedDriverRoot).target;
+  const baseRoot = inspectNoFollowDirectoryChain(path.join(root.path, files.baseRoot)).target;
+  const candidateRoot = inspectNoFollowDirectoryChain(path.join(root.path, files.candidateRoot)).target;
+  const outputDirectory = ensureHostedJobOutputParent(origin, 'sut');
+  if (outputDirectory !== path.resolve(root.path, files.outputDirectory)) {
+    throw new Error('Trusted bootstrap SUT output differs from its sole fixed artifact slot.');
+  }
+  return Object.freeze({ baseRoot: baseRoot.path, candidateRoot: candidateRoot.path,
+    outputDirectory, baseSha, headSha, treeSha, manifestPath });
+}
+
 async function executeVerificationControl(origin: AuthenticatedGitHubJobOrigin,
   command: ReturnType<typeof parseHostedVerificationCommand>): Promise<string> {
   const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
@@ -636,6 +688,15 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
       argv, authenticatedJobId: job.policyJobId, authenticatedPhase: job.phase
     });
     switch (phase) {
+      case 'execute-trusted-bootstrap-sut': {
+        const input = trustedBootstrapSutInput(origin);
+        const actionKey = sha256({ baseSha: input.baseSha, headSha: input.headSha,
+          treeSha: input.treeSha, manifestPath: input.manifestPath,
+          sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST });
+        const result = await executeTrustedBootstrapSut(input, issueHostedSutInvocation(origin, actionKey));
+        assertCanonicalHostedJobPolicy(origin);
+        return JSON.stringify(result);
+      }
       case 'prepare-parent-plan': {
         if (job.role !== 'control' || job.policyJobId !== 'coordinate-verification-session') {
           throw new Error('Hosted parent preparation requires its authenticated coordinator.');

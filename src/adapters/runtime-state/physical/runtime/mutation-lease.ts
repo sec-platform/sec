@@ -1065,7 +1065,7 @@ function resumeGuardedLegacyCoordinationAdoption(parent: PhysicalDirectoryIdenti
     const current = inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_GUARDED_RECORD_BYTES });
     const currentBytes = current?.bytes === null || current?.bytes === undefined ? null : Buffer.from(current.bytes);
     const record = currentBytes === null ? null : parseRecord(currentBytes);
-    if (currentBytes === null || record === null || !sameOwner(record.activeOwner, legacyOwner)) {
+    if (currentBytes === null || !currentBytes.equals(legacyBytes) || record === null || !sameOwner(record.activeOwner, legacyOwner)) {
       throw new PhysicalMutationCoordinationBlockedError('unknown',
         'Legacy coordination lease changed during adoption; original bytes are preserved.');
     }

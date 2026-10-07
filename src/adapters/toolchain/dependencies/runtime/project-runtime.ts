@@ -6496,7 +6496,7 @@ async function recoverCompilerDependencyTransition(
           // durable recovery branch after the current v3 stage, exact
           // preimage physical epoch, backup absence and transition identity
           // have all been read back under the compiler-root lease.
-          allowLegacyRuntimeMaterializationV2: transition.phase === 'recovery-required'
+          allowLegacyRuntimeMaterialization: transition.phase === 'recovery-required'
         });
         if (preimageAuthority.authorityDigest !== transition.preimage.bindingDigest) {
           return failRecovery(new CodedFailure(
@@ -7495,7 +7495,7 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
   generationPath: string;
   generationPhysical: GeneratedStatePhysicalIdentity;
   identity: CompilerDependencyIdentity;
-  options: RuntimeDependencyInstallOptions;
+  options: RuntimeDependencyOperationOptions;
   root: string;
   stageRoot: DependencyTransitionSlot | null;
   stageRootPath: string | null;
@@ -7936,8 +7936,8 @@ async function compilerDependencyGeneratedPreimageAuthority(
   ownerRoot: string,
   nodeModulesPath: string,
   options: RuntimeDependencyOperationOptions,
-  recovery: Readonly<{ allowLegacyRuntimeMaterializationV2: boolean }> = Object.freeze({
-    allowLegacyRuntimeMaterializationV2: false
+  recovery: Readonly<{ allowLegacyRuntimeMaterialization: boolean }> = Object.freeze({
+    allowLegacyRuntimeMaterialization: false
   })
 ): Promise<CompilerDependencyPreimageAuthority> {
   const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
@@ -7975,7 +7975,7 @@ async function compilerDependencyGeneratedPreimageAuthority(
       || binding.packages.length > 10_000
       || !(binding.runtimeMaterialization === null
         || isRuntimeDependencyMaterializationBinding(binding.runtimeMaterialization)
-        || (recovery.allowLegacyRuntimeMaterializationV2 &&
+        || (recovery.allowLegacyRuntimeMaterialization &&
           parseLegacyRuntimeDependencyMaterializationV2ForRecovery(
             binding.runtimeMaterialization
           ) !== null))) {
@@ -8494,13 +8494,13 @@ async function releaseCompilerDependencyConsumer(
 
 const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA =
   'sec-compiler-dependency-consumer-zero-v1' as const;
-const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2 =
+const COMPILER_DEPENDENCY_CONSUMER_COMPACTION_SCHEMA =
   'sec-compiler-dependency-consumer-zero-v2' as const;
 const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS = Object.freeze([
   'censusDigest', 'generationDigest', 'generationPath', 'generationPhysical',
   'receiptDigest', 'schema', 'terminal'
 ]);
-const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V2 = Object.freeze([
+const COMPILER_DEPENDENCY_CONSUMER_COMPACTION_KEYS = Object.freeze([
   ...COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS,
   'purpose', 'terminalRecords'
 ]);
@@ -8514,7 +8514,7 @@ type CompilerDependencyConsumerCompactionEntry = Readonly<{
 
 interface CompilerDependencyConsumerZeroReceipt {
   readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA |
-    typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2;
+    typeof COMPILER_DEPENDENCY_CONSUMER_COMPACTION_SCHEMA;
   readonly censusDigest: `sha256:${string}`;
   readonly generationDigest: `sha256:${string}`;
   readonly generationPath: string;
@@ -8548,9 +8548,9 @@ function parseCompilerDependencyConsumerZeroReceipt(
       cause: error instanceof Error ? error.message : String(error)
     });
   }
-  const isV1 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS);
-  const isV2 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V2);
-  if (!isV1 && !isV2) {
+  const isLegacyConsumerZeroReceipt = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS);
+  const isConsumerCompactionReceipt = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_COMPACTION_KEYS);
+  if (!isLegacyConsumerZeroReceipt && !isConsumerCompactionReceipt) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt has noncanonical keys');
   }
   const receipt = value as unknown as CompilerDependencyConsumerZeroReceipt;
@@ -8595,15 +8595,15 @@ function parseCompilerDependencyConsumerZeroReceipt(
       sameGeneratedStateIdentity(entry.released.generationPhysical, receipt.generationPhysical) &&
       (previous === null || compareCodeUnits(previous.acquiredName, entry.acquiredName) < 0);
   };
-  if ((isV1 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA) ||
-      (isV2 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2) ||
+  if ((isLegacyConsumerZeroReceipt && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA) ||
+      (isConsumerCompactionReceipt && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_COMPACTION_SCHEMA) ||
       !isSha256Digest(receipt.censusDigest) || !isSha256Digest(receipt.generationDigest) ||
       !isSha256Digest(receipt.receiptDigest) || !isCanonicalAbsolutePath(receipt.generationPath) ||
       !isCanonicalGeneratedStatePhysicalIdentity(receipt.generationPhysical) ||
       receipt.terminal !== 'consumer-zero') {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt fields are invalid');
   }
-  if (receipt.schema === COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2 &&
+  if (receipt.schema === COMPILER_DEPENDENCY_CONSUMER_COMPACTION_SCHEMA &&
       ((receipt.purpose !== 'generation-retirement' && receipt.purpose !== 'terminal-compaction') ||
         !Array.isArray(receipt.terminalRecords) || receipt.terminalRecords.some(
           (entry, index, entries) => !compactionEntryIsCanonical(entry, index, entries)
@@ -8644,7 +8644,7 @@ async function settleCompilerDependencyConsumerCompactionIntents(
       readNoFollowOwnedFileBytes(intentObservation, 'Compiler dependency consumer compaction intent'),
       entry.relativePath
     );
-    if (intent.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2) continue;
+    if (intent.schema !== COMPILER_DEPENDENCY_CONSUMER_COMPACTION_SCHEMA) continue;
     for (const terminal of intent.terminalRecords ?? []) {
       for (const candidate of [
         Object.freeze({ digest: terminal.released.recordDigest, name: terminal.releasedName }),
@@ -8796,7 +8796,7 @@ async function publishCompilerDependencyConsumerZeroReceipt(
   options: RuntimeDependencyOperationOptions
 ): Promise<CompilerDependencyConsumerZeroReceipt> {
   const receipt = compilerDependencyConsumerZeroReceipt({
-    schema: COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2,
+    schema: COMPILER_DEPENDENCY_CONSUMER_COMPACTION_SCHEMA,
     censusDigest,
     generationDigest: generation.epoch,
     generationPath: path.resolve(generation.sourcePath),

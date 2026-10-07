@@ -87,29 +87,19 @@
     {
       "capability": "branch-lifecycle.exact-ref-retirement",
       "operations": [
-        "prepareExactRemoteRefRecovery",
-        "retireExactRemoteRefs"
+        "observeExactRefBatchResumeReceipt"
       ],
       "effectKinds": [
-        "filesystem",
         "provider"
       ],
       "ownerInternalOperations": [
-        "prepareExactRemoteRefRecovery",
-        "retireExactRemoteRefs"
+        "observeExactRefBatchResumeReceipt"
       ],
       "operationRoles": [
         {
-          "operation": "prepareExactRemoteRefRecovery",
+          "operation": "observeExactRefBatchResumeReceipt",
           "role": "domain-owner",
-          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement.prepare-recovery",
-          "requirementId": null,
-          "recovery": null
-        },
-        {
-          "operation": "retireExactRemoteRefs",
-          "role": "domain-owner",
-          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement",
+          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement.resume",
           "requirementId": null,
           "recovery": null
         }

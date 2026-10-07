@@ -47,15 +47,76 @@ import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopment
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 
+import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { hostedSutCapabilityCommandPlan, hostedSutTeardownCommandPlan } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
+import { CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, hostedSutCleanupComplete, hostedSutLifecycleComplete } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
-import { observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
-import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertHostedActionParentEvent, CodexDevelopmentAssertHostedDependencyArchiveProjection, CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean, CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot, CodexDevelopmentCiVerificationMainForTests, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentHostedDependencyMaterializerEnvironment, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentInspectHostedActionArchiveInventory, CodexDevelopmentMaterializeTrustedBootstrapArchive, CodexDevelopmentProbeHostedSutSandboxCapability, CodexDevelopmentRunBoundedDependencyMaterialization, CodexDevelopmentValidateHostedActionArchiveInventory, HOSTED_SUT_CAPABILITY_ASSERTION, hostedCandidateProcessEnvironment, TRUSTED_BOOTSTRAP_SUT_HARNESS, type CodexDevelopmentHostedActionArtifactObservation } from '../../src/adapters/verification/platform/ci/verification.ts';
+import { CodexDevelopmentFailureTail } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, type CodexDevelopmentHostedSutSandboxProcess } from '../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts';
+import { assertRetainedHostedSutArchive, hostedActionFileDigest, retainHostedSutArchive } from '../../src/adapters/verification/platform/ci/verification-materialization.ts';
+import { finalizeHostedSutSandboxReceipt, hostedSutRootIsolationReceipt, observeHostedSutSandboxChild, syntheticHostedSutSandboxProcessObservation } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
+import { assertHostedSutSandboxCommandPlan, buildHostedSutSandboxCommandPlan, buildTrustedBootstrapSutSandboxCommandPlan, CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA, CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentAssertHostedActionDependencyInputsV1, CodexDevelopmentAssertHostedActionParentEvent, CodexDevelopmentAssertHostedDependencyArchiveProjection, CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean, CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot, CodexDevelopmentCiVerificationMainForTests, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentHostedDependencyMaterializerEnvironment, CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentInspectHostedActionArchiveInventory, CodexDevelopmentMaterializeTrustedBootstrapArchive, CodexDevelopmentRunBoundedDependencyMaterialization, CodexDevelopmentValidateHostedActionArchiveInventory, HOSTED_SUT_CAPABILITY_ASSERTION, hostedCandidateProcessEnvironment, TRUSTED_BOOTSTRAP_SUT_HARNESS, type CodexDevelopmentHostedActionArtifactObservation } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { executeHostedActionSut, probeHostedSutCapability, type HostedSutPorts } from '../../src/application/hosted-sut.ts';
 import type { VerificationGateResult, VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { prepareHostedActionSutInputs, runHostedActionSut, type HostedSutInvocation } from '../../src/bootstrap/development/hosted-sut.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
+
+type SutFixtureInput = Parameters<typeof prepareHostedActionSutInputs>[0] & Readonly<{
+  env?: NodeJS.ProcessEnv; now?: () => Date; platform?: NodeJS.Platform;
+  bunExecutable?: string; unitNonce?: string; runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
+}>;
+
+type NativeSutFixturePorts = HostedSutPorts<typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
+  import('../../src/adapters/verification/platform/action/contract/ci.ts').CiVerificationExecutionEnvironment,
+  VerificationActionProviderOrigin, typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
+  typeof CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
+  typeof import('../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts').CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA,
+  typeof import('../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts').CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
+  typeof import('../../src/adapters/verification/platform/action/contract/environment.ts').CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+  typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
+  typeof import('../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts').CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA,
+  typeof import('../../src/adapters/verification/platform/ci/verification-hosted-action-contract.ts').CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA,
+  import('../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts').CodexDevelopmentGateProcessResult,
+  ReturnType<typeof retainHostedSutArchive>>;
+
+/** Original production contract functions plus explicitly synthetic process
+ * observations. This fixture never opens or issues a native process session. */
+function sutFixturePorts(input: Pick<SutFixtureInput, 'now' | 'platform' | 'bunExecutable' | 'unitNonce' | 'runSandboxProcess'>): NativeSutFixturePorts {
+  return {
+    platform: input.platform ?? process.platform, bunExecutable: input.bunExecutable ?? '/usr/bin/bun',
+    unitNonce: input.unitNonce ?? 'sut-fixture', outputByteLimit: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT,
+    capabilityMarker: '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__', unsupportedDiagnostic: 'Synthetic fixture has no native kernel observation.',
+    now: input.now ?? (() => new Date()), digest: ciActionDigest, encodeData: encodeVerificationActionData,
+    parseResolution: CodexDevelopmentParseHostedActionResolution, parseTicket: CodexDevelopmentParseHostedActionExecutionTicket,
+    createAuthorization: CodexDevelopmentCreateHostedSutExecutionAuthorization,
+    candidateEnvironment: CodexDevelopmentHostedSutCandidateEnvironment,
+    createCapabilityPlan: hostedSutCapabilityCommandPlan, createTeardownPlan: hostedSutTeardownCommandPlan,
+    createExecutionPlan: buildHostedSutSandboxCommandPlan, normalizedArgv: ciVerificationNormalizedOperationArgv,
+    resolveAuthorizedOperation: resolveCiVerificationDevRunnerTarget,
+    run: input.runSandboxProcess ?? (() => { throw new Error('SUT fixture requires explicit synthetic observations.'); }),
+    unobservedProcess: syntheticHostedSutSandboxProcessObservation,
+    lifecycleComplete: hostedSutLifecycleComplete, cleanupComplete: hostedSutCleanupComplete,
+    failureTail: CodexDevelopmentFailureTail, resolveArchive: (source: string) => realpathSync.native(path.resolve(source)),
+    retainArchive: retainHostedSutArchive, assertArchive: assertRetainedHostedSutArchive,
+    pathDigest: hostedActionFileDigest, closeArchive: (archive: ReturnType<typeof retainHostedSutArchive>) => closeSync(archive.fileDescriptor),
+    rootIsolation: hostedSutRootIsolationReceipt, finalizeReceipt: finalizeHostedSutSandboxReceipt,
+    finalizeRawResult: CodexDevelopmentFinalizeHostedActionRawResult
+  } satisfies NativeSutFixturePorts;
+}
+
+function executeSutFixture(input: SutFixtureInput) {
+  return executeHostedActionSut(prepareHostedActionSutInputs({ resolution: input.resolution,
+    ticket: input.ticket, candidateArchive: input.candidateArchive, archiveInventory: input.archiveInventory }), sutFixturePorts(input));
+}
+
+function probeSutFixture(input: Pick<SutFixtureInput, 'now' | 'platform' | 'bunExecutable' | 'unitNonce' | 'runSandboxProcess'> &
+  Readonly<{ actionKey: VerificationActionKeyDigest; executionAuthorization?: ReturnType<typeof CodexDevelopmentCreateHostedSutExecutionAuthorization> }>) {
+  return probeHostedSutCapability({ actionKey: input.actionKey, executionAuthorization: input.executionAuthorization }, sutFixturePorts(input));
+}
 
 function gitFixture(root: string, args: readonly string[]): string {
   const result = spawnSync('git', ['-C', root, ...args], {
@@ -874,7 +935,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
     const retainedArchiveBytes: string[] = [];
     const cleanInventory = inventory(cleanArchive);
     const cleanTicket = hostedTicket(resolution, cleanInventory);
-    const clean = await CodexDevelopmentExecuteHostedActionSut({
+    const clean = await executeSutFixture({
       resolution,
       ticket: cleanTicket,
       candidateArchive: cleanArchive,
@@ -943,7 +1004,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
 
     const dirtyInventory = inventory(dirtyArchive);
     const dirtyTicket = hostedTicket(resolution, dirtyInventory);
-    const dirty = await CodexDevelopmentExecuteHostedActionSut({
+    const dirty = await executeSutFixture({
       resolution,
       ticket: dirtyTicket,
       candidateArchive: dirtyArchive,
@@ -1003,7 +1064,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   const plan = buildHostedSutSandboxCommandPlan({
     actionKey: resolution.actionPlan.action.actionKey,
     candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
-    bunExecutable: path.resolve('/trusted/tool/bun'),
+    bunExecutable: '/trusted/tool/bun',
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
     normalizedArgv: executionAuthorization.normalizedArgv,
@@ -1039,7 +1100,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   const bootstrapPlan = buildTrustedBootstrapSutSandboxCommandPlan({
     bootstrapDigest: digest('b'),
     candidateArchiveDigest: digest('a'),
-    bunExecutable: path.resolve('/trusted/tool/bun'),
+    bunExecutable: '/trusted/tool/bun',
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
     candidateEnvironment: hostedCandidateProcessEnvironment({}, {
@@ -1185,20 +1246,15 @@ test('capability success and directory cleanup cannot promote a pre-namespace su
   };
   const ticket = hostedTicket(resolution, archiveInventory);
   try {
-    const unsupported = await CodexDevelopmentExecuteHostedActionSut({
-      resolution, ticket, candidateArchive: path.join(root, 'absent.tar'), archiveInventory,
-      platform: 'linux', unitNonce: 'default-source', now: clock()
+    const unqualified = prepareHostedActionSutInputs({
+      resolution, ticket, candidateArchive: path.join(root, 'absent.tar'), archiveInventory
     });
-    expect(unsupported.sandboxReceipt.capability.lifecycle).toMatchObject({
-      supervisorSpawned: false, candidateStarted: false, observationGap: 'unsupported-source'
-    });
-    const unsupportedTerminal = CodexDevelopmentAssembleHostedActionTerminal({
-      resolution, ticket, rawResult: unsupported,
-      expectedRawResultDigest: unsupported.rawResultDigest, producer: hostedProducer
-    });
-    expect(unsupportedTerminal.result).toMatchObject({ status: 'unsupported', disposition: 'not-executed' });
+    // Production no longer has an ambient default observer. The actual Bootstrap
+    // entry must reject missing native invocation before opening any candidate.
+    await expect(runHostedActionSut(unqualified, {} as HostedSutInvocation)).rejects.toThrow();
+    expect(existsSync(path.join(root, 'absent.tar'))).toBe(false);
 
-    const rawResult = await CodexDevelopmentExecuteHostedActionSut({
+    const rawResult = await executeSutFixture({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'pre-namespace', now: clock(),
       runSandboxProcess: async (plan) => {
@@ -1228,7 +1284,7 @@ test('capability success and directory cleanup cannot promote a pre-namespace su
 });
 
 test('capability requires the post-runtime marker and rejects a missing Python executable', async () => {
-  const supported = await CodexDevelopmentProbeHostedSutSandboxCapability({
+  const supported = await probeSutFixture({
     actionKey: digest('a'),
     platform: 'linux',
     unitNonce: 'python-supported',
@@ -1241,7 +1297,7 @@ test('capability requires the post-runtime marker and rejects a missing Python e
   });
   expect(supported).toMatchObject({ state: 'supported', markerObserved: true, lifecycle: { candidateUnitSettled: true } });
 
-  const missingPython = await CodexDevelopmentProbeHostedSutSandboxCapability({
+  const missingPython = await probeSutFixture({
     actionKey: digest('b'),
     platform: 'linux',
     unitNonce: 'missing-python',
@@ -1298,7 +1354,7 @@ test.each([
 });
 
 test('capability probe detaches its deliberate residue child for trusted teardown', async () => {
-  const observation = await CodexDevelopmentProbeHostedSutSandboxCapability({
+  const observation = await probeSutFixture({
     actionKey: digest('a'),
     platform: 'linux',
     unitNonce: 'settled-probe',
@@ -1382,7 +1438,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
     let executions = 0;
     let capabilityPlan = '';
     const ticket = hostedTicket(resolution, archiveInventory);
-    const unsupported = await CodexDevelopmentExecuteHostedActionSut({
+    const unsupported = await executeSutFixture({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'unsupported', now: clock(),
       runSandboxProcess: async (plan) => {
@@ -1419,7 +1475,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       expect(capabilityPlan).not.toContain(forbidden);
     }
 
-    const ambiguous = await CodexDevelopmentExecuteHostedActionSut({
+    const ambiguous = await executeSutFixture({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'ambiguous', now: clock(),
       runSandboxProcess: async (plan) => {
@@ -1456,7 +1512,7 @@ test('hostile command-channel output is bounded into the raw receipt without mut
       dependencyClosureDigest: DEPENDENCY_CLOSURE, gitBundleDigest: GIT_CLOSURE
     };
     const ticket = hostedTicket(resolution, archiveInventory);
-    const raw = await CodexDevelopmentExecuteHostedActionSut({
+    const raw = await executeSutFixture({
       resolution,
       ticket,
       candidateArchive: archive,

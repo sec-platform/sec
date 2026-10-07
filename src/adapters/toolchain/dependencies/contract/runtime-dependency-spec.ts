@@ -36,7 +36,7 @@ const LEGACY_RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT =
  * normal materialization builder.  Once the dependency owner replaces the
  * exact legacy generation, no production reader retains v2 compatibility.
  */
-export interface LegacyRuntimeDependencyMaterializationBindingV2 {
+export interface LegacyRuntimeDependencyMaterializationBinding {
   readonly formatVersion: typeof LEGACY_RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT;
   readonly manifestHash: string;
   readonly packages: readonly Readonly<RuntimeDependencyResolvedPackage>[];
@@ -114,7 +114,7 @@ const runtimeDevDependencyKeys = generatedRuntimeDependencyCapabilityNames('devD
 // registry.  v2 was published before the aliased native TypeScript checker
 // joined the runtime root set; deriving these names from the current registry
 // would silently reinterpret immutable legacy bytes.
-const legacyRuntimeDependencyPackageNamesV2 = Object.freeze([
+const legacyRuntimeDependencyPackageNames = Object.freeze([
   '@types/bun',
   '@types/node',
   'ts-morph',
@@ -405,10 +405,10 @@ export function isRuntimeDependencyMaterializationBinding(
  */
 export function parseLegacyRuntimeDependencyMaterializationV2ForRecovery(
   value: unknown
-): Readonly<LegacyRuntimeDependencyMaterializationBindingV2> | null {
+): Readonly<LegacyRuntimeDependencyMaterializationBinding> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       Object.getPrototypeOf(value) !== Object.prototype) return null;
-  const candidate = value as Partial<LegacyRuntimeDependencyMaterializationBindingV2>;
+  const candidate = value as Partial<LegacyRuntimeDependencyMaterializationBinding>;
   if (candidate.formatVersion !== LEGACY_RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT ||
       typeof candidate.manifestHash !== 'string' || !Array.isArray(candidate.packages) ||
       !Array.isArray(candidate.rootPackages) || candidate.toolchain === null ||
@@ -433,8 +433,8 @@ export function parseLegacyRuntimeDependencyMaterializationV2ForRecovery(
         target: canonicalPackagePath(entry.target, 'Legacy runtime dependency root package target')
       });
     }).sort((left, right) => compareCodeUnits(left.name, right.name));
-    if (rootPackages.length !== legacyRuntimeDependencyPackageNamesV2.length ||
-        rootPackages.some((entry, index) => entry.name !== legacyRuntimeDependencyPackageNamesV2[index])) {
+    if (rootPackages.length !== legacyRuntimeDependencyPackageNames.length ||
+        rootPackages.some((entry, index) => entry.name !== legacyRuntimeDependencyPackageNames[index])) {
       return null;
     }
     for (const rootPackage of rootPackages) {

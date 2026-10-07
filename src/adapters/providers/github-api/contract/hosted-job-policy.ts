@@ -91,7 +91,7 @@ type HostedArtifactTransfer = Readonly<{
   artifactName: string; producerStepId: string | null; retentionDays: number | null;
   lane: HostedLauncherPhase['lane'];
 }> & (Readonly<{ kind: 'upload' }> | Readonly<{ kind: 'download' }>);
-type HostedCandidateCheckout = Readonly<{ kind: 'candidate-checkout'; source: 'activation' | 'verification-action' }>;
+type HostedCandidateCheckout = Readonly<{ kind: 'candidate-checkout'; source: 'activation' | 'verification-action' | 'bootstrap-base' | 'bootstrap-candidate' }>;
 export type CiVerificationPerJobHostedStage = HostedLauncherPhase | HostedArtifactTransfer | HostedCandidateCheckout;
 
 function phase(phase: string, stepId: string, stepName: string, lane: HostedLauncherPhase['lane'] = null): HostedLauncherPhase {
@@ -180,6 +180,15 @@ const JOB_STAGES: Readonly<Record<string, readonly CiVerificationPerJobHostedSta
     phase('closeout-mutate-hosted', 'mutate', 'Close out exact integrated branch', 'session'),
     phase('closeout-publish-hosted', 'publish', 'Publish exact branch closeout receipt', 'session'),
   ]),
+  'candidate-sut': Object.freeze([
+    Object.freeze({ kind: 'candidate-checkout' as const, source: 'bootstrap-base' as const }),
+    Object.freeze({ kind: 'candidate-checkout' as const, source: 'bootstrap-candidate' as const }),
+    phase('execute-trusted-bootstrap-sut', 'execute', 'Run candidate SUT through trusted private sandbox'),
+    Object.freeze({ kind: 'upload' as const, slot: 'sut', stepId: 'upload-sut',
+      stepName: 'Upload bounded candidate SUT artifact',
+      artifactName: 'trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
+      producerStepId: 'execute', retentionDays: 1, lane: null })
+  ]),
 });
 
 const READ_CONTROL = Object.freeze({ actions: 'read', checks: 'read', contents: 'read',
@@ -198,6 +207,7 @@ const RUNTIME_PERMISSIONS: Readonly<Record<string, Readonly<Record<string, strin
   'assemble-verification-action-terminal': Object.freeze({ actions: 'write', checks: 'read', contents: 'read', statuses: 'write' }),
   authorize: READ_CONTROL,
   integrate: WRITE_CONTROL,
+  'candidate-sut': Object.freeze({ actions: 'read', contents: 'read', 'pull-requests': 'read' }),
 });
 
 const API_ONLY = Object.freeze({ kind: 'api-only' as const, oidcPermission: null });
@@ -374,7 +384,8 @@ const JOB_SCHEDULING = deepFreeze({
       "terminal-status"
     ],
     "if": "${{ always() && needs.plan.result == 'success' && (needs.plan.outputs.resume-ready == 'true' ||\n    (needs.authorize.result == 'success' && (needs.authorize.outputs.integration-lane == 'merged-recovery' ||\n     needs.terminal-status.result == 'success'))) }}"
-  }
+  },
+  "candidate-sut": { "needs": ["resolve", "checker-pre"] }
 } as const);
 const OWNED_ENTRY = Object.freeze({ kind: 'retained-owned-entry' as const, oidcPermission: null });
 /** Required data edges between the real job producers and their consumers. */
@@ -472,7 +483,7 @@ export const CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES = Object.freeze([
   job(MERGE, 'integrate', 'control', COMPILER_COMPLETION, PER_JOB_RUNTIME, 116),
   job(BOOTSTRAP, 'resolve', 'trusted', BOOTSTRAP_REQUEST, API_ONLY, 15),
   job(BOOTSTRAP, 'checker-pre', 'trusted', BOOTSTRAP_REQUEST, OWNED_ENTRY, 30),
-  job(BOOTSTRAP, 'candidate-sut', 'sut', BOOTSTRAP_REQUEST, OWNED_ENTRY, 90),
+  job(BOOTSTRAP, 'candidate-sut', 'sut', BOOTSTRAP_REQUEST, PER_JOB_RUNTIME, 90),
   job(BOOTSTRAP, 'checker-post', 'trusted', BOOTSTRAP_REQUEST, OWNED_ENTRY, 30),
   job(RELEASE, 'compiler-release-verification', 'sut', RELEASE_REQUEST, OWNED_ENTRY, 90)
 ]);
@@ -648,6 +659,16 @@ export function assertCiVerificationPerJobHostedWholeWorkflowShape(source: strin
   }
 }
 
+export function ciVerificationTrustedBootstrapSutFiles() {
+  return Object.freeze({
+    baseRoot: 'base-sut', candidateRoot: 'candidate-sut',
+    outputDirectory: ciVerificationHostedJobTransportSlot('candidate-sut', 'out', 'sut'),
+    members: Object.freeze(['tcb-lock-pre.json', 'imports.log', 'docs-doctor.log', 'typecheck.log',
+      'diff-check.log', 'focused-tests.log', 'repository-audit.json', 'affected-plan.json',
+      'affected-tests.log', 'tcb-lock-post.json', 'SHA256SUMS', 'sut-receipt.json'])
+  });
+}
+
 export function compileCiVerificationHostedWorkflowSteps(policy: CiVerificationPerJobHostedJobPolicy): readonly unknown[] {
   if (policy.runtime.kind === 'retained-owned-entry') {
     const recipes = HOSTED_OWNED_ENTRY_RECIPES.filter(recipe => recipe.workflowPath === policy.workflowPath && recipe.jobId === policy.jobId);
@@ -698,13 +719,15 @@ export function compileCiVerificationHostedWorkflowSteps(policy: CiVerificationP
         run: `exec bun --no-env-file ${policy.runtime.launcherPath} --job ${policy.jobId} --phase ${stage.phase}` });
     } else if (stage.kind === 'upload') {
       steps.push({ name: stage.stepName, id: stage.stepId,
-        if: policy.jobId === 'agent-operation-activation'
+        if: policy.jobId === 'candidate-sut' ? 'always()' : policy.jobId === 'agent-operation-activation'
           ? "${{ steps.produce.outputs.disposition == 'created' && steps.produce.outputs.activation-ready == 'true' }}"
           : `\${{ always() && !cancelled() && steps.${stage.producerStepId}.outputs.${stage.slot}-ready == 'true'${stage.lane === 'terminal-assembly'
             ? " && needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed'"
             : stage.lane === 'terminal-anchor' ? " && needs.resolve-verification-action.outputs.provider-disposition != 'repair-terminal-status'" : ''} }}`,
         uses: UPLOAD_ACTION, with: { name: stage.artifactName,
-          path: stage.slot === 'recovery'
+          path: policy.jobId === 'candidate-sut'
+            ? ciVerificationTrustedBootstrapSutFiles().members.map(member => `\${{ github.workspace }}/${ciVerificationTrustedBootstrapSutFiles().outputDirectory}/${member}`).join('\n')
+            : stage.slot === 'recovery'
             ? `\${{ github.workspace }}/.tmp/codex/hosted-job/${policy.jobId}/out/recovery/branch-closeout-recovery.json\n\${{ github.workspace }}/.tmp/codex/hosted-job/${policy.jobId}/out/recovery/integration-preflight-result-v2.json`
             : stage.slot === 'prepared'
               ? `\${{ github.workspace }}/${ciVerificationHostedActionClaimFiles().preparedCandidateArchive}\n\${{ github.workspace }}/${ciVerificationHostedActionClaimFiles().ticketOutputPath}`
@@ -717,6 +740,12 @@ export function compileCiVerificationHostedWorkflowSteps(policy: CiVerificationP
           ? " && needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed'" : ''} }}`,
         with: { name: stage.artifactName,
           path: `\${{ github.workspace }}/${ciVerificationHostedJobTransportSlot(policy.jobId, 'in', stage.slot)}` } });
+    } else if (stage.source === 'bootstrap-base' || stage.source === 'bootstrap-candidate') {
+      const base = stage.source === 'bootstrap-base';
+      const files = ciVerificationTrustedBootstrapSutFiles();
+      steps.push({ name: base ? 'Checkout clean exact base SUT input' : 'Checkout exact candidate SUT only',
+        uses: CHECKOUT_ACTION, with: { ref: base ? '${{ needs.resolve.outputs.base }}' : '${{ needs.resolve.outputs.head }}',
+          'fetch-depth': 0, 'persist-credentials': false, path: base ? files.baseRoot : files.candidateRoot } });
     } else {
       steps.push({ name: stage.source === 'activation' ? 'Checkout exact candidate SUT'
         : 'Checkout exact candidate for trusted materialization only', uses: CHECKOUT_ACTION,

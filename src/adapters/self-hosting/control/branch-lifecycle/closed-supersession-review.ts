@@ -17,6 +17,7 @@ import {
   branchLifecycleDigest
 } from './branch-lifecycle-audit.ts';
 
+
 const CLOSED_SUPERSESSION_REVIEW_MARKER =
   '<!-- sec-branch-supersession-review -->\n';
 
@@ -252,7 +253,7 @@ async function verifySupersessionGitReview(input: Readonly<{
         }
         return Buffer.from(result.result.stdout);
       };
-      const exactObjects: readonly (readonly [string, string])[] = 'issueNumber' in review
+      const exactObjects: readonly (readonly [string, string])[] = 'mergeBaseSha' in review
         ? [
             [review.headSha, review.headTreeSha],
             [review.currentMainSha, review.currentMainTreeSha],
@@ -268,7 +269,7 @@ async function verifySupersessionGitReview(input: Readonly<{
           throw new Error('Supersession review tree differs from its exact Git commit.');
         }
       }
-      if ('issueNumber' in review) {
+      if ('mergeBaseSha' in review) {
         const observedMergeBase = (await read([
           'merge-base', review.headSha, review.currentMainSha
         ])).toString('utf8').trim();

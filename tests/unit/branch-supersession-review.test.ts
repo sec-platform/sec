@@ -461,6 +461,7 @@ test('reviewed ref v3 evidence rejects target, main, merge-base, permission or s
     reviewBranch?: string;
     reviewMain?: string;
     mergeBase?: string;
+    mergeBaseTree?: string;
     digest?: string;
   }> = {}) => {
     const commentId = COMMENT_ID + 2;
@@ -473,7 +474,7 @@ test('reviewed ref v3 evidence rejects target, main, merge-base, permission or s
       currentMainSha: input.reviewMain ?? fixture.currentMainSha,
       currentMainTreeSha: fixture.currentMainTreeSha,
       mergeBaseSha: input.mergeBase ?? fixture.mergeBaseSha,
-      mergeBaseTreeSha: fixture.mergeBaseTreeSha,
+      mergeBaseTreeSha: input.mergeBaseTree ?? fixture.mergeBaseTreeSha,
       reviewer: 'maintainer-reviewed-orphan-delta', verdict: 'approved',
       sourcePathSet: { ...sourcePathSet, digest: input.digest ?? sourcePathSet.digest },
       assessment: 'Complete orphan source delta reviewed.',
@@ -516,7 +517,7 @@ test('reviewed ref v3 evidence rejects target, main, merge-base, permission or s
     await expect(make({ permission: 'write' })).rejects.toThrow();
     await expect(make({ reviewBranch: 'fix/other' })).rejects.toThrow();
     await expect(make({ reviewMain: 'f'.repeat(40) })).rejects.toThrow();
-    await expect(make({ mergeBase: fixture.headSha })).rejects.toThrow('merge-base differs');
+    await expect(make({ mergeBase: fixture.headSha, mergeBaseTree: fixture.headTreeSha })).rejects.toThrow('merge-base differs');
     await expect(make({ digest: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(
       'source path set differs'
     );

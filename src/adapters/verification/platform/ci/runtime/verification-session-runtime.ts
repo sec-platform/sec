@@ -1,7 +1,7 @@
 import type { VerificationGateResult, VerificationResultStatus } from "../../../../../assurance/verification/result/contract/result.ts";
 import type { HostedResumeSignal, HostedSessionTerminalArtifact, VerificationSessionHostedRequest } from "../../../../../execution/verification/hosted.ts";
 import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
-import { assertHostedSessionTerminalArtifact, assertHostedSessionTerminalArtifactCurrent, finalizeVerificationSessionResumeArtifact } from "../contract/evidence.ts";
+import { assertHostedSessionTerminalArtifact, assertHostedSessionTerminalArtifactCurrent, assertSourceProgramTransitionCompletionReferences, finalizeVerificationSessionResumeArtifact } from "../contract/evidence.ts";
 import { parseVerificationSessionHostedRequest, VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from "../contract/session-request.ts";
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
@@ -45,6 +45,7 @@ import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
   type VerificationSessionLocalPreparationRequest
 } from "../contract/session-request.ts";
+import { assertBorrowedHostedSessionSourceCurrent, type VerificationSessionScope } from './session-command.ts';
 import { assertGitHubReviewAuthorityObservation, type VerificationSessionGitHubClient } from './verification-session-github.ts';
 import {
   createVerificationSessionOperationId
@@ -1146,11 +1147,12 @@ function assertSourceProgramTransitionQualified(input: Readonly<{
   assertSourceProgramTransitionQualification(input.qualification);
   const completion = input.evidence.gates.find(({ action }) => action.actionKey === selected[0]!.action.actionKey);
   if (completion !== undefined) assertSourceProgramTransitionQualification(input.qualification, completion);
+  if (completion !== undefined) assertSourceProgramTransitionCompletionReferences(completion,
+    input.qualification.origin === 'first-qualified' ? input.qualification.sourceActionOutputDigest
+      : input.qualification.predecessorActionOutputDigest, input.qualification.origin === 'first-qualified');
   if (input.qualification.actionKey !== selected[0]!.action.actionKey
       || input.qualification.sessionRevision !== input.sessionRevision
-      || completion?.result.status !== 'passed' || completion.result.evidenceRefs.length !== 1
-      || completion.result.evidenceRefs[0] !== (input.qualification.origin === 'first-qualified'
-        ? input.qualification.sourceActionOutputDigest : input.qualification.predecessorActionOutputDigest)) {
+      || completion?.result.status !== 'passed') {
     throw new Error('Source Program qualification belongs to another Action or Session.');
   }
 }
@@ -1231,8 +1233,14 @@ export function refreshVerificationSessionHostedArtifact(input: {
 export function assertArtifactProvenance(
   artifact: HostedSessionTerminalArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA>,
   provenance: TrustedArtifactProvenance,
-  session: VerificationSession
-): void {
+  session: VerificationSession,
+  ctx?: VerificationSessionScope
+): void | Promise<void> {
+  // The mature ordinary-data encoder rejects hooks and accessors. These owned
+  // snapshots are the only values consumed after native requalification awaits.
+  artifact = JSON.parse(encodeVerificationActionData(artifact));
+  provenance = JSON.parse(encodeVerificationActionData(provenance));
+  session = JSON.parse(encodeVerificationActionData(session));
   assertHostedSessionTerminalArtifact(artifact);
   const producer = artifact.producer;
   const checks: readonly [unknown, unknown, string][] = [
@@ -1246,9 +1254,8 @@ export function assertArtifactProvenance(
     if (actual !== expected) throw new Error(`Hosted artifact ${label} provenance mismatch.`);
   }
   // Direct human terminals keep the original maintain/admin transport rule.
-  // A delegated bot terminal keeps its actual 'none' permission; its provenance
-  // is constructible only by the qualified creator, which re-authenticates the
-  // fresh borrowed historical source under the human Scope cause before intake.
+  // A delegated bot terminal keeps its actual 'none' permission and consumes
+  // the original invocation's live borrowed source below, at every intake.
   const transportPermissionAccepted = artifact.schema === 'verification-session-delegated-terminal'
     ? provenance.transport.actorPermission === 'none'
     : provenance.transport.actorPermission === 'admin' || provenance.transport.actorPermission === 'maintain';
@@ -1268,6 +1275,34 @@ export function assertArtifactProvenance(
   ) {
     throw new Error('Hosted artifact is not issued by the trusted default workflow/runtime.');
   }
+  if (artifact.schema !== 'verification-session-delegated-terminal') return;
+  if (ctx === undefined) {
+    throw new Error('Delegated hosted artifact intake requires its original native invocation context.');
+  }
+  return assertBorrowedHostedSessionSourceCurrent(ctx, {
+    repository: session.repository, pullRequestNumber: session.prNumber,
+    headSha: session.headSha, candidateTreeSha: session.headTreeSha,
+    sessionRevision: session.sessionRevision
+  }).then(facts => {
+    if (facts === null || encodeVerificationActionData(facts.authenticatedArtifact) !== encodeVerificationActionData(artifact)) {
+      throw new Error('Delegated hosted artifact differs from its selected current native source.');
+    }
+    const expected = createTrustedHostedArtifactProvenance({
+      artifact: facts.authenticatedArtifact,
+      artifactText: `${encodeVerificationActionData(facts.authenticatedArtifact)}\n`,
+      observation: {
+        artifactId: facts.artifactId, artifactName: facts.artifactName,
+        archiveDigest: facts.archiveDigest, ...facts.receiverOrigin,
+        eventName: facts.receiverOrigin.sourceEvent,
+        actorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+        actorPermission: 'none', expired: false
+      },
+      actorPermission: 'none'
+    });
+    if (encodeVerificationActionData(expected) !== encodeVerificationActionData(provenance)) {
+      throw new Error('Delegated hosted provenance differs from its fresh native source transport.');
+    }
+  });
 }
 
 export function prepareVerificationSessionMergeInput(input: {

@@ -2,7 +2,7 @@ import type { VerificationActionKeyDigest } from '../../../../execution/verifica
 import type { HostedActionArtifactInput, HostedActionExecutionTicket, HostedActionResolution, HostedSutCommandPlan, HostedSutInventory, HostedSutProcessObservation, VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
 import { encodeVerificationActionData, parseVerificationActionPlan } from '../action/contract/action.ts';
 import { parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionProposal } from '../action/contract/ci.ts';
-import { parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
+import { parseVerificationActionProviderStartMarker, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderDecision, type VerificationActionProviderStartMarker, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation } from '../action/contract/provider.ts';
 import { CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionArtifactProducer, type CodexDevelopmentVerificationActionTerminalArtifact } from './contract/evidence.ts';
 
 import type { VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
@@ -161,14 +161,14 @@ export function CodexDevelopmentReadHostedActionArtifactIndex(input: Readonly<{
   const startObservations = Object.freeze(value.startObservations.map((entry) => {
     const observation = entry as VerificationActionProviderStartObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionStartMarkerV2(observation.payload);
+      parseVerificationActionProviderStartMarker(observation.payload);
     }
     return observation;
   }));
   const terminalAnchorObservations = Object.freeze(value.terminalAnchorObservations.map((entry) => {
     const observation = entry as VerificationActionProviderTerminalAnchorObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionTerminalStatusAnchorV2(observation.payload);
+      parseVerificationActionProviderTerminalAnchor(observation.payload);
     }
     return observation;
   }));
@@ -346,7 +346,7 @@ export function CodexDevelopmentParseHostedActionResolution(
 
 export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonly<{
   resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
-  marker: VerificationActionStartMarkerV2;
+  marker: VerificationActionProviderStartMarker;
   startObservation: VerificationActionProviderStartObservation;
   startStatus: VerificationActionProviderStatusObservation;
   preparedCandidateArtifactName: string;
@@ -355,9 +355,9 @@ export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonl
   const resolution = CodexDevelopmentParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const marker = parseVerificationActionStartMarkerV2(input.marker);
+  const marker = parseVerificationActionProviderStartMarker(input.marker);
   const observation = input.startObservation;
-  const expectedName = verificationActionStartMarkerNameV2(resolution.actionPlan.action.actionKey);
+  const expectedName = verificationActionProviderStartArtifactName(resolution.actionPlan.action.actionKey);
   if (marker.actionKey !== resolution.actionPlan.action.actionKey ||
       marker.candidateSha !== resolution.artifactInput.headSha ||
       marker.executionEnvironmentRevision !== resolution.executionEnvironment.executionEnvironmentRevision ||
@@ -470,7 +470,7 @@ export function CodexDevelopmentParseHostedActionExecutionTicket(
   const expectedPreparedArtifactName =
     `sec-verification-action-prepared-v2-${withoutDigest.actionKey.slice(7)}-run-${withoutDigest.producer.runId}` +
     `-attempt-${withoutDigest.producer.runAttempt}`;
-  if (value.startArtifactName !== verificationActionStartMarkerNameV2(withoutDigest.actionKey) ||
+  if (value.startArtifactName !== verificationActionProviderStartArtifactName(withoutDigest.actionKey) ||
       value.preparedCandidateArtifactName !== expectedPreparedArtifactName ||
       value.ticketDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted Action execution ticket V2 digest or artifact name mismatch.');
@@ -531,7 +531,7 @@ export function CodexDevelopmentReduceHostedActionProviderIndex(input: Readonly<
     executionEnvironmentRevision: resolution.executionEnvironment.executionEnvironmentRevision,
     statusReadback: readbacks[0]!,
     startObservations: input.index.startObservations.filter(
-      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerNameV2(actionKey)
+      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionProviderStartArtifactName(actionKey)
     ),
     terminalObservations: input.index.terminalObservations
       .map((entry) => entry.providerObservation)

@@ -58,6 +58,8 @@ export interface BranchLifecycleCloseoutTargetScope
   readonly pullRequestNumber: number;
   /** Authenticated exact PR observation from the production provider owner. */
   readonly exactPullRequest: BranchPullRequestObservation;
+  /** Complete current open-PR census supplied by the authenticated provider owner. */
+  readonly currentOpenPullRequests?: readonly BranchPullRequestObservation[];
   /** Preparation inventory supplies only non-effect policy facts. */
   readonly preparedInventory: BranchLifecycleInventory;
 }
@@ -800,7 +802,7 @@ function resolvePruneConfiguration(
 /**
  * Fresh execution fence for one closed-unmerged target. The provider supplies
  * the authenticated exact PR; this owner independently re-observes mutable
- * local and remote Git facts without scanning unrelated PRs or worktree files.
+ * local and remote Git facts, consuming the provider's current complete open-PR census.
  */
 export function collectBranchLifecycleCloseoutTargetInventory(
   input: Readonly<BranchLifecycleCloseoutTargetScope>
@@ -845,6 +847,14 @@ export function collectBranchLifecycleCloseoutTargetInventory(
   }
   assertGitSha(exactPullRequest.headSha, 'authenticated exact PR head');
   assertGitSha(exactPullRequest.baseSha, 'authenticated exact PR base');
+  if (input.currentOpenPullRequests === undefined) {
+    unknowns.push('Current complete open pull request consumer census is unavailable.');
+  }
+  const openPullRequests = structuredClone(input.currentOpenPullRequests ?? []);
+  if (openPullRequests.some(pull => pull.state !== 'open' || pull.number === exactPullRequest.number)
+      || new Set(openPullRequests.map(pull => pull.number)).size !== openPullRequests.length) {
+    throw new Error('Current open pull request consumer census is invalid.');
+  }
   const branches = [...new Set([defaultBranch, input.targetBranch])];
   let localBranches: BranchRefObservation[] = [];
   let remoteBranches: BranchRefObservation[] = [];
@@ -874,7 +884,7 @@ export function collectBranchLifecycleCloseoutTargetInventory(
     localBranches,
     remoteBranches,
     worktrees,
-    pullRequests: [exactPullRequest],
+    pullRequests: [exactPullRequest, ...openPullRequests],
     activeWorkPackage,
     repositorySetting: structuredClone(input.preparedInventory.repositorySetting),
     pruneConfiguration: structuredClone(input.preparedInventory.pruneConfiguration),

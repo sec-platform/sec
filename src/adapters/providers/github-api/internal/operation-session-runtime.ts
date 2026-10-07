@@ -22,7 +22,6 @@ import { HOSTED_RESUME_DISPATCH_EVENT, parseHostedResumeDispatchSignal } from '.
 import { currentGitHubCredentialStore } from '../credential-store.ts';
 import {
   GitHubCredentialUnavailableError,
-  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   inspectGitHubActionsRulesetAuditorCredentialIdentity,
   inspectGitHubActionsVerificationCredentialIdentity, readGitHubToken
 } from '../credential.ts';
@@ -30,7 +29,6 @@ import {
   assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal,
   type AuthenticatedGitHubJobOrigin
 } from '../hosted-job-origin.ts';
-import { isRepositoryMaintenancePermission } from '../repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../repository-permission.ts';
 import { GITHUB_VERIFICATION_READ_QUERIES, isGitHubGraphQLSchemaFailure } from '../verification-queries.ts';
 
@@ -137,6 +135,7 @@ type GitHubApiOperationBudget = {
 };
 
 type GitHubApiRequestSession = {
+  readonly repositoryRoot: string | null;
   capability: GitHubApiCapability | undefined;
   rulesetAuditorWorkflowIdentity?: NonNullable<ReturnType<typeof inspectGitHubActionsRulesetAuditorCredentialIdentity>>;
   resumeOrigin?: AuthenticatedGitHubJobOrigin;
@@ -388,6 +387,7 @@ function compileOperation(
       && kind !== 'issue-comment'
       && kind !== 'create-issue-comment'
       && kind !== 'open-pulls-page'
+      && kind !== 'workflow-run'
       && kind !== 'delete-ref-cas') {
     throw new GitHubApiProviderError(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
@@ -723,27 +723,15 @@ export function assertGitHubApiCapability(
   const userPrincipal = value.principal.transport === 'github-rest-token'
     ? value.principal
     : null;
-  const workflowCommentPrincipal = requiredEffect === 'issue-comment-write'
-    && value.principal.transport === 'github-actions-token'
-    && value.principal.permission === 'workflow'
-    && value.principal.workflowRef
-      === `${repositoryName}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
-  const workflowBranchCloseoutPrincipal = requiredEffect === 'branch-closeout-write'
-    && value.principal.transport === 'github-actions-token'
-    && value.principal.permission === 'workflow'
-    && value.principal.workflowRef
-      === `${repositoryName}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && userPrincipal?.permission !== 'admin')
       || ((requiredEffect === 'status-write' || requiredEffect === 'merge-write')
         && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')
       || (requiredEffect === 'branch-closeout-write'
-        && !workflowBranchCloseoutPrincipal
         && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')
       || (requiredEffect === 'issue-comment-write'
-        && !workflowCommentPrincipal
         && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')) {
     throw new GitHubApiProviderError(
@@ -795,7 +783,7 @@ function issueCapability(input: Readonly<{
     && input.principal.nodeId === 'MDM6Qm90NDE4OTgyODI='
     && input.principal.userId === 41898282
     && input.principal.permission === 'workflow'
-    && (actionWorkflowPrincipal || resumeWorkflowPrincipal || input.principal.workflowRef === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main` ||
+    && (actionWorkflowPrincipal || resumeWorkflowPrincipal ||
       (input.effect === 'verification-read' && [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/trusted-bootstrap.yml@refs/heads/main`,
@@ -822,14 +810,11 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API privileged write capability requires maintain/admin user permission');
   }
   if (input.effect === 'branch-closeout-write') {
-    const maintenanceWorkflow = input.principal.transport === 'github-actions-token'
-      && input.principal.workflowRef
-        === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
     const maintainerUser = input.principal.transport === 'github-rest-token'
       && (input.principal.permission === 'admin' || input.principal.permission === 'maintain');
-    if (!maintenanceWorkflow && !maintainerUser) {
+    if (!maintainerUser) {
       throw new GitHubApiProviderError(
-        'GitHub API branch-closeout capability requires maintainer user or exact maintenance workflow'
+        'GitHub API branch-closeout capability requires maintain/admin user permission'
       );
     }
   }
@@ -839,18 +824,12 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API user comment write capability requires maintain/admin permission');
   }
   if (input.principal.transport === 'github-actions-token') {
-    const maintenanceWorkflow = input.principal.workflowRef
-      === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
-    const maintenanceEffect = input.effect === 'read'
-      || input.effect === 'branch-closeout-write'
-      || input.effect === 'issue-comment-write';
     const verificationRead = input.effect === 'verification-read' &&
       [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/trusted-bootstrap.yml@refs/heads/main`,
-        `${input.repository}/.github/workflows/compiler-release-validation.yml@refs/heads/main`,
-        `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`].includes(input.principal.workflowRef);
-    if ((!maintenanceWorkflow || !maintenanceEffect) && !verificationRead && !resumeWorkflowPrincipal && !actionWorkflowPrincipal) {
+        `${input.repository}/.github/workflows/compiler-release-validation.yml@refs/heads/main`].includes(input.principal.workflowRef);
+    if (!verificationRead && !resumeWorkflowPrincipal && !actionWorkflowPrincipal) {
       throw new GitHubApiProviderError(
         'GitHub Actions workflow principal effect is not authorized by its exact workflow identity'
       );
@@ -880,6 +859,7 @@ export function issueGitHubApiCapabilityForTestSupport(input: Readonly<{
 }
 
 function createSession(input: Readonly<{
+  repositoryRoot: string | null;
   capability?: GitHubApiCapability;
   repository: string;
   effect: GitHubApiEffect;
@@ -902,6 +882,7 @@ function createSession(input: Readonly<{
   const abortController = new AbortController();
   return {
     capability: input.capability,
+    repositoryRoot: input.repositoryRoot === null ? null : path.resolve(input.repositoryRoot),
     repository: input.repository,
     effect: input.effect,
     origin: input.origin,
@@ -1028,7 +1009,7 @@ async function executeWithToken<T>(
       }
       let response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
-        redirect: compiled.kind === 'verification-artifact-archive' ? 'manual' : 'error',
+        redirect: (compiled.kind === 'verification-artifact-archive') ? 'manual' : 'error',
         headers: {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${token}`,
@@ -1039,7 +1020,7 @@ async function executeWithToken<T>(
         signal: transportSignal,
         ...(body === undefined ? {} : { body })
       });
-      if (compiled.kind === 'verification-artifact-archive') {
+      if ((compiled.kind === 'verification-artifact-archive')) {
         const location = response.headers.get('location');
         const status = response.status;
         if (response.body !== null) await withOwnedByteStreamReader(response.body, async () => undefined, session.abortController.signal);
@@ -1099,7 +1080,7 @@ async function executeWithToken<T>(
             );
             return null as T;
           }
-          if (compiled.kind === 'verification-artifact-archive') {
+          if ((compiled.kind === 'verification-artifact-archive')) {
             if (response.status !== 200) throw new GitHubApiProviderError('Artifact download returned an invalid status', response.status);
             const chunks: Uint8Array[] = [];
             let length = 0;
@@ -1130,7 +1111,7 @@ async function executeWithToken<T>(
           chunks.push(decoder.decode());
           const source = chunks.join('');
           if (!response.ok) throw new GitHubApiProviderError(
-            `GitHub API ${compiled.kind} failed with HTTP ${response.status}${compiled.kind.startsWith('verification-artifact') ? '' : `: ${source.slice(-2048)}`}`, response.status
+            `GitHub API ${compiled.kind} failed with HTTP ${response.status}${(compiled.kind.startsWith('verification-artifact')) ? '' : `: ${source.slice(-2048)}`}`, response.status
           );
           let value: unknown;
           try { value = JSON.parse(source); }
@@ -1298,7 +1279,7 @@ async function readVerifiedGitHubArtifactArchive(capability: GitHubApiCapability
       ? new HostedArtifactProjectionDataError('invalid', 'Artifact metadata drifted from the selected identity')
       : new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
   }
-  const archive = await executeGitHubApiOperation(capability,{kind:'verification-artifact-archive',artifactId:input.artifactId});
+  const archive = await executeGitHubApiOperation(capability,{kind: 'verification-artifact-archive',artifactId:input.artifactId});
   if (!(archive instanceof Uint8Array) || archive.byteLength !== metadata.size_in_bytes ||
       (metadata.digest != null && rawSha256(archive) !== metadata.digest)) {
     throw input.closedProjection === true
@@ -1516,21 +1497,11 @@ async function enroll(input: Readonly<{
   }
   if (session.capability !== undefined) return session.capability;
   const token = await input.readToken(input.repositoryRoot, session);
-  const maintenanceWorkflowIdentity = input.origin === 'production'
-    ? inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(process.env, input.repository)
-    : null;
   const verificationWorkflowIdentity = input.origin === 'production' &&
     (input.effect === 'verification-read' || input.effect === 'verification-dispatch' || input.effect === 'verification-resume-dispatch' || input.effect === 'verification-action-provider')
     ? inspectGitHubActionsVerificationCredentialIdentity(process.env, input.repository) : null;
-  const workflowIdentity = verificationWorkflowIdentity ?? maintenanceWorkflowIdentity;
+  const workflowIdentity = verificationWorkflowIdentity;
   if (workflowIdentity !== null) {
-    if (input.effect !== 'read' && input.effect !== 'verification-read'
-        && input.effect !== 'branch-closeout-write'
-        && input.effect !== 'issue-comment-write' && input.effect !== 'verification-resume-dispatch' && input.effect !== 'verification-action-provider') {
-      throw new GitHubApiProviderError(
-        'GitHub Actions repository-maintenance credential permits only read, branch-closeout-write, and issue-comment-write'
-      );
-    }
     const repositoryValue = await executeWithToken<unknown>(
       session,
       token,
@@ -1550,20 +1521,6 @@ async function enroll(input: Readonly<{
         && (session.actionProviderOrigin === undefined || String((repositoryValue as Record<string, unknown>).id)
           !== observeActionProviderOrigin(session.actionProviderOrigin).repositoryId)) {
       throw new GitHubApiProviderError('Action provider repository identity changed during enrollment');
-    }
-    if (maintenanceWorkflowIdentity !== null) {
-      const permissionValue = await executeWithToken<unknown>(
-        session,
-        token,
-        input.transport,
-        { kind: 'collaborator-permission', login: maintenanceWorkflowIdentity.actor }
-      );
-      const permission = normalizeGitHubRepositoryPermission(permissionValue);
-      if (!isRepositoryMaintenancePermission(permission)) {
-        throw new GitHubApiProviderError(
-          'GitHub Actions repository-maintenance actor requires maintain/admin permission'
-        );
-      }
     }
     if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read'
         && !(input.effect === 'verification-resume-dispatch' && session.resumeOrigin !== undefined)
@@ -1669,7 +1626,8 @@ async function runSession<T>(input: Readonly<{
   if (input.budget !== undefined) {
     const remainingBudget = input.budget.deadlineAt - input.budget.now();
     if (input.budget.repositoryRoot !== path.resolve(input.repositoryRoot)
-        || input.budget.repository !== input.repository || input.budget.effect !== input.effect
+        || input.budget.repository !== input.repository
+        || input.budget.effect !== input.effect
         || input.budget.origin !== input.origin || remainingBudget <= 0) {
       throw new GitHubApiProviderError('GitHub API parent operation budget boundary is invalid');
     }
@@ -1687,6 +1645,7 @@ async function runSession<T>(input: Readonly<{
     observeActionProviderOrigin(input.actionProviderOrigin);
   }
   const session = createSession({
+    repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     effect: input.effect,
     origin: input.origin,
@@ -1809,6 +1768,30 @@ export async function dispatchAuthenticatedHostedJobResume(input: Readonly<{
     } });
 }
 
+/** One closed read, borrowing an existing owner's exact session without exposing its capability.
+ * Session nesting rules remain unchanged; no callback or write operation is accepted. */
+export async function observeGitHubApiMainRef(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): Promise<unknown> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const repository = input.repository;
+  const current = requestSession.getStore();
+  if (current !== undefined) {
+    if (current.repository !== repository || current.repositoryRoot !== repositoryRoot
+        || (current.effect !== 'read' && current.effect !== 'branch-closeout-write')
+        || current.capability === undefined) {
+      throw new GitHubApiProviderError('Main ref observation cannot borrow this repository/root/effect session');
+    }
+    remaining(current);
+    const result = await executeGitHubApiOperation(current.capability, { kind: 'git-ref', branch: 'main' });
+    remaining(current);
+    return result;
+  }
+  return await withGitHubApiReadSession({ repositoryRoot, repository,
+    operation: capability => executeGitHubApiOperation(capability, { kind: 'git-ref', branch: 'main' }) });
+}
+
 export async function withGitHubApiReadSession<T>(input: Readonly<{
   repositoryRoot: string;
   repository: string;
@@ -1917,6 +1900,7 @@ export function assertGitHubApiReadOperationBudgetCurrent(input: Readonly<{
 }
 
 export async function withGitHubApiSessionForTestSupport<T>(input: Readonly<{
+  repositoryRoot?: string;
   capability: GitHubApiCapability;
   operation: () => Promise<T>;
   now?: () => number;
@@ -1935,6 +1919,7 @@ export async function withGitHubApiSessionForTestSupport<T>(input: Readonly<{
     return await input.operation();
   }
   const session = createSession({
+    repositoryRoot: input.repositoryRoot ?? null,
     capability: input.capability,
     repository: value.repository,
     effect: value.effect,

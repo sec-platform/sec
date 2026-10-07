@@ -6,7 +6,6 @@ import { withGitHubCredentialStore } from '../../src/adapters/providers/github-a
 import { resolveLinuxEffectiveUserHome } from '../../src/adapters/runtime-state/physical/runtime/linux-user-home.ts';
 
 import {
-  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   readGitHubToken
 } from '../../src/adapters/providers/github-api/credential.ts';
 
@@ -112,120 +111,6 @@ test.serial('acquires one token through the retained fixed command and scrubs am
   }
 });
 
-test.serial('recognizes only the exact repository-maintenance dispatch workflow identity', () => {
-  const source: NodeJS.ProcessEnv = {
-    GITHUB_ACTIONS: 'true',
-    GITHUB_SERVER_URL: 'https://github.com',
-    GITHUB_API_URL: 'https://api.github.com',
-    GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'repository_dispatch',
-    GITHUB_REF: 'refs/heads/main',
-    GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
-    GITHUB_ACTOR: 'maintainer',
-    SEC_MAINTENANCE_ISSUE_NUMBER: '313',
-    SEC_MAINTENANCE_COMMENT_ID: '42',
-    SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
-    GH_TOKEN: 'ghs_actions-token-0123456789'
-  };
-  expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
-    source,
-    'sec-platform/sec'
-  )).toEqual({
-    repository: 'sec-platform/sec',
-    workflowRef:
-      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
-    workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    issueNumber: 313,
-    commentId: 42,
-    actor: 'maintainer'
-  });
-  for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
-    expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity({ ...source,
-      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association }, 'sec-platform/sec'))
-      .toEqual(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, 'sec-platform/sec'));
-  }
-  for (const changed of [
-    { GITHUB_EVENT_NAME: 'issue_comment' },
-    { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
-    { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
-    { GITHUB_ACTOR: 'other' }
-  ]) {
-    expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
-      { ...source, ...changed },
-      'sec-platform/sec'
-    )).toBeNull();
-  }
-});
-
-test.serial('forwards only the explicit GitHub Actions token to the fixed credential command', async () => {
-  const root = await fixture();
-  const original = { ...process.env };
-  try {
-    process.env.PATH = root;
-    process.env.GITHUB_ACTIONS = 'true';
-    process.env.GITHUB_SERVER_URL = 'https://github.com';
-    process.env.GITHUB_API_URL = 'https://api.github.com';
-    process.env.GITHUB_REPOSITORY = 'sec-platform/sec';
-    process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
-    process.env.GITHUB_REF = 'refs/heads/main';
-    process.env.GITHUB_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    process.env.GITHUB_WORKFLOW_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    process.env.GITHUB_WORKFLOW_REF =
-      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main';
-    process.env.SEC_MAINTENANCE_ISSUE_NUMBER = '313';
-    process.env.SEC_MAINTENANCE_COMMENT_ID = '42';
-    process.env.SEC_MAINTENANCE_COMMENT_AUTHOR = 'maintainer';
-    process.env.GITHUB_ACTOR = 'maintainer';
-    process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
-    process.env.GITHUB_TOKEN = 'must-not-forward';
-    process.env.GH_HOST = 'evil.example';
-    process.env.GH_CONFIG_DIR = path.join(root, 'redirected-gh');
-    process.env.HOME = path.join(root, 'redirected-home');
-    process.env.XDG_CONFIG_HOME = path.join(root, 'redirected-xdg');
-    const token = await readGitHubToken({
-      cwd: root,
-      repository: 'sec-platform/sec',
-      hostname: 'github.com',
-      deadlineAtUnixMs: Date.now() + 10_000
-    });
-    expect(Buffer.from(token).toString('ascii')).toBe('ghp_test-token');
-    expect(JSON.parse(await readFile(path.join(root, 'observed.json'), 'utf8'))).toEqual({
-      args: ['auth', 'token', '--hostname', 'github.com'],
-      environment: {
-        PATH: null,
-        GH_HOST: null,
-        GH_TOKEN: 'ghs_actions-token-0123456789',
-        GITHUB_TOKEN: null,
-        GH_CONFIG_DIR: null,
-        HOME: null,
-        XDG_CONFIG_HOME: null,
-        HTTP_PROXY: null,
-        HTTPS_PROXY: null,
-        ALL_PROXY: null,
-        NO_PROXY: null,
-        http_proxy: null,
-        https_proxy: null,
-        GITHUB_ACTIONS: null,
-        GITHUB_SERVER_URL: null,
-        GITHUB_API_URL: null,
-        GITHUB_REPOSITORY: null,
-        GITHUB_EVENT_NAME: null,
-        GITHUB_REF: null,
-        GITHUB_SHA: null,
-        GITHUB_WORKFLOW_SHA: null,
-        GITHUB_WORKFLOW_REF: null
-      }
-    });
-    token.fill(0);
-  } finally {
-    for (const key of Object.keys(process.env)) delete process.env[key];
-    Object.assign(process.env, original);
-  }
-});
-
 test.serial('rejects an expired deadline before executable discovery', async () => {
   await expect(readGitHubToken({
     cwd: import.meta.dir,
@@ -261,6 +146,22 @@ test.skipIf(process.platform !== 'linux').serial('reads through an explicitly bo
     expect(observed.environment.GH_CONFIG_DIR).toBe('/proc/self/fd/4');
     expect(observed.environment.HOME).toBeNull();
     expect(observed.environment.GH_TOKEN).toBeNull();
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, original);
+  }
+});
+
+test.serial('an Actions token with a retired dispatch selector fails instead of falling back to stored auth', async () => {
+  const original = { ...process.env };
+  try {
+    process.env.GITHUB_ACTIONS = 'true';
+    process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
+    process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
+    await expect(readGitHubToken({ cwd: import.meta.dir, repository: 'sec-platform/sec', hostname: 'github.com',
+      deadlineAtUnixMs: Date.now() + 10_000 })).rejects.toMatchObject({
+        code: 'github-credential-unavailable', reason: 'admission'
+      });
   } finally {
     for (const key of Object.keys(process.env)) delete process.env[key];
     Object.assign(process.env, original);
