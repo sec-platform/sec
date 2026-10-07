@@ -120,10 +120,12 @@ test('terminal compaction can retire the last work item to an empty catalog', ()
 
   const terminal = compileSecWorkSelectionTerminalProjection({
     roadmapSource: source,
-    currentSpecs: [closedSpec]
+    currentSpecs: [closedSpec],
+    presentManifestPaths: []
   });
 
   expect(terminal.terminalCompaction?.retiredWorkIds).toEqual(['issue-1']);
+  expect(terminal.terminalCompaction?.delayedManifestRetirementPaths).toEqual([]);
   expect(terminal.catalog.items).toEqual([]);
   expect(terminal.currentSpecs).toEqual([]);
   expect(parseSecRoadmapWorkCatalog(terminal.terminalCompaction!.roadmapSource).items).toEqual([]);
