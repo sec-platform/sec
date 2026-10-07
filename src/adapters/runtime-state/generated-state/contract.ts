@@ -214,7 +214,7 @@ type GeneratedStateWorktreeRetirementEntry =
   | GeneratedStateWorktreeDomainRetiredEntry;
 
 /**
- * Durable #271 handoff for an enclosing #186 worktree retirement.
+ * Durable generated-state handoff for an enclosing worktree retirement.
  *
  * The generated-state owner never infers deletion authority here. It proves
  * every ignored root is registry-covered, preserves ordinary roots outside
