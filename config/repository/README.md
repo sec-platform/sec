@@ -8,7 +8,7 @@ last-reviewed: 2026-09-20
 # 动态工程控制面
 
 - `current-state.yaml` 只保存 resolver 配置和跨候选稳定的 authority 入口。
-- `rolling-plan.md` 只保存一个当前包和二至五个条件候选；候选不是授权。
+- `rolling-plan.md` 只保存一个当前包和至多五个条件候选；候选可以为空，且不是授权。
 - `active-work-package.md` 只保存 frozen manifest path 与 raw Git blob digest。
 
 Work Package 的版本、准确候选绑定与读者先行迁移见[清单格式与候选绑定](../../docs/开发/AI协作/规则装载与任务恢复.md#repository-work-package-format-and-binding)。
@@ -42,8 +42,8 @@ Proposal 的 `retirementTarget` 是不可物化 tombstone identity，不是文�
 分别按其实际绑定输入与策略判定失效，不把未变的独立内容证据机械作废。树相同也不代签
 历史敏感构建、权限、main-only检查或merge authority。即使变化已经进入`main`，只要缺少
 可验证merge authority，也必须登记incident并按新主干重新裁决；不得用“main已包含”抹掉
-来源缺陷，也不得静默force-reset。平台级禁止admin bypass由Issue #279独立闭环，未完成
-ruleset readback前不得声称GitHub物理保护已经成立。
+来源缺陷，也不得静默force-reset。平台级禁止 admin bypass 由 `src/adapters/self-hosting/control/main-health/authority-ruleset.ts` 的
+MainHealth authority/ruleset owner 闭环；未完成 ruleset 与 `bypass_actors` readback 前不得声称 GitHub 物理保护已经成立。
 
 已合并 Work Package manifest 在 pointer 仍指向它时保持 `conditional`；repository audit
 使用 trusted exact base 区分 default branch 上的惰性当前记录与 active candidate。该记录不获得
