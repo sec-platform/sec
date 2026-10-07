@@ -3,9 +3,9 @@
  * V2 owns semantic revision independently from run identity and timestamps.
  *
  * This module defines the machine registry projection and stable
- * manifest/session separation. The #313 published receipt mechanism
- * is an input fact for sessions; publication and readback stay with their
- * owning modules.
+ * manifest/session separation. The branch-lifecycle published receipt
+ * mechanism is an input fact for sessions; publication and readback stay
+ * with its owning modules.
  */
 
 import { createHash } from 'node:crypto';
