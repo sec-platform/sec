@@ -1,5 +1,5 @@
 /**
- * Provider capability resolution (Issue #347 section A).
+ * Provider capability resolution.
  *
  * Writer / reviewer / verification-executor providers are separate
  * capabilities. Availability is resolved into normalized state before any
