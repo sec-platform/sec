@@ -11,7 +11,7 @@ export function formatPolicyReport(view: PolicyReportInspectView): string {
       `violations=${view.violationCount}`
     ]),
     `Sources: ${view.sourceCount}`,
-    `Severity: ${formatList([...view.severityEntries])}`
+    `Severity: ${formatList(view.severityEntries)}`
   ];
 
   for (const policy of view.policies) {
@@ -20,7 +20,7 @@ export function formatPolicyReport(view: PolicyReportInspectView): string {
         `Policy ${policy.id}`,
         `scope=${policy.sourceScope}`,
         `source=${policy.sourcePath}`,
-        `targets=${formatList([...policy.targets])}`
+        `targets=${formatList(policy.targets)}`
       ])
     );
   }
@@ -30,7 +30,7 @@ export function formatPolicyReport(view: PolicyReportInspectView): string {
       formatFields([
         `Violation ${violation.id}`,
         `severity=${violation.severity}`,
-        `files=${formatList([...violation.files])}`,
+        `files=${formatList(violation.files)}`,
         violation.message
       ])
     );

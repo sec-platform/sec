@@ -179,8 +179,11 @@ test('semantic plan remains provider-neutral while exact bindings are replaceabl
 });
 
 test('operation identity excludes the attempt deadline while the attempt remains deadline-bound', () => {
-  const first = plan(1_900_000_000_000);
-  const second = plan(1_900_000_000_001);
+  const attempt = issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest('verification-typecheck-authority-grant')
+  });
+  const first = plan(1_900_000_000_000, 120_000, attempt);
+  const second = plan(1_900_000_000_001, 120_000, attempt);
   expect(first.identity.identityDigest).toBe(second.identity.identityDigest);
   expect(first.attempt.attemptDigest).not.toBe(second.attempt.attemptDigest);
   expect(first.attempt.deadlineAtUnixMs).toBe(1_900_000_000_000);

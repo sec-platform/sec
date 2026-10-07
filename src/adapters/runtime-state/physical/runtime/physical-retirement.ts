@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { assertSameNoFollowDirectoryIdentity } from './physical-directory-chain.ts';
 import { inspectNoFollowDirectoryLeaf } from './physical-directory-entry.ts';
-import { directoryTreeEntryPosixOwnership } from './physical-directory-tree.ts';
+import { directoryTreeEntryPosixOwnership } from './physical-directory-tree-observation.ts';
 import { assertExclusiveFileGuardResource } from './physical-exclusive-guard.ts';
 import {
   PhysicalNoFollowError,

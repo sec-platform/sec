@@ -4,35 +4,6 @@ binding:
   repository: sec-platform/sec
 policy:
   owner: docs/架构/实现供给与替换.md
-executionTopology:
-  schema: sec-verification-execution-topology-v1
-  semanticControlPlane: platform-neutral
-  selection: required-closure-intersect-missing-or-stale
-  environments:
-    - id: windows-native-control
-      availability: available
-      capabilities:
-        - semantic-control
-        - windows-native
-      evidenceRole: owning-environment-only
-    - id: docker-linux-x64
-      availability: available
-      capabilities:
-        - linux-native-runtime
-      substrate:
-        wsl2: implementation-only-not-independent-evidence
-      localRemoteSwitch: same-profile-conformance-no-workflow-change
-    - id: darwin-native
-      availability: unavailable
-      capabilities:
-        - darwin-native
-      unrelatedDelta: not-applicable
-      requiredDelta: typed-provider-unavailable
-  invariants:
-    noPlatformSubstitution: true
-    noSubstrateDoubleCounting: true
-    noUnavailableProviderPass: true
-    noWorkflowEditForLocalRemoteSwitch: true
 providers:
   - id: github-actions-local-runner
     category: workflow-runtime

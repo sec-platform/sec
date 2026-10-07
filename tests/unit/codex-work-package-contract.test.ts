@@ -366,7 +366,6 @@ test('Work Package V3 rejects embedded base, extra keys, retired V2 and stale CI
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('codex-development-work-package-v3', 'codex-development-work-package-v2')
   )).toThrow('schema is unsupported');
-  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2())).toThrow('schema is unsupported');
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('ci-verification-v19', 'ci-verification-v18')
   )).toThrow('current CI verification revision');

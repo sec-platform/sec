@@ -4,11 +4,13 @@ import path from 'node:path';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import { expect, test } from 'bun:test';
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { assertWorkerOperationReadPlanMatches, projectWorkerOperationReadClosure } from '../../src/adapters/self-hosting/control/agent/operation-read-plan.ts';
 import { projectWorkerTaskCapsuleObservation } from '../../src/adapters/self-hosting/control/agent/task-capsule-host.ts';
 import { parseDocumentationIdentityRegistry } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 
@@ -48,6 +50,7 @@ function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationRe
 function gitOutput(args: readonly string[]): string {
   const result = spawnSync('git', args, {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });
@@ -58,6 +61,7 @@ function gitOutput(args: readonly string[]): string {
 function gitOutputOrNull(args: readonly string[]): string | null {
   const result = spawnSync('git', args, {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });
@@ -67,6 +71,7 @@ function gitOutputOrNull(args: readonly string[]): string | null {
 function gitNulPaths(args: readonly string[]): string[] {
   const result = spawnSync('git', args, {
     cwd: REPOSITORY_ROOT,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });
@@ -243,10 +248,29 @@ test('candidate quarantine revisions are derived from exact Git objects', async 
 
 
 test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner stays trusted through real observation, Capsule and Read Plan comparison', async () => {
-  const manifestPath = 'config/repository/work-packages/repository-closeout-20260927-v1.md';
-  const manifestBytes = readFileSync(path.join(REPOSITORY_ROOT, manifestPath));
-  const baseManifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestBytes.toString('utf8'), manifestPath);
   const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';
+  const manifestPath = 'config/repository/work-packages/final-successor-fixture.md';
+  const manifestBytes = Buffer.from(`---
+schema: codex-development-work-package-v3
+id: final-successor-fixture
+tracking: none
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ${CI_VERIFICATION_CONTRACT_REVISION}
+tasks:
+  - id: update-rule-loading
+    owner: development-governance
+    ownedPaths:
+      - "${guidance}"
+forbiddenPaths:
+  - "AGENTS.md"
+acceptance:
+  - "Keep FINAL rule-loading authority bound to the trusted revision."
+tests:
+  - "tests/contract/skill-applicability.test.ts"
+---
+`);
+  const baseManifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestBytes.toString('utf8'), manifestPath);
   expect(baseManifest.tasks.some(task => task.ownedPaths.includes(guidance))).toBe(true);
   expect(baseManifest.forbiddenPaths).toContain('AGENTS.md');
   const registryPath = '.documentation/documents.json';
@@ -269,7 +293,7 @@ test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner st
     gitProtocolSuccess(git(['add', '--', guidance]));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'FINAL rule-loading fixture']));
     const targetCandidate = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
-    // Current published package is not activation-ready: preserve its missing-authorityRefs refusal.
+    // A manifest without authorityRefs must remain ineligible for activation.
     expect(() => observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, baseManifest, [guidance]))
       .toThrow('activation-scope-conflict');
     // This successor fixture supplies the required registry-bound refs, without

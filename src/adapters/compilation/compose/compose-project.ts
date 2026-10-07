@@ -85,10 +85,14 @@ export async function composeProject(
   }, commitFence);
 
   const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext, commitFence);
+  // A stage can finish its admitted writes while cancellation arrives. Keep
+  // those effects for settlement, but do not adopt new Lock state afterward.
+  throwIfNativeAborted(signal);
   lock.semanticLoweringTasks = semanticLowering.tasks;
   const semanticGeneratedPaths = semanticLowering.generatedPaths;
   const runtimeScaffoldPaths = await generateRuntimeLibraryScaffold(workspaceRoot, lock, commitFence, signal);
 
+  throwIfNativeAborted(signal);
   const initialGeneratedPaths = [
     ...semanticGeneratedPaths,
     ...runtimeScaffoldPaths,
@@ -113,6 +117,7 @@ export async function composeProject(
     },
     commitFence
   );
+  throwIfNativeAborted(signal);
   lock.passStatus.compose = 'succeeded';
   await saveLock(workspaceRoot, lock, commitFence);
   return lock;

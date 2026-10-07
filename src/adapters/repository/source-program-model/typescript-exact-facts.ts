@@ -1,11 +1,3 @@
-import type {
-  SourceProgramDeclaration,
-  SourceProgramModel,
-  SourceProgramReturnProvenance
-} from './contract.ts';
-import {
-  sourceProgramSurfaceForPath
-} from './contract.ts';
 import ts from 'typescript';
 import {
   compareCodeUnits,
@@ -15,6 +7,14 @@ import {
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
 import type {
+  SourceProgramDeclaration,
+  SourceProgramModel,
+  SourceProgramReturnProvenance
+} from './contract.ts';
+import {
+  sourceProgramSurfaceForPath
+} from './contract.ts';
+import type {
   TypeScriptRequiredApiClosure
 } from './typescript-api-closure.ts';
 import {
@@ -22,27 +22,28 @@ import {
   compileTypeScriptRequiredApiClosure
 } from './typescript-api-closure.ts';
 import type {
-  ExactTypeScriptProgram,
-  TypeScriptRenameObservation
-} from './typescript-workspace.ts';
-import {
-  compileExactTypeScriptProgram
-} from './typescript-workspace.ts';
-import type {
   PreparedTypeScriptModelInput
 } from './typescript-input.ts';
 import {
-  TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION
+  TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
+  TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS
 } from './typescript-profile.ts';
+import {
+  compileSourceProgramReturnProvenance
+} from './typescript-return-provenance.ts';
 import {
   declarationName,
   executionScopeName,
   semanticDeclarationText,
   spanFor
 } from './typescript-syntax.ts';
+import type {
+  ExactTypeScriptProgram,
+  TypeScriptRenameObservation
+} from './typescript-workspace.ts';
 import {
-  compileSourceProgramReturnProvenance
-} from './typescript-return-provenance.ts';
+  compileExactTypeScriptProgram
+} from './typescript-workspace.ts';
 
 /** Exact-program facts and capability observations bound to model identity; private generation registry. */
 export type TypeScriptSyntaxObservation = Readonly<{
@@ -357,6 +358,123 @@ export function observeDurableWorkerInput(
   });
 }
 
+function hasRuntimeValueDeclaration(symbol: ts.Symbol): boolean {
+  return (symbol.declarations ?? []).some((declaration) => {
+    const sourceFile = declaration.getSourceFile();
+    if (sourceFile.isDeclarationFile) return false;
+    for (let node: ts.Node | undefined = declaration; node !== undefined && node !== sourceFile; node = node.parent) {
+      if ((ts.getCombinedModifierFlags(node as ts.Declaration) & ts.ModifierFlags.Ambient) !== 0) {
+        return false;
+      }
+    }
+    if (ts.isFunctionDeclaration(declaration)) return declaration.body !== undefined;
+    if (ts.isClassDeclaration(declaration)) return true;
+    if (ts.isVariableDeclaration(declaration) || ts.isBindingElement(declaration)) return true;
+    if (ts.isEnumDeclaration(declaration)) {
+      return (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Const) === 0
+        || Boolean(TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS.preserveConstEnums
+          || TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS.isolatedModules
+          || TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS.verbatimModuleSyntax);
+    }
+    if (ts.isModuleDeclaration(declaration)) {
+      return declaration.body !== undefined && (symbol.flags & ts.SymbolFlags.ValueModule) !== 0;
+    }
+    if (ts.isExportAssignment(declaration)) return true;
+    return false;
+  });
+}
+
+function typeOnlyStarExportStatus(
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  exportName: string,
+  visited = new Set<string>()
+): 'absent' | 'unresolved' | 'not-applicable' {
+  const key = `${sourceFile.fileName}\0${exportName}`;
+  if (visited.has(key)) return 'unresolved';
+  const nextVisited = new Set(visited).add(key);
+  const through = (specifier: ts.Expression, name: string) => {
+    const target = checker.getSymbolAtLocation(specifier);
+    const targetSource = target?.declarations?.find(ts.isSourceFile);
+    return targetSource === undefined ? 'unresolved' as const
+      : typeOnlyStarExportStatus(checker, targetSource, name, nextVisited);
+  };
+  const throughLocalBinding = (localName: string): 'absent' | 'unresolved' | 'not-applicable' => {
+    // The checker can jump from an ImportSpecifier to the final symbol,
+    // skipping a type-only star inside the imported module. Follow its
+    // source-module export route before accepting a local export list.
+    for (const local of sourceFile.statements) {
+      if (!ts.isImportDeclaration(local) || local.importClause === undefined) continue;
+      const clause = local.importClause;
+      if (clause.name?.text === localName) {
+        return clause.isTypeOnly ? 'absent' : through(local.moduleSpecifier, 'default');
+      }
+      if (clause.namedBindings === undefined || !ts.isNamedImports(clause.namedBindings)) continue;
+      const binding = clause.namedBindings.elements.find(item => item.name.text === localName);
+      if (binding !== undefined) return clause.isTypeOnly || binding.isTypeOnly ? 'absent'
+        : through(local.moduleSpecifier, binding.propertyName?.text ?? binding.name.text);
+    }
+    return 'not-applicable';
+  };
+  // Explicit exports take precedence over star contributions, independently
+  // of source order. Follow each named re-export before accepting its target.
+  for (const statement of sourceFile.statements) {
+    if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined) {
+      if (ts.isNamedExports(statement.exportClause)) {
+        const element = statement.exportClause.elements.find(item => item.name.text === exportName);
+        if (element === undefined) continue;
+        if (statement.isTypeOnly || element.isTypeOnly) return 'absent';
+        const localName = element.propertyName?.text ?? element.name.text;
+        if (statement.moduleSpecifier !== undefined) return through(statement.moduleSpecifier, localName);
+        return throughLocalBinding(localName);
+      }
+      if (statement.exportClause.name.text === exportName) {
+        return statement.isTypeOnly ? 'absent' : 'not-applicable';
+      }
+    }
+    if (exportName === 'default' && ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      return ts.isIdentifier(statement.expression)
+        ? throughLocalBinding(statement.expression.text) : 'not-applicable';
+    }
+    if (!ts.canHaveModifiers(statement)
+        || !ts.getModifiers(statement)?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword)) continue;
+    const isDefault = ts.getModifiers(statement)?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+    if (isDefault) {
+      if (exportName === 'default') return 'not-applicable';
+      continue;
+    }
+    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)
+        || ts.isEnumDeclaration(statement) || ts.isModuleDeclaration(statement))
+        && statement.name?.text === exportName) return 'not-applicable';
+    if (ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === exportName)) return 'not-applicable';
+  }
+  // ECMAScript star exports never forward default.
+  if (exportName === 'default') return 'absent';
+  let typeOnlyContribution = false;
+  let unknownTarget = false;
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.exportClause !== undefined
+        || statement.moduleSpecifier === undefined) continue;
+    const target = checker.getSymbolAtLocation(statement.moduleSpecifier);
+    if (target === undefined) { unknownTarget = true; continue; }
+    if (!checker.getExportsOfModule(target).some(candidate => candidate.getName() === exportName)) continue;
+    const status = statement.isTypeOnly ? 'absent' : through(statement.moduleSpecifier, exportName);
+    if (status === 'not-applicable') return status;
+    if (status === 'absent') typeOnlyContribution = true;
+    else unknownTarget = true;
+  }
+  return unknownTarget ? 'unresolved' : typeOnlyContribution ? 'absent' : 'not-applicable';
+}
+
+function typeOnlyAliasReachable(checker: ts.TypeChecker, symbol: ts.Symbol, visited = new Set<ts.Symbol>()): boolean {
+  if ((symbol.flags & ts.SymbolFlags.Alias) === 0 || visited.has(symbol)) return false;
+  visited.add(symbol);
+  if ((symbol.declarations ?? []).some(ts.isTypeOnlyImportOrExportDeclaration)) return true;
+  const resolved = checker.getImmediateAliasedSymbol(symbol);
+  return resolved !== undefined && resolved !== symbol && typeOnlyAliasReachable(checker, resolved, visited);
+}
+
 /** Resolve one export through the current exact TypeChecker, including aliases and star re-exports. */
 export function resolveTypeScriptModuleExport(
   model: SourceProgramModel,
@@ -399,6 +517,13 @@ export function resolveTypeScriptModuleExport(
     if (exportedSymbol === undefined) {
       return Object.freeze({ status: 'absent' as const, entrypointPath });
     }
+    const typeOnlyStar = typeOnlyStarExportStatus(generation.checker, sourceFile, exportName);
+    if (typeOnlyStar === 'absent' || typeOnlyAliasReachable(generation.checker, exportedSymbol)) {
+      return Object.freeze({ status: 'absent' as const, entrypointPath });
+    }
+    if (typeOnlyStar === 'unresolved') {
+      return Object.freeze({ status: 'unresolved' as const, entrypointPath, reason: 'export-target-unresolved' as const });
+    }
     let targetSymbol = exportedSymbol;
     const visitedAliases = new Set<ts.Symbol>();
     while ((targetSymbol.flags & ts.SymbolFlags.Alias) !== 0
@@ -418,7 +543,18 @@ export function resolveTypeScriptModuleExport(
         `${repositoryPath}\0${node.getStart(node.getSourceFile(), false)}`
       ) ?? []) targetDeclarationObservationIds.add(observationId);
     }
+    const targetSourceResolved = (targetSymbol.declarations ?? []).length > 0
+      && (targetSymbol.declarations ?? []).every((node) => {
+        const targetSource = node.getSourceFile();
+        const targetPath = pathBySourceFile.get(targetSource);
+        return targetPath !== undefined
+          && generation.sourceFiles.get(targetPath) === targetSource
+          && (((targetSource as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] })
+            .parseDiagnostics?.length ?? 0) === 0);
+      });
     if ((targetSymbol.flags & ts.SymbolFlags.Value) === 0
+        || !hasRuntimeValueDeclaration(targetSymbol)
+        || !targetSourceResolved
         || targetDeclarationObservationIds.size === 0
         || targetPaths.size === 0) {
       return Object.freeze({

@@ -7,7 +7,7 @@ import type {
   GeneratedStatePhysicalIdentity,
   GeneratedStateRegistration
 } from '../../../runtime-state/generated-state/contract.ts';
-import type { GeneratedStateRetirementObservation } from '../../../runtime-state/generated-state/lifecycle.ts';
+import type { GeneratedStateRetiredPredecessorRetraction, GeneratedStateRetirementObservation } from '../../../runtime-state/generated-state/lifecycle.ts';
 
 /** Generated-state methods owned by the dependency lifecycle boundary. */
 export type RuntimeDependencyGeneratedStateLifecycle = Readonly<{
@@ -39,7 +39,8 @@ export type RuntimeDependencyGeneratedStateLifecycle = Readonly<{
         producer?: string;
         ruleId?: string;
         physical?: GeneratedStatePhysicalIdentity;
-      }>
+      }>,
+      retraction?: GeneratedStateRetiredPredecessorRetraction
     ) => Promise<boolean>;
     observeRetirement?: (
       relativePath: string,

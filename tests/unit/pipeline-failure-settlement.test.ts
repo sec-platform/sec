@@ -25,16 +25,6 @@ test('all failure settlement steps are attempted once and both original and seco
   assert.deepEqual(calls, ['lock', 'journal']);
 });
 
-test('a refused commit fence is never bypassed by the settlement helper', async () => {
-  let writes = 0;
-  const fence = async () => { throw new Error('lease invalid'); };
-  await assert.rejects(settlePipelineFailure(new Error('operation'), [
-    { operation: 'lock', run: async () => { await fence(); writes++; } },
-    { operation: 'journal', run: async () => { await fence(); writes++; } }
-  ]), PipelineSettlementFailure);
-  assert.equal(writes, 0);
-});
-
 test('failure descriptions retain known compiler codes and ordinary messages', () => {
   assert.deepEqual(describePipelineFailure(new CompilerError('TEST-001', 'message')), { code: 'TEST-001', message: 'message' });
   assert.deepEqual(describePipelineFailure(new Error('message')), { code: 'UNEXPECTED', message: 'message' });

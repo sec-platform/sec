@@ -172,12 +172,6 @@ export function createTestWorkspaceSupervisorLeaseV1(input: {
   return Object.freeze({ ...draft, leaseDigest: rawSha256(JSON.stringify(draft)) });
 }
 
-export function testWorkspaceSupervisorLeasePathV1(namespace: string): string {
-  const normalized = resolveTestWorkspaceNamespace({ [TEST_WORKSPACE_NAMESPACE_ENV]: namespace });
-  if (normalized === undefined) throw new Error('Test workspace supervisor namespace is unavailable');
-  return path.join(compilerRoot, '.tmp', 'test-workspaces', '.gate-supervisor-leases', `${normalized}.lock`);
-}
-
 function bindTestWorkspaceSupervisorLeaseProjection(
   leasePath: string,
   namespace: string,

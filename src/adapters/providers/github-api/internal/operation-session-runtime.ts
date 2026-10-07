@@ -24,7 +24,6 @@ export type GitHubApiEffect =
   | 'verification-read'
   | 'verification-dispatch'
   | 'status-write'
-  | 'issue-comment-write'
   | 'merge-write'
   | 'runner-admin'
   | 'branch-closeout-write';
@@ -147,8 +146,6 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue'; issueNumber: number }>
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
-  | Readonly<{ kind: 'update-issue-comment'; commentId: number; body: string }>
-  | Readonly<{ kind: 'delete-issue-comment'; commentId: number }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
   | Readonly<{ kind: 'open-pulls-page'; page: number }>
@@ -178,7 +175,7 @@ export type GitHubApiOperation =
 
 type CompiledGitHubApiRequest = Readonly<{
   kind: GitHubApiOperation['kind'];
-  method: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
+  method: 'DELETE' | 'GET' | 'POST' | 'PUT';
   path: string;
   body?: unknown;
 }>;
@@ -322,19 +319,6 @@ function compileOperation(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
-  if (effect === 'issue-comment-write'
-      && kind !== 'current-user'
-      && kind !== 'collaborator-permission'
-      && kind !== 'repository'
-      && kind !== 'issue-comments'
-      && kind !== 'issue-comment'
-      && kind !== 'create-issue-comment'
-      && kind !== 'update-issue-comment'
-      && kind !== 'delete-issue-comment') {
-    throw new GitHubApiProviderError(
-      'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
-    );
-  }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
   if (kind.startsWith('verification-') && effect !== 'verification-read' && effect !== 'verification-dispatch') {
@@ -427,29 +411,10 @@ function compileOperation(
       return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
     case 'issue-comment':
       return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
-    case 'update-issue-comment':
-      if (effect !== 'issue-comment-write') {
-        throw new GitHubApiProviderError('GitHub API issue comment update requires issue-comment-write authority');
-      }
-      return Object.freeze({
-        kind,
-        method: 'PATCH',
-        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`,
-        body: Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
-      });
-    case 'delete-issue-comment':
-      if (effect !== 'issue-comment-write') {
-        throw new GitHubApiProviderError('GitHub API issue comment deletion requires issue-comment-write authority');
-      }
-      return Object.freeze({
-        kind,
-        method: 'DELETE',
-        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`
-      });
     case 'create-issue-comment':
-      if (effect !== 'branch-closeout-write' && effect !== 'issue-comment-write') {
+      if (effect !== 'branch-closeout-write') {
         throw new GitHubApiProviderError(
-          'GitHub API issue comment publication requires issue-comment-write or branch-closeout-write authority'
+          'GitHub API issue comment publication requires branch-closeout-write authority'
         );
       }
       return read(
@@ -621,9 +586,6 @@ export function assertGitHubApiCapability(
         && userPrincipal?.permission !== 'maintain')
       || (requiredEffect === 'branch-closeout-write'
         && userPrincipal?.permission !== 'admin'
-        && userPrincipal?.permission !== 'maintain')
-      || (requiredEffect === 'issue-comment-write'
-        && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')) {
     throw new GitHubApiProviderError(
       'GitHub API capability is absent, repository-bound incorrectly, or not effect-authorized'
@@ -683,11 +645,6 @@ function issueCapability(input: Readonly<{
         'GitHub API branch-closeout capability requires maintain/admin user permission'
       );
     }
-  }
-  if (input.effect === 'issue-comment-write'
-      && input.principal.transport === 'github-rest-token'
-      && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
-    throw new GitHubApiProviderError('GitHub API user comment write capability requires maintain/admin permission');
   }
   if (input.principal.transport === 'github-actions-token') {
     const verificationRead = input.effect === 'verification-read' &&
@@ -875,8 +832,8 @@ async function executeWithToken<T>(
       }
       const acceptsDeleteNoContent = response.status === 204
         && response.ok
-        && ((compiled.method === 'DELETE' && (compiled.kind === 'delete-repository-runner'
-          || compiled.kind === 'delete-issue-comment')) || compiled.kind === 'verification-dispatch');
+        && ((compiled.method === 'DELETE' && compiled.kind === 'delete-repository-runner')
+          || compiled.kind === 'verification-dispatch');
       if (response.body === null) {
         remaining(session);
         if (acceptsDeleteNoContent) return null as T;
@@ -1490,14 +1447,6 @@ export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'status-write' });
-}
-
-export async function withGitHubApiIssueCommentWriteSession<T>(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  operation: (capability: GitHubApiCapability) => Promise<T>;
-}>): Promise<T> {
-  return await withProductionSession({ ...input, effect: 'issue-comment-write' });
 }
 
 export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{

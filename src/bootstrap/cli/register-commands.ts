@@ -4,7 +4,6 @@ import { buildBenchmarkTaskCatalog } from '../../adapters/verification/platform/
 import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
 import { assertReferenceCheckClean } from '../../application/reference-check.ts';
 import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../application/text-byte-census.ts';
-import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
 import {
   bindDependencyCommandHandlers,
   registerDependencyCommands
@@ -161,7 +160,7 @@ export function registerCommands(
       const value = await runSettlement(workspaceRoot, { fix });
       return {
         value,
-        text: formatWorktreeSettlement(projectWorktreeSettlementReceipt(value)),
+        text: formatWorktreeSettlement(value),
         status: value.status,
         successful: value.status === 'settled'
       };

@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
   auditRepository,
   extractHeuristicBehaviorCandidates,
@@ -23,6 +24,7 @@ import {
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });

@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { acquirePhysicalMutationLease, observePhysicalJournalMutationEntry } from '../physical/runtime/mutation-lease.ts';
+import { acquirePhysicalMutationLease, observePhysicalJournalMutationEntry, readPhysicalJournalMutationResource } from '../physical/runtime/mutation-lease.ts';
 import {
   assertPhysicallyDisjointDirectoryChains,
   createExclusiveNoFollowDirectory,
@@ -37,6 +37,38 @@ import {
  */
 interface GeneratedStateRegistrationStoreOptions {
   readonly environment?: NodeJS.ProcessEnv;
+  readonly registrationPublicationInterruption?: RegistrationPublicationInterruptionActor;
+  readonly assertRegistrationPublicationRecoveryCurrent?: () => void;
+}
+
+type RegistrationPublicationPoint = 'generation' | 'ledger' | 'pointer';
+export interface RegistrationPublicationInterruptionActor { readonly kind: 'registration-publication-interruption'; }
+const publicationInterruptions = new WeakMap<object, Readonly<{
+  point: RegistrationPublicationPoint; interrupt: () => never;
+}>>();
+/** Fault injection only; it cannot supply publication bytes, provenance or admission. */
+export function createRegistrationPublicationInterruptionActorForTests(
+  point: RegistrationPublicationPoint, interrupt: () => never
+): RegistrationPublicationInterruptionActor {
+  if (!['generation', 'ledger', 'pointer'].includes(point) || typeof interrupt !== 'function') {
+    throw new Error('Registration publication interruption is invalid.');
+  }
+  const actor = Object.freeze({ kind: 'registration-publication-interruption' as const });
+  publicationInterruptions.set(actor, Object.freeze({ point, interrupt }));
+  return actor;
+}
+const consumedPublicationInterruptions = new WeakSet<object>();
+const storePublicationInterruptions = new WeakMap<object, RegistrationPublicationInterruptionActor>();
+const registrationMutationOwners = new WeakSet<object>();
+function interruptRegistrationPublication(store: GeneratedStateRuntimeStore, point: RegistrationPublicationPoint): void {
+  const actor = storePublicationInterruptions.get(store);
+  const interruption = actor === undefined ? undefined : publicationInterruptions.get(actor);
+  if (actor !== undefined && interruption === undefined) throw new Error('Registration publication interruption was not issued.');
+  if (interruption?.point === point && !consumedPublicationInterruptions.has(actor!)) {
+    consumedPublicationInterruptions.add(actor!);
+    interruption.interrupt();
+    throw new Error('Registration publication interruption returned.');
+  }
 }
 
 const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
@@ -214,7 +246,7 @@ export async function openRuntimeStore(
     cacheRoot: roots.cacheRoot,
     requiredDirectories
   });
-  return Object.freeze({
+  const store = Object.freeze({
     legacyRegistrationsRoot: locations.legacyRegistrationsRoot,
     registrationsRoot: locations.registrationsRoot,
     settlementsRoot: locations.settlementsRoot,
@@ -222,6 +254,10 @@ export async function openRuntimeStore(
     fs: createRuntimeStateJournalFileSystem(authority.directory(roots.workspaceStateRoot)),
     assertCurrent: authority.assertCurrent
   });
+  if (options.registrationPublicationInterruption !== undefined) {
+    storePublicationInterruptions.set(store, options.registrationPublicationInterruption);
+  }
+  return store;
 }
 
 export function openRuntimeStoreReadOnly<Options extends GeneratedStateRegistrationStoreOptions>(
@@ -765,6 +801,14 @@ export function readRegistrationLedgerObservation(
   store: GeneratedStateRuntimeStore,
   relativePath: string
 ): GeneratedStateRegistrationLedgerObservation {
+  return readRegistrationLedgerPreimage(store, relativePath);
+}
+
+function readRegistrationLedgerPreimage(
+  store: GeneratedStateRuntimeStore,
+  relativePath: string,
+  publication?: RegistrationPublication
+): GeneratedStateRegistrationLedgerObservation {
   const normalized = normalizeGeneratedStateRelativePath(relativePath);
   const registrationsRoot = inspectNoFollowDirectoryChain(
     store.registrationsRoot,
@@ -786,9 +830,31 @@ export function readRegistrationLedgerObservation(
   const pointers = new Map<string, GeneratedStateRegistrationPointer>();
   const migrationIntents: GeneratedStateRegistrationMigrationIntent[] = [];
   const guardedPointers = new Set<string>();
+  const preparedFiles = publication === undefined ? new Map<string, Buffer>() : new Map([
+    [registrationGenerationName(publication.record.registrationDigest), Buffer.from(publication.record.registrationBytes, 'base64')],
+    [registrationLedgerName(publication.record.relativePath, publication.record.recordDigest), Buffer.from(canonicalBytes(publication.record))]
+  ]);
+  const preparedPointer = publication === undefined ? null : `${registrationKey(publication.record.relativePath)}.json`;
   for (const name of names) {
+    const preparedBytes = preparedFiles.get(name);
+    if (preparedBytes !== undefined) {
+      const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
+      if (entry?.bytes === null || entry?.bytes === undefined || !Buffer.from(entry.bytes).equals(preparedBytes)) {
+        throw new GeneratedStateProducerBindingBlockedError(`Registration publication immutable preimage differs: ${name}.`);
+      }
+      continue;
+    }
     const guardedPointer = observeRegistrationPointerGuard(store, registrationsRoot, name);
-    if (guardedPointer !== null) { guardedPointers.add(guardedPointer); continue; }
+    if (guardedPointer !== null) {
+      if (guardedPointer !== preparedPointer || publication!.expectedPointer.bytes !== null) guardedPointers.add(guardedPointer);
+      continue;
+    }
+    if (name === preparedPointer) {
+      if (publication!.expectedPointer.bytes !== null) {
+        pointers.set(name.slice(0, -'.json'.length), parseRegistrationPointer(Buffer.from(publication!.expectedPointer.bytes, 'base64')));
+      }
+      continue;
+    }
     if (/^[0-9a-f]{64}\.json$/u.test(name)) {
       const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
       if (entry === null || entry.bytes === null || entry.kind !== 'file') {
@@ -1106,108 +1172,176 @@ function sameRegistrationPointerSnapshot(
     (left.bytes === null || left.bytes.equals(right.bytes!));
 }
 
+const REGISTRATION_PUBLICATION_SCHEMA = 'sec-generated-state-registration-publication-v1' as const;
+type RegistrationPublication = Readonly<{
+  registrationsRoot: GeneratedStatePhysicalIdentity;
+  record: GeneratedStateRegistrationLedgerRecord;
+  expectedPointer: Readonly<{
+    identity: Readonly<{ device: string; inode: string }> | null;
+    bytes: string | null;
+  }>;
+}>;
+// Retain one idle guarded slot for the next publication. Clearing the obligation
+// does not retire the journal resource or recreate missing registration pointers.
+const IDLE_REGISTRATION_PUBLICATION = canonicalBytes({ schema: REGISTRATION_PUBLICATION_SCHEMA, publication: null });
+
+function registrationPublicationPath(store: GeneratedStateRuntimeStore): string {
+  return path.join(store.transactionsRoot, 'registration-publication.json');
+}
+
+function parseRegistrationPublication(text: string): RegistrationPublication | null {
+  const value: unknown = JSON.parse(text);
+  if (!hasExactObjectKeys(value, ['schema', 'publication']) || value.schema !== REGISTRATION_PUBLICATION_SCHEMA ||
+      canonicalBytes(value) !== text) throw new GeneratedStateProducerBindingBlockedError('Registration publication journal is malformed.');
+  if (value.publication === null) return null;
+  const publication = value.publication;
+  if (!hasExactObjectKeys(publication, ['registrationsRoot', 'record', 'expectedPointer']) ||
+      !hasExactObjectKeys(publication.registrationsRoot, ['device', 'inode', 'objectId']) ||
+      typeof publication.registrationsRoot.device !== 'string' ||
+      typeof publication.registrationsRoot.inode !== 'string' ||
+      typeof publication.registrationsRoot.objectId !== 'string' ||
+      !hasExactObjectKeys(publication.expectedPointer, ['identity', 'bytes'])) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication preimage is malformed.');
+  }
+  const pointer = publication.expectedPointer;
+  if (pointer.identity === null ? pointer.bytes !== null :
+      (!hasExactObjectKeys(pointer.identity, ['device', 'inode']) ||
+       typeof pointer.identity.device !== 'string' || typeof pointer.identity.inode !== 'string' ||
+       typeof pointer.bytes !== 'string' || Buffer.from(pointer.bytes, 'base64').toString('base64') !== pointer.bytes)) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication pointer preimage is malformed.');
+  }
+  if (pointer.bytes !== null) parseRegistrationPointer(Buffer.from(pointer.bytes as string, 'base64'));
+  const record = parseRegistrationLedgerRecord(Buffer.from(canonicalBytes(publication.record)));
+  return Object.freeze({
+    registrationsRoot: Object.freeze({ device: publication.registrationsRoot.device,
+      inode: publication.registrationsRoot.inode, objectId: publication.registrationsRoot.objectId }),
+    record,
+    expectedPointer: Object.freeze({ identity: pointer.identity as Readonly<{ device: string; inode: string }> | null, bytes: pointer.bytes as string | null })
+  });
+}
+
+/** Finish only the original prepared tuple. The private census validates the
+ * full old ledger while subtracting exactly this tuple's possible after-images.
+ * Unknown historical orphans, foreign bytes and changed pointers stay blocked. */
+function finishRegistrationPublication(
+  store: GeneratedStateRuntimeStore, publication: RegistrationPublication, assertRecoveryCurrent?: () => void
+): void {
+  const record = publication.record;
+  const pointer = inspectRegistrationPointer(store, record.relativePath);
+  if (!samePhysicalIdentity(pointer.parent, publication.registrationsRoot)) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication root identity changed.');
+  }
+  const expectedPointer: GeneratedStateRegistrationPointerSnapshot = Object.freeze({
+    identity: publication.expectedPointer.identity,
+    bytes: publication.expectedPointer.bytes === null ? null : Buffer.from(publication.expectedPointer.bytes, 'base64')
+  });
+  const pointerBytes = Buffer.from(canonicalBytes({
+    schema: GENERATED_STATE_REGISTRATION_POINTER_SCHEMA,
+    registrationDigest: record.registrationDigest,
+    ledgerRecordDigest: record.recordDigest
+  }));
+  const alreadyPublished = pointer.snapshot.identity !== null && pointer.snapshot.bytes?.equals(pointerBytes) === true;
+  if (!alreadyPublished && !sameRegistrationPointerSnapshot(pointer.snapshot, expectedPointer)) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication pointer preimage changed; original bytes are preserved.');
+  }
+  const observation = readRegistrationLedgerPreimage(store, record.relativePath, publication);
+  if ((observation.tip?.recordDigest ?? null) !== record.previousRecordDigest ||
+      (observation.tip?.sequence ?? 0) + 1 !== record.sequence) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication immutable predecessor changed.');
+  }
+  const generationName = registrationGenerationName(record.registrationDigest);
+  const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
+  assertRecoveryCurrent?.();
+  publishExactRegistrationFile(pointer.parent, generationName,
+    Buffer.from(record.registrationBytes, 'base64'), assertGeneratedStateRegistrationBytes);
+  interruptRegistrationPublication(store, 'generation');
+  assertRecoveryCurrent?.();
+  publishExactRegistrationFile(pointer.parent, recordName,
+    Buffer.from(canonicalBytes(record)), candidate => parseRegistrationLedgerRecord(candidate, recordName));
+  interruptRegistrationPublication(store, 'ledger');
+  if (!alreadyPublished) {
+    assertRecoveryCurrent?.();
+    const published = withRuntimeStateJournalMutation(store.fs, path.join(pointer.parent.path, pointer.name), complete => {
+      if (expectedPointer.identity === null) {
+        const receipt = publishExclusiveDurableCanonicalFile({ parent: pointer.parent, name: pointer.name,
+          bytes: pointerBytes, validate: assertGeneratedStateRegistrationPointerBytes });
+        if (!receipt.created) throw new GeneratedStateProducerBindingBlockedError('Registration publication pointer became occupied.');
+        complete(receipt);
+      } else {
+        replaceDurableCanonicalFile({ parent: pointer.parent, name: pointer.name, bytes: pointerBytes,
+          expectedExisting: expectedPointer.identity, expectedExistingBytes: expectedPointer.bytes!,
+          validate: assertGeneratedStateRegistrationPointerBytes });
+      }
+    }, expectedPointer.identity === null ? 'create-absent-data' : undefined);
+    if (published === null) throw new GeneratedStateProducerBindingBlockedError('Registration publication pointer mutation is contended.');
+  }
+  interruptRegistrationPublication(store, 'pointer');
+  const final = readRegistrationLedgerObservation(store, record.relativePath);
+  if (final.tip?.recordDigest !== record.recordDigest || final.registration?.registrationDigest !== record.registrationDigest) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication failed exact durable readback.');
+  }
+  assertRecoveryCurrent?.();
+  store.fs.replaceFsync(registrationPublicationPath(store), IDLE_REGISTRATION_PUBLICATION);
+}
+
+// Recovery starts only after ordinary parent-lease admission. An incomplete
+// journal initializer or unresolved lower-level physical CAS stays fail-closed.
+function recoverRegistrationPublication(store: GeneratedStateRuntimeStore, assertRecoveryCurrent?: () => void): void {
+  const locator = registrationPublicationPath(store);
+  const parent = inspectNoFollowDirectoryChain(store.transactionsRoot, 'Registration publication journal parent').target;
+  const resource = readPhysicalJournalMutationResource(parent,
+    runtimeStateJournalMutationLeaseName(store.fs.rootPath, locator), path.basename(locator));
+  if (resource === null) {
+    if (inspectNoFollowOrdinaryFileEntry(parent, path.basename(locator)) !== null) {
+      throw new GeneratedStateProducerBindingBlockedError('Registration publication has no original guarded journal admission.');
+    }
+    return;
+  }
+  const recovered = withRuntimeStateJournalMutation(store.fs, locator, () => {
+    const publication = parseRegistrationPublication(store.fs.readText(locator));
+    if (publication !== null) finishRegistrationPublication(store, publication, assertRecoveryCurrent);
+  });
+  if (recovered === null) throw new GeneratedStateProducerBindingBlockedError('Registration publication journal mutation is contended.');
+}
+
 export function persistRegistration(
   store: GeneratedStateRuntimeStore,
   registration: GeneratedStateRegistration,
   expectedPointer: GeneratedStateRegistrationPointerSnapshot,
   expectedPreviousRecordDigest: `sha256:${string}` | null
 ): void {
-  const bytes = canonicalBytes(registration);
+  if (!registrationMutationOwners.has(store)) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication requires the original mutation owner.');
+  }
   const pointer = inspectRegistrationPointer(store, registration.relativePath);
   if (!sameRegistrationPointerSnapshot(pointer.snapshot, expectedPointer)) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state registration pointer changed before durable CAS: ${registration.relativePath}.`
-    );
+    throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration pointer changed before durable CAS: ${registration.relativePath}.`);
   }
   const observation = readRegistrationLedgerObservation(store, registration.relativePath);
-  let predecessor = observation.tip;
-  if (expectedPreviousRecordDigest === null) {
-    if (predecessor !== null) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state birth cannot replace an existing immutable registration generation: ${registration.relativePath}.`
-      );
-    }
-  } else {
-    if (predecessor === null || predecessor.recordDigest !== expectedPreviousRecordDigest) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state registration predecessor changed or is unavailable: ${registration.relativePath}.`
-      );
-    }
+  if ((observation.tip?.recordDigest ?? null) !== expectedPreviousRecordDigest) {
+    throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration predecessor changed or is unavailable: ${registration.relativePath}.`);
   }
-  const generationName = registrationGenerationName(registration.registrationDigest);
-  publishExclusiveDurableCanonicalFile({
-    parent: pointer.parent,
-    name: generationName,
-    bytes: Buffer.from(bytes, 'utf8'),
-    validate: assertGeneratedStateRegistrationBytes
+  const sequence = (observation.tip?.sequence ?? 0) + 1;
+  if (!Number.isSafeInteger(sequence) || sequence > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger reached its bounded capacity: ${registration.relativePath}.`);
+  }
+  const record = makeRegistrationLedgerRecord(registration, expectedPreviousRecordDigest, sequence);
+  if (inspectNoFollowOrdinaryFileEntry(pointer.parent, registrationGenerationName(registration.registrationDigest)) !== null ||
+      inspectNoFollowOrdinaryFileEntry(pointer.parent, registrationLedgerName(record.relativePath, record.recordDigest)) !== null) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication cannot reuse a historical generation.');
+  }
+  recoverRegistrationPublication(store);
+  const publication: RegistrationPublication = Object.freeze({
+    registrationsRoot: identityOf(pointer.parent), record,
+    expectedPointer: Object.freeze({ identity: expectedPointer.identity, bytes: expectedPointer.bytes?.toString('base64') ?? null })
   });
-  const recordSequence = predecessor === null ? 1 : predecessor.sequence + 1;
-  if (!Number.isSafeInteger(recordSequence) || recordSequence < 1 ||
-      recordSequence > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state registration ledger reached its bounded capacity: ${registration.relativePath}.`
-    );
-  }
-  const record = makeRegistrationLedgerRecord(
-    registration,
-    predecessor?.recordDigest ?? null,
-    recordSequence
-  );
-  const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
-  publishExclusiveDurableCanonicalFile({
-    parent: pointer.parent,
-    name: recordName,
-    bytes: Buffer.from(canonicalBytes(record), 'utf8'),
-    validate: (candidate) => parseRegistrationLedgerRecord(candidate, recordName)
-  });
-  const pointerValue: GeneratedStateRegistrationPointer = Object.freeze({
-    schema: GENERATED_STATE_REGISTRATION_POINTER_SCHEMA,
-    registrationDigest: registration.registrationDigest,
-    ledgerRecordDigest: record.recordDigest
-  });
-  const pointerBytes = Buffer.from(canonicalBytes(pointerValue), 'utf8');
-  const pointerPublished = withRuntimeStateJournalMutation(
-    store.fs,
-    path.join(pointer.parent.path, pointer.name),
-    completeFirstPublication => {
-      if (expectedPointer.identity === null) {
-        const published = publishExclusiveDurableCanonicalFile({
-          parent: pointer.parent,
-          name: pointer.name,
-          bytes: pointerBytes,
-          validate: assertGeneratedStateRegistrationPointerBytes
-        });
-        if (!published.created) {
-          throw new GeneratedStateProducerBindingBlockedError(
-            `Generated-state registration pointer became occupied during durable CAS: ${registration.relativePath}.`
-          );
-        }
-        completeFirstPublication(published);
-      } else {
-        replaceDurableCanonicalFile({
-          parent: pointer.parent,
-          name: pointer.name,
-          bytes: pointerBytes,
-          expectedExisting: expectedPointer.identity,
-          validate: assertGeneratedStateRegistrationPointerBytes
-        });
-      }
-    },
-    expectedPointer.identity === null ? 'create-absent-data' : undefined
-  );
-  if (pointerPublished === null) {
-    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration pointer mutation is contended.');
-  }
-
-  const finalPointer = inspectRegistrationPointer(store, registration.relativePath).snapshot;
-  if (finalPointer.bytes === null || !finalPointer.bytes.equals(pointerBytes) || finalPointer.identity === null) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state registration pointer failed exact durable readback: ${registration.relativePath}.`
-    );
-  }
+  const text = canonicalBytes({ schema: REGISTRATION_PUBLICATION_SCHEMA, publication });
+  parseRegistrationPublication(text);
+  store.fs.replaceFsync(registrationPublicationPath(store), text);
+  finishRegistrationPublication(store, publication);
 }
 
-function publishExactRegistrationMigrationFile(
+function publishExactRegistrationFile(
   parent: PhysicalDirectoryIdentity,
   name: string,
   bytes: Buffer,
@@ -1332,7 +1466,7 @@ function ensureRegistrationLedgerMigration(
   }
 
   const preparedName = registrationMigrationIntentName(prepared);
-  publishExactRegistrationMigrationFile(
+  publishExactRegistrationFile(
     registrationsRoot,
     preparedName,
     Buffer.from(canonicalBytes(prepared), 'utf8'),
@@ -1340,7 +1474,7 @@ function ensureRegistrationLedgerMigration(
   );
   for (const { registration, bytes } of legacy.pointers.values()) {
     const generationName = registrationGenerationName(registration.registrationDigest);
-    publishExactRegistrationMigrationFile(
+    publishExactRegistrationFile(
       registrationsRoot,
       generationName,
       bytes,
@@ -1348,7 +1482,7 @@ function ensureRegistrationLedgerMigration(
     );
     const record = makeRegistrationLedgerRecord(registration, null, 1);
     const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
-    publishExactRegistrationMigrationFile(
+    publishExactRegistrationFile(
       registrationsRoot,
       recordName,
       Buffer.from(canonicalBytes(record), 'utf8'),
@@ -1365,7 +1499,7 @@ function ensureRegistrationLedgerMigration(
     const existing = inspectNoFollowOrdinaryFileEntry(registrationsRoot, pointerName);
     const published = withRuntimeStateJournalMutation(store.fs, pointerPath, completeFirstPublication => {
       if (existing !== null) {
-        publishExactRegistrationMigrationFile(registrationsRoot, pointerName, pointerBytes,
+        publishExactRegistrationFile(registrationsRoot, pointerName, pointerBytes,
           assertGeneratedStateRegistrationPointerBytes);
         return;
       }
@@ -1391,7 +1525,7 @@ function ensureRegistrationLedgerMigration(
     );
   }
   const completeName = registrationMigrationIntentName(complete);
-  publishExactRegistrationMigrationFile(
+  publishExactRegistrationFile(
     registrationsRoot,
     completeName,
     Buffer.from(canonicalBytes(complete), 'utf8'),
@@ -1415,6 +1549,7 @@ export async function withGeneratedStateMutationLease<Value>(
   options: GeneratedStateRegistrationStoreOptions,
   execute: (store: GeneratedStateRuntimeStore) => Promise<Value>
 ): Promise<Value> {
+  const assertRecoveryCurrent = options.assertRegistrationPublicationRecoveryCurrent?.bind(options);
   const store = await openRuntimeStore(workspaceRoot, options);
   const generatedRoot = inspectNoFollowDirectoryChain(
     path.dirname(store.registrationsRoot),
@@ -1433,8 +1568,10 @@ export async function withGeneratedStateMutationLease<Value>(
   let primaryFailed = false;
   let primaryFailure: unknown;
   try {
-    // Registration recovery uses its durable ledger, not predecessor lease identity.
+    // This ordinary lease can cover external effects. A dead, unguarded owner
+    // remains blocked; publication recovery never authorizes its takeover.
     lease.acknowledgeReclaimedRecovery();
+    registrationMutationOwners.add(store);
     await store.assertCurrent();
     // Validate the legacy source before materializing the new namespace.  A
     // malformed/foreign source must leave no target directory behind; the
@@ -1451,6 +1588,8 @@ export async function withGeneratedStateMutationLease<Value>(
       );
     }
     await store.assertCurrent();
+    assertRecoveryCurrent?.();
+    recoverRegistrationPublication(store, assertRecoveryCurrent);
     ensureRegistrationLedgerMigration(
       store,
       legacy,
@@ -1463,6 +1602,7 @@ export async function withGeneratedStateMutationLease<Value>(
     primaryFailed = true;
     primaryFailure = error;
   }
+  registrationMutationOwners.delete(store);
   let settlementFailed = false;
   let settlementFailure: unknown;
   try {

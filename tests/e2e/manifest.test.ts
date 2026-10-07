@@ -140,7 +140,7 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
   expectReviewConflictHint(reviewSummary, {
     kind: 'override-conflict',
     relatedId: 'worklog/basic@>=0.2.0',
-    message: 'Override ticket-page-runtime-manual conflicts with worklog/basic@>=0.2.0'
+    message: 'Override ticket-service-runtime-manual conflicts with worklog/basic@>=0.2.0'
   });
   expectGraphEdge(graph, {
     from: 'file:src/installed/ticket/ticket-service.ts',

@@ -3,13 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
-import { projectVerificationReportInspect } from '../../src/application/verification-report-inspect.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { formatVerificationReport } from '../../src/entry/cli/verification-report-inspect.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-test('verification inspection routes text through application and entry while preserving raw JSON', async () => {
+test('verification inspection renders report text while preserving raw JSON', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const report = {
       build: { status: 'passed' },
@@ -42,11 +40,15 @@ test('verification inspection routes text through application and entry while pr
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    const view = projectVerificationReportInspect(report);
     await expectCliSuccess(
       workspaceRoot,
       ['verification'],
-      `${formatVerificationReport(view)}\n`
+      [
+        'Verification report failed; requestedLane=runtime; failedLanes=fast, runtime',
+        'Fast: failed; build=passed; unit=failed; acceptance=passed; policy=failed',
+        'Runtime: failed; build=passed; unit=failed; acceptance=failed',
+        ''
+      ].join('\n')
     );
 
     const rawJson = await expectCliJson<typeof report>(workspaceRoot, ['verification', '--json']);

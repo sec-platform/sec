@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -48,7 +48,7 @@ test('heavy verification gate rejects a second live owner and releases exact own
       token: TOKEN_A
     });
     if (process.platform === 'win32') {
-      expect(await readFile(lockPath, 'utf8').catch(() => 'missing')).toBe('missing');
+      await expect(lstat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     }
     await expect(acquireHeavyVerificationGateLease({
       gateId: 'ci:risk',
@@ -68,7 +68,7 @@ test('heavy verification gate rejects a second live owner and releases exact own
       token: TOKEN_B
     });
     await second.release();
-    expect(await readFile(lockPath, 'utf8').catch(() => 'missing')).toBe('missing');
+    await expect(lstat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

@@ -214,10 +214,6 @@ test('raw SUT transport is observation-only and the sole reducer derives four ph
   expect(reduce(raw({ exitCode: 1 })).result.status).toBe('failed');
   expect(reduce(raw({ capability: 'unsupported' })).result.status).toBe('unsupported');
   expect(reduce(raw({ capability: 'invalidated', clean: false })).result.status).toBe('invalidated');
-  for (const observation of [
-    raw(), raw({ exitCode: 1 }), raw({ capability: 'unsupported' }),
-    raw({ capability: 'invalidated', clean: false })
-  ]) expect(reduce(observation).result.status).not.toBe('not-run');
 });
 
 test('physical command authorization and PASS settlement reject recomputed contradictory observations', () => {

@@ -8,8 +8,9 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
+import { canonicalGitChildEnvironment } from '../../../providers/git/environment.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
 import { selectSecOperationAuthoritySourceRevision } from './skill.ts';
@@ -194,13 +195,18 @@ function command(
   input?: Uint8Array
 ): CommandResult {
   assertWindowsControlCliCommandAdmission(executable, args, cwd);
-  const result = spawnSync(executable, [...args], {
+  const isGit = controlCliCommandId(executable) === 'git';
+  const commandArgs = isGit
+    ? ['--no-lazy-fetch', '--no-replace-objects', '-c', `core.hooksPath=${devNull}`,
+        '-c', 'core.fsmonitor=false', ...args]
+    : [...args];
+  const result = spawnSync(executable, commandArgs, {
     cwd,
     input,
     windowsHide: true,
     timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: COMMAND_MAX_BUFFER,
-    env: {
+    env: isGit ? canonicalGitChildEnvironment() : {
       ...process.env,
       GH_PROMPT_DISABLED: '1',
       GIT_OPTIONAL_LOCKS: '0',
@@ -351,6 +357,22 @@ function isGitAncestor(root: string, ancestor: string, descendant: string): bool
 
 function assertCleanExactRoot(root: string, head: string): void {
   if (gitHead(root) !== head) unavailable('activation-stale', 'head-drift');
+  // This observation, like the surrounding exact-root reads, requires stable
+  // repository metadata/worktree. Config enumeration is not a concurrency fence.
+  // Native status can execute conversion filters and enter a gitlink's separate
+  // helper configuration. Reject those domains rather than suppressing filters
+  // or ignoring submodules and mistaking the changed observation for clean.
+  const filters = command('git', [
+    'config', '--includes', '--null', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|process)$'
+  ], root);
+  if (filters.status === 0) unavailable('activation-stale', 'worktree-filter-helper-unavailable');
+  if (filters.status !== 1) unavailable('activation-stale', filters.stderr);
+  const modes = requireCommand(
+    'git', ['ls-files', '--cached', '--format=%(objectmode)', '-z'], root, 'activation-stale'
+  );
+  if (modes.includes(Buffer.from('160000\0'))) {
+    unavailable('activation-stale', 'worktree-submodule-observation-unavailable');
+  }
   const status = requireCommand(
     'git', ['status', '--porcelain=v2', '-z', '--untracked-files=all'], root, 'activation-stale'
   );

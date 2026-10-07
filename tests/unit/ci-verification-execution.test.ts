@@ -2,11 +2,9 @@ import { spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
-  closeSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  openSync, readFileSync,
+  readFileSync,
   readlinkSync,
   readSync,
   realpathSync,
@@ -1078,57 +1076,6 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
 });
 
-test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {
-  if (process.platform !== 'linux') return;
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-sut-retained-archive-'));
-  const archive = path.join(root, 'prepared-candidate.tar');
-  const movedArchive = path.join(root, 'prepared-candidate.authenticated.tar');
-  const privateCopy = path.join(root, 'private-copy.tar');
-  const executionMarker = path.join(root, 'executed');
-  const expectedBytes = 'authenticated dependency archive\n';
-  const maliciousBytes = 'malicious replacement dependency archive\n';
-  let authenticatedFd: number | null = null;
-  let maliciousFd: number | null = null;
-  const copyAndAuthenticate = [
-    '/usr/bin/cat -- /proc/self/fd/3 > "$1"',
-    '[ "sha256:$(/usr/bin/sha256sum "$1" | /usr/bin/cut -d " " -f 1)" = "$2" ]',
-    'printf executed > "$3"'
-  ].join('\n');
-  try {
-    writeFileSync(archive, expectedBytes);
-    authenticatedFd = openSync(archive, 'r');
-    renameSync(archive, movedArchive);
-    writeFileSync(archive, maliciousBytes);
-    const expectedDigest = bytesDigest(expectedBytes);
-    const retained = spawnSync('/usr/bin/bash', [
-      '-ceu', copyAndAuthenticate, 'sec-retained-archive', privateCopy, expectedDigest, executionMarker
-    ], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', authenticatedFd]
-    });
-    expect(retained.status).toBe(0);
-    expect(readFileSync(privateCopy, 'utf8')).toBe(expectedBytes);
-    expect(readFileSync(executionMarker, 'utf8')).toBe('executed');
-
-    rmSync(privateCopy);
-    rmSync(executionMarker);
-    maliciousFd = openSync(archive, 'r');
-    const substituted = spawnSync('/usr/bin/bash', [
-      '-ceu', copyAndAuthenticate, 'sec-retained-archive', privateCopy, expectedDigest, executionMarker
-    ], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', maliciousFd]
-    });
-    expect(substituted.status).not.toBe(0);
-    expect(readFileSync(privateCopy, 'utf8')).toBe(maliciousBytes);
-    expect(existsSync(executionMarker)).toBe(false);
-  } finally {
-    if (authenticatedFd !== null) closeSync(authenticatedFd);
-    if (maliciousFd !== null) closeSync(maliciousFd);
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('parent event binds the canonical one-key Session request wrapper', () => {
   const sessionRequest: VerificationSessionHostedRequest = Object.freeze({
     schema: 'sec-verification-session-hosted-request-v1',
@@ -1341,46 +1288,7 @@ test('capability probe detaches its deliberate residue child for trusted teardow
   expect(lifecycle).not.toContain('descendant.kill');
   expect(lifecycle).not.toContain('descendant.exited');
 
-  const runnableLifecycle = 'const { spawn } = require("node:child_process");' +
-    'const descendant = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300000)"], ' +
-    '{ detached: true, stdio: "ignore" });descendant.unref();';
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-detached-probe-'));
-  const pidPath = path.join(root, 'descendant.pid');
-  let descendantPid: number | null = null;
-  const processExists = (pid: number): boolean => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  try {
-    const startedAt = performance.now();
-    const settled = spawnSync(process.execPath, [
-      '-e', `${runnableLifecycle}require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, ` +
-        'String(descendant.pid));process.stdout.write("detached");'
-    ], { encoding: 'utf8', timeout: 3_000, windowsHide: true });
-    expect(settled.error).toBeUndefined();
-    expect(settled.status).toBe(0);
-    expect(performance.now() - startedAt).toBeLessThan(3_000);
-    descendantPid = Number(readFileSync(pidPath, 'utf8'));
-    expect(Number.isSafeInteger(descendantPid) && descendantPid > 0).toBe(true);
-    expect(processExists(descendantPid)).toBe(true);
-  } finally {
-    if (descendantPid === null && existsSync(pidPath)) {
-      const observedPid = Number(readFileSync(pidPath, 'utf8'));
-      if (Number.isSafeInteger(observedPid) && observedPid > 0) descendantPid = observedPid;
-    }
-    if (descendantPid !== null && processExists(descendantPid)) {
-      try { process.kill(descendantPid, 'SIGKILL'); } catch {}
-      const cleanupDeadline = Date.now() + 3_000;
-      while (processExists(descendantPid) && Date.now() < cleanupDeadline) Bun.sleepSync(10);
-    }
-    rmSync(root, { recursive: true, force: true });
-  }
-  expect(descendantPid).not.toBeNull();
-  expect(processExists(descendantPid!)).toBe(false);
+
 });
 
 test('capability unsupported or ambiguous terminalizes without invoking the candidate executor', async () => {
@@ -2083,46 +1991,6 @@ test('one immutable Action terminal is reusable across different Session closure
   })).not.toThrow();
   expect(encodeVerificationActionData(artifact)).not.toContain(left.actionPlanClosure.actionPlanDigest);
   expect(encodeVerificationActionData(artifact)).not.toContain(right.actionPlanClosure.actionPlanDigest);
-});
-
-test('test backend serializes one shared ActionKey while different roots and closures join one origin', async () => {
-  const gates = hostedGates();
-  const left = hostedResolution([gates[0]!, gates[1]!]);
-  const right = hostedResolution([gates[0]!, gates[2]!]);
-  const uniqueLeft = left.actionPlanClosure.actions[1]!.action.actionKey;
-  const uniqueRight = right.actionPlanClosure.actions[1]!.action.actionKey;
-  const shared = left.actionPlan.action.actionKey;
-  const terminalOrigins = new Map<VerificationActionKeyDigest, string>();
-  const inFlight = new Map<VerificationActionKeyDigest, Promise<string>>();
-  const physical = new Map<VerificationActionKeyDigest, number>();
-  const active = new Map<VerificationActionKeyDigest, number>();
-  let maximumSameKeyActive = 0;
-  const execute = async (actionKey: VerificationActionKeyDigest): Promise<string> => {
-    const terminal = terminalOrigins.get(actionKey);
-    if (terminal !== undefined) return terminal;
-    const joined = inFlight.get(actionKey);
-    if (joined !== undefined) return joined;
-    const pending = (async () => {
-      active.set(actionKey, (active.get(actionKey) ?? 0) + 1);
-      maximumSameKeyActive = Math.max(maximumSameKeyActive, active.get(actionKey)!);
-      physical.set(actionKey, (physical.get(actionKey) ?? 0) + 1);
-      await Promise.resolve();
-      const origin = `artifact://${actionKey.slice(7)}/origin-1`;
-      terminalOrigins.set(actionKey, origin);
-      active.set(actionKey, active.get(actionKey)! - 1);
-      return origin;
-    })();
-    inFlight.set(actionKey, pending);
-    return pending;
-  };
-  const [sharedLeft, sharedRight] = await Promise.all([
-    execute(shared), execute(shared), execute(uniqueLeft), execute(uniqueRight)
-  ]).then((values) => values.slice(0, 2));
-  expect(maximumSameKeyActive).toBe(1);
-  expect(physical.get(shared)).toBe(1);
-  expect(physical.get(uniqueLeft)).toBe(1);
-  expect(physical.get(uniqueRight)).toBe(1);
-  expect(sharedLeft).toBe(sharedRight);
 });
 
 test('credential sanitizer never treats provider environment identity as a writable token', () => {

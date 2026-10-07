@@ -13,7 +13,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('runtime verification skips empty inventory without preparing dependencies or launching a process', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const report = await runRuntimeVerification(workspaceRoot, 'full', {
+    const report = await runRuntimeVerification(workspaceRoot, {
       beforeCommit: () => {
         throw new Error('Empty runtime inventory must not prepare dependencies');
       },
@@ -38,7 +38,7 @@ test('non-isolated runtime verification retains the compiler dependency bridge t
     await mkdir(runtimeTestRoot, { recursive: true });
     await writeFile(path.join(runtimeTestRoot, 'consumer.test.ts'), 'export {};\n', 'utf8');
 
-    const report = await runRuntimeVerification(workspaceRoot, 'full', {
+    const report = await runRuntimeVerification(workspaceRoot, {
       commandRunnerForTests: async (_command, _args, options) => {
         expect(options.cwd).toBe(workspaceRoot);
         expect((await lstat(bridgePath)).isSymbolicLink()).toBe(true);

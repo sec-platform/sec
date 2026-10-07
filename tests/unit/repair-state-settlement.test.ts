@@ -3,11 +3,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
-import { readLockFile, saveLock } from '../../src/adapters/workspace/lock.ts';
-import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { publishVerificationArtifactSet } from '../../src/adapters/verification/verification-artifact-publication.ts';
 import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
-import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
+import { buildRepairVerificationFixture } from '../helpers/repair-fixtures.ts';
 
 // Failure injection is confined to an isolated process. The real repair entry,
 // artifact reader, plan builder and physical lease lifecycle still execute.
@@ -16,9 +14,8 @@ test('repair preserves its first publication failure when failure-state persiste
   const repo = fileURLToPath(new URL('../../', import.meta.url));
   try {
     await initWorkspace(root);
-    const lock = readLockFile(root); lock.passStatus.verify = 'succeeded';
-    await saveLock(root, lock);
-    await writeFile(resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport), JSON.stringify(buildPassingReviewReport()));
+    const { lock, artifacts } = buildRepairVerificationFixture();
+    await publishVerificationArtifactSet({ workspaceRoot: root, lock, artifacts });
     const script = path.join(root, 'settlement.ts');
     await writeFile(script, `
       import { mock } from 'bun:test';

@@ -54,12 +54,6 @@ function environmentLocation(options: DependencyEnvironmentOptions, cwd: string)
   return Object.freeze({ sharedDepsRoot: path.resolve(cwd, selected ?? defaultSharedDepsRoot()) });
 }
 
-function environmentExecutionOptions(options: DependencyEnvironmentOptions, cwd: string): Readonly<DependencyEnvironmentOptions> {
-  const location = environmentLocation(options, cwd);
-  const generatedStateLifecycle = options.generatedStateLifecycle;
-  return Object.freeze({ ...location, generatedStateLifecycle });
-}
-
 function captureCleanupSelection(options: DependencyCleanOptions): Readonly<DependencyCleanOptions> {
   const { project, shared, bunCache, all, force } = options;
   for (const [field, value] of Object.entries({ project, shared, bunCache, all, force })) {
@@ -196,8 +190,7 @@ async function executableCheck(id: string, executableName: string, optional: boo
 }
 
 export async function getDependencyEnvironmentStatus(
-  workspaceRoot = process.cwd(),
-  _options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DependencyEnvironmentStatus> {
   const cwd = process.cwd();
   const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(path.resolve(cwd, workspaceRoot));
@@ -228,8 +221,7 @@ export async function getDependencyEnvironmentStatus(
 }
 
 export async function getDoctorReport(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DoctorReport> {
   const cwd = process.cwd();
   workspaceRoot = path.resolve(cwd, workspaceRoot);
@@ -246,7 +238,7 @@ export async function getDoctorReport(
     rootsCheck,
     projectPackageExists
   ] = await Promise.all([
-    getDependencyEnvironmentStatus(workspaceRoot, options),
+    getDependencyEnvironmentStatus(workspaceRoot),
     workspacePlanExists,
     executableCheck('bun', 'bun', true, pathEntries),
     workspaceRootsDoctorCheck(paths),
@@ -281,26 +273,25 @@ export async function getDoctorReport(
 }
 
 export async function warmupDependencyEnvironment(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DependencyEnvironmentStatus> {
   const cwd = process.cwd();
   workspaceRoot = path.resolve(cwd, workspaceRoot);
-  const selected = environmentExecutionOptions(options, cwd);
   await ensureCompilerDepsReady();
-  return getDependencyEnvironmentStatus(workspaceRoot, selected);
+  return getDependencyEnvironmentStatus(workspaceRoot);
 }
 
 export async function relinkProjectDependencies(
   workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  options: Pick<DependencyEnvironmentOptions, 'generatedStateLifecycle'> = {}
 ): Promise<DependencyEnvironmentStatus> {
   const cwd = process.cwd();
   workspaceRoot = path.resolve(cwd, workspaceRoot);
   const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
-  const selected = environmentExecutionOptions(options, cwd);
-  await ensureProjectDependencies(targetWorkspaceRoot, { ...selected, rematerialize: true });
-  return getDependencyEnvironmentStatus(workspaceRoot, selected);
+  await ensureProjectDependencies(targetWorkspaceRoot, {
+    generatedStateLifecycle: options.generatedStateLifecycle, rematerialize: true
+  });
+  return getDependencyEnvironmentStatus(workspaceRoot);
 }
 
 export async function cleanDependencyEnvironment(
@@ -335,7 +326,7 @@ export async function cleanDependencyEnvironment(
       'Custom shared dependency roots cannot be retired through the public cleanup projection without owner-issued lifecycle authority');
   }
   const settlementOptions = hasSharedSettlement
-    ? Object.freeze({ sharedDepsRoot: sharedRoot, generatedStateLifecycle: environmentOptions.generatedStateLifecycle })
+    ? Object.freeze({ generatedStateLifecycle: environmentOptions.generatedStateLifecycle })
     : undefined;
   for (const step of plan) {
     if (step.shared) await disposeCanonicalSharedDependencies(settlementOptions!);

@@ -361,7 +361,7 @@ test.skipIf(process.platform === 'win32')(
   }
 );
 
-test('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
+test.skipIf(process.platform !== 'win32')('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
   const root = await createRepository('sec-dev-mutation-operation-');
   const diagnostics: string[] = [];
   let operationCallCount = 0;
@@ -426,8 +426,7 @@ test('repository mutation fence rejects a reconstructed fast batch admission bef
   )).rejects.toThrow('owner-issued admission');
 });
 
-test('repository mutation fence shares one process ledger with a nested Git admission', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('repository mutation fence shares one process ledger with a nested Git admission', async () => {
   const root = await createRepository('sec-dev-mutation-shared-ledger-');
   try {
     const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
@@ -458,9 +457,7 @@ test('repository mutation fence shares one process ledger with a nested Git admi
   }
 });
 
-test('tracked governed symlink cannot be followed and reported as settled', async () => {
-  if (process.platform === 'win32') return;
-
+test.skipIf(process.platform === 'win32')('tracked governed symlink cannot be followed and reported as settled', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-settlement-link-'));
   try {
     git(root, ['init', '--quiet']);

@@ -180,6 +180,7 @@ test('same-revision IR object replacement cannot retarget the accepted lowering 
 for (const key of ['transactionId', 'inputRevision', 'semanticRevision']) {
   test(`empty ${key} cannot become a successful artifact binding`, async () => fixture(async root => {
     const input = context(); Object.assign(input, { [key]: '' });
-    await assert.rejects(lowerSemanticTasks(root, input, async () => assert.fail('invalid identity admitted')));
+    await assert.rejects(lowerSemanticTasks(root, input, async () => assert.fail('invalid identity admitted')),
+      { code: 'GENERATOR-LOWER-006' });
   }));
 }

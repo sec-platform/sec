@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -14,7 +14,6 @@ import {
   type ProductVerificationObservations,
   type ProductVerificationRuntimeMode
 } from '../../src/assurance/verification/profile/contract/product.ts';
-import type { LockFile } from '../../src/compiler/contract.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 
@@ -50,9 +49,10 @@ function emptyAcceptanceCoverage(status: VerificationReport['runtime']['status']
 
 export function productVerificationObservationsFixture(
   lane: VerificationReport['summary']['requestedLane'] = 'all',
-  runtimeMode: ProductVerificationRuntimeMode = 'full'
+  runtimeMode: ProductVerificationRuntimeMode = 'full',
+  subjectRevision: string = sha256({ fixture: 'product-verification-subject' })
 ): ProductVerificationObservations {
-  const bindings = buildProductVerificationObservationBindings(sha256({ fixture: 'product-verification-subject' }), lane, runtimeMode);
+  const bindings = buildProductVerificationObservationBindings(subjectRevision, lane, runtimeMode);
   const executed = (binding: ProductVerificationGateObservation, label: string): ProductVerificationGateObservation => ({
     ...binding,
     environment: {
@@ -142,48 +142,4 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     writeJson(paths.verificationReportPath, report)
   ]);
   return report;
-}
-
-export async function writeFailedFastUnitVerification(
-  workspaceRoot: string,
-  message: string
-): Promise<void> {
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'failed';
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'failed';
-  report.fast.status = 'failed';
-  report.fast.unit.status = 'failed';
-  report.fast.logs.stderr = message;
-  report.summary.status = 'failed';
-  report.summary.failedLanes = ['fast'];
-  report.logs.stderr = message;
-  await writeJson(verificationReportPath, report);
-}
-
-export async function writePassingVerificationState(workspaceRoot: string): Promise<void> {
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'succeeded';
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'passed';
-  report.unit.passed = [];
-  report.acceptance.status = 'passed';
-  report.acceptance.passed = [];
-  report.acceptance.failed = [];
-  report.policy.status = 'passed';
-  report.policy.violations = [];
-  report.fast.status = 'passed';
-  report.fast.unit.status = 'passed';
-  report.summary.status = 'passed';
-  report.summary.requestedLane = 'all';
-  report.summary.failedLanes = [];
-  await writeJson(verificationReportPath, report);
 }

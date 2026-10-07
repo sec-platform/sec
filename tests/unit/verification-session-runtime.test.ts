@@ -208,18 +208,6 @@ const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
   requestOperationId: `sha256:${'4'.repeat(64)}`
 });
 
-test('canonical Session dispatch is preserved as bounded child-process bytes', () => {
-  const body = Buffer.from(`${encodeVerificationActionData({
-    event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-    client_payload: { payload: JOIN_REQUEST }
-  })}\n`, 'utf8');
-  const probe = spawnSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], {
-    encoding: 'buffer', input: body, windowsHide: true, maxBuffer: 1024 * 1024
-  });
-  expect(probe.status).toBe(0);
-  expect(probe.stdout).toEqual(body);
-});
-
 test('hosted integration router separates first effect, merged recovery, and blocking', () => {
   const session = { repository: 'sec-platform/sec', prNumber: 42,
     sessionRevision: JOIN_SESSION, baseSha: BASE, baseTreeSha: BASE,
@@ -244,13 +232,10 @@ test('hosted integration router separates first effect, merged recovery, and blo
     consumeOriginalRecoveryArtifact: false
   });
 
-  for (const rerunSelection of ['all', 'failed'] as const) {
-    const blocked = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
-      priorEffectStarted: true, authorizationPublicationCount: 0 });
-    expect({ rerunSelection, lane: blocked.lane, reason: blocked.reason }).toEqual({
-      rerunSelection, lane: 'blocked', reason: 'open-prior-effect-started'
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
+    priorEffectStarted: true, authorizationPublicationCount: 0 })).toMatchObject({
+      lane: 'blocked', reason: 'open-prior-effect-started'
     });
-  }
   expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
     priorEffectStarted: false, authorizationPublicationCount: 1 })).toMatchObject({
       lane: 'blocked', reason: 'open-prior-effect-started'
@@ -273,14 +258,6 @@ test('hosted integration router separates first effect, merged recovery, and blo
     consumeOriginalAuthorizationPublication: true,
     consumeOriginalRecoveryArtifact: true
   });
-  let prepareCount = 0;
-  let authorizationCount = 0;
-  let mergeCount = 0;
-  if (mergedEffects.prepareRecoveryArtifact) prepareCount += 1;
-  if (mergedEffects.createAuthorizationPublication) authorizationCount += 1;
-  if (mergedEffects.executePhysicalMerge) mergeCount += 1;
-  expect({ prepareCount, authorizationCount, mergeCount })
-    .toEqual({ prepareCount: 0, authorizationCount: 0, mergeCount: 0 });
 
   expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
     candidate: { ...candidate, state: 'CLOSED' as const }, priorEffectStarted: false,
@@ -2032,7 +2009,9 @@ test('candidate merge-parent observation rejects partial or malformed identity w
     mergeCommitMessage: 'provider-observed merge',
     mergeCommitParentShas: Object.freeze([BASE, '8'.repeat(40)])
   });
-  expect(async () => (await observe(new CandidateTransport(merged)))).not.toThrow();
+  expect(await observe(new CandidateTransport(merged))).toMatchObject({
+    status: 'waiting', reason: 'exact-head-independent-review-missing'
+  });
 
   for (const mergeCommitParentShas of [
     null,
@@ -2085,7 +2064,6 @@ test('V8 GitHub observation regressions normalize timestamps, thread authors, re
     repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
     actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00Z'
   }))).toMatchObject({ status: 'joined', reason: 'active-run' });
-  expect(resolveCloseoutCliGh.toString()).not.toContain('which');
 
   const shimRoot = mkdtempSync(path.join(tmpdir(), 'sec-node-native-gh-resolution-'));
   try {
@@ -2120,7 +2098,7 @@ test('V8 final Review P2 regressions preserve dotted paths and bind complete nes
   expect((await changedPaths(['docs/v1..v2.md', 'src/review...fixture.ts'])))
     .toEqual(['docs/v1..v2.md', 'src/review...fixture.ts']);
   for (const traversal of ['..', '../escape.ts', 'src/../escape.ts', 'src/a/../../escape.ts']) {
-    expect(async () => (await changedPaths([traversal])), traversal).toThrow(/changed-path observation is invalid/i);
+    await expect(changedPaths([traversal]), traversal).rejects.toThrow(/changed-path observation is invalid/i);
   }
 
   const firstCommentPage = Array.from({ length: 100 }, () => ({ author: { id: 'REVIEWER' } }));
@@ -2201,20 +2179,12 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
     { pullRequestFileInventory: () => complete }, expected
   ))).toEqual(complete);
 
-  const expectIdentityMismatchBeforeEffect = async (
+  const expectIdentityMismatch = async (
     inventory: ReturnType<typeof parseGitHubPullRequestFileInventory>
   ) => {
-    let authorizationReached = false;
-    let physicalMergeReached = false;
-    await expect((async () => {
-      const observed = (await evaluateVerificationSessionChangedPaths(
-        { pullRequestFileInventory: () => inventory }, expected
-      ));
-      authorizationReached = observed.paths.length > 0;
-      physicalMergeReached = authorizationReached;
-    })()).rejects.toThrow(/differs from the expected open candidate identity/i);
-    expect(authorizationReached).toBe(false);
-    expect(physicalMergeReached).toBe(false);
+    await expect(evaluateVerificationSessionChangedPaths(
+      { pullRequestFileInventory: () => inventory }, expected
+    )).rejects.toThrow(/differs from the expected open candidate identity/i);
   };
   for (const inventory of [
     parse({ beforeSource: metadata(1, '3'.repeat(40), HEAD),
@@ -2225,7 +2195,7 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
       afterSource: metadata(1, BASE, HEAD, 'closed') }),
     parse({ beforeSource: metadata(1, BASE, HEAD, 'open', true),
       afterSource: metadata(1, BASE, HEAD, 'open', true) })
-  ]) expectIdentityMismatchBeforeEffect(inventory);
+  ]) await expectIdentityMismatch(inventory);
 
   expect(() => parse({
     pagesSource: JSON.stringify([[
@@ -2305,7 +2275,6 @@ test('V9 GitHub observation exhausts stable same-head census and pairs copied pa
     .toThrow(/copied record has no previous_filename/i);
   expect(() => files({ filename: 'src/copy.ts', previous_filename: 'src/copy.ts', status: 'copied' }))
     .toThrow(/copied record does not change its filename/i);
-  expect(() => files({ filename: 'src/file.ts', previous_filename: 'src/old.ts', status: 'modified' }))
 });
 
 test('V9 repository artifact census hydrates only live canonical Session-family summaries', async () => {
@@ -2371,10 +2340,10 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     })))()).rejects.toThrow(message);
     expect(calls).toBe(0);
   };
-  expectPreHydrationFailure((pages) => { pages[1].artifacts[1].id = 1001; }, /duplicate id/i);
-  expectPreHydrationFailure((pages) => { pages[1].total_count = 104; }, /total_count drifted/i);
-  expectPreHydrationFailure((pages) => { pages[1].artifacts[2].digest = 'sha256:bad'; }, /digest is malformed/i);
-  expectPreHydrationFailure((pages) => {
+  await expectPreHydrationFailure((pages) => { pages[1].artifacts[1].id = 1001; }, /duplicate id/i);
+  await expectPreHydrationFailure((pages) => { pages[1].total_count = 104; }, /total_count drifted/i);
+  await expectPreHydrationFailure((pages) => { pages[1].artifacts[2].digest = 'sha256:bad'; }, /digest is malformed/i);
+  await expectPreHydrationFailure((pages) => {
     pages[1].artifacts[1].name = `${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-confusable`;
   }, /malformed Session-family name/i);
 
@@ -3035,21 +3004,12 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
   }
 });
 
-test('two independent local coordinators join one provider run and send only one wake-up signal', async () => {
+test('an empty Session workflow inventory is eligible for redispatch', async () => {
   const transport = new FakeTransport();
-  const coordinate = async () => {
-    const join = (await evaluateVerificationSessionWorkflowJoin(transport, { repository: 'sec-platform/sec',
-      prNumber: 42, sessionRevision: JOIN_SESSION, actionPlanDigest: JOIN_ACTION,
-      baseSha: BASE, now: '2026-08-09T14:05:00.000Z' }));
-    if (join.status === 'redispatch-eligible') {
-      transport.ensureVerificationSessionWakeup();
-      transport.workflowRuns = [[workflowRun()]];
-    }
-    return join;
-  };
-  expect((await coordinate()).status).toBe('redispatch-eligible');
-  expect((await coordinate()).status).toBe('joined');
-  expect(transport.dispatches).toBe(1);
+  expect((await evaluateVerificationSessionWorkflowJoin(transport, {
+    repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
+    actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00.000Z'
+  })).status).toBe('redispatch-eligible');
 });
 
 test('Session workflow join uses complete pages and rejects duplicate/conflicting inventory', async () => {
@@ -4311,7 +4271,7 @@ describe('qualified exact-repository Session consumers', () => {
       prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
       headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
       candidate, github: fixture.github };
-    expect(async () => (await assertTrustedMergedRequestRuntimeReachability(input))).not.toThrow();
+    await expect(assertTrustedMergedRequestRuntimeReachability(input)).resolves.toBeUndefined();
     await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
     await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,

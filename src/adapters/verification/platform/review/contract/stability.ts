@@ -351,16 +351,3 @@ export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt):
   return `Independent-Exact-Head-Review: receipt=${current.receiptDigest} `
     + `revision=${current.reviewRevision} threads=${current.snapshot.threadCount} unresolved=0`;
 }
-
-export function assertMergeTrailerLinesV1(
-  lines: readonly string[],
-  receipt: ReviewStabilityReceipt
-): void {
-  const canonical = renderIndependentReviewTrailer(receipt);
-  for (const line of lines) {
-    if (!line.startsWith('Independent-')) continue;
-    if (line !== canonical) {
-      fail('unbound Independent-* trailer is forbidden; integration trailers must derive from a validated receipt.');
-    }
-  }
-}

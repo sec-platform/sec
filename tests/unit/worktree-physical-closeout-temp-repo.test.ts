@@ -747,8 +747,7 @@ test('fieldless historical proofless residue converges only from exact durable a
   }
 }, 30_000);
 
-test('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
   const value = fixture();
   const externalTarget = path.join(value.root, 'external-junction-target');
   try {
@@ -925,8 +924,7 @@ test('closeout composes provider retirement for an automatically reused dependen
   }
 }, 40_000);
 
-test('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
   const value = fixture();
   const externalJunctionTarget = path.join(value.root, 'junction-external');
   try {
@@ -1434,8 +1432,7 @@ test('foreign retained-proof content blocks execute and leaves the retirement fe
   }
 }, 30_000);
 
-test('physical residue retry advances immutable receipt generation without erasing the first attempt', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('physical residue retry advances immutable receipt generation without erasing the first attempt', async () => {
   const value = fixture();
   try {
     const authorization = await prepareWorktreePhysicalCloseout({

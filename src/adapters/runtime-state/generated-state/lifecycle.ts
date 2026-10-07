@@ -129,7 +129,9 @@ function assertGeneratedStateCleanupOperation(
   label: string
 ): void {
   if (state === null) return;
-  if (state.signal?.aborted === true || state.monotonicNowMs() >= state.deadlineAtMonotonicMs) {
+  const abortedBeforeClock = state.signal?.aborted === true;
+  const now = abortedBeforeClock ? state.deadlineAtMonotonicMs : state.monotonicNowMs();
+  if (abortedBeforeClock || Boolean(state.signal?.aborted) || now >= state.deadlineAtMonotonicMs) {
     throw new GeneratedStateCleanupOperationExhaustedError(`${label} exceeded the cleanup operation budget.`);
   }
 }
@@ -448,6 +450,18 @@ function loadCleanupIntent(
   return intent;
 }
 
+/** A durable cleanup intent retains the original registration until its
+ * exact physical effects and pointer retirement settle. A new producer may
+ * not reactivate, re-sign or terminalize that responsibility. Call under the
+ * existing registration mutation lease. */
+function assertNoGeneratedStateCleanupResponsibility(store: GeneratedStateRuntimeStore, relativePath: string): void {
+  if (loadCleanupIntent(store, relativePath) !== null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration conflicts with an active cleanup responsibility: ${relativePath}.`
+    );
+  }
+}
+
 function requireRule(relativePath: string): GeneratedStateRule {
   const rule = generatedStateRuleForPath(relativePath);
   if (rule === null) {
@@ -486,6 +500,7 @@ async function registerGeneratedStateBirth(input: Readonly<{
     throw new Error(`Generated-state rule ${rule.id} is registered by its domain owner, not this lifecycle.`);
   }
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Generated-state workspace root').target;
     const observed = observeRoot(workspaceRoot, relativePath);
     if (observed.identity === null || physicalFormForObservedKind(rule, observed.kind) === null) {
@@ -547,20 +562,30 @@ async function retireGeneratedStateInStore(store: GeneratedStateRuntimeStore, in
   outcome: string;
 }>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateRegistration> {
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  assertNoGeneratedStateCleanupResponsibility(store, relativePath);
   const pointer = inspectRegistrationPointer(store, relativePath);
   const currentObservation = readRegistrationLedgerObservation(store, relativePath);
   const current = currentObservation.registration;
   if (current === null) throw new Error('Generated-state retirement has no birth registration.');
+  const outcome = input.outcome.trim();
+  if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
+  if (current.phase === 'retired') {
+    const predecessor = currentObservation.previousRegistration;
+    if (predecessor?.phase === 'active' &&
+        (current.registrationDigest === input.expectedRegistrationDigest ||
+         predecessor.registrationDigest === input.expectedRegistrationDigest) &&
+        samePhysicalIdentity(predecessor.root, current.root) &&
+        current.retirementRef === generatedStateOwnerRetirementRef(predecessor, outcome)) {
+      // Publication recovery does not update the original producer session.
+      // Accept only its exact predecessor and the same retirement outcome.
+      return current;
+    }
+    throw new Error('Generated-state registration was retired by a different authority.');
+  }
   if (current.registrationDigest !== input.expectedRegistrationDigest) {
     throw new Error('Generated-state retirement is not bound to the producer session registration.');
   }
-  const outcome = input.outcome.trim();
-  if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
   const retirementRef = generatedStateOwnerRetirementRef(current, outcome);
-  if (current.phase === 'retired') {
-    if (current.retirementRef === retirementRef) return current;
-    throw new Error('Generated-state registration was retired by a different authority.');
-  }
   const retired = retireGeneratedStateRegistration(current, retirementRef, {
     clock: options.clock
   });
@@ -606,6 +631,7 @@ async function restoreGeneratedStateRegistration(input: Readonly<{
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
   const rule = requireRule(relativePath);
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const pointer = inspectRegistrationPointer(store, relativePath);
     const currentObservation = readRegistrationLedgerObservation(store, relativePath);
     const current = currentObservation.registration;
@@ -660,6 +686,7 @@ async function restoreGeneratedStateRegistration(input: Readonly<{
 type GeneratedStateRetirementObservationStatus =
   | 'active'
   | 'retired-present'
+  | 'retired-predecessor'
   | 'retired-domain-settled'
   | 'absent'
   | 'mismatch';
@@ -845,14 +872,22 @@ async function observeGeneratedStateRetirement(input: Readonly<{
     if (registration !== null) {
       registrationDigest = registration.registrationDigest;
       registrationPhysical = registration.root;
-      const exact = path.resolve(registration.repositoryRoot) === repositoryRoot &&
+      const exactRegistration = path.resolve(registration.repositoryRoot) === repositoryRoot &&
         registration.relativePath === relativePath && registration.ruleId === rule.id &&
         (expected?.owner === undefined || expected.owner === registration.owner) &&
         (expected?.producer === undefined || expected.producer === registration.producer) &&
         (expected?.ruleId === undefined || expected.ruleId === registration.ruleId) &&
-        (expected?.physical === undefined || samePhysicalIdentity(expected.physical, registration.root)) &&
-        observed.identity !== null && samePhysicalIdentity(observed.identity, registration.root);
-      status = !exact ? 'mismatch' : registration.phase === 'active' ? 'active' : 'retired-present';
+        (expected?.physical === undefined || samePhysicalIdentity(expected.physical, registration.root));
+      const exactPhysical = observed.identity !== null && samePhysicalIdentity(observed.identity, registration.root);
+      // A displaced retirement is a fact about the exact old registration,
+      // never authority over the object now occupying its path. Require every
+      // owner coordinate and the caller's recorded predecessor identity.
+      const exactRetiredPredecessor = exactRegistration && registration.phase === 'retired' &&
+        expected?.owner !== undefined && expected.producer !== undefined &&
+        expected.ruleId !== undefined && expected.physical !== undefined;
+      status = exactRegistration && exactPhysical
+        ? registration.phase === 'active' ? 'active' : 'retired-present'
+        : exactRetiredPredecessor ? 'retired-predecessor' : 'mismatch';
     } else if (ledger.retiredPredecessor !== null) {
       registrationDigest = ledger.retiredPredecessor.registrationDigest;
       registrationPhysical = ledger.retiredPredecessor.root;
@@ -870,7 +905,8 @@ async function observeGeneratedStateRetirement(input: Readonly<{
   } else {
     status = observed.kind === 'missing' ? 'absent' : 'mismatch';
   }
-  const physical = observed.identity ?? registrationPhysical;
+  const physical = status === 'retired-predecessor'
+    ? registrationPhysical : observed.identity ?? registrationPhysical;
   const unsigned = Object.freeze({
     schema: 'sec-generated-state-retirement-observation-v1' as const,
     status,
@@ -886,24 +922,43 @@ async function observeGeneratedStateRetirement(input: Readonly<{
   return observation;
 }
 
+export interface GeneratedStateRetiredPredecessorRetraction {
+  readonly observation: GeneratedStateRetirementObservation;
+  readonly physical: GeneratedStatePhysicalIdentity;
+  readonly retract: () => Promise<void>;
+}
+
 async function disposeRetiredGeneratedStateDomain(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
   relativePath: string;
   expected?: GeneratedStateProducerBindingExpectation;
+  retraction?: GeneratedStateRetiredPredecessorRetraction;
 }>, options: GeneratedStateLifecycleOptions = {}): Promise<boolean> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
   const rule = requireRule(relativePath);
+  const expected = input.expected === undefined ? undefined : Object.freeze({ ...input.expected,
+    ...(input.expected.physical === undefined ? {} : { physical: Object.freeze({ ...input.expected.physical }) }) });
+  const requestedRetraction = input.retraction;
+  const retraction = requestedRetraction === undefined ? undefined : Object.freeze({
+    observation: requestedRetraction.observation,
+    physical: Object.freeze({ ...requestedRetraction.physical }),
+    retract: requestedRetraction.retract.bind(requestedRetraction)
+  });
+  if (retraction !== undefined) assertGeneratedStateRetirementObservation(retraction.observation);
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const observation = readRegistrationLedgerObservation(store, relativePath);
     const registration = observation.registration;
     if (registration === null) {
+      if (retraction !== undefined) throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired predecessor is no longer current: ${relativePath}.`
+      );
       return observation.retiredPredecessor !== null && observeRoot(workspaceRoot, relativePath).kind === 'missing';
     }
     if (registration.phase !== 'retired') return false;
-    const expected = input.expected;
     if (path.resolve(registration.repositoryRoot) !== repositoryRoot ||
         registration.relativePath !== relativePath || registration.ruleId !== rule.id ||
         (expected?.owner !== undefined && expected.owner !== registration.owner) ||
@@ -914,7 +969,32 @@ async function disposeRetiredGeneratedStateDomain(input: Readonly<{
         `Generated-state retired domain registration is foreign: ${relativePath}.`
       );
     }
-    const observed = observeRoot(workspaceRoot, relativePath);
+    let observed = observeRoot(workspaceRoot, relativePath);
+    if (retraction !== undefined) {
+      const proof = retraction.observation;
+      if (expected?.owner === undefined || expected.producer === undefined || expected.ruleId === undefined ||
+          expected.physical === undefined || proof.status !== 'retired-predecessor' ||
+          proof.relativePath !== relativePath || proof.registrationDigest !== registration.registrationDigest ||
+          proof.physical === null || !samePhysicalIdentity(proof.physical, registration.root) ||
+          observed.kind !== 'link' || observed.identity === null ||
+          !samePhysicalIdentity(observed.identity, retraction.physical) ||
+          samePhysicalIdentity(observed.identity, registration.root) ||
+          physicalFormForObservedKind(rule, observed.kind)?.worktreeRetirement?.mode !== 'domain-retire') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state retired predecessor retraction is foreign or stale: ${relativePath}.`
+        );
+      }
+      // Keep the original ledger mutation lease across the producer's exact
+      // CAS effect. An observation alone cannot authorize disposal after a
+      // different producer has restored or replaced the registration.
+      await store.assertCurrent();
+      await retraction.retract();
+      await store.assertCurrent();
+      observed = observeRoot(workspaceRoot, relativePath);
+      if (observed.kind !== 'missing') throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired predecessor retraction did not reach absence: ${relativePath}.`
+      );
+    }
     if (observed.kind !== 'missing') {
       if (observed.identity === null || !samePhysicalIdentity(observed.identity, registration.root)) {
         throw new GeneratedStateProducerBindingBlockedError(
@@ -1037,6 +1117,7 @@ async function settleAbsentActiveGeneratedStateRegistration(input: Readonly<{
     );
   }
   return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    assertNoGeneratedStateCleanupResponsibility(store, relativePath);
     const workspace = inspectNoFollowDirectoryChain(
       workspaceRoot,
       'Generated-state absent registration settlement workspace root'
@@ -1520,6 +1601,7 @@ async function worktreeRetirementDomainRegistration(
   store: GeneratedStateRuntimeStore,
   options: GeneratedStateLifecycleOptions
 ): Promise<GeneratedStateRegistration> {
+  assertNoGeneratedStateCleanupResponsibility(store, entry.relativePath);
   const planned = entry.registration;
   const outcome = `worktree-retirement:${intent.operationId}`;
   let observation = readRegistrationLedgerObservation(store, entry.relativePath);
@@ -2260,58 +2342,47 @@ export async function settleGeneratedState(input: Readonly<{
     }, { clock: options.clock });
   }
   const store = await openRuntimeStore(workspaceRoot, options);
-  for (const entry of before.entries.filter((candidate) =>
-    candidate.kind === 'missing' && candidate.registrationState === 'retired'
-  )) {
-    const registration = loadRegistration(store, entry.relativePath);
-    const intent = loadCleanupIntent(store, entry.relativePath);
-    if (registration === null || intent === null || intent.profile !== input.profile ||
-        intent.registrationDigest !== registration.registrationDigest ||
-        !sameIdentity(registration.root, intent.root)) {
-      blockers.push(`${entry.relativePath}:retired-absent-root-without-valid-intent`);
-      attempts.push(Object.freeze({
-        relativePath: entry.relativePath,
-        action: 'residue',
-        detailRef: generatedStateDigest('retired-absent-root-without-valid-intent')
-      }));
-      continue;
-    }
-    try {
-      const tombstonePath = path.join(
-        workspaceRoot, '.tmp', 'generated-state-quarantine', intent.tombstoneName
-      );
-      const tombstone = inspectExactNoFollowDirectoryPresence(
-        tombstonePath,
-        'Generated-state interrupted quarantine'
-      );
-      if (tombstone.state === 'present') {
-        if (!sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
-          throw new Error('Generated-state interrupted quarantine identity changed.');
+  for (const entry of before.entries.filter((candidate) => candidate.kind === 'missing')) {
+    await withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+      const intent = loadCleanupIntent(store, entry.relativePath);
+      const observation = readRegistrationLedgerObservation(store, entry.relativePath);
+      const registration = observation.registration ?? observation.retiredPredecessor;
+      if (intent === null && observation.registration?.phase !== 'retired') return;
+      if (registration === null || registration.phase !== 'retired' || intent === null ||
+          intent.profile !== input.profile || intent.registrationDigest !== registration.registrationDigest ||
+          !sameIdentity(registration.root, intent.root) || observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+        blockers.push(`${entry.relativePath}:retired-absent-root-without-valid-intent`);
+        attempts.push(Object.freeze({ relativePath: entry.relativePath, action: 'residue',
+          detailRef: generatedStateDigest('retired-absent-root-without-valid-intent') }));
+        return;
+      }
+      try {
+        const tombstonePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine', intent.tombstoneName);
+        const tombstone = inspectExactNoFollowDirectoryPresence(tombstonePath, 'Generated-state interrupted quarantine');
+        if (tombstone.state === 'present') {
+          if (!sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
+            throw new Error('Generated-state interrupted quarantine identity changed.');
+          }
+          deleteQuarantinedTree(tombstone.directory.target, cleanupOperation);
         }
-        deleteQuarantinedTree(tombstone.directory.target, cleanupOperation);
+        if (observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+          throw new Error('Generated-state interrupted cleanup source reappeared.');
+        }
+        const registrationLocator = registrationPath(store, entry.relativePath);
+        const transactionLocator = transactionPointerPath(store, entry.relativePath);
+        if ((!store.fs.deleteIfPresent(registrationLocator) && store.fs.exists(registrationLocator))
+            || (!store.fs.deleteIfPresent(transactionLocator) && store.fs.exists(transactionLocator))) {
+          throw new Error('Generated-state interrupted cleanup pointers remain.');
+        }
+        attempts.push(Object.freeze({ relativePath: entry.relativePath, action: 'deleted',
+          detailRef: generatedStateDigest({ intentDigest: intent.intentDigest,
+            effect: 'interrupted-cleanup-physical-absence-readback' }) }));
+      } catch (error) {
+        blockers.push(`${entry.relativePath}:interrupted-cleanup-residue`);
+        attempts.push(Object.freeze({ relativePath: entry.relativePath, action: 'residue',
+          detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error)) }));
       }
-      const registrationLocator = registrationPath(store, entry.relativePath);
-      const transactionLocator = transactionPointerPath(store, entry.relativePath);
-      if ((!store.fs.deleteIfPresent(registrationLocator) && store.fs.exists(registrationLocator))
-          || (!store.fs.deleteIfPresent(transactionLocator) && store.fs.exists(transactionLocator))) {
-        throw new Error('Generated-state interrupted cleanup pointers remain.');
-      }
-      attempts.push(Object.freeze({
-        relativePath: entry.relativePath,
-        action: 'deleted',
-        detailRef: generatedStateDigest({
-          intentDigest: intent.intentDigest,
-          effect: 'interrupted-cleanup-physical-absence-readback'
-        })
-      }));
-    } catch (error) {
-      blockers.push(`${entry.relativePath}:interrupted-cleanup-residue`);
-      attempts.push(Object.freeze({
-        relativePath: entry.relativePath,
-        action: 'residue',
-        detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error))
-      }));
-    }
+    });
   }
   if (plan.selected.length > 0) {
     const workspace = inspectNoFollowDirectoryChain(
@@ -2325,8 +2396,13 @@ export async function settleGeneratedState(input: Readonly<{
     for (const relativePath of plan.selected) {
       const entry = before.entries.find((candidate) => candidate.relativePath === relativePath)!;
       await options.beforeCleanupEffect?.(relativePath);
+      await withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+      const registration = readRegistrationLedgerObservation(store, relativePath).registration;
       const current = observeRoot(workspaceRoot, relativePath);
-      if (current.kind !== 'directory' || current.directory === null || current.identity === null
+      if (registration === null || registration.phase !== 'retired' ||
+          registration.registrationDigest !== entry.registrationDigest ||
+          !sameIdentity(registration.workspace, identityOf(workspace)) ||
+          current.kind !== 'directory' || current.directory === null || current.identity === null
           || entry.physicalIdentity === null || !sameIdentity(entry.physicalIdentity, current.identity)) {
         blockers.push(`${relativePath}:changed-after-inventory-or-unsupported-kind`);
         attempts.push(Object.freeze({
@@ -2334,10 +2410,10 @@ export async function settleGeneratedState(input: Readonly<{
           action: 'protected',
           detailRef: generatedStateDigest('changed-after-inventory-or-unsupported-kind')
         }));
-        continue;
+        return;
       }
       const tombstoneName = `q-${entry.registrationDigest!.slice('sha256:'.length, 'sha256:'.length + 48)}`;
-      const intent = Object.freeze({
+      const plannedIntent = Object.freeze({
         schema: GENERATED_STATE_CLEANUP_INTENT_SCHEMA,
         beforeInventoryDigest: before.inventoryDigest,
         profile: input.profile,
@@ -2346,9 +2422,16 @@ export async function settleGeneratedState(input: Readonly<{
         root: entry.physicalIdentity,
         tombstoneName
       });
-      const intentDigest = generatedStateDigest(intent);
+      const existingIntent = loadCleanupIntent(store, relativePath);
+      if (existingIntent !== null && (existingIntent.profile !== input.profile ||
+          existingIntent.registrationDigest !== registration.registrationDigest ||
+          !sameIdentity(existingIntent.root, registration.root))) {
+        throw new GeneratedStateProducerBindingBlockedError('Generated-state cleanup intent belongs to another responsibility.');
+      }
+      const intent = existingIntent ?? Object.freeze({ ...plannedIntent, intentDigest: generatedStateDigest(plannedIntent) });
+      const intentDigest = intent.intentDigest;
       const intentPath = path.join(store.transactionsRoot, `intent-${intentDigest.slice('sha256:'.length)}.json`);
-      const intentBytes = canonicalBytes(Object.freeze({ ...intent, intentDigest }));
+      const intentBytes = canonicalBytes(intent);
       if (!store.fs.createExclusiveFsync(intentPath, intentBytes) && store.fs.readText(intentPath) !== intentBytes) {
         throw new Error('Generated-state cleanup intent collides with different bytes.');
       }
@@ -2367,6 +2450,9 @@ export async function settleGeneratedState(input: Readonly<{
           path.join(quarantinePath, tombstoneName), 'Generated-state quarantine readback'
         ).state === 'absent';
         if (!absent) throw new Error('Generated-state quarantine residue remains after deletion.');
+        if (observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
+          throw new Error('Generated-state cleanup source reappeared before terminal publication.');
+        }
         const registrationLocator = registrationPath(store, relativePath);
         if (!store.fs.deleteIfPresent(registrationLocator) || store.fs.exists(registrationLocator)) {
           throw new Error('Generated-state retired registration remains after physical deletion.');
@@ -2388,6 +2474,7 @@ export async function settleGeneratedState(input: Readonly<{
           detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error))
         }));
       }
+      });
     }
   }
   const quarantinePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine');
@@ -2527,7 +2614,14 @@ export async function continueGeneratedStateCleanup(input: Readonly<{
   for (const relativePath of requested) {
     const entry = after.entries.find((candidate) => candidate.relativePath === relativePath);
     if (entry?.kind === 'missing' && entry.registrationState === 'missing') {
-      completed.push(relativePath);
+      // A prior cut may have retired the registration pointer but left its
+      // durable cleanup responsibility. Exhaustion/profile rejection above
+      // cannot turn that still-producer-blocking intent into completion.
+      if (store !== null && loadCleanupIntent(store, relativePath) !== null) {
+        blockers.push(`${relativePath}:cleanup-continuation-intent-unsettled`);
+      } else {
+        completed.push(relativePath);
+      }
       continue;
     }
     if (entry?.kind !== 'missing' || entry.registrationState !== 'retired' || store === null) {
@@ -2538,7 +2632,7 @@ export async function continueGeneratedStateCleanup(input: Readonly<{
     const registration = observation.registration;
     const intent = loadCleanupIntent(store, relativePath);
     if (registration === null || registration.phase !== 'retired' || intent === null ||
-        intent.registrationDigest !== registration.registrationDigest ||
+        intent.profile !== input.profile || intent.registrationDigest !== registration.registrationDigest ||
         !sameIdentity(intent.root, registration.root)) {
       blockers.push(`${relativePath}:cleanup-continuation-intent-invalid`);
       continue;
@@ -2617,6 +2711,16 @@ async function prepareGeneratedStateDisposal(input: Readonly<{
   if (outcome.length === 0) {
     throw new GeneratedStateProducerBindingBlockedError('Generated-state disposal outcome is empty.');
   }
+  // Disposal/quarantine are explicit mutation entries. Settle the original
+  // prepared registration publication before their read-only admission census.
+  const cleanupState = generatedStateCleanupOperationState(options.cleanupOperation);
+  const assertRecoveryCurrent = () => assertGeneratedStateCleanupOperation(
+    cleanupState, 'Generated-state disposal publication recovery'
+  );
+  assertRecoveryCurrent();
+  await ensureGeneratedStateRegistrationLedger({ repositoryRoot, workspaceRoot }, {
+    ...options, assertRegistrationPublicationRecoveryCurrent: assertRecoveryCurrent
+  });
   const initialStore = openRuntimeStoreReadOnly(workspaceRoot, options);
   if (initialStore === null) {
     throw new GeneratedStateProducerBindingBlockedError(
@@ -2853,7 +2957,8 @@ export interface GeneratedStateProducerHookSet {
   retired(relativePath: string, outcome: string): Promise<GeneratedStateRegistration | void>;
   settleRetired(
     relativePath: string,
-    expected?: GeneratedStateProducerBindingExpectation
+    expected?: GeneratedStateProducerBindingExpectation,
+    retraction?: GeneratedStateRetiredPredecessorRetraction
   ): Promise<boolean>;
   observeRetirement(
     relativePath: string,
@@ -2963,10 +3068,11 @@ export function generatedStateProducerHooks(
       producerSession.set(registration.relativePath, registration.registrationDigest);
       return registration;
     },
-    settleRetired: (relativePath, expected) => disposeRetiredGeneratedStateDomain({
+    settleRetired: (relativePath, expected, retraction) => disposeRetiredGeneratedStateDomain({
       ...producerInput,
       relativePath,
-      expected
+      expected,
+      retraction
     }, producerOptions),
     observeRetirement: (relativePath, expected) => observeGeneratedStateRetirement({
       ...producerInput,

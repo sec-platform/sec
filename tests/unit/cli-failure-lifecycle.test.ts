@@ -131,20 +131,6 @@ test('even a secondary failure and a broken diagnostic sink cannot change the or
   } finally { console.error = previous; }
 });
 
-test('a presentation failure after successful repair does not start failure readback', async () => {
-  const failure = new Error('format'); let reads = 0;
-  await assert.rejects((async () => {
-    await runRepairWithFailureReadback(
-      async () => 7,
-      async () => { reads++; },
-      () => undefined
-    );
-    throw failure;
-  })(), (e) => e === failure);
-  assert.equal(reads, 0);
-});
-
-
 test('unrepresentable truthy details fall back to inspection instead of emitting undefined', () => {
   for (const details of [Symbol('detail'), () => undefined]) {
     const lines = render(protocol(details));

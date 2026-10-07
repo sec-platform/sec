@@ -12,7 +12,6 @@ import {
 import {
   assertRuntimeEndpointResidueReceipt,
   censusRetainedRuntimeGenerations,
-  issueRuntimeGenerationCensusReceiptForTests,
   observeRuntimeEndpointResidueCandidatesForTests,
   runtimeEndpointAccessFailureObservationForTests,
   settleRuntimeGenerationCensusAdmissionForTests
@@ -86,11 +85,6 @@ test('bounded generation census reports physical presence without inferring prov
         stale: 'present',
         unknown: 'unknown'
       });
-    const inaccessible = issueRuntimeGenerationCensusReceiptForTests({
-      providerIdentityDigest,
-      states: ['access-unavailable']
-    });
-    expect(inaccessible.entries[0]?.state).toBe('access-unavailable');
   } finally {
     census?.close();
     owner?.close();

@@ -1,4 +1,4 @@
-import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import { CanonicalKeyConflictError, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import type { SemanticAttribute, SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
 import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 
@@ -37,20 +37,41 @@ export function normalizeAttributes(attributes: readonly SemanticAttribute[]): S
     .sort((left, right) => compareCodeUnits(left.key, right.key));
 }
 
-function provenanceKey(provenance: FactProvenance): string {
-  return [provenance.kind, provenance.sourceId, provenance.sourcePath ?? '', provenance.revision ?? ''].join('\u0000');
+function provenanceFields(provenance: FactProvenance): readonly (string | undefined)[] {
+  return [provenance.kind, provenance.sourceId, provenance.sourcePath, provenance.revision];
 }
 
-function evidenceKey(evidence: EvidenceReference): string {
-  return [evidence.kind, evidence.ref, evidence.digest ?? ''].join('\u0000');
+function evidenceFields(evidence: EvidenceReference): readonly (string | undefined)[] {
+  return [evidence.kind, evidence.ref, evidence.digest];
+}
+
+/** Keep the legacy key order and native JSON wire identity for stable metadata.
+ * Tuple equality rejects delimiter/optional-field collisions; wire equality also
+ * preserves property order and extension data. This is not a hostile-object boundary. */
+function uniqueSortedMetadata<Value>(
+  values: readonly Value[],
+  fieldsOf: (value: Value) => readonly (string | undefined)[]
+): Value[] {
+  const byKey = new Map<string, { value: Value; fields: readonly (string | undefined)[] }>();
+  for (const value of values) {
+    const fields = fieldsOf(value);
+    const key = fields.join('\u0000');
+    const previous = byKey.get(key);
+    if (previous !== undefined && (previous.fields.some((field, index) => field !== fields[index])
+      || (previous.value !== value && JSON.stringify(previous.value) !== JSON.stringify(value)))) {
+      throw new CanonicalKeyConflictError();
+    }
+    byKey.set(key, { value, fields });
+  }
+  return [...byKey.entries()].sort(([left], [right]) => compareCodeUnits(left, right)).map(([, entry]) => entry.value);
 }
 
 export function normalizeProvenance(provenance: readonly FactProvenance[]): FactProvenance[] {
-  return uniqueSortedByKey(provenance, provenanceKey);
+  return uniqueSortedMetadata(provenance, provenanceFields);
 }
 
 export function normalizeEvidence(evidence: readonly EvidenceReference[]): EvidenceReference[] {
-  return uniqueSortedByKey(evidence, evidenceKey);
+  return uniqueSortedMetadata(evidence, evidenceFields);
 }
 
 

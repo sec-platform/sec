@@ -1,11 +1,12 @@
+import { assertVerificationArtifactSet, type ValidatedVerificationArtifactSet } from '../../assurance/verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES, CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
 import {
   buildProvenanceArtifacts,
   finalizeProvenanceArtifacts
 } from '../../assurance/verification/provenance/build-provenance.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
+import { cloneAndDeepFreeze } from '../../contracts/canonical.ts';
 import { type CommitFence } from '../../contracts/commit-fence.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { isPathInside, isSafeRelativePath, posixPath, resolvePathInside } from '../../contracts/relative-path.ts';
@@ -21,7 +22,7 @@ import {
   workspaceConfigRelativePath
 } from '../../workspace/paths.ts';
 import { publishExistingParentCanonicalWorkspaceFile } from '../filesystem/file-publication.ts';
-import { readOptionalCanonicalVerificationArtifactSet } from '../verification/platform/artifact/runtime/authority.ts';
+import { readOptionalVerificationArtifactSet } from '../verification/platform/artifact/runtime/authority.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
   resolveWorkspaceArtifactPath
@@ -42,15 +43,21 @@ const nativeWorkspaceRoots = [
   secRelativePath
 ] as const;
 
-function readVerificationReport(workspaceRoot: string): VerificationReport | null {
-  return readOptionalCanonicalVerificationArtifactSet(
-    workspaceRoot,
-    'Provenance Verification artifact set'
-  )?.verificationReport ?? null;
-}
-
-export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
-  const report = readVerificationReport(workspaceRoot);
+export async function buildProvenance(
+  workspaceRoot: string,
+  lock: LockFile,
+  verification?: ValidatedVerificationArtifactSet | null
+): Promise<ProvenanceFile> {
+  // Capture plain inputs before override loading suspends. A publisher can
+  // carry its admitted evidence here without observing a replacement tuple.
+  lock = cloneAndDeepFreeze(lock);
+  const verificationArtifacts = verification === undefined
+    ? readOptionalVerificationArtifactSet(workspaceRoot, 'Provenance Verification artifact set')
+    : cloneAndDeepFreeze(verification);
+  if (verificationArtifacts !== null) assertVerificationArtifactSet(verificationArtifacts);
+  const observedReport = verificationArtifacts?.verificationReport;
+  // Partial diagnostic provenance must not claim unscoped complete proof.
+  const report = observedReport?.summary.requestedLane === 'all' ? observedReport : null;
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   const artifacts = buildProvenanceArtifacts(lock, report, overrideManifest);
   const hashedArtifacts = artifacts.map((artifact) => {
@@ -85,8 +92,10 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 export async function writeProvenance(
   workspaceRoot: string,
   lock: LockFile,
-  commitFence?: CommitFence
+  commitFence?: CommitFence,
+  verification?: ValidatedVerificationArtifactSet | null
 ): Promise<ProvenanceFile> {
+  const publicationLock = structuredClone(lock);
   const provenancePath = resolveWorkspaceArtifactPath(
     workspaceRoot,
     CI_ARTIFACT_FILES.provenance
@@ -95,12 +104,12 @@ export async function writeProvenance(
     workspaceRoot,
     CI_ARTIFACT_FILES.graphLock
   );
-  return writeGeneratedArtifactWithLock(
+  const provenance = await writeGeneratedArtifactWithLock(
     lockPath,
-    lock,
+    publicationLock,
     [CI_ARTIFACT_FILES.provenance],
     async () => {
-      const provenance = await buildProvenance(workspaceRoot, lock);
+      const provenance = await buildProvenance(workspaceRoot, publicationLock, verification);
       await publishExistingParentCanonicalWorkspaceFile({
         workspaceRoot,
         targetPath: provenancePath,
@@ -112,4 +121,6 @@ export async function writeProvenance(
     },
     commitFence
   );
+  lock.generatedPaths = [...publicationLock.generatedPaths];
+  return provenance;
 }

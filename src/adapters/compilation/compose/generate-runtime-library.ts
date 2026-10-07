@@ -4,12 +4,15 @@ import { uniqueSorted } from '../../../contracts/canonical.ts';
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../../contracts/logical-path.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
-import { resolvePathInside } from "../../../contracts/relative-path.ts";
+import { relativePosixPath, resolvePathInside } from "../../../contracts/relative-path.ts";
 import { createTaskGroupEffectFence, mapTaskGroup } from '../../../execution/task-group.ts';
+import { listFilesRecursive } from "../../filesystem/discovery.ts";
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { packageJsonRelativePath, srcRelativePath, testsRelativePath, tsconfigRelativePath } from "../../workspace-context.ts";
 import { TemplateEngine } from './template-engine.ts';
+
+const FAST_TEST_ENTRY_PATH = `${testsRelativePath}/fast.test.ts`;
 
 const BASE_RUNTIME_SCAFFOLD_PATHS = [
   packageJsonRelativePath,
@@ -88,9 +91,10 @@ const runtimeLibraryScaffoldDefinitions: RuntimeLibraryScaffoldDefinition[] = [
   )
 ];
 
-const scaffoldDefinitionPaths = runtimeLibraryScaffoldDefinitions.map(
-  (definition) => definition.relativePath
-);
+const scaffoldDefinitionPaths = [
+  FAST_TEST_ENTRY_PATH,
+  ...runtimeLibraryScaffoldDefinitions.map((definition) => definition.relativePath)
+];
 if (new Set(scaffoldDefinitionPaths.map((value) => portableLogicalPathCollisionKey(
   value,
   'Runtime library scaffold path'
@@ -116,6 +120,27 @@ function buildRuntimeLibraryFeatures(lock: LockFile): RuntimeLibraryFeatures {
   };
 }
 
+/** Register the installed fast inventory with a native test runner. This entry
+ * stays outside unit/acceptance, so SEC's bounded worker keeps its own execution
+ * of those suites without importing this registration layer. */
+async function renderFastTestEntry(workspaceRoot: string): Promise<string> {
+  const testsRoot = path.join(workspaceRoot, testsRelativePath);
+  const files = (await Promise.all(['unit', 'acceptance'].map(directory =>
+    listFilesRecursive(path.join(testsRoot, directory))))).flat();
+  const suites = uniqueSorted(files.filter(file => file.endsWith('.test.ts'))
+    .map(file => relativePosixPath(testsRoot, file)));
+  return [
+    "import { test } from 'node:test';",
+    ...(suites.length === 0
+      ? ["test.skip('no installed fast suites', () => {});"]
+      : suites.map(file => {
+          const specifier = `./${file.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
+          return `test(${JSON.stringify(file)}, async () => (await import(new URL(${JSON.stringify(specifier)}, import.meta.url).href)).runSuite());`;
+        })),
+    ''
+  ].join('\n');
+}
+
 export async function generateRuntimeLibraryScaffold(
   workspaceRoot: string,
   lock: LockFile,
@@ -126,12 +151,16 @@ export async function generateRuntimeLibraryScaffold(
   if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Scaffold commit fence must be callable');
   throwIfNativeAborted(signal);
   const features = Object.freeze(buildRuntimeLibraryFeatures(lock));
+  const fastTestSource = await renderFastTestEntry(workspaceRoot);
+  throwIfNativeAborted(signal);
   const entries = runtimeLibraryScaffoldDefinitions
     .filter((definition) => definition.enabled?.(features) ?? true)
     .map((definition) => ({
       relativePath: definition.relativePath,
       source: definition.render(features)
     }));
+
+  entries.push({ relativePath: FAST_TEST_ENTRY_PATH, source: fastTestSource });
 
   const targets = entries.map(entry => {
     const targetPath = resolvePathInside(workspaceRoot, entry.relativePath);

@@ -180,24 +180,6 @@ export async function expectCliVariants<TJson = unknown, TCompactJson = unknown>
   return { text, json, compactJson };
 }
 
-
-export async function expectCliUsageError(
-  workspaceRoot: string,
-  command: string,
-  args: string[],
-  _usage: string
-): Promise<void> {
-  const result = await runCliInProcess(workspaceRoot, [command, ...args]);
-  expect(result.code).toBe(1);
-}
-
-function isUnknownRootCommand(program: Command | undefined, args: string[]): boolean {
-  const commandName = args[0];
-  return commandName !== undefined
-    && !commandName.startsWith('-')
-    && !program?.commands.some((command) => command.name() === commandName);
-}
-
 export async function runCliInProcess(
   workspaceRoot: string,
   args: string[],
@@ -206,20 +188,13 @@ export async function runCliInProcess(
   const context: CliContext = { stdoutChunks: [], stderrChunks: [], cwd: workspaceRoot };
 
   return runWithCliContext(context, async () => {
-    let program: Command | undefined;
     try {
-      program = createProgram(context, options);
+      const program = createProgram(context, options);
       await program.parseAsync(args, { from: 'user' });
       return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
     } catch (error: unknown) {
       const failure = error as { code?: string; message?: string; details?: CompilerErrorDetails };
       if (failure.code === 'commander.help' || failure.code === 'commander.helpDisplayed') {
-        return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
-      }
-      if (failure.code === 'commander.unknownCommand' || isUnknownRootCommand(program, args)) {
-        context.stdoutChunks.length = 0;
-        context.stderrChunks.length = 0;
-        program?.outputHelp();
         return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
       }
       const protocol = buildErrorProtocol(failure);

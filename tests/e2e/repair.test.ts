@@ -1,21 +1,23 @@
 import { expect, test } from 'bun:test';
-import { lstat } from 'node:fs/promises';
+import { lstat, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { RepairPlan } from '../../src/semantics/repair/types.ts';
-import {
-  writeFailedFastUnitVerification,
-  writePassingVerificationState
-} from '../helpers/verification-fixtures.ts';
 import { expectCliJson, runCliInProcess as runCli } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
 test('repair reports failed verification as an owner-classified blocker and persists the same durable plan', async () => {
-  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
+  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
     const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
-    await writeFailedFastUnitVerification(workspaceRoot, 'Unit verification failed');
+    const failurePath = path.join(workspaceRoot, 'tests/unit/000-repair-failure.test.ts');
+    const failureSource = 'export function runSuite(): void { throw new Error("independent repair unit failure"); }\n';
+    await writeFile(failurePath, failureSource);
+    const verification = await runCli(workspaceRoot, ['verify', '--lane', 'fast']);
+    expect(verification.code).toBe(1);
+    expect(verification.stderr).toContain('independent repair unit failure');
 
     const preview = await expectCliJson<RepairPlan>(
       workspaceRoot,
@@ -48,12 +50,12 @@ test('repair reports failed verification as an owner-classified blocker and pers
       { compact: true }
     );
     expect(readback).toEqual(written);
+    expect(await readFile(failurePath, 'utf8')).toBe(failureSource);
   });
 }, 120000);
 
 test('repair skips source mutation after passing verification and persists the terminal observation', async () => {
-  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
-    await writePassingVerificationState(workspaceRoot);
+  await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
     const result = await expectCliJson<RepairPlan>(
       workspaceRoot,
       ['repair', '--json', '--compact'],

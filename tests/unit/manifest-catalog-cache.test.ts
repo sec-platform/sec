@@ -36,6 +36,40 @@ function fixture() {
   return { root, source, options, write };
 }
 
+function sourceOptions(f: ReturnType<typeof fixture>, names: readonly string[]) {
+  return { ...f.options, registrySources: names.map(name => ({ ...f.source, id: name, path: name })) };
+}
+
+test('conflicts between two hidden candidates cannot disappear behind a different-version winner', () => using(async f => {
+  const winner = f.write(); writeFileSync(winner.file, JSON.stringify({ ...winner.manifest, version: '2.0.0' }));
+  f.write('block/a', 'hidden-a'); const last = f.write('block/a', 'hidden-b');
+  writeFileSync(last.file, JSON.stringify({ ...last.manifest, provides: ['different/service'] }));
+  const options = sourceOptions(f, ['registry', 'hidden-a', 'hidden-b']);
+  assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
+  await assert.rejects(loadAllManifests(options), /Conflicting manifest definitions/);
+}));
+
+test('different versions preserve source priority and explicit version filtering', () => using(async f => {
+  f.write(); const later = f.write('block/a', 'later');
+  writeFileSync(later.file, JSON.stringify({ ...later.manifest, version: '2.0.0', provides: ['new/service'] }));
+  const options = sourceOptions(f, ['registry', 'later']);
+  assert.equal(loadManifestById('block/a', options).manifest.version, '1.0.0');
+  assert.equal((await loadAllManifests(options))[0]!.manifest.version, '1.0.0');
+  assert.equal(loadManifestById('block/a', { ...options, version: '2.0.0' }).registrySourceId, 'later');
+}));
+
+test('effective version overlays participate in collision checks after merging root defaults', () => using(async f => {
+  const first = f.write(), second = f.write('block/a', 'second');
+  for (const entry of [first, second]) {
+    const versionRoot = path.join(entry.folder, 'versions', '0.5.0'); mkdirSync(versionRoot, { recursive: true });
+    writeFileSync(path.join(versionRoot, 'block.manifest.yaml'), JSON.stringify({ version: '0.5.0' }));
+  }
+  const options = { ...sourceOptions(f, ['registry', 'second']), version: '0.5.0' };
+  assert.equal(loadManifestById('block/a', options).manifest.version, '0.5.0');
+  writeFileSync(second.file, JSON.stringify({ ...second.manifest, provides: ['different/service'] }));
+  assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
+}));
+
 test('a repeated catalog read reuses parsed validation but keeps independent mutable results', () => using(async (f, parses) => {
   f.write(); const first = await loadAllManifests(f.options); const before = parses();
   const next = await loadAllManifests(f.options);
@@ -76,9 +110,13 @@ test('deleted or invalid current sources cannot reuse a previous valid result', 
 test('a lower precedence source is still validated even after the selected source was cached', () => using(async f => {
   f.write(); const shadow = f.write('block/a', 'shadow');
   const options = { ...f.options, registrySources: [f.source, { ...f.source, id: 'shadow', path: 'shadow' }] };
+  loadManifestById('block/a', options);
   const result = await loadAllManifests(options); assert.equal(result.length, 1); assert.equal(result[0]!.registrySourceId, 'private');
   writeFileSync(shadow.file, JSON.stringify({ ...shadow.manifest, unknownField: true }));
   await assert.rejects(loadAllManifests(options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-001');
+  writeFileSync(shadow.file, JSON.stringify({ ...shadow.manifest, provides: ['different/service'] }));
+  assert.throws(() => loadManifestById('block/a', options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
+  await assert.rejects(loadAllManifests(options), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
 }));
 
 test('version overlays never prime or replace the root manifest observation', () => using(async (f, parses) => {
@@ -103,9 +141,14 @@ test('path binding never infers a block identity from an invalid directory spell
 }));
 
 test('two source selections with equal bytes keep their own registry metadata and mutable projections', () => using(async f => {
-  f.write(); f.write('block/a', 'second');
+  f.write(); const mirror = f.write('block/a', 'second');
   const left = await loadAllManifests(f.options);
   const right = await loadAllManifests({ ...f.options, registrySources: [{ ...f.source, id: 'other', path: 'second' }] });
   assert.equal(left[0]!.registrySourceId, 'private'); assert.equal(right[0]!.registrySourceId, 'other');
   assert.notEqual(left[0]!.registryRoot, right[0]!.registryRoot);
+  writeFileSync(mirror.file, YAML.stringify(mirror.manifest));
+  const options = sourceOptions(f, ['registry', 'second']);
+  assert.equal(loadManifestById('block/a', options).registrySourceId, 'registry');
+  assert.equal((await loadAllManifests(options))[0]!.registrySourceId, 'registry');
+  assert.equal(loadManifestById('block/a', sourceOptions(f, ['second', 'registry'])).registrySourceId, 'second');
 }));

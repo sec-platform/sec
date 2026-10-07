@@ -17,7 +17,7 @@ import {
   windowsRetainObservedDirectoryChain,
   type LinuxBulkDirectoryChain,
   type WindowsBulkDirectoryChain
-} from './physical-directory-tree.ts';
+} from './physical-directory-tree-copy.ts';
 import { assertRetainedNoFollowProvenDirectoryGeneration } from './physical-no-follow-authority.ts';
 import {
   PhysicalNoFollowError,

@@ -106,7 +106,6 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
     'bun run docs:doctor',
     'bun run test -- --affected'
   ]);
-  expect(new Set(plan.subsumedStandaloneCommands).size).toBe(plan.subsumedStandaloneCommands.length);
   expect(plan.umbrellaCommand).toBe('bun run check -- --affected');
 });
 

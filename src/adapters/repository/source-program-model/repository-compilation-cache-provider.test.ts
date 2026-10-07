@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { gitProtocolSuccess, inGitProtocolRepository } from '../../../../tests/testkit/git-protocol.ts';
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
@@ -174,42 +175,51 @@ test('production cache composition preserves an undefined compiler failure after
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-cache-composition-'));
   temporaryRoots.push(fixtureRoot);
   process.env.SEC_CACHE_HOME = path.join(fixtureRoot, 'cache');
-  await withAuthorityGitReadSession({
-    cwd: process.cwd(),
-    budget: { deadlineMs: 120_000 }
-  }, async (gitSession) => {
-    const head = await gitSession.run(['rev-parse', '--verify', 'HEAD^{commit}']);
-    if (head.kind !== 'completed' || head.result.code !== 0) {
-      throw new Error('Cache composition fixture could not resolve HEAD');
-    }
-    const commitSha = new TextDecoder('utf-8', { fatal: true }).decode(head.result.stdout).trim();
-    const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
-      commitSha,
-      session: gitSession
-    });
-    const operation = createSourceProgramCompilationOperation({
-      deadlineAtUnixMs: Date.now() + 120_000
-    });
-    const target = {
-      workspaceSnapshot,
-      operation,
-      repositoryRoot: process.cwd(),
-      reviewedProcessDispatchers: Object.freeze([] as string[])
-    };
-    const input = new Proxy(target, {
-      get: (selected, property, receiver) => {
-        if (property === 'reviewedProcessDispatchers') throw undefined;
-        return Reflect.get(selected, property, receiver);
+  await inGitProtocolRepository(async (repositoryRoot, git) => {
+    const sourceRoot = path.join(repositoryRoot, 'src', 'example');
+    mkdirSync(sourceRoot, { recursive: true });
+    writeFileSync(path.join(sourceRoot, 'value.ts'), 'export const value = 1;\n');
+    writeFileSync(path.join(sourceRoot, 'module.json'), '{"importGraph":"runtime","externalEntrypoints":[]}\n');
+    writeFileSync(path.join(repositoryRoot, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n');
+    gitProtocolSuccess(git(['add', '--all']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'cache composition fixture']));
+    await withAuthorityGitReadSession({
+      cwd: repositoryRoot,
+      budget: { deadlineMs: 120_000 }
+    }, async (gitSession) => {
+      const head = await gitSession.run(['rev-parse', '--verify', 'HEAD^{commit}']);
+      if (head.kind !== 'completed' || head.result.code !== 0) {
+        throw new Error('Cache composition fixture could not resolve HEAD');
       }
+      const commitSha = new TextDecoder('utf-8', { fatal: true }).decode(head.result.stdout).trim();
+      const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+        commitSha,
+        session: gitSession
+      });
+      const operation = createSourceProgramCompilationOperation({
+        deadlineAtUnixMs: Date.now() + 120_000
+      });
+      const target = {
+        workspaceSnapshot,
+        operation,
+        repositoryRoot,
+        reviewedProcessDispatchers: Object.freeze([] as string[])
+      };
+      const input = new Proxy(target, {
+        get: (selected, property, receiver) => {
+          if (property === 'reviewedProcessDispatchers') throw undefined;
+          return Reflect.get(selected, property, receiver);
+        }
+      });
+      let failed = false;
+      try {
+        compileRepositorySourceProgramWithCache(input);
+      } catch (error) {
+        failed = true;
+        expect(error).toBeUndefined();
+      }
+      expect(failed).toBe(true);
     });
-    let failed = false;
-    try {
-      compileRepositorySourceProgramWithCache(input);
-    } catch (error) {
-      failed = true;
-      expect(error).toBeUndefined();
-    }
-    expect(failed).toBe(true);
   });
 });
 

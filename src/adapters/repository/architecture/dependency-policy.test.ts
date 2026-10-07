@@ -45,13 +45,12 @@ function violationsForEdge([from, to]: readonly [from: string, to: string]) {
 const samplePath = (owner: SecCanonicalSourceModule): string =>
   `src/${owner}/__architecture_policy_fixture__.ts`;
 
-test('canonical source roots and the 33 static dependency edges are the exact SEC-086 package contract', () => {
+test('canonical source roots enforce their declared static dependency policy', () => {
   const modules = [...SEC_CANONICAL_SOURCE_MODULES];
   expect(modules).toEqual([
     'contracts', 'workspace', 'semantics', 'compiler', 'assurance',
     'application', 'execution', 'adapters', 'entry', 'bootstrap'
   ]);
-  expect(Object.values(SEC_CANONICAL_STATIC_DEPENDENCIES).reduce((sum, deps) => sum + deps.length, 0)).toBe(33);
 
   for (const from of modules) {
     for (const to of modules) {

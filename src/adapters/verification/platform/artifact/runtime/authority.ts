@@ -1,8 +1,9 @@
 import path from 'node:path';
 
 import {
-  assertCanonicalVerificationArtifactSet,
+  assertVerificationArtifactSet,
   type CanonicalVerificationArtifactSet,
+  type ValidatedVerificationArtifactSet,
   type VerificationArtifactSet
 } from '../../../../../assurance/verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../../../../assurance/verification/ci-artifacts/contract/manifest.ts';
@@ -11,7 +12,7 @@ import { readOptionalRetainedJsonLeaf, retainOptionalDirectory } from '../../../
 import { resolveWorkspaceArtifactPath } from "../../../../workspace-context.ts";
 
 /**
- * Retained read owner for the complete canonical Verification artifact set.
+ * Retained read owner for one internally consistent Verification observation set.
  *
  * All four artifacts share `control/evidence`; retaining that parent once
  * removes redundant ancestor observations while every leaf read still
@@ -19,10 +20,10 @@ import { resolveWorkspaceArtifactPath } from "../../../../workspace-context.ts";
  * null. A partial or cross-artifact-inconsistent set is never equivalent to
  * absence and fails closed.
  */
-export function readOptionalCanonicalVerificationArtifactSet(
+export function readOptionalVerificationArtifactSet(
   workspaceRoot: string,
   label = 'Verification artifact set'
-): CanonicalVerificationArtifactSet | null {
+): ValidatedVerificationArtifactSet | null {
   const artifactPaths = [
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
@@ -67,6 +68,18 @@ export function readOptionalCanonicalVerificationArtifactSet(
     throw new Error(`${label} is partially published`);
   }
 
-  assertCanonicalVerificationArtifactSet(candidate);
+  assertVerificationArtifactSet(candidate);
   return cloneAndDeepFreeze(candidate);
+}
+
+/** Completion consumers keep the all-lane requirement at their own boundary. */
+export function readOptionalCanonicalVerificationArtifactSet(
+  workspaceRoot: string,
+  label = 'Verification artifact set'
+): CanonicalVerificationArtifactSet | null {
+  const artifacts = readOptionalVerificationArtifactSet(workspaceRoot, label);
+  if (artifacts !== null && artifacts.verificationReport.summary.requestedLane !== 'all') {
+    throw new Error('Pipeline completion Verification artifacts do not match the exact canonical schema');
+  }
+  return artifacts;
 }

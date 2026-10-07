@@ -92,7 +92,6 @@ test('stale stamp decisions and absent project stamps retain existing precedence
   assert.equal(classifyDependencyEnvironment({ ...stamps, compilerReady: false }, a, b), 'cold');
   assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: 'old' }, a, b), 'stale');
   assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: undefined }, a, b), 'warm-compiler');
-  assert.equal(classifyDependencyEnvironment({ ...stamps, compilerReady: false }, a, b), 'cold');
 }));
 
 test('retargeting a link during observation is an error, not a mixed healthy result', async () => fixture(async root => {

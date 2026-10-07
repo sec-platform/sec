@@ -65,12 +65,9 @@ const CROSS_PROCESS_CHILD_MARKER = process.env.SEC_VERIFICATION_ACTION_CHILD_MAR
 
 function issuedSettlement(
   action: VerificationActionKey,
-  terminalClass: 'completed' | 'failed' | 'recovery-required' = 'completed',
+  terminalClass: 'completed' | 'failed' = 'completed',
   deadlineAtUnixMs = 1_900_000_000_000
 ) {
-  if (terminalClass === 'recovery-required') {
-    throw new Error('Operation requires owner recovery before terminal projection.');
-  }
   const operationPlan = compileSecSemanticOperationPlan({
     operation: 'verification.action-runner-test',
     intentDigest: action.actionKey,
@@ -1150,33 +1147,28 @@ test('executor failure is durably cancelled and its diagnostic is bounded', asyn
   }
 });
 
-test('non-issued and recovery-required executor results durably cancel without a terminal', async () => {
-  for (const kind of ['plain-terminal', 'recovery-required'] as const) {
-    const repositoryRoot = root();
-    try {
-      const key = action(kind);
-      const executor = kind === 'plain-terminal'
-        ? () => ({
-            status: 'passed' as const,
-            reasonCode: 'executed-success' as const,
-            resultDigest: null
-          })
-        : () => issuedSettlement(key, 'recovery-required');
-      const result = await new VerificationActionRunner().execute({
-        repositoryRoot,
-        action: key,
-        plan: runnablePlan(key, repositoryRoot),
-        executor
-      });
-      expect(result.disposition).toBe('blocked');
-      expect(result.state).toBe('cancelled');
-      expect(result.terminal).toBeNull();
-      expect(result.reason).toContain('durably cancelled');
-      expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
-        .toBe('cancelled');
-    } finally {
-      rmSync(repositoryRoot, { recursive: true, force: true });
-    }
+test('non-issued executor results durably cancel without a terminal', async () => {
+  const repositoryRoot = root();
+  try {
+    const key = action('plain-terminal');
+    const result = await new VerificationActionRunner().execute({
+      repositoryRoot,
+      action: key,
+      plan: runnablePlan(key, repositoryRoot),
+      executor: () => ({
+        status: 'passed' as const,
+        reasonCode: 'executed-success' as const,
+        resultDigest: null
+      })
+    });
+    expect(result.disposition).toBe('blocked');
+    expect(result.state).toBe('cancelled');
+    expect(result.terminal).toBeNull();
+    expect(result.reason).toContain('durably cancelled');
+    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+      .toBe('cancelled');
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
 

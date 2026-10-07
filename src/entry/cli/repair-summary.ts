@@ -25,11 +25,11 @@ export function formatRepairSummary(view: RepairSummaryView): string {
     lines.push(`Task ${task.taskId}: ${task.targetBlock} -> ${task.targetFile}`);
     lines.push(
       formatFields([
-        `Review ${task.taskId}: writeBounds=${formatList([...task.review.writeBounds])}`,
-        `symbols=${formatList([...task.review.requiredSymbols])}`,
-        `tests=${formatList([...task.review.testsToPass])}`,
-        `forbidden=${formatList([...task.review.forbiddenOperations])}`,
-        `failureTargets=${formatList([...task.review.failureTargets])}`
+        `Review ${task.taskId}: writeBounds=${formatList(task.review.writeBounds)}`,
+        `symbols=${formatList(task.review.requiredSymbols)}`,
+        `tests=${formatList(task.review.testsToPass)}`,
+        `forbidden=${formatList(task.review.forbiddenOperations)}`,
+        `failureTargets=${formatList(task.review.failureTargets)}`
       ])
     );
     if (task.preview) {
