@@ -43,7 +43,7 @@ Reviewer报告覆盖上述程序涉及的相交问题，可复用精确绑定的
 
 ## 停止与恢复
 - 给出P0/P1/P2 finding、`incomplete/unresolved/stale`或证据完备的无finding；不得替代物理Gate。
-- 被ReviewSubject绑定的head/tree或required owner revision变化时Review为STALE；无关main前进不机械失效。finding交还实现或A0，不直接改码。
+- 被ReviewSubject绑定的head/tree或required owner revision变化时Review为STALE；无关main前进不机械失效。finding交还实现 owner 或协调 owner，不直接改码。
 
 ## 禁止捷径
 - 不把作者自评、PR body、旧 Review或旧 head Evidence当成当前通过。

@@ -13,11 +13,11 @@ last-reviewed: 2026-09-20
 
 Work Package 的版本、准确候选绑定与读者先行迁移见[清单格式与候选绑定](../../docs/开发/AI协作/规则装载与任务恢复.md#repository-work-package-format-and-binding)。
 
-持久工作身份/current spec归既有Issue或canonical machine owner，长期依赖归work-selection catalog，#221
-`WorkDecision`拥有eligibility/priority，#207/#349拥有order/conflict，rolling plan只投影结果。
+持久工作身份/current spec归既有Issue或canonical machine owner，长期依赖归work-selection catalog；
+`src/adapters/self-hosting/control/work-selection/contract.ts`拥有`WorkDecision` eligibility/priority与冲突裁决，`live-contract.ts`拥有catalog/current-spec绑定和rolling projection，rolling plan只投影结果。
 发现新问题时先做existing identity/owner census；命中则同步原identity，不能用聊天、comment recency、
-AI评分或新增计划文件重建下一步。Phase C writer切换前，人工rolling更新必须标明A0 reconciliation；
-切换后由trusted document-control进程从exact main重新运行#221 live adapter，只接受manifest
+AI评分或新增计划文件重建下一步。Phase C writer切换前，人工rolling更新必须标明reconciliation的来源、依据与责任owner；
+切换后由trusted document-control进程从exact main重新运行canonical WorkSelection live adapter，只接受manifest
 `id + tracking`与`select-next`一致的generated projection；receipt文件本身没有写authority，投影不一致
 返回`reconcile`/`unresolved`。normalized近端记录只内嵌在canonical `work-selection.md`，不得另建计划或
 registry文件。选中manifest保留到下一decision消费，下一纵切片再删除旧manifest和已消费catalog item。

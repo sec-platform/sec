@@ -28,10 +28,10 @@ description: 判断 frozen Work Package 是否值得分成独立并行结果，�
 ## 执行
 1. 先比较并行节省与协调、上下文、冲突和复核成本；收益不明确时不委派。
 2. 每个角色接收bounded outcome、同一exact base、必要owner引用与更窄权限；明确交回证据和停止条件，不复制所有Skill正文。启动前核当前在途任务、共享fixture/依赖与可用资源，按真实scheduler准入。角色数或max_threads配置不证明实际并发上限，嵌套进程与测试worker同样消耗共同预算。
-3. 同一 canonical type、revision、builder、pipeline order 或 authority 段落保持单写者。仅最终集成需要共同控制投影，不足以判定源码任务互相依赖；独立检查点与最终控制的划分消费[worker-development](../worker-development/SKILL.md#独立源码检查点与最终集成)，主线程只串行实际冲突的集成动作。
+3. 同一 canonical type、revision、builder、pipeline order 或 authority 段落保持单写者。仅最终集成需要共同控制投影，不足以判定源码任务互相依赖；独立检查点与最终控制的划分消费[worker-development](../worker-development/SKILL.md#独立源码检查点与最终集成)，协调 owner 只串行实际冲突的集成动作。
 4. Worker 不从角色名取得 hosted Gate 或 merge 权限；Envelope 已明确委派目标 branch/ref 及发布终态时，按 [worker-development](../worker-development/SKILL.md) 与原 Effect owner 完成该分支的发布闭包，并遵守 AGENTS 的 hosted evidence budget。默认分支集成仍归原 integration owner，不递归扩权；Reviewer 保持 read-only，只返回 exact path、symbol 与 invariant。
 5. 角色在已委派的目标、写集与作用上限内自主推进，主动向原owner回读尚未满足的前置；前置成立且资源与作用准入有效时及时接续同一任务，不等待重复口头许可。观察按真实责任和变化条件取得，不靠重跑未失效的检查制造进度。 阻塞必须收窄到实际依赖它的动作，不能把验收／合并缺证据扩大为编辑、独立检查、已准入提交或已授权分支推送一并暂停。等待前在原任务交接中说明缺少的前置、负责解除的owner、可观察的恢复条件，以及此时仍可继续的合法动作；无法说明因果依赖的等待不成立。共同检查或管理方便不足以强制独立结果合包，共享writer只串行相冲突的写入／集成；无独立准入的动作也不能为“保持并发”绕过门禁。
-6. 主线程核结果与frozen package、输入身份及实际完成边界后集成；冲突或越界结果交还原owner。收到报告、发出取消和物理结束分别观察，已启动的任务由原owner join或合法移交，不能一报完成就复用仍占用的写者/资源。 前置解除或角色交回后，主线程选择原授权任务的下一就绪动作；需要恢复已结束角色时调用实际启动／恢复入口，并取得本次执行身份，不能把发送说明当成任务已经继续。运行标签、配置角色数或Skill已读不证明产生了执行、交付或有效并行。
+6. 协调 owner 核结果与 frozen package、输入身份及实际完成边界后集成；冲突或越界结果交还原owner。收到报告、发出取消和物理结束分别观察，已启动的任务由原owner join或合法移交，不能一报完成就复用仍占用的写者/资源。 前置解除或角色交回后，协调 owner 选择原授权任务的下一就绪动作；需要恢复已结束角色时调用实际启动／恢复入口，并取得本次执行身份，不能把发送说明当成任务已经继续。运行标签、配置角色数或Skill已读不证明产生了执行、交付或有效并行。
 
 ## 完成证据
 - role projection、owner/path独立依据、实际启动/交回/在途或已结算状态、角色结果与Reconciliation Delta；沿原任务结果保留，不另造调度账本。
