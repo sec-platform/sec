@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants as fsConstants, fstatSync, fsyncSync, mkdtempSync, openSync, readSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ import { observeSecLinuxVerificationNativeRuntimeInput, requireSecLinuxVerificat
 import { assertLinuxVerificationUnitHostSupported, assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, getLinuxVerificationUnitRecovery, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, prepareLinuxVerificationUnitSession, recoverLinuxVerificationUnitSession, type LinuxVerificationUnitRecovery, type LinuxVerificationUnitResult, type LinuxVerificationUnitSession, type LinuxVerificationUnitSessionSettlement } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
 import type { RetainedNoFollowOrdinaryFile } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  assertSameNoFollowDirectoryIdentity, createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError
+  appendExistingNoFollowOrdinaryFile, assertSameNoFollowDirectoryIdentity, createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError
 } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE,
@@ -49,7 +49,7 @@ import {
 } from '../../adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentParseVerificationSessionArtifact, parseHostedSessionTerminalArtifact } from '../../adapters/verification/platform/ci/contract/evidence.ts';
 import { CI_HOSTED_JOB_NATIVE_RUNTIME_POLICY } from '../../adapters/verification/platform/ci/contract/hosted-job-runtime-policy.ts';
-import { assertHostedJobRuntimeReceiptOutput, createHostedJobRuntimeReceipt, encodeHostedSutNativeControl, parseHostedSutNativeControl, type NativeHostedJobRuntimeReceipt } from '../../adapters/verification/platform/ci/contract/hosted-job-runtime.ts';
+import { assertHostedJobRuntimeReceiptOutput, createHostedJobRuntimeReceipt, encodeHostedSutNativeControl, parseHostedStepOutputLocation, parseHostedSutNativeControl, type NativeHostedJobRuntimeReceipt } from '../../adapters/verification/platform/ci/contract/hosted-job-runtime.ts';
 import {
   CodexDevelopmentParseHostedActionRawResult,
   parseHostedSutCapabilityObservation
@@ -436,32 +436,18 @@ function hostedTerminalExpectedRawDigest(origin: AuthenticatedGitHubJobOrigin): 
 function projectHostedStepOutputs(origin: AuthenticatedGitHubJobOrigin,
   values: Readonly<Record<string, string>>): void {
   assertAuthenticatedGitHubJobOriginCurrent(origin);
-  const outputPath = process.env.GITHUB_OUTPUT;
-  if (typeof outputPath !== 'string' || !path.isAbsolute(outputPath)) {
-    throw new Error('Authenticated hosted step output sink is unavailable.');
-  }
-  const parent = inspectNoFollowDirectoryChain(path.dirname(outputPath), 'hosted step output parent');
-  if (parent.target.path !== path.dirname(outputPath)) throw new Error('Hosted step output parent changed.');
+  // The authenticated, source-checked runner process is the launch TCB. These
+  // two environment selectors do not authenticate each other. Admit only its
+  // existing file-command slot, then bind all filesystem effects to descriptors.
+  const location = parseHostedStepOutputLocation(process.env.RUNNER_TEMP, process.env.GITHUB_OUTPUT);
+  const parent = inspectNoFollowDirectoryChain(location.parentPath, 'hosted step output parent');
   const lines = Object.entries(values).map(([key, value]) => {
     if (!/^[a-z][a-z0-9-]*$/u.test(key) || !/^[\x21-\x7e]{1,512}$/u.test(value)
         || value.includes('=')) throw new Error('Hosted step output projection is invalid.');
     return `${key}=${value}\n`;
   });
   const bytes = Buffer.from(lines.join(''), 'ascii');
-  const fd = openSync(outputPath, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW);
-  try {
-    const before = fstatSync(fd);
-    if (!before.isFile() || before.nlink !== 1 || before.size > 1024 * 1024) {
-      throw new Error('Hosted step output sink is not one bounded ordinary file.');
-    }
-    if (writeSync(fd, bytes) !== bytes.length) throw new Error('Hosted step output projection was not fully written.');
-    fsyncSync(fd);
-    const observed = Buffer.alloc(bytes.length);
-    if (readSync(fd, observed, 0, observed.length, before.size) !== bytes.length
-        || !observed.equals(bytes)) throw new Error('Hosted step output projection readback differs.');
-  } finally {
-    closeSync(fd);
-  }
+  appendExistingNoFollowOrdinaryFile({ parent, name: location.name, bytes, maximumFileBytes: 1024 * 1024 });
 }
 
 type HostedSutInvocationObligation = Readonly<{

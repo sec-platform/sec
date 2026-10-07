@@ -788,6 +788,22 @@ export function linuxOpenReadableLeafAt(parentFd: number, component: string, lab
   return fd;
 }
 
+/** Open only an existing leaf for append and readback. No creation/truncation;
+ * NONBLOCK prevents an untrusted FIFO from blocking before descriptor checks. */
+export function linuxOpenAppendLeafAt(parentFd: number, component: string, label: string): number {
+  ensureLeafName(component);
+  const fd = requireLinuxLibc().symbols.openat(
+    parentFd, Buffer.from(`${component}\0`, 'utf8'),
+    LINUX_O_RDWR | 0x400 /* O_APPEND */ | LINUX_O_NONBLOCK | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC, 0
+  );
+  if (fd < 0) {
+    const errno = linuxErrno();
+    if (errno === 2) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened for no-follow append (errno ${errno}).`);
+  }
+  return fd;
+}
+
 export function linuxOpenRoot(label: string): number {
   const library = requireLinuxLibc();
   const fd = library.symbols.openat(

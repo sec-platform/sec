@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { posix as path } from 'node:path';
 import { canonicalEquals, rawSha256, sha256 } from '../../../../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../../../../contracts/exact-json.ts';
 import { getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
@@ -16,6 +17,30 @@ const sha = z.string().regex(/^[0-9a-f]{40}$/u);
 const id = z.string().regex(/^[1-9][0-9]{0,19}$/u);
 const text = z.string().min(1).max(512).refine(value => !/[\u0000-\u001f\u007f]/u.test(value));
 const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+
+/** Runner v2.337.0 FileCommandManager creates this per-step output slot below
+ * its Temp directory. Both selectors come from the trusted runner launch
+ * environment; this shape check is not independent authentication of them.
+ * https://github.com/actions/runner/blob/v2.337.0/src/Runner.Worker/FileCommandManager.cs */
+export function parseHostedStepOutputLocation(runnerTemp: unknown, outputPath: unknown): Readonly<{
+  parentPath: string;
+  name: string;
+}> {
+  const canonical = (value: unknown): value is string => typeof value === 'string'
+    && value.length > 0 && value.length <= 4096 && path.isAbsolute(value)
+    && path.normalize(value) === value && !/[\\\u0000-\u001f\u007f]/u.test(value);
+  if (!canonical(runnerTemp) || !canonical(outputPath) || runnerTemp === '/') {
+    throw new Error('Hosted step output location is not canonical.');
+  }
+  const parentPath = path.join(runnerTemp, '_runner_file_commands');
+  const name = path.basename(outputPath);
+  if (path.dirname(outputPath) !== parentPath
+      || !/^set_output_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(name)) {
+    throw new Error('Hosted step output location is outside its runner command slot.');
+  }
+  return Object.freeze({ parentPath, name });
+}
+
 const originSchema = z.object({
   repository: text, repositoryId: id, workflowPath: text, workflowSha: sha,
   trustedSourceSha: sha, trustedSourceTreeSha: sha, runId: id,

@@ -56,7 +56,7 @@ export {
 } from './physical-directory-entry.ts';
 
 export {
-  assertDurableCanonicalFileIdentityReceipt, createRetainedNoFollowFileTransactionTestActorForTests, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, flushNoFollowDirectory, observeDurableCanonicalFileReplacement, publishExclusiveDurableCanonicalFile,
+  appendExistingNoFollowOrdinaryFile, assertDurableCanonicalFileIdentityReceipt, createRetainedNoFollowFileTransactionTestActorForTests, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, flushNoFollowDirectory, observeDurableCanonicalFileReplacement, publishExclusiveDurableCanonicalFile,
   publishExclusiveSealedExecutionFile, recoverDurableCanonicalFileReplacement,
   replaceDurableCanonicalFile,
   retainNoFollowFileTransaction

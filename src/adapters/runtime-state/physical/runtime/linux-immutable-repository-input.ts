@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, readlinkSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, readdirSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
@@ -160,13 +160,13 @@ function assertRootAncestors(chain: PhysicalDirectoryChain, filesystemRoot: Phys
   // '/'. Retain its preparation identity explicitly instead of assuming it
   // was part of that caller-independent inventory.
   for (const entry of [filesystemRoot, ...chain.ancestors.filter(value => value.path !== '/')]) {
-    const value = lstatSync(entry.path, { bigint: true });
-    if (!value.isDirectory() || value.isSymbolicLink() || String(value.dev) !== entry.device
-        || String(value.ino) !== entry.inode) fail('input ancestor is mutable or changed');
     const fd = openSync(entry.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try {
       const retained = fstatSync(fd, { bigint: true });
-      if (retained.dev !== value.dev || retained.ino !== value.ino) fail('input ancestor identity changed');
+      // Validate the object actually opened against the original preparation,
+      // rather than compare two pathname observations across an open.
+      if (!retained.isDirectory() || String(retained.dev) !== entry.device
+          || String(retained.ino) !== entry.inode) fail('input ancestor identity changed');
       const filesystem = linuxRetainedFilesystemObservation(fd);
       const mount = mounts.find(item => item.id === descriptorMount(fd));
       const protectedBySameSuperblock = filesystem.type === 0x01021994n

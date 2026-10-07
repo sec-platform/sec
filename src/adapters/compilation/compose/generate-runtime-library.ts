@@ -120,6 +120,13 @@ function buildRuntimeLibraryFeatures(lock: LockFile): RuntimeLibraryFeatures {
   };
 }
 
+/** Preserve the string value while keeping generated source independent of
+ * literal HTML delimiters and legacy JavaScript line-separator parsing. */
+function sourceStringLiteral(value: string): string {
+  return JSON.stringify(value).replace(/[<>\u2028\u2029]/gu,
+    character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 /** Register the installed fast inventory with a native test runner. This entry
  * stays outside unit/acceptance, so SEC's bounded worker keeps its own execution
  * of those suites without importing this registration layer. */
@@ -135,7 +142,7 @@ async function renderFastTestEntry(workspaceRoot: string): Promise<string> {
       ? ["test.skip('no installed fast suites', () => {});"]
       : suites.map(file => {
           const specifier = `./${file.split('/').map(segment => encodeURIComponent(segment)).join('/')}`;
-          return `test(${JSON.stringify(file)}, async () => (await import(new URL(${JSON.stringify(specifier)}, import.meta.url).href)).runSuite());`;
+          return `test(${sourceStringLiteral(file)}, async () => (await import(new URL(${sourceStringLiteral(specifier)}, import.meta.url).href)).runSuite());`;
         })),
     ''
   ].join('\n');
