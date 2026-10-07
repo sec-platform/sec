@@ -32,7 +32,7 @@ description: 用于测试、Gate、Review、candidate、进程或控制面失败
 9. capsule/chain损坏从最后合法generation恢复；无合法generation则fail closed。迁移旧制品时必须先枚举、分类并由新owner读回，不能因年代、路径或命名猜测可删。
 10. merge或其他trust-root mutation完成exact new-main readback后，立即封存旧epoch并停止复用其effect grant及已失效的control facts；Review、Evidence和receipt保留原绑定及恢复价值，由对应owner按新主体、输入和失效条件判定复用，不能整体删除，也不能直接当作新代次授权。
 11. 如果当前用户授权仍覆盖任务，自动从exact new main运行canonical document-control status，重载`AGENTS.md`、selected manifest与authority closure，取得新operation epoch并继续`RequiredClosure ∩ MissingOrStale`。信任代际变化本身不是用户交互点，也不能输出`TASK_RESTART_REQUIRED`作为常规终态。
-12. 当前角色无法解除的`unresolved/invalid`、缺少authority、必需独立Review不可用或其他typed blocker先交主线程／原owner；只有确需用户提供的授权、信息或决定才返回用户。阻塞不终止仍有合法下一动作的原任务。
+12. 当前角色无法解除的`unresolved/invalid`、缺少authority、必需独立Review不可用或其他 typed blocker 先交协调 owner／原 owner；只有缺失的外部授权、信息或决定无法由现有 owner 取得时，才升级到相应外部决策边界。阻塞不终止仍有合法下一动作的原任务。
 
 ## 完成证据
 - failure class、root-cause cluster、invalidated Evidence、owner/invariant/next action。

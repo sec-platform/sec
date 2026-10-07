@@ -13,7 +13,7 @@ Claim与方法选择归[要求证据](../../../docs/运行/保证/要求证据�
 - Worker 只有改变测试语义、oracle 或退役判断才能继续时返回 `test-design-required`。
 
 ## 边界
-- 本 Skill 由 A0 在有界测试设计任务中读取；仓库当前 hosted activation 只签发 Worker implement，注册信息不证明 hosted A0 design 已接通。`test-design-required` 回交主线程 A0，在已有授权内补齐语义后继续原任务，不默认请求用户审批。
+- 本 Skill 由主协调者（当前机器角色 `a0`）在有界测试设计任务中读取；仓库当前 hosted activation 只签发 Worker implement，注册信息不证明 hosted design role 已接通。`test-design-required` 回交主协调者，在已有授权内补齐语义后继续原任务；这一内部回交不形成新的授权要求，超出现有授权的变化仍按原 owner 准入。
 - 没有 canonical Claim，或 verification method 尚未决定为 cases/test：返回 requirement/assurance owner；只执行、选择、复跑既有 tests：交给 selector/runner。
 - CasePlan/casesRef 与实际测试框架继续拥有测试输入、oracle、环境和执行；Test Value/Supersession 继续拥有 keep/rewrite/merge/delete。Skill 不创建 `TestDesignDecision`、inventory、ledger、评分或平行 disposition。
 - Skill 不扩张 Work Package/operation scope；测试重写与退役按[测试发现与执行 Q4](../../../docs/开发/测试发现与执行.md#developer-test-selection)取得各自证据，不能把 rewrite 当成无替代者删除的许可。

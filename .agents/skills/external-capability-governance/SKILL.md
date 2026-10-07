@@ -43,7 +43,7 @@ description: 选择、引入、升级、替换或退役外部能力、通用自�
 ## 执行
 1. 冻结当前 Effect 和 owner DAG；外部机制只提供 capability，不取得 SEC 语义 authority。
 2. 先查原owner的有效绑定、terminal结果与authenticated in-flight，再决定是否有物化缺口；相同Action/代际可复用或join时不先下载、解压或复制依赖。共享不可变字节不合并工程绑定或运行权限；direct read、受保留locator、私有可写projection和隔离物化按真实消费者合同选择，不能互相暗中降级。只核Effect窗口内会漂移并决定结果的最小对象，排除无关安装树与历史状态。
-3. 跨入 provisioning/installation/credential/cache/semantic/Effect owner 时核现有任务授权与相交准入：已包含的依赖由原owner继续，不为每次跨模块另造work；需要新增作用权限或超出scope时只阻断该效果并交主线程取得相应授权。不得用更小 artifact、cache 或 timeout 掩盖扩权。
+3. 跨入 provisioning/installation/credential/cache/semantic/Effect owner 时核现有任务授权与相交准入：已包含的依赖由原owner继续，不为每次跨模块另造work；需要新增作用权限或超出scope时只阻断该效果，并交原授权 owner 取得相应准入。不得用更小 artifact、cache 或 timeout 掩盖扩权。
 4. 选择最窄稳定 machine interface；shell 只传 argv，显式绑定 executable、cwd、env、deadline、output 和 settlement。
 5. 外部输出经 canonical validator/semantic owner 投影；退出码、Provider success 和 presentation 文本不能签发完成。返回给后续消费者的路径须有覆盖其使用期的原owner保留关系；可随时淘汰的cache只适合可重建内容，不能作为唯一发布制品或未结算恢复事实。
 6. 迁移 consumer 后删除旧 wrapper、materializer、installer、cache、配置和文档；无真实 failover contract 不保留双实现。
