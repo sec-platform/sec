@@ -1554,29 +1554,57 @@ export function windowsOpenDirectory(absolutePath: string, label: string, forFlu
     WINDOWS_FILE_FLAG_BACKUP_SEMANTICS | WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT,
     null
   );
-  if (handle === WINDOWS_INVALID_HANDLE) {
-    const lastError = library.symbols.GetLastError();
-    if (lastError === 2 || lastError === 3) {
-      throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
-    }
-    // A few Windows filesystem providers leave the thread error slot at zero
-    // after an already-removed directory is opened through the no-follow
-    // handle API.  Confirm that narrow case with lstat (which does not follow
-    // a reparse point); an existing entry still falls through to the unsafe
-    // classification below.
-    if (lastError === 0) {
+  if (handle !== WINDOWS_INVALID_HANDLE) return handle;
+  const lastError = library.symbols.GetLastError();
+  if (lastError === 2 || lastError === 3) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+  }
+  // Some providers do not expose a useful Win32 error after a failed open.
+  // Ask the NT owner for the exact child beneath a proven, retained parent.
+  // This is an absence probe only; it never supplies the requested handle.
+  if (lastError === 0) {
+    const canonicalPath = path.resolve(absolutePath);
+    const parentPath = path.dirname(canonicalPath);
+    // A filesystem/UNC root has no smaller parent at which to anchor a probe.
+    // Zero error alone never proves root absence.
+    if (windowsPathKey(parentPath) !== windowsPathKey(canonicalPath)) {
+      const parentLabel = `${label} absence parent`;
+      const parent = inspectWindowsDirectoryChain(parentPath, parentLabel).target;
+      const parentHandle = windowsOpenDirectory(parent.path, parentLabel);
+      let childHandle: bigint | null = null;
+      let provenAbsent = false;
+      let failure: { error: unknown } | undefined;
       try {
-        lstatSync(absolutePath);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT' || code === 'ENOTDIR') {
-          throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+        if (!sameIdentity(parent, windowsIdentity(parentHandle, parent.path, parentLabel))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${parentLabel} changed before observation.`);
         }
+        childHandle = windowsOpenRelativeDirectory(
+          parentHandle, parent, path.basename(canonicalPath), canonicalPath,
+          WINDOWS_FILE_OPEN, `${label} absence probe`, WINDOWS_SHARE_READ_WRITE_DELETE, true
+        );
+        // windowsOpenRelativeDirectory returns null before its own parent
+        // identity check, so the absence branch needs this explicit fence.
+        if (!sameIdentity(parent, windowsIdentity(parentHandle, parent.path, parentLabel))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${parentLabel} changed during observation.`);
+        }
+        provenAbsent = childHandle === null;
+      } catch (error) {
+        failure = { error };
+      }
+      settleResources({
+        ...(failure === undefined ? {} : { primary: { label: `${label} absence probe`, error: failure.error } }),
+        cleanup: [
+          { label: `${label} absence child`, settle: () => { if (childHandle !== null) closeWindowsHandle(childHandle); } },
+          { label: parentLabel, settle: () => closeWindowsHandle(parentHandle) }
+        ]
+      });
+      if (provenAbsent) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
       }
     }
-    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
   }
-  return handle;
+  throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+    `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
 }
 
 interface RetainedWindowsHostNamespaceDirectoryRecord {

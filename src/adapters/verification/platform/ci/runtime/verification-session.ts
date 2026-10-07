@@ -2685,20 +2685,20 @@ async function executeReviewProviderRevalidation(input: Readonly<{
 
 const USAGE = "Usage:\n  bun src/bootstrap/development/closeout/verification-session-cli.ts project --default-ref <ref> [--open-prs true] [--repository <owner/name>] [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts prepare --pr <n> --request-output <request.json> [--execution <local|hosted>] [--test-author-comment <id>] [--repository <owner/name>] [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts revalidate-review-provider --pr <n> [--repository <owner/name>] [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts observe-hosted --request <request.json> --output <facts.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts prepare-hosted --request <request.json> --facts <facts.json> --output <envelope.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts artifact-status --artifact <artifact.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts finalize-hosted --envelope <envelope.json> (--evidence <evidence.json> | --previous-artifact <artifact.json>) --output <artifact.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts prepare-integration-hosted --repository <owner/name> --output <projection.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts integrate-hosted --repository <owner/name> --output <projection.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts local-main-closeout --repository <owner/name> --pr <n> --protected-root <path> --expected-local-head <sha> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts closeout-mutate-hosted --repository <owner/name> --output <projection.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts closeout-publish-hosted --repository <owner/name> --output <projection.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts resume --request <request.json> [--execution <local|hosted>] [--repository <owner/name>] [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts freeze --artifact <artifact.json> --session-output <session.json> --scope-output <scope.json> [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts status --request <request.json> [--execution <local|hosted>] [--repository <owner/name>] [--json]\n  bun src/bootstrap/development/closeout/verification-session-cli.ts status-offline --session-file <session.json> [--json]\n  Local status/resume are read-only projections. To execute only local verification:\n  bun run sec:closeout --verification-only --request <request.json> [--test-author-comment <id>] [--repository <owner/name>]\n";
 
-const COMMAND_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze({
-  project: new Set(['--default-ref', '--open-prs', '--repository']),
-  prepare: new Set(['--pr', '--request-output', '--repository', '--execution', '--test-author-comment']),
-  'revalidate-review-provider': new Set(['--pr', '--repository']),
-  'observe-hosted': new Set(['--request', '--output', '--repository']),
-  'prepare-hosted': new Set(['--request', '--facts', '--output']),
-  'artifact-status': new Set(['--artifact']),
-  'finalize-hosted': new Set(['--envelope', '--evidence', '--previous-artifact', '--output']),
-  'local-main-closeout': new Set(['--repository', '--pr', '--protected-root', '--expected-local-head']),
-  resume: new Set(['--request', '--repository', '--execution']),
-  freeze: new Set(['--artifact', '--session-output', '--scope-output']),
-  status: new Set(['--request', '--repository', '--execution']),
-  'status-offline': new Set(['--session-file'])
-});
+const COMMANDS = Object.freeze([
+  { command: 'project', flags: new Set(['--default-ref', '--open-prs', '--repository']) },
+  { command: 'prepare', flags: new Set(['--pr', '--request-output', '--repository', '--execution', '--test-author-comment']) },
+  { command: 'revalidate-review-provider', flags: new Set(['--pr', '--repository']) },
+  { command: 'observe-hosted', flags: new Set(['--request', '--output', '--repository']) },
+  { command: 'prepare-hosted', flags: new Set(['--request', '--facts', '--output']) },
+  { command: 'artifact-status', flags: new Set(['--artifact']) },
+  { command: 'finalize-hosted', flags: new Set(['--envelope', '--evidence', '--previous-artifact', '--output']) },
+  { command: 'local-main-closeout', flags: new Set(['--repository', '--pr', '--protected-root', '--expected-local-head']) },
+  { command: 'resume', flags: new Set(['--request', '--repository', '--execution']) },
+  { command: 'freeze', flags: new Set(['--artifact', '--session-output', '--scope-output']) },
+  { command: 'status', flags: new Set(['--request', '--repository', '--execution']) },
+  { command: 'status-offline', flags: new Set(['--session-file']) }
+] as const);
 
 /** Placement selects an existing owner; it grants no execution or integration authority. */
 export function verificationSessionExecutionPlacement(value: string | undefined): 'local' | 'hosted' {
@@ -2707,18 +2707,23 @@ export function verificationSessionExecutionPlacement(value: string | undefined)
   throw new Error('--execution must be local or hosted.');
 }
 
-export function parseVerificationSessionCommand(argv: readonly string[]) {
-  const command = argv[0];
-  const allowedFlags = command === undefined ? undefined : COMMAND_FLAGS[command];
-  if (allowedFlags === undefined) throw new Error(`Unknown command: ${command ?? '<missing>'}\n${USAGE}`);
+export function parseVerificationSessionCommand(argv: readonly unknown[]) {
+  const inputCommand = argv[0];
+  if (typeof inputCommand !== 'string') {
+    throw new Error(`Unknown command: ${inputCommand === undefined ? '<missing>' : '<non-string>'}\n${USAGE}`);
+  }
+  const selected = COMMANDS.find(({ command }) => command === inputCommand);
+  if (selected === undefined) throw new Error(`Unknown command: ${inputCommand}\n${USAGE}`);
+  const { command, flags: allowedFlags } = selected;
   const args = new Map<string, string>();
   for (let index = 1; index < argv.length; index += 1) {
-    const arg = argv[index]!;
+    const arg = argv[index];
+    if (typeof arg !== 'string') throw new Error(`Argument ${index} must be a string.`);
     if (arg === '--json') continue;
     if (!arg.startsWith('--')) throw new Error(`Unknown argument: ${arg}\n${USAGE}`);
     if (!allowedFlags.has(arg)) throw new Error(`Unknown argument for ${command}: ${arg}\n${USAGE}`);
     const value = argv[index + 1];
-    if (value === undefined || value.startsWith('--')) throw new Error(`Missing value for ${arg}.`);
+    if (typeof value !== 'string' || value.startsWith('--')) throw new Error(`Missing value for ${arg}.`);
     args.set(arg, value);
     index += 1;
   }
@@ -2797,7 +2802,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
   const githubAdapter = () => createVerificationSessionGitHubClient(repositoryRoot, repository);
   // CLI command routing selects one closed operation only. The selected
   // operation revalidates every authority/target/effect precondition internally.
-  // codeql[js/user-controlled-bypass]
   if (command === 'revalidate-review-provider') {
     const prNumber = Number(required(args, '--pr'));
     if (!Number.isSafeInteger(prNumber) || prNumber < 1) {
@@ -2812,7 +2816,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
     }));
   }
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
-  // codeql[js/user-controlled-bypass]
   if (command === 'local-main-closeout') {
     const prNumber = Number(required(args, '--pr'));
     if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('--pr must be a positive integer.');
@@ -2933,7 +2936,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
     });
   }
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
-  // codeql[js/user-controlled-bypass]
   if (command === 'prepare') {
     const prNumber = Number(required(args, '--pr'));
     if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('--pr must be a positive integer.');
@@ -3161,7 +3163,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
     return JSON.stringify({ mode: 'offline-projection', session, journal }, null, 2);
   }
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
-  // codeql[js/user-controlled-bypass]
   if (command === 'status') {
     const request = hostedRequest();
     const github = githubAdapter();
@@ -3192,7 +3193,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
       artifactReuse: reuse.status }, null, 2);
   }
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
-  // codeql[js/user-controlled-bypass]
   if (command === 'artifact-status') {
     const artifact = CodexDevelopmentParseVerificationSessionArtifact(
       readSessionArtifactText(required(args, '--artifact'))
@@ -3200,7 +3200,6 @@ export async function verificationSessionCli(argv: string[], closeoutOperations:
     return JSON.stringify(classifyVerificationSessionArtifactReuse(artifact, now()), null, 2);
   }
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
-  // codeql[js/user-controlled-bypass]
   if (command === 'resume') {
     const request = hostedRequest();
     const github = githubAdapter();

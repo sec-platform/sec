@@ -1,14 +1,16 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs';
+  PhysicalNoFollowError,
+  assertSameNoFollowDirectoryIdentity,
+  createNoFollowOrdinaryDirectoryChain,
+  deleteRetainedNoFollowEntry,
+  inspectNoFollowDirectoryChain,
+  recoverDurableCanonicalFileReplacement,
+  replaceDurableCanonicalFile,
+  retainNoFollowOrdinaryFile,
+  type PhysicalDirectoryChain,
+  type RetainedNoFollowOrdinaryFile
+} from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import path from 'node:path';
 import type { CiVerificationActionPlanClosure, CiVerificationNormalizedOperation, VerificationActionKey, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 import type { HostedActionArtifactInput, HostedSessionTerminalArtifact, HostedSutExecutionProof, VerificationSessionResumeArtifact } from "../../../../../execution/verification/hosted.ts";
@@ -210,11 +212,110 @@ function assertIsoDate(value: unknown, label: string): asserts value is string {
   if (new Date(value).toISOString() !== value) throw new Error(`${label} must be a canonical ISO timestamp.`);
 }
 
-export function CodexDevelopmentPrepareVerificationEvidenceTarget(filePath: string): string {
+type VerificationArtifactTarget = Readonly<{
+  path: string;
+  parent: PhysicalDirectoryChain;
+  name: string;
+}>;
+
+/** The caller selects its output slot. Physical owns path traversal and effects. */
+function prepareVerificationArtifactTarget(filePath: string): VerificationArtifactTarget {
+  if (typeof filePath !== 'string' || filePath.length === 0 || filePath.includes('\0')) {
+    throw new PhysicalNoFollowError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Verification artifact requires a non-empty path without NUL.'
+    );
+  }
   const absolutePath = path.resolve(filePath);
-  mkdirSync(path.dirname(absolutePath), { recursive: true });
-  rmSync(absolutePath, { force: true });
-  return absolutePath;
+  const parentPath = path.dirname(absolutePath);
+  let ancestorPath = parentPath;
+  const missing: string[] = [];
+  let parent: PhysicalDirectoryChain;
+  for (;;) {
+    try {
+      parent = inspectNoFollowDirectoryChain(ancestorPath, 'Verification artifact parent');
+      break;
+    } catch (error) {
+      if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
+      const nextAncestor = path.dirname(ancestorPath);
+      if (nextAncestor === ancestorPath) throw error;
+      missing.unshift(path.basename(ancestorPath));
+      ancestorPath = nextAncestor;
+    }
+  }
+  if (missing.length > 0) {
+    const createdParent = createNoFollowOrdinaryDirectoryChain(parent.target, missing);
+    parent = assertSameNoFollowDirectoryIdentity(createdParent, 'Verification artifact parent');
+  }
+  const name = path.basename(absolutePath);
+  // An interrupted replacement must settle before absence can be interpreted.
+  recoverDurableCanonicalFileReplacement({ parent: parent.target, name });
+  return Object.freeze({ path: absolutePath, parent, name });
+}
+
+function observeVerificationArtifact(
+  target: VerificationArtifactTarget
+): RetainedNoFollowOrdinaryFile['physical'] | null {
+  let retained: RetainedNoFollowOrdinaryFile | null = null;
+  try {
+    retained = retainNoFollowOrdinaryFile(
+      target.parent, target.name, undefined, 'Verification artifact'
+    );
+    if (retained.linkCount !== 1) {
+      throw new PhysicalNoFollowError(
+        'PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Verification artifact must have exactly one link.'
+      );
+    }
+    retained.assertCurrent();
+    return retained.physical;
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
+    throw error;
+  } finally {
+    // Windows retained readers exclude replacement/deletion while open.
+    retained?.dispose();
+  }
+}
+
+function writeVerificationArtifact(
+  filePath: string,
+  serialized: string,
+  validate: (bytes: Uint8Array) => void
+): void {
+  const bytes = Buffer.from(serialized, 'utf8');
+  validate(bytes);
+  const target = prepareVerificationArtifactTarget(filePath);
+  const expectedExisting = observeVerificationArtifact(target);
+  replaceDurableCanonicalFile({
+    parent: target.parent.target,
+    name: target.name,
+    bytes,
+    expectedExisting,
+    rejectExistingHardLinks: true,
+    validate: (observed) => {
+      if (!Buffer.from(observed).equals(bytes)) {
+        throw new Error('Verification artifact readback bytes mismatch.');
+      }
+      validate(observed);
+    }
+  });
+}
+
+export function CodexDevelopmentPrepareVerificationEvidenceTarget(filePath: string): string {
+  const target = prepareVerificationArtifactTarget(filePath);
+  const existing = observeVerificationArtifact(target);
+  if (existing !== null) {
+    // Invalidate only this caller-selected existing output name. This is
+    // identity-bound namespace deletion, not Linux non-cooperative byte-CAS.
+    deleteRetainedNoFollowEntry({
+      root: target.parent.target,
+      relativePath: target.name,
+      kind: 'file',
+      device: existing.device,
+      inode: existing.inode,
+      ancestorDirectories: []
+    });
+  }
+  return target.path;
 }
 
 const CodexDevelopmentVerificationEvidenceSchemaV4: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>["schema"] =
@@ -441,29 +542,13 @@ export function CodexDevelopmentWriteVerificationEvidenceV4Atomic(
   evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>
 ): void {
   CodexDevelopmentAssertVerificationEvidenceV4(evidence, { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
-  const absolutePath = path.resolve(filePath);
-  mkdirSync(path.dirname(absolutePath), { recursive: true });
-  rmSync(absolutePath, { force: true });
-  const temporaryPath = `${absolutePath}.${process.pid}.${randomUUID()}.tmp`;
-  let descriptor: number | null = null;
-  try {
-    const serialized = encodeVerificationActionData(evidence);
-    descriptor = openSync(temporaryPath, 'wx');
-    writeFileSync(descriptor, serialized, 'utf8');
-    fsyncSync(descriptor);
-    closeSync(descriptor);
-    descriptor = null;
-    renameSync(temporaryPath, absolutePath);
-    const readback = readFileSync(absolutePath, 'utf8');
-    if (readback !== serialized) throw new Error('Verification V4 evidence readback bytes mismatch.');
-    CodexDevelopmentAssertVerificationEvidenceV4(JSON.parse(readback), { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
-  } catch (error) {
-    rmSync(absolutePath, { force: true });
-    throw error;
-  } finally {
-    if (descriptor !== null) closeSync(descriptor);
-    rmSync(temporaryPath, { force: true });
-  }
+  writeVerificationArtifact(filePath, encodeVerificationActionData(evidence), (bytes) => {
+    CodexDevelopmentAssertVerificationEvidenceV4(
+      JSON.parse(Buffer.from(bytes).toString('utf8')),
+      { actionPlan: evidence.actionPlan },
+      new Date(evidence.finishedAt)
+    );
+  });
 }
 
 
@@ -674,29 +759,9 @@ export function CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(
       `VerificationAction artifact file must be ${VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE}.`
     );
   }
-  const absolutePath = path.resolve(filePath);
-  mkdirSync(path.dirname(absolutePath), { recursive: true });
-  rmSync(absolutePath, { force: true });
-  const temporaryPath = `${absolutePath}.${process.pid}.${randomUUID()}.tmp`;
-  let descriptor: number | null = null;
-  try {
-    const serialized = `${encodeVerificationActionData(artifact)}\n`;
-    descriptor = openSync(temporaryPath, 'wx');
-    writeFileSync(descriptor, serialized, 'utf8');
-    fsyncSync(descriptor);
-    closeSync(descriptor);
-    descriptor = null;
-    renameSync(temporaryPath, absolutePath);
-    if (readFileSync(absolutePath, 'utf8') !== serialized) {
-      throw new Error('VerificationAction artifact readback bytes mismatch.');
-    }
-  } catch (error) {
-    rmSync(absolutePath, { force: true });
-    throw error;
-  } finally {
-    if (descriptor !== null) closeSync(descriptor);
-    rmSync(temporaryPath, { force: true });
-  }
+  writeVerificationArtifact(filePath, `${encodeVerificationActionData(artifact)}\n`, (bytes) => {
+    CodexDevelopmentAssertVerificationActionTerminalArtifact(JSON.parse(Buffer.from(bytes).toString('utf8')));
+  });
 }
 
 const CodexDevelopmentVerificationSessionArtifactSchema: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>["schema"] =
