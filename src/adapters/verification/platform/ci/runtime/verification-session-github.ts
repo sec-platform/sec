@@ -313,8 +313,8 @@ export function shouldPublishMaintainerReviewWakeup(input: Readonly<{
 }
 
 /**
- * Typed provider schema drift (Issue #347 section C). Unknown/removed GitHub
- * GraphQL fields/layouts become this typed state with a bounded reasonCode and
+ * Typed provider schema drift boundary. Unknown or removed GitHub GraphQL
+ * fields/layouts become this typed state with a bounded reasonCode and
  * a response digest; raw GitHub error prose never enters the control plane.
  */
 export interface GitHubProviderSchemaFailure {

@@ -82,11 +82,11 @@ export function CodexDevelopmentBuildAffectedTestInventory(
 }
 
 // ---------------------------------------------------------------------------
-// Affected Selection Trust Boundary (Issue #206)
+// Affected Selection Trust Boundary
 // ---------------------------------------------------------------------------
 //
 // Classifies the result of an affected-test selection into a trust boundary
-// and projects it to the unified VerificationGateResult model (PR #204).
+// and projects it to the canonical VerificationGateResult model.
 //
 // The core problem this solves: `test-runner.ts` used to return exit 0 when
 // `sourceChanged=true && selectedFastTests=[]` even when the empty closure was
