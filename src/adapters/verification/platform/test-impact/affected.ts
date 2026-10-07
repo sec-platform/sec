@@ -82,7 +82,7 @@ export function CodexDevelopmentBuildAffectedTestInventory(
 }
 
 // ---------------------------------------------------------------------------
-// Affected Selection Trust Boundary (Issue #206)
+// Affected Selection Trust Boundary
 // ---------------------------------------------------------------------------
 //
 // Classifies the result of an affected-test selection into a trust boundary
