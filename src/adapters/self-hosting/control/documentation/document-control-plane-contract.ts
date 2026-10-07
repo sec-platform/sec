@@ -754,8 +754,8 @@ export function CodexDevelopmentParseRollingPlanHeadings(
   const candidateHeadings = [...candidateSection.matchAll(
     /^### ([1-9][0-9]*)\. ([a-z0-9][a-z0-9-]*)\s*$/gmu
   )];
-  if (candidateHeadings.length < 2 || candidateHeadings.length > 5) {
-    throw new Error('Rolling plan must contain two to five candidate packages.');
+  if (candidateHeadings.length > 5) {
+    throw new Error('Rolling plan must contain at most five candidate packages.');
   }
   for (const [index, heading] of candidateHeadings.entries()) {
     if (Number(heading[1]) !== index + 1) {
@@ -1049,8 +1049,8 @@ export function CodexDevelopmentPromoteRollingPlan(input: {
     throw new Error('Rolling plan promotion target must occur exactly once in the candidate section.');
   }
   const remaining = headings.filter((_, index) => index !== targetIndex);
-  if (remaining.length < 2 || remaining.length > 5) {
-    throw new Error('Rolling plan promotion must retain two to five candidate packages.');
+  if (remaining.length > 5) {
+    throw new Error('Rolling plan promotion must retain at most five candidate packages.');
   }
 
   const sectionOffset = candidateMarkerEnd;

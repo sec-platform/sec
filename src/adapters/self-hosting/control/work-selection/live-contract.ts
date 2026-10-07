@@ -507,8 +507,8 @@ function normalizeCatalog(value: unknown): SecRoadmapWorkCatalog {
   if (catalog.schema !== SEC_ROADMAP_WORK_CATALOG_SCHEMA) {
     fail(`catalog.schema must be ${SEC_ROADMAP_WORK_CATALOG_SCHEMA}.`);
   }
-  if (!Array.isArray(catalog.items) || catalog.items.length < 3 || catalog.items.length > 7) {
-    fail('catalog.items must contain three to seven bounded near-term records.');
+  if (!Array.isArray(catalog.items) || catalog.items.length > 7) {
+    fail('catalog.items must contain at most seven bounded near-term records.');
   }
   const items = catalog.items.map(parseCatalogItem);
   for (const [label, values] of [
@@ -982,8 +982,8 @@ function normalizeSecWorkRollingProjection(
   if (raw.schema !== SEC_WORK_ROLLING_PROJECTION_SCHEMA) {
     fail(`rolling projection.schema must be ${SEC_WORK_ROLLING_PROJECTION_SCHEMA}.`);
   }
-  if (!Array.isArray(raw.candidates) || raw.candidates.length < 2 || raw.candidates.length > 5) {
-    fail('rolling projection.candidates must contain two to five items.');
+  if (!Array.isArray(raw.candidates) || raw.candidates.length > 5) {
+    fail('rolling projection.candidates must contain at most five items.');
   }
   const active = normalizeRollingProjectionItem(raw.active, 'rolling projection.active', true);
   const candidates = raw.candidates.map((item, index) => normalizeRollingProjectionItem(
@@ -1020,8 +1020,8 @@ function normalizeSecWorkRollingProjection(
 }
 
 function orderedPackageIds(value: unknown, label: string): readonly string[] {
-  if (!Array.isArray(value) || value.length < 2 || value.length > 5) {
-    fail(`${label} must contain two to five package ids.`);
+  if (!Array.isArray(value) || value.length > 5) {
+    fail(`${label} must contain at most five package ids.`);
   }
   const result = value.map((entry, index) => packageId(entry, `${label}[${index}]`));
   if (new Set(result).size !== result.length) fail(`${label} contains a duplicate package id.`);
@@ -1694,8 +1694,8 @@ function rollingTopologyFromValidatedReceipt(
       && candidate.lifecycle !== 'superseded'
       && candidate.lifecycle !== 'deferred';
   }).map(({ packageId }) => packageId);
-  if (candidatePackageIds.length < 2 || candidatePackageIds.length > 5) {
-    fail('rolling topology must retain two to five nondeferred, nonterminal candidates after selection.');
+  if (candidatePackageIds.length > 5) {
+    fail('rolling topology must retain at most five nondeferred, nonterminal candidates after selection.');
   }
   return deepFreeze({ activePackageId: active.packageId, candidatePackageIds });
 }
@@ -1790,7 +1790,7 @@ ${candidateSections}
 ## 重新规划硬触发器
 
 1. exact main、roadmap/catalog、registry/lifecycle/conflict或current-spec revision漂移；
-2. active/tracking/package与decision不一致，或候选少于二、多于五、重复、手工重排、增删；
+2. active/tracking/package与decision不一致，或候选多于五、重复、手工重排、增删；
 3. WorkDecision、显式transition authority或proposal exact binding不再与当前projection逐项相等；
 4. independent Review之后head/tree/base/manifest或本projection bytes改变。
 
