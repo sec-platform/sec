@@ -1,10 +1,10 @@
 /**
- * Provider capability resolution (Issue #347 section A).
+ * Provider capability resolution.
  *
  * Writer / reviewer / verification-executor providers are separate
  * capabilities. Availability is resolved into normalized state before any
- * expensive integration stage; raw quota/billing/upsell prose (#244-untrusted
- * diagnostic) never enters prompt/control/evidence truth — only a bounded
+ * expensive integration stage; raw quota/billing/upsell prose is untrusted
+ * diagnostic input and never enters prompt/control/evidence truth — only a bounded
  * reasonCode and a content digest are retained. A provider already known
  * unavailable in the same availability epoch must not be retried.
  *

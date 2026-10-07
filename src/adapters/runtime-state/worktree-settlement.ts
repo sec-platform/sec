@@ -1,5 +1,5 @@
 /**
- * SEC Worktree Settlement Contract (Issue #209 Phase A).
+ * SEC Worktree Settlement Contract.
  *
  * Defines the settlement receipt type emitted by the non-destructive
  * worktree preflight. The preflight reads Git attributes, index/blob,

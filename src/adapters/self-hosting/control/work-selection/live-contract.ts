@@ -1529,9 +1529,10 @@ function candidateFromLiveFacts(input: {
     readinessRef: input.catalog.catalogDigest,
     prerequisiteFacts,
     orderedAfterFacts,
-    // #207 has no pair to resolve only when the current lifecycle proves there
-    // is no concurrent candidate/effect residue. Any other frontier remains
-    // unresolved here and is handled by the current-action precedence first.
+    // Pairwise conflict resolution is unnecessary only when the current
+    // lifecycle proves there is no concurrent candidate/effect residue. Any
+    // other frontier remains unresolved and is handled by current-action
+    // precedence first.
     conflictStatus: noConcurrentConflictSubject ? 'clear' : 'unresolved',
     conflictDecisionRefs: [input.lifecycleDigest],
     // Filled in a second pass after every candidate lifecycle/dependency fact
