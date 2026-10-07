@@ -551,8 +551,8 @@ function buildUnresolvedDecision(
 }
 
 /**
- * Pure zero-or-one applicability decision (Issue #275). Reads only machine
- * metadata and the operation envelope; never reads Skill prose bytes.
+ * Pure zero-or-one Skill applicability decision. Reads only machine metadata
+ * and the operation envelope; never reads Skill prose bytes.
  */
 export function evaluateSecSkillApplicability(
   input: SecSkillApplicabilityEnvelope
