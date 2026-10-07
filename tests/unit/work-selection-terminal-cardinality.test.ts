@@ -1,28 +1,28 @@
 import { expect, test } from 'bun:test';
 
-import type { SecCurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
+import type { CurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
-  SEC_ROADMAP_WORK_CATALOG_BEGIN,
-  SEC_ROADMAP_WORK_CATALOG_END,
-  compileSecWorkRollingProjection,
-  compileSecWorkRollingProposalProjection,
-  compileSecWorkSelectionTerminalProjection,
-  createSecWorkCurrentSpecObservation,
-  createSecWorkDecisionReceipt,
-  createSecWorkRegistryObservation,
+  ROADMAP_WORK_CATALOG_BEGIN,
+  ROADMAP_WORK_CATALOG_END,
+  compileWorkRollingSelectionProjection,
+  compileWorkRollingProposalProjection,
+  compileWorkSelectionTerminalProjection,
+  createWorkCurrentSpecObservation,
+  createWorkDecisionReceipt,
+  createWorkRegistryObservation,
   currentSpecRevisionFromBody,
-  parseSecRoadmapWorkCatalog,
-  renderSecWorkRollingPlan,
-  renderSecWorkRollingProposalPlan
+  parseRoadmapWorkCatalog,
+  renderWorkRollingSelectionPlan,
+  renderWorkRollingProposalPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { CodexDevelopmentParseRollingPlan } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
+import { parseRollingPlan } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
 
 function oneItemCatalogSource(): string {
-  return `${SEC_ROADMAP_WORK_CATALOG_BEGIN}
+  return `${ROADMAP_WORK_CATALOG_BEGIN}
 \`\`\`json
 ${JSON.stringify({
     schema: 'sec-roadmap-work-catalog-v1',
@@ -49,10 +49,10 @@ ${JSON.stringify({
     }]
   }, null, 2)}
 \`\`\`
-${SEC_ROADMAP_WORK_CATALOG_END}`;
+${ROADMAP_WORK_CATALOG_END}`;
 }
 
-function currentLifecycle(): SecCurrentWorkLifecycle {
+function currentLifecycle(): CurrentWorkLifecycle {
   return {
     activeWorkId: null,
     activeRef: null,
@@ -69,23 +69,23 @@ function currentLifecycle(): SecCurrentWorkLifecycle {
 
 test('one live work can be selected without manufacturing successor candidates', () => {
   const source = oneItemCatalogSource();
-  const catalog = parseSecRoadmapWorkCatalog(source);
+  const catalog = parseRoadmapWorkCatalog(source);
   expect(catalog.items).toHaveLength(1);
 
-  const currentSpec = createSecWorkCurrentSpecObservation({
+  const currentSpec = createWorkCurrentSpecObservation({
     workId: 'issue-1',
     currentSpecRef: 'github:issue/1',
     providerResourceRef: 'github-node:fixture-1',
     providerState: 'open',
     currentSpecRevision: currentSpecRevisionFromBody('one live current spec')
   });
-  const receipt = createSecWorkDecisionReceipt({
+  const receipt = createWorkDecisionReceipt({
     repository: 'sec-platform/sec',
     exactMain,
     exactMainTree,
     roadmapRevision: rawSha256(source),
     catalog,
-    registry: createSecWorkRegistryObservation({
+    registry: createWorkRegistryObservation({
       defaultTreeSha: exactMainTree,
       entries: []
     }),
@@ -96,12 +96,12 @@ test('one live work can be selected without manufacturing successor candidates',
   expect(receipt.decision.status).toBe('select-next');
   expect(receipt.decision.selectedWorkId).toBe('issue-1');
 
-  const projection = compileSecWorkRollingProjection(receipt);
+  const projection = compileWorkRollingSelectionProjection(receipt);
   expect(projection.active.packageId).toBe('only-live-work-v1');
   expect(projection.candidates).toEqual([]);
 
-  const rendered = renderSecWorkRollingPlan({ receipt, reviewedOn: '2026-10-07' });
-  expect(CodexDevelopmentParseRollingPlan(rendered)).toEqual({
+  const rendered = renderWorkRollingSelectionPlan({ receipt, reviewedOn: '2026-10-07' });
+  expect(parseRollingPlan(rendered)).toEqual({
     activePackageId: 'only-live-work-v1',
     candidatePackageIds: []
   });
@@ -109,8 +109,7 @@ test('one live work can be selected without manufacturing successor candidates',
 
 test('terminal compaction can retire the last work item to an empty catalog', () => {
   const source = oneItemCatalogSource();
-  const catalog = parseSecRoadmapWorkCatalog(source);
-  const closedSpec = createSecWorkCurrentSpecObservation({
+  const closedSpec = createWorkCurrentSpecObservation({
     workId: 'issue-1',
     currentSpecRef: 'github:issue/1',
     providerResourceRef: 'github-node:fixture-1',
@@ -118,7 +117,7 @@ test('terminal compaction can retire the last work item to an empty catalog', ()
     currentSpecRevision: currentSpecRevisionFromBody('closed current spec')
   });
 
-  const terminal = compileSecWorkSelectionTerminalProjection({
+  const terminal = compileWorkSelectionTerminalProjection({
     roadmapSource: source,
     currentSpecs: [closedSpec],
     presentManifestPaths: []
@@ -128,12 +127,12 @@ test('terminal compaction can retire the last work item to an empty catalog', ()
   expect(terminal.terminalCompaction?.delayedManifestRetirementPaths).toEqual([]);
   expect(terminal.catalog.items).toEqual([]);
   expect(terminal.currentSpecs).toEqual([]);
-  expect(parseSecRoadmapWorkCatalog(terminal.terminalCompaction!.roadmapSource).items).toEqual([]);
+  expect(parseRoadmapWorkCatalog(terminal.terminalCompaction!.roadmapSource).items).toEqual([]);
 });
 
 
 test('proposal projection accepts an active package with no retained candidates', () => {
-  const projection = compileSecWorkRollingProposalProjection({
+  const projection = compileWorkRollingProposalProjection({
     exactMain,
     exactMainTree,
     active: {
@@ -146,11 +145,11 @@ test('proposal projection accepts an active package with no retained candidates'
   });
 
   expect(projection.candidates).toEqual([]);
-  const rendered = renderSecWorkRollingProposalPlan({
+  const rendered = renderWorkRollingProposalPlan({
     projection,
     reviewedOn: '2026-10-07'
   });
-  expect(CodexDevelopmentParseRollingPlan(rendered)).toEqual({
+  expect(parseRollingPlan(rendered)).toEqual({
     activePackageId: 'only-proposal-v1',
     candidatePackageIds: []
   });

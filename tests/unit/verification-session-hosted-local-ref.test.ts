@@ -4,13 +4,13 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BranchCloseoutAttempt } from '../../src/execution/verification/branch-closeout.ts';
 
-import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import { createBranchCloseoutPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import type { BranchCloseoutAttempt } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
-import { deleteHostedLocalRefCas } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import type { SecOperationDigest } from '../../src/execution/operation/semantic.ts';
+
+import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
+import { observeLocalRefCasWithAdmissionDouble } from '../helpers/main-health-admission-double.ts';
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
@@ -48,9 +48,18 @@ test('hosted local ref consumer admits the native Git delete transaction', async
       worktreePathsAtPreparation: []
     });
     const attempts: BranchCloseoutAttempt[] = [];
-    const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as SecOperationDigest;
-    const result = await withWorkspaceWriteLease(commonDir, undefined, async (lease) =>
-      (await deleteHostedLocalRefCas(preparation, attempts, lease, operationId)));
+    const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as OperationDigest;
+    const rejected = observeLocalRefCasWithAdmissionDouble({ preparation, operationId,
+      revokeAtFinalCheck: true });
+    expect(rejected.realForgedAdmissionRejected).toBe(true);
+    expect(rejected.admissionChecks).toBe(2);
+    expect(rejected.result.status).toBe('failed');
+    expect(git(repositoryRoot, ['rev-parse', 'refs/heads/feat/example'])).toBe(headSha);
+    const observed = observeLocalRefCasWithAdmissionDouble({ preparation, operationId });
+    const result = observed.result;
+    attempts.push(...observed.attempts);
+    expect(observed.realForgedAdmissionRejected).toBe(true);
+    expect(observed.admissionChecks).toBe(2);
     expect(result).toMatchObject({ operation: 'local-delete', status: 'success' });
     expect(attempts).toHaveLength(1);
     expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/feat/example'], {

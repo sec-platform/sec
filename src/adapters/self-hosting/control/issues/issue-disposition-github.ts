@@ -1,16 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import type { GitHubIssueReference, IssueDispositionDigest } from '../../../../execution/verification/integration.ts';
 
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import {
-  GITHUB_PULL_REQUEST_CLOSING_QUERY,
-  decideUnexpectedIssueReopen,
-  parseGitHubClosingKeywordOccurrences,
-  parseGitHubPullRequestClosingFactsPage,
-  type GitHubIssueReference,
-  type GitHubPullRequestClosingFacts,
-  type IssueDispositionDigest
-} from './disposition.ts';
+import { GITHUB_PULL_REQUEST_CLOSING_QUERY, decideUnexpectedIssueReopen, parseGitHubClosingKeywordOccurrences, parseGitHubPullRequestClosingFactsPage, type GitHubPullRequestClosingFacts } from './disposition.ts';
 
 export interface GitHubIssueObservation {
   readonly repository: string;

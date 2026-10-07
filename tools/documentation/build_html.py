@@ -9,7 +9,7 @@ Use --diagrams source for an explicitly labelled text-only reading edition.
 from __future__ import annotations
 import argparse, base64, collections, hashlib, html, importlib.metadata, json, os
 from pathlib import Path
-import re, sys, tempfile, time, multiprocessing, signal, subprocess, zlib
+import re, sys, tempfile, multiprocessing, signal, subprocess, zlib
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote, quote
 sys.dont_write_bytecode = True
@@ -102,6 +102,17 @@ class RawMarkup(HTMLParser):
     def handle_comment(self,data):pass  # Exact original remains in the source attachment.
 
 
+def check_svg_elements(root, element_error):
+    for e in root.iter():
+        tag=e.tag.split('}')[-1].lower()
+        if tag in {'script','iframe','object','embed','image','a','use','animate','set'}:raise BuildError(element_error+tag)
+        for k,v in e.attrib.items():
+            k=k.split('}')[-1].lower()
+            if k.startswith('on') or (k in ('href','src') and not v.startswith('#')):raise BuildError('Active SVG attribute: '+k)
+            if k=='style' and (re.search(r'url\(\s*["\x27]?(?!#)',v,re.I) or '@import'in v):raise BuildError('External SVG style')
+        if tag=='style' and ('@import'in(e.text or '') or re.search(r'url\(\s*["\x27]?(?:https?:|data:|//)',e.text or '',re.I)):
+            raise BuildError('External SVG stylesheet')
+
 def checked_svg(data: bytes, name: str) -> bytes:
     """Safe image payload only. A digest is not permission to run SVG scripts."""
     from xml.etree import ElementTree as ET
@@ -109,15 +120,7 @@ def checked_svg(data: bytes, name: str) -> bytes:
     try: r=ET.fromstring(data)
     except ET.ParseError as e: raise BuildError('Invalid SVG: '+name) from e
     if r.tag.split('}')[-1]!='svg': raise BuildError('Non-SVG cache value: '+name)
-    for e in r.iter():
-        tag=e.tag.split('}')[-1].lower()
-        if tag in {'script','iframe','object','embed','image','a','use','animate','set'}:raise BuildError('Active SVG element: '+tag)
-        for k,v in e.attrib.items():
-            k=k.split('}')[-1].lower()
-            if k.startswith('on') or (k in ('href','src') and not v.startswith('#')):raise BuildError('Active SVG attribute: '+k)
-            if k=='style' and (re.search(r'url\(\s*["\x27]?(?!#)',v,re.I) or '@import'in v):raise BuildError('External SVG style')
-        if tag=='style' and ('@import'in(e.text or '') or re.search(r'url\(\s*["\x27]?(?:https?:|data:|//)',e.text or '',re.I)):
-            raise BuildError('External SVG stylesheet')
+    check_svg_elements(r, 'Active SVG element: ')
     return data
 
 def read_diagram_cache(root: Path, captured, args, book):
@@ -157,13 +160,13 @@ def read_diagram_cache(root: Path, captured, args, book):
 
 class MermaidRenderer:
     def __init__(self,args):
-        self.args=args;self.pw=None;self.browser=None;self.page=None;self.blocked=[];self.info={};self.loaded=False
+        self.args=args;self.pw=None;self.browser=None;self.page=None;self.blocked=[];self.info={}
     def __enter__(self):
         from playwright.sync_api import sync_playwright
         engine=Path(self.args.mermaid_js).expanduser().resolve()
         if not engine.is_file():raise BuildError('Mermaid script missing. Supply --mermaid-js; no automatic download.')
         if engine.stat().st_size>30_000_000:raise BuildError('Mermaid script exceeds renderer budget')
-        data=engine.read_bytes();self.engine=data
+        data=engine.read_bytes()
         self.pw=sync_playwright().start()
         try:
             kw={'headless':True,'chromium_sandbox':not self.args.allow_no_sandbox}
@@ -178,7 +181,7 @@ class MermaidRenderer:
             if not self.page.evaluate("!!window.mermaid && typeof mermaid.render==='function' && typeof mermaid.initialize==='function'"):
                 raise BuildError('Supply a standalone Mermaid UMD/IIFE script exposing window.mermaid, not an ESM entry')
             self.info={'engine_sha256':sha(data),'browser':self.browser.version,'playwright':importlib.metadata.version('playwright'),'font_family':self.args.font_family,'browser_sandbox':not self.args.allow_no_sandbox,'engine_label':self.args.engine_label}
-            self.loaded=True;return self
+            return self
         except Exception:
             self.__exit__(None,None,None);raise
     def __exit__(self,*unused):
@@ -197,16 +200,7 @@ class MermaidRenderer:
         try:r=ET.fromstring(value)
         except ET.ParseError as e:raise BuildError('Invalid SVG: '+ident) from e
         if r.tag.split('}')[-1]!='svg':raise BuildError('Renderer returned non-SVG')
-        for e in r.iter():
-            tag=e.tag.split('}')[-1].lower()
-            if tag in {'script','iframe','object','embed','image','a','use','animate','set'}:raise BuildError('Active/external SVG element: '+tag)
-            for k,v in e.attrib.items():
-                k=k.split('}')[-1].lower()
-                if k.startswith('on') or (k in ('href','src') and not v.startswith('#')):raise BuildError('Active SVG attribute: '+k)
-                if k=='style' and (re.search(r'url\(\s*[\"\x27]?(?!#)',v,re.I) or '@import'in v):raise BuildError('External SVG style')
-            if tag=='style':
-                text=e.text or ''
-                if '@import'in text or re.search(r'url\(\s*[\"\x27]?(?:https?:|data:|//)',text,re.I):raise BuildError('External SVG stylesheet')
+        check_svg_elements(r, 'Active/external SVG element: ')
         if self.blocked:raise BuildError('Renderer attempted network access: '+repr(self.blocked[:3]))
         return value.encode('utf-8')
 
@@ -440,7 +434,7 @@ class Book:
             csp="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-"+b64(hashlib.sha256(script.encode()).digest())+"'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'none'"
         if re.search(r'</script',script,re.I):raise BuildError('Unsafe script serialization')
 
-        meta['captured_files_sha256']=sha(canon(entries))
+        meta['captured_files_sha256']=meta['input_set_sha256']
         meta['input_set_sha256']=sha(canon({'files':entries,'recipe':{
             'builder_sha256':meta['builder_sha256'],'markdown_it_py':meta['markdown_it_py'],
             'diagram_mode':self.args.diagrams,'renderer':renderer_info,

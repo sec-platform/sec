@@ -6,6 +6,8 @@
 
 普通开发的统一入口不是再学习一套底层语言：持久作者结构见[最终作者面的同源投影](结构化源码.md#author-surface-projection)，**用户到底能决定哪些工程事实**见[完整开发设定面](需求关系与能力边界.md#developer-decision-surface)，所有可能影响结果的细节如何不丢失见[作者信息完整性](需求关系与能力边界.md#author-information-completeness)，Auto/Require/Prefer/Pin/Forbid/Reset怎样归一见[控制UX](组合/稀疏控制与目标限定.md#developer-control-ux)，自动选择与显式控制怎样形成有效值见[有效控制投影](组合/稀疏控制与目标限定.md#effective-control-projection)，原生配置和非源码怎样保留自己的格式与所有权见[配置所有权与生态适配](工程源/资产与非源码.md#configuration-ownership-and-adapters)。这些入口解释同一份工程事实，不建立第二套 Property IR、万能配置文件或并行作者真源。
 
+**当前开发者心智模型采用四条正交轴，不再把不同责任混成一条层级栈；直接开发任务分为Understand / Author / Change / Verify / Operate / Deliver六面。** 普通产品作者没有必需文本语言关键词；直接结构源码、控制UX和可选`.sec`各有单独词汇口径。精确组织和计数见[开发者心智模型](需求关系与能力边界.md#developer-mental-model)。
+
 <a id="建议从这里进入"></a>
 
 ## 从成果进入定义

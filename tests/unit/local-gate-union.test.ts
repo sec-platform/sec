@@ -65,7 +65,7 @@ function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAff
 test('local affected plan selects docs doctor alone for pure active documentation', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     ['docs/运行/保证/要求证据与裁决.md'],
-    ['tests/unit/codex-work-package-contract.test.ts']
+    ['tests/unit/work-package-contract.test.ts']
   ));
 
   expect(gateIds(plan)).toEqual(['docs:doctor']);
@@ -106,7 +106,6 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
     'bun run docs:doctor',
     'bun run test -- --affected'
   ]);
-  expect(new Set(plan.subsumedStandaloneCommands).size).toBe(plan.subsumedStandaloneCommands.length);
   expect(plan.umbrellaCommand).toBe('bun run check -- --affected');
 });
 

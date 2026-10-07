@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { CiVerificationActionPlanClosure, VerificationActionPlan } from '../../../../execution/verification/action.ts';
 
 import {
   inspectNoFollowDirectoryChain,
@@ -11,8 +12,8 @@ import {
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   issueRetainedCommandBoundary
 } from '../../../runtime-state/physical/runtime/process.ts';
-import type { VerificationActionPlan } from '../../../verification/platform/action/contract/action.ts';
-import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget, type CiVerificationActionPlanClosure } from '../../../verification/platform/action/contract/ci.ts';
+
+import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../../../verification/platform/action/contract/ci.ts';
 import type { VerificationActionProcessExecutionContext } from '../../../verification/platform/action/runner.ts';
 
 /**

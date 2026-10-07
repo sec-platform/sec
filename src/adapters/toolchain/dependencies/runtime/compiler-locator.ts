@@ -1,9 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalEquals, canonicalJson, compareCodeUnits } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
-import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStatePhysicalIdentity } from '../../../runtime-state/generated-state/contract.ts';
-import { consumeGeneratedStateWorktreeRetirementEffectAuthority, type GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
+import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStatePhysicalIdentity } from '../../../../execution/generated-state/contract.ts';
+import type { GeneratedStateWorktreeRetirementProvider } from "../../../../execution/generated-state/lifecycle-port.ts";
+import { consumeGeneratedStateWorktreeRetirementEffectAuthority } from '../../../../execution/generated-state/provider-effect.ts';
+import { assertGeneratedStateProviderEffectNativeBinding } from '../../../runtime-state/generated-state/physical-effects.ts';
 import { assertSameNoFollowDirectoryIdentity, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { sameGeneratedStateIdentity as sameGeneratedStatePhysicalIdentity } from './dependency-transition/contract.ts';
 import { dependencyTransitionNamespacePaths } from './dependency-transition/store.ts';
@@ -269,10 +271,12 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
     });
   },
   async retire(authority) {
-    const authorized = consumeGeneratedStateWorktreeRetirementEffectAuthority(
+    const admitted = consumeGeneratedStateWorktreeRetirementEffectAuthority(
       authority,
       COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID
     );
+    await assertGeneratedStateProviderEffectNativeBinding(admitted.resource, admitted.input);
+    const authorized = admitted.input;
     if (authorized.relativePath !== 'node_modules' || authorized.registration.phase !== 'retired' ||
         authorized.planDigest !== generatedStateDomainProviderMaterialDigest(
           COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID,
@@ -292,9 +296,9 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
       try {
         return await validateCompilerDependencyLocatorPlan(plan, requireLocator);
       } catch (error) {
-        if (error instanceof SecError) throw error;
+        if (error instanceof CodedFailure) throw error;
         const cause = error instanceof Error ? error.message : String(error);
-        throw new SecError(
+        throw new CodedFailure(
           'IMPORT-AUTHORITY-004',
           `Compiler dependency locator retirement validation failed: ${cause}`,
           { cause, consumerRoot: plan.consumerRoot }
@@ -308,7 +312,7 @@ GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeR
         path.join(plan.consumerRoot, plan.relativePath),
         'Compiler dependency locator retirement absence readback'
       ).state !== 'absent') {
-        throw new SecError(
+        throw new CodedFailure(
           'IMPORT-AUTHORITY-004',
           'Compiler dependency locator retirement found an occupied non-locator path.',
           { consumerRoot: plan.consumerRoot, relativePath: plan.relativePath }

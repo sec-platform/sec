@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
 import { createBatchRecoveryBundle, createRecoveryBundle, verifyRecoveryAuthorityHeadsLive } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
+import type { BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });

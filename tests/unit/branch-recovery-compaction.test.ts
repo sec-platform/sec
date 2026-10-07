@@ -3,8 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
 
-import type { BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import { createRecoveryBundle } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 
 function git(root: string, args: readonly string[], allowFailure = false) {

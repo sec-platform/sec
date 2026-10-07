@@ -1,7 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import {
   runtimeDependencyOperationOptions as bind,
   runtimeDependencyOperationContext as context,
@@ -16,10 +14,15 @@ test('every coordinator route consumes the same closed fields without evaluating
   const hiddenCapability = { invoke() { assert.fail('extension executed'); } };
   const input = new Proxy({ ...controls(), extension: hiddenCapability,
     get unknownSecret() { assert.fail('unknown getter'); throw new Error('unreachable'); },
+    get sharedDepsRoot() { assert.fail('retired root getter'); throw new Error('unreachable'); },
     [Symbol('foreign authority')]: hiddenCapability }, { ownKeys() { assert.fail('enumerated whole input'); } });
   const bound = bind(input);
   assert.equal(remaining(bound, 'closed'), 1000);
   assert.equal('extension' in bound, false); assert.equal('unknownSecret' in bound, false);
+  assert.equal('sharedDepsRoot' in bound, false);
+  assert.throws(() => bind({ ...bound, get sharedDepsRoot() {
+    assert.fail('retired root accessor executed'); return 'unreachable';
+  } }), /unowned executable accessor/);
   assert.ok(!Object.values(bound as Readonly<Record<string, unknown>>).includes(hiddenCapability));
   assert.equal(Object.getOwnPropertySymbols(bound).length, 1); // Only the actual owner's parent ledger.
 });
@@ -70,8 +73,7 @@ for (const field of ['beforeCommit','monotonicNowMs','now','sleep','testCompiler
   });
 }
 
-for (const input of [{ rematerialize: 'false' }, { installMode: 'maybe' },
-  { sharedDepsRoot: 2 }, { sharedDepsRoot: null }]) {
+for (const input of [{ rematerialize: 'false' }, { installMode: 'maybe' }]) {
   test(`invalid request decision ${JSON.stringify(input)} does not reach the environment`, () => {
     assert.throws(() => bind({ ...input, monotonicNowMs() { assert.fail('clock'); } } as never),
       e => (e as {code?: string}).code === 'RUNTIME-DEPS-003');
@@ -81,10 +83,10 @@ for (const input of [{ rematerialize: 'false' }, { installMode: 'maybe' },
 test('all request decisions and method identities are captured before the clock can change source options', async () => {
   const events: string[]=[];
   const raw = { lockTimeoutMs:1000, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,
-    sharedDepsRoot:'original', async beforeCommit(){events.push('original');},
-    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.sharedDepsRoot='replaced';raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
+    async beforeCommit(){events.push('original');},
+    monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
   const bound=bind(raw); assert.equal(bound.installMode,'allow'); assert.equal(bound.rematerialize,false);
-  assert.equal(bound.sharedDepsRoot,path.resolve('original')); await fence(bound,'capture'); assert.deepEqual(events,['original']);
+  await fence(bound,'capture'); assert.deepEqual(events,['original']);
 });
 
 test('unchanged issued invocations reuse object and callback identity while still checking cancellation', () => {
@@ -142,14 +144,6 @@ test('method binding preserves exact sync and async failure values', async () =>
     const bound=bind({...controls(),beforeCommit(){throw reason;},sleep:async()=>{throw reason;}});
     await assert.rejects(fence(bound,'failure'),e=>e===reason);await assert.rejects(bound.sleep!(1),e=>e===reason);
   }
-});
-
-test('declared root uses the entry cwd even when an earlier request getter changes it', () => {
-  const original=process.cwd();
-  try{
-    const raw={...controls(),get installMode(){process.chdir(tmpdir());return 'allow' as const;},sharedDepsRoot:'relative'};
-    const bound=bind(raw);assert.equal(bound.sharedDepsRoot,path.resolve(original,'relative'));
-  }finally{process.chdir(original);}
 });
 
 test('public request validation and internal coordinator accept the same three modes without new defaults', () => {

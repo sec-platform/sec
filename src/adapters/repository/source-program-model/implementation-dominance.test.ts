@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import type { SecRepositoryModuleMembership } from '../architecture/contract.ts';
+import type { RepositoryModuleMembership } from '../architecture/contract.ts';
 import {
   compileSourceProgramImplementationCandidates,
   compileSourceProgramImplementationDominance
@@ -11,7 +11,7 @@ import {
   compileSourceProgramOwnerIntentEvidence
 } from './repository.ts';
 
-function membership(ownerByRoot: Readonly<Record<string, string>>): SecRepositoryModuleMembership {
+function membership(ownerByRoot: Readonly<Record<string, string>>): RepositoryModuleMembership {
   const roots = Object.keys(ownerByRoot).sort((left, right) => right.length - left.length);
   const descriptors = Object.freeze(roots.map((root) => Object.freeze({
     moduleId: ownerByRoot[root]!,

@@ -45,7 +45,7 @@ test('stage capture ignores a custom iterator and refuses accessor slots', () =>
   const values = ['resolve']; values[Symbol.iterator] = () => ['bad'].values();
   assert.deepEqual(capturePipelineRequestedStages(values as never), ['resolve']);
   Object.defineProperty(values, 0, { get() { assert.fail('slot getter'); } });
-  assert.throws(() => capturePipelineRequestedStages(values as never));
+  assert.throws(() => capturePipelineRequestedStages(values as never), { code: 'PIPELINE-USAGE-001' });
 });
 
 test('the kernel option binder preserves class private state and captures the method before replacement', async () => {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { createRuntime, type SemanticCompilationInput } from '../../src/bootstrap/create-runtime.ts';
+import { createRuntime } from '../../src/bootstrap/create-runtime.ts';
+import type { SemanticCompilationInput } from '../../src/compiler/semantic-compiler.ts';
 import source from './input.json' with { type: 'json' };
 
 // This profile owns author candidates and returns semantic artifact source in

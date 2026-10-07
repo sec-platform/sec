@@ -5,11 +5,11 @@ import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { inspectNoFollowDirectoryChain } from '../physical/runtime/physical-no-follow.ts';
 import {
@@ -47,14 +47,14 @@ function fixture(input: Readonly<{
   if (input.root === undefined) mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = path.join(root, 'cache');
   const requirementId = 'runtime-state.cache.fixture';
-  const contractDigest = sha256({ requirementId }) as SecOperationDigest;
+  const contractDigest = sha256({ requirementId }) as OperationDigest;
   const deadlineMs = input.deadlineMs ?? 30_000;
-  const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({
     operation: 'runtime-state.content-addressed-cache.fixture',
-    intentDigest: sha256({ repositoryRoot }) as SecOperationDigest,
+    intentDigest: sha256({ repositoryRoot }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + deadlineMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: deadlineMs },
       { resource: 'input-bytes', maximum: input.inputBytes ?? 1024 },
@@ -67,10 +67,10 @@ function fixture(input: Readonly<{
       effectKinds: ['filesystem'],
       failureKinds: ['cache.cancelled', 'cache.deadline-exhausted', 'cache.physical-replacement']
     }]
-  }), [compileSecCapabilityBinding({
+  }), [compileCapabilityBinding({
     requirementId,
     contractDigest,
-    providerIdentityDigest: sha256('runtime-state-cache-fixture') as SecOperationDigest
+    providerIdentityDigest: sha256('runtime-state-cache-fixture') as OperationDigest
   })]);
   const session = openContentAddressedWorkspaceCacheSession({
     operation,

@@ -3,12 +3,12 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest,
-  type SecOperationEffectKind
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest,
+  type OperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
 import { issueIndependentProviderProcessCapability } from './independent-provider-process.ts';
 import {
@@ -26,10 +26,10 @@ import {
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
 } from './process.ts';
 
-const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 
-function providerCapability(effectKinds: readonly SecOperationEffectKind[]) {
-  const plan = compileSecSemanticOperationPlan({
+function providerCapability(effectKinds: readonly OperationEffectKind[]) {
+  const plan = compileSemanticOperationPlan({
     operation: 'test.independent-provider-job',
     intentDigest: digest('intent'),
     decisionDigest: digest('decision'),
@@ -46,9 +46,9 @@ function providerCapability(effectKinds: readonly SecOperationEffectKind[]) {
       effectKinds,
       failureKinds: ['process.failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: digest('grant') })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: digest('grant') })
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'test.provider-process',
     contractDigest: digest('contract'),
     providerIdentityDigest: digest('provider')

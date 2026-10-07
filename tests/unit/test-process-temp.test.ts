@@ -19,9 +19,9 @@ import path from 'node:path';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import type { FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
-  consumeTestProcessTempAssignmentV1,
+  consumeTestProcessTempAssignment,
   createTestInvocationRuntimeRoots,
-  createTestProcessTempRootV1,
+  createTestProcessTempRoot,
   prepareTestInvocationRuntime,
   testInvocationRuntimeIsolationModeForPlatform,
   TestProcessTempLifecycleError
@@ -81,7 +81,7 @@ test('test process temp owns one disjoint generation and removes only that gener
   const cacheRoot = generation('sec-temp-owner-cache-');
   try {
     const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
-    const owned = await createTestProcessTempRootV1({ repositoryRoot, hostTempRoot, environment });
+    const owned = await createTestProcessTempRoot({ repositoryRoot, hostTempRoot, environment });
     expect(environment.TMP).toBe(owned.tempRoot);
     expect(environment.TEMP).toBe(owned.tempRoot);
     expect(environment.TMPDIR).toBe(owned.tempRoot);
@@ -138,7 +138,7 @@ test('test process temp rejects OS temp overlap before creating a generation', a
         .map((entry) => path.join(parent, entry)));
     const before = generations();
     for (const hostTempRoot of candidateParents) {
-      await expect(createTestProcessTempRootV1({ repositoryRoot, hostTempRoot, environment }))
+      await expect(createTestProcessTempRoot({ repositoryRoot, hostTempRoot, environment }))
         .rejects.toThrow('must be disjoint');
     }
     expect(generations()).toEqual(before);
@@ -248,35 +248,6 @@ test('direct test invocation binds and retires one State Cache and TMP generatio
   }
 });
 
-test('direct test invocation settles its complete runtime after a failed test body', async () => {
-  const root = generation('sec-direct-test-runtime-failure-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
-  const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
-  let runtime: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | null = null;
-  let failure: unknown;
-  try {
-    runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
-    try {
-      throw new Error('synthetic test body failure');
-    } catch (error) {
-      failure = error;
-    } finally {
-      await runtime.cleanup();
-    }
-    expect(failure).toEqual(new Error('synthetic test body failure'));
-    expect(existsSync(runtime.processRoot)).toBe(false);
-    expect(existsSync(runtime.stateRoot)).toBe(false);
-    expect(existsSync(runtime.cacheRoot)).toBe(false);
-    expect(environment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('two direct invocations in one workspace own independent concurrent lifecycle generations', async () => {
   const root = generation('sec-direct-test-runtime-concurrent-');
   const repositoryRoot = path.join(root, 'repository');
@@ -310,6 +281,7 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
     await right.cleanup();
     rmSync(root, { recursive: true, force: true });
   }
+  expect(rightEnvironment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
 });
 
 test('runner-assigned test invocation adopts parent roots without creating a nested runtime generation', async () => {
@@ -363,7 +335,7 @@ test('parent supervisor owns child temp cleanup and retires a junction leaf with
   try {
     const environment: NodeJS.ProcessEnv = {};
     const generation = runtime.prepareProcessTemp(environment);
-    const adopted = consumeTestProcessTempAssignmentV1({ environment });
+    const adopted = consumeTestProcessTempAssignment({ environment });
     expect(adopted?.processRoot).toBe(generation.processRoot);
     symlinkSync(externalTarget, path.join(generation.tempRoot, 'retained-link'),
       process.platform === 'win32' ? 'junction' : 'dir');

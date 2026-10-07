@@ -1,31 +1,31 @@
 import { expect, test } from 'bun:test';
 
-import { computeSecWindowsControlCliEnvironmentSpecDigest, getSecWindowsControlCliExecutableBindingV1, parseSecWindowsControlCliEnvironmentAuthority, projectSecWindowsControlCliEnvironmentV1, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
+import { computeWindowsControlCliEnvironmentSpecDigest, getWindowsControlCliExecutableBinding, parseWindowsControlCliEnvironmentAuthority, projectWindowsControlCliEnvironment, WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 
 function source(): Record<string, unknown> {
-  const { specDigest: _specDigest, ...body } = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
+  const { specDigest: _specDigest, ...body } = WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
   return structuredClone(body) as Record<string, unknown>;
 }
 
 test('installed control-CLI profile forbids runtime provisioning and persistent executable caches', () => {
-  const spec = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
+  const spec = WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
   expect(spec.adoptionContract.physicalClosure.runtimeProvisioning).toBe('forbidden');
   expect(spec.adoptionContract.physicalClosure.persistentExecutableCache).toBe('forbidden');
   expect(spec.rootClosure.positiveReceiptContract.persistentExecutableCache).toBe('forbidden');
 });
 
 test('canonical digest is derived from the strict profile content', () => {
-  const reparsed = parseSecWindowsControlCliEnvironmentAuthority(source());
-  expect(reparsed.specDigest).toBe(SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST);
-  expect(computeSecWindowsControlCliEnvironmentSpecDigest(
-    source() as Parameters<typeof computeSecWindowsControlCliEnvironmentSpecDigest>[0]
-  )).toBe(SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST);
+  const reparsed = parseWindowsControlCliEnvironmentAuthority(source());
+  expect(reparsed.specDigest).toBe(WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST);
+  expect(computeWindowsControlCliEnvironmentSpecDigest(
+    source() as Parameters<typeof computeWindowsControlCliEnvironmentSpecDigest>[0]
+  )).toBe(WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST);
 });
 
 test('Git and GitHub bindings describe installed executable bytes and one effective role', () => {
   for (const id of ['git', 'gh'] as const) {
-    const binding = getSecWindowsControlCliExecutableBindingV1(
-      SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+    const binding = getWindowsControlCliExecutableBinding(
+      WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
       id
     );
     expect(binding).not.toBeNull();
@@ -38,8 +38,8 @@ test('Git and GitHub bindings describe installed executable bytes and one effect
       binding.launcherEntries.some((entry) => entry.relativePath === layout.candidateRelativePath)))
       .toBe(true);
   }
-  const gh = getSecWindowsControlCliExecutableBindingV1(
-    SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+  const gh = getWindowsControlCliExecutableBinding(
+    WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
     'gh'
   )!;
   expect(gh.launcherEntries).toHaveLength(1);
@@ -47,8 +47,8 @@ test('Git and GitHub bindings describe installed executable bytes and one effect
 });
 
 test('projection exposes only bounded physical adoption and executable identities', () => {
-  const projection = projectSecWindowsControlCliEnvironmentV1(
-    SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
+  const projection = projectWindowsControlCliEnvironment(
+    WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
   );
   expect(projection.rootClosure.status).toBe('live-adoption-required');
   expect(projection.adoptionBudget.discovery.selection)
@@ -64,7 +64,7 @@ test('projection exposes only bounded physical adoption and executable identitie
 });
 
 test('unknown profile fields are rejected instead of becoming implicit authority', () => {
-  expect(() => parseSecWindowsControlCliEnvironmentAuthority({
+  expect(() => parseWindowsControlCliEnvironmentAuthority({
     ...source(),
     archiveUrl: 'https://example.invalid/tool.zip'
   })).toThrow(/schema validation failed/u);
@@ -76,14 +76,14 @@ test('duplicate physical paths and duplicate roles are rejected', () => {
   const gh = duplicateBindings[1]!;
   const entries = gh.executableEntries as Array<Record<string, unknown>>;
   entries.push(structuredClone(entries[0]!));
-  expect(() => parseSecWindowsControlCliEnvironmentAuthority(duplicatePath))
+  expect(() => parseWindowsControlCliEnvironmentAuthority(duplicatePath))
     .toThrow(/duplicate case-insensitive path/u);
 
   const duplicateRole = source();
   const bindings = duplicateRole.executableBindings as Array<Record<string, unknown>>;
   const ghEntries = bindings[1]!.executableEntries as Array<Record<string, unknown>>;
   ghEntries[0]!.roles = ['launcher', 'launcher'];
-  expect(() => parseSecWindowsControlCliEnvironmentAuthority(duplicateRole))
+  expect(() => parseWindowsControlCliEnvironmentAuthority(duplicateRole))
     .toThrow(/schema validation failed/u);
 });
 
@@ -92,6 +92,6 @@ test('candidate layouts cannot point outside declared launcher and effective ent
   const bindings = invalid.executableBindings as Array<Record<string, unknown>>;
   const layouts = bindings[0]!.candidateLayouts as Array<Record<string, unknown>>;
   layouts[0]!.effectiveRelativePath = 'undeclared/git.exe';
-  expect(() => parseSecWindowsControlCliEnvironmentAuthority(invalid))
+  expect(() => parseWindowsControlCliEnvironmentAuthority(invalid))
     .toThrow(/does not bind declared launcher\/effective entries/u);
 });

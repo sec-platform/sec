@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { projectWorktreeSettlementReceipt } from '../../src/application/worktree-settlement.ts';
 import { formatWorktreeSettlement } from '../../src/entry/cli/worktree-settlement.ts';
 
 describe('worktree settlement presentation boundary', () => {
-  test('application projects only finite presentation data and entry preserves the CLI contract', () => {
-    const projected = projectWorktreeSettlementReceipt({
+  test('entry formats the receipt without mutating it', () => {
+    const receipt = Object.freeze({
       status: 'materialization-drift',
       totalFiles: 42,
       dirtyCount: 0,
@@ -13,30 +12,15 @@ describe('worktree settlement presentation boundary', () => {
       coreAutocrlf: 'false',
       coreEol: 'lf',
       summary: '1 governed file drifted',
-      driftEntries: [{
+      driftEntries: Object.freeze([Object.freeze({
         path: 'src/example.ts',
         declared: 'lf',
         blobLineEnding: 'lf',
         worktreeLineEnding: 'crlf'
-      }]
+      })])
     });
 
-    expect(projected).toEqual({
-      status: 'materialization-drift',
-      totalFiles: 42,
-      dirtyCount: 0,
-      untrackedCount: 0,
-      coreAutocrlf: 'false',
-      coreEol: 'lf',
-      summary: '1 governed file drifted',
-      driftEntries: [{
-        path: 'src/example.ts',
-        declared: 'lf',
-        blobLineEnding: 'lf',
-        worktreeLineEnding: 'crlf'
-      }]
-    });
-    expect(formatWorktreeSettlement(projected)).toBe([
+    expect(formatWorktreeSettlement(receipt)).toBe([
       'Worktree Settlement',
       '  status: materialization-drift',
       '  totalFiles: 42',
@@ -48,7 +32,7 @@ describe('worktree settlement presentation boundary', () => {
     ].join('\n'));
   });
 
-  test('entry caps drift detail without changing the projected count', () => {
+  test('entry caps drift detail without changing the receipt count', () => {
     const driftEntries = Array.from({ length: 22 }, (_, index) => ({
       path: `src/${index}.ts`,
       declared: 'lf' as const,

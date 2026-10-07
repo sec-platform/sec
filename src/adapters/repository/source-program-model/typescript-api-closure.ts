@@ -1,4 +1,8 @@
 import ts from 'typescript';
+import {
+  compareCodeUnits,
+  sha256
+} from '../../../contracts/canonical.ts';
 import type {
   SourceProgramCompilationOperation
 } from './compilation-operation.ts';
@@ -6,18 +10,14 @@ import {
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
 import {
-  compareCodeUnits,
-  sha256
-} from '../../../contracts/canonical.ts';
-import {
   sourceProgramSurfaceForPath
 } from './contract.ts';
-import type {
-  ExactTypeScriptProgram
-} from './typescript-workspace.ts';
 import {
   TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
 } from './typescript-profile.ts';
+import type {
+  ExactTypeScriptProgram
+} from './typescript-workspace.ts';
 
 /** Programmatic TypeScript API requirements and their process-issued closure authority. */
 const typeScriptRequiredApiClosureBrand: unique symbol = Symbol('typescript-required-api-closure');

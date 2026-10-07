@@ -1,7 +1,8 @@
 import path from 'node:path';
+import type { GitHubCheckObservation, MainHealthDigest, MainHealthLedger } from '../../../../execution/verification/session.ts';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import type { GitHubCheckObservation } from '../../../providers/github-api/contract.ts';
+
 import {
   assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
@@ -12,27 +13,16 @@ import {
   withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
-import {
-  inspectExactNoFollowDirectoryPresence,
-  PhysicalNoFollowError,
-  readNoFollowOrdinaryFile
-} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
+import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import {
-  createMainHealthLedger,
-  resolveOrdinaryMainHealthLane,
-  type MainHealthDigest,
-  type MainHealthLedger,
-  type MainHealthRoutingState
-} from './contract.ts';
+import { createMainHealthLedger, resolveOrdinaryMainHealthLane, type MainHealthRoutingState } from './contract.ts';
 import {
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthInput,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
   HOSTED_MAIN_HEALTH_FRESHNESS_MS,
   parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator
+  type TrustedRuntimeMainHealthReceipt
 } from './main-health-observation.ts';
 import {
   compileMainHealthRepairDecision,
@@ -127,61 +117,47 @@ function invalidRef(label: string, value: Uint8Array | string): MainHealthDigest
   }));
 }
 
-function decodeExactUtf8(bytes: Uint8Array): string {
-  const source = Buffer.from(bytes);
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  if (!Buffer.from(text, 'utf8').equals(source)) {
-    throw new Error('trusted runtime MainHealth receipt is not exact UTF-8');
-  }
-  return text;
-}
-
-function observeTrustedRuntimeProvider(input: Readonly<{
+async function observeTrustedRuntimeProvider(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
   now: string;
-}>): WorkSelectionMainHealthProviderObservation {
-  let receiptBytes: Uint8Array | null = null;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
+}>): Promise<WorkSelectionMainHealthProviderObservation> {
+  const qualifiedLocalReceipt = input.qualifiedLocalReceipt;
+  if (qualifiedLocalReceipt === undefined) {
+    return Object.freeze({ kind: 'unavailable', ref: invalidRef(
+      'trusted-runtime-live-qualification-required', `${input.repository}@${input.mainSha}`
+    ) });
+  }
   try {
-    const layout = resolveSecRuntimeStateForRepository({
-      repository: input.repository,
-      repositoryRoot: input.repositoryRoot
-    });
-    const locator = trustedRuntimeMainHealthReceiptLocator({
-      repositoryStateRoot: layout.repositoryStateRoot,
-      mainSha: input.mainSha
-    });
-    const presence = inspectExactNoFollowDirectoryPresence(
-      locator.directory,
-      'WorkSelection trusted MainHealth directory'
+    const { assertTrustedRuntimeMainHealthQualification } = await import(
+      '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts'
     );
-    if (presence.state === 'absent') return Object.freeze({ kind: 'absent' });
-    receiptBytes = readNoFollowOrdinaryFile(presence.directory.target, locator.fileName);
-    if (receiptBytes === null) return Object.freeze({ kind: 'absent' });
-    const source = decodeExactUtf8(receiptBytes);
-    const receipt = parseTrustedRuntimeMainHealthReceipt(source);
-    if (!Buffer.from(receiptBytes).equals(
-      Buffer.from(`${encodeVerificationActionData(receipt)}\n`, 'utf8')
-    )) {
-      return Object.freeze({
-        kind: 'invalid',
-        ref: invalidRef('trusted-runtime-noncanonical-receipt-bytes', receiptBytes)
-      });
-    }
-    if (receipt.repository !== input.repository
+    const qualification = assertTrustedRuntimeMainHealthQualification({
+      ...input, receipt: qualifiedLocalReceipt
+    });
+    // Qualification is checked on the original production object, before any
+    // receipt data is parsed. Canonical data alone never recreates authority.
+    // No persistent copy is needed: all consumers share this lexical lifetime,
+    // and a recovery invocation obtains its own fresh qualification.
+    const receipt = parseTrustedRuntimeMainHealthReceipt(qualifiedLocalReceipt);
+    if (receipt.receiptDigest !== qualifiedLocalReceipt.receiptDigest
+        || receipt.repository !== input.repository
         || receipt.mainSha !== input.mainSha
         || receipt.mainTreeSha !== input.mainTreeSha
         || Date.parse(receipt.observedAt) > Date.parse(input.now)) {
       return Object.freeze({
         kind: 'invalid',
-        ref: invalidRef('trusted-runtime-receipt-subject-or-time-drift', receiptBytes)
+        ref: invalidRef('trusted-runtime-receipt-subject-or-time-drift', receipt.receiptDigest)
       });
     }
-    const expiresAt = new Date(
-      Date.parse(input.now) + HOSTED_MAIN_HEALTH_FRESHNESS_MS
-    ).toISOString();
+    assertTrustedRuntimeMainHealthQualification({ ...input, receipt: qualifiedLocalReceipt });
+    const expiresAt = new Date(Math.min(
+      Date.parse(input.now) + HOSTED_MAIN_HEALTH_FRESHNESS_MS,
+      Date.parse(qualification.expiresAt)
+    )).toISOString();
     return Object.freeze({
       kind: 'available',
       ledger: createMainHealthLedger(createTrustedRuntimeMainHealthInput({
@@ -190,12 +166,11 @@ function observeTrustedRuntimeProvider(input: Readonly<{
         mainSha: input.mainSha,
         mainTreeSha: input.mainTreeSha,
         trustRevision: input.mainSha,
-        runtimeRef: locator.sourceRef,
         executionId: receipt.executionId,
         verificationReceiptDigest: receipt.receiptDigest,
         observedAt: input.now,
         expiresAt
-      }))
+      }, receipt.schema))
     });
   } catch (error) {
     if (error instanceof PhysicalNoFollowError
@@ -203,7 +178,7 @@ function observeTrustedRuntimeProvider(input: Readonly<{
       return Object.freeze({
         kind: 'unavailable',
         ref: invalidRef(
-          'trusted-runtime-physical-read-unavailable',
+          'trusted-runtime-physical-qualification-unavailable',
           error.message
         )
       });
@@ -212,7 +187,7 @@ function observeTrustedRuntimeProvider(input: Readonly<{
       kind: 'invalid',
       ref: invalidRef(
         'trusted-runtime-observation-invalid',
-        receiptBytes ?? (error instanceof Error ? error.message : String(error))
+        error instanceof Error ? error.message : String(error)
       )
     });
   }
@@ -1151,6 +1126,7 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   capability: GitHubApiCapability;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<Readonly<{
   observedAt: string;
   localProvider: WorkSelectionMainHealthProviderObservation;
@@ -1169,12 +1145,13 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
     ).toISOString(),
     observation: hosted
   });
-  const localProvider = observeTrustedRuntimeProvider({
+  const localProvider = await observeTrustedRuntimeProvider({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha,
-    now: observedAt
+    now: observedAt,
+    qualifiedLocalReceipt: input.qualifiedLocalReceipt
   });
   return Object.freeze({
     observedAt,
@@ -1228,6 +1205,8 @@ type MainHealthPublicationAuthorityBinding = Readonly<{
     mainSha: string;
     mainTreeSha: string;
   }>;
+  selectedLedgerIdentity: MainHealthDigest | null;
+  selectedLedgerDigest: MainHealthDigest | null;
   localProviderEpoch: MainHealthDigest | null;
   localProvenanceDigest: MainHealthDigest | null;
   hostedProviderEpoch: MainHealthDigest | null;
@@ -1247,13 +1226,46 @@ function mainHealthPublicationAuthorityBinding(
   return binding;
 }
 
+function mainHealthPublicationAuthorityIdentity(authority: MainHealthPublicationAuthority) {
+  const { selectedLedgerDigest: _observationReceipt, ...identity } =
+    mainHealthPublicationAuthorityBinding(authority);
+  return identity;
+}
+
 export function assertMainHealthPublicationAuthorityStable(
   first: MainHealthPublicationAuthority,
   second: MainHealthPublicationAuthority
 ): void {
-  if (encodeVerificationActionData(mainHealthPublicationAuthorityBinding(first))
-      !== encodeVerificationActionData(mainHealthPublicationAuthorityBinding(second))) {
+  if (encodeVerificationActionData(mainHealthPublicationAuthorityIdentity(first))
+      !== encodeVerificationActionData(mainHealthPublicationAuthorityIdentity(second))) {
     throw new Error('MainHealth publication authority drifted between live snapshots');
+  }
+}
+
+/** A DTO or another canonical provider observation cannot substitute the exact
+ * ledger selected at this live publication boundary. Ordinary-lane freshness
+ * and exact subject checks remain in the original semantic owner. */
+export function assertMainHealthPublicationLedger(input: Readonly<{
+  authority: MainHealthPublicationAuthority;
+  ledger: MainHealthLedger;
+  now: string;
+}>): void {
+  const binding = mainHealthPublicationAuthorityBinding(input.authority);
+  const ledger = input.ledger;
+  const selectedIdentity = digestRef(Object.freeze({
+    healthRevision: ledger.healthRevision, producer: ledger.producer
+  }));
+  const decision = resolveOrdinaryMainHealthLane({
+    ledger, now: input.now,
+    expectedRepository: binding.subject.repository,
+    expectedDefaultBranch: binding.subject.defaultBranch,
+    expectedMainSha: binding.subject.mainSha,
+    expectedMainTreeSha: binding.subject.mainTreeSha,
+    expectedTrustRevision: binding.subject.mainSha
+  });
+  if (binding.selectedLedgerIdentity !== selectedIdentity
+      || binding.selectedLedgerDigest !== ledger.ledgerDigest || !decision.allowed) {
+    throw new Error('MainHealth ledger is not the exact current canonical publication selection');
   }
 }
 
@@ -1264,6 +1276,7 @@ function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
   mainTreeSha: string;
   localProvider: WorkSelectionMainHealthProviderObservation;
   hostedProvider: WorkSelectionMainHealthProviderObservation;
+  selectedLedger: MainHealthLedger | null;
 }>): MainHealthPublicationAuthority {
   const localLedger = input.localProvider.kind === 'available'
     ? input.localProvider.ledger
@@ -1279,6 +1292,11 @@ function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
       mainSha: input.mainSha,
       mainTreeSha: input.mainTreeSha
     }),
+    selectedLedgerDigest: input.selectedLedger?.ledgerDigest ?? null,
+    selectedLedgerIdentity: input.selectedLedger === null ? null : digestRef(Object.freeze({
+      healthRevision: input.selectedLedger.healthRevision,
+      producer: input.selectedLedger.producer
+    })),
     localProviderEpoch: localLedger === null ? null : localLedger.healthRevision,
     localProvenanceDigest: localLedger === null
       ? null
@@ -1307,7 +1325,7 @@ function mainHealthPublicationStableDigest(input: Readonly<{
   return digestRef(Object.freeze({
     schema: 'sec-main-health-provider-publication-stable-observation-v2',
     projection: input.projection,
-    authority: mainHealthPublicationAuthorityBinding(input.authority),
+    authority: mainHealthPublicationAuthorityIdentity(input.authority),
     ledger: ledger === null ? null : Object.freeze({
       repository: ledger.repository,
       defaultBranch: ledger.defaultBranch,
@@ -1399,6 +1417,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<Readonly<{
   observedAt: string;
   projection: WorkSelectionMainHealthProjection;
@@ -1423,7 +1442,8 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
       const authority = createWorkSelectionMainHealthPublicationAuthority({
         ...input,
         localProvider: observation.localProvider,
-        hostedProvider: observation.hostedProvider
+        hostedProvider: observation.hostedProvider,
+        selectedLedger: observation.resolution.ledger
       });
       const result = Object.freeze({
         observedAt: observation.observedAt,
@@ -1465,6 +1485,7 @@ export async function observeCanonicalMainHealthForDocumentControlTestingV2(inpu
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
+  qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
   capability: GitHubApiCapability;
 }>): Promise<MainHealthTestingResult<Readonly<{
   projection: WorkSelectionMainHealthProjection;
@@ -1476,7 +1497,8 @@ export async function observeCanonicalMainHealthForDocumentControlTestingV2(inpu
   const authority = createWorkSelectionMainHealthPublicationAuthority({
     ...input,
     localProvider: observation.localProvider,
-    hostedProvider: observation.hostedProvider
+    hostedProvider: observation.hostedProvider,
+    selectedLedger: observation.resolution.ledger
   });
   return Object.freeze({
     projection: observation.resolution.projection,

@@ -1,49 +1,11 @@
 import { createHash } from 'node:crypto';
+import type { IntegrationAuthorization, IntegrationAuthorizationDigest } from '../../../../execution/verification/integration.ts';
 
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 /** Content-integrity decision object, not a signature. The physical executor independently rereads issuer, live facts, and consumption state. */
 
-const INTEGRATION_AUTHORIZATION_SCHEMA = 'sec-integration-authorization-v1' as const;
-type IntegrationAuthorizationDigest = `sha256:${string}`;
-
-interface IntegrationAuthorizationIssuer {
-  readonly principalId: string;
-  readonly producerIdentity: string;
-  readonly trustedRevision: string;
-  readonly sourceTransport: 'trusted-integration-runtime' | 'github-actions';
-  readonly sourceRunId: string;
-  readonly sourceRef: string;
-  readonly sourceDigest: IntegrationAuthorizationDigest;
-}
-
-export interface IntegrationAuthorization {
-  readonly schema: typeof INTEGRATION_AUTHORIZATION_SCHEMA;
-  readonly authorizationId: string;
-  readonly consumptionOperationId: string;
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly sessionRevision: IntegrationAuthorizationDigest;
-  readonly baseSha: string;
-  readonly baseTreeSha: string;
-  readonly headSha: string;
-  readonly headTreeSha: string;
-  readonly manifestDigest: IntegrationAuthorizationDigest;
-  readonly scopeAuthorizationRevision: IntegrationAuthorizationDigest;
-  readonly scopeAuthorizationReceiptDigest: IntegrationAuthorizationDigest;
-  readonly actionClosureDigest: IntegrationAuthorizationDigest;
-  readonly evidenceDigest: IntegrationAuthorizationDigest;
-  readonly reviewRevision: IntegrationAuthorizationDigest;
-  readonly reviewReceiptDigest: IntegrationAuthorizationDigest;
-  readonly mainHealthRevision: IntegrationAuthorizationDigest;
-  readonly mainHealthReceiptDigest: IntegrationAuthorizationDigest;
-  readonly trustRevision: string;
-  readonly rulesetDigest: IntegrationAuthorizationDigest;
-  readonly issuedAt: string;
-  readonly expiresAt: string;
-  readonly issuer: IntegrationAuthorizationIssuer;
-  readonly receiptDigest: IntegrationAuthorizationDigest;
-}
+const INTEGRATION_AUTHORIZATION_SCHEMA: IntegrationAuthorization["schema"] = 'sec-integration-authorization-v1' as const;
 
 export type IntegrationAuthorizationInput = Omit<IntegrationAuthorization, 'schema' | 'authorizationId' | 'receiptDigest'>;
 

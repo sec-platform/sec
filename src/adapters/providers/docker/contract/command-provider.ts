@@ -1,4 +1,4 @@
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 
 /**
  * Opaque ownership transfer for one already-retained Container Engine transport/cwd
@@ -9,7 +9,7 @@ export interface DockerCommandProviderCapability {
   readonly executable: string;
   /** The retained executable is interpreted only through its native protocol. */
   readonly commandProtocol: 'docker-cli' | 'engine-http';
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
   readonly workingDirectory: string;
 }
 

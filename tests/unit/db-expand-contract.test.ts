@@ -119,9 +119,6 @@ model Customer {
 
     // 验证迁移 Job 文件是否被物理写入
     const jobPath = path.join(workspaceRoot, 'src', 'jobs', 'db-migrations', 'mig-expand-contract-test.ts');
-    const jobExists = await fs.stat(jobPath).then(() => true).catch(() => false);
-    expect(jobExists).toBe(true);
-
     const jobContent = await fs.readFile(jobPath, 'utf8');
     expect(jobContent).toContain('// @generated-db-migration-job migration-id:mig-expand-contract-test');
     expect(jobContent).toContain('runMigrationJob');
@@ -177,7 +174,7 @@ test('db-expand-contract stops before its next live write when the commit fence 
       'db-migrations',
       'mig-fence-loss.ts'
     );
-    expect(await fs.stat(jobPath).then(() => true).catch(() => false)).toBe(false);
+    await expect(fs.lstat(jobPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fenceChecks).toBe(2);
   }, 'engineering-compiler-upgrade-fence-loss-');
 });

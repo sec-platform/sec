@@ -9,23 +9,23 @@ import {
   type CodexDevelopmentWorkPackageManifest
 } from '../task/contract/work-package.ts';
 import {
-  compileSecWorkRollingProjection,
-  compileSecWorkRollingProposalProjection,
-  compileSecWorkRollingTransitionProjection,
-  parseSecRoadmapWorkCatalog,
-  parseSecWorkRollingMachineProjection,
-  projectSecWorkRollingExactManifestBinding,
-  renderSecWorkRollingPlan,
-  renderSecWorkRollingProposalPlan,
-  renderSecWorkRollingTransitionPlan,
+  compileWorkRollingProposalProjection,
+  compileWorkRollingSelectionProjection,
+  compileWorkRollingTransitionProjection,
+  parseRoadmapWorkCatalog,
+  parseWorkRollingMachineProjection,
+  projectWorkRollingExactManifestBinding,
+  renderWorkRollingProposalPlan,
+  renderWorkRollingSelectionPlan,
+  renderWorkRollingTransitionPlan,
   rollingTopologyFromMachineProjection,
-  type SecWorkDecisionReceipt,
-  type SecWorkRollingMachineProjection,
-  type SecWorkRollingTransitionAuthority
+  type WorkDecisionReceipt,
+  type WorkRollingMachineProjection,
+  type WorkRollingTransitionAuthority
 } from '../work-selection/live-contract.ts';
 
-const CodexDevelopmentCurrentStateSchema = 'sec-current-state-live-v1' as const;
-const CodexDevelopmentActivePointerSchema = 'sec-active-work-package-pointer-v2' as const;
+const CurrentStateSchema = 'sec-current-state-live-v1' as const;
+const ActivePointerSchema = 'sec-active-work-package-pointer-v2' as const;
 const DOCUMENT_CONTROL_PLANE_ENTRYPOINT_PATH =
   'src/adapters/self-hosting/control/documentation/document-control-plane.ts' as const;
 const DOCUMENT_CONTROL_PLANE_STATUS_ARGUMENTS = Object.freeze([
@@ -43,8 +43,8 @@ const ACTIVE_POINTER_KEYS = [
 ];
 const LIVE_RESOLVER_COMMAND = `bun ${DOCUMENT_CONTROL_PLANE_STATUS_ARGUMENTS.join(' ')}`;
 
-export type CodexDevelopmentDefaultRefState = 'fresh' | 'stale' | 'unavailable';
-export type CodexDevelopmentActiveWorkPackageResolution =
+export type DefaultRefState = 'fresh' | 'stale' | 'unavailable';
+export type ActiveWorkPackageResolution =
   | { state: 'active'; manifest: string; manifestDigest: string }
   | {
       state: 'invalid';
@@ -65,12 +65,12 @@ export type CodexDevelopmentActiveWorkPackageResolution =
     };
 
 /** Status routes are observations for the next owner, never effect admission. */
-export interface CodexDevelopmentStatusContinuationInput {
+export interface StatusContinuationInput {
   readonly repositoryRoot: string;
   readonly headSha: string;
   readonly candidateTreeSha: string | null;
-  readonly defaultRefState: CodexDevelopmentDefaultRefState;
-  readonly activeWorkPackage: CodexDevelopmentActiveWorkPackageResolution;
+  readonly defaultRefState: DefaultRefState;
+  readonly activeWorkPackage: ActiveWorkPackageResolution;
   readonly pointerManifest: string | null;
   readonly changes: readonly Readonly<{
     index: string;
@@ -89,8 +89,8 @@ export interface CodexDevelopmentStatusContinuationInput {
   }> | null;
 }
 
-export function CodexDevelopmentProjectStatusContinuation(
-  input: CodexDevelopmentStatusContinuationInput
+export function projectStatusContinuation(
+  input: StatusContinuationInput
 ) {
   const { activeWorkPackage: active } = input;
   const subject = Object.freeze({
@@ -180,11 +180,11 @@ export function CodexDevelopmentProjectStatusContinuation(
   });
 }
 
-export type CodexDevelopmentStatusContinuation =
-  ReturnType<typeof CodexDevelopmentProjectStatusContinuation>;
+export type StatusContinuation =
+  ReturnType<typeof projectStatusContinuation>;
 
-export interface CodexDevelopmentCurrentStateSpec {
-  schema: typeof CodexDevelopmentCurrentStateSchema;
+export interface CurrentStateSpec {
+  schema: typeof CurrentStateSchema;
   resolver: {
     command: string;
     repository: string;
@@ -196,17 +196,17 @@ export interface CodexDevelopmentCurrentStateSpec {
   stableFacts: Record<string, unknown>;
 }
 
-export type CodexDevelopmentFreezeConvergence =
+export type FreezeConvergence =
   | 'publication-required'
   | 'semantic-noop';
 
-type CodexDevelopmentPublishedControlBindingBlockReason =
+type PublishedControlBindingBlockReason =
   | 'ambiguous-binding'
   | 'historical-base-is-live-default'
   | 'publication-proof-missing'
   | 'unbound-published-target';
 
-export type CodexDevelopmentPublishedControlBindingClassification =
+export type PublishedControlBindingClassification =
   | Readonly<{ kind: 'absent' }>
   | Readonly<{
       kind: 'repairable';
@@ -214,7 +214,7 @@ export type CodexDevelopmentPublishedControlBindingClassification =
     }>
   | Readonly<{
       kind: 'blocked';
-      reason: CodexDevelopmentPublishedControlBindingBlockReason;
+      reason: PublishedControlBindingBlockReason;
     }>;
 
 /**
@@ -222,14 +222,14 @@ export type CodexDevelopmentPublishedControlBindingClassification =
  * never authorizes repair: one ancestry-validated transition authority and
  * exactly one pointer binding are required.
  */
-export function CodexDevelopmentClassifyPublishedControlBinding(input: Readonly<{
+export function classifyPublishedControlBinding(input: Readonly<{
   authorityProven: boolean;
   historicalBaseIsLiveDefault: boolean;
   pointerBindsDefault: boolean;
   pointerBindsHistoricalRolling: boolean;
   publishedTargetPresent: boolean;
   rollingTransition: boolean;
-}>): CodexDevelopmentPublishedControlBindingClassification {
+}>): PublishedControlBindingClassification {
   if (!input.publishedTargetPresent) return Object.freeze({ kind: 'absent' });
   if (!input.rollingTransition
       || (!input.pointerBindsDefault && !input.pointerBindsHistoricalRolling)) {
@@ -255,14 +255,14 @@ export function CodexDevelopmentClassifyPublishedControlBinding(input: Readonly<
  * retirement intent is satisfied by proven candidate absence; it need not
  * disappear from the immutable-HEAD projection that originally demanded it.
  */
-export function CodexDevelopmentClassifyFreezeConvergence(input: Readonly<{
+export function classifyFreezeConvergence(input: Readonly<{
   candidateTreeMatches?: boolean;
   indexedRollingMatches: boolean;
   pointerMatches: boolean;
   retirementSatisfied: boolean;
   targetManifestMatches: boolean;
   worktreeRollingMatches: boolean;
-}>): CodexDevelopmentFreezeConvergence {
+}>): FreezeConvergence {
   return input.targetManifestMatches
       && input.pointerMatches
       && input.indexedRollingMatches
@@ -273,8 +273,8 @@ export function CodexDevelopmentClassifyFreezeConvergence(input: Readonly<{
     : 'publication-required';
 }
 
-export interface CodexDevelopmentActivePointer {
-  schema: typeof CodexDevelopmentActivePointerSchema;
+export interface ActivePointer {
+  schema: typeof ActivePointerSchema;
   selectionMode: 'exact-manifest-not-on-default-branch-v1';
   defaultBranchRef: string;
   defaultRefFreshness: 'live-platform-match-required';
@@ -285,16 +285,16 @@ export interface CodexDevelopmentActivePointer {
   matchingDefaultBlob: 'none';
 }
 
-export interface CodexDevelopmentRollingPlan {
+export interface RollingPlan {
   activePackageId: string;
   candidatePackageIds: string[];
 }
 
-export interface CodexDevelopmentWorkSelectionProjection {
-  readonly receipt: SecWorkDecisionReceipt;
+export interface WorkSelectionProjection {
+  readonly receipt: WorkDecisionReceipt;
 }
 
-export interface CodexDevelopmentMainHealthRepairProjection {
+export interface MainHealthRepairProjection {
   readonly decision: MainHealthRepairDecision;
   readonly publishedActivePackage: Readonly<{
     manifestPath: string;
@@ -303,11 +303,11 @@ export interface CodexDevelopmentMainHealthRepairProjection {
   }>;
 }
 
-export type CodexDevelopmentWorkSelectionProjectionMode = 'required-v1';
+export type WorkSelectionProjectionMode = 'required-v1';
 
-export function CodexDevelopmentResolveWorkSelectionProjectionMode(
-  spec: CodexDevelopmentCurrentStateSpec
-): CodexDevelopmentWorkSelectionProjectionMode {
+export function resolveWorkSelectionProjectionMode(
+  spec: CurrentStateSpec
+): WorkSelectionProjectionMode {
   const value = spec.stableFacts.workSelection;
   if (value === undefined) {
     throw new Error('Current-state workSelection stable fact is required.');
@@ -325,28 +325,28 @@ export function CodexDevelopmentResolveWorkSelectionProjectionMode(
   return 'required-v1';
 }
 
-const CodexDevelopmentDocumentControlRecoveryTargetKeys = Object.freeze([
+const DocumentControlRecoveryTargetKeys = Object.freeze([
   'freeze-journal',
   'git-index',
   'active-pointer',
   'rolling-plan'
 ] as const);
 
-export type CodexDevelopmentDocumentControlRecoveryTargetKey =
-  typeof CodexDevelopmentDocumentControlRecoveryTargetKeys[number];
+export type DocumentControlRecoveryTargetKey =
+  typeof DocumentControlRecoveryTargetKeys[number];
 
 /**
  * Stable recovery namespace identity. Physical paths remain effect-time safety
  * inputs and are deliberately excluded from this semantic key.
  */
-export function CodexDevelopmentDocumentControlRecoveryEntryStem(input: Readonly<{
+export function documentControlRecoveryEntryStem(input: Readonly<{
   operationId: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
 }>): `.entry-${string}` {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.operationId)) {
     throw new Error('Document-control recovery operationId must be one SHA-256 digest.');
   }
-  if (!CodexDevelopmentDocumentControlRecoveryTargetKeys.includes(input.targetKey)) {
+  if (!DocumentControlRecoveryTargetKeys.includes(input.targetKey)) {
     throw new Error('Document-control recovery targetKey is outside the closed target set.');
   }
   const identity = sha256({
@@ -357,7 +357,7 @@ export function CodexDevelopmentDocumentControlRecoveryEntryStem(input: Readonly
   return `.entry-${identity}`;
 }
 
-export function CodexDevelopmentClassifyTerminalRetirementPrefix(
+export function classifyTerminalRetirementPrefix(
   presence: readonly boolean[]
 ): Readonly<
   | { status: 'valid'; deletedPrefixCount: number }
@@ -378,39 +378,39 @@ export function CodexDevelopmentClassifyTerminalRetirementPrefix(
 }
 
 /** Pure platform-neutral vocabulary for the initially-absent T/N/R recovery tuple. */
-export type CodexDevelopmentInitiallyAbsentTuplePlatform = 'win32' | 'linux';
-export type CodexDevelopmentInitiallyAbsentTupleByteClass = 'absent' | 'exact-next' | 'unknown';
-export type CodexDevelopmentInitiallyAbsentTupleState =
+export type InitiallyAbsentTuplePlatform = 'win32' | 'linux';
+export type InitiallyAbsentTupleByteClass = 'absent' | 'exact-next' | 'unknown';
+export type InitiallyAbsentTupleState =
   | 'win32-w0' | 'win32-w1' | 'win32-w2'
   | 'linux-l0' | 'linux-l1' | 'linux-l2' | 'linux-l3';
-type CodexDevelopmentInitiallyAbsentTupleInvalidReason =
+type InitiallyAbsentTupleInvalidReason =
   | 'unsupported-platform'
   | 'malformed-observation'
   | 'unknown-bytes'
   | 'illegal-topology'
   | 'identity-mismatch';
-export type CodexDevelopmentInitiallyAbsentTupleEdge =
+export type InitiallyAbsentTupleEdge =
   | 'win32-w0->win32-w1'
   | 'win32-w1->win32-w2'
   | 'linux-l0->linux-l1'
   | 'linux-l1->linux-l2'
   | 'linux-l2->linux-l3';
 
-export interface CodexDevelopmentInitiallyAbsentTupleEntry {
-  readonly byteClass: CodexDevelopmentInitiallyAbsentTupleByteClass;
+export interface InitiallyAbsentTupleEntry {
+  readonly byteClass: InitiallyAbsentTupleByteClass;
   /** Adapter-provided opaque identity. The contract only compares the string. */
   readonly identity: string | null;
 }
 
-export interface CodexDevelopmentInitiallyAbsentTuple {
-  readonly target: CodexDevelopmentInitiallyAbsentTupleEntry;
-  readonly next: CodexDevelopmentInitiallyAbsentTupleEntry;
-  readonly retiredNext: CodexDevelopmentInitiallyAbsentTupleEntry;
+export interface InitiallyAbsentTuple {
+  readonly target: InitiallyAbsentTupleEntry;
+  readonly next: InitiallyAbsentTupleEntry;
+  readonly retiredNext: InitiallyAbsentTupleEntry;
 }
 
-export type CodexDevelopmentInitiallyAbsentTupleResolution =
-  | Readonly<{ status: 'legal'; state: CodexDevelopmentInitiallyAbsentTupleState }>
-  | Readonly<{ status: 'invalid'; reason: CodexDevelopmentInitiallyAbsentTupleInvalidReason }>;
+export type InitiallyAbsentTupleResolution =
+  | Readonly<{ status: 'legal'; state: InitiallyAbsentTupleState }>
+  | Readonly<{ status: 'invalid'; reason: InitiallyAbsentTupleInvalidReason }>;
 
 const InitiallyAbsentTupleKeys = ['target', 'next', 'retiredNext'] as const;
 const InitiallyAbsentTupleEntryKeys = ['byteClass', 'identity'] as const;
@@ -437,14 +437,14 @@ function initiallyAbsentMalformedTuple(tuple: unknown): boolean {
 }
 
 function initiallyAbsentInvalid(
-  reason: CodexDevelopmentInitiallyAbsentTupleInvalidReason
-): CodexDevelopmentInitiallyAbsentTupleResolution {
+  reason: InitiallyAbsentTupleInvalidReason
+): InitiallyAbsentTupleResolution {
   return Object.freeze({ status: 'invalid', reason });
 }
 
 function initiallyAbsentLegal(
-  state: CodexDevelopmentInitiallyAbsentTupleState
-): CodexDevelopmentInitiallyAbsentTupleResolution {
+  state: InitiallyAbsentTupleState
+): InitiallyAbsentTupleResolution {
   return Object.freeze({ status: 'legal', state });
 }
 
@@ -452,12 +452,12 @@ function initiallyAbsentLegal(
  * Sole pure grammar for initial publication. Invalid reasons are selected in
  * the declared order: platform, observation shape, bytes, topology, identity.
  */
-export function CodexDevelopmentClassifyInitiallyAbsentEntryTuple(
+export function classifyInitiallyAbsentEntryTuple(
   input: Readonly<{
-    platform: CodexDevelopmentInitiallyAbsentTuplePlatform;
-    tuple: CodexDevelopmentInitiallyAbsentTuple;
+    platform: InitiallyAbsentTuplePlatform;
+    tuple: InitiallyAbsentTuple;
   }>
-): CodexDevelopmentInitiallyAbsentTupleResolution {
+): InitiallyAbsentTupleResolution {
   const rawInput = input !== null && typeof input === 'object'
     ? input as unknown as Record<string, unknown>
     : {};
@@ -467,7 +467,7 @@ export function CodexDevelopmentClassifyInitiallyAbsentEntryTuple(
   if (initiallyAbsentMalformedTuple(rawInput.tuple)) {
     return initiallyAbsentInvalid('malformed-observation');
   }
-  const tuple = rawInput.tuple as CodexDevelopmentInitiallyAbsentTuple;
+  const tuple = rawInput.tuple as InitiallyAbsentTuple;
   const { target, next, retiredNext } = tuple;
   if ([target, next, retiredNext].some((entry) => entry.byteClass === 'unknown')) {
     return initiallyAbsentInvalid('unknown-bytes');
@@ -495,18 +495,18 @@ export function CodexDevelopmentClassifyInitiallyAbsentEntryTuple(
 }
 
 /** Validates one explicitly selected adjacent edge and its cross-observation object continuity. */
-export function CodexDevelopmentAssertInitiallyAbsentEntryTransition(input: Readonly<{
-  platform: CodexDevelopmentInitiallyAbsentTuplePlatform;
-  predecessor: CodexDevelopmentInitiallyAbsentTuple;
-  successor: CodexDevelopmentInitiallyAbsentTuple;
-  expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdge;
-}>): CodexDevelopmentInitiallyAbsentTupleResolution {
-  const predecessor = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
+export function assertInitiallyAbsentEntryTransition(input: Readonly<{
+  platform: InitiallyAbsentTuplePlatform;
+  predecessor: InitiallyAbsentTuple;
+  successor: InitiallyAbsentTuple;
+  expectedEdge: InitiallyAbsentTupleEdge;
+}>): InitiallyAbsentTupleResolution {
+  const predecessor = classifyInitiallyAbsentEntryTuple({
     platform: input.platform,
     tuple: input.predecessor
   });
   if (predecessor.status === 'invalid') return predecessor;
-  const successor = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
+  const successor = classifyInitiallyAbsentEntryTuple({
     platform: input.platform,
     tuple: input.successor
   });
@@ -531,7 +531,7 @@ export function CodexDevelopmentAssertInitiallyAbsentEntryTransition(input: Read
   }
 }
 
-export interface CodexDevelopmentFreezeProjection {
+export interface FreezeProjection {
   readonly authoringDisposition: 'activation' | 'proposal-only';
   readonly manifest: CodexDevelopmentWorkPackageManifest;
   readonly manifestPath: string;
@@ -631,13 +631,13 @@ function parsePointerBlock(source: string): Record<string, unknown> {
   return parsed;
 }
 
-export function CodexDevelopmentParseCurrentStateSpec(
+export function parseCurrentStateSpec(
   source: string
-): CodexDevelopmentCurrentStateSpec {
+): CurrentStateSpec {
   const parsed = parseYaml(source);
   assertRecord(parsed, 'Current-state spec');
-  if (parsed.schema !== CodexDevelopmentCurrentStateSchema) {
-    throw new Error(`Current-state schema must be ${CodexDevelopmentCurrentStateSchema}.`);
+  if (parsed.schema !== CurrentStateSchema) {
+    throw new Error(`Current-state schema must be ${CurrentStateSchema}.`);
   }
   assertExactKeys(parsed, CURRENT_STATE_KEYS, 'Current-state spec');
   assertRecord(parsed.resolver, 'Current-state resolver');
@@ -659,18 +659,18 @@ export function CodexDevelopmentParseCurrentStateSpec(
     throw new Error('Current-state resolver.requireRemoteMatch must be true.');
   }
   return {
-    schema: CodexDevelopmentCurrentStateSchema,
+    schema: CurrentStateSchema,
     resolver: { command, repository, remote, defaultBranch, defaultRef, requireRemoteMatch },
     stableFacts: parsed.stableFacts
   };
 }
 
-export function CodexDevelopmentParseActivePointer(
+export function parseActivePointer(
   source: string
-): CodexDevelopmentActivePointer {
+): ActivePointer {
   const frontmatter = parseMarkdownFrontmatter(source);
-  if (frontmatter.schema !== CodexDevelopmentActivePointerSchema) {
-    throw new Error(`Active pointer schema must be ${CodexDevelopmentActivePointerSchema}.`);
+  if (frontmatter.schema !== ActivePointerSchema) {
+    throw new Error(`Active pointer schema must be ${ActivePointerSchema}.`);
   }
   assertExactKeys(frontmatter, ['schema', 'status', 'last-reviewed'], 'Active pointer frontmatter');
   const pointer = parsePointerBlock(source);
@@ -701,7 +701,7 @@ export function CodexDevelopmentParseActivePointer(
     throw new Error('Active pointer manifestDigest must be a SHA-256 digest.');
   }
   return {
-    schema: CodexDevelopmentActivePointerSchema,
+    schema: ActivePointerSchema,
     selectionMode: 'exact-manifest-not-on-default-branch-v1',
     defaultBranchRef: stringValue(pointer.defaultBranchRef, 'Active pointer defaultBranchRef'),
     defaultRefFreshness: 'live-platform-match-required',
@@ -713,18 +713,18 @@ export function CodexDevelopmentParseActivePointer(
   };
 }
 
-export function CodexDevelopmentAssertControlPlaneBinding(input: {
-  spec: CodexDevelopmentCurrentStateSpec;
-  pointer: CodexDevelopmentActivePointer;
+export function assertControlPlaneBinding(input: {
+  spec: CurrentStateSpec;
+  pointer: ActivePointer;
 }): void {
   if (input.pointer.defaultBranchRef !== input.spec.resolver.defaultRef) {
     throw new Error('Active pointer defaultBranchRef must match the current-state defaultRef.');
   }
 }
 
-export function CodexDevelopmentParseRollingPlanHeadings(
+export function parseRollingPlanHeadings(
   source: string
-): CodexDevelopmentRollingPlan {
+): RollingPlan {
   const activeMarker = '## 当前唯一 Work Package';
   const candidateMarker = '## 候选 Work Package';
   const activeStart = source.indexOf(activeMarker);
@@ -773,11 +773,11 @@ export function CodexDevelopmentParseRollingPlanHeadings(
   return { activePackageId, candidatePackageIds };
 }
 
-export function CodexDevelopmentParseRollingPlan(
+export function parseRollingPlan(
   source: string
-): CodexDevelopmentRollingPlan {
-  const headings = CodexDevelopmentParseRollingPlanHeadings(source);
-  const machineProjection = CodexDevelopmentParseRollingMachineProjection(source);
+): RollingPlan {
+  const headings = parseRollingPlanHeadings(source);
+  const machineProjection = parseRollingMachineProjection(source);
   if (machineProjection !== null) {
     const topology = rollingTopologyFromMachineProjection(machineProjection);
     if (topology.activePackageId !== headings.activePackageId
@@ -789,15 +789,15 @@ export function CodexDevelopmentParseRollingPlan(
   return headings;
 }
 
-export function CodexDevelopmentParseRollingMachineProjection(
+export function parseRollingMachineProjection(
   source: string
-): SecWorkRollingMachineProjection | null {
+): WorkRollingMachineProjection | null {
   const machineBlocks = [...source.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/gu)];
   if (machineBlocks.length > 1) {
     throw new Error('Rolling plan must contain at most one machine projection.');
   }
   return machineBlocks.length === 1
-    ? parseSecWorkRollingMachineProjection(machineBlocks[0]![1]!)
+    ? parseWorkRollingMachineProjection(machineBlocks[0]![1]!)
     : null;
 }
 
@@ -807,8 +807,8 @@ export function CodexDevelopmentParseRollingMachineProjection(
  * candidate generation. Callers supply the physical Git tree delta; they do
  * not reinterpret projection fields or invent an additional staleness rule.
  */
-export function CodexDevelopmentRequiresCommittedCandidateProjectionRefresh(input: Readonly<{
-  projection: SecWorkRollingMachineProjection | null;
+export function requiresCommittedCandidateProjectionRefresh(input: Readonly<{
+  projection: WorkRollingMachineProjection | null;
   exactMain: string;
   exactMainTree: string;
   active: Readonly<{
@@ -837,8 +837,8 @@ export function CodexDevelopmentRequiresCommittedCandidateProjectionRefresh(inpu
     || input.sourceTreeDeltaPaths.some((candidate) => !input.permittedProjectionDeltaPaths.has(candidate));
 }
 
-export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<{
-  projection: SecWorkRollingMachineProjection;
+export function assertRollingMachineBaseBinding(input: Readonly<{
+  projection: WorkRollingMachineProjection;
   exactMain: string;
   exactMainTree: string;
 }>): void {
@@ -849,7 +849,7 @@ export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<
   if (input.projection.exactMain !== input.exactMain) {
     throw new Error('Rolling machine projection does not bind the exact live default revision.');
   }
-  const exactBinding = projectSecWorkRollingExactManifestBinding(input.projection);
+  const exactBinding = projectWorkRollingExactManifestBinding(input.projection);
   if (exactBinding !== null && exactBinding.exactMainTree !== input.exactMainTree) {
     throw new Error('Rolling machine projection does not bind the exact live default tree.');
   }
@@ -861,11 +861,11 @@ export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<
  * owns native Git, current WorkDecision and operation admission. Legacy plans
  * retain their embedded-base contract and historical headings-only readers.
  */
-export function CodexDevelopmentAssertStablePlanRollingBinding(input: Readonly<{
+export function assertStablePlanRollingBinding(input: Readonly<{
   manifest: CodexDevelopmentWorkPackageManifest;
   manifestPath: string;
   manifestDigest: `sha256:${string}`;
-  projection: SecWorkRollingMachineProjection | null;
+  projection: WorkRollingMachineProjection | null;
   exactMain: string;
   exactMainTree: string;
 }>): void {
@@ -874,7 +874,7 @@ export function CodexDevelopmentAssertStablePlanRollingBinding(input: Readonly<{
   if (projection === null) {
     throw new Error('Stable Work Package requires a digest-bound rolling machine projection.');
   }
-  CodexDevelopmentAssertRollingMachineBaseBinding({
+  assertRollingMachineBaseBinding({
     projection,
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree
@@ -883,7 +883,7 @@ export function CodexDevelopmentAssertStablePlanRollingBinding(input: Readonly<{
       || projection.active.tracking !== input.manifest.tracking) {
     throw new Error('Stable Work Package does not match the rolling machine active identity.');
   }
-  const exactBinding = projectSecWorkRollingExactManifestBinding(projection);
+  const exactBinding = projectWorkRollingExactManifestBinding(projection);
   if (exactBinding !== null
       && (exactBinding.active.manifestPath !== input.manifestPath
         || exactBinding.active.manifestDigest !== input.manifestDigest)) {
@@ -891,13 +891,13 @@ export function CodexDevelopmentAssertStablePlanRollingBinding(input: Readonly<{
   }
 }
 
-export interface CodexDevelopmentWorkPackageCensusEntry {
+export interface WorkPackageCensusEntry {
   readonly path: string;
   readonly candidateBytes: Uint8Array;
   readonly defaultBytes: Uint8Array | null;
 }
 
-export interface CodexDevelopmentWorkPackageCensus {
+export interface WorkPackageCensus {
   readonly delayedPredecessorPath: string | null;
   readonly ambiguousPredecessorPaths: readonly string[];
   readonly stalePackagePaths: readonly string[];
@@ -926,11 +926,11 @@ function decodeCensusManifest(bytes: Uint8Array, label: string): string {
  * identical. The function is pure: callers own immutable Git observation,
  * while this contract alone owns the delayed-handoff decision.
  */
-export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
+export function classifyWorkPackageCensus(input: Readonly<{
   selectedManifestPath: string;
-  entries: readonly CodexDevelopmentWorkPackageCensusEntry[];
+  entries: readonly WorkPackageCensusEntry[];
   roadmapSource?: string;
-}>): CodexDevelopmentWorkPackageCensus {
+}>): WorkPackageCensus {
   if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(input.selectedManifestPath)) {
     throw new Error('Work Package census selected manifest path is noncanonical.');
   }
@@ -960,7 +960,7 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
   if (input.roadmapSource === undefined) {
     throw new Error('Untracked recovery Work Package census requires the canonical roadmap.');
   }
-  const catalogByPath = new Map(parseSecRoadmapWorkCatalog(input.roadmapSource).items.map((item) => [
+  const catalogByPath = new Map(parseRoadmapWorkCatalog(input.roadmapSource).items.map((item) => [
     `config/repository/work-packages/${item.packageId}.md`,
     item
   ]));
@@ -1005,11 +1005,11 @@ function sourceLineEnding(source: string): '\n' | '\r\n' {
  * remaining ordinals are rewritten; candidate bodies and every unrelated byte
  * are retained exactly.
  */
-export function CodexDevelopmentPromoteRollingPlan(input: {
+export function promoteRollingPlan(input: {
   source: string;
   packageId: string;
 }): string {
-  const parsed = CodexDevelopmentParseRollingPlan(input.source);
+  const parsed = parseRollingPlan(input.source);
   const packageId = stringValue(input.packageId, 'Rolling plan promotion packageId');
   if (!/^[a-z0-9][a-z0-9-]*$/u.test(packageId)) {
     throw new Error('Rolling plan promotion packageId must be a canonical Work Package ID.');
@@ -1086,15 +1086,15 @@ export function CodexDevelopmentPromoteRollingPlan(input: {
     + input.source.slice(candidateMarkerStart, candidateMarkerEnd)
     + nextCandidateSection
     + input.source.slice(candidateSectionEnd);
-  const nextParsed = CodexDevelopmentParseRollingPlan(next);
+  const nextParsed = parseRollingPlan(next);
   if (nextParsed.activePackageId !== packageId) {
     throw new Error('Rolling plan promotion readback did not select the requested package.');
   }
   return next;
 }
 
-export type CodexDevelopmentCommittedCandidateReplanAuthority = Extract<
-  SecWorkRollingTransitionAuthority,
+export type CommittedCandidateReplanAuthority = Extract<
+  WorkRollingTransitionAuthority,
   { readonly kind: 'committed-candidate-replan' }
 >;
 
@@ -1105,12 +1105,12 @@ export type CodexDevelopmentCommittedCandidateReplanAuthority = Extract<
  * implementations can evolve. Its raw rolling revision already binds every
  * source byte, while the target is always emitted by the current sole renderer.
  */
-export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
+export function renderCommittedCandidateReplanRollingPlan(
   input: Readonly<{
     currentPointerSource: string;
     currentRollingPlanSource: string;
     currentManifestBytes: Uint8Array;
-    authority: CodexDevelopmentCommittedCandidateReplanAuthority;
+    authority: CommittedCandidateReplanAuthority;
     targetManifestPath: string;
     targetManifestDigest: `sha256:${string}`;
     targetPackageId: string;
@@ -1120,8 +1120,8 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
     reviewedOn: string;
   }>
 ): string {
-  const pointer = CodexDevelopmentParseActivePointer(input.currentPointerSource);
-  const topology = CodexDevelopmentParseRollingPlanHeadings(input.currentRollingPlanSource);
+  const pointer = parseActivePointer(input.currentPointerSource);
+  const topology = parseRollingPlanHeadings(input.currentRollingPlanSource);
   const sourceManifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     input.currentManifestBytes
   ) as `sha256:${string}`;
@@ -1137,7 +1137,7 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
       || input.authority.sourceRollingRevision !== rawSha256(input.currentRollingPlanSource)) {
     throw new Error('Committed candidate replan authority does not bind the immutable source bytes.');
   }
-  const projection = compileSecWorkRollingTransitionProjection({
+  const projection = compileWorkRollingTransitionProjection({
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree,
     authority: input.authority,
@@ -1149,7 +1149,7 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
     },
     candidates: topology.candidatePackageIds
   });
-  return renderSecWorkRollingTransitionPlan({
+  return renderWorkRollingTransitionPlan({
     projection,
     reviewedOn: input.reviewedOn
   });
@@ -1162,7 +1162,7 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
  * one. No unresolved candidate is reordered, invented, or truncated. A later
  * healthy WorkDecision owns the normal topology replacement.
  */
-export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
+export function activateMainHealthRepairRollingPlan(input: {
   source: string;
   packageId: string;
   manifestPath: string;
@@ -1176,7 +1176,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
   publishedActivePackageId: string | null;
   reviewedOn: string;
 }): string {
-  const parsed = CodexDevelopmentParseRollingPlan(input.source);
+  const parsed = parseRollingPlan(input.source);
   const packageId = stringValue(input.packageId, 'MainHealth repair packageId');
   if (!/^[a-z0-9][a-z0-9-]*$/u.test(packageId) || parsed.activePackageId === packageId
       || parsed.candidatePackageIds.includes(packageId)) {
@@ -1213,7 +1213,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
   if (retained.length < 2 || new Set(retained).size !== retained.length) {
     throw new Error('MainHealth repair rolling projection cannot preserve a bounded unique topology.');
   }
-  const projection = compileSecWorkRollingTransitionProjection({
+  const projection = compileWorkRollingTransitionProjection({
     exactMain: input.mainSha,
     exactMainTree: input.mainTreeSha,
     authority: {
@@ -1232,11 +1232,11 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
     },
     candidates: retained
   });
-  const rendered = renderSecWorkRollingTransitionPlan({
+  const rendered = renderWorkRollingTransitionPlan({
     projection,
     reviewedOn: input.reviewedOn
   });
-  const result = CodexDevelopmentParseRollingPlan(rendered);
+  const result = parseRollingPlan(rendered);
   if (result.activePackageId !== packageId
       || JSON.stringify(result.candidatePackageIds) !== JSON.stringify(retained)) {
     throw new Error('MainHealth repair rolling projection readback failed.');
@@ -1244,8 +1244,8 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
   return rendered;
 }
 
-export function CodexDevelopmentRenderActivePointer(input: {
-  spec: CodexDevelopmentCurrentStateSpec;
+export function renderActivePointer(input: {
+  spec: CurrentStateSpec;
   manifestPath: string;
   manifestDigest: `sha256:${string}`;
   reviewedOn: string;
@@ -1258,7 +1258,7 @@ export function CodexDevelopmentRenderActivePointer(input: {
     throw new Error('Active pointer reviewedOn must be an ISO calendar date.');
   }
   const source = `---
-schema: ${CodexDevelopmentActivePointerSchema}
+schema: ${ActivePointerSchema}
 status: conditional
 last-reviewed: ${input.reviewedOn}
 ---
@@ -1276,8 +1276,8 @@ unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 \`\`\`
 `;
-  const pointer = CodexDevelopmentParseActivePointer(source);
-  CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
+  const pointer = parseActivePointer(source);
+  assertControlPlaneBinding({ spec: input.spec, pointer });
   return source;
 }
 
@@ -1287,8 +1287,8 @@ matchingDefaultBlob: none
  * pointer remains compiler-rendered for the indexed manifest, while active and
  * ordered candidate identity are re-derived from immutable HEAD.
  */
-export function CodexDevelopmentAssertPriorFreezeProjection(input: {
-  spec: CodexDevelopmentCurrentStateSpec;
+export function assertPriorFreezeProjection(input: {
+  spec: CurrentStateSpec;
   immutableRollingPlanSource: string;
   pointerSource: string;
   rollingPlanSource: string;
@@ -1298,8 +1298,8 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   baseTreeSha?: string;
 }): void {
   const manifestPath = manifestPathValue(input.manifestPath, 'Prior projection manifest path');
-  const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
+  const pointer = parseActivePointer(input.pointerSource);
+  assertControlPlaneBinding({ spec: input.spec, pointer });
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     input.manifestBytes
   ) as `sha256:${string}`;
@@ -1308,7 +1308,7 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   }
   const frontmatter = parseMarkdownFrontmatter(input.pointerSource);
   const reviewedOn = stringValue(frontmatter['last-reviewed'], 'Prior projection pointer last-reviewed');
-  const expectedPointerSource = CodexDevelopmentRenderActivePointer({
+  const expectedPointerSource = renderActivePointer({
     spec: input.spec,
     manifestPath,
     manifestDigest,
@@ -1319,12 +1319,12 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   }
 
   const packageId = manifestPath.slice('config/repository/work-packages/'.length, -'.md'.length);
-  const immutableTopology = CodexDevelopmentParseRollingPlanHeadings(
+  const immutableTopology = parseRollingPlanHeadings(
     input.immutableRollingPlanSource
   );
-  const priorMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
+  const priorMachine = parseRollingMachineProjection(input.rollingPlanSource);
   if (priorMachine?.schema === 'sec-work-rolling-proposal-projection-v1') {
-    const immutableTopologyForProposal = CodexDevelopmentParseRollingPlan(
+    const immutableTopologyForProposal = parseRollingPlan(
       input.immutableRollingPlanSource
     );
     if (input.baseSha === undefined
@@ -1337,7 +1337,7 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
         || priorMachine.active.manifestDigest !== manifestDigest
         || JSON.stringify(priorMachine.candidates)
           !== JSON.stringify(immutableTopologyForProposal.candidatePackageIds)
-        || input.rollingPlanSource !== renderSecWorkRollingProposalPlan({
+        || input.rollingPlanSource !== renderWorkRollingProposalPlan({
           projection: priorMachine,
           reviewedOn
         })) {
@@ -1348,11 +1348,11 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   const expectedTopology = immutableTopology.activePackageId === packageId
     ? immutableTopology
     : (() => {
-        const immutableMachine = CodexDevelopmentParseRollingMachineProjection(
+        const immutableMachine = parseRollingMachineProjection(
           input.immutableRollingPlanSource
         );
         if (immutableMachine === null) {
-          return CodexDevelopmentParseRollingPlan(CodexDevelopmentPromoteRollingPlan({
+          return parseRollingPlan(promoteRollingPlan({
             source: input.immutableRollingPlanSource,
             packageId
           }));
@@ -1370,7 +1370,7 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
           )
         });
       })();
-  const observedTopology = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
+  const observedTopology = parseRollingPlan(input.rollingPlanSource);
   if (observedTopology.activePackageId !== expectedTopology.activePackageId
       || JSON.stringify(observedTopology.candidatePackageIds)
         !== JSON.stringify(expectedTopology.candidatePackageIds)) {
@@ -1380,17 +1380,17 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   }
 }
 
-export function CodexDevelopmentCreateFreezeProjection(input: {
-  spec: CodexDevelopmentCurrentStateSpec;
+export function createFreezeProjection(input: {
+  spec: CurrentStateSpec;
   currentPointerSource: string;
   currentRollingPlanSource: string;
   currentManifestBytes: Uint8Array;
   requestedRollingPlanSource?: string;
-  workSelectionProjection?: CodexDevelopmentWorkSelectionProjection;
-  mainHealthRepairProjection?: CodexDevelopmentMainHealthRepairProjection;
-  committedCandidateReplanProjection?: CodexDevelopmentCommittedCandidateReplanAuthority;
+  workSelectionProjection?: WorkSelectionProjection;
+  mainHealthRepairProjection?: MainHealthRepairProjection;
+  committedCandidateReplanProjection?: CommittedCandidateReplanAuthority;
   proposalOnly?: Readonly<{
-    currentResolution: CodexDevelopmentActiveWorkPackageResolution;
+    currentResolution: ActiveWorkPackageResolution;
     defaultManifestBytes: Uint8Array;
   }>;
   manifestPath: string;
@@ -1398,7 +1398,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   baseSha: string;
   baseTreeSha?: string;
   reviewedOn: string;
-}): CodexDevelopmentFreezeProjection {
+}): FreezeProjection {
   const manifestPath = manifestPathValue(input.manifestPath, 'Freeze manifest path');
   let manifestSource: string;
   try {
@@ -1410,11 +1410,11 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   if (!CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, input.baseSha)) {
     throw new Error('Work Package manifest base must equal the exact live default revision.');
   }
-  const currentPointer = CodexDevelopmentParseActivePointer(input.currentPointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer: currentPointer });
+  const currentPointer = parseActivePointer(input.currentPointerSource);
+  assertControlPlaneBinding({ spec: input.spec, pointer: currentPointer });
   const currentRollingPlan = input.committedCandidateReplanProjection === undefined
-    ? CodexDevelopmentParseRollingPlan(input.currentRollingPlanSource)
-    : CodexDevelopmentParseRollingPlanHeadings(input.currentRollingPlanSource);
+    ? parseRollingPlan(input.currentRollingPlanSource)
+    : parseRollingPlanHeadings(input.currentRollingPlanSource);
   if (currentRollingPlan.activePackageId !== currentPointer.manifest.slice(
     'config/repository/work-packages/'.length,
     -'.md'.length
@@ -1468,13 +1468,13 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     input.manifestBytes
   ) as `sha256:${string}`;
-  const pointerSource = CodexDevelopmentRenderActivePointer({
+  const pointerSource = renderActivePointer({
     spec: input.spec,
     manifestPath,
     manifestDigest,
     reviewedOn: input.reviewedOn
   });
-  const projectionRequired = CodexDevelopmentResolveWorkSelectionProjectionMode(input.spec)
+  const projectionRequired = resolveWorkSelectionProjectionMode(input.spec)
     === 'required-v1';
   const externalProjectionRequired = projectionRequired && manifest.id !== currentManifest.id
     && input.proposalOnly === undefined;
@@ -1512,9 +1512,9 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     if (input.requestedRollingPlanSource !== undefined) {
       throw new Error('Proposal-only freeze forbids caller-authored rolling-plan bytes.');
     }
-    const topology = CodexDevelopmentParseRollingPlan(input.currentRollingPlanSource);
-    rollingPlanSource = renderSecWorkRollingProposalPlan({
-      projection: compileSecWorkRollingProposalProjection({
+    const topology = parseRollingPlan(input.currentRollingPlanSource);
+    rollingPlanSource = renderWorkRollingProposalPlan({
+      projection: compileWorkRollingProposalProjection({
         exactMain: input.baseSha,
         exactMainTree: input.baseTreeSha,
         active: {
@@ -1531,7 +1531,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     if (input.baseTreeSha === undefined) {
       throw new Error('Committed candidate replan must bind the exact freeze base tree.');
     }
-    rollingPlanSource = CodexDevelopmentRenderCommittedCandidateReplanRollingPlan({
+    rollingPlanSource = renderCommittedCandidateReplanRollingPlan({
       currentPointerSource: input.currentPointerSource,
       currentRollingPlanSource: input.currentRollingPlanSource,
       currentManifestBytes: input.currentManifestBytes,
@@ -1549,14 +1549,14 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
       throw new Error('Requested replan rolling bytes must equal the canonical transition renderer exactly.');
     }
   } else if (!externalProjectionRequired) {
-    const promotedRollingPlanSource = CodexDevelopmentPromoteRollingPlan({
+    const promotedRollingPlanSource = promoteRollingPlan({
       source: input.currentRollingPlanSource,
       packageId: manifest.id
     });
     rollingPlanSource = promotedRollingPlanSource;
     if (input.requestedRollingPlanSource !== undefined) {
-      const promoted = CodexDevelopmentParseRollingPlan(promotedRollingPlanSource);
-      const requested = CodexDevelopmentParseRollingPlan(input.requestedRollingPlanSource);
+      const promoted = parseRollingPlan(promotedRollingPlanSource);
+      const requested = parseRollingPlan(input.requestedRollingPlanSource);
       if (requested.activePackageId !== promoted.activePackageId
           || JSON.stringify(requested.candidatePackageIds) !== JSON.stringify(promoted.candidatePackageIds)) {
         throw new Error(
@@ -1567,7 +1567,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     }
   } else if (input.workSelectionProjection !== undefined) {
     const receipt = input.workSelectionProjection.receipt;
-    const selection = compileSecWorkRollingProjection(receipt);
+    const selection = compileWorkRollingSelectionProjection(receipt);
     if (input.baseTreeSha === undefined
         || selection.exactMain !== input.baseSha
         || input.workSelectionProjection.receipt.exactMainTree !== input.baseTreeSha) {
@@ -1577,11 +1577,11 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
         || selection.active.tracking !== manifest.tracking) {
       throw new Error('WorkDecision selection must equal the target manifest package and tracking identity.');
     }
-    const selectedRollingPlanSource = renderSecWorkRollingPlan({
+    const selectedRollingPlanSource = renderWorkRollingSelectionPlan({
       receipt,
       reviewedOn: input.reviewedOn
     });
-    const selectedRolling = CodexDevelopmentParseRollingPlan(selectedRollingPlanSource);
+    const selectedRolling = parseRollingPlan(selectedRollingPlanSource);
     if (selectedRolling.activePackageId !== manifest.id) {
       throw new Error('WorkDecision rolling projection does not activate the selected package.');
     }
@@ -1619,7 +1619,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
         'MainHealth repair projection does not prove the current active package is byte-identical on exact default.'
       );
     }
-    const repairedRollingPlanSource = CodexDevelopmentActivateMainHealthRepairRollingPlan({
+    const repairedRollingPlanSource = activateMainHealthRepairRollingPlan({
       source: input.currentRollingPlanSource,
       packageId: manifest.id,
       manifestPath,
@@ -1639,7 +1639,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     }
     rollingPlanSource = repairedRollingPlanSource;
   }
-  if (CodexDevelopmentParseRollingPlan(rollingPlanSource).activePackageId !== manifest.id) {
+  if (parseRollingPlan(rollingPlanSource).activePackageId !== manifest.id) {
     throw new Error('Freeze projection rolling-plan readback failed.');
   }
   return Object.freeze({
@@ -1653,12 +1653,12 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   });
 }
 
-export function CodexDevelopmentResolveActiveWorkPackage(input: {
-  pointer: CodexDevelopmentActivePointer;
+export function resolveActiveWorkPackage(input: {
+  pointer: ActivePointer;
   candidateManifestBlob: Uint8Array | undefined;
   defaultManifestBlob: Uint8Array | null;
-  defaultRefState: CodexDevelopmentDefaultRefState;
-}): CodexDevelopmentActiveWorkPackageResolution {
+  defaultRefState: DefaultRefState;
+}): ActiveWorkPackageResolution {
   if (input.defaultRefState !== 'fresh') {
     return {
       state: 'unresolved',

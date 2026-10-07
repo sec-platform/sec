@@ -12,14 +12,13 @@ import {
   scanNoFollowDirectoryTreeInventory
 } from './physical-no-follow.ts';
 
-const linuxTest = test.skipIf(process.platform !== 'linux');
 const binding = (count: number) => ({
   generationDigest: `sha256:${'1'.repeat(64)}` as const,
   treeDigest: `sha256:${'2'.repeat(64)}` as const,
   treeEntryCount: count
 });
 
-linuxTest('directory identity survives owner mode transitions while the read-only proof still rejects mode drift', async () => {
+test.skipIf(process.platform !== 'linux')('directory identity survives owner mode transitions while the read-only proof still rejects mode drift', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-linux-directory-identity-'));
   let generation: Awaited<ReturnType<typeof materializeRetainedNoFollowProvenDirectoryGeneration>> | undefined;
   try {
@@ -53,7 +52,7 @@ linuxTest('directory identity survives owner mode transitions while the read-onl
   }
 });
 
-linuxTest('replacement of an empty root is rejected before sealing the foreign directory', async () => {
+test.skipIf(process.platform !== 'linux')('replacement of an empty root is rejected before sealing the foreign directory', async () => {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-linux-root-replacement-'));
   const root = path.join(parent, 'source');
   try {
@@ -71,7 +70,7 @@ linuxTest('replacement of an empty root is rejected before sealing the foreign d
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
 
-linuxTest('legacy mode-bearing observations fail closed without changing permissions', async () => {
+test.skipIf(process.platform !== 'linux')('legacy mode-bearing observations fail closed without changing permissions', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-linux-legacy-identity-'));
   try {
     const metadata = await lstat(root, { bigint: true });
@@ -85,7 +84,7 @@ linuxTest('legacy mode-bearing observations fail closed without changing permiss
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-linuxTest('proven links use the inherited child slot rather than the parent descriptor number', async () => {
+test.skipIf(process.platform !== 'linux')('proven links use the inherited child slot rather than the parent descriptor number', async () => {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-linux-inherited-slot-'));
   const root = path.join(parent, 'dependency');
   let generation: Awaited<ReturnType<typeof materializeRetainedNoFollowProvenDirectoryGeneration>> | undefined;

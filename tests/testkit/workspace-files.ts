@@ -7,7 +7,6 @@ const clonableCacheSnapshotNames = ['composition-baseline.json', 'project-baseli
 
 type LocalStateSnapshotPlanEntry = {
   readonly destinationSegments: readonly string[];
-  readonly relativePath: string;
   readonly sourcePath: string;
 };
 
@@ -52,7 +51,6 @@ function snapshotPlanEntry(
 ): LocalStateSnapshotPlanEntry {
   return {
     destinationSegments,
-    relativePath: destinationSegments.join('/'),
     sourcePath: path.join(sourceRoot, ...sourceSegments)
   };
 }

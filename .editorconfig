@@ -12,17 +12,8 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 2
 
-[*.{ts,tsx,js,mjs,cjs,jsx,json,jsonc,yaml,yml}]
-indent_size = 2
-
 [*.{md,markdown}]
 trim_trailing_whitespace = false
-
-[*.html]
-indent_size = 2
-
-[*.{toml,prisma}]
-indent_size = 2
 
 [Makefile]
 indent_style = tab

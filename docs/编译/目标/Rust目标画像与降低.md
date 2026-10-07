@@ -166,6 +166,21 @@ Cargo 是常规 Rust 工程的默认成熟构建/依赖供给，但不是语义 
 
 **编译闭包：** Cargo/rustc、标准库、target support、linker、system/native libs、generated sources 和必要配置全部在目标成员/工具输入中。构建目录缓存不是作者源，也不进入发行包除非真实消费者需要。
 
+<a id="rust-dependency-realization"></a>
+## 9A. Rust 业务库的能力绑定、feature 解析与生成消费
+
+Rust 后端不承担“看到某个业务词就挑最流行 crate”的职责。进入本页以前，resolver 已经按[实现选择与依赖冻结](../实现选择与设计搜索.md#dependency-resolution-freeze)把能力需求解析为精确 Provider/Dependency Binding；本页只负责把该绑定合法地投影为 Rust crate graph、Cargo manifest、源码调用与必要 adapter。
+
+对每个被选 crate，目标绑定至少能解析：package identity/source、精确 version/commit/content、启用/禁用 features、default-features 决定、target-specific 条件、公开 API 合同 revision、许可/安全资格、build.rs/proc-macro/native-link effect、no_std/std 前提以及本次实际消费的 symbols/capabilities。Cargo 自己解析得到的 feature unification、平台条件和 lock 结果属于真实 Provider 事实；SEC 不另写一套看似相同但可能分歧的 Cargo 求解器。
+
+生成器消费的是**能力映射**而不是字符串模板。例如同一个“HTTP client”能力可以由不同 crate 实现；Binding 固定后，adapter/method 决定构造 client、错误映射、async runtime、TLS、取消和资源关闭。后端不得只因 crate API 改名就在 printer 中猜另一函数；映射失配使该 Provider/Method 不合格并回到 resolver/Needs。一个成熟 crate 已经完整承担算法时，SEC 生成最小调用和适配代码，不复制其内部算法；只有相交差额需要本地产生代码。
+
+依赖贡献由各 UseBinding 汇入一个 crate/workspace 级 composition：相同 package source/version 的 feature 要按 Cargo 真实规则联合，互斥/不兼容语义在组合阶段失败或隔离为不同可合法共存的 package identity；不能让最后写 manifest 的 method 覆盖前者。不同目标根若要求不相容依赖，可以形成不同 crate/workspace/构建根，不能为了“一个 Cargo.toml”降低业务合同。
+
+build.rs、proc-macro 与 native dependency 都是可执行/外部供给。它们可以是成熟代码复用路径，但必须通过实际构建 Effect、供应链和可重现输入管理；不能因为“别人已有完美代码”就把未知脚本升级为纯编译数据。对于只需库 API 的普通业务，优先直接复用合格 crate；对于需要修改/学习候选实现的开发任务，可以把其源码作为有来源的外部/原生资产读取和比较，但不会因此复制成 SEC 作者真源或自动获得商业再分发许可。
+
+该设计允许将“库怎么写最好”的大部分实现知识交给成熟生态，同时保持 SEC 对选择理由、版本、feature、行为差额和目标适配的控制。它不承诺存在一个对所有业务永远最优的 crate，也不允许网络搜索结果直接进入可重现生成。
+
 ## 10. rustc/Cargo 诊断与 SourceMap
 
 生成 Rust 源时建立目标字节范围到作者 Definition/使用点/生成来源的多对多映射。映射是 artifact metadata，可另行派生为调试格式；不要求把内部 ID 写进用户源码。

@@ -10,6 +10,10 @@ const lock = () => ({ resolvedBlocks: [] } as never);
 async function fixture(run: (root: string, target: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-scaffold-'));
   const target = path.join(root, 'src/runtime/store.ts'); mkdirSync(path.dirname(target), { recursive: true });
+  // The unrelated empty fast inventory is already materialized; these cases
+  // isolate the store's publication and no-op preconditions.
+  mkdirSync(path.join(root, 'tests'), { recursive: true });
+  writeFileSync(path.join(root, 'tests/fast.test.ts'), "import { test } from 'node:test';\ntest.skip('no installed fast suites', () => {});\n");
   const render = TemplateEngine.render;
   TemplateEngine.render = () => 'generated';
   try { await run(root, target); } finally { TemplateEngine.render = render; rmSync(root, { recursive: true, force: true }); }

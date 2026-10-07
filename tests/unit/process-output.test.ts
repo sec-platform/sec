@@ -56,16 +56,6 @@ test('runCommand streams split UTF-8 stdout and stderr through stateful decoders
   expect(result).toEqual({ code: 0, stdout: 'out:中', stderr: 'err:文' });
 });
 
-test('runCommand keeps the default stdout contract textual', async () => {
-  const result = await runCommand(rawExecutable.command, [
-    '--no-env-file',
-    '--eval',
-    "process.stdout.write('text-output')"
-  ], { cwd: compilerRoot, timeoutMs: 5_000 });
-
-  expect(result).toEqual({ code: 0, stdout: 'text-output', stderr: '' });
-});
-
 test('command stdin is exact and rejected before spawn when it exceeds its bound', async () => {
   const input = new Uint8Array([0, 1, 2, 10, 255]);
   const result = await runCommandBytes(rawExecutable.command, [

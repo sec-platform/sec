@@ -1,13 +1,16 @@
 import path from 'node:path';
+import { types as nativeTypes } from 'node:util';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { linkNativeAbortSignals } from '../../../../contracts/native-abort.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
-  issueSecProviderSettlementReceipt,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementReceipt
+  assertSemanticOperationProjection,
+  bindSemanticOperation,
+  issueProviderSettlementReceipt,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import {
@@ -60,18 +63,81 @@ import {
   type DockerDaemonLauncherResult
 } from './daemon-algorithm.ts';
 import { withDockerDesktopLauncherLock } from './daemon.ts';
+import { assertQualifiedLinuxDockerCli, type QualifiedLinuxDockerCli } from './linux-cli-qualification.ts';
 
 export const LINUX_DOCKER_OPERATIONS: readonly ContainerEngineOperation['kind'][] = Object.freeze([]);
+const issuedSessions = new WeakMap<object, Readonly<{
+  assertCurrent(): Promise<void>;
+  assertIdle(): void;
+  observeCloseState(): 'open' | 'settled' | 'unknown';
+  qualifiedLinux: boolean;
+  originIdentityDigest: OperationDigest | null;
+  signal: AbortSignal;
+}>>();
+
+export async function assertRetainedQualifiedLinuxEngineSession(session: ContainerEngineSession): Promise<void> {
+  const retained = issuedSessions.get(session);
+  if (retained?.qualifiedLinux !== true) fail('session has no qualified Linux CLI');
+  await retained.assertCurrent();
+}
+
+export function qualifiedLinuxEngineOriginIdentity(session: ContainerEngineSession): OperationDigest {
+  const retained = issuedSessions.get(session);
+  if (retained?.qualifiedLinux !== true || retained.originIdentityDigest === null) fail('session has no authenticated Linux origin');
+  return retained.originIdentityDigest;
+}
+
+export function assertContainerEngineSessionTransferable(session: ContainerEngineSession): void {
+  const retained = issuedSessions.get(session);
+  if (retained === undefined) fail('session is not owner-issued');
+  retained.assertIdle();
+}
+
+export function retainedContainerEngineSessionSignal(session: ContainerEngineSession): AbortSignal {
+  const retained = issuedSessions.get(session);
+  if (retained === undefined) fail('session is not owner-issued');
+  return retained.signal;
+}
+
+export function observeRetainedContainerEngineSessionClose(session: ContainerEngineSession): 'open' | 'settled' | 'unknown' {
+  const retained = issuedSessions.get(session);
+  if (retained === undefined) fail('session is not owner-issued');
+  return retained.observeCloseState();
+}
+
+export class QualifiedLinuxDockerScopeUnavailableError extends Error {
+  readonly code = 'SEC-LINUX-DOCKER-OPERATION-BUDGET-UNSUPPORTED' as const;
+  readonly disposition = 'unsupported' as const;
+}
+
+/** A narrower advertised scope cannot borrow a longer physical run deadline. */
+export function assertQualifiedLinuxDockerScopeBudget(input: Readonly<{
+  operation: BoundSemanticOperation;
+  sessionDeadlineAtUnixMs: number;
+}>): void {
+  assertSemanticOperationProjection(input.operation);
+  const deadline = input.operation.plan.attempt.deadlineAtUnixMs;
+  const duration = input.operation.plan.execution.aggregateBudgets.find(({ resource }) => resource === 'duration-ms')?.maximum ?? 0;
+  const remaining = deadline - Date.now();
+  if (deadline !== input.sessionDeadlineAtUnixMs || remaining <= 0 || duration < remaining) {
+    throw new QualifiedLinuxDockerScopeUnavailableError('Qualified Linux scope must share the original physical session deadline and duration ceiling.');
+  }
+}
 
 /** This is a capability decision, before starting the CLI or charging transport. */
 export function assertDockerCommandOperationAvailable(
   platform: NodeJS.Platform,
-  operation: ContainerEngineOperation['kind'] | undefined
+  operation: ContainerEngineOperation['kind'] | undefined,
+  qualifiedLinuxCli?: QualifiedLinuxDockerCli
 ): void {
   if (platform === 'linux') {
+    if (qualifiedLinuxCli !== undefined) {
+      assertQualifiedLinuxDockerCli(qualifiedLinuxCli);
+      return;
+    }
     throw new DockerCommandOperationUnavailableError(
       operation ?? 'docker-cli',
-      operation === 'buildx-build' || operation === 'buildx-bake'
+      operation === 'buildx-build' || operation === 'buildx-bake' || operation === 'buildx-inspect-default'
         ? 'linux-buildx-closure-unavailable'
         : 'linux-cli-plugin-closure-unavailable'
     );
@@ -82,6 +148,7 @@ export function assertDockerCommandOperationAvailable(
 const OPERATION_PREFIX = Object.freeze({
   'buildx-bake': ['buildx', 'bake'],
   'buildx-build': ['buildx', 'build'],
+  'buildx-inspect-default': ['buildx', 'inspect', 'default'],
   'container-copy': ['container', 'cp'],
   'container-create': ['container', 'create'],
   'container-exec': ['container', 'exec'],
@@ -90,6 +157,7 @@ const OPERATION_PREFIX = Object.freeze({
   'container-remove': ['container', 'rm'],
   'container-run': ['container', 'run'],
   'container-start': ['container', 'start'],
+  'container-stop': ['container', 'stop'],
   'image-inspect': ['image', 'inspect'],
   'image-list': ['image', 'ls'],
   'image-remove': ['image', 'rm'],
@@ -103,7 +171,7 @@ function fail(message: string): never {
 }
 
 function semanticOperationBudget(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   resource: 'input-bytes' | 'output-bytes' | 'processes'
 ): number {
   return operation.plan.execution.aggregateBudgets
@@ -115,12 +183,12 @@ function semanticOperationBudget(
  * from a real provider-owned semantic operation scope.
  */
 export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   sessionDeadlineAtUnixMs: number;
 }>): void {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === input.requirementId
   );
@@ -146,11 +214,11 @@ export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
 }
 
 export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<{
-  authorityProviderIdentityDigest: SecOperationDigest;
-  projectionProviderIdentityDigest: SecOperationDigest;
-  environmentDigest: SecOperationDigest;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  authorityProviderIdentityDigest: OperationDigest;
+  projectionProviderIdentityDigest: OperationDigest;
+  environmentDigest: OperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   executable: Readonly<{
     path: string;
     size: number;
@@ -163,7 +231,7 @@ export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<
     directory: PhysicalDirectoryIdentity;
   }>[];
   generationCensus: RuntimeGenerationCensusReceipt;
-}>): SecOperationDigest {
+}>): OperationDigest {
   assertRuntimeGenerationCensusReceipt(input.generationCensus);
   if (input.generationCensus.providerIdentityDigest
       !== input.authorityProviderIdentityDigest) {
@@ -172,15 +240,15 @@ export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<
   return sha256({
     schema: 'sec-container-engine-provider-admission-identity-v1',
     ...input
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 export function compileObservedContainerEngineProviderIdentity(input: Readonly<{
-  authorityProviderIdentityDigest: SecOperationDigest;
-  projectionProviderIdentityDigest: SecOperationDigest;
-  environmentDigest: SecOperationDigest;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  authorityProviderIdentityDigest: OperationDigest;
+  projectionProviderIdentityDigest: OperationDigest;
+  environmentDigest: OperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   executable: Readonly<{
     path: string;
     size: number;
@@ -188,23 +256,23 @@ export function compileObservedContainerEngineProviderIdentity(input: Readonly<{
     contentDigest: `sha256:${string}`;
   }>;
   workingDirectory: PhysicalDirectoryIdentity;
-}>): SecOperationDigest {
+}>): OperationDigest {
   return sha256({
     schema: 'sec-container-engine-observed-provider-identity-v1',
     ...input
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 export function compileContainerEngineReadyProviderIdentity(input: Readonly<{
-  admissionProviderIdentityDigest: SecOperationDigest;
+  admissionProviderIdentityDigest: OperationDigest;
   endpoint: DockerEndpointIdentity;
-}>): SecOperationDigest {
+}>): OperationDigest {
   const endpoint = parseDockerEndpointIdentity(input.endpoint);
   return sha256({
     schema: 'sec-container-engine-retained-provider-identity-v1',
     predecessorAdmissionProviderIdentityDigest: input.admissionProviderIdentityDigest,
     endpoint
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 interface DockerDesktopLifecycleEnvironment {
@@ -377,6 +445,9 @@ function boundedOwnerArguments(arguments_: readonly string[]): readonly string[]
 }
 
 function operationArguments(operation: ContainerEngineOperation): readonly string[] {
+  if (operation.kind === 'buildx-inspect-default' && operation.arguments.length !== 0) {
+    fail('default builder inspection cannot accept bootstrap, another selector or other arguments');
+  }
   const prefix = OPERATION_PREFIX[operation.kind];
   return Object.freeze([...prefix, ...boundedArguments(operation.arguments)]);
 }
@@ -391,6 +462,22 @@ export function compileContainerEngineOperationArguments(
     retainedEndpoint.endpointHost,
     ...operationArguments(operation)
   ]);
+}
+
+/** One selector for qualification and every subsequent materialization command. */
+export function compileQualifiedLinuxDockerOperationArguments(
+  endpoint: DockerEndpointIdentity,
+  operation: ContainerEngineOperation
+): readonly string[] {
+  if (operation.kind !== 'buildx-build' && operation.kind !== 'buildx-bake') {
+    return compileContainerEngineOperationArguments(endpoint, operation);
+  }
+  if (operation.arguments.some((argument) => argument === '--builder' || argument.startsWith('--builder='))) {
+    fail('qualified Linux Buildx cannot replace its default builder selector');
+  }
+  return compileContainerEngineOperationArguments(endpoint, {
+    ...operation, arguments: ['--builder=default', ...operation.arguments]
+  });
 }
 
 /** Curl supplies HTTP framing; only a fixed local Engine observation is admitted. */
@@ -501,6 +588,20 @@ export async function openContainerEngineSession(
     label: 'command-provider-dispose',
     settle: () => disposeClaimedDockerCommandProvider(retained)
   });
+  if (retained.linuxCli !== undefined) {
+    try {
+      assertSemanticOperationProjection(input.operation);
+      input = Object.freeze({ ...input, operation: bindSemanticOperation(input.operation.plan, input.operation.bindings) });
+    } catch (error) {
+      settlePhysicalResources({ primary: { label: 'linux-operation-admission', error }, cleanup: [providerCleanup()] });
+      throw error;
+    }
+  }
+  if (retained.linuxCli !== undefined
+      && input.operation.plan.attempt.deadlineAtUnixMs > retained.linuxCli.deadlineAtUnixMs) {
+    settlePhysicalResources({ primary: { label: 'linux-cli-deadline', error: new QualifiedLinuxDockerScopeUnavailableError('Container Engine session exceeds its original qualified Linux lifetime.') },
+      cleanup: [providerCleanup()] });
+  }
   if (retained.workingDirectory.path !== cwd || retained.executable !== input.provider.executable) {
     settlePhysicalResources({
       primary: Object.freeze({
@@ -534,6 +635,7 @@ export async function openContainerEngineSession(
   }
   const providerAuthorityIdentityDigest = providerAuthorityBinding.providerIdentityDigest;
   let processSession: ReturnType<typeof openProcessResourceSession>;
+  let processSessionOpened = false;
   let daemonProbeBoundary: ReturnType<typeof issueRetainedCommandBoundary> | undefined;
   try {
     if (retained.daemonProbe !== undefined) {
@@ -544,7 +646,7 @@ export async function openContainerEngineSession(
     }
     processSession = openProcessResourceSession({
       operation: input.operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation: input.operation,
         requirementId: providerAuthorityBinding.requirementId,
         resourceCeilings: [
@@ -559,12 +661,19 @@ export async function openContainerEngineSession(
           ) ? [] : [{ resource: 'input-bytes' as const, maximum: 0 }])
         ]
       }),
-      ...(input.signal === undefined ? {} : { signal: input.signal })
+      ...(input.signal === undefined && retained.linuxCli === undefined ? {} : {
+        signal: linkNativeAbortSignals(input.signal, retained.linuxCli?.signal)
+      })
     });
+    processSessionOpened = true;
+    if (retained.linuxCli !== undefined && processSession.deadlineAtUnixMs !== retained.linuxCli.deadlineAtUnixMs) {
+      throw new QualifiedLinuxDockerScopeUnavailableError('Qualified Linux CLI, private state and physical process session must retain one original deadline.');
+    }
   } catch (error) {
     settlePhysicalResources({
       primary: Object.freeze({ label: 'process-session-admission', error }),
       cleanup: [
+        { label: 'process-session-admission-close', settle: () => { if (processSessionOpened) processSession.close(); } },
         providerCleanup()
       ]
     });
@@ -576,21 +685,24 @@ export async function openContainerEngineSession(
   let terminalCloseFailure: unknown;
   let runtimeState: DockerDesktopLifecycleEnvironment | null = null;
   let independentProvider: IndependentProviderProcessCapability | null = null;
-  let admissionProviderIdentityDigest: SecOperationDigest = providerAuthorityIdentityDigest;
+  let admissionProviderIdentityDigest: OperationDigest = providerAuthorityIdentityDigest;
   type ScopeCommandSettlement = Readonly<{
     ordinal: number;
     operationKind: ContainerEngineOperation['kind'];
-    argumentsDigest: SecOperationDigest;
+    argumentsDigest: OperationDigest;
     exitCode: number;
-    stdoutDigest: SecOperationDigest;
-    stderrDigest: SecOperationDigest;
+    stdoutDigest: OperationDigest;
+    stderrDigest: OperationDigest;
   }>;
   type ActiveScope = {
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     requirementId: string;
     processCount: number;
     inputBytes: number;
     outputBytes: number;
+    reservedProcesses: number;
+    reservedInputBytes: number;
+    reservedOutputBytes: number;
     transportUnknown: boolean;
     settlements: ScopeCommandSettlement[];
   };
@@ -604,11 +716,39 @@ export async function openContainerEngineSession(
     scopedOperation?: ContainerEngineOperation,
     commandOwner: 'docker' | 'daemon-probe' = 'docker'
   ): Promise<ContainerEngineCommandResult> => {
+    if (nativeTypes.isProxy(options)) fail('operation options cannot be a Proxy');
+    const optionDescriptors = Object.getOwnPropertyDescriptors(options);
+    for (const key of Reflect.ownKeys(optionDescriptors)) {
+      const descriptor = Object.getOwnPropertyDescriptor(optionDescriptors, key)!.value;
+      if (!Object.hasOwn(descriptor, 'value')) fail('operation options require own data');
+    }
+    options = Object.defineProperties({}, optionDescriptors);
+    let ownedInput: Buffer | undefined;
+    if (options.input !== undefined) {
+      if (nativeTypes.isProxy(options.input) || !nativeTypes.isUint8Array(options.input)) fail('operation input must be native bytes');
+      const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+      const inputLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!.get!.call(options.input);
+      const inputBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')!.get!.call(options.input);
+      if (nativeTypes.isSharedArrayBuffer(inputBuffer)) fail('operation input cannot use shared memory');
+      ownedInput = Buffer.alloc(inputLength);
+      Uint8Array.prototype.set.call(ownedInput, options.input);
+    }
+    let acceptedCodes: readonly number[] | undefined;
+    if (options.acceptedCodes !== undefined) {
+      if (nativeTypes.isProxy(options.acceptedCodes) || !Array.isArray(options.acceptedCodes)) fail('accepted codes must be an ordinary array');
+      const descriptors = Object.getOwnPropertyDescriptors(options.acceptedCodes);
+      acceptedCodes = Object.freeze(Array.from({ length: Object.getOwnPropertyDescriptor(options.acceptedCodes, 'length')!.value }, (_, index) => {
+        const descriptor = descriptors[String(index)];
+        if (descriptor === undefined || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'number') fail('accepted codes require own numbers');
+        return descriptor.value;
+      }));
+    }
+    options = Object.freeze({ ...options, input: ownedInput, acceptedCodes });
     if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
     if (retained.platform === 'linux') {
       if (commandOwner === 'docker') {
         // Help/error paths can execute unqualified system plugin metadata.
-        assertDockerCommandOperationAvailable(retained.platform, scopedOperation?.kind);
+        assertDockerCommandOperationAvailable(retained.platform, scopedOperation?.kind, retained.linuxCli);
       }
       if (retained.linuxEndpoint === undefined) {
         throw new DockerCommandOperationUnavailableError(
@@ -642,20 +782,27 @@ export async function openContainerEngineSession(
       if (Date.now() >= scope.operation.plan.attempt.deadlineAtUnixMs) {
         fail('provider settlement scope deadline is exhausted');
       }
-      if (scope.processCount + 1 > semanticOperationBudget(scope.operation, 'processes')) {
+      if (scope.processCount + scope.reservedProcesses + 1 > semanticOperationBudget(scope.operation, 'processes')) {
         fail('provider settlement scope process budget is exhausted');
       }
-      if (scope.inputBytes + commandInputBytes > semanticOperationBudget(scope.operation, 'input-bytes')) {
+      if (scope.inputBytes + scope.reservedInputBytes + commandInputBytes > semanticOperationBudget(scope.operation, 'input-bytes')) {
         fail('provider settlement scope input budget is exhausted');
       }
-      if (scope.outputBytes + stdoutBound + stderrBound
+      if (scope.outputBytes + scope.reservedOutputBytes + stdoutBound + stderrBound
           > semanticOperationBudget(scope.operation, 'output-bytes')) {
         fail('provider settlement scope output budget is exhausted');
       }
     }
+    if (scope !== null) {
+      scope.reservedProcesses += 1;
+      scope.reservedInputBytes += commandInputBytes;
+      scope.reservedOutputBytes += stdoutBound + stderrBound;
+    }
     active += 1;
     let transportSettled = false;
+    let transportAttempted = false;
     try {
+      await retained.linuxCli?.assertCurrent();
       runtimeState?.assertCurrent();
       retained.privateState?.assertCurrent();
       retained.linuxEndpoint?.assertCurrent();
@@ -665,6 +812,11 @@ export async function openContainerEngineSession(
       const boundary = commandOwner === 'daemon-probe'
         ? daemonProbeBoundary ?? fail('retained daemon probe is unavailable')
         : retained.boundary;
+      if (scope !== null) {
+        if (currentScope !== scope || scope.transportUnknown) fail('provider settlement scope lost its current physical admission');
+        if (Date.now() >= scope.operation.plan.attempt.deadlineAtUnixMs) fail('provider settlement scope deadline is exhausted');
+      }
+      transportAttempted = true;
       const { ordinal, result } = await processSession.run(boundary,
         invocation.arguments, {
         env: invocation.environment,
@@ -683,6 +835,7 @@ export async function openContainerEngineSession(
           independentProvider: providerCapability
         })
       });
+      await retained.linuxCli?.assertCurrent();
       runtimeState?.assertCurrent();
       retained.privateState?.assertCurrent();
       retained.linuxEndpoint?.assertCurrent();
@@ -703,14 +856,14 @@ export async function openContainerEngineSession(
           operationKind: scopedOperation!.kind,
           argumentsDigest: sha256({
             arguments: boundedArguments(scopedOperation!.arguments)
-          }) as SecOperationDigest,
+          }) as OperationDigest,
           exitCode: commandResult.code,
           stdoutDigest: sha256({
             stdout: commandResult.stdout.toString('base64')
-          }) as SecOperationDigest,
+          }) as OperationDigest,
           stderrDigest: sha256({
             stderr: commandResult.stderr.toString('base64')
-          }) as SecOperationDigest
+          }) as OperationDigest
         }));
       }
       if (options.acceptAnyExitCode !== true
@@ -720,7 +873,7 @@ export async function openContainerEngineSession(
       }
       return commandResult;
     } catch (error) {
-      if (scope !== null && !transportSettled) {
+      if (scope !== null && !transportSettled && transportAttempted) {
         scope.processCount += 1;
         scope.inputBytes += commandInputBytes;
         scope.outputBytes += stdoutBound + stderrBound;
@@ -728,13 +881,19 @@ export async function openContainerEngineSession(
       }
       throw error;
     } finally {
+      if (scope !== null) {
+        scope.reservedProcesses -= 1;
+        scope.reservedInputBytes -= commandInputBytes;
+        scope.reservedOutputBytes -= stdoutBound + stderrBound;
+      }
       active -= 1;
     }
   };
 
   const observeInfo = async (host: string, options: ContainerEngineOperationOptions = {}) => {
     if (daemonProbeBoundary === undefined) {
-      return await rawRun(['--host', host, 'info', '--format', '{{json .}}'], options);
+      return await rawRun(['--host', retained.linuxCli === undefined ? host : retained.linuxEndpoint!.transportHost,
+        'info', '--format', '{{json .}}'], options);
     }
     if (host !== retained.endpointHost) fail('daemon probe cannot replace the installed endpoint');
     return await rawRun(compileLinuxDockerDaemonProbeArguments(
@@ -946,7 +1105,7 @@ export async function openContainerEngineSession(
       cwd,
       executable: retained.executable,
       commandProtocol: retained.commandProtocol,
-      supportedOperations: retained.platform === 'linux'
+      supportedOperations: retained.platform === 'linux' && retained.linuxCli === undefined
         ? LINUX_DOCKER_OPERATIONS
         : Object.freeze(Object.keys(OPERATION_PREFIX) as ContainerEngineOperation['kind'][]),
       deadlineAtUnixMs: processSession.deadlineAtUnixMs,
@@ -957,6 +1116,15 @@ export async function openContainerEngineSession(
         if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
         if (active > 0) fail('provider settlement scope cannot open during an active operation');
         if (currentScope !== null) fail('provider settlement scopes cannot nest or overlap');
+        if (retained.linuxCli !== undefined) {
+          assertQualifiedLinuxDockerCli(retained.linuxCli);
+          assertSemanticOperationProjection(scopeInput.operation);
+          scopeInput = Object.freeze({ ...scopeInput, operation: bindSemanticOperation(
+            scopeInput.operation.plan, scopeInput.operation.bindings
+          ) });
+          assertQualifiedLinuxDockerScopeBudget({ operation: scopeInput.operation,
+            sessionDeadlineAtUnixMs: processSession.deadlineAtUnixMs });
+        }
         assertContainerEngineOperationScopeAdmission({
           operation: scopeInput.operation,
           requirementId: scopeInput.requirementId,
@@ -969,16 +1137,19 @@ export async function openContainerEngineSession(
           processCount: 0,
           inputBytes: 0,
           outputBytes: 0,
+          reservedProcesses: 0,
+          reservedInputBytes: 0,
+          reservedOutputBytes: 0,
           transportUnknown: false,
           settlements: []
         };
         currentScope = scope;
-        let receipt: SecProviderSettlementReceipt | null = null;
+        let receipt: ProviderSettlementReceipt | null = null;
         const handle: ContainerEngineOperationScope = Object.freeze({
           operationIdentityDigest: scopeInput.operation.plan.identity.identityDigest,
           boundAttemptDigest: scopeInput.operation.boundAttemptDigest,
           requirementId: scopeInput.requirementId,
-          settle(): SecProviderSettlementReceipt {
+          settle(): ProviderSettlementReceipt {
             if (receipt !== null) return receipt;
             if (currentScope !== scope) fail('provider settlement scope is no longer current');
             if (active > 0) fail('provider settlement scope cannot settle during an active operation');
@@ -1000,8 +1171,8 @@ export async function openContainerEngineSession(
               inputBytes: scope.inputBytes,
               outputBytes: scope.outputBytes,
               settlements: scope.settlements
-            }) as SecOperationDigest;
-            receipt = issueSecProviderSettlementReceipt(scope.operation, {
+            }) as OperationDigest;
+            receipt = issueProviderSettlementReceipt(scope.operation, {
               requirementId: scope.requirementId,
               physicalDisposition,
               providerSettlementReferenceDigest
@@ -1030,12 +1201,14 @@ export async function openContainerEngineSession(
       execute: async (
         operation: ContainerEngineOperation,
         options: ContainerEngineOperationOptions = {}
-      ): Promise<ContainerEngineCommandResult> => await rawRun(
-        compileContainerEngineOperationArguments(endpoint, operation),
-        options,
-        undefined,
-        operation
-      ),
+      ): Promise<ContainerEngineCommandResult> => {
+        const captured = Object.freeze({ ...operation, arguments: boundedArguments(operation.arguments) });
+        return await rawRun(
+          retained.linuxCli === undefined ? compileContainerEngineOperationArguments(endpoint, captured)
+            : compileQualifiedLinuxDockerOperationArguments({ ...endpoint, endpointHost: retained.linuxEndpoint!.transportHost }, captured),
+          options, undefined, captured
+        );
+      },
       close: () => {
         if (closed) {
           if (terminalCloseFailure !== undefined) throw terminalCloseFailure;
@@ -1079,6 +1252,21 @@ export async function openContainerEngineSession(
         }
       }
     });
+    issuedSessions.set(session, { qualifiedLinux: retained.linuxCli !== undefined,
+      signal: processSession.signal,
+      observeCloseState: () => !closed ? 'open' : terminalCloseFailure === undefined ? 'settled' : 'unknown',
+      originIdentityDigest: retained.linuxCli?.originIdentityDigest ?? null,
+      assertIdle: () => {
+        if (closed || closing || active !== 0 || currentScope !== null) fail('session is not idle and transferable');
+      }, assertCurrent: async () => {
+      if (closed || closing) fail('retained session has closed');
+      if (Date.now() >= processSession.deadlineAtUnixMs) fail('retained session original deadline expired');
+      await retained.linuxCli?.assertCurrent();
+      retained.linuxEndpoint?.assertCurrent();
+      retained.privateState?.assertCurrent();
+      retained.boundary.executable.assertCurrent();
+      retained.boundary.workingDirectory.assertCurrent();
+    } });
     return session;
   } catch (error) {
     settlePhysicalResources({

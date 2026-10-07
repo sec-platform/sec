@@ -1,9 +1,9 @@
 import path from 'node:path';
 import ts from 'typescript';
-import { CompilerError } from '../../compiler/errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isPathInside, relativePosixPath } from "../../contracts/relative-path.ts";
+import type { DependencyProjectOperation } from '../../execution/dependency-materialization.ts';
 import { pathExists } from "../filesystem/files.ts";
-import { withProjectDependencyBridge } from '../toolchain/dependencies/runtime.ts';
 import { compilerRoot, tsconfigRelativePath } from "../workspace-context.ts";
 import { captureTypecheckInvocation, type TypecheckProjectOptions } from './typecheck-invocation.ts';
 
@@ -21,12 +21,12 @@ function formatDiagnostic(diagnostic: ts.Diagnostic, diagnosticRoot: string): st
 function isolatedSourceEscape(
   dependencyProjectRoot: string,
   sourceFileName: string
-): CompilerError {
+): CodedFailure {
   const escapedSourcePath = relativePosixPath(
     dependencyProjectRoot,
     sourceFileName
   ).slice(0, 256);
-  return new CompilerError(
+  return new CodedFailure(
     'VERIFY-ISOLATION-003',
     `Isolated typecheck resolved a source outside its project and plan-bound dependency roots (${escapedSourcePath})`,
     { sourceFile: escapedSourcePath }
@@ -194,16 +194,19 @@ function createIsolatedCompilerHost(
   return Object.freeze({ allowedSourceRoots, host });
 }
 
+export function typecheckProject(projectRoot: string, options: TypecheckProjectOptions & Readonly<{ isolated: true }>): Promise<void>;
+export function typecheckProject(projectRoot: string, options: TypecheckProjectOptions, dependencies: DependencyProjectOperation): Promise<void>;
 export async function typecheckProject(
   projectRoot: string,
-  options: TypecheckProjectOptions = {}
+  options: TypecheckProjectOptions = {},
+  dependencies?: DependencyProjectOperation
 ): Promise<void> {
   const request = captureTypecheckInvocation(projectRoot, options);
   projectRoot = request.projectRoot;
   const { dependencyProjectRoot, diagnosticRoot, isolated } = request;
   const dependencyNodeModulesRoot = path.join(dependencyProjectRoot, 'node_modules');
   if (isolated && !isPathInside(dependencyProjectRoot, projectRoot)) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-ISOLATION-002',
       'Isolated typecheck project must remain inside its plan-bound dependency project'
     );
@@ -211,12 +214,12 @@ export async function typecheckProject(
   const execute = async (): Promise<void> => {
     const tsconfigPath = path.join(projectRoot, tsconfigRelativePath);
     if (!(await pathExists(tsconfigPath))) {
-      throw new CompilerError('VERIFY-BUILD-001', 'Generated project is missing tsconfig.json');
+      throw new CodedFailure('VERIFY-BUILD-001', 'Generated project is missing tsconfig.json');
     }
 
     const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
     if (configFile.error) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-BUILD-003',
         'Failed to read generated project tsconfig',
         formatDiagnostic(configFile.error, diagnosticRoot)
@@ -225,7 +228,7 @@ export async function typecheckProject(
 
     const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, projectRoot, undefined, tsconfigPath);
     if (parsed.errors.length > 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-BUILD-004',
         'Generated project tsconfig is invalid',
         parsed.errors.map(diagnostic => formatDiagnostic(diagnostic, diagnosticRoot))
@@ -265,7 +268,7 @@ export async function typecheckProject(
         primary.messageText,
         ' '
       )}`.slice(0, 256);
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-BUILD-005',
         `Generated project typecheck failed (${primarySummary})`,
         diagnostics.map(diagnostic => formatDiagnostic(diagnostic, diagnosticRoot))
@@ -274,10 +277,11 @@ export async function typecheckProject(
   };
   if (isolated) {
     if (!(await pathExists(path.join(dependencyNodeModulesRoot, 'typescript', 'package.json')))) {
-      throw new CompilerError('VERIFY-ISOLATION-002', 'Isolated typecheck dependencies were not materialized physically');
+      throw new CodedFailure('VERIFY-ISOLATION-002', 'Isolated typecheck dependencies were not materialized physically');
     }
     await execute();
     return;
   }
-  await withProjectDependencyBridge(projectRoot, execute);
+  if (dependencies === undefined) throw new CodedFailure('VERIFY-DEPENDENCY-001', 'Live typecheck requires the dependency operation bound by its composition root');
+  await dependencies.withProjectDependencyBridge(projectRoot, execute);
 }

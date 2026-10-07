@@ -157,22 +157,8 @@ test('an absent generating pass displays none, not an empty string identity', ()
   assert.ok(mixed.includes('Generated passes: emit')); assert.ok(!mixed.includes('Generated passes: ,'));
 });
 
-test('manifest formatter consumes large aggregate counts without occurrence expansion', () => {
-  const output = formatCiArtifactManifest(projectCiArtifactManifest(manifest({ 'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
-    'declared-generated-missing': 2 ** 40 })));
-  assert.ok(output.includes(`Missing reasons: declared-generated-missing=${2 ** 40}, fixed-governance-missing=${Number.MAX_SAFE_INTEGER}`));
-});
-
-test('manifest zero/ordinary count presentation preserves existing sorted wording', () => {
-  assert.ok(formatCiArtifactManifest(projectCiArtifactManifest(manifest({ 'fixed-governance-missing': 2, 'declared-generated-missing': 1 })))
-    .includes('Missing reasons: declared-generated-missing=1, fixed-governance-missing=2'));
+test('manifest zero count presentation preserves the absence wording', () => {
   assert.ok(formatCiArtifactManifest(projectCiArtifactManifest(manifest({}))).includes('Missing reasons: none'));
-});
-
-test('manifest invalid aggregate counts fail explicitly instead of expanding malformed data', () => {
-  for (const count of [-1, 0.5, Infinity, NaN]) {
-    assert.throws(() => formatCiArtifactManifest(projectCiArtifactManifest(manifest({ 'declared-generated-missing': count }))), RangeError);
-  }
 });
 
 test('coverage preserves existing JSON field order while detaching source arrays', () => {

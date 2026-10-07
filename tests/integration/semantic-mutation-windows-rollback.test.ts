@@ -173,18 +173,18 @@ test('rollback manifest v2 has an exact schema and digest while stale v1 fails c
     backupPath: '.sec/forbidden-backup'
   } as never)).toThrow('schema');
 
-  const staleV1WithoutDigest = {
+  const staleManifestWithoutDigest = {
     ...withoutDigest,
     formatRevision: 'semantic-mutation-rollback-manifest-v1'
   };
-  const staleV1 = {
-    ...staleV1WithoutDigest,
+  const staleManifest = {
+    ...staleManifestWithoutDigest,
     rollbackManifestDigest: jsonDigest({
       domain: 'semantic-mutation-rollback-manifest-v1',
-      ...staleV1WithoutDigest
+      ...staleManifestWithoutDigest
     })
   };
-  expect(() => assertSemanticMutationRollbackManifestInvariant(staleV1 as never)).toThrow('invalid');
+  expect(() => assertSemanticMutationRollbackManifestInvariant(staleManifest as never)).toThrow('invalid');
 });
 
 test('atomic publish failure diagnostics keep native failure metadata inside details', async () => {

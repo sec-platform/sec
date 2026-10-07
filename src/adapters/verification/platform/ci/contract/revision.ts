@@ -18,8 +18,25 @@ const HOSTED_SANDBOX_PYTHON = Object.freeze({
 /** Active trusted hosted lane. */
 export const CI_VERIFICATION_SESSION_CONTRACT_REVISION = 'ci-verification-session-v2' as const;
 export const CI_VERIFICATION_SESSION_DISPATCH_TYPE = 'sec-verify-session-v2' as const;
-export const CI_VERIFICATION_SESSION_REQUEST_SCHEMA = 'sec-verification-session-hosted-request-v1' as const;
+
 export const CI_VERIFICATION_SESSION_ARTIFACT_PREFIX = VERIFICATION_SESSION_SCHEMA;
+export const HOSTED_RESUME_DISPATCH_OUTCOMES_ARTIFACT_FILE = 'verification-session-resume-dispatch-outcomes.json' as const;
+
+export function hostedResumeDispatchOutcomesArtifactName(runId: string, runAttempt: number): string {
+  if (!/^[1-9][0-9]*$/u.test(runId) || !Number.isSafeInteger(runAttempt) || runAttempt < 1) {
+    throw new Error('Resume outcome artifact requires one exact receiver attempt.');
+  }
+  return `verification-session-resume-dispatch-outcomes-run-${runId}-attempt-${runAttempt}`;
+}
+
+export function hostedSessionArtifactName(input: {
+  prNumber: number;
+  sessionRevision: `sha256:${string}`;
+  runId: string;
+  runAttempt: number;
+}): string {
+  return `sec-verification-session-v2-pr-${input.prNumber}-session-${input.sessionRevision.slice(7)}-run-${input.runId}-attempt-${input.runAttempt}`;
+}
 
 /**
  * The hosted SUT isolation policy is part of Action identity through

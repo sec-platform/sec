@@ -11,6 +11,7 @@ import path from 'node:path';
 import {
   parseExactJson
 } from '../../../../contracts/exact-json.ts';
+import type { VerificationActionKey, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import {
   observePhysicalJournalMutationEntry,
   PHYSICAL_MUTATION_LEASE_SCHEMA
@@ -27,11 +28,7 @@ import {
   type RuntimeStateJournalFileSystem,
   runtimeStateJournalMutationLeaseName
 } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
-import {
-  encodeVerificationActionData,
-  type VerificationActionKey,
-  type VerificationActionKeyDigest
-} from './contract/action.ts';
+import { encodeVerificationActionData } from './contract/action.ts';
 import {
   assertQuarantineDominatesRetainedJournal,
   canonicalLegacyQuarantineReceipt,

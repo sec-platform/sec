@@ -4,17 +4,17 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import { authorizeBranchCloseout } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { collectBranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
-import { BRANCH_REF_CLOSEOUT_CAPABILITY, type BranchCloseoutAttempt } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
-import { deleteHostedLocalRefCas } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import type { SecOperationDigest } from '../../src/execution/operation/semantic.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
+import type { BranchCloseoutAttempt } from '../../src/execution/verification/branch-closeout.ts';
 import {
   compileCloseoutCliProviderShims, prepareCloseoutCliScenario,
   readCloseoutCliHarnessState, writeCloseoutCliHarnessState
 } from '../helpers/closeout-cli/provider.ts';
 import { observeCloseoutFixtureWork } from '../helpers/closeout-cli/work-observation.ts';
+import { observeLocalRefCasWithAdmissionDouble } from '../helpers/main-health-admission-double.ts';
 import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
 
 // This qualifies the real consumer's setup using synthetic Git and Work
@@ -59,9 +59,13 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       expect(wrong.status).not.toBe(0);
       expect(readCloseoutCliHarnessState(prepared.statePath).localDeleteCount).toBe(0);
       const attempts: BranchCloseoutAttempt[] = [];
-      const result = await withWorkspaceWriteLease(path.join(prepared.root, '.git'), undefined,
-        async lease => await deleteHostedLocalRefCas(prepared.rehydratedPrepared.preparation,
-          attempts, lease, `sha256:${'c'.repeat(64)}` as SecOperationDigest));
+      const observed = observeLocalRefCasWithAdmissionDouble({
+        preparation: prepared.rehydratedPrepared.preparation,
+        operationId: `sha256:${'c'.repeat(64)}` as OperationDigest });
+      const result = observed.result;
+      attempts.push(...observed.attempts);
+      expect(observed.admissionChecks).toBe(2);
+      expect(observed.realForgedAdmissionRejected).toBe(true);
       expect(result).toMatchObject({ status: 'success' });
       expect(readCloseoutCliHarnessState(prepared.statePath)).toMatchObject({
         localPresent: false, localDeleteCount: 1, localRefObservationCount: 2,

@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
-import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
+import { formatFailure } from '../../contracts/failure-format.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import {
   bindRepairCommandHandler,
   bindUpgradeCommandHandler,
@@ -63,7 +64,7 @@ export function registerWorkspaceCommands(program: Command): void {
         return repairPlan;
       },
       progress: runWithOptionalSpinner,
-      formatFailure: formatCompilerFailure
+      formatFailure: formatFailure
     }),
 
     upgrade: bindUpgradeCommandHandler({
@@ -71,7 +72,7 @@ export function registerWorkspaceCommands(program: Command): void {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
         const { plan, executionTerminal } = readUpgradeArtifactSet(workspaceRoot);
         if (plan === null) {
-          throw new CompilerError('UPGRADE-BLOCKED-003', missingMessage);
+          throw new CodedFailure('UPGRADE-BLOCKED-003', missingMessage);
         }
         return { plan, executionTerminal };
       },
@@ -79,7 +80,7 @@ export function registerWorkspaceCommands(program: Command): void {
         const { readUpgradeArtifactSet } = await import('../../adapters/upgrade/artifact-readback.ts');
         const { diagnostics } = readUpgradeArtifactSet(workspaceRoot);
         if (diagnostics === null) {
-          throw new CompilerError('UPGRADE-BLOCKED-003', missingMessage);
+          throw new CodedFailure('UPGRADE-BLOCKED-003', missingMessage);
         }
         return diagnostics;
       },

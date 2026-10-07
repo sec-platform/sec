@@ -1,6 +1,6 @@
 import { uniqueSorted } from '../contracts/canonical.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { SemanticGeneratorDeclaration } from '../semantics/generation/types.ts';
-import { CompilerError } from './errors.ts';
 import { generatorEntityId } from './ir/ir-identity.ts';
 
 /** Omission retains the all-roots profile; an explicit empty selection performs
@@ -8,11 +8,11 @@ import { generatorEntityId } from './ir/ir-identity.ts';
 export function captureSemanticRoots(roots?: readonly string[]): readonly string[] | undefined {
   if (roots === undefined) return undefined;
   if (!Array.isArray(roots)) {
-    throw new CompilerError('GENERATOR-ROOT-001', 'Semantic roots must be an array of generator identities');
+    throw new CodedFailure('GENERATOR-ROOT-001', 'Semantic roots must be an array of generator identities');
   }
   const selected = [...roots];
   if (selected.some(root => typeof root !== 'string' || root.length === 0)) {
-    throw new CompilerError('GENERATOR-ROOT-001', 'Semantic roots must be non-empty generator identities');
+    throw new CodedFailure('GENERATOR-ROOT-001', 'Semantic roots must be non-empty generator identities');
   }
   return Object.freeze(uniqueSorted(selected));
 }
@@ -28,7 +28,7 @@ export function selectSemanticGeneratorRoots(
   const available = new Set(declarations.map(identity));
   const missing = roots.filter(root => !available.has(root));
   if (missing.length > 0) {
-    throw new CompilerError('GENERATOR-ROOT-002', 'Requested semantic generators are absent from this input', { roots: missing });
+    throw new CodedFailure('GENERATOR-ROOT-002', 'Requested semantic generators are absent from this input', { roots: missing });
   }
   const selected = new Set(roots);
   // Preserve duplicate declaration checks and canonical task ordering in the

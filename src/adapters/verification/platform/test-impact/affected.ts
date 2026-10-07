@@ -8,7 +8,7 @@ import {
   type CodexDevelopmentTestImpactSourceProvider
 } from './runtime/impact.ts';
 
-export type CodexDevelopmentAffectedTestInventory = {
+export type AffectedTestInventory = {
   changedFastTests: string[];
   changedSlowTests: string[];
   affectedFastTests: string[];
@@ -33,7 +33,7 @@ export type CodexDevelopmentAffectedTestInventory = {
   unresolvedModuleFiles: string[];
 };
 
-export function CodexDevelopmentAffectedInventoryInputs(
+export function AffectedInventoryInputs(
   changedPaths: readonly string[],
   currentTestPathIsRunnable: (file: string) => boolean
 ): string[] {
@@ -42,10 +42,10 @@ export function CodexDevelopmentAffectedInventoryInputs(
   )));
 }
 
-export function CodexDevelopmentBuildAffectedTestInventory(
+export function buildAffectedTestInventory(
   files: readonly string[],
   provider: CodexDevelopmentTestImpactSourceProvider
-): CodexDevelopmentAffectedTestInventory {
+): AffectedTestInventory {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));
   const impactSourceFiles = files.filter((file) => isTestImpactSourceFile(file, provider));
@@ -82,11 +82,11 @@ export function CodexDevelopmentBuildAffectedTestInventory(
 }
 
 // ---------------------------------------------------------------------------
-// Affected Selection Trust Boundary (Issue #206)
+// Affected Selection Trust Boundary
 // ---------------------------------------------------------------------------
 //
 // Classifies the result of an affected-test selection into a trust boundary
-// and projects it to the unified VerificationGateResult model (PR #204).
+// and projects it to the canonical VerificationGateResult model.
 //
 // The core problem this solves: `test-runner.ts` used to return exit 0 when
 // `sourceChanged=true && selectedFastTests=[]` even when the empty closure was

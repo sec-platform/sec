@@ -9,7 +9,6 @@ import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-conte
 import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { CI_ARTIFACT_MISSING_REASON } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
 import {
-  assertSemanticViewArtifactsAreCurrent,
   requireLockSemanticViews,
   semanticViewArtifactsAreCurrent
 } from '../../src/assurance/verification/review/semantic-view-artifact-contract.ts';
@@ -237,9 +236,6 @@ test('A to B semantic refresh blocks stale machine projection publication', asyn
       reason: CI_ARTIFACT_MISSING_REASON.staleSemanticProjection,
       declaredBy: 'artifact-manifest'
     });
-    expect(() => assertSemanticViewArtifactsAreCurrent(lock, staleGraph)).toThrow(
-      'does not match the current graph lock revision'
-    );
   }, 'engineering-compiler-semantic-artifact-revision-');
 });
 

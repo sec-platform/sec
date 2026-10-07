@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
+import { workspaceConfigRelativePath } from '../../src/contracts/workspace-config.ts';
 
-import { secRelativePath, workspaceConfigRelativePath } from "../../src/adapters/workspace-context.ts";
+import { secRelativePath } from "../../src/adapters/workspace-context.ts";
 import { validateOverrideManifest } from '../../src/compiler/contract/override-validation.ts';
 import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, portableLogicalPathCollisionKey } from '../../src/contracts/logical-path.ts';
 

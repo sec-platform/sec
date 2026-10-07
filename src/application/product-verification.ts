@@ -3,8 +3,7 @@ import type { CanonicalVerificationArtifactSet } from '../assurance/verification
 import { CI_ARTIFACT_FILES } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   shouldExecuteRuntimeVerification,
-  verificationLaneProfile,
-  type VerificationRuntimeMode
+  verificationLaneProfile
 } from '../assurance/verification/contract/lanes.ts';
 import type {
   FastVerificationLaneReport,
@@ -26,8 +25,8 @@ import {
 } from '../assurance/verification/project/report.ts';
 import type { LockFile } from '../compiler/contract.ts';
 import { addGeneratedPaths, assertPassStatus } from '../compiler/contract/lock-schema.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import type { PipelineExecutionBoundary } from '../compiler/pipeline/execution-boundaries.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { throwIfNativeAborted } from '../contracts/native-abort.ts';
 import { observeOptionalDiagnostic } from '../execution/optional-diagnostic.ts';
 import type { PolicyReport } from '../semantics/policies/types.ts';
@@ -73,7 +72,6 @@ export interface ProductVerificationOperations<StagedProof> {
     signal?: AbortSignal;
   }>): Promise<ProductVerificationFastResult>;
   runRuntime(
-    mode: VerificationRuntimeMode,
     input: Readonly<{
       beforeCommit: () => Promise<void>;
       emitTiming: boolean | undefined;
@@ -124,8 +122,8 @@ function applyVerificationReportToLock(
 function verificationFailure(
   report: VerificationReport,
   fastFailure: unknown | undefined
-): CompilerError {
-  return new CompilerError(
+): CodedFailure {
+  return new CodedFailure(
     'VERIFY-ACCEPTANCE-003',
     'Project verification failed',
     { verificationReport: report },
@@ -193,7 +191,7 @@ export async function executeProductVerification<StagedProof>(
   const assertSubjectCurrent = (): void => {
     throwIfNativeAborted(options.signal);
     if (productVerificationSubjectRevision(lock) !== subjectRevision) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-SUBJECT-001',
         'Verification subject changed after invocation admission'
       );
@@ -222,7 +220,7 @@ export async function executeProductVerification<StagedProof>(
     lock,
     'compose',
     'succeeded',
-    new CompilerError(
+    new CodedFailure(
       'VERIFY-BLOCKED-001',
       'compose must succeed before verify'
     )
@@ -291,7 +289,7 @@ export async function executeProductVerification<StagedProof>(
   )
     ? await (async () => {
         await boundary('verify-runtime');
-        return Reflect.apply(runRuntime, operations, [runtimeMode, {
+        return Reflect.apply(runRuntime, operations, [{
           beforeCommit,
           emitTiming: options.emitTiming,
           isolated: options.isolated,
@@ -350,7 +348,7 @@ export async function executeProductVerification<StagedProof>(
   });
   applyVerificationReportToLock(lock, report);
 
-  const primaryFailure = (): CompilerError => verificationFailure(
+  const primaryFailure = (): CodedFailure => verificationFailure(
     report,
     fastResult.failure?.reason
   );

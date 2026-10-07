@@ -2,7 +2,7 @@ import type { BigIntStats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getErrorCode } from '../../../../contracts/failure-inspection.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 
 export type DependencyEnvironmentMode = 'cold' | 'warm-compiler' | 'warm-project' | 'dirty' | 'stale';
 export type DependencyEntryKind = 'missing' | 'physical' | 'link';
@@ -39,7 +39,7 @@ function sameObservation(before: BigIntStats | null, after: BigIntStats | null):
 }
 
 function changed(targetPath: string): never {
-  throw new SecError('RUNTIME-DEPS-004', 'Dependency environment entry changed during observation', { path: targetPath });
+  throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency environment entry changed during observation', { path: targetPath });
 }
 
 /** Count through one directory iterator, without materializing all names.

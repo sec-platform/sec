@@ -10,34 +10,162 @@ import {
   writeFileSync
 } from 'node:fs';
 import path from 'node:path';
+import type { CiVerificationActionPlanClosure, CiVerificationNormalizedOperation, VerificationActionKey, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
+import type { HostedActionArtifactInput, HostedSessionTerminalArtifact, HostedSutExecutionProof, VerificationSessionResumeArtifact } from "../../../../../execution/verification/hosted.ts";
+import type { MainHealthLedger, ReviewStabilityReceipt, ScopeAuthorization, VerificationCleanup, VerificationEvidence, VerificationEvidenceProducer, VerificationGateEvidence, VerificationSession, VerificationSessionArtifact } from '../../../../../execution/verification/session.ts';
+import { HOSTED_RESUME_SIGNAL_SCHEMA, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
+import { parseCiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "./session-request.ts";
 
 import { canonicalEquals, sha256 as canonicalSha256 } from '../../../../../contracts/canonical.ts';
-import {
-  CodexDevelopmentReduceHostedSutObservation,
-  type CodexDevelopmentHostedSutExecutionProof
-} from './hosted-sut-observation.ts';
+import { CodexDevelopmentReduceHostedSutObservation } from './hosted-sut-observation.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentAssertVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
-import {
-  parseMainHealthLedger,
-  resolveOrdinaryMainHealthLane,
-  type MainHealthLedger
-} from '../../../../self-hosting/control/main-health/contract.ts';
-import {
-  assertScopeAuthorizationCurrent,
-  parseScopeAuthorization,
-  type ScopeAuthorization
-} from '../../../../self-hosting/control/scope/authorization.ts';
-import { encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan, type VerificationActionKey, type VerificationActionPlan } from '../../action/contract/action.ts';
-import { assertCiVerificationActionPlanClosureEqual, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationNormalizedOperation, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
-import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
-import { parseVerificationSession, type VerificationSession } from '../../session/contract/session.ts';
+import { assertDomainReadbackReceipt, assertOwnerTerminalJoinReceipt, assertProviderSettlementReceipt, assertProviderSettlementSet } from '../../../../../execution/operation/semantic.ts';
+import { parseMainHealthLedger, resolveOrdinaryMainHealthLane } from '../../../../self-hosting/control/main-health/contract.ts';
+import { assertScopeAuthorizationCurrent, parseScopeAuthorization } from '../../../../self-hosting/control/scope/authorization.ts';
+import { encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan } from '../../action/contract/action.ts';
+import { assertCiVerificationActionPlanClosureEqual, parseCiVerificationActionPlanClosure, parseCiVerificationNormalizedOperation, resolveCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, type VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
+import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY } from '../../review/contract/stability.ts';
+import { parseVerificationSession } from '../../session/contract/session.ts';
 import type { SourceProgramTransitionQualification, TrustedRuntimeSourceProgramAttemptEvidence } from '../../trusted-runtime/trusted-runtime-container.ts';
+
+import { LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, linuxVerificationUnitInvocationDigest, parseLinuxVerificationUnitReceipt } from '../../../../runtime-state/physical/contract/linux-verification-unit.ts';
 
 export function CodexDevelopmentVerificationDigest(value: unknown): string {
   return canonicalSha256(value);
+}
+
+function sourceAttemptInvalid(message: string): never {
+  throw new Error(`Source Program attempt carrier: ${message}`);
+}
+function sourceAttemptBytesDigest(value: string | Uint8Array): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+/** Historical bytes are inspectable but never recreate a live observation. */
+export function parseTrustedRuntimeSourceProgramAttemptCarrier(value: unknown): TrustedRuntimeSourceProgramAttemptEvidence {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) sourceAttemptInvalid('transition attempt evidence is not data');
+  const evidence = value as TrustedRuntimeSourceProgramAttemptEvidence;
+  if (Object.keys(evidence).sort().join(',') !== 'assessment,authority,evidenceDigest,observation,physicalEvidence,schema') {
+    sourceAttemptInvalid('transition attempt evidence fields are invalid');
+  }
+  if (evidence.schema === 'source-program-isolated-attempt-evidence-v3') {
+    const { evidenceDigest, ...canonical } = evidence;
+    const { observationDigest, ...observed } = evidence.observation;
+    const physical = evidence.physicalEvidence;
+    assertObject(physical, 'Native Source Program physical evidence');
+    assertExactKeys(physical, ['unitReceipt', 'invocation', 'sessionSettlement', 'dependencyCache', 'workspaceTerminal'], 'Native Source Program physical evidence');
+    assertObject(physical.sessionSettlement, 'Native Source Program session settlement');
+    assertExactKeys(physical.sessionSettlement, ['processReceipt', 'providerSettlement', 'unitReceiptDigests', 'transportRetired',
+      'settlementDigest', 'providerSettlementSet', 'readback', 'ownerTerminalProjection'], 'Native Source Program session settlement');
+    if (!Array.isArray(physical.sessionSettlement.unitReceiptDigests)) {
+      sourceAttemptInvalid('native Source Program unit settlement inventory is not an array');
+    }
+    assertObject(physical.sessionSettlement.processReceipt, 'Native Source Program process settlement');
+    assertProviderSettlementReceipt(physical.sessionSettlement.providerSettlement);
+    assertProviderSettlementSet(physical.sessionSettlement.providerSettlementSet);
+    assertDomainReadbackReceipt(physical.sessionSettlement.readback);
+    assertOwnerTerminalJoinReceipt(physical.sessionSettlement.ownerTerminalProjection);
+    const unit = parseLinuxVerificationUnitReceipt(physical.unitReceipt);
+    const assessment = evidence.assessment;
+    if (evidence.authority !== 'historical-evidence-only' || evidenceDigest !== CodexDevelopmentVerificationDigest(canonical)
+        || observationDigest !== CodexDevelopmentVerificationDigest(observed)
+        || evidence.observation.assessmentDigest !== assessment.assessmentDigest
+        || evidence.observation.settlementDigest !== CodexDevelopmentVerificationDigest({ unitReceipt: unit, sessionSettlement: physical.sessionSettlement })
+        || physical.dependencyCache !== 'private-ephemeral' || physical.workspaceTerminal !== 'retired'
+        || unit.invocationDigest !== linuxVerificationUnitInvocationDigest(physical.invocation)
+        || physical.invocation.kind !== 'source-program' || physical.invocation.cwd !== 'trusted'
+        || unit.inputs.sutArchiveDigest !== null || unit.inputs.dependencyContentDigest === null
+        || unit.unit.workingDirectory !== '/sec-runtime/trusted'
+        || unit.execution.exitCode !== 0 || unit.execution.stdoutDigest !== sourceAttemptBytesDigest(`${encodeVerificationActionData(assessment)}\n`)
+        || physical.sessionSettlement.processReceipt === null
+        || physical.sessionSettlement.processReceipt.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.processReceipt.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.processReceipt.requirementId !== LINUX_VERIFICATION_UNIT_REQUIREMENT_ID
+        || physical.sessionSettlement.transportRetired !== true
+        || physical.sessionSettlement.providerSettlement.physicalDisposition !== 'settled'
+        || physical.sessionSettlement.providerSettlement.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.providerSettlement.requirementId !== LINUX_VERIFICATION_UNIT_REQUIREMENT_ID
+        || physical.sessionSettlement.providerSettlement.contractDigest !== LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST
+        || physical.sessionSettlement.providerSettlement.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.providerSettlementSet.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.providerSettlementSet.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.providerSettlementSet.executionPlanDigest !== physical.sessionSettlement.providerSettlement.executionPlanDigest
+        || physical.sessionSettlement.providerSettlementSet.settlements.length !== 1
+        || !canonicalEquals(physical.sessionSettlement.providerSettlementSet.settlements[0], physical.sessionSettlement.providerSettlement)
+        || physical.sessionSettlement.readback.disposition !== 'applied'
+        || physical.sessionSettlement.readback.recoveryMode !== 'normal'
+        || physical.sessionSettlement.readback.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.readback.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.readback.executionPlanDigest !== physical.sessionSettlement.providerSettlementSet.executionPlanDigest
+        || physical.sessionSettlement.readback.bindingSetIdentityDigest !== physical.sessionSettlement.providerSettlementSet.bindingSetIdentityDigest
+        || physical.sessionSettlement.readback.providerSettlementSetDigest !== physical.sessionSettlement.providerSettlementSet.providerSettlementSetDigest
+        || physical.sessionSettlement.ownerTerminalProjection.recoveryMode !== 'normal'
+        || physical.sessionSettlement.ownerTerminalProjection.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.ownerTerminalProjection.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.ownerTerminalProjection.executionPlanDigest !== physical.sessionSettlement.providerSettlementSet.executionPlanDigest
+        || physical.sessionSettlement.ownerTerminalProjection.bindingSetIdentityDigest !== physical.sessionSettlement.providerSettlementSet.bindingSetIdentityDigest
+        || physical.sessionSettlement.ownerTerminalProjection.readbackReceiptDigest !== physical.sessionSettlement.readback.readbackReceiptDigest
+        || physical.sessionSettlement.ownerTerminalProjection.providerSettlementSetDigest !== physical.sessionSettlement.providerSettlementSet.providerSettlementSetDigest
+        || physical.sessionSettlement.settlementDigest !== CodexDevelopmentVerificationDigest({
+          processReceipt: physical.sessionSettlement.processReceipt,
+          providerSettlement: physical.sessionSettlement.providerSettlement,
+          transportRetired: physical.sessionSettlement.transportRetired,
+          unitReceiptDigests: physical.sessionSettlement.unitReceiptDigests })
+        || physical.sessionSettlement.unitReceiptDigests.length !== 1
+        || physical.sessionSettlement.unitReceiptDigests[0] !== unit.receiptDigest
+        || [unit.gitBefore, unit.gitAfter].some(identity => identity.baseSha !== assessment.baseSha
+          || identity.baseTreeSha !== assessment.baseTreeSha || identity.headSha !== assessment.headSha
+          || identity.headTreeSha !== assessment.headTreeSha || identity.status !== '')
+        || evidence.observation.baseSha !== assessment.baseSha || evidence.observation.headSha !== assessment.headSha
+        || evidence.observation.headTreeSha !== assessment.headTreeSha || assessment.runtimeSha !== assessment.baseSha
+        || evidence.observation.producerSourceDigest !== assessment.producerExecution.observation.implementationDigest
+        || evidence.observation.producerExecutionEvidenceDigest !== assessment.producerExecution.evidenceDigest) {
+      sourceAttemptInvalid('native Source Program historical attempt lost its exact source, output or physical joins');
+    }
+    if (evidence.observation.origin === 'first-qualified') {
+      if (evidence.observation.schema !== 'source-program-transition-observation-v2'
+          || 'predecessorActionOutputDigest' in evidence.observation
+          || evidence.observation.sourceActionOutputDigest !== unit.execution.stdoutDigest) {
+        sourceAttemptInvalid('native first-qualified Source Program output differs');
+      }
+    } else if (evidence.observation.schema !== undefined
+        || !/^sha256:[0-9a-f]{64}$/u.test(evidence.observation.predecessorActionOutputDigest)) {
+      sourceAttemptInvalid('native predecessor observation lost its genuine previous Action output');
+    }
+    return Object.freeze(evidence);
+  }
+  const { evidenceDigest, ...canonical } = evidence;
+  const { observationDigest, ...observed } = evidence.observation;
+  if (evidence.schema !== (evidence.observation.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || evidence.authority !== 'historical-evidence-only'
+      || evidenceDigest !== CodexDevelopmentVerificationDigest(canonical) || observationDigest !== CodexDevelopmentVerificationDigest(observed)
+      || evidence.observation.assessmentDigest !== evidence.assessment.assessmentDigest
+      || evidence.observation.settlementDigest !== CodexDevelopmentVerificationDigest(evidence.physicalEvidence.settlements)
+      || evidence.physicalEvidence.dependencyCache !== 'private-ephemeral'
+      || evidence.physicalEvidence.workspaceTerminal !== 'retired') sourceAttemptInvalid('transition attempt historical join is invalid');
+  if (evidence.observation.origin === 'first-qualified') {
+    if (evidence.observation.schema !== 'source-program-transition-observation-v2'
+        || 'predecessorActionOutputDigest' in evidence.observation
+        || evidence.observation.sourceActionOutputDigest !== sourceAttemptBytesDigest(`${encodeVerificationActionData(evidence.assessment)}\n`)
+        || evidence.observation.baseSha !== evidence.assessment.baseSha
+        || evidence.observation.headSha !== evidence.assessment.headSha
+        || evidence.observation.headTreeSha !== evidence.assessment.headTreeSha
+        || evidence.observation.baseSha !== evidence.assessment.runtimeSha
+        || evidence.observation.producerSourceDigest !== evidence.assessment.producerExecution.observation.implementationDigest
+        || evidence.observation.producerExecutionEvidenceDigest !== evidence.assessment.producerExecution.evidenceDigest
+        || evidence.physicalEvidence.settlements.length !== 3
+        || evidence.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
+          !== 'setup,owner-operation,cleanup') {
+      sourceAttemptInvalid('first-qualified Source Program attempt lost its exact physical/output joins');
+    }
+  } else if (evidence.observation.schema !== undefined
+      || !/^sha256:[0-9a-f]{64}$/u.test(evidence.observation.predecessorActionOutputDigest)) {
+    sourceAttemptInvalid('legacy Source Program attempt must retain its genuine predecessor');
+  }
+  return Object.freeze(evidence);
 }
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -89,20 +217,8 @@ export function CodexDevelopmentPrepareVerificationEvidenceTarget(filePath: stri
   return absolutePath;
 }
 
-const CodexDevelopmentVerificationEvidenceSchemaV4 =
+const CodexDevelopmentVerificationEvidenceSchemaV4: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>["schema"] =
   'codex-development-verification-evidence-v4' as const;
-
-type CodexDevelopmentVerificationCleanup = Readonly<{
-  status: 'passed' | 'failed' | 'not-required';
-  evidenceRefs: readonly string[];
-  diagnostic: string | null;
-}>;
-
-export type CodexDevelopmentVerificationGateEvidenceV4 = Readonly<{
-  action: VerificationActionKey;
-  result: VerificationGateResult;
-  cleanup: CodexDevelopmentVerificationCleanup;
-}>;
 
 /** Exact first-qualified Action transport. Decoding is historical data only;
  * only the retained host issuer can authorize its use at Session finalization. */
@@ -113,7 +229,7 @@ export interface TrustedRuntimeSourceProgramActionRecord {
   readonly observationDigest: string;
   readonly attemptEvidenceDigest: string;
   readonly outputByteDigest: string;
-  readonly gate: CodexDevelopmentVerificationGateEvidenceV4;
+  readonly gate: VerificationGateEvidence<VerificationGateResult>;
   readonly sourceActionDigest: string;
 }
 
@@ -139,8 +255,8 @@ export function parseTrustedRuntimeSourceProgramActionRecord(value: unknown): Tr
       || result.execution === null || result.execution.exitCode !== 0
       || result.execution.outputDigest !== value.outputByteDigest
       || result.evidenceRefs.length !== 1 || result.evidenceRefs[0] !== value.outputByteDigest
-      || (value.gate.cleanup as CodexDevelopmentVerificationCleanup).status !== 'passed'
-      || !canonicalEquals((value.gate.cleanup as CodexDevelopmentVerificationCleanup).evidenceRefs, [value.attemptEvidenceDigest])) {
+      || (value.gate.cleanup as VerificationCleanup).status !== 'passed'
+      || !canonicalEquals((value.gate.cleanup as VerificationCleanup).evidenceRefs, [value.attemptEvidenceDigest])) {
     throw new Error('Source Program Action handoff lost its complete physical result.');
   }
   const { sourceActionDigest, ...canonical } = value;
@@ -150,48 +266,8 @@ export function parseTrustedRuntimeSourceProgramActionRecord(value: unknown): Tr
   return Object.freeze(value) as unknown as TrustedRuntimeSourceProgramActionRecord;
 }
 
-export type CodexDevelopmentVerificationEvidenceProducer = Readonly<{
-  sourceTransport: 'github-actions' | 'local-dev-runner';
-  workflowPath: string;
-  workflowRef: string;
-  workflowSha: string;
-  runId: string;
-  runAttempt: number;
-  actorNodeId: string;
-  sourceDigest: string;
-}>;
-
-export type CodexDevelopmentVerificationEvidenceV4 = Readonly<{
-  schema: typeof CodexDevelopmentVerificationEvidenceSchemaV4;
-  contractRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
-  sessionRevision: string;
-  sessionProposalDigest: string;
-  scopeAuthorizationRevision: string;
-  scopeAuthorizationDigest: string;
-  reviewReceiptDigest: string;
-  mainHealthRevision: string;
-  mainHealthDigest: string;
-  trustRevision: string;
-  profile: 'quick' | 'full';
-  baseSha: string;
-  baseTreeSha: string;
-  headSha: string;
-  headTreeSha: string;
-  manifestPath: string;
-  manifestDigest: string;
-  producer: CodexDevelopmentVerificationEvidenceProducer;
-  actionPlan: CiVerificationActionPlanClosure;
-  status: VerificationResultStatus;
-  startedAt: string;
-  finishedAt: string;
-  gates: readonly CodexDevelopmentVerificationGateEvidenceV4[];
-  evidenceRefs: readonly string[];
-  invalidationRules: readonly string[];
-  evidenceDigest: string;
-}>;
-
 type CodexDevelopmentVerificationEvidenceDraftV4 = Omit<
-  CodexDevelopmentVerificationEvidenceV4,
+  VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
   'schema' | 'evidenceDigest'
 >;
 
@@ -204,9 +280,9 @@ const V4_STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = O
 });
 
 export function CodexDevelopmentCreateVerificationEvidenceProducer(input: Omit<
-  CodexDevelopmentVerificationEvidenceProducer,
+  VerificationEvidenceProducer,
   'sourceDigest'
->): CodexDevelopmentVerificationEvidenceProducer {
+>): VerificationEvidenceProducer {
   if (input.sourceTransport !== 'github-actions' && input.sourceTransport !== 'local-dev-runner') {
     throw new Error('Verification V4 producer transport is invalid.');
   }
@@ -225,7 +301,7 @@ export function CodexDevelopmentCreateVerificationEvidenceProducer(input: Omit<
 }
 
 export function aggregateV4Status(
-  gates: readonly CodexDevelopmentVerificationGateEvidenceV4[]
+  gates: readonly VerificationGateEvidence<VerificationGateResult>[]
 ): VerificationResultStatus {
   if (gates.some((gate) => gate.cleanup.status === 'failed')) return 'failed';
   return gates.reduce<VerificationResultStatus>((current, gate) => (
@@ -237,7 +313,7 @@ export function aggregateV4Status(
 
 export function CodexDevelopmentFinalizeVerificationEvidenceV4(
   draft: CodexDevelopmentVerificationEvidenceDraftV4
-): CodexDevelopmentVerificationEvidenceV4 {
+): VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   const withoutDigest = {
     schema: CodexDevelopmentVerificationEvidenceSchemaV4,
     ...draft
@@ -252,7 +328,7 @@ export function CodexDevelopmentFinalizeVerificationEvidenceV4(
   return evidence;
 }
 
-function assertV4Cleanup(value: unknown, label: string): asserts value is CodexDevelopmentVerificationCleanup {
+function assertV4Cleanup(value: unknown, label: string): asserts value is VerificationCleanup {
   assertObject(value, label);
   assertExactKeys(value, ['status', 'evidenceRefs', 'diagnostic'], label);
   if (value.status !== 'passed' && value.status !== 'failed' && value.status !== 'not-required') {
@@ -268,13 +344,13 @@ function assertV4Cleanup(value: unknown, label: string): asserts value is CodexD
 export function CodexDevelopmentAssertVerificationEvidenceV4(
   value: unknown,
   expected: Partial<Pick<
-    CodexDevelopmentVerificationEvidenceV4,
+    VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
     'contractRevision' | 'sessionRevision' | 'sessionProposalDigest' | 'scopeAuthorizationRevision' | 'scopeAuthorizationDigest'
     | 'reviewReceiptDigest' | 'mainHealthRevision' | 'mainHealthDigest' | 'trustRevision' | 'profile'
     | 'baseSha' | 'baseTreeSha' | 'headSha' | 'headTreeSha' | 'manifestPath' | 'manifestDigest'
   >> & { readonly actionPlan?: CiVerificationActionPlanClosure } = {},
   now = new Date()
-): asserts value is CodexDevelopmentVerificationEvidenceV4 {
+): asserts value is VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   assertObject(value, 'Verification V4 evidence');
   if (value.schema !== CodexDevelopmentVerificationEvidenceSchemaV4) {
     throw new Error('Verification V4 evidence schema mismatch; V2/V3 are legacy readers and cannot be promoted.');
@@ -306,7 +382,7 @@ export function CodexDevelopmentAssertVerificationEvidenceV4(
     'sourceTransport', 'workflowPath', 'workflowRef', 'workflowSha', 'runId', 'runAttempt', 'actorNodeId', 'sourceDigest'
   ], 'Verification V4 evidence producer');
   const { sourceDigest: observedSourceDigest, ...producerInput } =
-    producer as unknown as CodexDevelopmentVerificationEvidenceProducer;
+    producer as unknown as VerificationEvidenceProducer;
   const rebuiltProducer = CodexDevelopmentCreateVerificationEvidenceProducer(producerInput);
   if (rebuiltProducer.sourceDigest !== observedSourceDigest) throw new Error('Verification V4 producer digest mismatch.');
   if (!['passed', 'failed', 'not-run', 'unsupported', 'invalidated'].includes(String(value.status))) {
@@ -332,7 +408,7 @@ export function CodexDevelopmentAssertVerificationEvidenceV4(
     if (result.disposition === 'reused' && result.evidenceRefs.length === 0) {
       throw new Error(`${label} reused result requires an Evidence reference.`);
     }
-    return { action, result, cleanup: entry.cleanup as CodexDevelopmentVerificationCleanup };
+    return { action, result, cleanup: entry.cleanup as VerificationCleanup };
   });
   if (gates.length !== actionPlan.actions.length || gates.some((gate, index) => (
     gate.action.actionKey !== actionPlan.actions[index]?.action.actionKey ||
@@ -362,7 +438,7 @@ export function CodexDevelopmentAssertVerificationEvidenceV4(
 
 export function CodexDevelopmentWriteVerificationEvidenceV4Atomic(
   filePath: string,
-  evidence: CodexDevelopmentVerificationEvidenceV4
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>
 ): void {
   CodexDevelopmentAssertVerificationEvidenceV4(evidence, { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
   const absolutePath = path.resolve(filePath);
@@ -390,16 +466,7 @@ export function CodexDevelopmentWriteVerificationEvidenceV4Atomic(
   }
 }
 
-export type CodexDevelopmentVerificationActionArtifactInput = Readonly<{
-  baseSha: string;
-  baseTreeSha: string;
-  headSha: string;
-  headTreeSha: string;
-  manifestPath: string;
-  manifestDigest: string;
-  inputClosureDigest: string;
-  candidateBytesDigest: string;
-}>;
+
 
 export type CodexDevelopmentVerificationActionArtifactProducer = VerificationActionProviderOrigin;
 
@@ -408,11 +475,11 @@ export type CodexDevelopmentVerificationActionTerminalArtifact = Readonly<{
   actionPlan: VerificationActionPlan;
   normalizedOperation: CiVerificationNormalizedOperation;
   result: VerificationGateResult;
-  cleanup: CodexDevelopmentVerificationCleanup;
+  cleanup: VerificationCleanup;
   executionEnvironment: CiVerificationExecutionEnvironment;
-  input: CodexDevelopmentVerificationActionArtifactInput;
+  input: HostedActionArtifactInput;
   producer: CodexDevelopmentVerificationActionArtifactProducer;
-  executionProof: CodexDevelopmentHostedSutExecutionProof;
+  executionProof: HostedSutExecutionProof<typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   artifactDigest: string;
 }>;
 
@@ -488,18 +555,19 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
     'contractRevision', 'kind', 'os', 'arch', 'runnerImage', 'toolchainRevision',
     'executionEnvironmentRevision'
   ], 'VerificationAction artifact execution environment');
-  if (!canonicalEquals(value.executionEnvironment, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
+  const executionEnvironment = resolveCiVerificationHostedExecutionEnvironment(plan.action.environment.providerRevision);
+  if (!canonicalEquals(value.executionEnvironment, executionEnvironment)) {
     throw new Error('VerificationAction terminal artifact must use the canonical hosted execution environment.');
   }
   if (plan.action.environment.providerRevision !==
-      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision) {
+      executionEnvironment.executionEnvironmentRevision) {
     throw new Error('VerificationAction artifact ActionKey does not bind the hosted execution environment.');
   }
   const environmentBinding = plan.action.operation.declaredEnvironment.find(
     (binding) => binding.name === 'SEC_EXECUTION_ENVIRONMENT_REVISION'
   );
   if (environmentBinding?.digest !== CodexDevelopmentVerificationDigest(
-    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+    executionEnvironment.executionEnvironmentRevision
   )) {
     throw new Error('VerificationAction artifact declared environment revision is missing or forged.');
   }
@@ -508,7 +576,7 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
     'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'manifestPath', 'manifestDigest',
     'inputClosureDigest', 'candidateBytesDigest'
   ], 'VerificationAction artifact input');
-  const artifactInput = value.input as unknown as CodexDevelopmentVerificationActionArtifactInput;
+  const artifactInput = value.input as unknown as HostedActionArtifactInput;
   for (const key of ['baseSha', 'baseTreeSha', 'headSha', 'headTreeSha'] as const) {
     if (!/^[0-9a-f]{40}$/u.test(artifactInput[key])) {
       throw new Error(`VerificationAction artifact input ${key} is invalid.`);
@@ -557,7 +625,7 @@ export function CodexDevelopmentAssertVerificationActionTerminalArtifact(
   assertExactKeys(value.executionProof, [
     'schema', 'authorization', 'observation', 'externalRawResultDigest', 'proofDigest'
   ], 'VerificationAction artifact execution proof');
-  const proof = value.executionProof as unknown as CodexDevelopmentHostedSutExecutionProof;
+  const proof = value.executionProof as unknown as HostedSutExecutionProof<typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   const replay = CodexDevelopmentReduceHostedSutObservation({
     actionPlan: plan,
     normalizedOperation,
@@ -631,11 +699,26 @@ export function CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(
   }
 }
 
-const CodexDevelopmentVerificationSessionArtifactSchema =
+const CodexDevelopmentVerificationSessionArtifactSchema: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>["schema"] =
   'sec-verification-session-artifact-v2' as const;
 
 /** Historical accepted-attempt projection. Parsing never issues a live qualification. */
 export type SourceProgramTransitionAcceptanceRecord = Readonly<SourceProgramTransitionQualification>;
+
+/** Pure transport validation; this never restores a live qualification. */
+export function assertSourceProgramTransitionCompletionReferences(
+  completion: VerificationGateEvidence<VerificationGateResult>, outputDigest: string,
+  firstQualified: boolean
+): void {
+  const refs = completion.result.evidenceRefs;
+  const local = refs.length === 1;
+  const hosted = !firstQualified && refs.length === 2
+    && /^verification-action-artifact:sha256:[0-9a-f]{64}$/u.test(refs[1]!)
+    && completion.result.disposition === 'reused' && completion.result.execution === null;
+  if ((!local && !hosted) || refs[0] !== outputDigest) {
+    throw new Error('Source Program completion does not preserve its exact output and terminal provenance.');
+  }
+}
 
 export function parseSourceProgramTransitionAcceptanceRecord(value: unknown): SourceProgramTransitionAcceptanceRecord {
   assertObject(value, 'Source Program transition acceptance record');
@@ -661,23 +744,10 @@ export function parseSourceProgramTransitionAcceptanceRecord(value: unknown): So
   return Object.freeze({ ...value }) as unknown as SourceProgramTransitionAcceptanceRecord;
 }
 
-export type CodexDevelopmentVerificationSessionArtifact = Readonly<{
-  schema: typeof CodexDevelopmentVerificationSessionArtifactSchema;
-  scopeAuthorization: ScopeAuthorization;
-  session: VerificationSession;
-  preGateReview: ReviewStabilityReceipt;
-  mainHealth: MainHealthLedger;
-  evidence: CodexDevelopmentVerificationEvidenceV4;
-  producer: CodexDevelopmentVerificationEvidenceProducer;
-  sourceProgramTransitionAcceptance?: SourceProgramTransitionAcceptanceRecord;
-  sourceProgramTransitionEvidence?: TrustedRuntimeSourceProgramAttemptEvidence;
-  artifactDigest: string;
-}>;
-
 export function CodexDevelopmentFinalizeVerificationSessionArtifact(input: Omit<
-  CodexDevelopmentVerificationSessionArtifact,
+  VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
   'schema' | 'artifactDigest'
->): CodexDevelopmentVerificationSessionArtifact {
+>): VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   const withoutDigest = Object.freeze({
     schema: CodexDevelopmentVerificationSessionArtifactSchema,
     ...input
@@ -692,13 +762,18 @@ export function CodexDevelopmentFinalizeVerificationSessionArtifact(input: Omit<
 
 export function CodexDevelopmentAssertVerificationSessionArtifact(
   value: unknown
-): asserts value is CodexDevelopmentVerificationSessionArtifact {
+): asserts value is VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
+  assertVerificationSessionArtifactFields(value, false);
+}
+
+function assertVerificationSessionArtifactFields(value: unknown, delegated: boolean): void {
   assertObject(value, 'VerificationSession artifact V2');
-  if (value.schema !== CodexDevelopmentVerificationSessionArtifactSchema) {
+  if (value.schema !== (delegated ? 'verification-session-delegated-terminal' : CodexDevelopmentVerificationSessionArtifactSchema)) {
     throw new Error('VerificationSession artifact V2 schema mismatch.');
   }
   assertExactKeys(value, [
     'schema', 'scopeAuthorization', 'session', 'preGateReview', 'mainHealth', 'evidence', 'producer', 'artifactDigest',
+    ...(delegated ? ['sourceCause'] : []),
     ...(value.sourceProgramTransitionAcceptance === undefined ? [] : ['sourceProgramTransitionAcceptance']),
     ...(value.sourceProgramTransitionEvidence === undefined ? [] : ['sourceProgramTransitionEvidence'])
   ], 'VerificationSession artifact V2');
@@ -722,8 +797,8 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
     headTreeSha: session.headTreeSha,
     manifestPath: session.manifestPath,
     manifestDigest: session.manifestDigest
-  }, new Date((value.evidence as CodexDevelopmentVerificationEvidenceV4).finishedAt));
-  const evidence = value.evidence as CodexDevelopmentVerificationEvidenceV4;
+  }, new Date((value.evidence as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>).finishedAt));
+  const evidence = value.evidence as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   const transitions = evidence.gates.filter(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
   if (transitions.length === 0) {
     if (value.sourceProgramTransitionAcceptance !== undefined || value.sourceProgramTransitionEvidence !== undefined) {
@@ -732,9 +807,9 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
   } else {
     const acceptance = parseSourceProgramTransitionAcceptanceRecord(value.sourceProgramTransitionAcceptance);
     assertObject(value.sourceProgramTransitionEvidence, 'Source Program fresh attempt evidence');
-    const attempt = value.sourceProgramTransitionEvidence as unknown as TrustedRuntimeSourceProgramAttemptEvidence;
+    const attempt = parseTrustedRuntimeSourceProgramAttemptCarrier(value.sourceProgramTransitionEvidence);
     const { evidenceDigest: attemptEvidenceDigest, ...attemptFields } = attempt;
-    if (attempt.schema !== (acceptance.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || attempt.authority !== 'historical-evidence-only'
+    if (attempt.authority !== 'historical-evidence-only'
         || attemptEvidenceDigest !== CodexDevelopmentVerificationDigest(attemptFields)
         || attemptEvidenceDigest !== acceptance.attemptEvidenceDigest
         || attempt.observation.assessmentDigest !== acceptance.assessmentDigest
@@ -756,12 +831,6 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
           || attempt.observation.schema !== 'source-program-transition-observation-v2'
           || 'predecessorActionOutputDigest' in attempt.observation
           || observationDigest !== CodexDevelopmentVerificationDigest(observed)
-          || attempt.observation.settlementDigest !== CodexDevelopmentVerificationDigest(attempt.physicalEvidence.settlements)
-          || attempt.physicalEvidence.dependencyCache !== 'private-ephemeral'
-          || attempt.physicalEvidence.workspaceTerminal !== 'retired'
-          || attempt.physicalEvidence.settlements.length !== 3
-          || attempt.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
-            !== 'setup,owner-operation,cleanup'
           || attempt.observation.baseSha !== session.baseSha || attempt.observation.headSha !== session.headSha
           || attempt.observation.headTreeSha !== session.headTreeSha
           || attempt.assessment.baseSha !== session.baseSha || attempt.assessment.baseTreeSha !== session.baseTreeSha
@@ -780,11 +849,12 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
       throw new Error('Legacy Source Program acceptance cannot adopt a first-qualified attempt.');
     }
     const transition = transitions[0]!;
+    if (transitions.length !== 1) throw new Error('Source Program completion requires exactly one selected Action.');
+    assertSourceProgramTransitionCompletionReferences(transition, acceptance.origin === 'first-qualified'
+      ? acceptance.sourceActionOutputDigest : acceptance.predecessorActionOutputDigest, acceptance.origin === 'first-qualified');
     if (transitions.length !== 1 || acceptance.sessionRevision !== session.sessionRevision
         || acceptance.actionKey !== transition.action.actionKey || transition.result.status !== 'passed'
-        || transition.result.evidenceRefs.length !== 1
-        || transition.result.evidenceRefs[0] !== (acceptance.origin === 'first-qualified'
-          ? acceptance.sourceActionOutputDigest : acceptance.predecessorActionOutputDigest)) {
+    ) {
       throw new Error('Source Program acceptance record does not bind the exact superseded computation.');
     }
   }
@@ -806,14 +876,14 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
   if (session.sessionProposalDigest !== scope.sessionProposalDigest ||
       session.scopeAuthorizationRevision !== scope.authorizationRevision ||
       session.scopeAuthorizationReceiptDigest !== scope.authorizationDigest ||
-      session.actionPlanClosureDigest !== (value.evidence as CodexDevelopmentVerificationEvidenceV4).actionPlan.actionPlanDigest ||
+      session.actionPlanClosureDigest !== (value.evidence as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>).actionPlan.actionPlanDigest ||
       session.mainHealthRef.healthRevision !== mainHealth.healthRevision ||
       session.mainHealthRef.ledgerReceiptDigest !== mainHealth.ledgerDigest ||
       session.mainHealthRef.mainSha !== mainHealth.mainSha || session.mainHealthRef.mainTreeSha !== mainHealth.mainTreeSha) {
     throw new Error('VerificationSession artifact authority closure mismatch.');
   }
   const { sourceDigest: observedProducerDigest, ...producerInput } =
-    value.producer as CodexDevelopmentVerificationEvidenceProducer;
+    value.producer as VerificationEvidenceProducer;
   const producer = CodexDevelopmentCreateVerificationEvidenceProducer(producerInput);
   if (producer.sourceDigest !== observedProducerDigest ||
       !canonicalEquals(producer, evidenceProducer)) {
@@ -826,11 +896,85 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
   }
 }
 
+export function assertVerificationSessionResumeArtifact(value: unknown): asserts value is
+  VerificationSessionResumeArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence,
+    typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA> {
+  assertVerificationSessionArtifactFields(value, true);
+  assertObject(value, 'Delegated Verification Session artifact');
+  assertObject(value.sourceCause, 'Delegated Verification Session source cause');
+  const cause = value.sourceCause;
+  assertObject(value.producer, 'Delegated Verification Session producer');
+  assertExactKeys(cause, ['kind', 'signal', 'actionPlanClosureDigest', 'requestOperationId',
+    'scopeAuthorizationDigest', 'sessionRevision'], 'Delegated Verification Session source cause');
+  if (cause.kind !== 'hosted-action-resume') throw new Error('Unsupported Verification Session delegated source.');
+  const signal = parseHostedResumeDispatchSignal(encodeVerificationActionData(cause.signal));
+  const provider = parseCiVerificationActionProviderEnvelope(signal.completedAction.providerEnvelope);
+  const request = provider.proposal.sessionRequest;
+  assertObject(request, 'Delegated Verification Session original request');
+  assertExactKeys(request, ['schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
+    'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile', 'expectedScopeProposalDigest',
+    'expectedActionPlanDigest', 'expectedSessionRevision', 'reviewPolicyDigest', 'requestOperationId'],
+  'Delegated Verification Session original request');
+  const scope = parseScopeAuthorization(encodeVerificationActionData(value.scopeAuthorization));
+  const session = parseVerificationSession(encodeVerificationActionData(value.session));
+  if (value.producer.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
+      || value.producer.workflowPath !== CI_COMPILER_WORKFLOW_RUN_IDENTITY.workflowPath || value.producer.sourceTransport !== 'github-actions'
+      || request.schema !== CI_VERIFICATION_SESSION_REQUEST_SCHEMA || cause.actionPlanClosureDigest !== session.actionPlanClosureDigest || cause.requestOperationId !== request.requestOperationId
+      || cause.scopeAuthorizationDigest !== scope.authorizationDigest || cause.sessionRevision !== session.sessionRevision
+      || request.expectedSessionRevision !== session.sessionRevision || request.expectedScopeProposalDigest !== scope.sessionProposalDigest
+      || request.expectedActionPlanDigest !== session.actionPlanClosureDigest || request.prNumber !== session.prNumber
+      || request.expectedBaseSha !== session.baseSha || request.expectedBaseTreeSha !== session.baseTreeSha
+      || request.expectedHeadSha !== session.headSha || request.expectedHeadTreeSha !== session.headTreeSha
+      || request.manifestPath !== session.manifestPath || request.manifestDigest !== session.manifestDigest
+      || request.profile !== session.profile || request.reviewPolicyDigest !== session.reviewPolicyDigest
+      || signal.emitter.repository !== session.repository || signal.emitter.workflowSha !== session.baseSha) {
+    throw new Error('Delegated Verification Session cause differs from its exact original request, Scope or Session.');
+  }
+}
+
+export function finalizeVerificationSessionResumeArtifact(input: Omit<VerificationSessionResumeArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA>, 'schema' | 'artifactDigest'>) {
+  const fields = Object.freeze({ schema: 'verification-session-delegated-terminal' as const, ...input });
+  const artifact = Object.freeze({ ...fields, artifactDigest: CodexDevelopmentVerificationDigest(fields) });
+  assertVerificationSessionResumeArtifact(artifact);
+  return artifact;
+}
+
+export function assertHostedSessionTerminalArtifact(value: unknown): asserts value is HostedSessionTerminalArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA> {
+  assertObject(value, 'Hosted Session terminal artifact');
+  if (value.schema === CodexDevelopmentVerificationSessionArtifactSchema) CodexDevelopmentAssertVerificationSessionArtifact(value);
+  else if (value.schema === 'verification-session-delegated-terminal') assertVerificationSessionResumeArtifact(value);
+  else throw new Error('Unsupported hosted Session terminal artifact interpretation.');
+}
+
+export function parseHostedSessionTerminalArtifact(source: string) {
+  const value: unknown = JSON.parse(source);
+  assertHostedSessionTerminalArtifact(value);
+  return value;
+}
+
 export function CodexDevelopmentAssertVerificationSessionArtifactCurrent(
-  artifact: CodexDevelopmentVerificationSessionArtifact,
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
   now: string
 ): void {
   CodexDevelopmentAssertVerificationSessionArtifact(artifact);
+  assertVerificationSessionArtifactLifetime(artifact, now);
+}
+
+export function assertHostedSessionTerminalArtifactCurrent(artifact: HostedSessionTerminalArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult, typeof HOSTED_RESUME_SIGNAL_SCHEMA>, now: string): void {
+  assertHostedSessionTerminalArtifact(artifact);
+  assertVerificationSessionArtifactLifetime(artifact, now);
+}
+
+function assertVerificationSessionArtifactLifetime(artifact: Pick<VerificationSessionArtifact<
+  SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION,
+  VerificationResultStatus, VerificationGateResult>, 'scopeAuthorization' | 'session' | 'preGateReview' | 'mainHealth'>,
+  now: string): void {
   const scope = artifact.scopeAuthorization;
   const session = artifact.session;
   const review = artifact.preGateReview;
@@ -875,12 +1019,12 @@ export function CodexDevelopmentAssertVerificationSessionArtifactCurrent(
 }
 
 export type CodexDevelopmentRefreshVerificationSessionArtifactInput = Readonly<{
-  previousArtifact: CodexDevelopmentVerificationSessionArtifact;
+  previousArtifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   scopeAuthorization: ScopeAuthorization;
   session: VerificationSession;
   preGateReview: ReviewStabilityReceipt;
   mainHealth: MainHealthLedger;
-  producer: CodexDevelopmentVerificationEvidenceProducer;
+  producer: VerificationEvidenceProducer;
   refreshedAt: string;
   sourceProgramTransitionAcceptance?: SourceProgramTransitionAcceptanceRecord;
   sourceProgramTransitionEvidence?: TrustedRuntimeSourceProgramAttemptEvidence;
@@ -895,7 +1039,7 @@ export type CodexDevelopmentRefreshVerificationSessionArtifactInput = Readonly<{
  */
 export function CodexDevelopmentRefreshVerificationSessionArtifact(
   input: CodexDevelopmentRefreshVerificationSessionArtifactInput
-): CodexDevelopmentVerificationSessionArtifact {
+): VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   CodexDevelopmentAssertVerificationSessionArtifact(input.previousArtifact);
   const scope = parseScopeAuthorization(encodeVerificationActionData(input.scopeAuthorization));
   const session = parseVerificationSession(encodeVerificationActionData(input.session));
@@ -990,7 +1134,7 @@ export function CodexDevelopmentRefreshVerificationSessionArtifact(
 
 export function CodexDevelopmentParseVerificationSessionArtifact(
   source: string
-): CodexDevelopmentVerificationSessionArtifact {
+): VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   const parsed = JSON.parse(source) as unknown;
   CodexDevelopmentAssertVerificationSessionArtifact(parsed);
   return parsed;

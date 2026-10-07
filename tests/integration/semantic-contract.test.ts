@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { loadManifestById } from '../../src/adapters/workspace/sources/load-manifest.ts';
 import { loadSemanticContractsForManifestEntry } from '../../src/adapters/workspace/sources/load-semantic-contract.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import type { SemanticContract } from '../../src/semantics/definitions/types.ts';
 
@@ -98,10 +98,10 @@ test('semantic contract validation rejects unknown target references', () => {
   const contract = minimalContract();
   contract.operations[0]!.reads = ['Missing.field'];
 
-  expect(() => normalizeSemanticContract(contract)).toThrow(CompilerError);
+  expect(() => normalizeSemanticContract(contract)).toThrow(CodedFailure);
   try {
     normalizeSemanticContract(contract);
   } catch (error) {
-    expect((error as CompilerError).code).toBe('CONTRACT-SEMANTIC-004');
+    expect((error as CodedFailure).code).toBe('CONTRACT-SEMANTIC-004');
   }
 });

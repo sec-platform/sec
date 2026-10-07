@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { issueRuntimeGenerationCensusReceiptForTests } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
 import {
@@ -29,7 +29,7 @@ const endpoint = createDockerEndpointIdentity({
   endpointHost: 'npipe:////./pipe/dockerDesktopLinuxEngine',
   osType: 'linux'
 });
-const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 
 test('Container Engine projection injects the retained endpoint outside caller arguments', () => {
   expect(compileContainerEngineOperationArguments(endpoint, {
@@ -205,18 +205,18 @@ test('unmanaged endpoints and non-Windows hosts never admit Desktop lifecycle st
 });
 
 test('a non-authority resource envelope cannot open a provider settlement scope', () => {
-  const contractDigest = sha256({ contract: 'container-engine-scope-test' }) as SecOperationDigest;
+  const contractDigest = sha256({ contract: 'container-engine-scope-test' }) as OperationDigest;
   const realProviderIdentityDigest = sha256({
     provider: 'retained-container-engine'
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const resourceEnvelopeIdentityDigest = sha256({
     provider: 'resource-envelope-only'
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const deadlineAtUnixMs = Date.now() + 60_000;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'external.container-engine.scope-test',
-    intentDigest: sha256({ intent: 'scope-test' }) as SecOperationDigest,
-    decisionDigest: sha256({ decision: 'scope-test' }) as SecOperationDigest,
+    intentDigest: sha256({ intent: 'scope-test' }) as OperationDigest,
+    decisionDigest: sha256({ decision: 'scope-test' }) as OperationDigest,
     deadlineAtUnixMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 60_000 },
@@ -235,9 +235,9 @@ test('a non-authority resource envelope cannot open a provider settlement scope'
         'container-engine.runtime-endpoint-residue'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
-  const resourceEnvelope = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const resourceEnvelope = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: resourceEnvelopeIdentityDigest

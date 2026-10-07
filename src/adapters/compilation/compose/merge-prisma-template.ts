@@ -1,8 +1,8 @@
 import path from 'node:path';
 
-import { CompilerError } from '../../../compiler/errors.ts';
 import { mergePrismaSchemas } from '../../../compiler/templates/prisma-schema.ts';
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { isPathInside } from "../../../contracts/relative-path.ts";
 import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
@@ -29,16 +29,16 @@ export async function materializePrismaSource(input: Readonly<{
   const sourcePath = path.resolve(workspaceRoot, source);
   const targetPath = path.resolve(workspaceRoot, target);
   if (targetPath === workspaceRoot || !isPathInside(workspaceRoot, targetPath)) {
-    throw new CompilerError('COMPOSE-PATH-004', 'Prisma target must be a file inside its workspace');
+    throw new CodedFailure('COMPOSE-PATH-004', 'Prisma target must be a file inside its workspace');
   }
   if (typeof sourceRequired !== 'boolean') throw new TypeError('Prisma source requirement must be boolean');
   if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Prisma commit fence must be callable');
   const sourceBytes = readOptionalRetainedOrdinaryFile(sourcePath, 'Prisma merge source');
-  if (sourceBytes === null && sourceRequired) throw new CompilerError('COMPOSE-PATH-003', `Prisma source is missing: ${sourcePath}`);
+  if (sourceBytes === null && sourceRequired) throw new CodedFailure('COMPOSE-PATH-003', `Prisma source is missing: ${sourcePath}`);
   const sourceFence = async () => {
     if (commitFence !== undefined) await Reflect.apply(commitFence, input, []);
     if (!sameBytes(readOptionalRetainedOrdinaryFile(sourcePath, 'Prisma source publication readback'), sourceBytes)) {
-      throw new CompilerError('COMPOSE-PRISMA-003', 'Prisma source changed after merge planning');
+      throw new CodedFailure('COMPOSE-PRISMA-003', 'Prisma source changed after merge planning');
     }
   };
   if (sourceBytes === null) { await sourceFence(); return; }
@@ -49,7 +49,7 @@ export async function materializePrismaSource(input: Readonly<{
   if (merged === targetText) {
     await sourceFence();
     if (!sameBytes(readOptionalRetainedOrdinaryFile(targetPath, 'Prisma no-op target readback'), targetBytes)) {
-      throw new CompilerError('COMPOSE-PRISMA-003', 'Prisma target changed before no-op completion');
+      throw new CodedFailure('COMPOSE-PRISMA-003', 'Prisma target changed before no-op completion');
     }
     return;
   }

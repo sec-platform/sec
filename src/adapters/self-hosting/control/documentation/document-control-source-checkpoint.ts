@@ -14,7 +14,7 @@ import {
 import { validateSourceCheckpointStatusRequest, type SourceCheckpointStatusRequest } from './document-control-cli.ts';
 import { ActivePointerPath, CurrentStatePath, RollingPlanPath } from './document-control-journal-codec.ts';
 import { DOCUMENT_CONTROL_STATUS_GIT_READ_BUDGET, ExternalCommandTimeoutMs } from './document-control-observation.ts';
-import { CodexDevelopmentParseCurrentStateSpec } from './document-control-plane-contract.ts';
+import { parseCurrentStateSpec } from './document-control-plane-contract.ts';
 
 async function bytes(session: GitReadSession, args: readonly string[]): Promise<Buffer> {
   const result = await session.run(args);
@@ -87,7 +87,7 @@ export async function resolveSourceCheckpointStatusFromSession(
   if (base !== request.base) throw new Error('Source checkpoint base must be an exact commit.');
   const baseTree = await exactLine(session, ['rev-parse', '--verify', `${base}^{tree}`]);
   // Immutable base policy only identifies the repository/default ref. No rolling or active projection is read.
-  const spec = CodexDevelopmentParseCurrentStateSpec((await bytes(session, ['show', `${base}:${CurrentStatePath}`])).toString('utf8'));
+  const spec = parseCurrentStateSpec((await bytes(session, ['show', `${base}:${CurrentStatePath}`])).toString('utf8'));
   const before = await snapshot(session, base);
   const ancestor = await session.run(['merge-base', '--is-ancestor', base, before.head]);
   if (ancestor.kind !== 'completed' || ![0, 1].includes(ancestor.result.code)) {

@@ -7,31 +7,55 @@
  * bridge; neither serialized journal state nor this module creates authority.
  */
 import { sha256 } from '../../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../../execution/operation/semantic.ts';
+import type { BranchCloseoutAttempt, BranchCloseoutEffect, BranchCloseoutOperationReceipt, BranchCloseoutPreparation, BranchLifecycleInventory, PreparedBranchCloseoutEnvelope } from '../../../../../execution/verification/branch-closeout.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/budget.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../../providers/git/physical-provider.ts';
 import { MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES, MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT, assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs, measureExactLocalGitRefDeleteBatchAggregateInputBytes } from '../../../../providers/git/ref-effect.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { authorizeBranchCloseout, createBranchCloseoutOperationBinding, createBranchCloseoutOperationJournal, createBranchCloseoutOperationReceipt, createBranchCloseoutReceipt, parseBranchCloseoutOperationJournal, parseBranchCloseoutOperationReceipt, type BranchCloseoutEffect, type BranchCloseoutOperationJournal, type BranchCloseoutOperationReceipt } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import { operationJournalFilePath, operationReceiptFilePath, type PreparedBranchCloseoutEnvelope } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { authorizeBranchCloseout, createBranchCloseoutOperationBinding, createBranchCloseoutOperationJournal, createBranchCloseoutOperationReceipt, createBranchCloseoutReceipt, parseBranchCloseoutOperationJournal, parseBranchCloseoutOperationReceipt, type BranchCloseoutOperationJournal } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { operationJournalFilePath, operationReceiptFilePath } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitHubCredentialArgs, decodeBranchLifecycleChildError } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
-import { BRANCH_REF_CLOSEOUT_CAPABILITY, type BranchCloseoutAttempt, type BranchCloseoutPreparation, type BranchLifecycleInventory } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import { verifyRecoveryAuthorityLive } from '../../../../self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import { type WorktreePhysicalCloseoutConsumptionToken } from '../../../../self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
+import type { withAuthenticatedPostMergeMainHealth } from '../../../../self-hosting/control/composition/trusted-runtime-closeout.ts';
+import { assertTrustedRuntimeMainHealthPublication } from '../../../../self-hosting/control/main-health/live-admission.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { createBranchCloseoutOperationStore } from './session-branch-closeout-store.ts';
-import { requireCommand, runVerificationSessionCommand, type VerificationSessionScope } from './session-command.ts';
+import { assertBorrowedHostedSessionSourceCurrent, requireCommand, runVerificationSessionCommand, type VerificationSessionScope } from './session-command.ts';
 
 const HOSTED_LOCAL_REF_REQUIREMENT = 'verification-session.hosted-closeout.local-ref-delete';
 
-const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as SecOperationDigest;
+const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as OperationDigest;
 
-const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as SecOperationDigest;
+const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as OperationDigest;
+
+/** Borrow the original lexical qualification; neither context nor ledger data
+ * can stand in for its private receipt and selected publication authority. */
+export async function assertHostedCloseoutMainHealthCurrent(input: Readonly<{
+  ctx: VerificationSessionScope;
+  binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
+  health: Parameters<Parameters<typeof withAuthenticatedPostMergeMainHealth>[1]>[0];
+}>): Promise<void> {
+  await input.health.assertCurrent();
+  await assertBorrowedHostedSessionSourceCurrent(input.ctx, input.binding);
+  const ledger = input.health.ledger;
+  if (input.health.admission.repositoryRoot !== input.ctx.repositoryRoot
+      || ledger.repository !== input.binding.repository || ledger.defaultBranch !== 'main'
+      || ledger.mainSha !== input.binding.newMainSha || ledger.mainTreeSha !== input.binding.newMainTreeSha
+      || ledger.trustRevision !== input.binding.newMainSha) {
+    throw new Error('Hosted closeout MainHealth belongs to another physical root or merged subject.');
+  }
+  assertTrustedRuntimeMainHealthPublication({ admission: input.health.admission, ledger,
+    repository: input.binding.repository, mainSha: input.binding.newMainSha,
+    mainTreeSha: input.binding.newMainTreeSha, now: new Date().toISOString() });
+}
 
 function closeoutAttempt(
   attempts: BranchCloseoutAttempt[],
@@ -78,17 +102,23 @@ export async function deleteHostedLocalRefCas(
   preparation: BranchCloseoutPreparation,
   attempts: BranchCloseoutAttempt[],
   coordinatedLease: WorkspaceWriteLeaseToken,
-  closeoutOperationId: SecOperationDigest
+  closeoutOperationId: OperationDigest,
+  qualification: Parameters<typeof assertHostedCloseoutMainHealthCurrent>[0]
 ): Promise<BranchCloseoutAttempt> {
+  if (qualification.ctx.repositoryRoot !== preparation.repository.root
+      || qualification.binding.repository !== preparation.repository.fullName) {
+    throw new Error('Local ref CAS qualification belongs to another repository.');
+  }
+  await assertHostedCloseoutMainHealthCurrent(qualification);
   const expected = preparation.expectedLocalSha ?? preparation.expectedHeadSha;
   const localEntry = Object.freeze({ ref: `refs/heads/${preparation.branch}`, expectedOldSha: expected });
   const durationMs = 120_000;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification-session.hosted-closeout-local-ref-delete',
     intentDigest: closeoutOperationId,
     decisionDigest: HOSTED_LOCAL_REF_CONTRACT,
     deadlineAtUnixMs: Date.now() + durationMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: measureExactLocalGitRefDeleteBatchAggregateInputBytes([localEntry]) },
@@ -101,12 +131,12 @@ export async function deleteHostedLocalRefCas(
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven',
         'process.unavailable'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: HOSTED_LOCAL_REF_REQUIREMENT, contractDigest: HOSTED_LOCAL_REF_CONTRACT,
     providerIdentityDigest: HOSTED_LOCAL_REF_PROVIDER
   })]);
   const processSession = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
       requirementId: HOSTED_LOCAL_REF_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let primaryError: unknown;
   try {
@@ -119,6 +149,7 @@ export async function deleteHostedLocalRefCas(
       if (resolution.status !== 'ready') throw new Error(`Git physical provider unavailable: ${resolution.reason}`);
       let effectError: unknown;
       try {
+        await assertHostedCloseoutMainHealthCurrent(qualification);
         const receipt = await deleteExactLocalGitRefs({ provider: resolution.capability, coordinatedLease,
           entries: [localEntry] });
         assertGitLocalRefDeleteBatchReceipt(receipt);
@@ -173,6 +204,7 @@ function mergedCloseoutInventoryScope(ctx: VerificationSessionScope, preparation
 
 export async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input: Readonly<{
   ctx: VerificationSessionScope;
+  health: Parameters<Parameters<typeof withAuthenticatedPostMergeMainHealth>[1]>[0];
   prepared: PreparedBranchCloseoutEnvelope;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
   lease: WorkspaceWriteLeaseToken;
@@ -183,6 +215,7 @@ export async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input:
   authorization: ReturnType<typeof authorizeBranchCloseout>;
 }>> {
   const preparation = input.prepared.preparation;
+  await assertHostedCloseoutMainHealthCurrent(input);
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
   const observedCurrent = collectBranchLifecycleInventory(mergedCloseoutInventoryScope(input.ctx, preparation));
   const recoveryReadback = verifyRecoveryAuthorityLive({
@@ -216,11 +249,13 @@ export async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input:
     foreignWorktreeObservationDigests: input.foreignWorktreeObservationDigests
   });
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
+  await assertHostedCloseoutMainHealthCurrent(input);
   return Object.freeze({ current, authorization });
 }
 
 export async function finalizeHostedBranchCloseout(input: Readonly<{
   ctx: VerificationSessionScope;
+  health: Parameters<Parameters<typeof withAuthenticatedPostMergeMainHealth>[1]>[0];
   prepared: PreparedBranchCloseoutEnvelope;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
   markerDisposition: 'published' | 'existing';
@@ -240,6 +275,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
   } as const;
   const remoteGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
     ctx: input.ctx,
+    health: input.health,
     prepared: input.prepared,
     binding: input.binding,
     lease: input.lease,
@@ -281,6 +317,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
       );
     }
     await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
+    await assertHostedCloseoutMainHealthCurrent(input);
     const remoteAttempt = deleteHostedRemoteRefCas(input.ctx, preparation, attempts);
     remoteEffect = closeoutEffect(remoteAttempt);
     if (remoteAttempt.status !== 'success') {
@@ -386,6 +423,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
   // the live owner authorization even when a prior state would otherwise be reused.
   const localGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
     ctx: input.ctx,
+    health: input.health,
     prepared: input.prepared,
     binding: input.binding,
     lease: input.lease,
@@ -411,8 +449,9 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
       && localGuard.authorization.localAction === 'delete-exact') {
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
       await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
+      await assertHostedCloseoutMainHealthCurrent(input);
       const localAttempt = await deleteHostedLocalRefCas(preparation, attempts,
-        input.coordinatedLease, input.binding.closeoutOperationId as SecOperationDigest);
+        input.coordinatedLease, input.binding.closeoutOperationId as OperationDigest, input);
       await updateJournal({ local: closeoutEffect(localAttempt) });
     } else {
       closeoutAttempt(
@@ -430,6 +469,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
 
   const pruneGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
     ctx: input.ctx,
+    health: input.health,
     prepared: input.prepared,
     binding: input.binding,
     lease: input.lease,
@@ -443,6 +483,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
   if (journal.prune.state === 'not-started') {
     if (pruneGuard.authorization.blockers.length === 0) {
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
+      await assertHostedCloseoutMainHealthCurrent(input);
       const pruneAttempt = pruneHostedRemote(input.ctx, preparation, attempts);
       await updateJournal({ prune: closeoutEffect(pruneAttempt) });
     } else {

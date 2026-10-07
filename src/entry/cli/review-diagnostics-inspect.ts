@@ -26,8 +26,8 @@ export function formatReviewDiagnostics(view: ReviewDiagnosticsInspectView): str
       `risks=${view.regressionRiskCount}`,
       `conflicts=${view.conflictHintCount}`
     ]),
-    `Artifacts: ${formatList([...view.artifactPaths])}`,
-    `Blocks: ${formatList([...view.blocks])}`,
+    `Artifacts: ${formatList(view.artifactPaths)}`,
+    `Blocks: ${formatList(view.blocks)}`,
     ...view.diagnostics.slice(0, 10).map((entry) => formatReviewDiagnostic(entry))
   ].join('\n');
 }

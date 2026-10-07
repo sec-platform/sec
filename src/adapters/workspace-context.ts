@@ -1,31 +1,15 @@
 import path from 'node:path';
+import { CI_ARTIFACT_ROOT_RELATIVE_PATH } from '../contracts/artifact-paths.ts';
 import { resolvePathInside } from '../contracts/relative-path.ts';
+import { workspaceConfigRelativePath } from '../contracts/workspace-config.ts';
 
-import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_ROOT_RELATIVE_PATH,
-  isCanonicalCiArtifactPath,
-  requireCanonicalCiArtifactPath
-} from '../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, isCanonicalCiArtifactPath, requireCanonicalCiArtifactPath } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { RegistryLocation } from '../contracts/registry-source.ts';
 import { encodeCanonicalBlockPhysicalKey } from '../semantics/identity/block.ts';
 import { resolveWorkspaceLocalStateRoot } from '../workspace/contract/local-state.ts';
 import type { WorkspacePaths } from '../workspace/contract/types.ts';
 import { modelRelativePath } from '../workspace/contract/types.ts';
-import {
-  cacheRelativePath,
-  modelBlocksRelativePath,
-  overridesRelativePath,
-  packageJsonRelativePath,
-  policiesRelativePath,
-  prismaRelativePath,
-  privateRegistryRelativePath,
-  srcRelativePath,
-  testsRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath,
-  workspaceWriteLeaseRelativePath
-} from '../workspace/paths.ts';
+import { cacheRelativePath, modelBlocksRelativePath, overridesRelativePath, packageJsonRelativePath, policiesRelativePath, prismaRelativePath, privateRegistryRelativePath, srcRelativePath, testsRelativePath, tsconfigRelativePath, workspaceWriteLeaseRelativePath } from '../workspace/paths.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerRuntimeLayout
@@ -41,8 +25,7 @@ export {
   secRelativePath,
   srcRelativePath,
   testsRelativePath,
-  tsconfigRelativePath,
-  workspaceConfigRelativePath
+  tsconfigRelativePath
 } from '../workspace/paths.ts';
 
 

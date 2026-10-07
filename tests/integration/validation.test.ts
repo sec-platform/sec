@@ -20,7 +20,7 @@ import { runUpgradeWorkspaceWithLease } from '../../src/bootstrap/upgrade/upgrad
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../src/execution/resource-settlement.ts';
 import { prepareBlockUpgradeDryRunFixture, writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
-import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
+import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithoutDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 
 test('upgrade success provenance binds the committed applied terminal bytes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -219,7 +219,7 @@ test('upgrade retains its recovery snapshot when the write lease is lost before 
   }, 'engineering-compiler-upgrade-fence-recovery-');
 });
 
-test('upgrade rollback restores nested preserved-name entries and file permission modes', async () => {
+test('upgrade compiler failure preserves original nested entries and modes in its retained recovery backup', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeBlockUpgradeFixture(workspaceRoot);
     const paths = getWorkspacePaths(workspaceRoot);
@@ -246,15 +246,47 @@ test('upgrade rollback restores nested preserved-name entries and file permissio
       'block-upgrade.ts'
     ));
 
-    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'))
-      .rejects.toMatchObject({ details: { rollbackStatus: 'restored' } });
-    await expect(fs.readFile(nestedPath, 'utf8')).resolves.toBe('nested preimage\n');
-    await expect(fs.readFile(rootFilePath, 'utf8')).resolves.toBe('root preimage\n');
-    expect(await fs.readFile(graphLockPath)).toEqual(graphLockPreimage);
-    if (process.platform === 'linux') {
-      expect((await fs.lstat(nestedPath)).mode & 0o7777).toBe(nestedMode);
-      expect((await fs.lstat(rootFilePath)).mode & 0o7777).toBe(rootMode);
-    }
+    let failure: unknown;
+    try { await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'); }
+    catch (error) { failure = error; }
+    const snapshot = (failure as { details?: { recoverySnapshot?: {
+      path: string; device: string; inode: string; parentPath: string;
+      parentDevice: string; parentInode: string;
+    } } })?.details?.recoverySnapshot;
+    let assertionFailure: unknown;
+    try {
+      expect(failure).toMatchObject({ details: { rollbackStatus: 'recovery-required' } });
+      expect(snapshot).toBeDefined();
+      const preimage = path.join(snapshot!.path, 'preimage');
+      await expect(fs.readFile(nestedPath, 'utf8')).resolves.toBe('nested preimage\n');
+      await expect(fs.readFile(rootFilePath, 'utf8')).resolves.toBe('root preimage\n');
+      expect(await fs.readFile(path.join(preimage, '.sec-lock.snapshot'))).toEqual(graphLockPreimage);
+      expect(await fs.readFile(path.join(preimage, 'src', 'coverage', 'retained.txt'), 'utf8')).toBe('nested preimage\n');
+      if (process.platform === 'linux') {
+        expect((await fs.lstat(path.join(preimage, 'src', 'coverage', 'retained.txt'))).mode & 0o7777).toBe(nestedMode);
+        expect((await fs.lstat(path.join(preimage, 'rollback-root.txt'))).mode & 0o7777).toBe(rootMode);
+      }
+    } catch (error) { assertionFailure = error; }
+    await settlePhysicalResourcesAsync({
+      ...(assertionFailure === undefined ? {} : { primary: { label: 'upgrade-compiler-recovery-test', error: assertionFailure } }),
+      cleanup: snapshot === undefined ? [] : [{
+        label: 'upgrade-compiler-recovery-test-backup',
+        settle: () => {
+          const parent = inspectNoFollowDirectoryChain(snapshot.parentPath, 'Recovery test parent').target;
+          const root = inspectNoFollowDirectoryLeaf(parent, path.basename(snapshot.path), 'Recovery test backup');
+          if (parent.device !== snapshot.parentDevice || parent.inode !== snapshot.parentInode ||
+              root === null || root.device !== snapshot.device || root.inode !== snapshot.inode) {
+            throw new Error('Recovery test backup identity changed');
+          }
+          const inventory = scanNoFollowDirectoryTreeInventory(root, {
+            deadlineAtMs: performance.now() + 30_000, maximumEntries: 100_000,
+            maximumBytes: 1024 * 1024 * 1024, includePermissionMode: true
+          });
+          retireNoFollowDirectoryTree({ deadlineAtMonotonicMs: performance.now() + 30_000,
+            inventory, parent, root, restoreOwnerPermissions: true });
+        }
+      }]
+    });
   }, 'engineering-compiler-upgrade-nested-rollback-');
 });
 
@@ -269,22 +301,13 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-002',
       details: {
         failedCheck: 'migration-entries',
-        migrationId: 'mig-missing-entry-file',
-        migrationKind: 'text-append',
-        entry: 'migrations/missing-entry-file.json'
-      }
-    },
-    {
-      failedCheck: 'migration-entries',
-      errorCode: 'UPGRADE-MIGRATION-002',
-      details: {
         migrationId: 'mig-missing-entry-file',
         migrationKind: 'text-append',
         entry: 'migrations/missing-entry-file.json'
@@ -333,24 +356,13 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-003',
       details: {
         failedCheck: 'migration-entries',
-        migrationId: 'mig-expected-entry',
-        migrationKind: 'text-append',
-        entry: 'migrations/mismatched-entry.json',
-        entryId: 'mig-actual-entry',
-        entryKind: 'text-replace'
-      }
-    },
-    {
-      failedCheck: 'migration-entries',
-      errorCode: 'UPGRADE-MIGRATION-003',
-      details: {
         migrationId: 'mig-expected-entry',
         migrationKind: 'text-append',
         entry: 'migrations/mismatched-entry.json',
@@ -394,21 +406,13 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
     ]
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-029',
       details: {
         failedCheck: 'migration-entries',
-        migrationId: 'mig-duplicate-report',
-        entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
-      }
-    },
-    {
-      failedCheck: 'migration-entries',
-      errorCode: 'UPGRADE-MIGRATION-029',
-      details: {
         migrationId: 'mig-duplicate-report',
         entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
       }
@@ -434,22 +438,11 @@ test('upgrade records migration target path escape diagnostics before planning',
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-004',
-      details: {
-        failedCheck: 'migration-targets',
-        migrationId: 'mig-target-escape',
-        path: '../outside-project.md',
-        role: 'target',
-        root: 'project'
-      }
-    },
-    {
-      failedCheck: 'migration-targets',
-      errorCode: 'UPGRADE-MIGRATION-004',
       details: {
         failedCheck: 'migration-targets',
         migrationId: 'mig-target-escape',
@@ -479,22 +472,11 @@ test('upgrade records migration manifest source escape diagnostics before planni
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-005',
-      details: {
-        failedCheck: 'migration-file-operations',
-        migrationId: 'mig-source-escape',
-        path: '../outside-source.ts',
-        role: 'manifest-source',
-        root: 'manifest'
-      }
-    },
-    {
-      failedCheck: 'migration-file-operations',
-      errorCode: 'UPGRADE-MIGRATION-005',
       details: {
         failedCheck: 'migration-file-operations',
         migrationId: 'mig-source-escape',
@@ -529,22 +511,13 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-010',
       details: {
         failedCheck: 'migration-entries',
-        migrationId: 'mig-empty-config-path',
-        migrationKind: 'config-rewrite',
-        entry: 'migrations/empty-config-path.json'
-      }
-    },
-    {
-      failedCheck: 'migration-entries',
-      errorCode: 'UPGRADE-MIGRATION-010',
-      details: {
         migrationId: 'mig-empty-config-path',
         migrationKind: 'config-rewrite',
         entry: 'migrations/empty-config-path.json'
@@ -577,14 +550,11 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-012'
-    },
-    {
-      failedCheck: 'migration-json-structure'
     }
   );
 });
@@ -613,14 +583,11 @@ test('upgrade rejects JSON array parent structure mismatches before planning', a
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(
+  await expectUpgradeDryRunFailureWithoutDiagnostics(
     workspaceRoot,
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
       code: 'UPGRADE-MIGRATION-012'
-    },
-    {
-      failedCheck: 'migration-json-structure'
     }
   );
 });

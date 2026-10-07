@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
+import type { ReviewPrincipal, ReviewSnapshot, ReviewStabilityDigest, ReviewStabilityPolicy, ReviewStabilityReceipt, ReviewStabilityStage } from '../../../../../execution/verification/session.ts';
 import { SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/session.ts';
 
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
 /** Content-integrity decision object, not a signature. The GitHub adapter must independently verify stable principal and source provenance. */
 
-const REVIEW_STABILITY_POLICY_SCHEMA = 'sec-review-stability-policy-v1' as const;
-const REVIEW_STABILITY_RECEIPT_SCHEMA = 'sec-review-stability-receipt-v1' as const;
+const REVIEW_STABILITY_POLICY_SCHEMA: ReviewStabilityPolicy["schema"] = 'sec-review-stability-policy-v1' as const;
+const REVIEW_STABILITY_RECEIPT_SCHEMA: ReviewStabilityReceipt["schema"] = 'sec-review-stability-receipt-v1' as const;
 export const CODEX_CLEAN_REVIEW_VERDICT_PREFIX =
   "Codex Review: Didn't find any major issues." as const;
 export const CODEX_CLEAN_REVIEW_CONGRATULATIONS = Object.freeze([
@@ -29,8 +30,6 @@ export const CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES = Object.freeze([
   'Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".',
   '</details>'
 ] as const);
-export type ReviewStabilityDigest = `sha256:${string}`;
-export type ReviewStabilityStage = 'pre-expensive' | 'pre-merge';
 
 /**
  * The trusted Codex App owns the clean-verdict semantic prefix. Presentation
@@ -57,81 +56,7 @@ export function isCodexCleanReviewAboutBlock(value: unknown): boolean {
     && semanticLines.every((line, index) => line === CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES[index]);
 }
 
-interface ReviewStabilityTrustedApp {
-  readonly actorNodeId: string;
-  readonly appId: number;
-  readonly appNodeId: string;
-  readonly appSlug: string;
-}
-
-export interface ReviewStabilityPolicy {
-  readonly schema: typeof REVIEW_STABILITY_POLICY_SCHEMA;
-  readonly policyId: string;
-  readonly trustedRevision: string;
-  readonly trustedApps: readonly ReviewStabilityTrustedApp[];
-  readonly allowIndependentHumanApproval: boolean;
-  readonly policyDigest: ReviewStabilityDigest;
-}
-
 export type ReviewStabilityPolicyInput = Omit<ReviewStabilityPolicy, 'schema' | 'policyDigest'>;
-
-export type ReviewPrincipal = Readonly<{
-  kind: 'human'; nodeId: string; approvalState: 'APPROVED';
-}> | Readonly<{
-  kind: 'github-app'; actorNodeId: string; appId: number; appNodeId: string; appSlug: string;
-  reviewState: 'APPROVED' | 'COMMENTED';
-}>;
-
-interface ReviewStabilityProducer {
-  readonly identity: string;
-  readonly executionIdentity: string;
-  readonly providerIdentity: 'github';
-  readonly candidateWriteCapability: 'read-only';
-  readonly capabilityReceiptDigest: ReviewStabilityDigest;
-  readonly trustedRevision: string;
-  readonly sourceTransport: 'github-graphql' | 'github-rest';
-  readonly sourceRunId: string;
-  readonly sourceRef: string;
-  readonly sourceDigest: ReviewStabilityDigest;
-}
-
-interface ReviewIndependence {
-  readonly candidateAuthorNodeId: string;
-  readonly integrationPrincipalNodeId: string;
-}
-
-export interface ReviewSnapshot {
-  readonly paginationComplete: true;
-  readonly reviewedHeadSha: string;
-  readonly reviewPageDigests: readonly ReviewStabilityDigest[];
-  readonly threadPageDigests: readonly ReviewStabilityDigest[];
-  readonly reviewCount: number;
-  readonly threadCount: number;
-  readonly unresolvedBlockingThreadCount: 0;
-  readonly requestChangesPrincipalIds: readonly [];
-  readonly snapshotDigest: ReviewStabilityDigest;
-}
-
-export interface ReviewStabilityReceipt {
-  readonly schema: typeof REVIEW_STABILITY_RECEIPT_SCHEMA;
-  readonly stage: ReviewStabilityStage;
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly sessionRevision: ReviewStabilityDigest;
-  readonly scopeAuthorizationRevision: ReviewStabilityDigest;
-  readonly scopeAuthorizationReceiptDigest: ReviewStabilityDigest;
-  readonly headSha: string;
-  readonly headTreeSha: string;
-  readonly policy: ReviewStabilityPolicy;
-  readonly principal: ReviewPrincipal;
-  readonly independence: ReviewIndependence;
-  readonly producer: ReviewStabilityProducer;
-  readonly snapshot: ReviewSnapshot;
-  readonly reviewedAt: string;
-  readonly expiresAt: string;
-  readonly reviewRevision: ReviewStabilityDigest;
-  readonly receiptDigest: ReviewStabilityDigest;
-}
 
 export type ReviewStabilityReceiptInput = Omit<ReviewStabilityReceipt, 'schema' | 'reviewRevision' | 'receiptDigest'>;
 
@@ -350,17 +275,4 @@ export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt):
   const current = parseReviewStabilityReceipt(encodeVerificationActionData(receipt));
   return `Independent-Exact-Head-Review: receipt=${current.receiptDigest} `
     + `revision=${current.reviewRevision} threads=${current.snapshot.threadCount} unresolved=0`;
-}
-
-export function assertMergeTrailerLinesV1(
-  lines: readonly string[],
-  receipt: ReviewStabilityReceipt
-): void {
-  const canonical = renderIndependentReviewTrailer(receipt);
-  for (const line of lines) {
-    if (!line.startsWith('Independent-')) continue;
-    if (line !== canonical) {
-      fail('unbound Independent-* trailer is forbidden; integration trailers must derive from a validated receipt.');
-    }
-  }
 }

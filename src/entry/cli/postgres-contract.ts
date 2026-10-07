@@ -9,6 +9,6 @@ export function formatPostgresContract(view: PostgresContractView): string {
       `tables=${view.tableCount}`,
       `tenantScoped=${view.tenantScopedCount}`
     ]),
-    `Table list: ${formatList([...view.tableNames])}`
+    `Table list: ${formatList(view.tableNames)}`
   ].join('\n');
 }

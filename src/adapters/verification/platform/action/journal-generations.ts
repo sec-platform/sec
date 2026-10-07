@@ -8,18 +8,12 @@ import path from 'node:path';
 import {
   parseExactJson
 } from '../../../../contracts/exact-json.ts';
+import type { VerificationActionKey, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import {
   type RuntimeStateJournalFileSystem,
   type RuntimeStateJournalRetainedText
 } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
-import {
-  createVerificationActionTerminal,
-  encodeVerificationActionData,
-  parseVerificationActionKey,
-  type VerificationActionKey,
-  type VerificationActionKeyDigest,
-  type VerificationActionTerminal
-} from './contract/action.ts';
+import { createVerificationActionTerminal, encodeVerificationActionData, parseVerificationActionKey, type VerificationActionTerminal } from './contract/action.ts';
 import {
   actionPath,
   assertDigest,

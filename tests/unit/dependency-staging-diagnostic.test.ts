@@ -5,7 +5,7 @@ import { inspect } from 'node:util';
 import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow-contract.ts';
 import { formatFailure } from '../../src/contracts/failure-format.ts';
 import { boundedFailureCode } from '../../src/contracts/failure-inspection.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 const allowedCodes = new Set([
   'IMPORT-AUTHORITY-002', 'RUNTIME-DEPS-001', 'RUNTIME-DEPS-003',
@@ -15,9 +15,9 @@ const sentinel = 'private-dependency-stage-secret-7da130';
 
 test('bounded projection retains independently expected SEC, physical and native categories', () => {
   const inputs = [
-    [new SecError('IMPORT-AUTHORITY-002', sentinel), 'IMPORT-AUTHORITY-002'],
-    [new SecError('RUNTIME-DEPS-001', sentinel, { environment: sentinel }), 'RUNTIME-DEPS-001'],
-    [new SecError('RUNTIME-DEPS-003', sentinel), 'RUNTIME-DEPS-003'],
+    [new CodedFailure('IMPORT-AUTHORITY-002', sentinel), 'IMPORT-AUTHORITY-002'],
+    [new CodedFailure('RUNTIME-DEPS-001', sentinel, { environment: sentinel }), 'RUNTIME-DEPS-001'],
+    [new CodedFailure('RUNTIME-DEPS-003', sentinel), 'RUNTIME-DEPS-003'],
     [new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', sentinel,
       { cause: new Error(sentinel) }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'],
     [Object.assign(new Error(sentinel), { code: 'ENOSPC', path: sentinel }), 'ENOSPC'],
@@ -63,13 +63,13 @@ test('neither own or inherited getters, conversion, inspection nor Proxy traps e
 });
 
 test('distinct failure categories survive ordinary message, JSON and failure formatting without raw values', () => {
-  const primary = new SecError('RUNTIME-DEPS-001', sentinel, { path: sentinel, environment: sentinel });
+  const primary = new CodedFailure('RUNTIME-DEPS-001', sentinel, { path: sentinel, environment: sentinel });
   const cleanup = new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', sentinel,
     { cause: new Error(sentinel) });
   Object.defineProperty(primary, 'cause', { get() { assert.fail('raw cause inspected'); } });
   const materializationCode = boundedFailureCode(primary, allowedCodes);
   const cleanupCode = boundedFailureCode(cleanup, allowedCodes);
-  const projected = new SecError('IMPORT-AUTHORITY-004',
+  const projected = new CodedFailure('IMPORT-AUTHORITY-004',
     `Compiler dependency generation staging residue is preserved for recovery; materialization=${materializationCode}; cleanup=${cleanupCode}`,
     { materializationCode, cleanupCode, recoveryRequired: true });
   assert.deepEqual(projected.details, {
@@ -88,15 +88,15 @@ test('Bun uncaught output preserves categories without traversing raw native cau
   const failureUrl = new URL('../../src/contracts/failure.ts', import.meta.url).href;
   const script = `
     import { boundedFailureCode } from ${JSON.stringify(inspectionUrl)};
-    import { SecError } from ${JSON.stringify(failureUrl)};
+    import { CodedFailure } from ${JSON.stringify(failureUrl)};
     const secret = process.env.SEC_TEST_FAILURE_SENTINEL;
-    const primary = new SecError('RUNTIME-DEPS-001', secret, { path: secret, environment: secret });
+    const primary = new CodedFailure('RUNTIME-DEPS-001', secret, { path: secret, environment: secret });
     const cleanup = Object.assign(new Error(secret, { cause: new Error(secret) }), { code: 'EACCES' });
     Object.defineProperty(primary, 'cause', { get() { throw new Error(secret); } });
     const allowed = new Set(['RUNTIME-DEPS-001', 'EACCES']);
     const materializationCode = boundedFailureCode(primary, allowed);
     const cleanupCode = boundedFailureCode(cleanup, allowed);
-    throw new SecError('IMPORT-AUTHORITY-004',
+    throw new CodedFailure('IMPORT-AUTHORITY-004',
       'Compiler dependency generation staging residue is preserved for recovery; materialization=' + materializationCode + '; cleanup=' + cleanupCode,
       { materializationCode, cleanupCode, recoveryRequired: true });
   `;

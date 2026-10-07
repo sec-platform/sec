@@ -1,10 +1,4 @@
 import ts from 'typescript';
-import type {
-  SourceProgramFileInput
-} from './contract.ts';
-import {
-  sourceProgramSurfaceForPath
-} from './contract.ts';
 import {
   compareCodeUnits,
   sha256
@@ -12,6 +6,12 @@ import {
 import {
   resolveSourceProgramCompilationOperation
 } from './compilation-operation.ts';
+import type {
+  SourceProgramFileInput
+} from './contract.ts';
+import {
+  sourceProgramSurfaceForPath
+} from './contract.ts';
 import {
   SOURCE_EXTENSION,
   canonicalTypeScriptFile,

@@ -6,7 +6,7 @@ import {
   sourceProgramModuleImports
 } from './embedded-programs.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 
 const workflowPath = '.github/workflows/embedded-program.test.yml';
 const workflowSource = `name: embedded-program
@@ -57,10 +57,10 @@ test('workflow executable values compile into addressed programs, capabilities a
 });
 
 test('repository module graph consumes embedded imports instead of parsing YAML as TypeScript', () => {
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: [workflowPath],
     readSource: (repositoryPath) => repositoryPath === workflowPath ? workflowSource : null,
-    readImports: sourceProgramModuleImports
+    readEmbeddedLanguageImports: sourceProgramModuleImports
   });
 
   expect(graph.unresolvedFiles).toEqual([]);

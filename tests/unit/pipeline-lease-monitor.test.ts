@@ -70,7 +70,7 @@ test('an observed lease failure retains precedence over the callback cancellatio
   const reason = Object.freeze({ lease: 'lost' }); let calls = 0;
   const run = withLeaseObservationMonitor(async () => { if (++calls === 2) throw reason; }, async (signal) => {
     await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
-    throw new Error('callback observed cancellation');
+    throw signal.reason;
   });
   await rejectsWith(run, reason);
 });
@@ -144,4 +144,71 @@ test('independent monitor invocations never share signals or failure state', asy
   }
   assert.equal(new Set(signals).size, signals.length);
   assert.ok(signals.every((signal) => !signal.aborted));
+});
+
+
+// Retain the former arbitrary-Error input as a distinct failure regression.
+// A message mentioning cancellation cannot hide a real body/cleanup failure.
+for (const bodyFailure of [
+  new Error('callback observed cancellation'),
+  undefined, null, false, 0, NaN,
+  new ResourceCompositeSettlementError([
+    { label: 'pipeline-child-resource', error: Object.freeze({ release: 'failed' }) }
+  ])
+]) {
+  test('observed lease loss retains a distinct body/settlement failure (' + typeof bodyFailure + ')', async () => {
+    const leaseFailure = Object.freeze({ lease: 'lost' });
+    let calls = 0;
+    const run = withLeaseObservationMonitor(async () => {
+      if (++calls === 2) throw leaseFailure;
+    }, async signal => {
+      await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+      throw bodyFailure;
+    });
+    await assert.rejects(run, error => {
+      assert.ok(error instanceof ResourceCompositeSettlementError);
+      assert.equal(error.failures.length, 2);
+      assert.deepEqual(error.failures.map(entry => entry.label), ['lease-observation', 'lease-monitored-operation']);
+      assert.equal(error.failures[0]!.error, leaseFailure);
+      assert.ok(Object.is(error.failures[1]!.error, bodyFailure));
+      assert.equal(error.errors[0], leaseFailure);
+      assert.ok(Object.is(error.errors[1], bodyFailure));
+      return true;
+    });
+    assert.equal(calls, 2);
+  });
+}
+
+test('a NaN lease failure is returned once after callback completion or rethrow', async () => {
+  for (const rethrow of [false, true]) {
+    let calls = 0;
+    await rejectsWith(withLeaseObservationMonitor(async () => {
+      if (++calls === 2) throw NaN;
+    }, async signal => {
+      await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+      if (rethrow) throw NaN;
+    }), NaN);
+    assert.equal(calls, 2);
+  }
+});
+
+test('a callback cannot disguise an independent failure by overriding the visible cancellation reason', async () => {
+  const leaseFailure = Object.freeze({ lease: 'lost' });
+  const bodyFailure = Object.freeze({ cleanup: 'failed' });
+  let calls = 0, getterCalls = 0;
+  const run = withLeaseObservationMonitor(async () => {
+    if (++calls === 2) throw leaseFailure;
+  }, async signal => {
+    await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+    Object.defineProperty(signal, 'reason', { get() { getterCalls++; return bodyFailure; } });
+    throw bodyFailure;
+  });
+  await assert.rejects(run, error => {
+    assert.ok(error instanceof ResourceCompositeSettlementError);
+    assert.equal(error.failures[0]!.error, leaseFailure);
+    assert.equal(error.failures[1]!.error, bodyFailure);
+    return true;
+  });
+  assert.equal(getterCalls, 0);
+  assert.equal(calls, 2);
 });

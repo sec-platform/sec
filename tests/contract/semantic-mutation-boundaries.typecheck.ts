@@ -7,7 +7,6 @@ import type { LockFile } from '../../src/compiler/contract.ts';
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { planSemanticMutation } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
-import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemanticMutationAuthorizationInput, type TrustedLocalSemanticMutationPolicyDraft } from '../../src/compiler/semantic-mutation/trusted-authorization-ingress.ts';
 import type { IsolatedVerificationCapability } from '../../src/execution/isolated-verification-capability.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
@@ -59,9 +58,6 @@ function semanticMutationSourceAdapterBoundaries() {
   const proposal = {} as SemanticMutationRequest;
   const source = {} as SemanticMutationLoadedSourceCandidate;
   const trusted = {} as SemanticMutationSourceEditPlanningInput;
-  const trustedAuthorizationInput = {} as TrustedLocalSemanticMutationAuthorizationInput;
-  const trustedLocalPolicy = {} as TrustedLocalSemanticMutationPolicyDraft;
-  const authorization = {} as SemanticMutationAuthorizationContext;
   const rawIR = {} as EngineeringIR;
   const lock = {} as LockFile;
   const views = {} as SemanticViewSet;
@@ -76,15 +72,8 @@ function semanticMutationSourceAdapterBoundaries() {
     void planSemanticMutationSourceEdit(lock);
     // @ts-expect-error Projection state cannot replace the source edit planning input.
     void planSemanticMutationSourceEdit(views);
-    // @ts-expect-error A complete authorization cannot replace the authority-free trusted-local policy draft.
-    buildTrustedLocalSemanticMutationAuthorization({ ...trustedAuthorizationInput, policy: authorization });
-    // @ts-expect-error A raw proposal lacks the normalized request revision required by the trusted ingress.
-    buildTrustedLocalSemanticMutationAuthorization({ ...trustedAuthorizationInput, request: proposal });
-    // @ts-expect-error Raw EngineeringIR cannot replace the branded Fact Delta endpoint.
-    buildTrustedLocalSemanticMutationAuthorization({ ...trustedAuthorizationInput, base: rawIR });
     void candidate;
     void request;
-    void trustedLocalPolicy;
   }
 }
 void semanticMutationSourceAdapterBoundaries;

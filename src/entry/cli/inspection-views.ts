@@ -12,9 +12,9 @@ import type { ProvenanceRegistryInspectProjectionSource } from '../../applicatio
 import type { ReviewDiagnosticsProjectionSource } from '../../application/review-diagnostics-inspect.ts';
 import type { ReviewSummaryProjectionSource } from '../../application/review-summary-inspect.ts';
 import type { RuntimeInspectionProjectionSource } from '../../application/runtime-inspection.ts';
-import type { VerificationReportInspectProjectionSource } from '../../application/verification-report-inspect.ts';
 import { commandValue, type CommandValue } from './command-value.ts';
 import type { ProjectOverviewPresentation } from './project-overview.ts';
+import type { VerificationReportInspectionSource } from './verification-report-inspect.ts';
 
 export async function policyReportInspectionView(report: PolicyReportProjectionSource): Promise<CommandValue> {
   const { projectPolicyReportInspection } = await import('../../application/policy-report-inspection.ts');
@@ -67,14 +67,10 @@ export async function runtimeStepsInspectionView(
 }
 
 export async function verificationReportInspectionView(
-  report: VerificationReportInspectProjectionSource
+  report: VerificationReportInspectionSource
 ): Promise<CommandValue> {
-  const { projectVerificationReportInspect } = await import('../../application/verification-report-inspect.ts');
   const { formatVerificationReport } = await import('./verification-report-inspect.ts');
-  return commandValue(
-    report,
-    value => formatVerificationReport(projectVerificationReportInspect(value))
-  );
+  return commandValue(report, formatVerificationReport);
 }
 
 export async function provenanceRegistryInspectionView(

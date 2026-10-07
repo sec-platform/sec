@@ -1,16 +1,16 @@
-# Engineering Workspace Compiler
-
-> Engineering intent, maintainable authoring, and available implementations compiled into controlled changes to real software workspaces.
+# SEC: Engineering Workspace Compiler
 
 [中文说明](README.zh-CN.md)
 
-This repository retains the historical name `sec`; that name is not the current project definition or acronym. SEC is a local-first **Engineering Workspace Compiler** for connecting product goals, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints.
+SEC is a local-first engineering system being developed to turn software requirements and existing workspace content into maintainable programs and authorized changes. It connects structured authoring, implementation selection, compilation, verification, and delivery.
 
-The long-term direction is for people and AI to work primarily with intent, semantics, constraints, responsibilities, effects, and evidence, while conventional source code increasingly serves as a lower-level realization target. Existing languages and ecosystems remain essential implementation targets and interoperability layers.
+The project is a **development preview**. Start with [PROJECT_STATUS.md](PROJECT_STATUS.md) for the available source examples and their limitations. The repository retains the historical name `sec`; it is not an acronym for the current project definition.
 
-## What the system does
+The design aims to let people and AI express goals, behavior, and constraints while reusing existing languages, libraries, and tools to produce conventional source code. Its scope includes creating software and maintaining existing workspaces.
 
-SEC supports two input paths: it can reconstruct relevant engineering facts from an existing workspace, or consume deliberately authored goals and constraints. Both paths feed the same responsibility chain:
+## Design overview
+
+The design has two input paths: reading relevant facts from an existing workspace and accepting authored goals and constraints. Both feed the same sequence:
 
 ```text
 Goal / Existing Workspace
@@ -26,13 +26,13 @@ Target Artifacts + Controlled Effects
 Readback + Verification + Evidence
 ```
 
-The requested outcome determines where a task ends. Analysis, a bounded design, an implementation candidate, a generated artifact, an executed operation, and a verified delivery are distinct results.
+A task may end with analysis, a design, a candidate, generated files, an executed operation, or verified delivery. Each result needs evidence appropriate to that scope.
 
 ## Core boundaries
 
-SEC is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. Files, generated output, test results, tool responses, and AI statements do not become authoritative merely because they exist. Their identity, source, scope, effects, and evidence must remain explicit at the boundary where they are consumed.
+The design separates author content, compilation, verification, external effects, recovery, and publication. Operations must identify their inputs, authority, intended changes, and evidence. Plans and generated code alone do not authorize writes or establish that a change was adopted.
 
-The system keeps author content, semantic interpretation, compilation, verification, external effects, recovery, and publication as separate responsibilities. A plan does not grant write authority; generated code does not prove adoption; a process exit does not prove that an external effect settled; and a documented target design does not claim that its implementation is complete.
+SEC is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. The specifications describe the target design; implementation and verification status must be checked separately. External operations also require readback of their actual effects.
 
 ## Read the design
 
@@ -51,7 +51,7 @@ The summaries in this root directory are reader-facing projections. Canonical de
 
 ## Project status
 
-The project is under active research and development. It contains substantial implementation, tests, documentation, examples, and verification infrastructure, but documented capabilities can be at different stages of specification, implementation, verification, adoption, and retirement.
+The repository contains a TypeScript implementation, tests, design specifications, examples, and verification infrastructure. Capabilities are at different stages of implementation and validation.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a reproducible starting path.
 

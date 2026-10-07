@@ -1,6 +1,6 @@
 import { parseReviewSummaryJson } from '../../assurance/verification/review/contract/summary.ts';
 import type { ReviewSummary } from '../../assurance/verification/review/contract/types.ts';
-import { getErrorCode } from '../../compiler/errors.ts';
+import { getErrorCode } from '../../contracts/failure-inspection.ts';
 import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';
 import { readJson } from '../filesystem/files.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';

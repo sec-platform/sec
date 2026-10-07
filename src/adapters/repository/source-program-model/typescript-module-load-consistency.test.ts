@@ -2,22 +2,22 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import {
-  compileSecRepositoryModuleGraph,
-  compileTypeScriptSourceProgramModel,
-  releaseTypeScriptSourceProgramWorkspace,
-  sourceProgramTypeScriptCompilerIdentity
-} from './typescript.ts';
+  assembleTypeScriptSourceProgramModel,
+  compileTypeScriptSourceProgramFactShard,
+  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
+} from './typescript-fact-shards.ts';
 import {
   TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
   TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
   TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
 } from './typescript-profile.ts';
 import {
-  assembleTypeScriptSourceProgramModel,
-  compileTypeScriptSourceProgramFactShard,
-  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
-} from './typescript-fact-shards.ts';
+  compileTypeScriptSourceProgramModel,
+  releaseTypeScriptSourceProgramWorkspace,
+  sourceProgramTypeScriptCompilerIdentity
+} from './typescript.ts';
 
 const moduleMembership = Object.freeze({
   descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
@@ -50,7 +50,7 @@ for (const [name, source, hasDependency, unresolved] of cases) {
         { path: 'src/b.ts', source: 'export const value = 1;', contentDigest: rawSha256('export const value = 1;') }
       ];
       const model = compileTypeScriptSourceProgramModel({ sourceRevision: rawSha256(source), files, moduleMembership });
-      const graph = compileSecRepositoryModuleGraph({ files: files.map(({ path }) => path),
+      const graph = compileSourceProgramRepositoryModuleGraph({ files: files.map(({ path }) => path),
         readSource: (path) => files.find((file) => file.path === path)?.source ?? null });
       const references = model.references.filter((reference) => reference.kind === 'import'
         && reference.targetPath === 'src/b.ts');

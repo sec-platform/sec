@@ -1,8 +1,9 @@
 import path from 'node:path';
+import { COMPILER_STAGING_LIFECYCLE_OWNER, COMPILER_STAGING_LIFECYCLE_RULE } from '../../../../execution/dependency-generated-state.ts';
 
-import { SecError } from '../../../../contracts/failure.ts';
-import type { GeneratedStatePhysicalIdentity } from '../../../runtime-state/generated-state/contract.ts';
-import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
+import type { GeneratedStatePhysicalIdentity } from '../../../../execution/generated-state/contract.ts';
+import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from "../../../../execution/generated-state/dependency-lifecycle.ts";
 import {
   runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationEffectFence,
@@ -13,9 +14,7 @@ import { runtimeDependencyOperationControls, runtimeDependencyOperationRemaining
 export const COMPILER_NODE_MODULES_LIFECYCLE_OWNER = 'compiler-dependency-runtime' as const;
 export const COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER = 'ensure-compiler-deps-ready' as const;
 export const COMPILER_NODE_MODULES_LIFECYCLE_RULE = 'compiler-node-modules' as const;
-export const COMPILER_STAGING_LIFECYCLE_OWNER = 'compiler-dependency-runtime' as const;
 export const COMPILER_STAGING_LIFECYCLE_PRODUCER = 'stage-compiler-dependency-generation' as const;
-export const COMPILER_STAGING_LIFECYCLE_RULE = 'compiler-dependency-staging' as const;
 const SHARED_DEPS_LIFECYCLE_OWNER = 'project-runtime' as const;
 const SHARED_DEPS_LIFECYCLE_PRODUCER = 'ensure-shared-deps-ready' as const;
 const LEGACY_SHARED_DEPS_RETIREMENT_RULE = 'shared-dependency-cache' as const;
@@ -110,7 +109,7 @@ export async function birthAndBindCompilerDependencyGeneration(
   const lifecycle = captureRuntimeDependencyLifecycle({ generatedStateLifecycle: source }, ['born', 'bind'])!;
   const { born, bind } = lifecycle;
   if (born === undefined || bind === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency active lifecycle birth has no exact readback binding'
     );
@@ -132,14 +131,14 @@ export async function bindExistingCompilerDependencyGeneration(
   const expected = compilerDependencyGenerationLifecycleExpectation(expectedPhysical);
   const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Existing compiler dependency generation has no producer provenance registration and is preserved'
     );
   }
   const bind = lifecycle.bind;
   if (bind === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency generation adoption requires read-only producer provenance binding and is preserved'
     );
@@ -150,7 +149,7 @@ export async function bindExistingCompilerDependencyGeneration(
       expected
     );
   } catch (error) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency generation producer provenance is missing, invalid, foreign, or stale; physical target is preserved',
       { cause: lifecycleFailureMessage(error) },
@@ -166,14 +165,14 @@ export async function bindExistingLegacySharedDependencyRoot(
   const expected = legacySharedDependencyRetirementExpectation(expectedPhysical);
   const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Existing legacy shared dependency root has no retirement provenance registration and is preserved'
     );
   }
   const bind = lifecycle.bind;
   if (bind === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Legacy shared dependency retirement requires read-only historical provenance binding and is preserved'
     );
@@ -184,7 +183,7 @@ export async function bindExistingLegacySharedDependencyRoot(
       expected
     );
   } catch (error) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Legacy shared dependency retirement provenance is missing, invalid, foreign, or stale; physical root is preserved',
       { cause: lifecycleFailureMessage(error) },
@@ -220,14 +219,14 @@ async function retireCapturedCompilerDependencyPreimage(
   controls?: BoundRuntimeDependencyOperationControls
 ): Promise<`sha256:${string}` | null> {
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Existing compiler dependency generation has no producer provenance registration and is preserved'
     );
   }
   const { bind, retired: retire } = lifecycle;
   if (bind === undefined || retire === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency preimage retirement requires read-only producer provenance binding and is preserved'
     );
@@ -251,9 +250,9 @@ async function preserveRetirementFailure<T>(execute: () => Promise<T>): Promise<
   } catch (error) {
     // A revoked proxy or a hostile code getter is still the original cause.
     let ownerFailure = false;
-    try { ownerFailure = error instanceof SecError && error.code === 'IMPORT-AUTHORITY-004'; } catch { /* Preserve below. */ }
+    try { ownerFailure = error instanceof CodedFailure && error.code === 'IMPORT-AUTHORITY-004'; } catch { /* Preserve below. */ }
     if (ownerFailure) throw error;
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency preimage producer provenance is missing, invalid, foreign, or stale; physical target is preserved',
       { cause: lifecycleFailureMessage(error) },
@@ -265,7 +264,8 @@ async function preserveRetirementFailure<T>(execute: () => Promise<T>): Promise<
 export async function ensureCompilerDependencyPreimageRetiredForRecovery(
   options: RuntimeDependencyOperationControlInput & RuntimeDependencyLifecycleInput<'observeRetirement' | 'bind' | 'retired'>,
   expectedPhysical: GeneratedStatePhysicalIdentity,
-  outcome: string
+  outcome: string,
+  workspaceRoot: string
 ): Promise<void> {
   // Observation and retirement are different phases. A read-only no-op must
   // not inspect unused write methods, while a selected write captures its
@@ -274,7 +274,7 @@ export async function ensureCompilerDependencyPreimageRetiredForRecovery(
   const source = options.generatedStateLifecycle;
   const lifecycle = captureRuntimeDependencyLifecycle({ generatedStateLifecycle: source }, ['observeRetirement']);
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency recovery has no producer provenance lifecycle'
     );
@@ -291,15 +291,15 @@ export async function ensureCompilerDependencyPreimageRetiredForRecovery(
     );
     runtimeDependencyOperationRemainingMs(controls, 'Compiler dependency retirement observation readback');
     const [{ assertGeneratedStateRetirementObservation }, { sameGeneratedStateIdentity }] = await Promise.all([
-      import('../../../runtime-state/generated-state/lifecycle.ts'),
+      import('../../../runtime-state/generated-state/lifecycle-evidence.ts'),
       import('./dependency-transition/contract.ts')
     ]);
     runtimeDependencyOperationRemainingMs(controls, 'Compiler dependency retirement observation validation');
-    assertGeneratedStateRetirementObservation(observation);
+    await assertGeneratedStateRetirementObservation(observation, { workspaceRoot, relativePath: 'node_modules' });
     if (observation.status === 'retired-present' && observation.physical !== null &&
         sameGeneratedStateIdentity(observation.physical, expected.physical!)) return;
     if (observation.status !== 'active') {
-      throw new SecError(
+      throw new CodedFailure(
         'IMPORT-AUTHORITY-004',
         'Compiler dependency recovery requires an exact retired-present lifecycle observation',
         { status: observation.status, observationDigest: observation.observationDigest }

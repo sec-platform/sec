@@ -5,7 +5,7 @@
       "id": "author-primary",
       "path": "docs/作者/结构化源码.md",
       "mode": "must_contain",
-      "text": "不成为本入口的依赖"
+      "text": "不成为Requirement入口的依赖"
     },
     {
       "id": "choice-not-user-command",
