@@ -76,9 +76,10 @@ export interface SecRoadmapTerminalCompaction {
   readonly schema: 'sec-roadmap-terminal-compaction-v2';
   readonly retiredWorkIds: readonly string[];
   /**
-   * A terminal catalog transition cannot delete the manifest still named by
-   * the active pointer.  The successor freeze retires these paths atomically
-   * with publication of the new manifest, pointer and rolling projection.
+   * Retired-work manifests that were physically present on the exact base.
+   * Terminal compaction preserves them byte-for-byte; later lifecycle owners
+   * decide retirement. A catalog identity alone does not manufacture a
+   * manifest-retention obligation for an already-absent path.
    */
   readonly delayedManifestRetirementPaths: readonly string[];
   readonly catalog: SecRoadmapWorkCatalog;
@@ -745,6 +746,12 @@ function renderRoadmapCatalogSource(
 export function compileSecRoadmapTerminalCompaction(input: {
   roadmapSource: string;
   completedWorkIds: readonly string[];
+  /**
+   * Exact-base Work Package manifest inventory. Omission preserves the legacy
+   * conservative assumption for offline/pure callers; the production live
+   * adapter always supplies the exact Git inventory.
+   */
+  presentManifestPaths?: readonly string[];
 }): SecRoadmapTerminalCompaction {
   const prior = parseSecRoadmapWorkCatalog(input.roadmapSource);
   const retiredWorkIds = [...input.completedWorkIds].sort(compareCodeUnits);
@@ -763,6 +770,22 @@ export function compileSecRoadmapTerminalCompaction(input: {
   for (const workId of retiredWorkIds) {
     if (!priorByWorkId.has(workId)) fail(`terminal compaction work ${workId} is absent from the catalog.`);
   }
+  const retiredManifestPaths = retiredWorkIds.map(
+    (workId) => workManifestPath(priorByWorkId.get(workId)!)
+  );
+  const suppliedManifestPaths = input.presentManifestPaths === undefined
+    ? retiredManifestPaths
+    : input.presentManifestPaths.map((entry, index) => {
+        const manifestPath = text(entry, `presentManifestPaths[${index}]`);
+        if (!/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+          fail(`presentManifestPaths[${index}] is not one canonical Work Package manifest path.`);
+        }
+        return manifestPath;
+      });
+  if (new Set(suppliedManifestPaths).size !== suppliedManifestPaths.length) {
+    fail('presentManifestPaths contains a duplicate.');
+  }
+  const presentManifestPaths = new Set(suppliedManifestPaths);
   const catalog = normalizeCatalog({
     schema: prior.schema,
     stageRef: prior.stageRef,
@@ -778,8 +801,8 @@ export function compileSecRoadmapTerminalCompaction(input: {
   const withoutDigest = deepFreeze({
     schema: 'sec-roadmap-terminal-compaction-v2' as const,
     retiredWorkIds,
-    delayedManifestRetirementPaths: retiredWorkIds.map(
-      (workId) => workManifestPath(priorByWorkId.get(workId)!)
+    delayedManifestRetirementPaths: retiredManifestPaths.filter(
+      (manifestPath) => presentManifestPaths.has(manifestPath)
     ),
     catalog,
     roadmapSource,
@@ -794,6 +817,7 @@ export function compileSecRoadmapTerminalCompaction(input: {
 export function compileSecWorkSelectionTerminalProjection(input: {
   roadmapSource: string;
   currentSpecs: readonly SecWorkCurrentSpecObservation[];
+  presentManifestPaths?: readonly string[];
 }): SecWorkSelectionTerminalProjection {
   const catalog = parseSecRoadmapWorkCatalog(input.roadmapSource);
   const currentSpecs = input.currentSpecs.map((entry, index) => (
@@ -822,7 +846,8 @@ export function compileSecWorkSelectionTerminalProjection(input: {
   }
   const terminalCompaction = compileSecRoadmapTerminalCompaction({
     roadmapSource: input.roadmapSource,
-    completedWorkIds: terminalSpecs.map(({ workId }) => workId)
+    completedWorkIds: terminalSpecs.map(({ workId }) => workId),
+    presentManifestPaths: input.presentManifestPaths
   });
   if (terminalCompaction.demandGraphDigest !== demandGraph.graphDigest) {
     fail('terminal compaction is not bound to the canonical operation demand graph.');
@@ -881,7 +906,8 @@ export function assertSecRoadmapTerminalCompactionDelta(input: {
   if (retiredWorkIds.length === 0) return;
   const compiled = compileSecRoadmapTerminalCompaction({
     roadmapSource: input.priorRoadmapSource,
-    completedWorkIds: retiredWorkIds
+    completedWorkIds: retiredWorkIds,
+    presentManifestPaths: input.priorManifestPaths
   });
   if (input.roadmapSource !== compiled.roadmapSource) {
     fail('terminal compaction roadmap bytes differ from the canonical compiler output.');

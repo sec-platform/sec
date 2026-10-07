@@ -1036,7 +1036,13 @@ async function observeSecWorkSelectionWithinHostedSession(
     });
     const terminal = compileSecWorkSelectionTerminalProjection({
       roadmapSource,
-      currentSpecs: observedCurrentSpecs
+      currentSpecs: observedCurrentSpecs,
+      presentManifestPaths: await exactManifestPaths(
+        run,
+        root,
+        exactMain,
+        'terminal-projection-base-manifests'
+      )
     });
     const { catalog, currentSpecs, terminalCompaction } = terminal;
     const openPullRequests = await observeOpenPullRequests({
