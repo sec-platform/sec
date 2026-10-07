@@ -21,7 +21,7 @@ import {
 
 const digest = `sha256:${'0'.repeat(64)}` as const;
 
-test.skipIf(process.platform !== 'linux')('native runtime copies preserve modes independently of caller umask', () => {
+test.skipIf(process.platform !== 'linux')('native runtime permissions survive caller umasks and execution phases', () => {
   const result = spawnSync('/usr/bin/python3.12', ['-B', '-I', '-S', fileURLToPath(new URL('./linux-verification-unit-helper.test.py', import.meta.url))], {
     encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024
   });

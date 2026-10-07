@@ -148,13 +148,13 @@ class Deadline:
         return remaining
 
 
-def run_tool(argv, deadline, maximum=262144):
+def run_tool(argv, deadline, maximum=262144, *, creation_umask=-1):
     """Only callers in this fixed program choose executables and argument shapes."""
     deadline.remaining()
     reserve_processes()
     deadline.remaining()
     child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, env=FIXED_ENV, close_fds=True)
+                             stderr=subprocess.PIPE, env=FIXED_ENV, close_fds=True, umask=creation_umask)
     captured = {'stdout': bytearray(), 'stderr': bytearray()}
     try:
         with selectors.DefaultSelector() as ready:
@@ -172,9 +172,15 @@ def run_tool(argv, deadline, maximum=262144):
         child.wait(timeout=deadline.remaining())
         return child.returncode, bytes(captured['stdout']), bytes(captured['stderr'])
     finally:
-        if child.poll() is None:
-            child.kill()
-            child.wait(timeout=1)
+        try:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=1)
+        finally:
+            try:
+                child.stdout.close()
+            finally:
+                child.stderr.close()
 
 
 def mount(source, target, filesystem, flags, data):
@@ -338,6 +344,30 @@ def create_runtime_directory(parent, leaf, mode):
         os.close(fd)
 
 
+@contextlib.contextmanager
+def final_output_directory(invocation, output):
+    if invocation['kind'] != 'hosted-sut':
+        yield output
+        return
+    # Dependency setup owns its existing state as UID 65532. The final root
+    # worker has no DAC override and gets new private output, not that state.
+    leaf = 'hosted-' + os.urandom(16).hex()
+    create_runtime_directory(MOUNT_HANDLES[output], leaf, 0o700)
+    final = output + '/' + leaf
+    fd = nofollow_directory(final)
+    try:
+        info = os.fstat(fd)
+        if (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (os.geteuid(), os.getegid(), 0o700):
+            raise Unavailable('final-output-owner-or-mode')
+        MOUNT_HANDLES[final] = fd
+        try:
+            yield final
+        finally:
+            del MOUNT_HANDLES[final]
+    finally:
+        os.close(fd)
+
+
 def copy_runtime(request, target, deadline):
     manifest = request['runtime']['manifest']
     if sha(canonical(manifest)) != request['runtime']['manifestDigest']:
@@ -470,14 +500,21 @@ def safe_extract_dependency_content(archive, target, deadline):
 
 
 def git(root, arguments, deadline):
-    code, stdout, _stderr = run_tool(['/usr/bin/git', '-c', 'safe.directory=' + root, '-C', root] + arguments, deadline)
+    # Git creates the private checkout consumed by both root and UID 65532.
+    # Set only this child's mask; never alter the controller's host process.
+    code, stdout, _stderr = run_tool(['/usr/bin/git', '-c', 'safe.directory=' + root, '-C', root] + arguments, deadline,
+                                   creation_umask=0o022)
     if code:
         raise Unavailable('fixed-git-command-failed')
     return stdout.decode('ascii').strip()
 
 
 def materialize_git(request, target, bundle, deadline):
-    os.mkdir(target, 0o755)
+    parent = nofollow_directory(os.path.dirname(target))
+    try:
+        create_runtime_directory(parent, os.path.basename(target), 0o755)
+    finally:
+        os.close(parent)
     git(target, ['init', '--quiet', '--object-format=' + ('sha1' if len(request['bundle']['baseSha']) == 40 else 'sha256')], deadline)
     git(target, ['-c', 'protocol.file.allow=always', 'fetch', '--quiet', bundle, 'refs/sec/base:refs/sec/base', 'refs/sec/head:refs/sec/head'], deadline)
     git(target, ['config', 'core.hooksPath', '/dev/null'], deadline)
@@ -499,6 +536,9 @@ def git_identity(request, trusted, candidate, deadline):
 # It has no caller-supplied source or command interpreter. The root SUT path is fixed.
 LAUNCH_SHIM = r'''
 import ctypes, errno, json, os, sys, time
+with open('/proc/self/status', 'r') as stream:
+    observed_masks=[line.split(':',1)[1].strip() for line in stream if line.startswith('Umask:')]
+if observed_masks != ['0022']: raise RuntimeError('unit-creation-mask-not-observed')
 # Invalid arguments cannot create/request a key if the filter is absent.
 libc=ctypes.CDLL(None,use_errno=True)
 for number,args in [(248,(0,0,0,0,0)),(249,(0,0,0,0)),(250,(-1,0,0,0,0))]:
@@ -554,7 +594,7 @@ os.execv(argv[0],argv)
 '''
 
 UNIT_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description',
-                   'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter']
+                   'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter', 'UMask']
 
 
 def unit_readback(name, deadline):
@@ -605,6 +645,8 @@ def observation_filesystem_credentials(uid, gid):
 
 def observe_start(request, properties, root, cwd, manager):
     name = request['unitName']
+    if properties['UMask'] != '0022':
+        raise Unavailable('unit-creation-mask')
     if properties['Id'] != name or properties['ControlGroup'] != '/system.slice/' + name:
         raise Unavailable('unit-domain-identity')
     manager_pid = int(properties['MainPID'])
@@ -712,6 +754,10 @@ def write_bytes(file, data, mode=0o600):
             if count <= 0:
                 raise Unavailable('short-write')
             view = view[count:]
+        os.fchmod(fd, mode)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size != len(data) or stat.S_IMODE(info.st_mode) != mode:
+            raise Unavailable('private-file-identity-or-mode')
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -782,7 +828,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
     properties = ['Description=' + description, 'Restart=no', 'CollectMode=inactive', 'KillMode=control-group',
                   'SendSIGKILL=yes', 'TimeoutStopSec=5s', 'RuntimeMaxSec=' + str(max(.001, deadline.remaining())) + 's',
                   'CPUQuota=200%', 'CPUQuotaPeriodSec=100ms', 'MemoryMax=4294967296', 'TasksMax=256',
-                  'User=0', 'Group=0', 'NoNewPrivileges=yes',
+                  'User=0', 'Group=0', 'UMask=0022', 'NoNewPrivileges=yes',
                   'PrivateNetwork=yes', 'PrivateMounts=yes', 'PrivateDevices=yes', 'ProtectControlGroups=yes', 'PrivateIPC=yes',
                   'KeyringMode=private', 'SystemCallArchitectures=x86-64', 'SystemCallFilter=~keyctl add_key request_key', 'SystemCallErrorNumber=EPERM',
                   'RootDirectory=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[root]), 'WorkingDirectory=' + cwd,
@@ -919,11 +965,42 @@ def change_tree_owner(root):
             os.chown(os.path.join(parent, name), 65532, 65532, follow_symlinks=False)
 
 
+def prepare_dependency_namespace(project):
+    # These are new private staging ancestors, before the original publisher
+    # creates any generation or proof. Existing owner state is never chmodded.
+    fd = nofollow_directory(project)
+    try:
+        for leaf in ['.tmp', 'dependency-installs', 'compiler-backups']:
+            try:
+                create_runtime_directory(fd, leaf, 0o755)
+            except FileExistsError:
+                pass
+            child = os.open(leaf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+            info = os.fstat(fd)
+            if (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) != (os.geteuid(), os.getegid(), 0o755):
+                raise Unavailable('dependency-staging-ancestor')
+    finally:
+        os.close(fd)
+
+
 def dependency_setup(request, recovery, root, control, output, deadline, control_deadline):
     """The approved fixed nonroot entry invokes only the original importer."""
+    prepare_dependency_namespace(root + '/sec-runtime/trusted')
+    if request['invocation']['kind'] in ('verification-action', 'main-health', 'hosted-sut'):
+        prepare_dependency_namespace(root + '/sec-runtime/workspace')
     content = root + '/sec-runtime/dependency-content'
-    os.mkdir(content, 0o755)
-    os.mkdir(content + '/node_modules', 0o755)
+    parent = nofollow_directory(root + '/sec-runtime')
+    try:
+        create_runtime_directory(parent, 'dependency-content', 0o755)
+    finally:
+        os.close(parent)
+    parent = nofollow_directory(content)
+    try:
+        create_runtime_directory(parent, 'node_modules', 0o755)
+    finally:
+        os.close(parent)
     archive = root + '/authenticated-input/dependency-content.tar'
     copy_transport(request['dependencies'], archive, deadline)
     os.chmod(archive, 0o444)
@@ -1207,7 +1284,8 @@ def run(request, control_deadline, execution_deadline):
                 os.unlink(recovery.path + '/' + name)
             except FileNotFoundError:
                 pass
-        unit, code, stdout, stderr, output_files = launch_unit(request, recovery, root, control, output, execution_deadline, control_deadline)
+        with final_output_directory(request['invocation'], output) as final_output:
+            unit, code, stdout, stderr, output_files = launch_unit(request, recovery, root, control, final_output, execution_deadline, control_deadline)
         after = git_identity(request, trusted, candidate, control_deadline)
         if before != after:
             raise Unavailable('source-changed')
