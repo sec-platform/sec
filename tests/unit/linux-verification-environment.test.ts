@@ -129,7 +129,7 @@ function nativeManifestVector(): SecLinuxVerificationNativeRuntimeManifest {
       { path: 'bin/sh', type: 'symlink', mode: 0o777, target: '../usr/bin/env', sourceId: 'bun' },
       { path: 'usr', type: 'directory', mode: 0o755 },
       { path: 'usr/bin', type: 'directory', mode: 0o755 },
-      ...['env', 'git', 'python3'].map((name) => ({
+      ...['env', 'git', 'python3', 'setpriv', 'unshare'].map((name) => ({
         path: `usr/bin/${name}`, type: 'file' as const, mode: 0o755,
         size: 1, digest: `sha256:${'a'.repeat(64)}` as const, sourceId: 'bun'
       })),
@@ -193,6 +193,44 @@ describe('native runtime content admission', () => {
     const unknownSource = nativeManifestVector();
     unknownSource.sources[0]!.url = 'https://example.com/runtime.zip';
     expect(() => parseSecLinuxVerificationNativeRuntimeManifest(unknownSource)).toThrow('original accepted source');
+  });
+
+  test('admits the physical snapshot byte boundary and rejects one excess byte', () => {
+    const limit = 4 * 1024 * 1024 * 1024;
+    const atBoundary = nativeManifestVector();
+    const files = atBoundary.files.filter((entry) => entry.type === 'file');
+    files[0]!.size = limit - (files.length - 1);
+    expect(() => parseSecLinuxVerificationNativeRuntimeManifest(atBoundary)).not.toThrow();
+    files[0]!.size += 1;
+    expect(() => parseSecLinuxVerificationNativeRuntimeManifest(atBoundary))
+      .toThrow('verification-unit content byte bound');
+  });
+
+  test('requires the executable namespace launcher inside the runtime root', () => {
+    for (const executable of ['usr/bin/unshare', 'usr/bin/setpriv']) {
+      const missing = nativeManifestVector();
+      missing.files = missing.files.filter(({ path }) => path !== executable);
+      expect(() => parseSecLinuxVerificationNativeRuntimeManifest(missing)).toThrow('target is missing');
+      const notExecutable = nativeManifestVector();
+      notExecutable.files.find(({ path }) => path === executable)!.mode = 0o644;
+      expect(() => parseSecLinuxVerificationNativeRuntimeManifest(notExecutable))
+        .toThrow(`executable is missing: ${executable}`);
+    }
+  });
+
+  test('keeps private mount roots out of runtime content without rejecting nested names', () => {
+    for (const root of ['sec-runtime', 'authenticated-input', 'tmp', 'proc', 'dev', 'sys']) {
+      const vector = nativeManifestVector();
+      vector.files.push({ path: root, type: 'directory', mode: 0o755 });
+      vector.files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+      expect(() => parseSecLinuxVerificationNativeRuntimeManifest(vector)).toThrow('reserved verification-unit root');
+    }
+    for (const allowedPath of ['usr/tmp', 'tmp-assets']) {
+      const nested = nativeManifestVector();
+      nested.files.push({ path: allowedPath, type: 'directory', mode: 0o755 });
+      nested.files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+      expect(() => parseSecLinuxVerificationNativeRuntimeManifest(nested)).not.toThrow();
+    }
   });
 
   test('preserves the native input blocker before looking at transport paths', () => {

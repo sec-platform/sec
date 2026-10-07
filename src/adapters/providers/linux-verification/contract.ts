@@ -3,6 +3,10 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { sha256 } from '../../../contracts/canonical.ts';
+import {
+  LINUX_VERIFICATION_RUNTIME_RESERVED_ROOTS,
+  LINUX_VERIFICATION_UNIT_PROFILE
+} from '../../runtime-state/physical/contract/linux-verification-unit.ts';
 import source from './environment-spec.json' with { type: 'json' };
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u)
@@ -393,6 +397,9 @@ export function parseSecLinuxVerificationNativeRuntimeManifest(
   };
   let totalBytes = 0;
   for (const entry of manifest.files) {
+    if (LINUX_VERIFICATION_RUNTIME_RESERVED_ROOTS.includes(entry.path.split('/')[0]!)) {
+      fail('native runtime path overlaps a reserved verification-unit root');
+    }
     const parent = path.posix.dirname(entry.path);
     if (parent !== '.' && files.get(parent)?.type !== 'directory') {
       fail('native runtime entries require declared non-symlink parents');
@@ -405,14 +412,16 @@ export function parseSecLinuxVerificationNativeRuntimeManifest(
     }
     if (entry.type === 'file') totalBytes += entry.size;
   }
-  if (totalBytes > 16 * 1024 * 1024 * 1024) fail('native runtime exceeds the content byte bound');
+  if (totalBytes > LINUX_VERIFICATION_UNIT_PROFILE.maximumSnapshotBytes) {
+    fail('native runtime exceeds the verification-unit content byte bound');
+  }
   const bun = resolveEntry(authority.trustedRuntime.bunExecutablePath.slice(1));
   if (bun.type !== 'file' || bun.digest !== authority.trustedRuntime.bunExecutableDigest
       || (bun.mode & 0o111) === 0
       || sources.get(bun.sourceId)?.digest !== authority.trustedRuntime.bunArchiveDigest) {
     fail('native runtime must contain the original accepted Bun executable');
   }
-  for (const executable of ['usr/bin/python3', 'usr/bin/git', 'usr/bin/env', 'bin/sh']) {
+  for (const executable of ['usr/bin/python3', 'usr/bin/git', 'usr/bin/env', 'usr/bin/unshare', 'usr/bin/setpriv', 'bin/sh']) {
     const entry = resolveEntry(executable);
     if (entry.type !== 'file' || (entry.mode & 0o111) === 0) {
       fail(`native runtime executable is missing: ${executable}`);

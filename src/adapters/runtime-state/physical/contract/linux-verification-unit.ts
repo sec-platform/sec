@@ -61,6 +61,11 @@ export interface LinuxVerificationUnitResult {
 
 export const LINUX_VERIFICATION_UNIT_PROFILE_REVISION = 'sec-linux-native-verification-unit-v1' as const;
 export const LINUX_VERIFICATION_UNIT_REQUIREMENT_ID = 'verification.linux-native-unit' as const;
+/** These roots belong to the unit's private mounts, never its runtime payload.
+ * The native helper independently enforces the same fixed namespace. */
+export const LINUX_VERIFICATION_RUNTIME_RESERVED_ROOTS: readonly string[] = Object.freeze([
+  'sec-runtime', 'authenticated-input', 'tmp', 'proc', 'dev', 'sys'
+]);
 export const LINUX_VERIFICATION_UNIT_PROFILE = deepFreeze({
   revision: LINUX_VERIFICATION_UNIT_PROFILE_REVISION,
   cpuQuotaMicros: 200_000, cpuPeriodMicros: 100_000,
