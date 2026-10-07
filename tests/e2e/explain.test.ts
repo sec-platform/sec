@@ -216,7 +216,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
         },
         {
           scope: 'project',
-          path: 'source/model/policies/policy.spec.yaml',
+          path: 'model/policies/policy.spec.yaml',
           policyIds: []
         }
       ],

@@ -25,7 +25,6 @@ import {
   currentSpecRevisionFromBody,
   parseSecRoadmapWorkCatalog,
   parseSecWorkRollingMachineProjection,
-  parseSecWorkRollingProjectionV1,
   renderSecWorkRollingPlan,
   renderSecWorkRollingTransitionPlan,
   unresolvedSecWorkSelectionLiveResult,
@@ -999,7 +998,7 @@ describe('work-selection live contract', () => {
     const rendered = renderSecWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
-    expect(parseSecWorkRollingProjectionV1(machine!)).toEqual(projection);
+    expect(parseSecWorkRollingMachineProjection(machine!)).toEqual(projection);
     expect(rendered).toContain(`### ${projection.active.packageId}`);
     expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
     expect(rendered.match(/^### [1-9][0-9]*\. /gmu) ?? [])
@@ -1011,15 +1010,15 @@ describe('work-selection live contract', () => {
     const rendered = renderSecWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
-    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+    expect(() => parseSecWorkRollingMachineProjection(machine!.replace(
       '"decisionStatus": "selected"',
       '"decisionStatus": "eligible"'
     ))).toThrow(/decisionStatus/u);
-    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+    expect(() => parseSecWorkRollingMachineProjection(machine!.replace(
       '"schema": "sec-work-rolling-projection-v1"',
       '"schema": "sec-work-rolling-projection-v1",\n  "schema": "sec-work-rolling-projection-v1"'
     ))).toThrow(/duplicate key "schema"/u);
-    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+    expect(() => parseSecWorkRollingMachineProjection(machine!.replace(
       /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
       `"projectionDigest": "sha256:${'0'.repeat(64)}"`
     ))).toThrow(/does not bind/u);

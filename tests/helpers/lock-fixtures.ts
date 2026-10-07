@@ -23,20 +23,15 @@ export function buildOfficialResolvedBlock(options: {
   };
 }
 
-type OfficialInstallStepOptions = Omit<
+type OfficialCopyInstallStepOptions = Omit<
   LockFile['installPlan'][number],
-  'registrySourceId' | 'registryKind' | 'registryLocation' | 'registryPath'
+  'registrySourceId' | 'registryKind' | 'registryLocation' | 'registryPath' | 'action'
 >;
 
-type OfficialCopyInstallStepOptions = Omit<OfficialInstallStepOptions, 'action'>;
-
-function buildOfficialInstallStep(options: OfficialInstallStepOptions): LockFile['installPlan'][number] {
+export function buildOfficialCopyInstallStep(options: OfficialCopyInstallStepOptions): LockFile['installPlan'][number] {
   return {
     ...officialRegistryMetadata,
+    action: 'copy',
     ...options
   };
-}
-
-export function buildOfficialCopyInstallStep(options: OfficialCopyInstallStepOptions): LockFile['installPlan'][number] {
-  return buildOfficialInstallStep({ action: 'copy', ...options });
 }

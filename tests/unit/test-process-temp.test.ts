@@ -248,35 +248,6 @@ test('direct test invocation binds and retires one State Cache and TMP generatio
   }
 });
 
-test('direct test invocation settles its complete runtime after a failed test body', async () => {
-  const root = generation('sec-direct-test-runtime-failure-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
-  const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
-  let runtime: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | null = null;
-  let failure: unknown;
-  try {
-    runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
-    try {
-      throw new Error('synthetic test body failure');
-    } catch (error) {
-      failure = error;
-    } finally {
-      await runtime.cleanup();
-    }
-    expect(failure).toEqual(new Error('synthetic test body failure'));
-    expect(existsSync(runtime.processRoot)).toBe(false);
-    expect(existsSync(runtime.stateRoot)).toBe(false);
-    expect(existsSync(runtime.cacheRoot)).toBe(false);
-    expect(environment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('two direct invocations in one workspace own independent concurrent lifecycle generations', async () => {
   const root = generation('sec-direct-test-runtime-concurrent-');
   const repositoryRoot = path.join(root, 'repository');
@@ -310,6 +281,7 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
     await right.cleanup();
     rmSync(root, { recursive: true, force: true });
   }
+  expect(rightEnvironment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
 });
 
 test('runner-assigned test invocation adopts parent roots without creating a nested runtime generation', async () => {

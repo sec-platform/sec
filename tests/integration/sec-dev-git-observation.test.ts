@@ -24,9 +24,9 @@ import {
   GIT_READ_OPERATION_BUDGET,
   readBlobBatch,
   readCommitBlobInventory,
-  readTextAttributesBatch,
   resolveExactHeadCommit,
-  runGitRead
+  runGitRead,
+  withIsolatedTextAttributeReader
 } from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import { runCensus } from '../../src/adapters/self-hosting/development/tooling/text/text-byte-census.ts';
 import { runSettlement } from '../../src/adapters/self-hosting/development/tooling/workspace/worktree-settlement.ts';
@@ -83,7 +83,9 @@ test('batch blob and attribute observations bind to one exact commit', async () 
       const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
       expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
 
-      const attributes = await readTextAttributesBatch(session, commit, inventory.map((entry) => entry.path));
+      const attributes = await withIsolatedTextAttributeReader(session, commit, (readAttributes) =>
+        readAttributes(inventory.map((entry) => entry.path))
+      );
       expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
     });
   } finally {
@@ -203,7 +205,9 @@ test('committed attribute policy is isolated from .git/info/attributes overrides
       budget: GIT_READ_OPERATION_BUDGET
     }, async (session) => {
       const commit = await resolveExactHeadCommit(session);
-      const attributes = await readTextAttributesBatch(session, commit, ['committed.ts']);
+      const attributes = await withIsolatedTextAttributeReader(session, commit, (readAttributes) =>
+        readAttributes(['committed.ts'])
+      );
       expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
     });
 

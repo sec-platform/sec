@@ -32,7 +32,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
       'Policy sources passed',
       'sources=2; policies=1',
       'Source official; path=catalog/policies/official/policy.spec.yaml; policies=tenant-scope-required',
-      'Source project; path=source/model/policies/policy.spec.yaml; policies=none'
+      'Source project; path=model/policies/policy.spec.yaml; policies=none'
     ]);
 
     const sourcesPayload = await expectCliJson(
@@ -54,7 +54,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
         },
         {
           scope: 'project',
-          path: 'source/model/policies/policy.spec.yaml',
+          path: 'model/policies/policy.spec.yaml',
           policyCount: 0,
           policyIds: []
         }

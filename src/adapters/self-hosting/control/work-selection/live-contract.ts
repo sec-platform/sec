@@ -1265,14 +1265,6 @@ export function parseSecWorkRollingMachineProjection(
   return fail('rolling projection.schema is unsupported.');
 }
 
-export function parseSecWorkRollingProjectionV1(source: string): SecWorkRollingProjection {
-  const projection = parseSecWorkRollingMachineProjection(source);
-  if (projection.schema !== SEC_WORK_ROLLING_PROJECTION_SCHEMA) {
-    return fail(`rolling projection.schema must be ${SEC_WORK_ROLLING_PROJECTION_SCHEMA}.`);
-  }
-  return projection;
-}
-
 export function rollingTopologyFromMachineProjection(
   projection: SecWorkRollingMachineProjection
 ): SecWorkRollingTopology {

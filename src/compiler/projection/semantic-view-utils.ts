@@ -32,7 +32,7 @@ export function summarizeFactAssertions(fact: SemanticFact): FactAssertionSummar
   const confidences = fact.assertions.map((assertion) => assertion.confidence);
 
   return {
-    status: authorityOverlayStatus(authorities, hasConflict),
+    status: authorityOverlayStatus(authorities),
     authorities,
     // FactAssertion currently represents positive claims about one exact triple.
     // Predicate-specific contradictions live across Facts and require a validator with graph context.
@@ -46,11 +46,7 @@ export function summarizeFactAssertions(fact: SemanticFact): FactAssertionSummar
   };
 }
 
-function authorityOverlayStatus(
-  authorities: readonly SemanticAuthority[],
-  hasConflict: boolean
-): AuthorityOverlayStatus {
-  if (hasConflict) return 'conflict';
+function authorityOverlayStatus(authorities: readonly SemanticAuthority[]): AuthorityOverlayStatus {
   if (authorities.length > 1) return 'mixed';
   return authorities[0] === 'inferred' ? 'inferred' : 'uniform';
 }
@@ -239,7 +235,7 @@ export function buildProvenanceOverlay(
     return [{
       targetId: target.id,
       factIds,
-      status: authorityOverlayStatus(authorities, hasConflict),
+      status: authorityOverlayStatus(authorities),
       authorities,
       hasInferred: authorities.includes('inferred'),
       hasConflict,

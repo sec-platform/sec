@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mergePrismaSchemas, parsePrismaSchema } from '../../src/compiler/templates/prisma-schema.ts';
+import { mergePrismaSchemas } from '../../src/compiler/templates/prisma-schema.ts';
 
 const schema = (type: string, name: string, body: string) => `${type} ${name} {\n${body}\n}\n`;
 const model = (body: string) => schema('model', 'Record', body);
@@ -9,22 +9,19 @@ const parseFailure = (error: unknown) => (error as { code?: string }).code === '
 for (const invalid of ['model A {}}', 'model A {} model B {}', 'model A {} nonsense',
   'model A {\n id String @default("unclosed)\n}', 'model A {\n id Int\n}}', 'model A {\n id Int\n} {']) {
   test(`schema refuses structurally lost syntax: ${JSON.stringify(invalid)}`, () => {
-    assert.throws(() => parsePrismaSchema(invalid), parseFailure);
+    assert.throws(() => mergePrismaSchemas(invalid, ''), parseFailure);
   });
 }
 
 test('quoted and comment delimiters are not structural braces', () => {
   const input = model('  text String @default("} { // \\\"value\\\"") // }');
-  assert.equal(parsePrismaSchema(input).blocks.length, 1);
   assert.equal(mergePrismaSchemas(input, input), input);
 });
 
 test('a trailing comment brace is not accidentally incorporated into a merged body', () => {
   const existing = 'model Record {\n  id Int @id\n} // tail }\n';
   const merged = mergePrismaSchemas(existing, model('  name String'));
-  assert.match(merged, /id Int @id\n  name String\n}/);
-  assert.equal(parsePrismaSchema(merged).blocks.length, 1);
-  assert.ok(merged.endsWith('} // tail }\n'));
+  assert.equal(merged, 'model Record {\n  id Int @id\n  name String\n} // tail }\n');
 });
 
 test('field documentation remains directly attached when another field is added', () => {
@@ -50,8 +47,7 @@ test('template documentation for a new block remains adjacent to that block', ()
 
 test('same-name model contributions merge members, not duplicate model definitions', () => {
   const merged = mergePrismaSchemas(model(' id Int @id'), model(' name String'));
-  assert.equal(parsePrismaSchema(merged).blocks.length, 1);
-  assert.ok(merged.includes('id Int @id')); assert.ok(merged.includes('name String'));
+  assert.equal(merged, model(' id Int @id\n name String'));
 });
 
 for (const type of ['model', 'type', 'enum']) test(`${type} member conflicts are refused, not resolved by source order`, () => {

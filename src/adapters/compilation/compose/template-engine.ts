@@ -36,17 +36,9 @@ export class TemplateEngine {
         templateName
       });
     }
-    return this.renderString(
+    return renderTemplateString(
       decodeExactUtf8(bytes, `Scaffold template ${templateName}`),
       context
     );
-  }
-
-  /** Render bounded, exactly paired conditional directives and literal text substitutions. */
-  public static renderString(
-    content: string,
-    context: Readonly<Record<string, unknown>>
-  ): string {
-    return renderTemplateString(content, context);
   }
 }

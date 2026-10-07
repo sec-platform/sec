@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
-import { mergePrismaSchemas, parsePrismaSchema } from '../../src/compiler/templates/prisma-schema.ts';
+import { mergePrismaSchemas } from '../../src/compiler/templates/prisma-schema.ts';
 
-test('parsePrismaSchema parses supported block kinds', () => {
+test('mergePrismaSchemas preserves supported block kinds', () => {
   const schema = `
 // Global comment
 datasource db {
@@ -24,13 +24,7 @@ enum Role {
 }
 `;
 
-  const parsed = parsePrismaSchema(schema);
-  expect(parsed.blocks.map((block) => `${block.type}:${block.name}`)).toEqual([
-    'datasource:db',
-    'generator:client',
-    'model:User',
-    'enum:Role'
-  ]);
+  expect(mergePrismaSchemas('', schema)).toBe(schema.trimStart());
 });
 
 test('mergePrismaSchemas adds non-conflicting model fields and attributes', () => {
@@ -120,7 +114,7 @@ enum Role {
 `)).toThrow(/enum value "USER" conflicts/);
 });
 
-test('parsePrismaSchema rejects incomplete or duplicate blocks', () => {
-  expect(() => parsePrismaSchema('model User {\n  id Int @id\n')).toThrow(/is not closed/);
-  expect(() => parsePrismaSchema('model User {\n}\nmodel User {\n}\n')).toThrow(/duplicate Prisma block/);
+test('mergePrismaSchemas rejects incomplete or duplicate blocks', () => {
+  expect(() => mergePrismaSchemas('model User {\n  id Int @id\n', '')).toThrow(/is not closed/);
+  expect(() => mergePrismaSchemas('model User {\n}\nmodel User {\n}\n', '')).toThrow(/duplicate Prisma block/);
 });

@@ -118,14 +118,6 @@ export class InstallStrategyRegistry {
     return this;
   }
 
-  resolve(step: InstallPlanStep): InstallStrategy {
-    const strategy = this.strategies.find((candidate) => candidate.canHandle(step));
-    if (!strategy) {
-      throw new CompilerError('COMPOSE-PATH-002', `Unsupported install action "${step.action}"`);
-    }
-    return strategy;
-  }
-
   async executeAll(steps: readonly InstallPlanStep[], context: InstallContext): Promise<void> {
     const workspaceRoot = path.resolve(context.workspaceRoot);
     const { lock, signal: parentSignal, commitFence } = context;

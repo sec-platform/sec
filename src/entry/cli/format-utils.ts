@@ -7,9 +7,7 @@ export function formatList(values: readonly string[], fallback = 'none'): string
 }
 
 export function formatCounts(values: readonly string[]): string {
-  return formatList(
-    summarizeCounts(values).map((entry) => `${entry.id}=${entry.count}`)
-  );
+  return formatSummaryEntries(summarizeCounts(values));
 }
 
 export function optionalFields(entries: Array<[unknown, string]>): string[] {
