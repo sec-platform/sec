@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../../verification/platform/ci/contract/revision.ts';
@@ -18,6 +20,15 @@ import {
 } from './linux-verification-unit.ts';
 
 const digest = `sha256:${'0'.repeat(64)}` as const;
+
+test.skipIf(process.platform !== 'linux')('native runtime copies preserve modes independently of caller umask', () => {
+  const result = spawnSync('/usr/bin/python3.12', ['-B', '-I', '-S', fileURLToPath(new URL('./linux-verification-unit-helper.test.py', import.meta.url))], {
+    encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.stderr).toContain('OK');
+  expect(result.status).toBe(0);
+});
 const invocation: LinuxVerificationUnitInvocation = {
   kind: 'lifecycle-canary', argv: [], cwd: 'candidate', environment: {},
   outputFiles: [], maxStdoutBytes: 64, maxStderrBytes: 64

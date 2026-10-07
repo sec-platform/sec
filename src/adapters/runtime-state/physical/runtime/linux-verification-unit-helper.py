@@ -325,6 +325,19 @@ def write_all(fd, data):
         view = view[count:]
 
 
+def create_runtime_directory(parent, leaf, mode):
+    # Only new entries in the private, unpublished runtime are adjusted. A host
+    # umask must not silently change the accepted content's permission modes.
+    os.mkdir(leaf, 0o700, dir_fd=parent)
+    fd = os.open(leaf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        os.fchmod(fd, mode)
+        if stat.S_IMODE(os.fstat(fd).st_mode) != mode:
+            raise Unavailable('runtime-directory-mode')
+    finally:
+        os.close(fd)
+
+
 def copy_runtime(request, target, deadline):
     manifest = request['runtime']['manifest']
     if sha(canonical(manifest)) != request['runtime']['manifestDigest']:
@@ -351,7 +364,7 @@ def copy_runtime(request, target, deadline):
             parent, leaf = relative_parent(destination_root, relative)
             try:
                 if entry['type'] == 'directory':
-                    os.mkdir(leaf, entry['mode'], dir_fd=parent)
+                    create_runtime_directory(parent, leaf, entry['mode'])
                 elif entry['type'] == 'symlink':
                     link = entry['target']
                     if not isinstance(link, str) or not link or link.startswith('/') or '\\' in link or '\0' in link:
@@ -383,11 +396,15 @@ def copy_runtime(request, target, deadline):
                                     break
                                 hasher.update(chunk)
                                 write_all(out, chunk)
+                            after = os.fstat(fd)
+                            if 'sha256:' + hasher.hexdigest() != entry['digest'] or (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                                raise Unavailable('runtime-file-drift')
+                            os.fchmod(out, entry['mode'])
+                            copied = os.fstat(out)
+                            if not stat.S_ISREG(copied.st_mode) or copied.st_nlink != 1 or copied.st_size != entry['size'] or stat.S_IMODE(copied.st_mode) != entry['mode']:
+                                raise Unavailable('runtime-copy-identity-or-mode')
                         finally:
                             os.close(out)
-                        after = os.fstat(fd)
-                        if 'sha256:' + hasher.hexdigest() != entry['digest'] or (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-                            raise Unavailable('runtime-file-drift')
                     finally:
                         os.close(fd)
                 else:
@@ -1151,11 +1168,13 @@ def run(request, control_deadline, execution_deadline):
                 raise Unavailable('private-tmpfs-not-observed')
         copy_runtime(request, root, execution_deadline)
         for relative in ['sec-runtime', 'authenticated-input', 'tmp', 'proc', 'dev', 'sys']:
-            directory = root + '/' + relative
-            if not os.path.exists(directory):
-                os.mkdir(directory, 0o755)
+            create_runtime_directory(MOUNT_HANDLES[root], relative, 0o755)
         for relative in ['control', 'output']:
-            os.mkdir(root + '/sec-runtime/' + relative, 0o755)
+            parent, leaf = relative_parent(MOUNT_HANDLES[root], 'sec-runtime/' + relative)
+            try:
+                create_runtime_directory(parent, leaf, 0o755)
+            finally:
+                os.close(parent)
         os.chown(output, 65532, 65532)
         os.chmod(output, 0o700)
         bundle = root + '/authenticated-input/candidate.bundle'
