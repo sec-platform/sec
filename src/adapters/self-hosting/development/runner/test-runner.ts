@@ -1111,7 +1111,7 @@ async function runAffectedTestPlan(
 
   if (selection.sourceChanged) {
     if (!plan.broadFallbackEnabled) {
-      // Issue #206: source changed but no fast tests selected and no fallback.
+      // Source changed but no fast tests were selected and no fallback is enabled.
       // This is a fail-closed trust boundary — the empty closure is NOT proof
       // of "no impact". Returning 0 here would be a false-green: it would let
       // CI treat "selector found nothing" as "change has no impact", masking
@@ -1452,7 +1452,7 @@ export async function runAffectedTests(
   }
   if (args.length === 1) {
     console.log(JSON.stringify(execution.plan, null, 2));
-    // Issue #206: --plan fails closed for any unresolved trust boundary, not
+    // --plan fails closed for any unresolved trust boundary, not
     // just ownership-unresolved. This keeps `--plan` exit codes consistent
     // with the execution path so CI can branch on `--plan` alone.
     return affectedTestPlanExitCode(execution.plan);

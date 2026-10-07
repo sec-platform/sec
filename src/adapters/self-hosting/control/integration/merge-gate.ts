@@ -1117,7 +1117,7 @@ export function CodexDevelopmentParseTrustedRuntimeMergeGateResult(
  * Machine trailer closure for a physical squash merge message. The only
  * permitted body lines are the canonical IntegrationAuthorization markers;
  * any `Independent-*` / `Manual-Transition-*` line must be the exact trailer
- * rendered from a validated review receipt (Issue #347 section G). The
+ * rendered from a validated review receipt. The
  * PR #345 free-text `Independent-Exact-Head-Review: P0=0 P1=0 P2=0` shape is
  * rejected by this validator.
  */

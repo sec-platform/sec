@@ -18,8 +18,7 @@ import { VERIFICATION_GATE_RESULT_SCHEMA } from './schema.ts';
  *
  * Legacy mappings with insufficient context surface as unresolved/invalidated
  * rather than silently promoting to passed.
- *
- * Origin: Issue #176 (verification-result-truth), census v0.2.
+
  */
 
 /**
@@ -63,7 +62,7 @@ export type VerificationApplicability =
 /**
  * Stable reason codes for control flow. Free text is diagnostic only.
  *
- * Count: 17 (the Issue #176 census v0.2 list).
+ * The closed v1 reason-code set follows.
  */
 export type VerificationReasonCode =
   | 'executed-success'

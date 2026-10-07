@@ -191,7 +191,7 @@ function normalizeSelectionPullRequests(
 }
 
 /**
- * Bounded #313 projection for Work Selection. The caller observes only the
+ * Bounded branch-lifecycle projection for Work Selection. The caller observes only the
  * complete non-default ref/worktree namespace, one selected OPEN pull request,
  * and every unselected OPEN pull request. This owner validates the exact active,
  * preserved, and prospective transports and decides whether any remaining
