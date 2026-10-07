@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
-import { validateResolvedTemplates } from '../../src/adapters/verification/validate-resolved-templates.ts';
+import { validateResolvedTemplates } from '../../src/bootstrap/engineering/validate-resolved-templates.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { DependencyProjectOperationFactory } from '../../src/execution/dependency-materialization.ts';

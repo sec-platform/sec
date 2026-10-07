@@ -11,7 +11,7 @@ import {
   TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES,
   assertTrustedBootstrapExactKeys, assertTrustedBootstrapPreReceipt, assertTrustedBootstrapPreparedReceipt,
   assertTrustedBootstrapStableReceipt, deriveTrustedBootstrapAuthority,
-  evaluateTrustedBootstrapSutEvidence, prepareTrustedBootstrapCheckerReceipt,
+  evaluateTrustedBootstrapSutEvidence, parseTrustedBootstrapReceiptBytes, prepareTrustedBootstrapCheckerReceipt,
   trustedBootstrapDigest, trustedBootstrapJsonDigest
 } from '../../../../../execution/verification/trusted-bootstrap.ts';
 import {
@@ -389,7 +389,7 @@ export async function createTrustedBootstrapCapture() {
         throw new Error('Trusted bootstrap PRE read is outside its original POST stage.');
       }
       const bytes = readTrustedBootstrapEvidenceFile(facts.evidenceRoot, 'pre-receipt.json');
-      const parsed: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'));
+      const parsed: unknown = parseTrustedBootstrapReceiptBytes(bytes);
       const program = ports.checkerProgramBytes();
       assertTrustedBootstrapPreReceipt(parsed, { ...facts,
         registryDigest: trustedBootstrapDigest(baseRegistryBytes),
@@ -627,7 +627,7 @@ export async function createTrustedBootstrapCapture() {
             || sutPolicyDigest === null) {
           throw new Error('Trusted bootstrap passing SUT diagnostic skips an original native observation.');
         }
-        const sutReceipt: unknown = JSON.parse(Buffer.from(sutFiles.get('sut-receipt.json')!).toString('utf8'));
+        const sutReceipt: unknown = parseTrustedBootstrapReceiptBytes(sutFiles.get('sut-receipt.json')!);
         if (sutReceipt === null || typeof sutReceipt !== 'object' || Array.isArray(sutReceipt)
             || JSON.stringify((sutReceipt as Record<string, unknown>).capability) !== sutCapability.source
             || JSON.stringify((sutReceipt as Record<string, unknown>).executionLifecycle) !== sutLifecycle.source

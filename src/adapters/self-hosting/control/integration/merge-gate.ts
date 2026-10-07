@@ -17,8 +17,9 @@ import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentAssertVer
 import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX } from '../../../verification/platform/ci/contract/revision.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_PRODUCER_IDENTITY } from '../../../verification/platform/review/contract/stability.ts';
 
-import { DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY, parseMainHealthLedger, resolveOrdinaryMainHealthLane } from '../main-health/contract.ts';
+import { parseMainHealthLedger, resolveOrdinaryMainHealthLane } from '../main-health/contract.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../main-health/github-status-namespace.ts';
+import { assertIntegrationMainHealthProducer, type TrustedRuntimeMainHealthPublicationAdmission } from '../main-health/live-admission.ts';
 import { assertScopeAuthorizationCurrent } from '../scope/authorization.ts';
 import { createIntegrationAuthorization, parseIntegrationAuthorization } from './authorization.ts';
 import {
@@ -139,6 +140,7 @@ export interface CodexDevelopmentTrustedRuntimeMergeGateResult {
 const issuedIntegrationGateResults = new WeakMap<object, Readonly<{
   resultDigest: MergeGateDigest;
   transitionQualification: SourceProgramTransitionQualification;
+  localMainHealthAdmission?: TrustedRuntimeMainHealthPublicationAdmission;
 }>>();
 
 export function requireIssuedIntegrationGateResult(
@@ -161,6 +163,12 @@ export function requireIssuedIntegrationGateResult(
       || subject.sessionRevision !== result.authorization.sessionRevision) {
     fail('status publication subject differs from the actual live transition producer');
   }
+  assertIntegrationMainHealthProducer({ ledger: result.mainHealth,
+    repository: result.authorization.repository, mainSha: result.authorization.baseSha,
+    mainTreeSha: result.authorization.baseTreeSha, now: new Date().toISOString(),
+    ...(issued.localMainHealthAdmission === undefined ? {} : {
+      localAdmission: issued.localMainHealthAdmission
+    }) });
   return issued.transitionQualification;
 }
 
@@ -657,6 +665,7 @@ type MergeGateCoreInput = Readonly<{
   issuedAt: string;
   expiresAt: string;
   issuer: MergeGateIssuerInput;
+  localMainHealthAdmission?: TrustedRuntimeMainHealthPublicationAdmission;
 }>;
 
 type MergeGateCoreResult = Readonly<{
@@ -736,13 +745,12 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
     expectedTrustRevision: trustRevision
   });
   if (!health.allowed || health.status !== 'healthy') fail(`ordinary lane is locked: ${health.reason}`);
-  if (input.mainHealth.producer.identity !== DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY ||
-      input.mainHealth.producer.sourceTransport !== 'github-api' ||
-      input.mainHealth.producer.trustRevision !== trustRevision ||
-      input.mainHealth.producer.sourceRef
-        !== `github-check-runs:${candidate.repository}@${candidate.currentBaseSha}`) {
-    fail('fresh MainHealth producer provenance is not bound to the trusted authorization runtime.');
-  }
+  assertIntegrationMainHealthProducer({ ledger: input.mainHealth,
+    repository: candidate.repository, mainSha: candidate.currentBaseSha,
+    mainTreeSha: candidate.currentBaseTreeSha, now,
+    ...(input.localMainHealthAdmission === undefined ? {} : {
+      localAdmission: input.localMainHealthAdmission
+    }) });
   CodexDevelopmentAssertVerificationEvidenceV4(evidence, {
     sessionRevision: session.sessionRevision,
     sessionProposalDigest: scopeAuthorization.sessionProposalDigest,
@@ -887,7 +895,8 @@ export function CodexDevelopmentEvaluateMergeGate(
 
 export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
   input: CodexDevelopmentTrustedRuntimeMergeGateInput,
-  transitionQualification?: SourceProgramTransitionQualification
+  transitionQualification?: SourceProgramTransitionQualification,
+  localMainHealthAdmission?: TrustedRuntimeMainHealthPublicationAdmission
 ): CodexDevelopmentTrustedRuntimeMergeGateResult {
   const record = exact(input, [
     'schema', 'provenance', 'candidate', 'artifact', 'artifactObservation', 'expectedActionPlan',
@@ -938,7 +947,8 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
       sourceRunId: provenance.executionId,
       sourceRef: provenance.runtimeRef,
       sourceDigest: provenance.sourceDigest
-    }
+    },
+    ...(localMainHealthAdmission === undefined ? {} : { localMainHealthAdmission })
   });
   const withoutDigest = Object.freeze({
     schema: CodexDevelopmentTrustedRuntimeMergeGateResultSchema,
@@ -966,7 +976,9 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
         || !input.expectedActionPlan.actions.some(({ action }) => action.actionKey === observed.actionKey)) {
       fail('direct publication qualification belongs to another subject or Action');
     }
-    issuedIntegrationGateResults.set(result, Object.freeze({ resultDigest: result.resultDigest, transitionQualification }));
+    issuedIntegrationGateResults.set(result, Object.freeze({ resultDigest: result.resultDigest,
+      transitionQualification,
+      ...(localMainHealthAdmission === undefined ? {} : { localMainHealthAdmission }) }));
   }
   return result;
 }

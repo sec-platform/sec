@@ -6849,6 +6849,9 @@ async function recoverCompilerDependencyTransition(
         await settleRetiredCompilerDependencyGeneration(options);
         await createCompilerDependencyLocator(activePath, backupPath, generation.physical, options);
         active = await currentActive();
+        transition = await advanceDependencyTransition(transition, {
+          destination: active, phase: 'published', durability: 'known', failure: null
+        }, options);
       }
       if (active.kind !== 'link' || !sameHostPath(await fs.realpath(activePath).catch(() => ''), backupPath)) {
         return failRecovery(new CodedFailure(
@@ -6876,7 +6879,7 @@ async function recoverCompilerDependencyTransition(
       // deterministic producer inputs and is therefore the recovery-capable
       // publication path whether this invocation performed the link Effect
       // or merely read it back after a crash.
-      await recoverCompilerDependencyLocatorLifecycle({
+      transition = await recoverCompilerDependencyLocatorLifecycle({
         binding: observedBinding,
         generationPath: backupPath,
         generationPhysical: transition.sourceGeneration.physical,
@@ -7003,6 +7006,7 @@ async function recoverCompilerDependencyTransition(
         }, options);
       }
       active = await currentActive();
+      let recoveredLocatorLifecycle = false;
       if (active.kind === 'absent') {
         // Publication restores birth legality: settle any retired predecessor
         // while the slot is still empty, then create the exact locator.
@@ -7021,25 +7025,23 @@ async function recoverCompilerDependencyTransition(
         !sameHostPath(await fs.realpath(activePath).catch(() => ''), sourcePath)) {
         return failRecovery(new CodedFailure('IMPORT-AUTHORITY-004', 'Linked compiler dependency target is foreign and preserved'));
       } else {
-        // A prior attempt published this exact locator and stopped before its
-        // lifecycle birth was signed.  The retired predecessor is terminal
-        // only while the slot is missing, so retract the locator, settle the
-        // predecessor, republish the identical generation, and let the birth
-        // below sign that exact publication.
-        const recoveredLocator = compilerDependencyLocatorObservation(root, 'node_modules');
-        if (recoveredLocator === null) {
-          return failRecovery(new CodedFailure('IMPORT-AUTHORITY-004', 'Recovered linked compiler dependency locator has no physical identity'));
-        }
-        await deleteExactCompilerDependencyLocator(root, recoveredLocator, options);
-        await settleRetiredCompilerDependencyGeneration(options, transition.preimage.physical ?? undefined);
-        await createCompilerDependencyLocator(activePath, sourcePath, sourceGeneration.physical, options);
+        // The target generation does not identify its consumer link. Recovery
+        // consumes the original published locator and predecessor facts below.
+        const binding = await compilerDependencyConsumerBridgeBinding(root, activePath, identity, options);
+        if (binding === null) return failRecovery(new CodedFailure('IMPORT-AUTHORITY-004', 'Recovered linked compiler locator has no exact binding'));
+        transition = await recoverCompilerDependencyLocatorLifecycle({
+          binding, generationPath: sourcePath, generationPhysical: sourceGeneration.physical,
+          identity, options, root, stageRoot: null, stageRootPath: null, transition
+        });
+        recoveredLocatorLifecycle = true;
         active = await currentActive();
       }
       const observedBinding = await compilerDependencyConsumerBridgeBinding(root, activePath, identity, options);
       if (observedBinding === null || generatedStateDigest(observedBinding) !== transition.sourceGeneration.bindingDigest) {
         return failRecovery(new CodedFailure('IMPORT-AUTHORITY-004', 'Linked compiler dependency locator failed recovery binding'));
       }
-      await publishCompilerDependencyLocatorLifecycle(root, identity, observedBinding, options);
+      if (!recoveredLocatorLifecycle) await publishCompilerDependencyLocatorLifecycle(root, identity, observedBinding, options);
+      else await bindExistingCompilerDependencyLocator(root, identity, observedBinding, options);
       transition = await advanceDependencyTransition(transition, {
         destination: active,
         backup: await currentBackup(),
@@ -7500,7 +7502,7 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
   stageRoot: DependencyTransitionSlot | null;
   stageRootPath: string | null;
   transition: DependencyTransitionJournal;
-}>): Promise<void> {
+}>): Promise<DependencyTransitionJournal> {
   const lifecycle = input.options.generatedStateLifecycle;
   const observeRetirement = lifecycle?.observeRetirement;
   if (lifecycle === undefined) {
@@ -7536,6 +7538,12 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
     '../../../runtime-state/generated-state/lifecycle-evidence.ts'
   );
   await assertGeneratedStateRetirementObservation(observation, { workspaceRoot: input.root, relativePath: observation.relativePath });
+  const recordedLocator = input.transition.destination;
+  const exactPublishedLocator = recordedLocator.kind === 'link' && recordedLocator.physical !== null &&
+    sameGeneratedStateIdentity(recordedLocator.physical, locator.source) && recordedLocator.linkTarget === locator.linkTarget;
+  if (recordedLocator.kind === 'link' && !exactPublishedLocator) {
+    throw new CodedFailure('IMPORT-AUTHORITY-004', 'Recovered compiler locator differs from its published identity and is preserved');
+  }
   if (observation.status === 'active') {
     await bindExistingCompilerDependencyLocator(
       input.root,
@@ -7543,7 +7551,101 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
       input.binding,
       input.options
     );
-    return;
+    return input.transition;
+  }
+  if (exactPublishedLocator && input.transition.kind === 'compiler-local-locator' && input.transition.stageRoot !== null) {
+    const recordedStage = input.transition.stageRoot.physical;
+    if (input.stageRootPath === null || input.stageRoot?.kind !== 'directory' || input.stageRoot.physical === null ||
+        recordedStage === null || !sameGeneratedStateIdentity(input.stageRoot.physical, recordedStage)) {
+      throw new CodedFailure('IMPORT-AUTHORITY-004', 'Published local compiler locator has no exact original stage provenance');
+    }
+    await lifecycle.bind(path.relative(input.root, input.stageRootPath).replaceAll('\\', '/'),
+      compilerDependencyStagingLifecycleExpectation(input.stageRoot.physical));
+  }
+  const verifyPublishedCurrent = async () => {
+    runtimeDependencyOperationRemainingMs(input.options, 'Compiler locator recovery admission');
+    await assertGeneratedStateRetirementObservation(observation, { workspaceRoot: input.root, relativePath: 'node_modules' });
+    const current = await readDependencyTransition(input.root, input.options);
+    const generation = await observeDependencyTransitionSlot(input.generationPath);
+    const currentLocator = compilerDependencyLocatorObservation(input.root, 'node_modules');
+    const binding = await compilerDependencyConsumerBridgeBinding(input.root, path.join(input.root, 'node_modules'), input.identity, input.options);
+    const source = binding === null ? null : await runtimeDependencySourceGeneration({
+      binding, options: input.options, ownerRoot: input.transition.sourceGeneration.ownerRoot, sourcePath: input.generationPath
+    });
+    assertCompilerDependencyInputsCurrent(input.root, input.identity);
+    if (current?.recordDigest !== input.transition.recordDigest || generation.kind !== 'directory' || generation.physical === null ||
+        !sameGeneratedStateIdentity(generation.physical, input.generationPhysical) ||
+        currentLocator === null || !sameGeneratedStateIdentity(currentLocator.source, locator.source) ||
+        currentLocator.linkTarget !== locator.linkTarget || binding === null ||
+        generatedStateDigest(binding) !== input.transition.sourceGeneration.bindingDigest ||
+        source === null || source.epoch !== input.transition.sourceGeneration.epoch ||
+        !sameRuntimeDependencySourceGenerationContent(source, input.transition.sourceGeneration) ||
+        !sameGeneratedStateIdentity(source.ownerRootPhysical, input.transition.sourceGeneration.ownerRootPhysical) ||
+        !sameHostPath(await fs.realpath(path.join(input.root, 'node_modules')), input.generationPath)) {
+      throw new CodedFailure('IMPORT-AUTHORITY-004', 'Compiler locator recovery facts changed; current occupants are preserved');
+    }
+    runtimeDependencyOperationRemainingMs(input.options, 'Compiler locator recovery readback');
+  };
+  if (exactPublishedLocator) {
+    const [{ inspectIssuedGeneratedStateObservation }, { readVerifiedGeneratedStateObservationFacts }] = await Promise.all([
+      import('../../../../execution/generated-state/observation.ts'),
+      import('../../../runtime-state/generated-state/registration-store.ts')
+    ]);
+    const facts = await readVerifiedGeneratedStateObservationFacts(inspectIssuedGeneratedStateObservation(observation).nativeEvidence,
+      { workspaceRoot: input.root, relativePath: 'node_modules' });
+    const disposed = facts.ledger.retiredPredecessor;
+    if (facts.ledger.registration === null && (disposed === null ||
+        (disposed.owner === expected.owner && disposed.producer === expected.producer && disposed.ruleId === expected.ruleId &&
+          sameHostPath(disposed.repositoryRoot, input.root) && !sameGeneratedStateIdentity(disposed.root, locator.source)))) {
+      // A disposed predecessor is already terminal. This exact compiler
+      // publication takes fresh birth without issuing retirement again.
+      await runtimeDependencyOperationEffectFence(input.options, 'Compiler published locator birth');
+      await verifyPublishedCurrent();
+      await publishCompilerDependencyLocatorLifecycle(input.root, input.identity, input.binding, input.options);
+      return input.transition;
+    }
+  }
+  if (exactPublishedLocator && input.transition.preimage.physical !== null && lifecycle.settleRetired !== undefined) {
+    const predecessorExpected = Object.freeze({ ...expected, physical: input.transition.preimage.physical });
+    const predecessor = await observeRetirement('node_modules', predecessorExpected);
+    const [{ inspectIssuedGeneratedStateObservation }, { readVerifiedGeneratedStateObservationFacts }] = await Promise.all([
+      import('../../../../execution/generated-state/observation.ts'),
+      import('../../../runtime-state/generated-state/registration-store.ts')
+    ]);
+    const evidence = inspectIssuedGeneratedStateObservation(predecessor).nativeEvidence;
+    const scope = Object.freeze({ workspaceRoot: input.root, relativePath: 'node_modules', expectedPhysical: predecessorExpected.physical });
+    const facts = await readVerifiedGeneratedStateObservationFacts(evidence, scope);
+    const registration = facts.ledger.registration ?? facts.ledger.retiredPredecessor;
+    if (registration?.phase === 'retired' && registration.owner === expected.owner &&
+        registration.producer === expected.producer && registration.ruleId === expected.ruleId &&
+        registration.relativePath === 'node_modules' && sameHostPath(registration.repositoryRoot, input.root) &&
+        sameGeneratedStateIdentity(registration.root, predecessorExpected.physical) &&
+        facts.physical.identity !== null && sameGeneratedStateIdentity(facts.physical.identity, locator.source)) {
+      // These original native facts are validation, not a second deletion
+      // capability. The compiler's retained exact CAS remains the Effect owner.
+      const verifyCurrent = async () => {
+        await verifyPublishedCurrent();
+        await readVerifiedGeneratedStateObservationFacts(evidence, scope);
+        runtimeDependencyOperationRemainingMs(input.options, 'Compiler retired locator recovery readback');
+      };
+      await verifyCurrent();
+      await deleteExactCompilerDependencyLocator(input.root, locator, input.options, verifyCurrent);
+      if (!await lifecycle.settleRetired('node_modules', predecessorExpected)) {
+        throw new CodedFailure('IMPORT-AUTHORITY-004', 'Compiler retired locator predecessor did not settle');
+      }
+      const settled = await observeRetirement('node_modules', predecessorExpected);
+      await assertGeneratedStateRetirementObservation(settled, { workspaceRoot: input.root, relativePath: 'node_modules' });
+      if (settled.status !== 'retired-domain-settled' || settled.registrationDigest !== registration.registrationDigest) {
+        throw new CodedFailure('IMPORT-AUTHORITY-004', 'Compiler retired locator settlement has no exact readback');
+      }
+      await createCompilerDependencyLocator(path.join(input.root, 'node_modules'), input.generationPath, input.generationPhysical, input.options);
+      const transition = await advanceDependencyTransition(input.transition, {
+        destination: await observeDependencyTransitionSlot(path.join(input.root, 'node_modules')),
+        phase: 'published', durability: 'known', failure: null
+      }, input.options);
+      await publishCompilerDependencyLocatorLifecycle(input.root, input.identity, input.binding, input.options);
+      return transition;
+    }
   }
   const recordedStagePhysical = input.transition.stageRoot?.physical;
   const recoverableStageRegistration = observation.status === 'mismatch' &&
@@ -7564,7 +7666,8 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
     // dance: remove this transition's exact locator, settle the retired
     // registration, republish the identical immutable generation, and only
     // then sign birth and binding on that exact publication.
-    await deleteExactCompilerDependencyLocator(input.root, locator, input.options);
+    await verifyPublishedCurrent();
+    await deleteExactCompilerDependencyLocator(input.root, locator, input.options, verifyPublishedCurrent);
     await settleRetiredCompilerDependencyGeneration(input.options);
     await createCompilerDependencyLocator(
       path.join(input.root, 'node_modules'),
@@ -7572,13 +7675,17 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
       input.generationPhysical,
       input.options
     );
+    const transition = await advanceDependencyTransition(input.transition, {
+      destination: await observeDependencyTransitionSlot(path.join(input.root, 'node_modules')),
+      phase: 'published', durability: 'known', failure: null
+    }, input.options);
     await publishCompilerDependencyLocatorLifecycle(
       input.root,
       input.identity,
       input.binding,
       input.options
     );
-    return;
+    return transition;
   }
   throw new CodedFailure(
     'IMPORT-AUTHORITY-004',
@@ -7590,7 +7697,8 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
 async function deleteExactCompilerDependencyLocator(
   rootPath: string,
   expected: Readonly<{ source: GeneratedStatePhysicalIdentity; linkTarget: string }>,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationOptions,
+  verifyRecoveryCurrent?: () => Promise<void>
 ): Promise<void> {
   const root = inspectNoFollowDirectoryChain(rootPath, 'Compiler dependency locator cleanup root').target;
   const locator = inspectNoFollowLinkEntry(root, 'node_modules');
@@ -7610,6 +7718,9 @@ async function deleteExactCompilerDependencyLocator(
     throw new Error('Compiler dependency locator changed before exact rollback.');
   }
   await runtimeDependencyOperationEffectFence(options, 'Compiler dependency locator rollback');
+  // Recovery validates original durable/native receipts again after the
+  // asynchronous operation fence. This private check cannot issue an Effect.
+  if (verifyRecoveryCurrent !== undefined) await verifyRecoveryCurrent();
   deleteRetainedNoFollowEntry({
     root,
     relativePath: 'node_modules',
@@ -11286,7 +11397,11 @@ export async function ensureCompilerDepsReadyFromGeneration(
   const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
+  // Equal input bytes do not renew the physical target admitted by this call.
+  // Capture before source/input observation can yield to a competing rename.
+  const targetRoot = inspectNoFollowDirectoryChain(root, 'Compiler dependency generation consumer').target;
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after input observation');
   if (!canonicalEquals(identity, source.identity)) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
   }
@@ -11305,7 +11420,9 @@ export async function ensureCompilerDepsReadyFromGeneration(
   let ready: CompilerDepsReadyState | undefined;
   let primary: RuntimeDependencyCapturedFailure | undefined;
   try {
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after source retention');
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer before publication');
     // The fresh observation owns transition-capable source provenance; the
     // caller authority can contain a serialized publication projection.
     ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
@@ -11314,6 +11431,7 @@ export async function ensureCompilerDepsReadyFromGeneration(
     if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
       await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
     }
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after publication');
     assertCompilerDependencyInputsCurrent(root, identity);
   } catch (error) {
     primary = Object.freeze({ error });
@@ -11331,6 +11449,8 @@ export async function ensureCompilerDepsReadyFromGeneration(
   }
   if (primary !== undefined) throw primary.error;
   if (retirementFailure !== undefined) throw retirementFailure.error;
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency generation consumer after source settlement');
+  assertCompilerDependencyInputsCurrent(root, identity);
   return ready!;
 }
 

@@ -27,9 +27,9 @@ export async function lockWorkspace(
     const fence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
     return lockWorkspaceResult({
       readLock: () => readLockFile(workspaceRoot),
-      publishLock: async lock => { await lockProject(workspaceRoot, lock, fence); }
+      publishLock: lock => lockProject(workspaceRoot, lock, fence)
     });
-  }, { extractLock: lock => lock });
+  }, { extractLock: lock => lock, preserveOwnedPassStates: true });
 }
 
 export async function explainWorkspace(

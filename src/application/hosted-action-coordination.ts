@@ -23,6 +23,7 @@ export interface HostedActionCoordinationValues {
     parentDispatchPlanPayloadDigest: VerificationActionKeyDigest }>;
   actionRequest: unknown;
   resolution: Readonly<{ actionPlan: Readonly<{ action: Readonly<{ actionKey: VerificationActionKeyDigest }> }>;
+    executionEnvironment: Readonly<{ executionEnvironmentRevision: string }>;
     artifactInput: Readonly<{ headSha: string }>; actionKeyHex: string; resolutionDigest: VerificationActionKeyDigest }>;
   repositoryIdentity: Readonly<{ repository: string; repositoryId: number }>;
   parentActor: unknown;
@@ -106,7 +107,6 @@ export interface HostedActionCoordinationPorts<V extends HostedActionCoordinatio
   producer(): V['producer'];
   createStartMarker(input: Readonly<{ actionKey: VerificationActionKeyDigest; candidateSha: string;
     executionEnvironmentRevision: string; producer: V['producer'] }>): V['marker'];
-  providerRevision: string;
   prepareMarker(marker: V['marker']): V['marker'];
   writePreparedMarker(path: string, marker: V['marker']): Promise<void>;
   startMarkerName(actionKey: VerificationActionKeyDigest): string;
@@ -306,7 +306,9 @@ async function publishHostedActionStartMarker<V extends HostedActionCoordination
     throw new Error(`start marker cannot be prepared from ${observed.decision.disposition}.`);
   }
   const marker = ports.createStartMarker({ actionKey: authority.resolution.actionPlan.action.actionKey,
-    candidateSha: authority.resolution.artifactInput.headSha, executionEnvironmentRevision: ports.providerRevision, producer: ports.producer() });
+    candidateSha: authority.resolution.artifactInput.headSha,
+    executionEnvironmentRevision: authority.resolution.executionEnvironment.executionEnvironmentRevision,
+    producer: ports.producer() });
   await ports.writePreparedMarker(outputPath, ports.prepareMarker(marker));
   return Object.freeze({ status: 'marker-prepared', actionKey: marker.actionKey, markerName: ports.startMarkerName(marker.actionKey),
     markerDigest: marker.markerDigest, archiveDigest: inventory.archiveDigest, archiveInventoryDigest: inventory.inventoryDigest,
@@ -495,9 +497,9 @@ export async function completeHostedActionCoordinationSession<V extends HostedAc
 
 /** These native ports retain the genuine resolution and fixed candidate/base roots. */
 export interface HostedActionCandidatePreparationPorts<V extends HostedActionCoordinationValues> {
-  assertCandidate(resolution: V['resolution']): void;
-  checkDependencyInputs(resolution: V['resolution']): VerificationActionKeyDigest;
-  prepareCandidateArchive(input: Readonly<{ resolution: V['resolution']; outputDirectory: string }>): HostedActionArchiveInput;
+  /** The original producer owns candidate/dependency checks inside this one scope. */
+  prepareCandidateArchive(input: Readonly<{ resolution: V['resolution']; outputDirectory: string }>): Promise<HostedActionArchiveInput>;
+  inspectPreparedCandidateArchive(input: Readonly<{ resolution: V['resolution']; prepared: HostedActionArchiveInput }>): V['inventory'];
 }
 
 /** Publish the marker only after the original producer issues its archive and both closure digests. */
@@ -510,12 +512,11 @@ export async function prepareHostedActionClaim<V extends HostedActionCoordinatio
   if (sandbox.state !== 'supported') {
     throw new Error(`Hosted Action candidate preparation requires supported preflight capability: ${sandbox.state}.`);
   }
-  ports.assertCandidate(authority.resolution);
-  // This semantic input digest is not the archive producer's closure-file byte digest.
-  ports.checkDependencyInputs(authority.resolution);
-  const prepared = ports.prepareCandidateArchive({ resolution: authority.resolution, outputDirectory: input.archiveOutputDirectory });
-  const inventory = ports.inspectArchive({ resolution: authority.resolution, preparedCandidateArchive: prepared.preparedCandidateArchive,
-    baseDependencyClosureDigest: prepared.baseDependencyClosureDigest, authenticatedGitClosureDigest: prepared.authenticatedGitClosureDigest });
+  // Candidate and dependency checks remain in the original producer, before
+  // archive effects. Preserve its exact return object through consumption;
+  // copying only path/digest fields cannot carry its preparation identity.
+  const prepared = await ports.prepareCandidateArchive({ resolution: authority.resolution, outputDirectory: input.archiveOutputDirectory });
+  const inventory = ports.inspectPreparedCandidateArchive({ resolution: authority.resolution, prepared });
   const marker = await publishHostedActionStartMarker(input.markerOutputPath, authority, inventory, sandbox, ports);
   return Object.freeze({ ...marker, preparedCandidateArchive: prepared.preparedCandidateArchive,
     baseDependencyClosureDigest: prepared.baseDependencyClosureDigest,

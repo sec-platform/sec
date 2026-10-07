@@ -76,7 +76,9 @@ export function assertGeneratedStateCleanupOperation(
 ): void {
   if (state === null) return;
   if (!generatedStateCleanupBudgetViews.has(state)) throw new Error('Generated-state cleanup budget was not issued by execution.');
-  if (state.signal?.aborted === true || state.monotonicNowMs() >= state.deadlineAtMonotonicMs) {
+  const abortedBeforeClock = state.signal?.aborted === true;
+  const now = abortedBeforeClock ? state.deadlineAtMonotonicMs : state.monotonicNowMs();
+  if (abortedBeforeClock || Boolean(state.signal?.aborted) || now >= state.deadlineAtMonotonicMs) {
     throw new GeneratedStateCleanupOperationExhaustedError(`${label} exceeded the cleanup operation budget.`);
   }
 }

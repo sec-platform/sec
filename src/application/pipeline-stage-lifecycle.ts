@@ -91,7 +91,12 @@ function assertStageRequirements(
       { stageId, requires }
     );
   }
-  const blockers = pipelineStageBlockers(lock.passStatus, requires);
+  // Lock's concrete publication owner consumes the current canonical
+  // Verification result before its effects. Do not repeat that read here or
+  // let this display projection overrule the owner's same-subject decision.
+  const projectedRequirements = stageId === 'lock'
+    ? requires.filter(pass => pass !== 'verify') : requires;
+  const blockers = pipelineStageBlockers(lock.passStatus, projectedRequirements);
   if (blockers.length > 0) {
     throw new CodedFailure(
       'PIPELINE-BLOCKED-002',

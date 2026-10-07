@@ -464,7 +464,6 @@ export type PreparedTrustedBootstrapSutInputs = Readonly<{
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
   entryCount: number;
   totalFileBytes: number;
-  dependencyMaterialization: DependencyMaterializationRecovery;
   dependencyArchiveProjection: HostedDependencyArchiveProjection;
 }>;
 

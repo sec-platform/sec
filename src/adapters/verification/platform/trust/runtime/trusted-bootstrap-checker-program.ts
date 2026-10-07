@@ -13,8 +13,76 @@ import {
 } from './trusted-bootstrap-checker-native.ts';
 
 const ENTRY = 'src/bootstrap/development/trusted-bootstrap-verification.ts' as const;
+const NATIVE = 'src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-native.ts' as const;
 const OUTPUT = 'checker.mjs' as const;
 const MAXIMUM_CHECKER_BYTES = 8 * 1024 * 1024;
+
+function identifier(node: ts.Node | undefined, name: string): node is ts.Identifier {
+  return node !== undefined && ts.isIdentifier(node) && node.text === name;
+}
+
+function namedAccess(node: ts.Node | undefined, owner: string, name: string): node is ts.PropertyAccessExpression {
+  return node !== undefined && ts.isPropertyAccessExpression(node)
+    && identifier(node.expression, owner) && node.name.text === name && node.questionDotToken === undefined;
+}
+
+function singleConst(statement: ts.Statement | undefined, name: string): ts.VariableDeclaration | null {
+  if (statement === undefined || !ts.isVariableStatement(statement)
+      || !(statement.declarationList.flags & ts.NodeFlags.Const)
+      || statement.declarationList.declarations.length !== 1) return null;
+  const declaration = statement.declarationList.declarations[0]!;
+  return identifier(declaration.name, name) ? declaration : null;
+}
+
+/** This is an artifact self-identity site, never a source-relative resource
+ * exemption. Match the original owner and direct lexical scope, then permit
+ * only this exact AST node. A renamed, duplicated or moved site needs review. */
+function checkerArtifactIdentitySite(source: ts.SourceFile): ts.MetaProperty | null {
+  const captures = source.statements.filter((statement): statement is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(statement) && identifier(statement.name, 'createTrustedBootstrapCapture'));
+  if (captures.length !== 1 || captures[0]!.body === undefined || captures[0]!.parameters.length !== 0) return null;
+  const body = captures[0]!.body!;
+  const facts = singleConst(body.statements[0], 'facts')?.initializer;
+  if (facts === undefined || !ts.isCallExpression(facts)
+      || !identifier(facts.expression, 'readTrustedBootstrapExecutionFacts') || facts.arguments.length !== 0) return null;
+  const declarations = body.statements.map(statement => singleConst(statement, 'ports')).filter(value => value !== null);
+  if (declarations.length !== 1) return null;
+  const ports = declarations[0]!.initializer;
+  if (ports === undefined || !ts.isCallExpression(ports) || !namedAccess(ports.expression, 'Object', 'freeze')
+      || ports.arguments.length !== 1 || !ts.isObjectLiteralExpression(ports.arguments[0]!)) return null;
+  // A computed/spread member could replace the reviewed method after it was
+  // defined. The original ports object has only directly named methods.
+  if (ports.arguments[0]!.properties.some(property =>
+    !ts.isMethodDeclaration(property) || !ts.isIdentifier(property.name))) return null;
+  const methods = ports.arguments[0]!.properties.filter(property =>
+    property.name !== undefined && identifier(property.name, 'checkerProgramBytes'));
+  if (methods.length !== 1 || !ts.isMethodDeclaration(methods[0]!)
+      || methods[0]!.body === undefined || methods[0]!.parameters.length !== 0
+      || methods[0]!.asteriskToken !== undefined || (methods[0]!.modifiers?.length ?? 0) !== 0) return null;
+  const statements = methods[0]!.body!.statements;
+  const open = statements[0];
+  if (open === undefined || !ts.isExpressionStatement(open) || !ts.isCallExpression(open.expression)
+      || !identifier(open.expression.expression, 'requireOpen') || open.expression.arguments.length !== 0) return null;
+  const expected = singleConst(statements[1], 'expected')?.initializer;
+  if (expected === undefined || !ts.isCallExpression(expected) || !namedAccess(expected.expression, 'path', 'join')
+      || expected.arguments.length !== 2 || !namedAccess(expected.arguments[0], 'facts', 'evidenceRoot')
+      || !ts.isStringLiteral(expected.arguments[1]!) || expected.arguments[1]!.text !== OUTPUT) return null;
+  const check = statements[2];
+  if (check === undefined || !ts.isIfStatement(check) || check.elseStatement !== undefined
+      || !ts.isBinaryExpression(check.expression)
+      || check.expression.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken
+      || !identifier(check.expression.right, 'expected')
+      || !ts.isPropertyAccessExpression(check.expression.left)
+      || check.expression.left.name.text !== 'path' || check.expression.left.questionDotToken !== undefined
+      || !ts.isMetaProperty(check.expression.left.expression)
+      || check.expression.left.expression.keywordToken !== ts.SyntaxKind.ImportKeyword
+      || !ts.isThrowStatement(check.thenStatement)) return null;
+  const failure = check.thenStatement.expression;
+  if (!ts.isNewExpression(failure) || !identifier(failure.expression, 'Error')
+      || failure.arguments?.length !== 1 || !ts.isStringLiteral(failure.arguments[0]!)
+      || failure.arguments[0]!.text !== 'Trusted bootstrap executable is not the PRE checker artifact.') return null;
+  return check.expression.left.expression;
+}
 
 function actualTrustedSourceBytes(trustedRoot: string, input: string): Uint8Array {
   if (!input.endsWith('.ts') || !CodexDevelopmentIsCanonicalRepositoryPath(input)) {
@@ -40,11 +108,19 @@ function actualTrustedSourceBytes(trustedRoot: string, input: string): Uint8Arra
   if ((source as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length) {
     throw new Error('Trusted checker bundle input has invalid TypeScript syntax.');
   }
+  const artifactIdentity = input === NATIVE ? checkerArtifactIdentitySite(source) : null;
+  if (input === NATIVE && artifactIdentity === null) {
+    throw new Error('Trusted checker bundle lost its exact native artifact identity site.');
+  }
   const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAccessExpression(node) && ts.isMetaProperty(node.expression)
-        && node.expression.keywordToken === ts.SyntaxKind.ImportKeyword
-        && (input !== ENTRY || !['main', 'path'].includes(node.name.text))) {
-      throw new Error('Trusted checker bundle would relocate a source-relative import.meta resource.');
+    if (ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword) {
+      const parent = node.parent;
+      const entryIdentity = input === ENTRY && ts.isPropertyAccessExpression(parent)
+        && parent.expression === node && parent.questionDotToken === undefined
+        && ['main', 'path'].includes(parent.name.text);
+      if (!entryIdentity && node !== artifactIdentity) {
+        throw new Error('Trusted checker bundle would relocate a source-relative import.meta resource.');
+      }
     }
     if (ts.isIdentifier(node) && node.text === '__dirname') {
       throw new Error('Trusted checker bundle would relocate a source-relative directory resource.');

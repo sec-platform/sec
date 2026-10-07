@@ -1,7 +1,6 @@
 /** Canonical pure verification session contracts. Native schemas,
  * parsers, retained issuers and physical effects remain with their owners. */
 import type { CiVerificationActionPlanClosure, VerificationActionKey } from './action.ts';
-import type { HostedArtifactObservation, IntegrationAuthorizationOperationPublication } from './integration.ts';
 
 export type VerificationSessionArtifact<SourceProgramAcceptance, SourceProgramAttemptEvidence, ContractRevision extends string, ResultStatus extends string, GateResult extends { readonly status: ResultStatus }> = Readonly<{
   schema: "sec-verification-session-artifact-v2";
@@ -255,7 +254,10 @@ export type MainHealthLane = 'ordinary' | 'repair';
 export interface MainHealthProducer {
   readonly identity: string;
   readonly trustRevision: string;
-  readonly sourceTransport: 'github-api' | 'trusted-runtime-durable-readback';
+  // Durable transport remains decodable for historical ledgers only. New
+  // local observations borrow the physical producer's live receipt scope.
+  readonly sourceTransport: 'github-api' | 'trusted-runtime-durable-readback'
+    | 'trusted-runtime-live-readback';
   readonly sourceRunId: string;
   readonly sourceRef: string;
   readonly sourceDigest: MainHealthDigest;
@@ -287,6 +289,9 @@ export interface GitHubActionsArtifactObservation {
   artifactName: string;
   /** Provider-supplied digest of the immutable artifact archive, when available. */
   archiveDigest: SessionDigest | null;
+  /** Provider timestamps are required by consumers that bind a producer window. */
+  createdAt?: string;
+  updatedAt?: string;
   workflowPath: string;
   workflowRef: string;
   workflowSha: string;
@@ -376,49 +381,7 @@ export interface TrustedRuntimeProof {
   boundaryTargetsMatched: boolean;
 }
 
-export interface TrustedArtifactProvenance {
-  observation: HostedArtifactObservation;
-  artifactId: string;
-  artifactName: string;
-  canonicalByteDigest: Digest;
-  downloadTransport: 'github-actions-artifact-api';
-  artifactDigest: Digest;
-  transport: {
-    workflowPath: string;
-    workflowRef: string;
-    workflowSha: string;
-    runId: string;
-    runAttempt: number;
-    actorNodeId: string;
-    actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-  };
-}
-
 export type Digest = `sha256:${string}`;
-
-export type TrustedIntegrationAuthorizationSource =
-  | Readonly<{ kind: 'actions-artifact'; artifact: TrustedIntegrationAuthorizationArtifact }>
-  | Readonly<{
-      kind: 'github-comment';
-      publication: IntegrationAuthorizationOperationPublication;
-      commentId: number;
-    }>;
-
-export interface TrustedIntegrationAuthorizationArtifact {
-  resultJson: string;
-  artifactId: string;
-  artifactName: string;
-  canonicalByteDigest: Digest;
-  workflowPath: '.github/workflows/merge-gate.yml';
-  workflowRef: string;
-  workflowSha: string;
-  runId: string;
-  runAttempt: number;
-  eventName: 'workflow_run';
-  actorNodeId: string;
-  actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-  downloadTransport: 'github-actions-artifact-api';
-}
 
 export type VerificationSessionRuntimeOutcome = Readonly<{
   status:

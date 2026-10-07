@@ -4,6 +4,8 @@ import path from 'node:path';
 import { affectedGitSelectionDigest, rebindAffectedGitSelectionSource, type IssuedAffectedGitSelectionSource } from '../../../verification/platform/test-impact/runtime/affected-git-source.ts';
 import { boundedAffectedBaseRef, completedGitCommand, createAffectedGitRevalidationLedger, exactRevision, observeGitSelectionState, reobserveAffectedGitSelectionState, sameGitSelectionObservation } from './affected-git-observation.ts';
 
+import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+
 import { deepFreeze, rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
@@ -106,7 +108,10 @@ import {
   admitTestSuiteExecutionPolicy,
   issueFastTestBatchExecutionPolicy,
   issueTestSuiteExecutionPolicy,
+  observeFastTestInvocationHost,
   withDefaultTestTimeout,
+  type FastTestBatchExecutionAdmission,
+  type FastTestInvocationHostObservation,
   type TestSuiteExecutionPolicy
 } from './test-execution-policy.ts';
 import {
@@ -676,6 +681,11 @@ function boundedReceiptText(value: string, maximumBytes: number): string {
 
 type FastTestInvocationFailure =
   | {
+      readonly kind: 'environment-unsupported';
+      readonly invocation: FastTestInvocation;
+      readonly observation: FastTestInvocationHostObservation;
+    }
+  | {
       readonly kind: 'observed-command-failure';
       readonly invocation: FastTestInvocation;
       readonly observation: DevCommandObservation;
@@ -707,11 +717,26 @@ function emitFastTestFailureReceipt(
   failures: readonly FastTestInvocationFailure[]
 ): void {
   const receipt = {
-    schema: 'sec-fast-test-failure-receipt-v2',
+    schema: 'sec-fast-test-failure-receipt-v3',
     replayAuthority: 'none-diagnostic-only',
     queue,
     batchIndex,
     failures: failures.map((failure) => {
+      if (failure.kind === 'environment-unsupported') {
+        const plannedArgv = receiptArgv(['bun', ...failure.invocation.args]);
+        const result: Pick<VerificationGateResult, 'status' | 'reasonCode' | 'disposition'> = {
+          status: 'unsupported', reasonCode: 'platform-unsupported', disposition: 'not-executed'
+        };
+        return {
+          kind: failure.kind,
+          invocationId: failure.invocation.id,
+          selectedTestFiles: invocationTestFiles(failure.invocation),
+          plannedArgv: plannedArgv.argv,
+          plannedArgvTruncated: plannedArgv.truncated,
+          result,
+          hostObservation: failure.observation
+        };
+      }
       if (failure.kind === 'observer-rejected') {
         const plannedArgv = receiptArgv(['bun', ...failure.invocation.args]);
         return {
@@ -772,22 +797,33 @@ async function runFastTestExecutionWaves(
   invocationById: ReadonlyMap<string, FastTestInvocation>,
   env: NodeJS.ProcessEnv,
   invocationRuntime: TestInvocationRuntimeRoots | null,
-  childDeadlineAtUnixMs: number,
+  admission: FastTestBatchExecutionAdmission,
   supervisorTimeoutByInvocationId: ReadonlyMap<string, number>
 ): Promise<number> {
-  const dispatch = (invocation: FastTestInvocation) => {
-      const args = managedBunTestArgs(invocation.args);
-      const supervisorTimeoutMs = supervisorTimeoutByInvocationId.get(invocation.id);
-      if (supervisorTimeoutMs === undefined) {
-        throw new Error(`Fast test invocation has no admitted supervisor budget: ${invocation.id}`);
-      }
-      return runWithParentOwnedProcessTemp(invocationRuntime, env, invocation.id, (prepared) =>
-        runDevCommand('bun', args, prepared, {
-            observe: true,
-            timeoutMs: supervisorTimeoutMs,
-            deadlineAtUnixMs: childDeadlineAtUnixMs
-          })
-      );
+  type InvocationOutcome =
+    | Readonly<{ kind: 'environment-unsupported'; observation: FastTestInvocationHostObservation }>
+    | Readonly<{ kind: 'observed-command'; observation: DevCommandObservation }>;
+  let hasUnsupportedInvocation = false;
+  const dispatch = async (invocation: FastTestInvocation): Promise<InvocationOutcome> => {
+    const host = observeFastTestInvocationHost(admission, invocation.id);
+    if (host.unmetRequirements.length > 0) {
+      // Keep this selected invocation visible without manufacturing a child
+      // process result or acquiring its per-invocation physical temp resources.
+      return { kind: 'environment-unsupported', observation: host };
+    }
+    const args = managedBunTestArgs(invocation.args);
+    const supervisorTimeoutMs = supervisorTimeoutByInvocationId.get(invocation.id);
+    if (supervisorTimeoutMs === undefined) {
+      throw new Error(`Fast test invocation has no admitted supervisor budget: ${invocation.id}`);
+    }
+    const observation = await runWithParentOwnedProcessTemp(invocationRuntime, env, invocation.id, (prepared) =>
+      runDevCommand('bun', args, prepared, {
+        observe: true,
+        timeoutMs: supervisorTimeoutMs,
+        deadlineAtUnixMs: admission.childDeadlineAtUnixMs
+      })
+    );
+    return { kind: 'observed-command', observation };
   };
   for (let waveIndex = 0; waveIndex < executionWaves.length; waveIndex += 1) {
     const wave = executionWaves[waveIndex]!;
@@ -801,8 +837,24 @@ async function runFastTestExecutionWaves(
       detail: { invocations: invocations.map(({ id, queue }) => ({ id, queue })) }
     });
     const outcomes = await Promise.allSettled(invocations.map(dispatch));
-    if (!outcomes.some((outcome) => outcome.status === 'rejected'
-        || devCommandObservationExitCode(outcome.value) !== 0)) {
+    const failures = outcomes.flatMap(
+      (outcome, outcomeIndex): FastTestInvocationFailure[] => {
+        const invocation = invocations[outcomeIndex]!;
+        if (outcome.status === 'rejected') {
+          return [{
+            kind: 'observer-rejected', invocation,
+            error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
+          }];
+        }
+        if (outcome.value.kind === 'environment-unsupported') {
+          return [{ kind: 'environment-unsupported', invocation, observation: outcome.value.observation }];
+        }
+        return devCommandObservationExitCode(outcome.value.observation) === 0
+          ? []
+          : [{ kind: 'observed-command-failure', invocation, observation: outcome.value.observation }];
+      }
+    );
+    if (failures.length === 0) {
       reportDevExecutionProgress({
         command: 'test:fast', phase: `execution-wave.${waveIndex}`, state: 'complete',
         detail: { invocationCount: invocations.length }
@@ -813,33 +865,18 @@ async function runFastTestExecutionWaves(
       command: 'test:fast', phase: `execution-wave.${waveIndex}`, state: 'failed',
       detail: { invocationCount: invocations.length }
     });
-
-  const failures = outcomes.flatMap(
-    (outcome, outcomeIndex): FastTestInvocationFailure[] => {
-      const invocation = invocations[outcomeIndex]!;
-      if (outcome.status === 'rejected') {
-        return [{
-          kind: 'observer-rejected',
-          invocation,
-          error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
-        }];
-      }
-      return devCommandObservationExitCode(outcome.value) === 0
-        ? []
-        : [{ kind: 'observed-command-failure', invocation, observation: outcome.value }];
+    emitFastTestFailureReceipt(invocations[0]!.queue, waveIndex, failures);
+    const executionFailure = failures.find((failure) => failure.kind !== 'environment-unsupported');
+    // Actual command/observer failures retain settled-wave fail-fast behavior.
+    if (executionFailure?.kind === 'observer-rejected') return 1;
+    if (executionFailure?.kind === 'observed-command-failure') {
+      return devCommandObservationExitCode(executionFailure.observation);
     }
-  );
-  emitFastTestFailureReceipt(
-    invocations[0]!.queue,
-    waveIndex,
-    failures
-  );
-  const firstFailure = failures[0]!;
-  return firstFailure.kind === 'observer-rejected'
-    ? 1
-    : devCommandObservationExitCode(firstFailure.observation);
+    // An unsupported fixture is not a prerequisite failure for independent
+    // files. Continue them, but never clear this batch's incomplete result.
+    hasUnsupportedInvocation = true;
   }
-  return 0;
+  return hasUnsupportedInvocation ? 1 : 0;
 }
 
 function fastInvocationEnvironment(
@@ -1579,7 +1616,7 @@ async function runFastTestsForInventory(
                 invocationById,
                 env,
                 invocationRuntime,
-                admission.childDeadlineAtUnixMs,
+                admission,
                 supervisorTimeoutByInvocationId
               );
             } finally {

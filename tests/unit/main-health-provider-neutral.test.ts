@@ -9,7 +9,9 @@ import {
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1,
   createTrustedRuntimeMainHealthInput,
-  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
+  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
+  trustedRuntimeMainHealthReceiptReference,
+  type TrustedRuntimeMainHealthReceipt
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 
@@ -92,7 +94,7 @@ function observe(checks: readonly GitHubCheckObservation[], sourceRunId = '77') 
   });
 }
 
-test('trusted runtime durable readback compiles the same healthy semantic revision as hosted MainHealth', () => {
+test('trusted runtime live receipt compiles the same healthy semantic revision as hosted MainHealth', () => {
   const observedAt = '2026-09-29T00:00:00.000Z';
   const expiresAt = '2026-09-29T00:10:00.000Z';
   const local = createMainHealthLedger(createTrustedRuntimeMainHealthInput({
@@ -101,7 +103,6 @@ test('trusted runtime durable readback compiles the same healthy semantic revisi
     mainSha: MAIN,
     mainTreeSha: MAIN_TREE,
     trustRevision: MAIN,
-    runtimeRef: `runtime-state:trusted-main-health/v1/main-${MAIN}.json`,
     executionId: 'trusted-main-health-run',
     verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
     observedAt,
@@ -122,8 +123,9 @@ test('trusted runtime durable readback compiles the same healthy semantic revisi
   expect(local.healthRevision).toBe(hosted.healthRevision);
   expect(local.ledgerDigest).not.toBe(hosted.ledgerDigest);
   expect(local.producer).toMatchObject({
-    sourceTransport: 'trusted-runtime-durable-readback',
-    sourceRunId: 'trusted-main-health-run'
+    sourceTransport: 'trusted-runtime-live-readback',
+    sourceRunId: 'trusted-main-health-run',
+    sourceRef: `live-receipt:trusted-main-health/v2/${MAIN}/${'e'.repeat(64)}`
   });
   expect(() => createTrustedRuntimeMainHealthInput({
     schema: 'sec-trusted-runtime-main-health-observation-v1',
@@ -131,12 +133,61 @@ test('trusted runtime durable readback compiles the same healthy semantic revisi
     mainSha: MAIN,
     mainTreeSha: MAIN_TREE,
     trustRevision: '3'.repeat(40),
-    runtimeRef: 'runtime-state:trusted-main-health/v1/foreign.json',
     executionId: 'trusted-main-health-run',
     verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
     observedAt,
     expiresAt
   })).toThrow('not exact or fresh');
+});
+
+test('trusted runtime projection preserves the explicit receipt version and exact content reference', () => {
+  const observation = {
+    schema: 'sec-trusted-runtime-main-health-observation-v1' as const,
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    executionId: 'data-only-main-health-projection',
+    verificationReceiptDigest: `sha256:${'e'.repeat(64)}` as const,
+    observedAt: '2026-09-29T00:00:00.000Z',
+    expiresAt: '2026-09-29T00:10:00.000Z'
+  };
+  for (const [schema, version] of [
+    [undefined, 'v2'],
+    ['sec-trusted-runtime-main-health-receipt-v2', 'v2'],
+    ['sec-trusted-runtime-main-health-receipt-v3', 'v3']
+  ] as const) {
+    const projected = createTrustedRuntimeMainHealthInput(observation, schema);
+    expect(projected.producer.sourceRef).toBe(
+      `live-receipt:trusted-main-health/${version}/${MAIN}/${'e'.repeat(64)}`
+    );
+    expect(projected.producer.sourceRef).toBe(trustedRuntimeMainHealthReceiptReference({
+      mainSha: MAIN, receiptDigest: observation.verificationReceiptDigest, schema
+    }));
+    expect(projected.producer.sourceDigest).toBe(observation.verificationReceiptDigest);
+    const changedDigest = createTrustedRuntimeMainHealthInput({ ...observation,
+      verificationReceiptDigest: `sha256:${'f'.repeat(64)}` }, schema);
+    expect(changedDigest.producer.sourceRef).toBe(
+      `live-receipt:trusted-main-health/${version}/${MAIN}/${'f'.repeat(64)}`
+    );
+    const changedMain = createTrustedRuntimeMainHealthInput({ ...observation,
+      mainSha: '3'.repeat(40), trustRevision: '3'.repeat(40) }, schema);
+    expect(changedMain.producer.sourceRef).toBe(
+      `live-receipt:trusted-main-health/${version}/${'3'.repeat(40)}/${'e'.repeat(64)}`
+    );
+  }
+  for (const schema of [null, '', 'v3', 'sec-trusted-runtime-main-health-receipt-v4',
+    'sec-trusted-runtime-main-health-observation-v1']) {
+    const invalidSchema = schema as TrustedRuntimeMainHealthReceipt['schema'];
+    expect(() => createTrustedRuntimeMainHealthInput(observation, invalidSchema))
+      .toThrow('receipt reference schema');
+    expect(() => trustedRuntimeMainHealthReceiptReference({ mainSha: MAIN,
+      receiptDigest: observation.verificationReceiptDigest, schema: invalidSchema }))
+      .toThrow('receipt reference schema');
+  }
+  expect(() => createTrustedRuntimeMainHealthInput({ ...observation,
+    verificationReceiptDigest: 'sha256:invalid' }, 'sec-trusted-runtime-main-health-receipt-v3'))
+    .toThrow('receipt digest is invalid');
 });
 
 test('dedicated Integration App can produce healthy MainHealth without GitHub Actions workflow provenance', () => {

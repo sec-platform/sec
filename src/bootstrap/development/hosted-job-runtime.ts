@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants as fsConstants, fstatSync, fsyncSync, openSync, readSync, writeSync } from 'node:fs';
+import { closeSync, constants as fsConstants, fstatSync, fsyncSync, mkdtempSync, openSync, readSync, rmSync, writeSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../adapters/runtime-state/physical/runtime/mutation-lease.ts';
+import { resolveSecRuntimeStateForRepository } from '../../adapters/runtime-state/workspace-state/paths.ts';
+import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../adapters/runtime-state/workspace-state/physical-authority.ts';
 
+import { assertGitCandidateBundleCurrent, closeGitCandidateBundle, createGitCandidateBundle, withGitCandidateCheckout, type GitCandidateBundle } from '../../adapters/providers/git-bundle/runtime.ts';
 import {
   CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST,
   ciVerificationHostedActionClaimFiles, ciVerificationHostedActionResolverFiles, ciVerificationHostedCoordinatorFiles,
@@ -15,8 +20,11 @@ import {
   getAuthenticatedGitHubJobOriginSignal, openAuthenticatedGitHubJobOrigin,
   type AuthenticatedGitHubJobOrigin
 } from '../../adapters/providers/github-api/hosted-job-origin.ts';
+import { observeSecLinuxVerificationNativeRuntimeInput, requireSecLinuxVerificationNativeRuntimeInput } from '../../adapters/providers/linux-verification/materialization.ts';
+import { assertLinuxVerificationUnitHostSupported, assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, getLinuxVerificationUnitRecovery, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, prepareLinuxVerificationUnitSession, recoverLinuxVerificationUnitSession, type LinuxVerificationUnitRecovery, type LinuxVerificationUnitResult, type LinuxVerificationUnitSession, type LinuxVerificationUnitSessionSettlement } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
+import type { RetainedNoFollowOrdinaryFile } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError
+  assertSameNoFollowDirectoryIdentity, createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError
 } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE,
@@ -28,9 +36,11 @@ import {
   parseBranchCloseoutRecoveryArtifact
 } from '../../adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { CodexDevelopmentParseMergeGateResult } from '../../adapters/self-hosting/control/integration/merge-gate.ts';
+import { observeCompilerDependencyExecutionGenerationAuthority, retainCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../adapters/toolchain/dependencies/runtime.ts';
 import { encodeVerificationActionData } from '../../adapters/verification/platform/action/contract/action.ts';
 import {
   ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest,
+  createCiVerificationNativeHostedExecutionEnvironment,
   parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope
 } from '../../adapters/verification/platform/action/contract/ci.ts';
 import {
@@ -38,6 +48,8 @@ import {
   verificationActionProviderStartArtifactName
 } from '../../adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentParseVerificationSessionArtifact, parseHostedSessionTerminalArtifact } from '../../adapters/verification/platform/ci/contract/evidence.ts';
+import { CI_HOSTED_JOB_NATIVE_RUNTIME_POLICY } from '../../adapters/verification/platform/ci/contract/hosted-job-runtime-policy.ts';
+import { assertHostedJobRuntimeReceiptOutput, createHostedJobRuntimeReceipt, encodeHostedSutNativeControl, parseHostedSutNativeControl, type NativeHostedJobRuntimeReceipt } from '../../adapters/verification/platform/ci/contract/hosted-job-runtime.ts';
 import {
   CodexDevelopmentParseHostedActionRawResult,
   parseHostedSutCapabilityObservation
@@ -49,7 +61,8 @@ import {
 import { hostedJobSutArtifactName } from '../../adapters/verification/platform/ci/runtime/hosted-job-runtime-provenance.ts';
 import {
   HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST, HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID,
-  HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS
+  HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS,
+  retainHostedSutArchiveForNativeUnit
 } from '../../adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts';
 import {
   readSessionArtifactBytes, readSessionArtifactText, writeCanonicalDurable
@@ -69,15 +82,14 @@ import {
   CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest,
   CodexDevelopmentParseHostedActionResolution, CodexDevelopmentResolveHostedAction, parseHostedEnvelope
 } from '../../adapters/verification/platform/ci/verification-hosted-action-contract.ts';
-import { CodexDevelopmentMaterializeHostedActionCandidate } from '../../adapters/verification/platform/ci/verification-materialization.ts';
-import { withQualifiedHostedJobContainerEngine } from '../../adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
-import { runHostedSutExecution, runHostedSutPreflight, selectHostedJobRuntimePhase } from '../../application/hosted-job-runtime.ts';
-import { canonicalJson, sha256 } from '../../contracts/canonical.ts';
+import { CodexDevelopmentMaterializeHostedActionCandidate, retainHostedSutArchive, type CodexDevelopmentRetainedHostedSutArchive } from '../../adapters/verification/platform/ci/verification-materialization.ts';
+import { runHostedSutExecution, selectHostedJobRuntimePhase } from '../../application/hosted-job-runtime.ts';
+import { canonicalEquals, canonicalJson, rawSha256, sha256 } from '../../contracts/canonical.ts';
 import { parseHostedVerificationCommand } from '../../entry/verification-session-hosted-cli.ts';
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan,
-  issueSemanticOperationAttemptContext, type OperationDigest
+  bindSemanticOperation, compileCapabilityBinding, compileProviderSettlementSet, compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext, type BoundSemanticOperation, type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { settleResourcesAsync } from '../../execution/resource-settlement.ts';
 import { worktreePhysicalCloseoutOperations } from '../runtime-state/worktree-closeout.ts';
@@ -97,7 +109,7 @@ import {
   anchorHostedActionTerminal,
   assembleHostedActionTerminal, prepareHostedActionTerminalAnchor
 } from './hosted-action-terminal.ts';
-import { executeTrustedBootstrapSut, prepareHostedActionSutInputs, runHostedActionSut, runHostedSutCapabilityProbe } from './hosted-sut.ts';
+import { executeTrustedBootstrapSut, HOSTED_SUT_NATIVE_REQUEST_SCHEMA, prepareHostedActionSutInputs } from './hosted-sut.ts';
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -452,45 +464,380 @@ function projectHostedStepOutputs(origin: AuthenticatedGitHubJobOrigin,
   }
 }
 
-/** The operation foundation binds the original authenticated job to the
- * native supervisor's one process requirement. Its digests are correlation
- * data; only the supervisor's retained process session can execute effects. */
-function issueHostedSutInvocation(origin: AuthenticatedGitHubJobOrigin, actionKey: string) {
+type HostedSutInvocationObligation = Readonly<{
+  phase: 'execute-trusted-bootstrap-sut';
+}> | Readonly<{
+  phase: 'self-test-hosted-action-sandbox' | 'execute-hosted-action-sut';
+  session: LinuxVerificationUnitSession;
+}>;
+
+/** Fixed policy phases bind their original physical requirements. An Action
+ * phase always needs its retained native unit; Bootstrap always uses its
+ * original supervisor. Neither workload can select the other's requirement. */
+function issueHostedSutInvocation(origin: AuthenticatedGitHubJobOrigin, actionKey: string,
+  obligation: HostedSutInvocationObligation) {
   const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
-  const requirement = Object.freeze({
-    id: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID,
+  if (job.role !== 'sut' || job.phase !== obligation.phase
+      || (obligation.phase === 'execute-trusted-bootstrap-sut'
+        ? job.policyJobId !== 'candidate-sut' || job.workflowPath !== '.github/workflows/trusted-bootstrap.yml'
+        : job.policyJobId !== (obligation.phase === 'self-test-hosted-action-sandbox'
+          ? 'preflight-verification-action-sut' : 'execute-verification-action-sut'))) {
+    throw new Error('Hosted SUT invocation differs from its fixed authenticated workload phase.');
+  }
+  const bootstrap = obligation.phase === 'execute-trusted-bootstrap-sut';
+  const requirement = bootstrap ? Object.freeze({ id: HOSTED_SUT_SUPERVISOR_REQUIREMENT_ID,
     contractDigest: HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST,
     effectKinds: Object.freeze(['process'] as const),
     failureKinds: Object.freeze(['hosted-sut.process-admission', 'hosted-sut.process-settlement'])
-  });
+  }) : Object.freeze({ id: LINUX_VERIFICATION_UNIT_REQUIREMENT_ID,
+    contractDigest: LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST,
+    effectKinds: Object.freeze(['process', 'filesystem', 'provider', 'persistent-state'] as const),
+    failureKinds: Object.freeze(['hosted-sut.native-admission', 'hosted-sut.native-settlement']) });
+  // The outer cgroup and its one native process session are the aggregate
+  // Action ceiling; Bootstrap retains its original supervisor ceiling.
+  const aggregateBudgets = bootstrap ? HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS
+    : LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS;
+  const deadlineAtUnixMs = obligation.phase === 'execute-trusted-bootstrap-sut'
+    ? job.originalDeadlineAtUnixMs : obligation.session.deadlineAtUnixMs;
+  const providerIdentityDigest = obligation.phase === 'execute-trusted-bootstrap-sut'
+    ? sha256({ issuer: 'authenticated-hosted-sut-native-process', job: job.identityDigest,
+      source: job.trustedSourceSha, contract: requirement.contractDigest }) as OperationDigest
+    : obligation.session.providerIdentityDigest;
   const operation = bindSemanticOperation(compileSemanticOperationPlan({
     operation: 'verification.hosted-sut',
-    intentDigest: sha256({ job: job.identityDigest, phase: job.phase, actionKey }) as OperationDigest,
-    decisionDigest: sha256({ policy: job.policyDigest, requirement: requirement.contractDigest }) as OperationDigest,
-    deadlineAtUnixMs: job.originalDeadlineAtUnixMs,
-    aggregateBudgets: HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS,
+    intentDigest: sha256({ job: job.identityDigest, phase: job.phase, actionKey,
+      ...(obligation.phase === 'execute-trusted-bootstrap-sut' ? {} : {
+        nativeInput: obligation.session.inputDigest }) }) as OperationDigest,
+    decisionDigest: sha256({ policy: job.policyDigest, supervisor: HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST,
+      native: requirement.contractDigest }) as OperationDigest,
+    deadlineAtUnixMs, aggregateBudgets,
     requirements: [requirement],
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: job.identityDigest })
-  }), [compileCapabilityBinding({
-    requirementId: requirement.id,
-    contractDigest: requirement.contractDigest,
-    providerIdentityDigest: sha256({
-      issuer: 'authenticated-hosted-sut-native-process',
-      job: job.identityDigest,
-      source: job.trustedSourceSha,
-      contract: requirement.contractDigest
-    }) as OperationDigest
-  })]);
-  return Object.freeze({
-    operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({
-      operation, requirementId: requirement.id,
-      resourceCeilings: HOSTED_SUT_SUPERVISOR_RESOURCE_CEILINGS,
-      absoluteDeadlineAtUnixMs: job.originalDeadlineAtUnixMs
-    }),
+  }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
+      providerIdentityDigest })]);
+  return Object.freeze({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
+      requirementId: requirement.id, resourceCeilings: aggregateBudgets,
+      absoluteDeadlineAtUnixMs: deadlineAtUnixMs }),
     trustedSourceRoot: job.trustedDriverRoot,
+    signal: getAuthenticatedGitHubJobOriginSignal(origin) });
+}
+
+interface HostedSutOwnedRecovery {
+  readonly unit: LinuxVerificationUnitRecovery | null;
+  /** Uses only the captured original objects. Never executes the workload. */
+  settle(): Promise<void>;
+}
+
+class HostedSutRecoveryRequiredError extends AggregateError {
+  readonly code = 'SEC-HOSTED-SUT-OWNED-RECOVERY-REQUIRED';
+  constructor(readonly recovery: HostedSutOwnedRecovery, failures: readonly unknown[]) {
+    super(failures, 'Hosted SUT original unit and source resources need bounded owned recovery.');
+  }
+}
+
+async function recoverHostedSutOwnedUnit(recovery: LinuxVerificationUnitRecovery,
+  originalOperation: BoundSemanticOperation): Promise<void> {
+  const requirement = { id: LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
+    contractDigest: LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
+    effectKinds: ['process', 'filesystem', 'provider', 'persistent-state'] as const,
+    failureKinds: ['hosted-sut.recovery-unknown'] };
+  // Cleanup after a workload deadline uses the still-owned physical capability,
+  // not an expired job origin or a new attempt at candidate execution.
+  const deadlineAtUnixMs = Date.now() + LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS[0]!.maximum;
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({
+    operation: 'verification.linux-native-unit-recovery',
+    intentDigest: sha256({ originalOperationIdentityDigest: recovery.originalOperationIdentityDigest,
+      originalBoundAttemptDigest: recovery.originalBoundAttemptDigest, inputDigest: recovery.inputDigest }) as OperationDigest,
+    decisionDigest: requirement.contractDigest, deadlineAtUnixMs,
+    aggregateBudgets: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
+    requirements: [requirement], attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: recovery.originalOperationIdentityDigest,
+      runIdDigest: recovery.originalBoundAttemptDigest })
+  }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
+    providerIdentityDigest: recovery.providerIdentityDigest })]);
+  const settled = await recoverLinuxVerificationUnitSession(recovery, { operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: requirement.id,
+      resourceCeilings: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, absoluteDeadlineAtUnixMs: deadlineAtUnixMs }) });
+  // The cleanup attempt cannot stand in for settlement of the original native
+  // requirement. Both receipts must bind their distinct retained operations.
+  compileProviderSettlementSet(operation, [settled.providerSettlement]);
+  compileProviderSettlementSet(originalOperation, [settled.originalProviderSettlement]);
+  if (settled.status !== 'settled' || settled.transportRetired !== true
+      || originalOperation.plan.identity.identityDigest !== recovery.originalOperationIdentityDigest
+      || originalOperation.boundAttemptDigest !== recovery.originalBoundAttemptDigest
+      || settled.originalOperationIdentityDigest !== recovery.originalOperationIdentityDigest
+      || settled.originalBoundAttemptDigest !== recovery.originalBoundAttemptDigest
+      || settled.recoveryOperationIdentityDigest !== operation.plan.identity.identityDigest
+      || settled.providerSettlement.physicalDisposition !== 'settled'
+      || settled.originalProviderSettlement.physicalDisposition === 'unknown') {
+    throw new Error('Hosted native recovery did not settle its exact original physical scope.');
+  }
+}
+
+type HostedSutResolution = ReturnType<typeof CodexDevelopmentParseHostedActionResolution>;
+
+/** All origin credentials remain in this parent. Physical results and sources
+ * settle before either output or its native receipt can be published. */
+async function executeNativeHostedSut(origin: AuthenticatedGitHubJobOrigin, input: Readonly<{
+  resolution: HostedSutResolution;
+  execution?: ReturnType<typeof prepareHostedActionSutInputs>;
+}>): Promise<Readonly<{ outputSource: string; receipt: NativeHostedJobRuntimeReceipt }>> {
+  // Necessary read-only rejection precedes archive materialization, dependency
+  // leases, temporary roots, output directories and all native process Effects.
+  assertLinuxVerificationUnitHostSupported();
+  const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  const environment = createCiVerificationNativeHostedExecutionEnvironment();
+  if (job.role !== 'sut' || input.resolution.artifactInput.baseSha !== job.trustedSourceSha
+      || input.resolution.artifactInput.baseTreeSha !== job.trustedSourceTreeSha
+      || !canonicalEquals(input.resolution.executionEnvironment, environment)
+      || (input.execution === undefined ? job.phase !== 'self-test-hosted-action-sandbox'
+        : job.phase !== 'execute-hosted-action-sut')) {
+    throw new Error('Hosted native SUT differs from the exact source, phase or accepted environment.');
+  }
+  const runtime = requireSecLinuxVerificationNativeRuntimeInput(
+    await observeSecLinuxVerificationNativeRuntimeInput({ repositoryRoot: job.trustedDriverRoot }));
+  const dependencyAuthority = await observeCompilerDependencyExecutionGenerationAuthority({
+    deadlineAtUnixMs: job.deadlineAtUnixMs,
     signal: getAuthenticatedGitHubJobOriginSignal(origin)
-  });
+  }, job.trustedDriverRoot);
+  if (dependencyAuthority === null) throw new Error('Hosted native SUT has no original published dependency authority.');
+  const layout = resolveSecRuntimeStateForRepository({ repositoryRoot: job.trustedDriverRoot, repository: job.repository });
+  const leaseRoot = path.join(layout.repositoryStateRoot, 'trusted-runtime-container-leases', 'v1');
+  let stateAuthority: SecRuntimeStatePhysicalAuthority | undefined;
+  let operationLease: PhysicalMutationLeaseHandle | undefined;
+  let nativeSettlement: LinuxVerificationUnitSessionSettlement | undefined;
+  let temporaryRoot: string | undefined;
+  let temporaryIdentity: ReturnType<typeof inspectNoFollowDirectoryChain>['target'] | undefined;
+  let bundle: GitCandidateBundle | undefined;
+  let dependencies: RetainedCompilerDependencyReadGeneration | undefined;
+  let archive: CodexDevelopmentRetainedHostedSutArchive | undefined;
+  let archiveProjection: RetainedNoFollowOrdinaryFile | undefined;
+  let session: LinuxVerificationUnitSession | undefined;
+  let result: LinuxVerificationUnitResult | undefined;
+  let operation: ReturnType<typeof issueHostedSutInvocation>['operation'] | undefined;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
+  let unitSettled = false;
+  const retired = { projection: false, archive: false, dependencies: false, bundle: false,
+    temporaryRoot: false, lease: false, stateAuthority: false };
+  let archiveCloseFailure: unknown;
+  let archiveCloseAttempted = false;
+  const releaseSources = async (): Promise<void> => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'Hosted native SUT archive projection', settle: () => {
+        if (!retired.projection) { archiveProjection?.dispose(); retired.projection = true; }
+      } },
+      { label: 'Hosted native SUT archive descriptor', settle: () => {
+        if (retired.archive) return;
+        if (archiveCloseAttempted) throw archiveCloseFailure;
+        archiveCloseAttempted = true;
+        try { if (archive !== undefined) closeSync(archive.fileDescriptor); retired.archive = true; }
+        catch (error) { archiveCloseFailure = error; throw error; }
+      } },
+      { label: 'Hosted native SUT dependency generation', settle: async () => {
+        if (!retired.dependencies) { if (dependencies !== undefined) await dependencies.retire(); retired.dependencies = true; }
+      } },
+      { label: 'Hosted native SUT source bundle', settle: () => {
+        if (!retired.bundle) { if (bundle !== undefined) closeGitCandidateBundle(bundle); retired.bundle = true; }
+      } }
+    ] });
+    if (!retired.temporaryRoot) {
+      if (temporaryRoot !== undefined) {
+        if (temporaryIdentity === undefined) {
+          throw new Error('Hosted SUT temporary directory creation has an unresolved physical identity; it is not retired.',
+            { cause: { locator: temporaryRoot, state: 'acquisition-identity-unknown' } });
+        }
+        assertSameNoFollowDirectoryIdentity(temporaryIdentity, 'Hosted native SUT owned temporary root retirement');
+        rmSync(temporaryRoot, { recursive: true, force: false });
+      }
+      retired.temporaryRoot = true;
+    }
+    if (!retired.lease) {
+      if (operationLease?.recoveryPending) operationLease.restoreReclaimedOwner();
+      else operationLease?.release();
+      retired.lease = true;
+    }
+    if (!retired.stateAuthority) { await stateAuthority?.release(); retired.stateAuthority = true; }
+  };
+  try {
+    stateAuthority = await acquireSecRuntimeStatePhysicalAuthority({ repositoryRoot: job.trustedDriverRoot,
+      stateRoot: layout.stateRoot, cacheRoot: layout.cacheRoot, requiredDirectories: [leaseRoot],
+      deadlineAtUnixMs: job.deadlineAtUnixMs });
+    const lease = acquirePhysicalMutationLease(stateAuthority.directory(leaseRoot),
+      `hosted-sut-${sha256({ job: job.identityDigest, phase: job.phase,
+        actionKey: input.resolution.actionPlan.action.actionKey }).slice(7, 39)}.lock`);
+    if (lease === null) throw new Error('Hosted native SUT original operation lease is busy or unknown.');
+    operationLease = lease;
+    if (lease.recoveryPending) throw new Error('Hosted native SUT predecessor recovery must settle before a new unit.');
+    const prepared = input.execution;
+    if (prepared !== undefined && !canonicalEquals(prepared.resolution, input.resolution)) {
+      throw new Error('Hosted native SUT preparation differs from its original resolution.');
+    }
+    if (prepared !== undefined) {
+      archive = retainHostedSutArchive(prepared.candidateArchive, prepared.archiveInventory.archiveDigest);
+      archiveProjection = retainHostedSutArchiveForNativeUnit(archive);
+    }
+    dependencies = await retainCompilerDependencyReadGeneration(dependencyAuthority, {
+      deadlineAtUnixMs: job.deadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin) });
+    temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-hosted-sut-'));
+    temporaryIdentity = inspectNoFollowDirectoryChain(temporaryRoot).target;
+    bundle = await createGitCandidateBundle({ sourceRoot: job.trustedDriverRoot, temporaryRoot,
+      baseSha: job.trustedSourceSha, headSha: job.trustedSourceSha,
+      deadlineAtUnixMs: job.deadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin) });
+    session = await prepareLinuxVerificationUnitSession({
+      hostedSutOrigin: origin,
+      recoveryRoot: stateAuthority.directory(leaseRoot),
+      runtime: { root: inspectNoFollowDirectoryChain(runtime.rootPath).target,
+        manifest: runtime.manifest, manifestDigest: runtime.manifestDigest },
+      bundle: { file: assertGitCandidateBundleCurrent(bundle), baseSha: job.trustedSourceSha,
+        baseTreeSha: job.trustedSourceTreeSha, headSha: job.trustedSourceSha,
+        headTreeSha: job.trustedSourceTreeSha, bundleDigest: bundle.bundleDigest },
+      dependencies: { physicalGeneration: dependencies.physicalGeneration, generationDigest: dependencies.generationDigest },
+      ...(archiveProjection === undefined ? {} : { retainedSutArchive: archiveProjection }),
+      deadlineAtUnixMs: job.deadlineAtUnixMs });
+    const invocation = issueHostedSutInvocation(origin, input.resolution.actionPlan.action.actionKey, {
+      phase: input.execution === undefined ? 'self-test-hosted-action-sandbox' : 'execute-hosted-action-sut', session });
+    operation = invocation.operation;
+    bindLinuxVerificationUnitSession(session, invocation);
+    const request = Buffer.from(encodeVerificationActionData({ schema: HOSTED_SUT_NATIVE_REQUEST_SCHEMA,
+      phase: job.phase, outer: { operationIdentityDigest: operation.plan.identity.identityDigest,
+        boundAttemptDigest: operation.boundAttemptDigest, providerIdentityDigest: session.providerIdentityDigest,
+        inputDigest: session.inputDigest, deadlineAtUnixMs: session.deadlineAtUnixMs }, resolution: input.resolution,
+      ...(prepared === undefined ? {} : { ticket: prepared.ticket, archiveInventory: prepared.archiveInventory }) }), 'utf8');
+    if (request.byteLength > 1024 * 1024) throw new Error('Hosted native SUT request exceeds its fixed input bound.');
+    result = await executeLinuxVerificationUnit(session, { kind: 'hosted-sut', argv: [], cwd: 'trusted',
+      environment: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8',
+        SEC_STATE_HOME: '/sec-runtime/output/state', SEC_CACHE_HOME: '/sec-runtime/output/cache' },
+      stdin: request, outputFiles: [], maxStdoutBytes: CI_HOSTED_JOB_NATIVE_RUNTIME_POLICY.outputBytesPerStream,
+      maxStderrBytes: CI_HOSTED_JOB_NATIVE_RUNTIME_POLICY.outputBytesPerStream });
+    assertLinuxVerificationUnitResult(result, session);
+    assertAuthenticatedGitHubJobOriginCurrent(origin);
+  } catch (error) {
+    primary = { label: 'Hosted native SUT execution', error };
+  }
+  try {
+    if (session !== undefined) nativeSettlement = await closeLinuxVerificationUnitSession(session);
+    unitSettled = true;
+  } catch (closeError) {
+    if (session === undefined) throw closeError;
+    const originalSession = session;
+    let unitRecovery: LinuxVerificationUnitRecovery;
+    try { unitRecovery = getLinuxVerificationUnitRecovery(originalSession); }
+    catch (recoveryAdmissionError) {
+      // A failed recovery admission is not evidence that the original close
+      // succeeded. Keep its actual session and every source closure available.
+      const recovery: HostedSutOwnedRecovery = Object.freeze({ unit: null,
+        async settle() { await closeLinuxVerificationUnitSession(originalSession); await releaseSources(); } });
+      throw new HostedSutRecoveryRequiredError(recovery,
+        [...(primary === undefined ? [] : [primary.error]), closeError, recoveryAdmissionError]);
+    }
+    let pending: Promise<void> | undefined;
+    let unitRecovered = false;
+    const recovery: HostedSutOwnedRecovery = Object.freeze({ unit: unitRecovery,
+      async settle(): Promise<void> {
+        if (pending !== undefined) return await pending;
+        pending = (async () => {
+          if (!unitRecovered) {
+            if (operation === undefined) throw new Error('Hosted SUT recovery lost its original operation object.');
+            await recoverHostedSutOwnedUnit(unitRecovery, operation); unitRecovered = true;
+          }
+          await releaseSources();
+        })();
+        try { await pending; } finally { pending = undefined; }
+      }
+    });
+    // This original caller consumes the strong closure once immediately. A
+    // remaining unknown is returned with the exact cap and original source
+    // closures attached, rather than losing them in path/digest diagnostics.
+    try { await recovery.settle(); }
+    catch (recoveryError) { throw new HostedSutRecoveryRequiredError(recovery,
+      [...(primary === undefined ? [] : [primary.error]), closeError, recoveryError]); }
+    throw new AggregateError([...(primary === undefined ? [] : [primary.error]), closeError],
+      'Hosted SUT failed; its original resources recovered without issuing execution evidence.');
+  }
+  const validateOriginalSettlement = (): void => {
+    if (result === undefined) return;
+    if (session === undefined || operation === undefined || nativeSettlement?.processReceipt == null
+        || nativeSettlement.providerSettlement?.physicalDisposition !== 'settled' || nativeSettlement.transportRetired !== true
+        || nativeSettlement.unitReceiptDigests.length !== 1
+        || nativeSettlement.unitReceiptDigests[0] !== result.receipt.receiptDigest) {
+      throw new Error('Hosted SUT has no exact original native scope settlement.');
+    }
+    assertLinuxVerificationUnitResult(result, session);
+    compileProviderSettlementSet(operation, [nativeSettlement.providerSettlement]);
+  };
+  try { validateOriginalSettlement(); }
+  catch (error) {
+    const recovery: HostedSutOwnedRecovery = Object.freeze({ unit: null, async settle() {
+      if (session !== undefined) nativeSettlement = await closeLinuxVerificationUnitSession(session);
+      validateOriginalSettlement(); await releaseSources();
+    } });
+    throw new HostedSutRecoveryRequiredError(recovery, [...(primary === undefined ? [] : [primary.error]), error]);
+  }
+  try { await releaseSources(); }
+  catch (error) {
+    throw new HostedSutRecoveryRequiredError(Object.freeze({ unit: null, settle: releaseSources }),
+      [...(primary === undefined ? [] : [primary.error]), error]);
+  }
+  if (primary !== undefined) throw primary.error;
+  if (!unitSettled || result === undefined || operation === undefined || result.receipt.execution.exitCode !== 0
+      || nativeSettlement?.processReceipt == null) {
+    throw new Error('Hosted native SUT did not return a successfully settled trusted control result.');
+  }
+  const control = parseHostedSutNativeControl(result.stdout);
+  const observedControlSource = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout);
+  const expectedOuter = { operationIdentityDigest: result.receipt.operationIdentityDigest,
+    boundAttemptDigest: result.receipt.boundAttemptDigest, providerIdentityDigest: result.receipt.providerIdentityDigest,
+    inputDigest: result.receipt.inputDigest, deadlineAtUnixMs: result.receipt.deadlineAtUnixMs };
+  if (!canonicalEquals(control.outer, expectedOuter) || control.phase !== job.phase
+      || control.actionKey !== input.resolution.actionPlan.action.actionKey
+      || control.resolutionDigest !== input.resolution.resolutionDigest
+      || control.innerSupervisor.requirementContractDigest !== HOSTED_SUT_SUPERVISOR_CONTRACT_DIGEST
+      || control.innerSupervisor.deadlineAtUnixMs > result.receipt.deadlineAtUnixMs
+      || observedControlSource !== encodeHostedSutNativeControl(control)) {
+    throw new Error('Hosted native control record lost its actual outer/inner source, Action or deadline binding.');
+  }
+  const outputSource = `${encodeVerificationActionData(control.output)}\n`;
+  const output = input.execution === undefined ? dataObject(control.output, 'native capability output')
+    : CodexDevelopmentParseHostedActionRawResult(outputSource);
+  let sandboxObservationDigest: string;
+  if (input.execution === undefined) {
+    const capability = dataObject(output, 'native capability output');
+    if (capability.schema !== 'sec-verification-action-sut-capability-v2'
+        || capability.actionKey !== input.resolution.actionPlan.action.actionKey
+        || capability.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST) {
+      throw new Error('Hosted native SUT capability lost its exact Action binding.');
+    }
+    sandboxObservationDigest = sha256(parseHostedSutCapabilityObservation(capability.observation));
+  } else {
+    const raw = CodexDevelopmentParseHostedActionRawResult(outputSource);
+    if (raw.sandboxReceipt.actionKey !== input.resolution.actionPlan.action.actionKey
+        || raw.sandboxReceipt.authenticatedArchive.archiveDigest !== result.receipt.inputs.sutArchiveDigest) {
+      throw new Error('Hosted native SUT output lost its actual Action archive binding.');
+    }
+    sandboxObservationDigest = raw.sandboxReceipt.receiptDigest;
+  }
+  const current = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  const receipt = createHostedJobRuntimeReceipt({ providerRevision: environment.executionEnvironmentRevision,
+    origin: { repository: current.repository, repositoryId: current.repositoryId,
+      workflowPath: current.workflowPath, workflowSha: current.workflowSha,
+      trustedSourceSha: current.trustedSourceSha, trustedSourceTreeSha: current.trustedSourceTreeSha,
+      runId: current.runId, runAttempt: current.runAttempt, jobId: current.jobId, checkRunId: current.checkRunId,
+      policyJobId: current.policyJobId, role: current.role, identityDigest: current.identityDigest,
+      workflowSourceDigest: current.workflowSourceDigest, launcherSourceDigest: current.launcherSourceDigest,
+      originalDeadlineAtUnixMs: current.originalDeadlineAtUnixMs },
+    operation: { phase: current.phase, actionKey: input.resolution.actionPlan.action.actionKey,
+      operationIdentityDigest: operation.plan.identity.identityDigest, boundAttemptDigest: operation.boundAttemptDigest,
+      deadlineAtUnixMs: result.receipt.deadlineAtUnixMs, resolutionDigest: input.resolution.resolutionDigest },
+    nativeUnit: result.receipt, innerSupervisor: control.innerSupervisor,
+    execution: { started: true, settled: true, exitCode: result.receipt.execution.exitCode,
+      stdoutBytes: Buffer.byteLength(outputSource, 'utf8'), stderrBytes: result.stderr.byteLength,
+      outputDigest: rawSha256(outputSource), outputTruncated: false, sandboxObservationDigest },
+    cleanup: { providerScopeSettled: true, sessionSettlementDigest: nativeSettlement.settlementDigest,
+      processSettlementDigest: nativeSettlement.processReceipt.receiptDigest,
+      outputSettled: true, ownedSourcesReleased: true, innerSupervisorSettled: true } });
+  assertHostedJobRuntimeReceiptOutput(receipt, outputSource);
+  return Object.freeze({ outputSource, receipt });
 }
 
 function trustedBootstrapSutInput(origin: AuthenticatedGitHubJobOrigin) {
@@ -550,7 +897,6 @@ async function executeVerificationControl(origin: AuthenticatedGitHubJobOrigin,
   if (job.role !== 'control' || command.command !== job.phase || command.repository !== job.repository) {
     throw new Error('Hosted integration selector differs from its authenticated control job.');
   }
-  return await withQualifiedHostedJobContainerEngine({ origin, execute: async engineExporter => {
     const environment = process.env;
     const ctx = await createBranchLifecycleVerificationScope(job.trustedDriverRoot);
     const github = createVerificationSessionGitHubClient(job.trustedDriverRoot, job.repository, {
@@ -560,84 +906,79 @@ async function executeVerificationControl(origin: AuthenticatedGitHubJobOrigin,
     const event = githubEvent(environment);
     const journalFs = await openRuntimeJournalFileSystem(job.trustedDriverRoot, environment);
     return await executeHostedVerificationCommand({
-      command, origin, engineExporter, ctx, github, event, environment, journalFs,
+      command, origin, ctx, github, event, environment, journalFs,
       closeoutOperations: worktreePhysicalCloseoutOperations
     });
-  } });
 }
 
 async function probeSut(origin: AuthenticatedGitHubJobOrigin, resolutionPath: string): Promise<string> {
+  assertLinuxVerificationUnitHostSupported();
   const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
-  if (job.role !== 'sut') throw new Error('Hosted SUT probe requires an authenticated SUT job.');
-  const output = path.join(ensureHostedJobOutputParent(origin, 'capability'), 'hosted-sut-capability.json');
-  const projection = await runHostedSutPreflight({
-    readResolution: () => CodexDevelopmentParseHostedActionResolution(
-      hostedActionTransportText(resolutionPath, 'hosted Action resolution')
-    ),
-    issueInvocation: actionKey => issueHostedSutInvocation(origin, actionKey),
-    probe: (input, invocation) => runHostedSutCapabilityProbe(input, invocation),
-    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
-  });
+  const resolution = CodexDevelopmentParseHostedActionResolution(
+    hostedActionTransportText(resolutionPath, 'hosted Action resolution'));
+  const native = await executeNativeHostedSut(origin, { resolution });
+  const projection = dataObject(JSON.parse(native.outputSource), 'native capability output');
+  const parent = ensureHostedJobOutputParent(origin, 'capability');
+  const output = path.join(parent, 'hosted-sut-capability.json');
   writeCanonicalDurable(output, projection);
-  const observed = JSON.parse(assertCanonicalHostedOutput(output, projection)) as typeof projection;
-  if (observed.schema !== projection.schema || observed.status !== projection.status
-      || observed.actionKey !== projection.actionKey || observed.policyDigest !== projection.policyDigest) {
-    throw new Error('Hosted SUT capability fixed-slot projection changed after publication.');
+  if (assertCanonicalHostedOutput(output, projection) !== native.outputSource) {
+    throw new Error('Hosted capability publication differs from the settled native bytes.');
   }
-  parseHostedSutCapabilityObservation(observed.observation);
+  const receiptPath = path.join(parent, 'hosted-job-runtime-receipt.json');
+  writeCanonicalDurable(receiptPath, native.receipt);
+  assertCanonicalHostedOutput(receiptPath, native.receipt);
   projectHostedStepOutputs(origin, {
     'capability-artifact-name': hostedJobSutArtifactName(
-      'preflight-verification-action-sut', observed.actionKey, job.runId, job.runAttempt),
+      'preflight-verification-action-sut', resolution.actionPlan.action.actionKey, job.runId, job.runAttempt),
     'capability-ready': 'true'
   });
-  return JSON.stringify(projection);
+  return native.outputSource.trimEnd();
 }
 
 async function executeSut(origin: AuthenticatedGitHubJobOrigin, input: Readonly<{
   resolutionPath: string; ticketPath: string; candidateArchive: string; outputPath: string;
 }>): Promise<string> {
+  assertLinuxVerificationUnitHostSupported();
   const job = assertAuthenticatedGitHubJobOriginCurrent(origin);
-  if (job.role !== 'sut') throw new Error('Hosted SUT execution requires an authenticated SUT job.');
-  ensureHostedJobOutputParent(origin, 'raw');
-  const result = await runHostedSutExecution({
-    candidateArchive: input.candidateArchive, outputPath: path.resolve(input.outputPath)
-  }, {
+  const output = hostedJobTransportSlot(origin, 'out', 'raw', 'verification-action-raw-observation.json');
+  if (path.resolve(input.outputPath) !== output) throw new Error('Hosted raw output differs from its canonical fixed slot.');
+  let native: Awaited<ReturnType<typeof executeNativeHostedSut>> | undefined;
+  const response = await runHostedSutExecution({ candidateArchive: input.candidateArchive, outputPath: output }, {
     readResolution: () => CodexDevelopmentParseHostedActionResolution(
-      hostedActionTransportText(input.resolutionPath, 'hosted Action resolution')
-    ),
+      hostedActionTransportText(input.resolutionPath, 'hosted Action resolution')),
     readTicket: () => CodexDevelopmentParseHostedActionExecutionTicket(
-      hostedActionTransportText(input.ticketPath, 'hosted Action execution ticket')
-    ),
-    issueInvocation: actionKey => issueHostedSutInvocation(origin, actionKey),
-    materializeCandidate: source => CodexDevelopmentMaterializeHostedActionCandidate({
-      resolution: source.resolution, ticket: source.ticket,
-      preparedCandidateArchive: source.candidateArchive
-    }),
+      hostedActionTransportText(input.ticketPath, 'hosted Action execution ticket')),
+    issueInvocation: () => origin,
+    materializeCandidate: source => CodexDevelopmentMaterializeHostedActionCandidate({ resolution: source.resolution,
+      ticket: source.ticket, preparedCandidateArchive: source.candidateArchive }),
     prepare: prepareHostedActionSutInputs,
-    run: (prepared, invocation) => runHostedActionSut(prepared, invocation),
-    writeResult: (outputPath, rawResult) => {
-      writeCanonicalDurable(outputPath, rawResult);
-      const source = assertCanonicalHostedOutput(outputPath, rawResult);
-      const observed = CodexDevelopmentParseHostedActionRawResult(source);
-      if (observed.rawResultDigest !== rawResult.rawResultDigest) {
-        throw new Error('Hosted SUT raw-result digest changed after fixed-slot publication.');
+    run: async (prepared, invocation) => {
+      native = await executeNativeHostedSut(invocation, { resolution: prepared.resolution, execution: prepared });
+      return CodexDevelopmentParseHostedActionRawResult(native.outputSource);
+    },
+    writeResult: (outputPath, raw) => {
+      if (native === undefined || native.outputSource !== `${encodeVerificationActionData(raw)}\n`) {
+        throw new Error('Hosted SUT publication has no exact settled native result.');
       }
+      const parent = ensureHostedJobOutputParent(origin, 'raw');
+      if (path.dirname(outputPath) !== parent) throw new Error('Hosted SUT output escaped its original fixed slot.');
+      writeCanonicalDurable(outputPath, raw);
+      if (assertCanonicalHostedOutput(outputPath, raw) !== native.outputSource) {
+        throw new Error('Hosted raw publication differs from the settled native bytes.');
+      }
+      const receiptPath = path.join(parent, 'hosted-job-runtime-receipt.json');
+      writeCanonicalDurable(receiptPath, native.receipt);
+      assertCanonicalHostedOutput(receiptPath, native.receipt);
     }
   });
-  const raw = CodexDevelopmentParseHostedActionRawResult(readSessionArtifactText(input.outputPath));
-  const reported = JSON.parse(result) as Readonly<{ rawResultDigest?: unknown }>;
-  if (reported.rawResultDigest !== raw.rawResultDigest) {
-    throw new Error('Hosted raw result changed after its original application publication.');
-  }
-  const resolution = CodexDevelopmentParseHostedActionResolution(
-    hostedActionTransportText(input.resolutionPath, 'hosted Action resolution'));
+  const raw = CodexDevelopmentParseHostedActionRawResult(readSessionArtifactText(output));
   projectHostedStepOutputs(origin, {
     'raw-result-digest': raw.rawResultDigest,
     'raw-artifact-name': hostedJobSutArtifactName(
-      'execute-verification-action-sut', resolution.actionPlan.action.actionKey, job.runId, job.runAttempt),
+      'execute-verification-action-sut', raw.sandboxReceipt.actionKey, job.runId, job.runAttempt),
     'raw-ready': 'true'
   });
-  return result;
+  return response;
 }
 
 async function withAuthenticatedHostedOrigin<T>(
@@ -693,7 +1034,8 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
         const actionKey = sha256({ baseSha: input.baseSha, headSha: input.headSha,
           treeSha: input.treeSha, manifestPath: input.manifestPath,
           sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST });
-        const result = await executeTrustedBootstrapSut(input, issueHostedSutInvocation(origin, actionKey));
+        const result = await executeTrustedBootstrapSut(input, issueHostedSutInvocation(origin, actionKey, {
+          phase: 'execute-trusted-bootstrap-sut' }));
         assertCanonicalHostedJobPolicy(origin);
         return JSON.stringify(result);
       }
@@ -935,11 +1277,21 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
         const activation = hostedActivationNeed(origin);
         const outputPath = path.join(ensureHostedJobOutputParent(origin, 'activation'),
           AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE);
-        const result = await produceHostedAgentOperationActivation({
-          runtimeRoot: job.trustedDriverRoot,
-          candidateRoot: path.join(job.trustedDriverRoot, 'candidate'),
-          requestPath: activation.requestPath, outputPath
+        const result = await withGitCandidateCheckout({
+          sourceRoot: path.join(job.trustedDriverRoot, 'candidate'), trustedRoot: job.trustedDriverRoot,
+          baseSha: activation.request.expectedBaseSha, headSha: activation.request.expectedHeadSha,
+          purpose: 'activation-static', deadlineAtUnixMs: job.deadlineAtUnixMs,
+          signal: getAuthenticatedGitHubJobOriginSignal(origin)
+        }, async candidateCheckout => {
+          assertAuthenticatedGitHubJobOriginCurrent(origin);
+          const value = await produceHostedAgentOperationActivation({
+            runtimeRoot: job.trustedDriverRoot, candidateRoot: candidateCheckout.candidateRoot,
+            candidateCheckout, requestPath: activation.requestPath, outputPath
+          });
+          assertAuthenticatedGitHubJobOriginCurrent(origin);
+          return value;
         });
+        assertAuthenticatedGitHubJobOriginCurrent(origin);
         if (result.disposition === 'created') {
           hostedActivationPayload(origin, activation.request.phase, outputPath, result.payloadDigest);
           projectHostedStepOutputs(origin, {
@@ -957,10 +1309,11 @@ export async function runHostedJobRuntime(argv: readonly string[]): Promise<stri
         const upload = hostedActivationUpload(origin);
         const payloadPath = hostedJobTransportSlot(origin, 'out', 'activation',
           AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE);
-        const result = publishHostedAgentOperationActivation({
+        const result = await publishHostedAgentOperationActivation({
           runtimeRoot: job.trustedDriverRoot, requestPath: activation.requestPath,
           payloadPath, artifactId: upload.artifactId, artifactDigest: upload.artifactDigest
         });
+        assertAuthenticatedGitHubJobOriginCurrent(origin);
         return JSON.stringify(result);
       }
       case 'prepare-integration-hosted':

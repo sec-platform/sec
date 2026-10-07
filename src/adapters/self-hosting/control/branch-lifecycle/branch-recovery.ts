@@ -23,7 +23,11 @@ import {
   decodeBranchLifecycleChildError,
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
-import { assertDurableRecoveryAuthority, assertGitBranchName, assertGitSha } from './branch-lifecycle-contract.ts';
+import {
+  assertDurableRecoveryAuthority,
+  assertGitBranchName,
+  assertGitSha
+} from './branch-lifecycle-contract.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;

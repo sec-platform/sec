@@ -116,12 +116,12 @@ import {
   compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
-import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
+import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, reconcileSourceProgramTestValueWithSupersession, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
 import { compileRepositorySourceProgramTestObligationsWithCache, compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
 import { compileRepositorySourceProgramCompilation, requireCompleteRepositorySourceProgramCompilation, type RepositorySourceProgramCompilationReceipt } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, observeRepositorySourceProgramDescriptorOperationExports, summarizeSourceProgramTestObligationsTopology, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { assessSourceProgramTestAuthorDecision, parseSourceProgramTestAuthorDecisionPayload, type SourceProgramTestAuthorAssessment, type SourceProgramTestAuthorDecisionPayload } from '../source-program-model/test-disposition-decisions.ts';
-import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
+import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import {
   observeSourceProgramTypeScriptSyntax,
   querySourceProgramModel,
@@ -259,8 +259,12 @@ function decodeCacheEnvelope(
   }
 }
 
+const REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA = 'sec-reviewed-process-dispatchers-v2';
+
 type ReviewedProcessDispatcherProjection = Readonly<{
-  inputDigests: Readonly<Record<string, string>>;
+  schema: typeof REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA;
+  compilerInputDigest: string;
+  sourceInputDigests: Readonly<Record<string, string | null>>;
   reviewedProcessDispatchers: readonly string[];
 }>;
 
@@ -269,15 +273,22 @@ function parseReviewedProcessDispatcherProjection(
 ): ReviewedProcessDispatcherProjection | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const projection = value as Partial<ReviewedProcessDispatcherProjection>;
-  if (projection.inputDigests === null || typeof projection.inputDigests !== 'object'
-      || Array.isArray(projection.inputDigests)
+  if (projection.schema !== REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA
+      || typeof projection.compilerInputDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(projection.compilerInputDigest)
+      || projection.sourceInputDigests === null || typeof projection.sourceInputDigests !== 'object'
+      || Array.isArray(projection.sourceInputDigests)
+      || Object.keys(projection.sourceInputDigests).length === 0
       || !Array.isArray(projection.reviewedProcessDispatchers)
       || projection.reviewedProcessDispatchers.some((value) => typeof value !== 'string')) return null;
-  for (const [repositoryPath, digest] of Object.entries(projection.inputDigests)) {
-    if (repositoryPath.length === 0 || !/^sha256:[0-9a-f]{64}$/u.test(digest)) return null;
+  for (const [repositoryPath, digest] of Object.entries(projection.sourceInputDigests)) {
+    if (repositoryPath.length === 0
+        || (digest !== null && (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest)))) return null;
   }
   return Object.freeze({
-    inputDigests: Object.freeze({ ...projection.inputDigests }),
+    schema: projection.schema,
+    compilerInputDigest: projection.compilerInputDigest,
+    sourceInputDigests: Object.freeze({ ...projection.sourceInputDigests }),
     reviewedProcessDispatchers: Object.freeze([...projection.reviewedProcessDispatchers])
   });
 }
@@ -316,82 +327,82 @@ async function writeReviewedProcessDispatcherProjection(
 
 export function reviewedProcessDispatchersFromExactProjection(
   files: readonly SourceProgramFileInput[],
-  cached: ReviewedProcessDispatcherProjection | null
+  compilerInputDigest: string,
+  value: unknown
 ): readonly string[] | null {
-  if (cached === null) return null;
+  const cached = parseReviewedProcessDispatcherProjection(value);
+  if (cached === null || cached.compilerInputDigest !== compilerInputDigest) return null;
   const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
     [repositoryPath, contentDigest] as const));
-  return Object.keys(cached.inputDigests).length > 0
-    && cached.inputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH] !== undefined
-    && cached.inputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH] !== undefined
-    && Object.entries(cached.inputDigests).every(([repositoryPath, digest]) =>
-      digestByPath.get(repositoryPath) === digest)
+  return Object.entries(cached.sourceInputDigests).every(([repositoryPath, digest]) =>
+    digest === null ? !digestByPath.has(repositoryPath) : digestByPath.get(repositoryPath) === digest)
     ? cached.reviewedProcessDispatchers
     : null;
 }
 
-async function resolveImmutableRevisionProcessDispatchers(
-  repositoryRoot: string,
-  files: readonly SourceProgramFileInput[]
+export async function resolveImmutableRevisionProcessDispatchers(
+  files: readonly SourceProgramFileInput[],
+  currentProjection: ReviewedProcessDispatcherProjection,
+  adoptedBaselineRoot?: string
 ): Promise<readonly string[]> {
-  const cached = reviewedProcessDispatchersFromExactProjection(
-    files,
-    await readReviewedProcessDispatcherProjection(repositoryRoot)
+  const current = reviewedProcessDispatchersFromExactProjection(
+    files, currentProjection.compilerInputDigest, currentProjection
   );
-  if (cached === null) {
-    throw new Error(
-      'Immutable Git-tree process dispatcher facts require an exact cached trusted-runtime projection'
+  if (current !== null) return current;
+  // The caller supplies this root only when the exact baseline is the observed
+  // adopted compiler tree. Never relabel candidate facts or execute baseline code.
+  if (adoptedBaselineRoot !== undefined) {
+    const baseline = await compileReviewedProcessDispatcherProjection(
+      adoptedBaselineRoot, files, currentProjection.compilerInputDigest
     );
+    return baseline.reviewedProcessDispatchers;
   }
-  return cached;
+  throw new Error(
+    'Immutable Git-tree process dispatcher facts require an exact cached trusted-runtime projection'
+  );
 }
 
-/** Capture analysis facts from exact source inputs without granting process authority. */
-export function compileReviewedProcessDispatcherProjection(
+/** Interpret candidate bytes as data with the adopted compiler. These facts grant no process authority. */
+export async function compileReviewedProcessDispatcherProjection(
+  repositoryRoot: string,
   files: readonly SourceProgramFileInput[],
-  closure: Readonly<{ closure: ReadonlySet<string>; reviewedProcessDispatchers: ReadonlySet<string> }>
-): ReviewedProcessDispatcherProjection {
-  const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
-    [repositoryPath, contentDigest] as const));
-  const inputPaths = new Set([
-    ...closure.closure,
-    // Dispatcher recognition is a compiler input even when it is not reachable at runtime.
-    SEC_TCB_CLOSURE_RUNTIME_PATH,
-    SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
-  ]);
-  const inputDigests = Object.freeze(Object.fromEntries(
-    [...inputPaths]
-      .sort(compareCodeUnits)
-      .map((repositoryPath) => {
-        const digest = digestByPath.get(repositoryPath);
-        if (digest === undefined) {
-          throw new Error(`TCB reviewed process projection input is absent from the exact census: ${repositoryPath}`);
-        }
-        return [repositoryPath, digest];
-      })
-  ));
-  return Object.freeze({
-    inputDigests,
+  compilerInputDigest: string
+): Promise<ReviewedProcessDispatcherProjection> {
+  const {
+    createTcbClosureCandidateSnapshot, finalizeTcbClosureCandidateSnapshot, trustedRuntimeClosure
+  } = await import('../../verification/platform/trust/compiler.ts');
+  const candidateSnapshot = createTcbClosureCandidateSnapshot({ candidateRoot: repositoryRoot });
+  const closure = trustedRuntimeClosure(undefined, { candidateSnapshot });
+  const projection = Object.freeze({
+    schema: REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA,
+    compilerInputDigest,
+    // The source owner supplies its actual raw-byte read set, never labels
+    // interpreter-root results with caller-supplied candidate digests.
+    sourceInputDigests: finalizeTcbClosureCandidateSnapshot(candidateSnapshot),
     reviewedProcessDispatchers: Object.freeze(
       [...closure.reviewedProcessDispatchers].sort(compareCodeUnits)
     )
   });
+  if (reviewedProcessDispatchersFromExactProjection(files, compilerInputDigest, projection) === null) {
+    throw new Error('TCB reviewed process projection read set does not match the exact candidate census');
+  }
+  return projection;
 }
 
-async function resolveReviewedProcessDispatchers(
+async function resolveReviewedProcessDispatcherProjection(
   repositoryRoot: string,
-  files: readonly SourceProgramFileInput[]
-): Promise<readonly string[]> {
-  const cached = reviewedProcessDispatchersFromExactProjection(
-    files,
-    await readReviewedProcessDispatcherProjection(repositoryRoot)
-  );
-  if (cached !== null) return cached;
-  const { trustedRuntimeClosure } = await import('../../verification/platform/trust/compiler.ts');
-  const closure = trustedRuntimeClosure();
-  const projection = compileReviewedProcessDispatcherProjection(files, closure);
-  await writeReviewedProcessDispatcherProjection(repositoryRoot, projection).catch(() => undefined);
-  return projection.reviewedProcessDispatchers;
+  files: readonly SourceProgramFileInput[],
+  compilerInputDigest: string,
+  allowPersistentCache: boolean
+): Promise<ReviewedProcessDispatcherProjection> {
+  const cached = allowPersistentCache
+    ? await readReviewedProcessDispatcherProjection(repositoryRoot)
+    : null;
+  if (cached !== null
+      && reviewedProcessDispatchersFromExactProjection(files, compilerInputDigest, cached) !== null) {
+    return cached;
+  }
+  return compileReviewedProcessDispatcherProjection(repositoryRoot, files, compilerInputDigest);
 }
 
 async function readSupersessionEvidenceCache(
@@ -910,7 +921,9 @@ async function compileRevisionSupersessionEvidence(
   operation: SourceProgramCompilationOperation,
   cachedEvidence: SourceProgramSupersessionEvidence | null,
   cacheAccess: 'read-only' | 'read-write',
-  authorityScope: SourceProgramAnalysisScope
+  authorityScope: SourceProgramAnalysisScope,
+  currentDispatcherProjection: ReviewedProcessDispatcherProjection,
+  adoptedBaselineRoot?: string
 ): Promise<Readonly<{
   compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   evidence: SourceProgramSupersessionEvidence;
@@ -924,8 +937,9 @@ async function compileRevisionSupersessionEvidence(
   let reviewedProcessDispatchers: readonly string[] = Object.freeze([]);
   try {
     reviewedProcessDispatchers = await resolveImmutableRevisionProcessDispatchers(
-      repositoryRoot,
-      files
+      files,
+      currentDispatcherProjection,
+      adoptedBaselineRoot
     );
   } catch (error) {
     revisionUnknowns.push(Object.freeze({
@@ -1302,10 +1316,29 @@ async function compileWorkingTreeSourceProgramWithSession(
     ])),
     treeDigest: workspaceSnapshot.sourceRevision
   });
-  const reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
-    repositoryRoot,
-    files
+  const foreignCompilerRoot = path.resolve(repositoryRoot) !== path.resolve(DEFAULT_REPOSITORY_ROOT);
+  const readCompilerSnapshot = () => withAuthorityGitReadSession(
+    { cwd: DEFAULT_REPOSITORY_ROOT, budget: repositoryAuditGitBudget(deadlineAtUnixMs) },
+    (git) => acquireWorkingTreeWorkspaceSourceSnapshot({ session: git })
   );
+  const compilerSnapshot = foreignCompilerRoot ? await readCompilerSnapshot() : workspaceSnapshot;
+  for (const required of [SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH]) {
+    if (compilerSnapshot.file(required) === null) {
+      throw new Error(`Trusted dispatcher compiler input is absent: ${required}`);
+    }
+  }
+  // A conservative compiler key binds the adopted root's complete source/config
+  // census and its admitted dependencies, independently of candidate source B.
+  const compilerInputDigest = sha256({
+    sourceRevision: compilerSnapshot.sourceRevision, dependencyGenerationDigest
+  });
+  // Only the exact source-transition caller establishes the adopted-root premise.
+  // Ordinary mutable editing recomputes facts and reuses them only in this invocation.
+  const allowPersistentDispatcherCache = exactHead !== undefined;
+  const dispatcherProjection = await resolveReviewedProcessDispatcherProjection(
+    repositoryRoot, files, compilerInputDigest, allowPersistentDispatcherCache
+  );
+  const reviewedProcessDispatchers = dispatcherProjection.reviewedProcessDispatchers;
   const after = await runGitBytes(session, [
     '-c', 'core.quotepath=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
@@ -1331,9 +1364,23 @@ async function compileWorkingTreeSourceProgramWithSession(
       compilationOperation,
       cachedBaselineSupersessionEvidence,
       cacheAccess,
-      authorityScope
+      authorityScope,
+      dispatcherProjection,
+      allowPersistentDispatcherCache && compilerSnapshot.sourceRevision === baselineSnapshot.sourceRevision
+        ? DEFAULT_REPOSITORY_ROOT : undefined
     )
     : null;
+  if (foreignCompilerRoot) {
+    const finalCompilerSnapshot = await readCompilerSnapshot();
+    compilerSnapshot.assertMatches({
+      sourceRevision: finalCompilerSnapshot.sourceRevision,
+      files: finalCompilerSnapshot.files,
+      moduleMembership: finalCompilerSnapshot.moduleMembership
+    });
+  }
+  if (allowPersistentDispatcherCache) {
+    await writeReviewedProcessDispatcherProjection(repositoryRoot, dispatcherProjection).catch(() => undefined);
+  }
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,

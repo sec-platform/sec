@@ -1,4 +1,4 @@
-import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
+import type { RegistryKind, RegistryLocation, RegistrySourceResolution } from '../../contracts/registry-source.ts';
 import type { AcceptanceItem } from '../../semantics/acceptance/types.ts';
 import type { ManifestGenerator } from '../../semantics/generation/types.ts';
 
@@ -62,6 +62,8 @@ export type BlockManifest = BlockManifestBase & Partial<{
 }>;
 
 export interface ManifestEntry {
+  /** Diagnostic observation only; the selected identity remains in the entry fields. */
+  registryResolution?: RegistrySourceResolution;
   manifest: BlockManifest & {
     contracts: ManifestContractReference[];
     generators: ManifestGenerator[];

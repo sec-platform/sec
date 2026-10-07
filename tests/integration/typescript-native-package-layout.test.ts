@@ -15,10 +15,9 @@ import {
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 
-const linuxTest = test.skipIf(process.platform !== 'linux' || process.arch !== 'x64');
 
 for (const predecessorMode of [0o755, 0o555]) {
-  linuxTest(`the locked native checker preserves package lookup and retires a ${predecessorMode.toString(8)} fixture`, async () => {
+  test.skipIf(process.platform !== 'linux' || process.arch !== 'x64')(`the locked native checker preserves package lookup and retires a ${predecessorMode.toString(8)} fixture`, async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-native-package-layout-'));
     const rootIdentity = inspectNoFollowDirectoryChain(root).target;
     const parent = inspectNoFollowDirectoryChain(path.dirname(root)).target;

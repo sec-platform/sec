@@ -5,7 +5,13 @@ import {
   type CanonicalVerificationArtifactSet,
   type VerificationArtifactSet
 } from '../../../../../assurance/verification/artifact/contract/artifact.ts';
+import {
+  snapshotVerificationPublicationArtifacts,
+  type VerificationArtifactPublicationArtifacts
+} from '../../../../../assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES } from '../../../../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { assertProductVerificationArtifactSubject } from '../../../../../assurance/verification/project/report.ts';
+import type { LockFile } from '../../../../../compiler/contract.ts';
 import { cloneAndDeepFreeze } from '../../../../../contracts/canonical.ts';
 import { readOptionalRetainedJsonLeaf, retainOptionalDirectory } from '../../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { resolveWorkspaceArtifactPath } from "../../../../workspace-context.ts";
@@ -19,10 +25,10 @@ import { resolveWorkspaceArtifactPath } from "../../../../workspace-context.ts";
  * null. A partial or cross-artifact-inconsistent set is never equivalent to
  * absence and fails closed.
  */
-export function readOptionalCanonicalVerificationArtifactSet(
+function readOptionalVerificationArtifactValues(
   workspaceRoot: string,
-  label = 'Verification artifact set'
-): CanonicalVerificationArtifactSet | null {
+  label: string
+): VerificationArtifactSet | null {
   const artifactPaths = [
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
     resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
@@ -67,6 +73,41 @@ export function readOptionalCanonicalVerificationArtifactSet(
     throw new Error(`${label} is partially published`);
   }
 
+  return candidate;
+}
+
+export function readOptionalCanonicalVerificationArtifactSet(
+  workspaceRoot: string,
+  label = 'Verification artifact set'
+): CanonicalVerificationArtifactSet | null {
+  const candidate = readOptionalVerificationArtifactValues(workspaceRoot, label);
+  if (candidate === null) return null;
   assertCanonicalVerificationArtifactSet(candidate);
   return cloneAndDeepFreeze(candidate);
+}
+
+/** Share one canonical retained read and its existing Product Verification
+ * subject check. Missing data stays missing; stale data is never refreshed here. */
+export function readOptionalCurrentVerificationArtifactSet(
+  workspaceRoot: string,
+  lock: LockFile,
+  label = 'Current Verification artifact set'
+): CanonicalVerificationArtifactSet | null {
+  const artifacts = readOptionalCanonicalVerificationArtifactSet(workspaceRoot, label);
+  if (artifacts !== null) assertProductVerificationArtifactSubject(lock, artifacts);
+  return artifacts;
+}
+
+/** Diagnostic consumers preserve the publication owner's actual lane profile;
+ * a fast/partial result must not acquire an all-lane completion prerequisite. */
+export function readOptionalCurrentVerificationPublication(
+  workspaceRoot: string,
+  lock: LockFile,
+  label = 'Current Verification publication'
+): VerificationArtifactPublicationArtifacts | null {
+  const candidate = readOptionalVerificationArtifactValues(workspaceRoot, label);
+  if (candidate === null) return null;
+  const artifacts = snapshotVerificationPublicationArtifacts(candidate as VerificationArtifactPublicationArtifacts);
+  assertProductVerificationArtifactSubject(lock, artifacts);
+  return cloneAndDeepFreeze(artifacts);
 }

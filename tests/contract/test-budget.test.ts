@@ -21,6 +21,10 @@ test('test-budget CLI emits one internally complete executable inventory', async
     );
 
     expect(contract.lanes.map(({ id }) => id)).toEqual(['fast', 'runtime', 'all']);
+    expect(contract.fastTestHostRequirements).toEqual([
+      { file: 'tests/unit/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
+    ]);
+
     expect(contract.slowTestFiles).toEqual([...contract.slowTestFiles].sort());
     expect(new Set(contract.slowTestFiles).size).toBe(contract.slowTestFiles.length);
     expect(contract.slowTestFileCount).toBe(contract.slowTestFiles.length);

@@ -12,6 +12,48 @@
         "buildCiFullGatePlan",
         "buildCiQuickGatePlan"
       ]
+    },
+    {
+      "capability": "verification.source-program-reassessment-admission",
+      "operations": ["issueHostedSourceProgramReassessment", "consumeHostedSourceProgramReassessment"],
+      "effectKinds": ["filesystem", "process", "provider", "persistent-state"],
+      "operationRoles": [
+        {
+          "operation": "issueHostedSourceProgramReassessment",
+          "role": "grant-issuer",
+          "semanticOperation": "verification.source-program-reassessment",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": { "kind": "capability", "capability": "verification.source-program-reassessment-admission", "operation": "issueHostedSourceProgramReassessment" },
+      "consumerSupport": { "consumers": ["adapters.verification.platform.trusted-runtime"] },
+      "effect": { "kinds": ["filesystem", "process", "provider", "persistent-state"], "failureKinds": ["native-unit.admission-failed", "native-unit.execution-failed", "native-unit.settlement-unknown"], "recovery": "owner-intervention" },
+      "evolution": { "migration": "not-required", "retirement": "replacement-obligations-satisfied" },
+      "resources": { "aggregateBudgets": [
+        { "resource": "duration-ms", "maximum": 14400000 },
+        { "resource": "input-bytes", "maximum": 67108864 },
+        { "resource": "output-bytes", "maximum": 536870912 },
+        { "resource": "processes", "maximum": 512 }
+      ] },
+      "futureSupport": { "condition": "semantic-superset-required" }
+    },
+    {
+      "operation": { "kind": "capability", "capability": "verification.source-program-reassessment-admission", "operation": "consumeHostedSourceProgramReassessment" },
+      "consumerSupport": { "consumers": ["adapters.verification.platform.trusted-runtime"] },
+      "effect": { "kinds": ["filesystem", "process", "provider", "persistent-state"], "failureKinds": ["native-unit.admission-failed", "native-unit.execution-failed", "native-unit.settlement-unknown"], "recovery": "owner-intervention" },
+      "evolution": { "migration": "not-required", "retirement": "replacement-obligations-satisfied" },
+      "resources": { "aggregateBudgets": [
+        { "resource": "duration-ms", "maximum": 14400000 },
+        { "resource": "input-bytes", "maximum": 67108864 },
+        { "resource": "output-bytes", "maximum": 536870912 },
+        { "resource": "processes", "maximum": 512 }
+      ] },
+      "futureSupport": { "condition": "semantic-superset-required" }
     }
   ],
   "preDependencyBootstrap": false

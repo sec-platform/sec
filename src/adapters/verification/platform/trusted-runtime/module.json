@@ -1,4 +1,35 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "verification.source-program-reassessment",
+      "operations": ["observeTrustedRuntimeSourceProgramTransition"],
+      "effectKinds": ["filesystem", "process", "provider", "persistent-state"],
+      "operationRoles": [
+        {
+          "operation": "observeTrustedRuntimeSourceProgramTransition",
+          "role": "domain-owner",
+          "semanticOperation": "verification.source-program-reassessment",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": { "kind": "capability", "capability": "verification.source-program-reassessment", "operation": "observeTrustedRuntimeSourceProgramTransition" },
+      "consumerSupport": { "consumers": ["bootstrap.development"] },
+      "effect": { "kinds": ["filesystem", "process", "provider", "persistent-state"], "failureKinds": ["native-unit.admission-failed", "native-unit.execution-failed", "native-unit.settlement-unknown"], "recovery": "owner-intervention" },
+      "evolution": { "migration": "not-required", "retirement": "replacement-obligations-satisfied" },
+      "resources": { "aggregateBudgets": [
+        { "resource": "duration-ms", "maximum": 14400000 },
+        { "resource": "input-bytes", "maximum": 67108864 },
+        { "resource": "output-bytes", "maximum": 536870912 },
+        { "resource": "processes", "maximum": 512 }
+      ] },
+      "futureSupport": { "condition": "semantic-superset-required" }
+    }
+  ]
 }

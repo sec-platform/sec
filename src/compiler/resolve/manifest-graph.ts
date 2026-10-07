@@ -101,6 +101,11 @@ function orderManifests(entries: readonly ManifestEntry[], providers: Providers)
   return ordered;
 }
 
+function selectedManifestIdentity(entry: ManifestEntry): Omit<ManifestEntry, 'registryResolution'> {
+  const { registryResolution: _diagnostics, ...selected } = entry;
+  return selected;
+}
+
 /** Owns this manifest dependency graph only, not every graph in the system.
  * Preserve existing unique-provider closure and all-selected-provider ordering.
  * Catalog validation and physical source observation remain with their loader.
@@ -121,7 +126,7 @@ export function resolveManifestGraph(
   for (const entry of explicitEntries) {
     const selected = byId.get(entry.manifest.id);
     if (selected === undefined) select(entry);
-    else if (!canonicalEquals(selected, entry)) {
+    else if (!canonicalEquals(selectedManifestIdentity(selected), selectedManifestIdentity(entry))) {
       throw new CodedFailure('RESOLVE-CONFLICT-004', `Conflicting explicit selections for block "${entry.manifest.id}"`, {
         selectedVersion: selected.manifest.version, requestedVersion: entry.manifest.version,
         selectedSource: selected.registrySourceId, requestedSource: entry.registrySourceId

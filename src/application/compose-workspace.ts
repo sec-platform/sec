@@ -82,7 +82,8 @@ export async function composeWorkspaceResult(
   throwIfNativeAborted(request.signal);
   const plan = readPlan.call(operations);
   const lock = readRequiredComposeLock(() => readLock.call(operations));
+  // Composition observes cancellation through terminal Lock publication. A
+  // later abort cannot reclassify its settled success as a failed pipeline pass.
   await compose.call(operations, lock, semanticContext, request);
-  throwIfNativeAborted(request.signal);
   return { plan, lock };
 }

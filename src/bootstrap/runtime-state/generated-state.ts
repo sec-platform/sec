@@ -63,7 +63,9 @@ export function createGeneratedStateRegistrationBootstrap(input: Readonly<{
     planCleanup: planGeneratedStateCleanup,
     settle: (request: Parameters<typeof settleGeneratedState>[0], hooks: Pick<Parameters<typeof settleGeneratedState>[1],
       'cleanupOperation' | 'beforeCleanupEffect' | 'afterQuarantineEffect' | 'clock'> = {}) =>
-      settleGeneratedState({ ...request, workspaceRoot: input.workspaceRoot }, { ...inventory, ...hooks,
+      settleGeneratedState({ ...request, workspaceRoot: input.workspaceRoot }, { ...inventory,
+        cleanupOperation: input.cleanupOperation, beforeCleanupEffect: input.beforeCleanupEffect,
+        afterQuarantineEffect: input.afterQuarantineEffect, ...hooks,
         git: createGeneratedStateGitObservationBackend({ repositoryRoot: request.repositoryRoot, workspaceRoot: input.workspaceRoot, runGit: input.runGit }),
         mutation: backend, journals, effects })
   });

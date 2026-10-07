@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
+import type { RetainedNoFollowProvenDirectoryGeneration } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { linkedWorktreeDependencyOwnerRoot } from '../../adapters/toolchain/dependencies/runtime/linked-worktree-owner.ts';
 import { runtimeDependencyOperationContext, runtimeDependencyOperationOptions } from '../../adapters/toolchain/dependencies/runtime/operation-context.ts';
 import * as native from '../../adapters/toolchain/dependencies/runtime/project-runtime.ts';
@@ -71,6 +72,12 @@ export function createDependencyOperation(input: Readonly<{ workspaceRoot: strin
   return Object.freeze({
     generatedStateOwner,
     ensureCompilerDepsReady: (request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) => native.ensureCompilerDepsReady(bind(request), root),
+    ensureCompilerDepsReadyFromRetainedContent: (content: RetainedNoFollowProvenDirectoryGeneration,
+      request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) =>
+      native.ensureCompilerDepsReadyFromRetainedContent(content, bind(request), root),
+    ensureCompilerDepsReadyFromGeneration: (authority: native.CompilerDependencyExecutionGenerationAuthority,
+      request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) =>
+      native.ensureCompilerDepsReadyFromGeneration(authority, bind(request), root),
     ensureProjectDependencies: ensureProject,
     withProjectDependencyBridge: <Value>(projectRoot: string, use: () => Promise<Value>, request: RuntimeDependencyInstallRequest = {}) =>
       native.withProjectDependencyBridge(projectRoot, use, bind(request)),

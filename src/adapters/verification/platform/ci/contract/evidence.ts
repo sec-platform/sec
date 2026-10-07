@@ -22,6 +22,7 @@ import { CodexDevelopmentReduceHostedSutObservation } from './hosted-sut-observa
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentAssertVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
+import { assertDomainReadbackReceipt, assertOwnerTerminalJoinReceipt, assertProviderSettlementReceipt, assertProviderSettlementSet } from '../../../../../execution/operation/semantic.ts';
 import { parseMainHealthLedger, resolveOrdinaryMainHealthLane } from '../../../../self-hosting/control/main-health/contract.ts';
 import { assertScopeAuthorizationCurrent, parseScopeAuthorization } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, parseVerificationActionKey, parseVerificationActionPlan } from '../../action/contract/action.ts';
@@ -31,8 +32,140 @@ import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIE
 import { parseVerificationSession } from '../../session/contract/session.ts';
 import type { SourceProgramTransitionQualification, TrustedRuntimeSourceProgramAttemptEvidence } from '../../trusted-runtime/trusted-runtime-container.ts';
 
+import { LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, linuxVerificationUnitInvocationDigest, parseLinuxVerificationUnitReceipt } from '../../../../runtime-state/physical/contract/linux-verification-unit.ts';
+
 export function CodexDevelopmentVerificationDigest(value: unknown): string {
   return canonicalSha256(value);
+}
+
+function sourceAttemptInvalid(message: string): never {
+  throw new Error(`Source Program attempt carrier: ${message}`);
+}
+function sourceAttemptBytesDigest(value: string | Uint8Array): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+/** Historical bytes are inspectable but never recreate a live observation. */
+export function parseTrustedRuntimeSourceProgramAttemptCarrier(value: unknown): TrustedRuntimeSourceProgramAttemptEvidence {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) sourceAttemptInvalid('transition attempt evidence is not data');
+  const evidence = value as TrustedRuntimeSourceProgramAttemptEvidence;
+  if (Object.keys(evidence).sort().join(',') !== 'assessment,authority,evidenceDigest,observation,physicalEvidence,schema') {
+    sourceAttemptInvalid('transition attempt evidence fields are invalid');
+  }
+  if (evidence.schema === 'source-program-isolated-attempt-evidence-v3') {
+    const { evidenceDigest, ...canonical } = evidence;
+    const { observationDigest, ...observed } = evidence.observation;
+    const physical = evidence.physicalEvidence;
+    assertObject(physical, 'Native Source Program physical evidence');
+    assertExactKeys(physical, ['unitReceipt', 'invocation', 'sessionSettlement', 'dependencyCache', 'workspaceTerminal'], 'Native Source Program physical evidence');
+    assertObject(physical.sessionSettlement, 'Native Source Program session settlement');
+    assertExactKeys(physical.sessionSettlement, ['processReceipt', 'providerSettlement', 'unitReceiptDigests', 'transportRetired',
+      'settlementDigest', 'providerSettlementSet', 'readback', 'ownerTerminalProjection'], 'Native Source Program session settlement');
+    if (!Array.isArray(physical.sessionSettlement.unitReceiptDigests)) {
+      sourceAttemptInvalid('native Source Program unit settlement inventory is not an array');
+    }
+    assertObject(physical.sessionSettlement.processReceipt, 'Native Source Program process settlement');
+    assertProviderSettlementReceipt(physical.sessionSettlement.providerSettlement);
+    assertProviderSettlementSet(physical.sessionSettlement.providerSettlementSet);
+    assertDomainReadbackReceipt(physical.sessionSettlement.readback);
+    assertOwnerTerminalJoinReceipt(physical.sessionSettlement.ownerTerminalProjection);
+    const unit = parseLinuxVerificationUnitReceipt(physical.unitReceipt);
+    const assessment = evidence.assessment;
+    if (evidence.authority !== 'historical-evidence-only' || evidenceDigest !== CodexDevelopmentVerificationDigest(canonical)
+        || observationDigest !== CodexDevelopmentVerificationDigest(observed)
+        || evidence.observation.assessmentDigest !== assessment.assessmentDigest
+        || evidence.observation.settlementDigest !== CodexDevelopmentVerificationDigest({ unitReceipt: unit, sessionSettlement: physical.sessionSettlement })
+        || physical.dependencyCache !== 'private-ephemeral' || physical.workspaceTerminal !== 'retired'
+        || unit.invocationDigest !== linuxVerificationUnitInvocationDigest(physical.invocation)
+        || physical.invocation.kind !== 'source-program' || physical.invocation.cwd !== 'trusted'
+        || unit.inputs.sutArchiveDigest !== null || unit.inputs.dependencyContentDigest === null
+        || unit.unit.workingDirectory !== '/sec-runtime/trusted'
+        || unit.execution.exitCode !== 0 || unit.execution.stdoutDigest !== sourceAttemptBytesDigest(`${encodeVerificationActionData(assessment)}\n`)
+        || physical.sessionSettlement.processReceipt === null
+        || physical.sessionSettlement.processReceipt.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.processReceipt.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.processReceipt.requirementId !== LINUX_VERIFICATION_UNIT_REQUIREMENT_ID
+        || physical.sessionSettlement.transportRetired !== true
+        || physical.sessionSettlement.providerSettlement.physicalDisposition !== 'settled'
+        || physical.sessionSettlement.providerSettlement.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.providerSettlement.requirementId !== LINUX_VERIFICATION_UNIT_REQUIREMENT_ID
+        || physical.sessionSettlement.providerSettlement.contractDigest !== LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST
+        || physical.sessionSettlement.providerSettlement.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.providerSettlementSet.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.providerSettlementSet.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.providerSettlementSet.executionPlanDigest !== physical.sessionSettlement.providerSettlement.executionPlanDigest
+        || physical.sessionSettlement.providerSettlementSet.settlements.length !== 1
+        || !canonicalEquals(physical.sessionSettlement.providerSettlementSet.settlements[0], physical.sessionSettlement.providerSettlement)
+        || physical.sessionSettlement.readback.disposition !== 'applied'
+        || physical.sessionSettlement.readback.recoveryMode !== 'normal'
+        || physical.sessionSettlement.readback.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.readback.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.readback.executionPlanDigest !== physical.sessionSettlement.providerSettlementSet.executionPlanDigest
+        || physical.sessionSettlement.readback.bindingSetIdentityDigest !== physical.sessionSettlement.providerSettlementSet.bindingSetIdentityDigest
+        || physical.sessionSettlement.readback.providerSettlementSetDigest !== physical.sessionSettlement.providerSettlementSet.providerSettlementSetDigest
+        || physical.sessionSettlement.ownerTerminalProjection.recoveryMode !== 'normal'
+        || physical.sessionSettlement.ownerTerminalProjection.boundAttemptDigest !== unit.boundAttemptDigest
+        || physical.sessionSettlement.ownerTerminalProjection.operationIdentityDigest !== unit.operationIdentityDigest
+        || physical.sessionSettlement.ownerTerminalProjection.executionPlanDigest !== physical.sessionSettlement.providerSettlementSet.executionPlanDigest
+        || physical.sessionSettlement.ownerTerminalProjection.bindingSetIdentityDigest !== physical.sessionSettlement.providerSettlementSet.bindingSetIdentityDigest
+        || physical.sessionSettlement.ownerTerminalProjection.readbackReceiptDigest !== physical.sessionSettlement.readback.readbackReceiptDigest
+        || physical.sessionSettlement.ownerTerminalProjection.providerSettlementSetDigest !== physical.sessionSettlement.providerSettlementSet.providerSettlementSetDigest
+        || physical.sessionSettlement.settlementDigest !== CodexDevelopmentVerificationDigest({
+          processReceipt: physical.sessionSettlement.processReceipt,
+          providerSettlement: physical.sessionSettlement.providerSettlement,
+          transportRetired: physical.sessionSettlement.transportRetired,
+          unitReceiptDigests: physical.sessionSettlement.unitReceiptDigests })
+        || physical.sessionSettlement.unitReceiptDigests.length !== 1
+        || physical.sessionSettlement.unitReceiptDigests[0] !== unit.receiptDigest
+        || [unit.gitBefore, unit.gitAfter].some(identity => identity.baseSha !== assessment.baseSha
+          || identity.baseTreeSha !== assessment.baseTreeSha || identity.headSha !== assessment.headSha
+          || identity.headTreeSha !== assessment.headTreeSha || identity.status !== '')
+        || evidence.observation.baseSha !== assessment.baseSha || evidence.observation.headSha !== assessment.headSha
+        || evidence.observation.headTreeSha !== assessment.headTreeSha || assessment.runtimeSha !== assessment.baseSha
+        || evidence.observation.producerSourceDigest !== assessment.producerExecution.observation.implementationDigest
+        || evidence.observation.producerExecutionEvidenceDigest !== assessment.producerExecution.evidenceDigest) {
+      sourceAttemptInvalid('native Source Program historical attempt lost its exact source, output or physical joins');
+    }
+    if (evidence.observation.origin === 'first-qualified') {
+      if (evidence.observation.schema !== 'source-program-transition-observation-v2'
+          || 'predecessorActionOutputDigest' in evidence.observation
+          || evidence.observation.sourceActionOutputDigest !== unit.execution.stdoutDigest) {
+        sourceAttemptInvalid('native first-qualified Source Program output differs');
+      }
+    } else if (evidence.observation.schema !== undefined
+        || !/^sha256:[0-9a-f]{64}$/u.test(evidence.observation.predecessorActionOutputDigest)) {
+      sourceAttemptInvalid('native predecessor observation lost its genuine previous Action output');
+    }
+    return Object.freeze(evidence);
+  }
+  const { evidenceDigest, ...canonical } = evidence;
+  const { observationDigest, ...observed } = evidence.observation;
+  if (evidence.schema !== (evidence.observation.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || evidence.authority !== 'historical-evidence-only'
+      || evidenceDigest !== CodexDevelopmentVerificationDigest(canonical) || observationDigest !== CodexDevelopmentVerificationDigest(observed)
+      || evidence.observation.assessmentDigest !== evidence.assessment.assessmentDigest
+      || evidence.observation.settlementDigest !== CodexDevelopmentVerificationDigest(evidence.physicalEvidence.settlements)
+      || evidence.physicalEvidence.dependencyCache !== 'private-ephemeral'
+      || evidence.physicalEvidence.workspaceTerminal !== 'retired') sourceAttemptInvalid('transition attempt historical join is invalid');
+  if (evidence.observation.origin === 'first-qualified') {
+    if (evidence.observation.schema !== 'source-program-transition-observation-v2'
+        || 'predecessorActionOutputDigest' in evidence.observation
+        || evidence.observation.sourceActionOutputDigest !== sourceAttemptBytesDigest(`${encodeVerificationActionData(evidence.assessment)}\n`)
+        || evidence.observation.baseSha !== evidence.assessment.baseSha
+        || evidence.observation.headSha !== evidence.assessment.headSha
+        || evidence.observation.headTreeSha !== evidence.assessment.headTreeSha
+        || evidence.observation.baseSha !== evidence.assessment.runtimeSha
+        || evidence.observation.producerSourceDigest !== evidence.assessment.producerExecution.observation.implementationDigest
+        || evidence.observation.producerExecutionEvidenceDigest !== evidence.assessment.producerExecution.evidenceDigest
+        || evidence.physicalEvidence.settlements.length !== 3
+        || evidence.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
+          !== 'setup,owner-operation,cleanup') {
+      sourceAttemptInvalid('first-qualified Source Program attempt lost its exact physical/output joins');
+    }
+  } else if (evidence.observation.schema !== undefined
+      || !/^sha256:[0-9a-f]{64}$/u.test(evidence.observation.predecessorActionOutputDigest)) {
+    sourceAttemptInvalid('legacy Source Program attempt must retain its genuine predecessor');
+  }
+  return Object.freeze(evidence);
 }
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -674,9 +807,9 @@ function assertVerificationSessionArtifactFields(value: unknown, delegated: bool
   } else {
     const acceptance = parseSourceProgramTransitionAcceptanceRecord(value.sourceProgramTransitionAcceptance);
     assertObject(value.sourceProgramTransitionEvidence, 'Source Program fresh attempt evidence');
-    const attempt = value.sourceProgramTransitionEvidence as unknown as TrustedRuntimeSourceProgramAttemptEvidence;
+    const attempt = parseTrustedRuntimeSourceProgramAttemptCarrier(value.sourceProgramTransitionEvidence);
     const { evidenceDigest: attemptEvidenceDigest, ...attemptFields } = attempt;
-    if (attempt.schema !== (acceptance.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || attempt.authority !== 'historical-evidence-only'
+    if (attempt.authority !== 'historical-evidence-only'
         || attemptEvidenceDigest !== CodexDevelopmentVerificationDigest(attemptFields)
         || attemptEvidenceDigest !== acceptance.attemptEvidenceDigest
         || attempt.observation.assessmentDigest !== acceptance.assessmentDigest
@@ -698,12 +831,6 @@ function assertVerificationSessionArtifactFields(value: unknown, delegated: bool
           || attempt.observation.schema !== 'source-program-transition-observation-v2'
           || 'predecessorActionOutputDigest' in attempt.observation
           || observationDigest !== CodexDevelopmentVerificationDigest(observed)
-          || attempt.observation.settlementDigest !== CodexDevelopmentVerificationDigest(attempt.physicalEvidence.settlements)
-          || attempt.physicalEvidence.dependencyCache !== 'private-ephemeral'
-          || attempt.physicalEvidence.workspaceTerminal !== 'retired'
-          || attempt.physicalEvidence.settlements.length !== 3
-          || attempt.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
-            !== 'setup,owner-operation,cleanup'
           || attempt.observation.baseSha !== session.baseSha || attempt.observation.headSha !== session.headSha
           || attempt.observation.headTreeSha !== session.headTreeSha
           || attempt.assessment.baseSha !== session.baseSha || attempt.assessment.baseTreeSha !== session.baseTreeSha

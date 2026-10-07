@@ -78,7 +78,7 @@ import { observeUnexpectedGitHubIssueClosures } from '../../../../self-hosting/c
 
 import { getCiVerificationPerJobHostedJobPolicy } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import { HOSTED_RESUME_DISPATCH_EVENT, parseHostedResumeDispatchSignal } from '../../../../providers/github-api/contract/hosted-resume-dispatch.ts';
-import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
+import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin, type AuthenticatedGitHubJobOriginObservation } from '../../../../providers/github-api/hosted-job-origin.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
   CodexDevelopmentParseCurrentWorkPackageManifest,
@@ -608,57 +608,139 @@ export async function loadProviderBranchCloseoutRecoveryArtifact(input: {
   return Object.freeze({ artifact, metadata, remotePrepared, prepared });
 }
 
-/** Provider readback of the two closed control steps whose produced and
- * uploaded bytes the verify phase re-reads. The authenticated job is still
- * in_progress, so only step facts are admissible here; a job conclusion that
- * does not exist yet is never observed or invented. */
-export function readAuthenticatedHostedControlStepFacts(input: Readonly<{
-  ctx: VerificationSessionScope; origin: AuthenticatedGitHubJobOrigin;
-}>): Readonly<{ preparation: Readonly<{ name: string; number: number; status: string; conclusion: string | null }>;
-  upload: Readonly<{ name: string; number: number; status: string; conclusion: string | null }> }> {
-  const job = assertAuthenticatedGitHubJobOriginCurrent(input.origin);
-  const policy = getCiVerificationPerJobHostedJobPolicy(job.workflowPath, job.policyJobId);
-  let preparationStepName: string | null = null;
-  let uploadStepName: string | null = null;
-  for (const stage of policy === null ? [] : policy.stages) {
-    if (stage.kind === 'phase' && stage.phase === 'prepare-integration-hosted') {
-      if (preparationStepName !== null) throw new Error('Hosted recovery verification policy has duplicate producer phases.');
-      preparationStepName = stage.stepName;
-    }
-    if (stage.kind === 'upload' && stage.slot === 'recovery') {
-      if (uploadStepName !== null) throw new Error('Hosted recovery verification policy has duplicate upload stages.');
-      uploadStepName = stage.stepName;
-    }
+type HostedRecoveryStepOrigin = Pick<AuthenticatedGitHubJobOriginObservation,
+  'repository' | 'repositoryId' | 'workflowPath' | 'workflowSha' | 'trustedSourceSha' |
+  'runId' | 'runAttempt' | 'jobId' | 'checkRunId' | 'jobName' | 'policyJobId' | 'phase' |
+  'stepName' | 'stepNumber' | 'originalDeadlineAtUnixMs' | 'deadlineAtUnixMs'>;
+
+function recoveryProviderRecord(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Hosted recovery verification provider observation is not one object.');
   }
-  if (preparationStepName === null || uploadStepName === null) {
-    throw new Error('Hosted recovery verification has no unique policy producer/upload steps.');
+  return value as Record<string, unknown>;
+}
+
+function recoveryProviderTime(value: unknown): number {
+  const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  if (!Number.isSafeInteger(time) || time < 1) {
+    throw new Error('Hosted recovery verification provider timestamp is invalid.');
   }
-  const observed = apiRecord(input.ctx, `/repos/${job.repository}/actions/jobs/${job.jobId}`,
-    'hosted recovery verification job readback');
-  if (String(observed.id) !== job.jobId || String(observed.run_id) !== job.runId
-      || observed.run_attempt !== job.runAttempt || observed.name !== job.jobName
-      || observed.head_sha !== job.workflowSha
-      || observed.check_run_url !== `${GITHUB_API_BASE_URL}/repos/${job.repository}/check-runs/${job.checkRunId}`
-      || !Array.isArray(observed.steps)) {
-    throw new Error('Hosted recovery verification job readback differs from its authenticated origin.');
+  return time;
+}
+
+/** Data-only predicate. Only the native reader below supplies authenticated
+ * observations; a caller-created origin or decoded window grants no authority. */
+export function decodeHostedRecoveryControlStepFacts(input: Readonly<{
+  origin: HostedRecoveryStepOrigin; run: unknown; job: unknown; observedAtUnixMs: number;
+}>) {
+  const { origin } = input;
+  const policy = getCiVerificationPerJobHostedJobPolicy(origin.workflowPath, origin.policyJobId);
+  const phases = policy?.stages.filter(stage => stage.kind === 'phase');
+  const preparationPolicy = phases?.filter(stage => stage.phase === 'prepare-integration-hosted');
+  const verificationPolicy = phases?.filter(stage => stage.phase === 'verify-integration-recovery');
+  const uploadPolicy = policy?.stages.filter(stage => stage.kind === 'upload').filter(stage => stage.slot === 'recovery');
+  if (origin.workflowPath !== '.github/workflows/merge-gate.yml' || origin.phase !== 'verify-integration-recovery'
+      || origin.trustedSourceSha !== origin.workflowSha || policy === null
+      || preparationPolicy?.length !== 1 || verificationPolicy?.length !== 1 || uploadPolicy?.length !== 1
+      || verificationPolicy[0]!.stepName !== origin.stepName || policy.jobName !== origin.jobName) {
+    throw new Error('Hosted recovery verification has no unique exact policy producer/upload/verifier.');
   }
-  const fact = (stepName: string) => {
-    const matches = observed.steps.map((entry: unknown) => {
-      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
-        throw new Error('Hosted recovery verification step is not one object.');
-      }
-      return entry as Record<string, unknown>;
-    }).filter((step: Record<string, unknown>) => step.name === stepName);
-    if (matches.length !== 1 || !Number.isSafeInteger(matches[0]!.number) || Number(matches[0]!.number) < 1
-        || typeof matches[0]!.status !== 'string'
+  const run = recoveryProviderRecord(input.run), repository = recoveryProviderRecord(run.repository);
+  const job = recoveryProviderRecord(input.job);
+  // GET /jobs/{jobId} may omit run_attempt. The native reader's opaque origin
+  // already binds this immutable job/check run through the signed attempt's
+  // complete job census. An explicit value must agree; this DTO grants no authority.
+  if (run.id !== Number(origin.runId) || run.run_attempt !== origin.runAttempt
+      || run.path !== origin.workflowPath || run.head_sha !== origin.workflowSha
+      || run.event !== policy.trigger.eventName || run.status !== 'in_progress' || run.conclusion !== null
+      || repository.id !== Number(origin.repositoryId) || repository.full_name !== origin.repository
+      || job.id !== Number(origin.jobId) || job.run_id !== Number(origin.runId)
+      || ('run_attempt' in job && job.run_attempt !== origin.runAttempt) || job.name !== origin.jobName
+      || job.head_sha !== origin.workflowSha || job.status !== 'in_progress' || job.conclusion !== null
+      || job.completed_at !== null
+      || job.check_run_url !== `${GITHUB_API_BASE_URL}/repos/${origin.repository}/check-runs/${origin.checkRunId}`
+      || !Array.isArray(job.steps) || job.steps.length > 100) {
+    throw new Error('Hosted recovery verification job/run readback differs from its authenticated origin.');
+  }
+  const jobStarted = recoveryProviderTime(job.started_at);
+  if (!Number.isSafeInteger(input.observedAtUnixMs) || input.observedAtUnixMs < jobStarted
+      || origin.originalDeadlineAtUnixMs !== jobStarted + policy.maximumJobDurationMs
+      || origin.deadlineAtUnixMs !== origin.originalDeadlineAtUnixMs
+      || input.observedAtUnixMs >= origin.deadlineAtUnixMs) {
+    throw new Error('Hosted recovery verification original job lifetime differs.');
+  }
+  const steps = job.steps.map(recoveryProviderRecord);
+  if (steps.some(step => !Number.isSafeInteger(step.number) || Number(step.number) < 1 || Number(step.number) > 100)
+      || new Set(steps.map(step => step.number)).size !== steps.length) {
+    throw new Error('Hosted recovery verification step numbers are ambiguous.');
+  }
+  const step = (name: string) => {
+    const matches = steps.filter(entry => entry.name === name);
+    if (matches.length !== 1 || typeof matches[0]!.status !== 'string'
         || (matches[0]!.conclusion !== null && typeof matches[0]!.conclusion !== 'string')) {
       throw new Error('Hosted recovery verification has no unique exact provider step.');
     }
-    return Object.freeze({ name: stepName, number: Number(matches[0]!.number),
-      status: matches[0]!.status as string, conclusion: matches[0]!.conclusion as string | null });
+    return matches[0]!;
   };
+  const preparation = step(preparationPolicy[0]!.stepName);
+  const upload = step(uploadPolicy[0]!.stepName);
+  const verifier = step(verificationPolicy[0]!.stepName);
+  if (preparation.status !== 'completed' || preparation.conclusion !== 'success'
+      || upload.status !== 'completed' || !['success', 'skipped'].includes(String(upload.conclusion))
+      || verifier.number !== origin.stepNumber || verifier.status !== 'in_progress' || verifier.conclusion !== null
+      || steps.filter(entry => entry.status === 'in_progress').length !== 1
+      || Number(preparation.number) >= Number(upload.number) || Number(upload.number) >= origin.stepNumber) {
+    throw new Error('Hosted recovery verification preparation/upload/current verifier order differs.');
+  }
+  const preparationStarted = recoveryProviderTime(preparation.started_at);
+  const preparationCompleted = recoveryProviderTime(preparation.completed_at);
+  const verifierStarted = recoveryProviderTime(verifier.started_at);
+  if (preparationStarted < jobStarted || preparationCompleted < preparationStarted
+      || verifierStarted < preparationCompleted || verifierStarted > input.observedAtUnixMs
+      || verifier.completed_at != null) {
+    throw new Error('Hosted recovery verification producer/verifier timestamp order differs.');
+  }
+  // A skipped upload may have no provider timestamps. It still must precede
+  // this exact verifier, and the application independently requires absence.
+  let uploadWindow: Readonly<{ startedAtUnixMs: number; completedAtUnixMs: number }> | null = null;
+  if (upload.conclusion === 'success' || upload.started_at != null || upload.completed_at != null) {
+    const startedAtUnixMs = recoveryProviderTime(upload.started_at);
+    const completedAtUnixMs = recoveryProviderTime(upload.completed_at);
+    if (startedAtUnixMs < preparationCompleted || completedAtUnixMs < startedAtUnixMs
+        || completedAtUnixMs > verifierStarted) {
+      throw new Error('Hosted recovery verification upload timestamp order differs.');
+    }
+    if (upload.conclusion === 'success') uploadWindow = Object.freeze({ startedAtUnixMs, completedAtUnixMs });
+  }
+  const fact = (value: Record<string, unknown>) => Object.freeze({ name: String(value.name), number: Number(value.number),
+    status: String(value.status), conclusion: value.conclusion as string | null });
+  return Object.freeze({ preparation: fact(preparation), upload: fact(upload), uploadWindow });
+}
+
+/** Bind provider artifact timestamps to the successful upload in the exact
+ * independently read current job. This predicate never authenticates a DTO. */
+export function assertHostedRecoveryArtifactUploadWindow(metadata: GitHubActionsArtifactObservation,
+  window: Readonly<{ startedAtUnixMs: number; completedAtUnixMs: number }> | null): void {
+  const created = recoveryProviderTime(metadata.createdAt), updated = recoveryProviderTime(metadata.updatedAt);
+  if (window === null || !Number.isSafeInteger(window.startedAtUnixMs) || window.startedAtUnixMs < 1
+      || !Number.isSafeInteger(window.completedAtUnixMs) || window.completedAtUnixMs < window.startedAtUnixMs
+      || created < window.startedAtUnixMs || updated < created || updated > window.completedAtUnixMs) {
+    throw new Error('Hosted recovery artifact is outside its actual successful upload window.');
+  }
+}
+
+/** Re-read the actual still-executing job and original attempt under its live
+ * origin. The returned data cannot substitute for that origin at later reads. */
+export function readAuthenticatedHostedControlStepFacts(input: Readonly<{
+  ctx: VerificationSessionScope; origin: AuthenticatedGitHubJobOrigin;
+}>) {
+  const origin = assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+  const run = apiRecord(input.ctx, `/repos/${origin.repository}/actions/runs/${origin.runId}/attempts/${origin.runAttempt}`,
+    'hosted recovery verification run attempt readback');
+  const job = apiRecord(input.ctx, `/repos/${origin.repository}/actions/jobs/${origin.jobId}`,
+    'hosted recovery verification job readback');
   assertAuthenticatedGitHubJobOriginCurrent(input.origin);
-  return Object.freeze({ preparation: fact(preparationStepName), upload: fact(uploadStepName) });
+  return decodeHostedRecoveryControlStepFacts({ origin, run, job, observedAtUnixMs: Date.now() });
 }
 
 const HOSTED_RECOVERY_ARTIFACT_ATTEMPT_NAME =
@@ -688,16 +770,23 @@ export async function readHostedAttemptRecoveryArtifactNames(input: Readonly<{
  * application compare provider bytes with the original local writer. */
 export async function readVerifiedHostedRecoveryTransport(input: Readonly<{
   ctx: VerificationSessionScope; github: VerificationSessionGitHubClient; repository: string;
+  origin: AuthenticatedGitHubJobOrigin;
   expectedArtifactName: string; runId: string; runAttempt: number;
 }>): Promise<Readonly<{ artifactName: string; recoveryDigest: `sha256:${string}`; preflightDigest: `sha256:${string}` }>> {
+  const origin = assertAuthenticatedGitHubJobOriginCurrent(input.origin);
+  if (input.repository !== origin.repository || input.runId !== origin.runId || input.runAttempt !== origin.runAttempt) {
+    throw new Error('Closeout recovery verification selector differs from its original current job.');
+  }
   const matches = (await input.github.observeActionsArtifactsForRun(input.repository, input.runId))
     .filter(({ artifactName }) => artifactName === input.expectedArtifactName);
   if (matches.length !== 1) {
     throw new Error('Closeout recovery verification requires exactly one provider artifact for the prepared name.');
   }
   const metadata = matches[0]!;
+  assertAuthenticatedGitHubJobOriginCurrent(input.origin);
   const source = (await input.github.downloadArtifactText(input.repository, metadata,
     BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME));
+  assertAuthenticatedGitHubJobOriginCurrent(input.origin);
   const artifact = parseBranchCloseoutRecoveryArtifact(source);
   if (`${encodeVerificationActionData(artifact)}\n` !== source || artifact.repository !== input.repository
       || branchCloseoutRecoveryArtifactName({ prNumber: artifact.pullRequestNumber,
@@ -706,6 +795,7 @@ export async function readVerifiedHostedRecoveryTransport(input: Readonly<{
   }
   const preflightSource = (await input.github.downloadArtifactText(input.repository, metadata,
     HOSTED_INTEGRATION_PREFLIGHT_RESULT_FILE));
+  assertAuthenticatedGitHubJobOriginCurrent(input.origin);
   const preflight = CodexDevelopmentParseMergeGateResult(preflightSource);
   if (preflight.authorization.repository !== input.repository
       || preflight.authorization.prNumber !== artifact.pullRequestNumber
@@ -719,6 +809,12 @@ export async function readVerifiedHostedRecoveryTransport(input: Readonly<{
     'closeout recovery verification producing run attempt readback');
   assertHostedRecoveryArtifactProvenance({ metadata, producingRun, baseSha: preflight.authorization.baseSha,
     runId: input.runId, runAttempt: input.runAttempt });
+  if (preflight.authorization.baseSha !== origin.workflowSha) {
+    throw new Error('Closeout recovery verification source differs from its original current job.');
+  }
+  const steps = readAuthenticatedHostedControlStepFacts({ ctx: input.ctx, origin: input.origin });
+  assertHostedRecoveryArtifactUploadWindow(metadata, steps.uploadWindow);
+  assertAuthenticatedGitHubJobOriginCurrent(input.origin);
   return Object.freeze({ artifactName: input.expectedArtifactName, recoveryDigest: rawSha256(source),
     preflightDigest: rawSha256(preflightSource) });
 }

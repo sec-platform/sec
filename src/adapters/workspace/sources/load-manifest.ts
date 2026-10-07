@@ -6,9 +6,9 @@ import { parseYamlValue } from '../../formats/yaml.ts';
 
 import type { BlockManifest, ManifestEntry, PlanRegistrySource, ResolvedBlock } from '../../../compiler/contract.ts';
 import { assertManifestDefinitionConsistency, validateManifest, validateRegistrySource } from '../../../compiler/contract/manifest-validation.ts';
-import { compareCodeUnits, rawSha256 } from '../../../contracts/canonical.ts';
+import { compareCodeUnits, deepFreeze, rawSha256 } from '../../../contracts/canonical.ts';
 import { CodedFailure } from '../../../contracts/failure.ts';
-import type { RegistryKind, RegistryLocation } from '../../../contracts/registry-source.ts';
+import type { RegistryKind, RegistryLocation, RegistryManifestIdentity } from '../../../contracts/registry-source.ts';
 import { posixPath, resolvePathInside } from "../../../contracts/relative-path.ts";
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../../semantics/identity/block.ts';
 import { pathExists } from "../../filesystem/files.ts";
@@ -204,6 +204,28 @@ export async function resolveManifestResource(
   return { root, path: candidate };
 }
 
+interface ManifestSelection {
+  selected: ManifestEntry;
+  shadowed: RegistryManifestIdentity[];
+}
+
+function selectBySourceOrder(selections: Map<string, ManifestSelection>, entry: ManifestEntry): void {
+  const prior = selections.get(entry.manifest.id);
+  if (prior === undefined) {
+    selections.set(entry.manifest.id, { selected: entry, shadowed: [] });
+    return;
+  }
+  prior.shadowed.push({ version: entry.manifest.version,
+    registrySourceId: entry.registrySourceId, registryKind: entry.registryKind,
+    registryLocation: entry.registryLocation, registryPath: entry.registryPath });
+}
+
+function selectedManifest({ selected, shadowed }: ManifestSelection): ManifestEntry {
+  return shadowed.length === 0 ? selected : {
+    ...selected, registryResolution: { policy: 'source-order', shadowed }
+  };
+}
+
 function loadManifestFromSource(
   blockId: string,
   workspaceRoot: string,
@@ -258,7 +280,8 @@ function loadManifestFromSource(
 }
 
 /** Retained Manifest lookup is synchronous. Observe every eligible configured
- * source before choosing the first; a parse cache cannot hide a conflicting definition. */
+ * source before choosing the first; a parse cache cannot hide a conflicting
+ * definition. Invocation diagnostics never become part of the parse cache. */
 export function loadManifestById(blockId: string, options: ManifestLoadOptions = {}): ManifestEntry {
   const version = options.version;
   assertRequestedManifestLocator(blockId, version);
@@ -269,7 +292,11 @@ export function loadManifestById(blockId: string, options: ManifestLoadOptions =
     if (entry !== null) candidates.push(entry);
   }
   assertManifestDefinitionConsistency(candidates);
-  if (candidates[0] !== undefined) return candidates[0];
+  if (candidates.length > 0) {
+    const selections = new Map<string, ManifestSelection>();
+    for (const entry of candidates) selectBySourceOrder(selections, entry);
+    return deepFreeze(selectedManifest(selections.get(blockId)!));
+  }
 
   throw new CodedFailure(
     'MANIFEST-SCHEMA-004',
@@ -350,10 +377,7 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
   }
 
   assertManifestDefinitionConsistency(manifests);
-  const selectedIds = new Set<string>();
-  return manifests.filter(entry => {
-    if (selectedIds.has(entry.manifest.id)) return false;
-    selectedIds.add(entry.manifest.id);
-    return true;
-  });
+  const selections = new Map<string, ManifestSelection>();
+  for (const entry of manifests) selectBySourceOrder(selections, entry);
+  return [...selections.values()].map(selectedManifest);
 }

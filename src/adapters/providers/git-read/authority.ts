@@ -46,7 +46,7 @@ const GIT_READ_AUTHORITY_PROVIDER_DIGEST = sha256({
 
 type AuthorityGitReadSessionInput = Omit<
   Parameters<typeof createAuthorityGitReadSession>[0],
-  'operation' | 'physicalProvider'
+  'operation'
 > & Readonly<{
   /** A broader caller-owned operation may share its already-frozen process budget. */
   operation?: BoundSemanticOperation;
@@ -143,7 +143,7 @@ export type AuthorityGitReadOperation = Readonly<{
 
 type AuthorityGitReadOperationInput = Omit<
   AuthorityGitReadSessionInput,
-  'budget' | 'deadlineAtUnixMs' | 'operation' | 'processSession'
+  'budget' | 'deadlineAtUnixMs' | 'operation' | 'processSession' | 'physicalProvider'
 > & Readonly<{
   budget: GitReadSessionBudget;
   deadlineAtUnixMs: number;

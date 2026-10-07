@@ -28,7 +28,14 @@ const SOURCE_PROGRAM_RESOURCE_EXTENSION =
 const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
   /^catalog\/registry\/[^/]+\/.+\/files\//iu;
 const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
+// Exact opaque executable bytes consumed by the protected TCB compiler.
+// This is source-census membership, not Python parsing or execution authority.
+const SOURCE_PROGRAM_EXECUTABLE_RESOURCES = new Set([
+  'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+  'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py'
+]);
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
+  ...SOURCE_PROGRAM_EXECUTABLE_RESOURCES,
   ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS,
   '.documentation/documents.json',
   '.documentation/baseline.json',
@@ -58,6 +65,7 @@ export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string):
 }
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
+  if (SOURCE_PROGRAM_EXECUTABLE_RESOURCES.has(repositoryPath)) return 'resource';
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
   if (SOURCE_PROGRAM_TEST_DIRECTORY_PATH.test(repositoryPath)
       || isSecRepositoryTestModulePath(repositoryPath)) return 'test';

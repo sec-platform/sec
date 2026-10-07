@@ -1,7 +1,7 @@
 /** Canonical pure integration contracts. Native schemas,
  * parsers, retained issuers and physical effects remain with their owners. */
 import type { HostedWorkflowCommentProvenance, PreparedBranchCloseoutEnvelope } from './branch-closeout.ts';
-import type { GitHubCandidateObservation, MainHealthLedger, ReviewStabilityReceipt } from './session.ts';
+import type { Digest, GitHubCandidateObservation, MainHealthLedger, ReviewStabilityReceipt } from './session.ts';
 
 export interface MergeGateResult {
   readonly schema: "codex-development-merge-gate-result-v2";
@@ -230,4 +230,46 @@ export interface HostedIntegrationEffectPlan {
   executePhysicalMerge: boolean;
   consumeOriginalAuthorizationPublication: boolean;
   consumeOriginalRecoveryArtifact: boolean;
+}
+
+export interface TrustedArtifactProvenance {
+  observation: HostedArtifactObservation;
+  artifactId: string;
+  artifactName: string;
+  canonicalByteDigest: Digest;
+  downloadTransport: 'github-actions-artifact-api';
+  artifactDigest: Digest;
+  transport: {
+    workflowPath: string;
+    workflowRef: string;
+    workflowSha: string;
+    runId: string;
+    runAttempt: number;
+    actorNodeId: string;
+    actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+  };
+}
+
+export type TrustedIntegrationAuthorizationSource =
+  | Readonly<{ kind: 'actions-artifact'; artifact: TrustedIntegrationAuthorizationArtifact }>
+  | Readonly<{
+      kind: 'github-comment';
+      publication: IntegrationAuthorizationOperationPublication;
+      commentId: number;
+    }>;
+
+export interface TrustedIntegrationAuthorizationArtifact {
+  resultJson: string;
+  artifactId: string;
+  artifactName: string;
+  canonicalByteDigest: Digest;
+  workflowPath: '.github/workflows/merge-gate.yml';
+  workflowRef: string;
+  workflowSha: string;
+  runId: string;
+  runAttempt: number;
+  eventName: 'workflow_run';
+  actorNodeId: string;
+  actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+  downloadTransport: 'github-actions-artifact-api';
 }

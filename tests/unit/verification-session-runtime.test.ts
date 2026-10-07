@@ -37,7 +37,7 @@ import {
 } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
@@ -2682,6 +2682,19 @@ test('VerificationSession preparation never infers a hosted execution environmen
     .toThrow('VerificationSession preparation requires an explicit execution environment.');
 });
 
+test('VerificationSession rejects unknown or altered hosted profiles before preparing identities', () => {
+  for (const executionEnvironment of [
+    { ...CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+      executionEnvironmentRevision: 'unqualified-native-runtime' },
+    { ...CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+      toolchainRevision: 'bun@0.0.0' }
+  ]) {
+    const input = { executionEnvironment } as never;
+    expect(() => prepareTrustedMainVerificationSession(input))
+      .toThrow(/hosted execution environment/);
+  }
+});
+
 test('VerificationSession placement defaults local and rejects implicit hosted selection', async () => {
   expect(verificationSessionExecutionPlacement(undefined)).toBe('local');
   expect(verificationSessionExecutionPlacement('local')).toBe('local');
@@ -3892,6 +3905,73 @@ describe('qualified exact-repository Session consumers', () => {
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs('package.json') }))
     .toThrow(/package\.json drifted from the trusted base/i);
+});
+
+  test('VerificationSession preserves the selected environment through Scope, Action, Session, and hosted reconstruction', async () => {
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const barrier = await observe(transport);
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const candidate = transport.candidate();
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+  const testImpactTransition = changedTransition(changedPaths);
+  const common = {
+    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'environment-preparation', sourceRef: `refs/heads/main@${BASE}`,
+    observedAt: barrier.observedAt, reviewBarrier: barrier,
+    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs()
+  };
+  const environments = [
+    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+    createCiVerificationLocalExecutionEnvironment({ os: 'linux', arch: 'x64', bunVersion: '1.4.0' })
+  ];
+  const preparations = environments.map((executionEnvironment) => {
+    const prepared = prepareTrustedMainVerificationSession({
+      ...common, executionEnvironment,
+      manifestPath: 'config/repository/work-packages/example.md',
+      manifestDigest: `sha256:${'b'.repeat(64)}`, profile: 'quick'
+    });
+    if (prepared.facts === null) throw new Error('expected clear-review preparation facts');
+    expect(prepared.actionPlanClosure.actions.length).toBeGreaterThan(0);
+    for (const { action } of prepared.actionPlanClosure.actions) {
+      expect(action.environment.providerRevision).toBe(executionEnvironment.executionEnvironmentRevision);
+      expect(action.environment.toolchainRevision).toBe(executionEnvironment.toolchainRevision);
+    }
+    expect(prepared.request.expectedSessionRevision).toBe(prepared.sessionRevision);
+    expect(prepared.request.expectedActionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
+    if (executionEnvironment.kind === 'hosted') {
+      const reconstructed = reconstructVerificationSessionHostedFacts({
+        ...common, request: prepared.request
+      });
+      expect(reconstructed.environmentDigest).toBe(prepared.facts.environmentDigest);
+      expect(reconstructed.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
+      expect(() => reconstructVerificationSessionHostedFacts({
+        ...common, request: { ...prepared.request, expectedScopeProposalDigest: `sha256:${'f'.repeat(64)}` }
+      })).toThrow('Scope proposal digest must select exactly one closed hosted environment');
+    } else {
+      expect(() => reconstructVerificationSessionHostedFacts({
+        ...common, request: prepared.request
+      })).toThrow('Scope proposal digest must select exactly one closed hosted environment');
+    }
+    return prepared;
+  });
+  // Changing only the selected environment must invalidate every dependent identity.
+  for (const identities of [
+    preparations.map((value) => value.facts?.environmentDigest),
+    preparations.map((value) => value.scopeAuthorizationRevision),
+    preparations.map((value) => value.actionPlanClosure.actionPlanDigest),
+    preparations.map((value) => value.sessionRevision),
+    preparations.map((value) => value.request.requestOperationId)
+  ]) expect(new Set(identities).size).toBe(environments.length);
+  for (const [index, { action }] of preparations[0]!.actionPlanClosure.actions.entries()) {
+    expect(new Set(preparations.map((value) =>
+      value.actionPlanClosure.actions[index]!.action.actionKey)).size).toBe(environments.length);
+    expect(preparations.every((value) =>
+      value.actionPlanClosure.actions[index]!.action.operation.identity === action.operation.identity)).toBe(true);
+  }
 });
 
   test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {

@@ -12,16 +12,28 @@ import {
   rmSync
 } from 'node:fs';
 import path from 'node:path';
+import { isResourceCompositeSettlementError, settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import type { VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import type { DependencyMaterializationRecovery, HostedActionExecutionTicket, HostedActionResolution, HostedDependencyArchiveProjection, HostedSutInventory, PreparedTrustedBootstrapSutInputs } from "../../../../execution/verification/hosted.ts";
 import {
+  assertGitCandidateCheckoutCurrent, gitCandidateCheckoutRecipeBinding,
+  materializeGitCandidateCheckoutTransport, readGitCandidateCheckout, recordGitCandidateCheckoutCleanupUnknown, runGitCandidateCheckoutRecipe,
+  type GitCandidateCheckout
+} from '../../../providers/git-bundle/runtime.ts';
+import {
   assertSameNoFollowDirectoryIdentity,
+  createExclusiveNoFollowDirectory,
   inspectNoFollowDirectoryChain,
+  retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
   scanNoFollowDirectoryTreeInventory,
   type NoFollowDirectoryTreeInventoryEntry,
-  type PhysicalDirectoryIdentity
+  type PhysicalDirectoryIdentity,
+  type RetainedNoFollowChildProcessDirectory,
+  type RetainedNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { bindProcessResourceCommandIssuer, createProcessResourceCommandIssuer, runBoundProcessResourceCommand, type ProcessResourceCommandBinding, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import { issueRetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../../self-hosting/control/task/contract/work-package.ts';
@@ -31,6 +43,7 @@ import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY
 } from './contract/revision.ts';
 
+import { parseNativeHostedCandidatePreparation, type TrustedBootstrapCandidatePreparation } from './contract/hosted-sut-command-plan.ts';
 import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 
@@ -87,28 +100,30 @@ function retainedHostedActionFileBytes(filePath: string, label: string): Buffer 
     undefined,
     label
   );
+  let bytes: Buffer | undefined;
+  let primary: ResourceSettlementFailure | undefined;
   try {
-    const bytes = Buffer.from(retained.readBytes());
+    bytes = Buffer.from(retained.readBytes());
     retained.assertCurrent();
-    return bytes;
-  } finally {
-    retained.dispose();
-  }
+  } catch (error) { primary = { label: `${label} read`, error }; }
+  settleResources({ primary, cleanup: [{ label: `${label} close`, settle: () => retained.dispose() }] });
+  if (bytes === undefined) throw new Error('Hosted Action retained read produced no bytes.');
+  return bytes;
 }
 
 export function hostedActionFileDigest(filePath: string): VerificationActionKeyDigest {
   const descriptor = openSync(path.resolve(filePath), 'r');
   const hash = createHash('sha256');
   const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let primary: ResourceSettlementFailure | undefined;
   try {
     for (;;) {
       const bytes = readSync(descriptor, buffer, 0, buffer.byteLength, null);
       if (bytes === 0) break;
       hash.update(buffer.subarray(0, bytes));
     }
-  } finally {
-    closeSync(descriptor);
-  }
+  } catch (error) { primary = { label: 'hosted-action-file-digest-read', error }; }
+  settleResources({ primary, cleanup: [{ label: 'hosted-action-file-digest-close', settle: () => closeSync(descriptor) }] });
   return `sha256:${hash.digest('hex')}`;
 }
 
@@ -118,12 +133,18 @@ export type CodexDevelopmentRetainedHostedSutArchive = Readonly<{
   identityDigest: VerificationActionKeyDigest;
 }>;
 
+function hostedActionArchiveMaximumBytes(): number {
+  // Retain the archive owner's framing allowance for bounded PAX/long-name headers.
+  return CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes +
+    HOSTED_ACTION_ARCHIVE_MAX_ENTRIES * 8192;
+}
+
 function retainedHostedSutArchiveObservation(fileDescriptor: number): Readonly<{
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }> {
   const before = fstatSync(fileDescriptor, { bigint: true });
-  if (!before.isFile() || before.size < 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+  if (!before.isFile() || before.size < 0n || before.size > BigInt(hostedActionArchiveMaximumBytes())) {
     throw new Error('Hosted SUT retained archive is not one bounded ordinary file.');
   }
   const hash = createHash('sha256');
@@ -146,7 +167,9 @@ function retainedHostedSutArchiveObservation(fileDescriptor: number): Readonly<{
     device: value.dev.toString(),
     inode: value.ino.toString(),
     mode: value.mode.toString(),
-    size: value.size.toString()
+    size: value.size.toString(),
+    modifiedAtNs: value.mtimeNs.toString(),
+    changedAtNs: value.ctimeNs.toString()
   });
   const beforeIdentity = identity(before);
   const afterIdentity = identity(after);
@@ -163,16 +186,24 @@ export function retainHostedSutArchive(
   filePath: string,
   expectedDigest: VerificationActionKeyDigest
 ): CodexDevelopmentRetainedHostedSutArchive {
-  const noFollow = process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0;
-  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | noFollow);
+  return retainObservedHostedSutArchive(filePath, expectedDigest);
+}
+
+function retainObservedHostedSutArchive(
+  filePath: string,
+  expectedDigest?: VerificationActionKeyDigest
+): CodexDevelopmentRetainedHostedSutArchive {
+  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | (process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0));
   try {
     const observed = retainedHostedSutArchiveObservation(fileDescriptor);
-    if (observed.archiveDigest !== expectedDigest) {
+    if (expectedDigest !== undefined && observed.archiveDigest !== expectedDigest) {
       throw new Error('Hosted SUT retained archive differs from its authenticated digest.');
     }
     return Object.freeze({ fileDescriptor, ...observed });
   } catch (error) {
-    closeSync(fileDescriptor);
+    settleResources({ primary: { label: 'hosted-sut-archive-observation', error }, cleanup: [{
+      label: 'hosted-sut-archive-failed-acquisition-close', settle: () => closeSync(fileDescriptor)
+    }] });
     throw error;
   }
 }
@@ -189,21 +220,28 @@ export function assertRetainedHostedSutArchive(
 }
 
 /** Verify prepared candidate bytes before the durable start tombstone exists. */
-export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Readonly<{
+export async function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Readonly<{
   resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
   candidateRoot: string;
-}>): void {
+  checkout: GitCandidateCheckout;
+}>): Promise<void> {
+  const checkout = input.checkout;
+  assertGitCandidateCheckoutCurrent(checkout);
   const resolution = CodexDevelopmentParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
   const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
+  if (checkout.purpose !== 'action-materialization' || candidateRoot !== checkout.candidateRoot) {
+    throw new Error('Action candidate inspection requires its original private checkout.');
+  }
   const candidateIdentity = inspectNoFollowDirectoryChain(
     candidateRoot, 'Hosted Action prepared candidate root'
   ).target;
-  const gitText = (...args: string[]): string => gitCandidateBytes(candidateRoot, args).toString('utf8').trim();
-  if (gitText('rev-parse', 'HEAD') !== resolution.artifactInput.headSha ||
-      gitText('rev-parse', 'HEAD^{tree}') !== resolution.artifactInput.headTreeSha ||
-      gitText('status', '--porcelain=v1', '--untracked-files=all') !== '') {
+  const gitText = async (...args: string[]): Promise<string> =>
+    (await privateCandidateGitBytes(checkout, candidateRoot, args)).toString('utf8').trim();
+  if ((await gitText('rev-parse', 'HEAD')) !== resolution.artifactInput.headSha ||
+      (await gitText('rev-parse', 'HEAD^{tree}')) !== resolution.artifactInput.headTreeSha ||
+      (await gitText('status', '--porcelain=v1', '--untracked-files=all')) !== '') {
     throw new Error('Hosted Action prepared candidate is not the exact clean resolved head/tree.');
   }
   for (const entry of resolution.actionPlan.action.inputClosure) {
@@ -217,7 +255,7 @@ export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Reado
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
       throw new Error(`Hosted Action input closure escapes the exact candidate root: ${entry.path}.`);
     }
-    const trackedBytes = gitCandidateBytes(candidateRoot, ['show', `${resolution.artifactInput.headSha}:${entry.path}`]);
+    const trackedBytes = await privateCandidateGitBytes(checkout, candidateRoot, ['show', `${resolution.artifactInput.headSha}:${entry.path}`]);
     const candidateBytes = retainedHostedActionFileBytes(
       absolute, `Hosted Action candidate input ${entry.path}`
     );
@@ -235,6 +273,7 @@ export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Reado
     throw new Error('Hosted Action prepared candidate manifest bytes differ from the trusted resolution.');
   }
   assertSameNoFollowDirectoryIdentity(candidateIdentity, 'Hosted Action prepared candidate root');
+  assertGitCandidateCheckoutCurrent(checkout);
 }
 
 
@@ -291,10 +330,15 @@ function hostedActionDependencyClosure(input: Readonly<{
     const baseFile = retainNoFollowOrdinaryFile(
       baseRootChain, relativePath, undefined, `Hosted dependency base authority ${relativePath}`
     );
-    const candidateFile = retainNoFollowOrdinaryFile(
-      candidateRootChain, relativePath, undefined, `Hosted dependency candidate authority ${relativePath}`
-    );
+    let candidateFile: RetainedNoFollowOrdinaryFile | undefined;
+    let observed: Readonly<{ path: string; bytesDigest: string }> | undefined;
+    let primary: ResourceSettlementFailure | undefined;
     try {
+      // Once baseFile is acquired, every later acquisition belongs to this
+      // settlement scope, including a failed candidate acquisition.
+      candidateFile = retainNoFollowOrdinaryFile(
+        candidateRootChain, relativePath, undefined, `Hosted dependency candidate authority ${relativePath}`
+      );
       const baseBytes = Buffer.from(baseFile.readBytes());
       const candidateBytes = Buffer.from(candidateFile.readBytes());
       baseFile.assertCurrent();
@@ -302,17 +346,17 @@ function hostedActionDependencyClosure(input: Readonly<{
       if (!baseBytes.equals(candidateBytes)) {
         throw new Error(`Hosted Action candidate dependency authority drifted from exact base: ${relativePath}.`);
       }
-      return Object.freeze({
+      observed = Object.freeze({
         path: relativePath,
         bytesDigest: `sha256:${createHash('sha256').update(baseBytes).digest('hex')}`
       });
-    } finally {
-      try {
-        candidateFile.dispose();
-      } finally {
-        baseFile.dispose();
-      }
-    }
+    } catch (error) { primary = { label: `hosted-dependency-authority:${relativePath}`, error }; }
+    settleResources({ primary, cleanup: [
+      { label: `hosted-dependency-candidate-close:${relativePath}`, settle: () => candidateFile?.dispose() },
+      { label: `hosted-dependency-base-close:${relativePath}`, settle: () => baseFile.dispose() }
+    ] });
+    if (observed === undefined) throw new Error('Hosted dependency authority observation is unavailable.');
+    return observed;
   });
   assertSameNoFollowDirectoryIdentity(baseRootChain.target, 'Hosted dependency base root');
   assertSameNoFollowDirectoryIdentity(candidateRootChain.target, 'Hosted dependency candidate root');
@@ -342,6 +386,8 @@ type HostedActionArchiveInventoryEntry = Readonly<{
   physicalContentDigest: VerificationActionKeyDigest | null;
   contentDigest: VerificationActionKeyDigest | null;
 }>;
+
+const HOSTED_ACTION_ARCHIVE_COMMANDS = createProcessResourceCommandIssuer();
 
 const HOSTED_ACTION_ARCHIVE_MAX_ENTRIES = 250_000;
 
@@ -606,12 +652,12 @@ const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT = [
   '  os.close(output_fd); os.close(dependency_fd); os.close(candidate_fd)'
 ].join('\n');
 
-export function CodexDevelopmentMaterializeTrustedBootstrapArchive(input: Readonly<{
+function prepareHostedArchiveProjection(input: Readonly<{
   candidateRoot: string;
   expectedCandidateRoot?: PhysicalDirectoryIdentity;
   dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshot;
   outputDirectory: string;
-}>): string {
+}>) {
   if (process.platform !== 'linux') {
     throw new Error('Trusted bootstrap retained archive projection requires the Linux provider.');
   }
@@ -642,58 +688,239 @@ export function CodexDevelopmentMaterializeTrustedBootstrapArchive(input: Readon
   if (existsSync(archivePath)) {
     throw new Error('Trusted bootstrap prepared candidate archive already exists.');
   }
-  runHostedMaterializerCommand('/usr/bin/python3', [
+  const args = Object.freeze([
     '-c', HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT,
     candidate.path, dependency.path, output.path, archiveName,
     candidate.device, candidate.inode, dependency.device, dependency.inode,
     output.device, output.inode,
     String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES),
     String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes)
-  ], 'Trusted bootstrap retained archive projection');
-  assertSameNoFollowDirectoryIdentity(candidate, 'Trusted bootstrap archive candidate root');
-  assertSameNoFollowDirectoryIdentity(dependency, 'Trusted bootstrap archive dependency root');
-  assertSameNoFollowDirectoryIdentity(output, 'Trusted bootstrap archive output root');
-  const archive = lstatSync(archivePath);
-  if (!archive.isFile() || archive.isSymbolicLink() || realpathSync.native(archivePath) !== archivePath) {
-    throw new Error('Trusted bootstrap retained archive projection did not publish one ordinary output.');
-  }
-  return archivePath;
+  ]);
+  return Object.freeze({ cwd: candidateRoot, args, archivePath, readback: (): string => {
+    assertSameNoFollowDirectoryIdentity(candidate, 'Trusted bootstrap archive candidate root');
+    assertSameNoFollowDirectoryIdentity(dependency, 'Trusted bootstrap archive dependency root');
+    assertSameNoFollowDirectoryIdentity(output, 'Trusted bootstrap archive output root');
+    const archive = lstatSync(archivePath);
+    if (!archive.isFile() || archive.isSymbolicLink() || realpathSync.native(archivePath) !== archivePath) {
+      throw new Error('Trusted bootstrap retained archive projection did not publish one ordinary output.');
+    }
+    return archivePath;
+  } });
 }
 
-const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT = [
-  'import hashlib, json, sys, tarfile',
-  'result=[]',
-  'with tarfile.open(sys.argv[1], mode="r:*") as archive:',
-  '  for member in archive.getmembers():',
-  '    kind = "file" if member.isreg() else "directory" if member.isdir() else "symlink" if member.issym() else "hardlink" if member.islnk() else "unsupported"',
-  '    digest = None; physical_digest = None',
-  '    normalized = member.name[2:] if member.name.startswith("./") else member.name',
-  '    if member.isreg() or member.islnk():',
-  '      stream = archive.extractfile(member)',
-  '      hasher = hashlib.sha256(); physical_hasher = hashlib.sha256(); physical_hasher.update(b\'{"bytes":"\')',
-  '      while True:',
-  '        chunk = stream.read(1048576) if stream is not None else b""',
-  '        if not chunk: break',
-  '        hasher.update(chunk); physical_hasher.update(chunk.hex().encode("ascii"))',
-  '      physical_hasher.update(b\'"}\'); physical_digest = "sha256:" + physical_hasher.hexdigest()',
-  '      if member.isreg() and normalized in (".sec-trusted-input/candidate.bundle", ".sec-trusted-input/dependency-closure.json"): digest = "sha256:" + hasher.hexdigest()',
-  '    result.append({"path": member.name, "type": kind, "linkTarget": member.linkname if member.issym() or member.islnk() else None, "size": member.size, "mode": member.mode, "physicalContentDigest": physical_digest, "contentDigest": digest})',
-  'sys.stdout.write(json.dumps(result, ensure_ascii=True, separators=(",", ":"), sort_keys=True))'
+export function CodexDevelopmentMaterializeTrustedBootstrapArchive(input: Readonly<{
+  candidateRoot: string;
+  expectedCandidateRoot?: PhysicalDirectoryIdentity;
+  dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshot;
+  outputDirectory: string;
+}>): string {
+  const plan = prepareHostedArchiveProjection(input);
+  runHostedMaterializerCommand('/usr/bin/python3', plan.args, 'Trusted bootstrap retained archive projection');
+  return plan.readback();
+}
+
+const HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
+/** Five subject reads, two loaded-source reads, four root/clean reads, six Git transport commands and
+ * the two original retained archive recipes. No install/retry is admitted. */
+export const TRUSTED_BOOTSTRAP_PREPARATION_COMMAND_BUDGET = Object.freeze({
+  commands: 19,
+  outputBytes: 18 * (1024 * 1024 + 64 * 1024) + HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES + 64 * 1024
+});
+
+// One source for the production decoded reader and finite in-memory boundary regressions.
+export const HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT = [
+  "class HostedArchiveDecodedBudget:",
+  "  def __init__(self, ceiling, maximum_read_bytes, discard_chunk_bytes):",
+  "    if any(type(value) is not int or value < 1 for value in (ceiling, maximum_read_bytes, discard_chunk_bytes)) or discard_chunk_bytes > maximum_read_bytes:",
+  "      raise RuntimeError(\"archive decoded budget is invalid\")",
+  "    self.remaining = ceiling",
+  "    self.maximum_read_bytes = maximum_read_bytes",
+  "    self.discard_chunk_bytes = discard_chunk_bytes",
+  "  def reserve(self, size):",
+  "    if type(size) is not int or size < 0 or size > self.remaining:",
+  "      raise RuntimeError(\"archive decoded byte bound exceeded\")",
+  "    self.remaining -= size",
+  "class HostedArchiveDecodedReader:",
+  "  def __init__(self, stream, budget):",
+  "    if stream.tell() != 0: raise RuntimeError(\"archive decoded stream is not at its origin\")",
+  "    # Retain headroom for one stdlib BufferedReader lookahead, including a failed format probe.",
+  "    budget.reserve(io.DEFAULT_BUFFER_SIZE)",
+  "    self.stream = stream; self.budget = budget; self.position = 0",
+  "  def tell(self): return self.position",
+  "  def seekable(self): return True",
+  "  def read(self, size=-1):",
+  "    if type(size) is not int or size < 0 or size > self.budget.maximum_read_bytes:",
+  "      raise RuntimeError(\"archive decoded read allocation bound exceeded\")",
+  "    # Reserve before decoding; failures/short reads do not renew the shared budget.",
+  "    self.budget.reserve(size)",
+  "    data = self.stream.read(size)",
+  "    if not isinstance(data, bytes) or len(data) > size: raise RuntimeError(\"archive decoded read exceeded its request\")",
+  "    self.position += len(data)",
+  "    return data",
+  "  def seek(self, offset, whence=0):",
+  "    if type(offset) is not int or whence not in (0, 1): raise RuntimeError(\"archive decoded seek is unsupported\")",
+  "    target = offset if whence == 0 else self.position + offset",
+  "    if target < self.position: raise RuntimeError(\"archive decoded backward seek is unsupported\")",
+  "    if target - self.position > self.budget.remaining: raise RuntimeError(\"archive decoded byte bound exceeded\")",
+  "    # Never delegate seek: decompressor seeks discard bytes outside member-size accounting.",
+  "    while self.position < target:",
+  "      if not self.read(min(self.budget.discard_chunk_bytes, target - self.position)):",
+  "        raise RuntimeError(\"archive decoded stream ended during forward seek\")",
+  "    return self.position",
+  "  def close(self): self.stream.close()"
 ].join('\n');
 
-function inspectHostedActionArchiveMetadata(archive: string, label: string): unknown {
+// TarInfo bounds extended headers before the stdlib allocates their payload.
+const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT = [
+  "import hashlib, io, json, os, resource, stat, sys, tarfile, unicodedata",
+  "max_entries, max_bytes, max_member_bytes, max_output_bytes, max_archive_bytes, max_memory_bytes, max_cpu_seconds = map(int, sys.argv[1:8])",
+  "expected_digest = sys.argv[8]",
+  "def narrow_limit(kind, ceiling):",
+  "  inherited = resource.getrlimit(kind)",
+  "  bound = min([ceiling] + [value for value in inherited if value != resource.RLIM_INFINITY])",
+  "  resource.setrlimit(kind, (bound, bound))",
+  "narrow_limit(resource.RLIMIT_AS, max_memory_bytes)",
+  "narrow_limit(resource.RLIMIT_CPU, max_cpu_seconds)",
+  "if len(sys.argv) not in (9, 10) or (len(sys.argv) == 10 and sys.argv[9] != '5'): raise RuntimeError(\"archive descriptor recipe is invalid\")",
+  "source = os.fdopen(os.dup(3 if len(sys.argv) == 9 else 5), \"rb\")",
+  "identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns)",
+  "before = os.fstat(source.fileno())",
+  "if not stat.S_ISREG(before.st_mode) or before.st_size < 0 or before.st_size > max_archive_bytes: raise RuntimeError(\"archive ordinary-file bound exceeded\")",
+  "def authenticate():",
+  "  source.seek(0); hasher = hashlib.sha256(); observed = 0",
+  "  while observed < before.st_size:",
+  "    chunk = source.read(min(1048576, before.st_size - observed))",
+  "    if not chunk: raise RuntimeError(\"archive ended before retained size\")",
+  "    observed += len(chunk); hasher.update(chunk)",
+  "  if identity(before) != identity(os.fstat(source.fileno())): raise RuntimeError(\"archive identity changed during retained inventory\")",
+  "  if \"sha256:\" + hasher.hexdigest() != expected_digest: raise RuntimeError(\"archive differs from authenticated digest\")",
+  "  source.seek(0)",
+  "authenticate()",
+  HOSTED_ACTION_ARCHIVE_DECODED_READER_SCRIPT,
+  "decoded_budget = HostedArchiveDecodedBudget(max_archive_bytes, max_output_bytes, 1048576)",
+  "class BoundedTarFile(tarfile.TarFile):",
+  "  def __init__(self, name=None, mode=\"r\", fileobj=None, **kwargs):",
+  "    if mode != \"r\" or fileobj is None: raise RuntimeError(\"archive reader requires one retained input\")",
+  "    super().__init__(name, mode, HostedArchiveDecodedReader(fileobj, decoded_budget), **kwargs)",
+  "metadata_bytes = 0",
+  "class BoundedTarInfo(tarfile.TarInfo):",
+  "  def _proc_member(self, archive):",
+  "    global metadata_bytes",
+  "    if self.size < 0: raise RuntimeError(\"archive member size invalid\")",
+  "    if self.type in (tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK):",
+  "      metadata_bytes += self._block(self.size)",
+  "      if metadata_bytes > max_output_bytes: raise RuntimeError(\"archive metadata byte bound exceeded\")",
+  "    elif self.type not in (tarfile.REGTYPE, tarfile.AREGTYPE, tarfile.CONTTYPE, tarfile.DIRTYPE, tarfile.SYMTYPE, tarfile.LNKTYPE):",
+  "      raise RuntimeError(\"archive entry type is forbidden or unsupported\")",
+  "    elif self.size > max_member_bytes: raise RuntimeError(\"archive member byte bound exceeded\")",
+  "    return super()._proc_member(archive)",
+  "  def _proc_gnusparse_00(self, *args): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "  def _proc_gnusparse_01(self, *args): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "  def _proc_gnusparse_10(self, *args): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "def canonical(value, root=False):",
+  "  if \"\\0\" in value or \"\\\\\" in value or value.startswith(\"/\"): raise RuntimeError(\"archive path is unsafe\")",
+  "  while value.startswith(\"./\"): value = value[2:]",
+  "  value = value.rstrip(\"/\")",
+  "  if root and value in (\"\", \".\"): return None",
+  "  if not value or any(part in (\"\", \".\", \"..\") for part in value.split(\"/\")): raise RuntimeError(\"archive path is not canonical\")",
+  "  return value",
+  "def link_target(name, value, hardlink):",
+  "  if \"\\0\" in value or \"\\\\\" in value or value.startswith(\"/\"): raise RuntimeError(\"archive link is unsafe\")",
+  "  parts = [] if hardlink else name.split(\"/\")[:-1]",
+  "  for part in value.split(\"/\"):",
+  "    if part in (\"\", \".\"): continue",
+  "    if part == \"..\":",
+  "      if not parts: raise RuntimeError(\"archive link escapes its root\")",
+  "      parts.pop()",
+  "    else: parts.append(part)",
+  "  if not parts: raise RuntimeError(\"archive link target is empty\")",
+  "  return \"/\".join(parts)",
+  "result = []; by_path = {}; folded_paths = set(); links = {}; total = 0; read_bytes = 0; output_bytes = 2",
+  "with BoundedTarFile.open(fileobj=source, mode=\"r:*\", tarinfo=BoundedTarInfo) as archive:",
+  "  for member in archive:",
+  "    if len(result) >= max_entries: raise RuntimeError(\"archive entry bound exceeded\")",
+  "    if member.size < 0 or member.size > max_member_bytes: raise RuntimeError(\"archive member byte bound exceeded\")",
+  "    if member.issparse(): raise RuntimeError(\"archive sparse format is unsupported\")",
+  "    kind = \"file\" if member.isreg() else \"directory\" if member.isdir() else \"symlink\" if member.issym() else \"hardlink\" if member.islnk() else \"unsupported\"",
+  "    if kind == \"unsupported\" or member.mode < 0 or member.mode > 0o7777 or member.mode & 0o6000: raise RuntimeError(\"archive entry type or mode is forbidden\")",
+  "    if kind != \"file\" and member.size != 0: raise RuntimeError(\"archive non-file has payload bytes\")",
+  "    normalized = canonical(member.name, member.isdir())",
+  "    if normalized is not None:",
+  "      folded = unicodedata.normalize(\"NFC\", normalized).lower()",
+  "      if folded in folded_paths: raise RuntimeError(\"archive duplicate or case-conflicting path\")",
+  "      folded_paths.add(folded)",
+  "    target = link_target(normalized, member.linkname, member.islnk()) if member.issym() or member.islnk() else None",
+  "    total += member.size if member.isreg() else 0",
+  "    if total > max_bytes: raise RuntimeError(\"archive aggregate file byte bound exceeded\")",
+  "    digest = None; physical_digest = None",
+  "    if member.isreg():",
+  "      stream = archive.extractfile(member)",
+  "      if stream is None: raise RuntimeError(\"archive ordinary payload is missing\")",
+  "      hasher = hashlib.sha256(); physical_hasher = hashlib.sha256(); physical_hasher.update(b'{\"bytes\":\"'); observed = 0",
+  "      with stream:",
+  "        while observed < member.size:",
+  "          chunk = stream.read(min(1048576, member.size - observed, max_bytes - read_bytes))",
+  "          if not chunk: raise RuntimeError(\"archive ordinary payload is truncated\")",
+  "          observed += len(chunk); read_bytes += len(chunk)",
+  "          if observed > member.size or read_bytes > max_bytes: raise RuntimeError(\"archive content read bound exceeded\")",
+  "          hasher.update(chunk); physical_hasher.update(chunk.hex().encode(\"ascii\"))",
+  "      physical_hasher.update(b'\"}'); physical_digest = \"sha256:\" + physical_hasher.hexdigest()",
+  "      if normalized in (\".sec-trusted-input/candidate.bundle\", \".sec-trusted-input/dependency-closure.json\"): digest = \"sha256:\" + hasher.hexdigest()",
+  "    entry = {\"path\": member.name, \"type\": kind, \"linkTarget\": member.linkname if target is not None else None, \"size\": member.size, \"mode\": member.mode, \"physicalContentDigest\": physical_digest, \"contentDigest\": digest}",
+  "    # Charge the final hardlink digest before retaining another result, not after json.dumps(result).",
+  "    charged_entry = dict(entry)",
+  "    if member.islnk(): charged_entry[\"physicalContentDigest\"] = \"sha256:\" + \"0\" * 64",
+  "    output_bytes += len(json.dumps(charged_entry, ensure_ascii=True, separators=(\",\", \":\"), sort_keys=True)) + 1",
+  "    if output_bytes > max_output_bytes: raise RuntimeError(\"archive inventory output byte bound exceeded\")",
+  "    result.append(entry)",
+  "    if normalized is not None: by_path[normalized] = entry",
+  "    if target is not None: links[normalized] = target",
+  "# Resolve hardlinks from already hashed ordinary entries, never reread their payloads.",
+  "for name, entry in by_path.items():",
+  "  if entry[\"type\"] != \"hardlink\" or entry[\"physicalContentDigest\"] is not None: continue",
+  "  pending = []; seen = set(); cursor = name",
+  "  while True:",
+  "    if cursor in seen: raise RuntimeError(\"archive hardlink cycle\")",
+  "    seen.add(cursor); target_entry = by_path.get(cursor)",
+  "    if target_entry is None or target_entry[\"type\"] not in (\"file\", \"hardlink\"): raise RuntimeError(\"archive hardlink target is absent or invalid\")",
+  "    if target_entry[\"physicalContentDigest\"] is not None: break",
+  "    pending.append(target_entry); cursor = links[cursor]",
+  "  for linked in pending: linked[\"physicalContentDigest\"] = target_entry[\"physicalContentDigest\"]",
+  "authenticate()",
+  "source.close()",
+  "# iterencode bounds each serialization step; the caller independently caps the pipe.",
+  "for chunk in json.JSONEncoder(ensure_ascii=True, separators=(\",\", \":\"), sort_keys=True).iterencode(result): sys.stdout.write(chunk)"
+].join('\n');
+
+function inspectHostedActionArchiveMetadata(
+  retained: CodexDevelopmentRetainedHostedSutArchive,
+  label: string
+): unknown {
+  assertRetainedHostedSutArchive(retained);
   const inventory = spawnSync(
     '/usr/bin/python3',
-    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT, archive],
+    ['-I', '-B', '-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT,
+      String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes),
+      String(HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES),
+      String(hostedActionArchiveMaximumBytes()),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds),
+      retained.archiveDigest],
     {
       encoding: 'utf8',
       windowsHide: true,
-      maxBuffer: 128 * 1024 * 1024,
+      maxBuffer: HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES,
+      timeout: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000,
+      killSignal: 'SIGKILL',
+      stdio: ['ignore', 'pipe', 'pipe', retained.fileDescriptor],
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }
     }
   );
-  if (inventory.status !== 0 || typeof inventory.stdout !== 'string') {
-    throw new Error(`${label} metadata is unreadable without extraction.`);
+  assertRetainedHostedSutArchive(retained);
+  if (inventory.error !== undefined || inventory.status !== 0 || typeof inventory.stdout !== 'string') {
+    throw new Error(`${label} metadata is unreadable within retained archive bounds: ${String(inventory.stderr).slice(0, 1024)}`);
   }
   return JSON.parse(inventory.stdout) as unknown;
 }
@@ -764,6 +991,10 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
     if (!['directory', 'file', 'hardlink', 'symlink'].includes(value.type)) {
       throw new Error(`Hosted Action archive entry type is forbidden: ${value.type}.`);
     }
+    if (Number(value.size) > CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes ||
+        (value.type !== 'file' && Number(value.size) !== 0)) {
+      throw new Error('Hosted Action archive member bytes exceed the file bound or non-file payload is present.');
+    }
     const entryPath = canonicalHostedArchivePath(value.path, 'entry path', value.type === 'directory');
     if (entryPath === null) continue;
     if ((Number(value.mode) & 0o6000) !== 0) {
@@ -781,9 +1012,6 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
       : null;
     if (linkTarget === null && value.linkTarget !== null) {
       throw new Error(`Hosted Action archive ordinary entry has a link target: ${entryPath}.`);
-    }
-    if (linkTarget !== null && Number(value.size) !== 0) {
-      throw new Error(`Hosted Action archive link has nonzero payload bytes: ${entryPath}.`);
     }
     const trustedContentPath = entryPath === '.sec-trusted-input/candidate.bundle' ||
       entryPath === '.sec-trusted-input/dependency-closure.json';
@@ -817,14 +1045,23 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
     if (entry.type === 'hardlink' && entry.physicalContentDigest !== target.physicalContentDigest) {
       throw new Error(`Hosted Action archive hardlink content differs from its target: ${entry.path}.`);
     }
-    const seen = new Set<string>([entry.path]);
-    let cursor: HostedActionArchiveInventoryEntry | undefined = target;
-    while (cursor?.linkTarget !== null) {
-      if (seen.has(cursor.path)) throw new Error(`Hosted Action archive link cycle is forbidden: ${entry.path}.`);
-      seen.add(cursor.path);
-      cursor = byPath.get(cursor.linkTarget);
-      if (cursor === undefined) throw new Error(`Hosted Action archive link chain is incomplete: ${entry.path}.`);
+  }
+  // Cache only this immutable inventory's node identities. Shared tails are
+  // checked once; path-only or cross-inventory cache entries cannot bless a node.
+  const complete = new Set<HostedActionArchiveInventoryEntry>();
+  for (const entry of entries) {
+    const pending: HostedActionArchiveInventoryEntry[] = [];
+    const seen = new Set<HostedActionArchiveInventoryEntry>();
+    let cursor = entry;
+    while (cursor.linkTarget !== null && !complete.has(cursor)) {
+      if (seen.has(cursor)) throw new Error(`Hosted Action archive link cycle is forbidden: ${entry.path}.`);
+      seen.add(cursor);
+      pending.push(cursor);
+      const target = byPath.get(cursor.linkTarget);
+      if (target === undefined) throw new Error(`Hosted Action archive link chain is incomplete: ${entry.path}.`);
+      cursor = target;
     }
+    for (const node of pending) complete.add(node);
   }
   const totalFileBytes = entries.reduce((total, entry) => total + (entry.type === 'file' ? entry.size : 0), 0);
   if (!Number.isSafeInteger(totalFileBytes) ||
@@ -843,9 +1080,14 @@ export function CodexDevelopmentInspectHostedActionArchiveInventory(
   archive: string,
   label: string = 'Hosted Action archive inventory'
 ): ReturnType<typeof CodexDevelopmentValidateHostedActionArchiveInventory> {
-  return CodexDevelopmentValidateHostedActionArchiveInventory(
-    inspectHostedActionArchiveMetadata(archive, label)
-  );
+  const retained = retainObservedHostedSutArchive(archive);
+  try {
+    return CodexDevelopmentValidateHostedActionArchiveInventory(
+      inspectHostedActionArchiveMetadata(retained, label)
+    );
+  } finally {
+    closeSync(retained.fileDescriptor);
+  }
 }
 
 type HostedActionArchiveInspectionInput = Readonly<{
@@ -869,21 +1111,19 @@ function inspectHostedActionArchiveDetailed(
       !/^sha256:[0-9a-f]{64}$/u.test(input.authenticatedGitClosureDigest)) {
     throw new Error('Hosted Action archive expected Git or dependency closure digest is invalid.');
   }
-  const archive = realpathSync.native(path.resolve(input.preparedCandidateArchive));
-  const archiveStat = lstatSync(archive);
-  const archiveDigest = hostedActionFileDigest(archive);
-  if (!archiveStat.isFile()) {
-    throw new Error('Hosted Action prepared candidate archive is not one ordinary file.');
-  }
+  const archive = path.resolve(input.preparedCandidateArchive);
+  const retained = retainObservedHostedSutArchive(archive);
+  const archiveDigest = retained.archiveDigest;
   let rawInventory: unknown;
-  if (input.inspectArchive !== undefined) {
-    rawInventory = input.inspectArchive(archive);
-  } else {
-    rawInventory = inspectHostedActionArchiveMetadata(
-      archive,
-      'Hosted Action prepared candidate archive'
-    );
-  }
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    rawInventory = input.inspectArchive === undefined
+      ? inspectHostedActionArchiveMetadata(retained, 'Hosted Action prepared candidate archive')
+      : input.inspectArchive(archive);
+    assertRetainedHostedSutArchive(retained);
+  } catch (error) { primary = { label: 'hosted-action-archive-inventory-observation', error }; }
+  settleResources({ primary, cleanup: [{ label: 'hosted-action-archive-inventory-close',
+    settle: () => closeSync(retained.fileDescriptor) }] });
   const validated = CodexDevelopmentValidateHostedActionArchiveInventory(rawInventory);
   for (const required of [
     ...resolution.actionPlan.action.inputClosure.map((entry) => entry.path),
@@ -993,12 +1233,21 @@ export function CodexDevelopmentRunBoundedDependencyMaterialization(
   }
 }
 
-export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
+export async function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
   baseRoot: string;
   candidateRoot: string;
+  checkout: GitCandidateCheckout;
   outputDirectory: string;
-}>): CodexDevelopmentPreparedHostedActionInputs {
+}>): Promise<CodexDevelopmentPreparedHostedActionInputs> {
+  input = Object.freeze({ resolution: input.resolution, baseRoot: input.baseRoot,
+    candidateRoot: input.candidateRoot, outputDirectory: input.outputDirectory, checkout: input.checkout });
+  const checkout = input.checkout;
+  try {
+  assertGitCandidateCheckoutCurrent(checkout);
+  if (checkout.purpose !== 'action-materialization' || input.candidateRoot !== checkout.candidateRoot) {
+    throw new Error('Archive preparation requires its exact original private checkout.');
+  }
   if (process.platform !== 'linux') {
     throw new Error('Hosted Action input preparation requires the pinned ubuntu-24.04 runner.');
   }
@@ -1013,12 +1262,12 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   const candidateRootIdentity = inspectNoFollowDirectoryChain(
     candidateRoot, 'Hosted Action preparation candidate root'
   ).target;
-  const baseHead = gitCandidateBytes(baseRoot, ['rev-parse', 'HEAD']).toString('utf8').trim();
-  const baseTree = gitCandidateBytes(baseRoot, ['rev-parse', 'HEAD^{tree}']).toString('utf8').trim();
+  const baseHead = (await privateCandidateGitBytes(checkout, baseRoot, ['rev-parse', 'HEAD'])).toString('utf8').trim();
+  const baseTree = (await privateCandidateGitBytes(checkout, baseRoot, ['rev-parse', 'HEAD^{tree}'])).toString('utf8').trim();
   if (baseHead !== resolution.artifactInput.baseSha || baseTree !== resolution.artifactInput.baseTreeSha) {
     throw new Error('Hosted Action dependency materializer is not the exact resolved base/tree.');
   }
-  CodexDevelopmentAssertPreparedHostedActionCandidate({ resolution, candidateRoot });
+  await CodexDevelopmentAssertPreparedHostedActionCandidate({ resolution, candidateRoot, checkout });
   const dependencyClosure = hostedActionDependencyClosure({
     baseRoot,
     candidateRoot,
@@ -1042,28 +1291,7 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   writeHostedActionJson(dependencyClosurePath, dependencyClosure);
   const baseDependencyClosureDigest = hostedActionFileDigest(dependencyClosurePath);
   const gitBundlePath = path.resolve(trustedInputDirectory, 'candidate.bundle');
-  for (const revision of [resolution.artifactInput.baseSha, resolution.artifactInput.headSha]) {
-    runHostedMaterializerCommand(
-      '/usr/bin/git', ['-C', candidateRoot, 'cat-file', '-e', `${revision}^{commit}`],
-      `Hosted Action Git object readback ${revision}`
-    );
-  }
-  runHostedMaterializerCommand(
-    '/usr/bin/git', ['-C', candidateRoot, 'update-ref', 'refs/sec/base', resolution.artifactInput.baseSha],
-    'Hosted Action exact base ref materialization'
-  );
-  runHostedMaterializerCommand(
-    '/usr/bin/git', ['-C', candidateRoot, 'update-ref', 'refs/sec/head', resolution.artifactInput.headSha],
-    'Hosted Action exact head ref materialization'
-  );
-  runHostedMaterializerCommand(
-    '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'create', gitBundlePath, 'refs/sec/base', 'refs/sec/head'],
-    'Hosted Action authenticated candidate Git bundle materialization'
-  );
-  runHostedMaterializerCommand(
-    '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'verify', gitBundlePath],
-    'Hosted Action authenticated candidate Git bundle verification'
-  );
+  await materializeGitCandidateCheckoutTransport(checkout);
   const authenticatedGitClosureDigest = hostedActionFileDigest(gitBundlePath);
   const preparedCandidateArchive = path.resolve(outputDirectory, 'prepared-candidate.tar');
   try {
@@ -1078,21 +1306,33 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   // links; copying it into the untrusted candidate adds no independent fact.
   const dependencyRoot = path.resolve(baseRoot, 'node_modules');
   const dependencyPhysicalBefore = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(dependencyRoot);
-  const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchive({
+  const projection = prepareHostedArchiveProjection({
     candidateRoot,
     expectedCandidateRoot: candidateRootIdentity,
     dependencySnapshot: dependencyPhysicalBefore,
     outputDirectory
   });
+  await runHostedActionArchiveRecipe({ checkout }, { kind: 'materialize', plan: projection });
+  const materializedArchive = projection.readback();
   if (materializedArchive !== preparedCandidateArchive) {
     throw new Error('Hosted Action retained archive projection returned the wrong output identity.');
   }
-  const inspectedArchive = inspectHostedActionArchiveDetailed({
-    resolution,
-    preparedCandidateArchive,
-    baseDependencyClosureDigest,
-    authenticatedGitClosureDigest
-  });
+  const retainedArchive = retainObservedHostedSutArchive(preparedCandidateArchive);
+  let inspectedArchive: ReturnType<typeof inspectHostedActionArchiveDetailed> | undefined;
+  let archiveFailure: ResourceSettlementFailure | undefined;
+  try {
+    const bytes = await runHostedActionArchiveRecipe({ checkout }, {
+      kind: 'inventory', archivePath: preparedCandidateArchive, retained: retainedArchive
+    });
+    const rawInventory: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    assertRetainedHostedSutArchive(retainedArchive);
+    inspectedArchive = inspectHostedActionArchiveDetailed({ resolution, preparedCandidateArchive,
+      baseDependencyClosureDigest, authenticatedGitClosureDigest, inspectArchive: () => rawInventory });
+    assertRetainedHostedSutArchive(retainedArchive);
+  } catch (error) { archiveFailure = { label: 'private-archive-inventory', error }; }
+  settleResources({ primary: archiveFailure, cleanup: [{ label: 'private-archive-inventory-file',
+    settle: () => closeSync(retainedArchive.fileDescriptor) }] });
+  if (inspectedArchive === undefined) throw new Error('Private archive inventory did not produce its original result.');
   const archiveInventory = inspectedArchive.inventory;
   const dependencyPhysicalAfter = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(dependencyRoot);
   CodexDevelopmentAssertHostedDependencyArchiveProjection({
@@ -1102,18 +1342,32 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   });
   if (encodeVerificationActionData(hostedActionDependencyClosure({ baseRoot, candidateRoot,
     baseSha: resolution.artifactInput.baseSha })) !== encodeVerificationActionData(dependencyClosure)
-      || gitCandidateBytes(baseRoot, ['rev-parse', 'HEAD']).toString('utf8').trim() !== baseHead
-      || gitCandidateBytes(baseRoot, ['rev-parse', 'HEAD^{tree}']).toString('utf8').trim() !== baseTree) {
+      || (await privateCandidateGitBytes(checkout, baseRoot, ['rev-parse', 'HEAD'])).toString('utf8').trim() !== baseHead
+      || (await privateCandidateGitBytes(checkout, baseRoot, ['rev-parse', 'HEAD^{tree}'])).toString('utf8').trim() !== baseTree) {
     throw new Error('Hosted Action exact base dependency authority changed during archive projection.');
   }
   assertSameNoFollowDirectoryIdentity(baseRootIdentity, 'Hosted Action preparation dependency base root');
   assertSameNoFollowDirectoryIdentity(candidateRootIdentity, 'Hosted Action preparation candidate root');
-  return Object.freeze({
+  const prepared = Object.freeze({
     preparedCandidateArchive,
     archiveInventory,
     baseDependencyClosureDigest,
     authenticatedGitClosureDigest
   });
+  assertGitCandidateCheckoutCurrent(checkout);
+  const observedArchive = observePreparedArchiveIdentity(preparedCandidateArchive);
+  if (observedArchive.archiveDigest !== archiveInventory.archiveDigest
+      || observedArchive.identityDigest !== retainedArchive.identityDigest) {
+    throw new Error('Prepared archive changed after its original native inventory.');
+  }
+  PREPARED_HOSTED_ACTION_INPUTS.set(prepared, {
+    operation: gitCandidateCheckoutRecipeBinding(checkout, HOSTED_ACTION_ARCHIVE_COMMANDS.identity),
+    value: prepared, archive: observedArchive, status: 'prepared'
+  });
+  return prepared;  } catch (error) {
+    if (isResourceCompositeSettlementError(error)) recordGitCandidateCheckoutCleanupUnknown(checkout, error);
+    throw error;
+  }
 }
 
 
@@ -1151,141 +1405,143 @@ export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean(in
   }
 }
 
-export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly<{
-  baseRoot: string;
-  candidateRoot: string;
-  outputDirectory: string;
-  baseSha: string;
-  headSha: string;
-  treeSha: string;
-}>): PreparedTrustedBootstrapSutInputs {
-  if (process.platform !== 'linux' || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
-      !/^[0-9a-f]{40}$/u.test(input.headSha) || !/^[0-9a-f]{40}$/u.test(input.treeSha)) {
+export async function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly<{
+  baseRoot: string; candidateRoot: string; outputDirectory: string;
+  baseSha: string; headSha: string; treeSha: string;
+}>, session: ProcessResourceSession, trustedSourceRoot: string): Promise<PreparedTrustedBootstrapSutInputs> {
+  input = JSON.parse(encodeVerificationActionData(input)) as typeof input;
+  // The supervisor supplies its original retained native session. Neither
+  // path strings nor this finite recipe closure issue an operation or grant.
+  const binding = bindProcessResourceCommandIssuer(session, HOSTED_ACTION_ARCHIVE_COMMANDS.identity);
+  if (process.platform !== 'linux' || ![input.baseSha, input.headSha, input.treeSha].every(value => /^[0-9a-f]{40}$/u.test(value))) {
     throw new Error('Trusted bootstrap SUT input identity is invalid or unsupported on this host.');
   }
   const baseRoot = realpathSync.native(path.resolve(input.baseRoot));
   const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
-  const baseHead = gitCandidateBytes(baseRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
-    .toString('utf8').trim();
-  const candidateHead = gitCandidateBytes(candidateRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
-    .toString('utf8').trim();
-  const candidateTree = gitCandidateBytes(candidateRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])
-    .toString('utf8').trim();
-  const candidateParents = gitCandidateBytes(candidateRoot, ['rev-list', '--parents', '-n', '1', 'HEAD'])
-    .toString('utf8').trim().split(/\s+/u);
-  if (baseHead !== input.baseSha || candidateHead !== input.headSha || candidateTree !== input.treeSha ||
-      candidateParents.length !== 2 || candidateParents[0] !== input.headSha ||
-      candidateParents[1] !== input.baseSha) {
-    throw new Error('Trusted bootstrap SUT checkouts are not the exact base and single-parent candidate.');
+  const baseIdentity = inspectNoFollowDirectoryChain(baseRoot).target;
+  const candidateIdentity = inspectNoFollowDirectoryChain(candidateRoot).target;
+  const trustedSourceIdentity = inspectNoFollowDirectoryChain(trustedSourceRoot).target;
+  const identityForRoot = (root: string) => root === baseRoot ? baseIdentity : root === candidateRoot ? candidateIdentity : trustedSourceIdentity;
+  const git = async (root: string, args: readonly string[]): Promise<Buffer> => {
+    assertSameNoFollowDirectoryIdentity(identityForRoot(root));
+    let executable: RetainedNoFollowOrdinaryFile | undefined;
+    let cwd: RetainedNoFollowChildProcessDirectory | undefined;
+    let issued = false;
+    let primary: ResourceSettlementFailure | undefined;
+    let output: Uint8Array | undefined;
+    try {
+      const gitPath = realpathSync.native('/usr/bin/git');
+      executable = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(gitPath)), path.basename(gitPath), undefined,
+        'Original bootstrap finite Git executable', 3, 'executable');
+      if (executable.size > 64 * 1024 * 1024) throw new Error('Bootstrap Git executable exceeds retained bound.');
+      cwd = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(root), 4, 'Original bootstrap finite Git root');
+      const command = HOSTED_ACTION_ARCHIVE_COMMANDS.issue(binding, {
+        boundary: issueRetainedCommandBoundary({ executable, workingDirectory: cwd }),
+        args: ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.attributesFile=/dev/null',
+          '-c', 'core.logAllRefUpdates=false', ...args],
+        options: { envMode: 'replace', env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C',
+          GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' },
+          maxStdoutBytes: 1024 * 1024, maxStderrBytes: 64 * 1024 }
+      });
+      issued = true;
+      const result = (await runBoundProcessResourceCommand(session, binding, command)).result;
+      if (result.code !== 0) throw new Error(`Original bootstrap finite Git failed: ${result.stderr.slice(0, 1024)}`);
+      output = result.stdout;
+      assertSameNoFollowDirectoryIdentity(identityForRoot(root));
+    } catch (error) { primary = { label: 'bootstrap-finite-git', error }; }
+    settleResources({ primary, cleanup: issued ? [] : [
+      { label: 'bootstrap-unissued-git-cwd', settle: () => cwd?.dispose() },
+      { label: 'bootstrap-unissued-git-executable', settle: () => executable?.dispose() }
+    ] });
+    if (output === undefined) throw new Error('Original bootstrap finite Git has no settled result.');
+    return Buffer.from(output);
+  };
+  const baseHead = (await git(baseRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])).toString('utf8').trim();
+  const baseTreeSha = (await git(baseRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])).toString('utf8').trim();
+  if ((await git(trustedSourceRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])).toString('utf8').trim() !== input.baseSha
+      || (await git(trustedSourceRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])).toString('utf8').trim() !== baseTreeSha) {
+    throw new Error('Bootstrap loaded trusted dependency producer differs from the exact base source.');
   }
-  CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({ baseRoot, candidateRoot });
-  const dependencyClosure = hostedActionDependencyClosure({
-    baseRoot, candidateRoot, baseSha: input.baseSha
-  });
-  const materializerEnvironment = CodexDevelopmentHostedDependencyMaterializerEnvironment();
-  mkdirSync(materializerEnvironment.BUN_INSTALL_CACHE_DIR!, { recursive: true });
-  mkdirSync(materializerEnvironment.HOME!, { recursive: true });
-  mkdirSync(materializerEnvironment.TMPDIR!, { recursive: true });
-  const dependencyMaterialization = CodexDevelopmentRunBoundedDependencyMaterialization(() => {
-    runHostedMaterializerCommand(
-      realpathSync.native(process.execPath),
-      ['install', '--frozen-lockfile', '--ignore-scripts'],
-      'Trusted bootstrap exact-base dependency materialization',
-      { cwd: baseRoot, env: materializerEnvironment }
-    );
-  });
-  const baseNodeModules = path.resolve(baseRoot, 'node_modules');
-  const candidateNodeModules = path.resolve(candidateRoot, 'node_modules');
-  if (!lstatSync(baseNodeModules).isDirectory() || realpathSync.native(baseNodeModules) !== baseNodeModules) {
-    throw new Error('Trusted bootstrap exact-base dependency materialization has no ordinary node_modules.');
+  const candidateHead = (await git(candidateRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])).toString('utf8').trim();
+  const candidateTree = (await git(candidateRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])).toString('utf8').trim();
+  const candidateParents = (await git(candidateRoot, ['rev-list', '--parents', '-n', '1', 'HEAD'])).toString('utf8').trim().split(/\s+/u);
+  if (baseHead !== input.baseSha || candidateHead !== input.headSha || candidateTree !== input.treeSha
+      || candidateParents.length !== 2 || candidateParents[0] !== input.headSha || candidateParents[1] !== input.baseSha) {
+    throw new Error('Trusted bootstrap checkouts are not the exact base and single-parent candidate.');
   }
-  const dependencyPhysicalBefore =
-    CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
-  if (existsSync(candidateNodeModules)) {
-    throw new Error('Trusted bootstrap candidate node_modules already exists.');
+  for (const root of [baseRoot, candidateRoot]) {
+    if (realpathSync.native((await git(root, ['rev-parse', '--show-toplevel'])).toString('utf8').trim()) !== root || baseRoot === candidateRoot) {
+      throw new Error('Trusted bootstrap materialization requires two exact Git roots.');
+    }
+    const relative = path.relative(baseRoot, candidateRoot);
+    const contained = relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    const args = ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching',
+      ...(root === baseRoot && contained ? ['--', '.', `:(top,exclude,literal)${relative.split(path.sep).join('/')}`] : [])];
+    if ((await git(root, args)).length !== 0) throw new Error('Trusted bootstrap materialization requires clean exact checkouts.');
   }
+  const dependencyClosure = hostedActionDependencyClosure({ baseRoot, candidateRoot, baseSha: input.baseSha });
+  if (encodeVerificationActionData(dependencyClosure) !== encodeVerificationActionData(hostedActionDependencyClosure({
+    baseRoot: trustedSourceRoot, candidateRoot: baseRoot, baseSha: input.baseSha
+  }))) throw new Error('Bootstrap loaded dependency authority differs from the actual exact base.');
+  const baseNodeModules = path.resolve(trustedSourceRoot, 'node_modules');
+  if (!lstatSync(baseNodeModules).isDirectory() || realpathSync.native(baseNodeModules) !== baseNodeModules
+      || existsSync(path.resolve(candidateRoot, 'node_modules'))) {
+    throw new Error('Trusted bootstrap requires the actual trusted dependency source and an unmaterialized candidate.');
+  }
+  const dependencyPhysicalBefore = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
   const outputDirectory = path.resolve(input.outputDirectory);
-  mkdirSync(outputDirectory, { recursive: true });
-  if (!lstatSync(outputDirectory).isDirectory() || realpathSync.native(outputDirectory) !== outputDirectory) {
-    throw new Error('Trusted bootstrap transport root is not one ordinary directory.');
-  }
+  if (!lstatSync(outputDirectory).isDirectory() || realpathSync.native(outputDirectory) !== outputDirectory) throw new Error('Bootstrap transport root is not ordinary.');
   const trustedInputDirectory = path.resolve(candidateRoot, '.sec-trusted-input');
-  if (existsSync(trustedInputDirectory)) {
-    throw new Error('Trusted bootstrap candidate collides with the reserved trusted-input directory.');
-  }
-  mkdirSync(trustedInputDirectory, { recursive: false });
-  const dependencyClosurePath = path.resolve(trustedInputDirectory, 'dependency-closure.json');
-  const gitBundlePath = path.resolve(trustedInputDirectory, 'candidate.bundle');
-  const preparedCandidateArchive = path.resolve(outputDirectory, 'prepared-candidate.tar');
+  if (existsSync(trustedInputDirectory)) throw new Error('Bootstrap candidate collides with its reserved trusted input.');
+  const trustedInputIdentity = createExclusiveNoFollowDirectory(candidateIdentity, '.sec-trusted-input');
+  let primary: ResourceSettlementFailure | undefined;
+  let prepared: PreparedTrustedBootstrapSutInputs | undefined;
   try {
+    const dependencyClosurePath = path.join(trustedInputDirectory, 'dependency-closure.json');
+    const gitBundlePath = path.join(trustedInputDirectory, 'candidate.bundle');
     writeHostedActionJson(dependencyClosurePath, dependencyClosure);
-    for (const revision of [input.baseSha, input.headSha]) {
-      runHostedMaterializerCommand(
-        '/usr/bin/git', ['-C', candidateRoot, 'cat-file', '-e', `${revision}^{commit}`],
-        `Trusted bootstrap Git object readback ${revision}`
-      );
-    }
-    runHostedMaterializerCommand(
-      '/usr/bin/git', ['-C', candidateRoot, 'update-ref', 'refs/sec/base', input.baseSha],
-      'Trusted bootstrap exact base ref materialization'
-    );
-    runHostedMaterializerCommand(
-      '/usr/bin/git', ['-C', candidateRoot, 'update-ref', 'refs/sec/head', input.headSha],
-      'Trusted bootstrap exact head ref materialization'
-    );
-    runHostedMaterializerCommand(
-      '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'create', gitBundlePath, 'refs/sec/base', 'refs/sec/head'],
-      'Trusted bootstrap authenticated candidate Git bundle materialization'
-    );
-    runHostedMaterializerCommand(
-      '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'verify', gitBundlePath],
-      'Trusted bootstrap authenticated candidate Git bundle verification'
-    );
-    const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchive({
-      candidateRoot,
-      dependencySnapshot: dependencyPhysicalBefore,
-      outputDirectory
-    });
-    if (materializedArchive !== preparedCandidateArchive) {
-      throw new Error('Trusted bootstrap retained archive projection returned the wrong output identity.');
-    }
-    const validated = CodexDevelopmentInspectHostedActionArchiveInventory(
-      preparedCandidateArchive,
-      'Trusted bootstrap prepared candidate archive inventory'
-    );
-    const bundleEntry = validated.entries.find(
-      (entry) => entry.path === '.sec-trusted-input/candidate.bundle'
-    );
-    const dependencyEntry = validated.entries.find(
-      (entry) => entry.path === '.sec-trusted-input/dependency-closure.json'
-    );
-    const authenticatedGitClosureDigest = hostedActionFileDigest(gitBundlePath);
+    for (const revision of [input.baseSha, input.headSha]) await git(candidateRoot, ['cat-file', '-e', `${revision}^{commit}`]);
+    await git(candidateRoot, ['update-ref', 'refs/sec/base', input.baseSha]);
+    await git(candidateRoot, ['update-ref', 'refs/sec/head', input.headSha]);
+    await git(candidateRoot, ['bundle', 'create', gitBundlePath, 'refs/sec/base', 'refs/sec/head']);
+    await git(candidateRoot, ['bundle', 'verify', gitBundlePath]);
+    const projection = prepareHostedArchiveProjection({ candidateRoot, expectedCandidateRoot: candidateIdentity,
+      dependencySnapshot: dependencyPhysicalBefore, outputDirectory });
+    await runHostedActionArchiveRecipe({ session }, { kind: 'materialize', plan: projection });
+    const preparedCandidateArchive = projection.readback();
+    const retained = retainObservedHostedSutArchive(preparedCandidateArchive);
+    let inventoryFailure: ResourceSettlementFailure | undefined;
+    let validated: ReturnType<typeof CodexDevelopmentValidateHostedActionArchiveInventory> | undefined;
+    try {
+      const bytes = await runHostedActionArchiveRecipe({ session }, { kind: 'inventory', archivePath: preparedCandidateArchive, retained });
+      validated = CodexDevelopmentValidateHostedActionArchiveInventory(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+      assertRetainedHostedSutArchive(retained);
+    } catch (error) { inventoryFailure = { label: 'bootstrap-retained-inventory', error }; }
+    settleResources({ primary: inventoryFailure, cleanup: [{ label: 'bootstrap-retained-inventory-close', settle: () => closeSync(retained.fileDescriptor) }] });
+    if (validated === undefined) throw new Error('Bootstrap retained inventory is missing.');
     const dependencyClosureDigest = hostedActionFileDigest(dependencyClosurePath);
-    if (bundleEntry?.type !== 'file' || bundleEntry.contentDigest !== authenticatedGitClosureDigest ||
-        dependencyEntry?.type !== 'file' || dependencyEntry.contentDigest !== dependencyClosureDigest) {
-      throw new Error('Trusted bootstrap archive lost its authenticated Git or dependency closure.');
+    const authenticatedGitClosureDigest = hostedActionFileDigest(gitBundlePath);
+    for (const [name, digest] of [['dependency-closure.json', dependencyClosureDigest], ['candidate.bundle', authenticatedGitClosureDigest]]) {
+      const entry = validated.entries.find(entry => entry.path === `.sec-trusted-input/${name}`);
+      if (entry?.type !== 'file' || entry.contentDigest !== digest) throw new Error('Bootstrap archive lost exact authenticated inputs.');
     }
-    const dependencyPhysicalAfter =
-      CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
-    const dependencyArchiveProjection = CodexDevelopmentAssertHostedDependencyArchiveProjection({
-      before: dependencyPhysicalBefore,
-      after: dependencyPhysicalAfter,
-      archiveEntries: validated.entries
-    });
-    return Object.freeze({
-      preparedCandidateArchive,
-      archiveDigest: hostedActionFileDigest(preparedCandidateArchive),
-      archiveInventoryDigest: validated.inventoryDigest,
-      dependencyClosureDigest,
-      authenticatedGitClosureDigest,
-      entryCount: validated.entries.length,
-      totalFileBytes: validated.totalFileBytes,
-      dependencyMaterialization,
-      dependencyArchiveProjection
-    });
-  } finally {
-    rmSync(trustedInputDirectory, { recursive: true, force: true });
-  }
+    const dependencyArchiveProjection = CodexDevelopmentAssertHostedDependencyArchiveProjection({ before: dependencyPhysicalBefore,
+      after: CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(baseNodeModules), archiveEntries: validated.entries });
+    assertSameNoFollowDirectoryIdentity(trustedSourceIdentity);
+    assertSameNoFollowDirectoryIdentity(baseIdentity); assertSameNoFollowDirectoryIdentity(candidateIdentity);
+    prepared = Object.freeze({ preparedCandidateArchive, archiveDigest: hostedActionFileDigest(preparedCandidateArchive),
+      archiveInventoryDigest: validated.inventoryDigest, dependencyClosureDigest, authenticatedGitClosureDigest,
+      entryCount: validated.entries.length, totalFileBytes: validated.totalFileBytes, dependencyArchiveProjection });
+    TRUSTED_BOOTSTRAP_PREPARATIONS.set(prepared, { baseSha: input.baseSha, baseTreeSha, headSha: input.headSha,
+      headTreeSha: input.treeSha, session, binding, archive: observePreparedArchiveIdentity(preparedCandidateArchive), status: 'prepared' });
+  } catch (error) { primary = { label: 'bootstrap-original-preparation', error }; }
+  settleResources({ primary, cleanup: [{ label: 'bootstrap-owned-trusted-input-retirement', settle: () => {
+    assertSameNoFollowDirectoryIdentity(candidateIdentity); assertSameNoFollowDirectoryIdentity(trustedInputIdentity);
+    rmSync(trustedInputDirectory, { recursive: true, force: false });
+    if (existsSync(trustedInputDirectory)) throw new Error('Bootstrap owned trusted input retirement was not observed.');
+  } }] });
+  if (prepared === undefined) throw new Error('Bootstrap original preparation did not produce its physical output.');
+  return prepared;
 }
 
 export function CodexDevelopmentMaterializeHostedActionCandidate(input: Readonly<{
@@ -1319,4 +1575,169 @@ export function CodexDevelopmentMaterializeHostedActionCandidate(input: Readonly
     throw new Error('Hosted Action prepared candidate exact inventory differs from the execution ticket.');
   }
   return inspected;
+}
+
+/** The identity is public to trusted composition; its issue closure stays private. */
+export function createHostedActionArchiveRecipeIssuer() {
+  return HOSTED_ACTION_ARCHIVE_COMMANDS.identity;
+}
+
+async function privateCandidateGitBytes(checkout: GitCandidateCheckout, root: string, args: readonly string[]): Promise<Buffer> {
+  const result = await readGitCandidateCheckout(checkout, root, args);
+  if (result.code !== 0) throw new Error(`Private Action Git observation failed: ${result.stderr.slice(0, 512)}`);
+  return Buffer.from(result.stdout);
+}
+
+async function runHostedActionArchiveRecipe(owner: Readonly<{ checkout: GitCandidateCheckout }> | Readonly<{ session: ProcessResourceSession }>, recipe:
+  Readonly<{ kind: 'materialize'; plan: ReturnType<typeof prepareHostedArchiveProjection> }>
+  | Readonly<{ kind: 'inventory'; archivePath: string; retained: CodexDevelopmentRetainedHostedSutArchive }>): Promise<Uint8Array> {
+  if ('checkout' in owner) assertGitCandidateCheckoutCurrent(owner.checkout);
+  const binding = 'checkout' in owner
+    ? gitCandidateCheckoutRecipeBinding(owner.checkout, HOSTED_ACTION_ARCHIVE_COMMANDS.identity)
+    : bindProcessResourceCommandIssuer(owner.session, HOSTED_ACTION_ARCHIVE_COMMANDS.identity);
+  let executable: RetainedNoFollowOrdinaryFile | undefined;
+  let cwd: RetainedNoFollowChildProcessDirectory | undefined;
+  let archive: RetainedNoFollowOrdinaryFile | undefined;
+  let issued = false;
+  let output: Uint8Array | undefined;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    const python = realpathSync.native('/usr/bin/python3');
+    executable = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(python)),
+      path.basename(python), undefined, 'Original archive Python executable', 3, 'executable');
+    if (executable.size > 64 * 1024 * 1024) throw new Error('Archive executable exceeds its retained byte bound.');
+    const directory = recipe.kind === 'materialize' ? recipe.plan.cwd : path.dirname(recipe.archivePath);
+    cwd = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(directory), 4, 'Original archive recipe cwd');
+    let args: readonly string[];
+    if (recipe.kind === 'materialize') {
+      args = ['-I', '-B', ...recipe.plan.args];
+    } else {
+      assertRetainedHostedSutArchive(recipe.retained);
+      const before = fstatSync(recipe.retained.fileDescriptor, { bigint: true });
+      archive = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(recipe.archivePath)),
+        path.basename(recipe.archivePath), { device: String(before.dev), inode: String(before.ino) }, 'Original archive recipe input', 5);
+      args = ['-I', '-B', '-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT,
+        String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES), String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes),
+        String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes), String(HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES),
+        String(hostedActionArchiveMaximumBytes()), String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes),
+        String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds), recipe.retained.archiveDigest, '5'];
+    }
+    const command = HOSTED_ACTION_ARCHIVE_COMMANDS.issue(binding, {
+      boundary: issueRetainedCommandBoundary({ executable, workingDirectory: cwd,
+        auxiliaryInputs: archive === undefined ? [] : [{ capability: archive, kind: 'ordinary-file' }] }),
+      args, options: { envMode: 'replace', env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
+        maxStdoutBytes: recipe.kind === 'inventory' ? HOSTED_ACTION_ARCHIVE_INVENTORY_MAX_OUTPUT_BYTES : 1024 * 1024,
+        maxStderrBytes: 64 * 1024 }
+    });
+    issued = true;
+    const result = 'checkout' in owner ? await runGitCandidateCheckoutRecipe(owner.checkout, command)
+      : (await runBoundProcessResourceCommand(owner.session, binding, command)).result;
+    if ('checkout' in owner) assertGitCandidateCheckoutCurrent(owner.checkout);
+    if (result.code !== 0) throw new Error(`Original archive ${recipe.kind} failed: ${result.stderr.slice(0, 1024)}`);
+    output = result.stdout;
+  } catch (error) { primary = { label: 'private-archive-recipe', error }; }
+  try {
+    settleResources({ primary, cleanup: issued ? [] : [
+      { label: 'private-archive-unissued-input', settle: () => archive?.dispose() },
+      { label: 'private-archive-unissued-cwd', settle: () => cwd?.dispose() },
+      { label: 'private-archive-unissued-executable', settle: () => executable?.dispose() }
+    ] });
+  } catch (error) {
+    if ('checkout' in owner && isResourceCompositeSettlementError(error)) recordGitCandidateCheckoutCleanupUnknown(owner.checkout, error);
+    throw error;
+  }
+  if (output === undefined) throw new Error('Original archive recipe did not produce settled output.');
+  return output;
+}
+
+type PreparedArchiveIdentity = Readonly<{
+  parent: PhysicalDirectoryIdentity;
+  physical: Readonly<{ device: string; inode: string }>;
+  archiveDigest: VerificationActionKeyDigest;
+  identityDigest: VerificationActionKeyDigest;
+}>;
+
+const TRUSTED_BOOTSTRAP_PREPARATIONS = new WeakMap<object, {
+  baseSha: string; baseTreeSha: string; headSha: string; headTreeSha: string;
+  session: ProcessResourceSession; binding: ProcessResourceCommandBinding; archive: PreparedArchiveIdentity;
+  status: 'prepared' | 'consumed';
+}>();
+
+/** Reads the original producer's retained publication. This wire correlation
+ * grants no Action authorization, compiler generation or process session. */
+export function trustedBootstrapCandidatePreparation(prepared: PreparedTrustedBootstrapSutInputs,
+  session: ProcessResourceSession, bootstrapDigest: VerificationActionKeyDigest): TrustedBootstrapCandidatePreparation {
+  const state = TRUSTED_BOOTSTRAP_PREPARATIONS.get(prepared);
+  if (state === undefined || state.session !== session || state.status !== 'prepared'
+      || bindProcessResourceCommandIssuer(session, HOSTED_ACTION_ARCHIVE_COMMANDS.identity) !== state.binding) {
+    throw new Error('Bootstrap preparation requires the original supervisor and physical producer.');
+  }
+  observePreparedArchiveIdentity(prepared.preparedCandidateArchive, state.archive);
+  const projection = parseNativeHostedCandidatePreparation({ schema: 'sec-trusted-bootstrap-candidate-preparation', bootstrapDigest,
+    baseSha: state.baseSha, baseTreeSha: state.baseTreeSha, headSha: state.headSha, headTreeSha: state.headTreeSha,
+    archiveDigest: prepared.archiveDigest, inventoryDigest: prepared.archiveInventoryDigest,
+    dependencyClosureDigest: prepared.dependencyClosureDigest, gitBundleDigest: prepared.authenticatedGitClosureDigest,
+    deadlineAtUnixMs: session.deadlineAtUnixMs, inputAccess: 'writable' }) as TrustedBootstrapCandidatePreparation;
+  state.status = 'consumed';
+  return projection;
+}
+
+type PreparedHostedActionState = {
+  readonly operation: ProcessResourceCommandBinding;
+  readonly value: CodexDevelopmentPreparedHostedActionInputs;
+  readonly archive: PreparedArchiveIdentity;
+  status: 'prepared' | 'consumed' | 'failed';
+  failure?: unknown;
+};
+const PREPARED_HOSTED_ACTION_INPUTS = new WeakMap<object, PreparedHostedActionState>();
+
+function observePreparedArchiveIdentity(file: string, expected?: PreparedArchiveIdentity): PreparedArchiveIdentity {
+  const absolute = path.resolve(file);
+  const parent = expected === undefined
+    ? inspectNoFollowDirectoryChain(path.dirname(absolute), 'Prepared archive publication parent')
+    : assertSameNoFollowDirectoryIdentity(expected.parent, 'Prepared archive original publication parent');
+  if (parent.target.path !== path.dirname(absolute)) throw new Error('Prepared archive escaped its original output parent.');
+  const retained = retainNoFollowOrdinaryFile(parent, path.basename(absolute), expected?.physical,
+    'Prepared archive original physical generation');
+  let value: PreparedArchiveIdentity | undefined;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    if (retained.stdioSourceDescriptor === null) throw new Error('Prepared archive requires its original Linux descriptor route.');
+    const observation = retainedHostedSutArchiveObservation(retained.stdioSourceDescriptor);
+    retained.assertCurrent();
+    assertSameNoFollowDirectoryIdentity(parent.target);
+    if (expected !== undefined && (observation.archiveDigest !== expected.archiveDigest
+        || observation.identityDigest !== expected.identityDigest)) {
+      throw new Error('Prepared archive bytes or physical generation changed.');
+    }
+    value = Object.freeze({ parent: parent.target, physical: retained.physical, ...observation });
+  } catch (error) { primary = { label: 'prepared-archive-readback', error }; }
+  settleResources({ primary, cleanup: [{ label: 'prepared-archive-readback-file', settle: () => retained.dispose() }] });
+  return value!;
+}
+
+function originalPreparedAction(value: unknown, operation: ProcessResourceCommandBinding): PreparedHostedActionState {
+  const state = value !== null && typeof value === 'object' ? PREPARED_HOSTED_ACTION_INPUTS.get(value) : undefined;
+  if (state === undefined || state.value !== value || state.operation !== operation) {
+    throw new Error('Prepared archive requires its original materializer object and process operation.');
+  }
+  if (state.status === 'failed') throw state.failure;
+  return state;
+}
+
+/** One issuance consumption. Object copies, another operation and replay fail. */
+export function consumePreparedHostedActionArchive(value: unknown, operation: ProcessResourceCommandBinding): HostedSutInventory {
+  const state = originalPreparedAction(value, operation);
+  if (state.status !== 'prepared') throw new Error('Prepared archive inventory was already consumed.');
+  assertPreparedHostedActionArchiveCurrent(value, operation);
+  state.status = 'consumed';
+  return state.value.archiveInventory;
+}
+
+/** Same immutable output evidence after scope exit, with new physical/byte
+ * readback but no second decoder process or renewed process authority. */
+export function assertPreparedHostedActionArchiveCurrent(value: unknown, operation: ProcessResourceCommandBinding): void {
+  const state = originalPreparedAction(value, operation);
+  try { observePreparedArchiveIdentity(state.value.preparedCandidateArchive, state.archive); }
+  catch (error) { state.status = 'failed'; state.failure = error; throw error; }
 }

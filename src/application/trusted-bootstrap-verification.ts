@@ -4,7 +4,7 @@ import {
   assertTrustedBootstrapExactKeys, assertTrustedBootstrapPreReceipt,
   assertTrustedBootstrapStableReceipt, assertTrustedBootstrapSutEvidenceDigestInventory,
   deriveTrustedBootstrapAuthority, evaluateTrustedBootstrapSutEvidence,
-  prepareTrustedBootstrapCheckerReceipt,
+  parseTrustedBootstrapReceiptBytes, prepareTrustedBootstrapCheckerReceipt,
   TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES,
   trustedBootstrapDigest,
   trustedBootstrapJsonDigest
@@ -50,7 +50,7 @@ export type TrustedBootstrapVerificationPorts<Snapshot, Registry, Plan, Action e
   assertExactIdentity(): void;
 }>;
 
-const parseJson = (bytes: Uint8Array): unknown => JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+const parseJson = parseTrustedBootstrapReceiptBytes;
 
 async function inspectSut<Snapshot, Registry, Plan, Action extends ClosureAction>(
   identity: TrustedBootstrapIdentity,

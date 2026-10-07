@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
@@ -10,6 +11,9 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { assertGitCandidateCheckoutCurrent, readGitCandidateCheckout, type GitCandidateCheckout } from '../../../providers/git-bundle/runtime.ts';
+import { GIT_READ_LOCAL_HELPER_SUPPRESSION } from '../../../providers/git-read/runtime/read-command.ts';
+import { canonicalGitChildEnvironment } from '../../../providers/git/environment.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
 import { selectOperationAuthoritySourceRevision } from './skill.ts';
@@ -91,6 +95,8 @@ const CONTROL_PATHS = Object.freeze({
   pointer: 'config/repository/active-work-package.md',
   rollingPlan: 'config/repository/rolling-plan.md'
 });
+const activationGitScope = new AsyncLocalStorage<GitCandidateCheckout | undefined>();
+
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 
@@ -187,20 +193,27 @@ function assertWindowsControlCliCommandAdmission(
   }));
 }
 
-function command(
+async function command(
   executable: string,
   args: readonly string[],
   cwd: string,
   input?: Uint8Array
-): CommandResult {
+): Promise<CommandResult> {
   assertWindowsControlCliCommandAdmission(executable, args, cwd);
-  const result = spawnSync(executable, [...args], {
+  const gitCommand = controlCliCommandId(executable) === 'git';
+  const checkout = activationGitScope.getStore();
+  if (gitCommand && checkout !== undefined) {
+    if (input !== undefined) throw new Error('Activation Git observations cannot supply process input.');
+    const result = await readGitCandidateCheckout(checkout, cwd, args);
+    return Object.freeze({ status: result.code, stdout: Buffer.from(result.stdout), stderr: Buffer.from(result.stderr) });
+  }
+  const result = spawnSync(executable, gitCommand ? [...GIT_READ_LOCAL_HELPER_SUPPRESSION, ...args] : [...args], {
     cwd,
     input,
     windowsHide: true,
     timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: COMMAND_MAX_BUFFER,
-    env: {
+    env: gitCommand ? canonicalGitChildEnvironment() : {
       ...process.env,
       GH_PROMPT_DISABLED: '1',
       GIT_OPTIONAL_LOCKS: '0',
@@ -216,14 +229,14 @@ function command(
   });
 }
 
-function requireCommand(
+async function requireCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
   reasonCode: AgentOperationActivationReasonCode,
   input?: Uint8Array
-): Buffer {
-  const result = command(executable, args, cwd, input);
+): Promise<Buffer> {
+  const result = (await command(executable, args, cwd, input));
   if (result.status !== 0) unavailable(reasonCode, Buffer.concat([result.stdout, result.stderr]));
   return result.stdout;
 }
@@ -236,14 +249,14 @@ function decodeUtf8(value: Uint8Array, reasonCode: AgentOperationActivationReaso
   }
 }
 
-function textCommand(
+async function textCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
   reasonCode: AgentOperationActivationReasonCode,
   input?: Uint8Array
-): string {
-  return decodeUtf8(requireCommand(executable, args, cwd, reasonCode, input), reasonCode).trim();
+): Promise<string> {
+  return decodeUtf8((await requireCommand(executable, args, cwd, reasonCode, input)), reasonCode).trim();
 }
 
 function parseJson(source: string, reasonCode: AgentOperationActivationReasonCode): unknown {
@@ -284,88 +297,88 @@ function samePhysicalPath(left: string, right: string): boolean {
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
-function repositoryRoot(value: string): string {
+async function repositoryRoot(value: string): Promise<string> {
   const root = physicalPath(value);
-  const observed = physicalPath(textCommand(
+  const observed = physicalPath((await textCommand(
     'git', ['rev-parse', '--show-toplevel'], root, 'activation-stale'
-  ));
+  )));
   if (!samePhysicalPath(root, observed)) unavailable('activation-stale', observed);
   return root;
 }
 
-function commonGitDirectory(root: string): string {
-  const observed = textCommand('git', ['rev-parse', '--git-common-dir'], root, 'activation-stale');
+async function commonGitDirectory(root: string): Promise<string> {
+  const observed = (await textCommand('git', ['rev-parse', '--git-common-dir'], root, 'activation-stale'));
   return physicalPath(path.isAbsolute(observed) ? observed : path.resolve(root, observed));
 }
 
-function assertSameRepository(runtimeRoot: string, candidateRoot: string): void {
-  if (!samePhysicalPath(commonGitDirectory(runtimeRoot), commonGitDirectory(candidateRoot))) {
+async function assertSameRepository(runtimeRoot: string, candidateRoot: string): Promise<void> {
+  if (!samePhysicalPath((await commonGitDirectory(runtimeRoot)), (await commonGitDirectory(candidateRoot)))) {
     unavailable('activation-stale', 'candidate-repository-mismatch');
   }
 }
 
-function gitHead(root: string): string {
-  return gitSha(textCommand('git', ['rev-parse', 'HEAD'], root, 'activation-stale'), 'activation-stale');
+async function gitHead(root: string): Promise<string> {
+  return gitSha((await textCommand('git', ['rev-parse', 'HEAD'], root, 'activation-stale')), 'activation-stale');
 }
 
-function gitTree(root: string, revision: string): string {
+async function gitTree(root: string, revision: string): Promise<string> {
   return gitSha(
-    textCommand('git', ['rev-parse', `${revision}^{tree}`], root, 'activation-stale'),
+    (await textCommand('git', ['rev-parse', `${revision}^{tree}`], root, 'activation-stale')),
     'activation-stale'
   );
 }
 
-function gitBranch(root: string): string {
-  const branch = textCommand('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'activation-stale');
+async function gitBranch(root: string): Promise<string> {
+  const branch = (await textCommand('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'activation-stale'));
   if (!branch.startsWith('codex/')) unavailable('activation-stale', branch);
   return branch;
 }
 
-function readGitBlob(root: string, expression: string): Readonly<{ oid: string; bytes: Buffer }> {
+async function readGitBlob(root: string, expression: string): Promise<Readonly<{ oid: string; bytes: Buffer }>> {
   const oid = gitSha(
-    textCommand('git', ['rev-parse', '--verify', expression], root, 'activation-stale'),
+    (await textCommand('git', ['rev-parse', '--verify', expression], root, 'activation-stale')),
     'activation-stale'
   );
-  if (textCommand('git', ['cat-file', '-t', oid], root, 'activation-stale') !== 'blob') {
+  if ((await textCommand('git', ['cat-file', '-t', oid], root, 'activation-stale')) !== 'blob') {
     unavailable('activation-stale', expression);
   }
   return Object.freeze({
     oid,
-    bytes: requireCommand('git', ['cat-file', 'blob', oid], root, 'activation-stale')
+    bytes: (await requireCommand('git', ['cat-file', 'blob', oid], root, 'activation-stale'))
   });
 }
 
-function gitObjectExists(root: string, expression: string): boolean {
-  const result = command('git', ['rev-parse', '--verify', '--quiet', expression], root);
+async function gitObjectExists(root: string, expression: string): Promise<boolean> {
+  const result = (await command('git', ['rev-parse', '--verify', '--quiet', expression], root));
   if (result.status === 0) return true;
   if (result.status === 1) return false;
   unavailable('activation-stale', result.stderr);
 }
 
-function isGitAncestor(root: string, ancestor: string, descendant: string): boolean {
-  const result = command('git', ['merge-base', '--is-ancestor', ancestor, descendant], root);
+async function isGitAncestor(root: string, ancestor: string, descendant: string): Promise<boolean> {
+  const result = (await command('git', ['merge-base', '--is-ancestor', ancestor, descendant], root));
   if (result.status === 0) return true;
   if (result.status === 1) return false;
   unavailable('activation-stale', result.stderr);
 }
 
-function assertCleanExactRoot(root: string, head: string): void {
-  if (gitHead(root) !== head) unavailable('activation-stale', 'head-drift');
-  const status = requireCommand(
+async function assertCleanExactRoot(root: string, head: string): Promise<void> {
+  if ((await gitHead(root)) !== head) unavailable('activation-stale', 'head-drift');
+  const status = (await requireCommand(
     'git', ['status', '--porcelain=v2', '-z', '--untracked-files=all'], root, 'activation-stale'
-  );
+  ));
   if (status.length !== 0) unavailable('activation-stale', status);
 }
 
-function changedRecordsBetween(
+async function changedRecordsBetween(
   root: string,
   baseRevision: string,
   targetRevision: string
-): CodexDevelopmentGitChangedRecord[] {
-  return parseGitChangedRecordsOutput(requireCommand('git', [
+): Promise<CodexDevelopmentGitChangedRecord[]> {
+  return parseGitChangedRecordsOutput((await requireCommand('git', [
     '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames',
     '--find-copies', '--diff-filter=ACDMRTUXB', baseRevision, targetRevision, '--'
-  ], root, 'activation-scope-conflict'));
+  ], root, 'activation-scope-conflict')));
 }
 
 function changedPaths(records: readonly CodexDevelopmentGitChangedRecord[]): readonly string[] {
@@ -382,11 +395,11 @@ function canonicalBytes(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(canonicalJson(value), null, 2)}\n`, 'utf8');
 }
 
-function listWorkPackagePaths(root: string, revision: string): readonly string[] {
-  const bytes = requireCommand('git', [
+async function listWorkPackagePaths(root: string, revision: string): Promise<readonly string[]> {
+  const bytes = (await requireCommand('git', [
     '-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', revision,
     '--', 'config/repository/work-packages'
-  ], root, 'activation-scope-conflict');
+  ], root, 'activation-scope-conflict'));
   if (bytes.length === 0 || bytes.at(-1) !== 0) {
     unavailable('activation-scope-conflict', 'candidate-work-package-census-is-empty-or-unterminated');
   }
@@ -400,39 +413,32 @@ function listWorkPackagePaths(root: string, revision: string): readonly string[]
   return Object.freeze(paths);
 }
 
-function preparationWorkPackageDeletions(
+async function preparationWorkPackageDeletions(
   candidateRoot: string,
   trustedBase: string,
   proposalRevision: string,
   manifestPath: string,
   manifestBytes: Uint8Array,
   tracking: string
-): readonly string[] {
-  const defaultPackagePaths = listWorkPackagePaths(candidateRoot, trustedBase);
-  const candidatePackagePaths = listWorkPackagePaths(candidateRoot, proposalRevision);
-  const candidateEntries = candidatePackagePaths.map((packagePath) => ({
-    path: packagePath,
-    candidateBytes: packagePath === manifestPath
-      ? manifestBytes
-      : readGitBlob(candidateRoot, `${proposalRevision}:${packagePath}`).bytes,
-    defaultBytes: gitObjectExists(candidateRoot, `${trustedBase}:${packagePath}`)
-      ? readGitBlob(candidateRoot, `${trustedBase}:${packagePath}`).bytes
-      : null
+): Promise<readonly string[]> {
+  const defaultPackagePaths = await listWorkPackagePaths(candidateRoot, trustedBase);
+  const candidatePackagePaths = await listWorkPackagePaths(candidateRoot, proposalRevision);
+  const candidateEntries: Array<Readonly<{ path: string; candidateBytes: Uint8Array; defaultBytes: Uint8Array | null }>> = [];
+  for (const packagePath of candidatePackagePaths) {
+    const candidateBytes = packagePath === manifestPath ? manifestBytes
+      : (await readGitBlob(candidateRoot, `${proposalRevision}:${packagePath}`)).bytes;
+    const defaultBytes = await gitObjectExists(candidateRoot, `${trustedBase}:${packagePath}`)
+      ? (await readGitBlob(candidateRoot, `${trustedBase}:${packagePath}`)).bytes : null;
+    candidateEntries.push(Object.freeze({ path: packagePath, candidateBytes, defaultBytes }));
+  }
+  const roadmapSource = tracking === 'none' && candidatePackagePaths.length > 1
+    ? decodeUtf8((await readGitBlob(candidateRoot,
+      `${proposalRevision}:config/repository/work-selection.md`)).bytes, 'activation-scope-conflict')
+    : undefined;
+  return guarded('activation-scope-conflict', () => assertAgentOperationActivationWorkPackageCensus({
+    selectedManifestPath: manifestPath, candidateEntries, defaultPackagePaths,
+    ...(roadmapSource === undefined ? {} : { roadmapSource })
   }));
-  return guarded('activation-scope-conflict', () =>
-    assertAgentOperationActivationWorkPackageCensus({
-      selectedManifestPath: manifestPath,
-      candidateEntries,
-      defaultPackagePaths,
-      ...(tracking === 'none' && candidatePackagePaths.length > 1
-        ? {
-            roadmapSource: decodeUtf8(
-              readGitBlob(candidateRoot, `${proposalRevision}:config/repository/work-selection.md`).bytes,
-              'activation-scope-conflict'
-            )
-          }
-        : {})
-    }));
 }
 
 export interface OperationAuthorityOwnerObservation {
@@ -445,23 +451,23 @@ export interface OperationAuthorityOwnerObservation {
 }
 
 /** Read-only owner facts; neither this observation nor its consumers grant Effect authority. */
-export function observeOperationAuthorityOwners(
+export async function observeOperationAuthorityOwners(
   candidateRoot: string,
   trustedRevision: string,
   targetCandidate: string,
   manifest: CodexDevelopmentWorkPackageManifest,
   paths: readonly string[]
-): readonly OperationAuthorityOwnerObservation[] {
+): Promise<readonly OperationAuthorityOwnerObservation[]> {
   if (manifest.authorityRefs === undefined) {
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
   }
   let records: readonly DocumentationIdentityRecord[];
-  let identityBlob: ReturnType<typeof readGitBlob>;
+  let identityBlob: Awaited<ReturnType<typeof readGitBlob>>;
   try {
-    identityBlob = readGitBlob(
+    identityBlob = (await readGitBlob(
       candidateRoot,
       `${trustedRevision}:${DOCUMENTATION_IDENTITY_PATH}`
-    );
+    ));
     const registryBytes = identityBlob.bytes;
     const registry = parseDocumentationIdentityRegistry(
       decodeUtf8(registryBytes, 'activation-scope-conflict')
@@ -490,44 +496,42 @@ export function observeOperationAuthorityOwners(
     if (error instanceof AgentOperationActivationUnavailableError) throw error;
     unavailable('activation-scope-conflict', error instanceof Error ? error.message : String(error));
   }
-  return Object.freeze([Object.freeze({
+  const observations: OperationAuthorityOwnerObservation[] = [Object.freeze({
     id: 'documentation-identity-registry',
     ref: DOCUMENTATION_IDENTITY_PATH,
     owner: 'documentation-identity',
     revision: identityBlob.oid,
     contentDigest: rawSha256(identityBlob.bytes),
     projection: null
-  }), ...records.map((entry) => {
+  })];
+  for (const entry of records) {
     const revision = selectOperationAuthoritySourceRevision({
       repositoryPath: entry.path, changedPaths: paths, trustedRevision, targetCandidate
     });
-    const blob = readGitBlob(candidateRoot, `${revision}:${entry.path}`);
-    return Object.freeze({
-      id: entry.documentId,
-      ref: entry.path,
-      owner: entry.documentId,
-      revision: blob.oid,
-      contentDigest: rawSha256(blob.bytes),
-      projection: null
-    });
-  })]);
+    const blob = await readGitBlob(candidateRoot, `${revision}:${entry.path}`);
+    observations.push(Object.freeze({
+      id: entry.documentId, ref: entry.path, owner: entry.documentId,
+      revision: blob.oid, contentDigest: rawSha256(blob.bytes), projection: null
+    }));
+  }
+  return Object.freeze(observations);
 }
 
 async function requireResolvedWorkDecision(root: string): Promise<WorkDecisionReceipt> {
   try {
-    const candidateHead = gitHead(root);
+    const candidateHead = (await gitHead(root));
     const candidateState = parseCurrentStateSpec(decodeUtf8(
-      readGitBlob(root, `${candidateHead}:${CONTROL_PATHS.currentState}`).bytes,
+      (await readGitBlob(root, `${candidateHead}:${CONTROL_PATHS.currentState}`)).bytes,
       'activation-stale'
     ));
     const exactMain = gitSha(
-      textCommand('git', ['rev-parse', '--verify', candidateState.resolver.defaultRef], root,
-        'activation-stale'),
+      (await textCommand('git', ['rev-parse', '--verify', candidateState.resolver.defaultRef], root,
+        'activation-stale')),
       'activation-stale'
     );
-    const exactMainTree = gitTree(root, exactMain);
+    const exactMainTree = (await gitTree(root, exactMain));
     const trustedState = parseCurrentStateSpec(decodeUtf8(
-      readGitBlob(root, `${exactMain}:${CONTROL_PATHS.currentState}`).bytes,
+      (await readGitBlob(root, `${exactMain}:${CONTROL_PATHS.currentState}`)).bytes,
       'activation-stale'
     ));
     if (trustedState.resolver.repository !== candidateState.resolver.repository
@@ -639,26 +643,26 @@ function workPackageForbiddenPaths(
   return Object.freeze([...manifest.forbiddenPaths].sort(compareCodeUnits));
 }
 
-function assertManifestTestBlobsExist(
+async function assertManifestTestBlobsExist(
   candidateRoot: string,
   revision: string,
   manifest: CodexDevelopmentWorkPackageManifest
-): void {
-  const bytes = requireCommand('git', [
+): Promise<void> {
+  const bytes = (await requireCommand('git', [
     '--literal-pathspecs', '-c', 'core.quotepath=false',
     'ls-tree', '-r', '-z', '--full-tree', revision, '--', ...manifest.tests
-  ], candidateRoot, 'activation-stale');
+  ], candidateRoot, 'activation-stale'));
   guarded('activation-stale', () => assertAgentOperationActivationTestCensus(manifest.tests, bytes));
 }
 
-function readCandidateControl(
+async function readCandidateControl(
   candidateRoot: string,
   revision: string,
-  receipt: WorkDecisionReceipt
-): CandidateControlSnapshot {
-  const stateBytes = readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.currentState}`).bytes;
-  const pointerBytes = readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.pointer}`).bytes;
-  const rollingBytes = readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.rollingPlan}`).bytes;
+  receipt: Pick<WorkDecisionReceipt, 'repository' | 'exactMain' | 'exactMainTree'>
+): Promise<CandidateControlSnapshot> {
+  const stateBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.currentState}`)).bytes;
+  const pointerBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.pointer}`)).bytes;
+  const rollingBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.rollingPlan}`)).bytes;
   const state = parseCurrentStateSpec(decodeUtf8(stateBytes, 'activation-stale'));
   const pointer = parseActivePointer(decodeUtf8(pointerBytes, 'activation-stale'));
   const rolling = parseRollingPlan(decodeUtf8(rollingBytes, 'activation-stale'));
@@ -667,16 +671,16 @@ function readCandidateControl(
       || state.resolver.defaultRef !== `refs/remotes/${state.resolver.remote}/${state.resolver.defaultBranch}`) {
     unavailable('activation-stale', 'candidate-current-state-identity-drift');
   }
-  const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`);
+  const manifestBlob = (await readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`));
   const manifestBytes = manifestBlob.bytes;
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
     decodeUtf8(manifestBytes, 'activation-stale'), pointer.manifest
   );
-  assertManifestTestBlobsExist(candidateRoot, revision, manifest);
+  (await assertManifestTestBlobsExist(candidateRoot, revision, manifest));
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
   if (pointer.manifestDigest !== manifestDigest || rolling.activePackageId !== manifest.id
       || !CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, receipt.exactMain)
-      || gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
+      || (await gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`))) {
     unavailable('activation-stale', 'candidate-control-binding-invalid');
   }
   guarded('activation-stale', () => assertStablePlanRollingBinding({
@@ -717,12 +721,12 @@ function assertPreparationSelection(
   }
 }
 
-function exactPullRequestEntry(
+async function exactPullRequestEntry(
   receipt: WorkDecisionReceipt,
   request: AgentOperationActivationRequest,
   headRef: string,
   candidateRoot: string
-): Readonly<{
+): Promise<Readonly<{
   number: number;
   baseSha: string;
   headSha: string;
@@ -730,7 +734,7 @@ function exactPullRequestEntry(
   headRef: string;
   manifestPath: string;
   manifestDigest: `sha256:${string}`;
-}> {
+}>> {
   const entries = receipt.registry.entries.filter((entry) => entry.source === 'open-pr'
     && entry.prNumber === request.pullRequestNumber
     && entry.baseSha === request.expectedBaseSha
@@ -738,7 +742,7 @@ function exactPullRequestEntry(
     && entry.manifestPath === request.manifestPath
     && entry.manifestDigest === request.manifestDigest);
   if (entries.length !== 1 || entries[0]!.headTreeSha === null
-      || gitTree(candidateRoot, request.expectedHeadSha) !== entries[0]!.headTreeSha) {
+      || (await gitTree(candidateRoot, request.expectedHeadSha)) !== entries[0]!.headTreeSha) {
     unavailable('activation-stale', 'exact-open-pr-registry-entry-missing');
   }
   if (!headRef.startsWith('codex/')) unavailable('activation-stale', headRef);
@@ -753,23 +757,23 @@ function exactPullRequestEntry(
   });
 }
 
-function assertRequestBindings(
+async function assertRequestBindings(
   request: AgentOperationActivationRequest,
   provider: AgentOperationActivationProvider,
   receipt: WorkDecisionReceipt,
   candidateRoot: string
-): void {
+): Promise<void> {
   if (provider.workflowSha !== receipt.exactMain || request.expectedBaseSha !== receipt.exactMain
-      || gitHead(candidateRoot) !== request.expectedHeadSha
-      || gitTree(candidateRoot, request.expectedHeadSha) === receipt.exactMainTree) {
+      || (await gitHead(candidateRoot)) !== request.expectedHeadSha
+      || (await gitTree(candidateRoot, request.expectedHeadSha)) === receipt.exactMainTree) {
     unavailable('activation-stale', 'request-base-head-provider-binding-drift');
   }
-  if (!isGitAncestor(candidateRoot, request.expectedBaseSha, request.expectedHeadSha)) {
+  if (!(await isGitAncestor(candidateRoot, request.expectedBaseSha, request.expectedHeadSha))) {
     unavailable('activation-stale', 'request-base-is-not-an-ancestor');
   }
 }
 
-function assertPreparationProposal(
+async function assertPreparationProposal(
   records: readonly CodexDevelopmentGitChangedRecord[],
   manifest: CodexDevelopmentWorkPackageManifest,
   manifestPath: string,
@@ -777,15 +781,15 @@ function assertPreparationProposal(
   trustedBase: string,
   proposalRevision: string,
   candidateRoot: string
-): void {
-  const deletedPackagePaths = preparationWorkPackageDeletions(
+): Promise<void> {
+  const deletedPackagePaths = (await preparationWorkPackageDeletions(
     candidateRoot,
     trustedBase,
     proposalRevision,
     manifestPath,
     manifestBytes,
     manifest.tracking
-  );
+  ));
   const allowed = new Set<string>([
     CONTROL_PATHS.pointer,
     CONTROL_PATHS.rollingPlan,
@@ -802,27 +806,27 @@ function assertPreparationProposal(
   CodexDevelopmentAssertWorkPackageChangedRecords(manifest, records);
 }
 
-function assertPreparationStillAuthorizesFinal(
+async function assertPreparationStillAuthorizesFinal(
   candidateRoot: string,
   decision: WorkDecisionReceipt,
   preparation: AgentOperationActivationPreparation,
   finalControl: CandidateControlSnapshot,
   binding: ReturnType<typeof workBinding>
-): void {
+): Promise<void> {
   assertFinalOperationBinding(decision, preparation, finalControl, binding);
-  const proposalTree = gitTree(candidateRoot, preparation.proposal.headSha);
-  const proposalRecords = changedRecordsBetween(
+  const proposalTree = (await gitTree(candidateRoot, preparation.proposal.headSha));
+  const proposalRecords = (await changedRecordsBetween(
     candidateRoot,
     decision.exactMain,
     preparation.proposal.headSha
-  );
-  const proposalControl = readCandidateControl(
+  ));
+  const proposalControl = (await readCandidateControl(
     candidateRoot,
     preparation.proposal.headSha,
     decision
-  );
+  ));
   assertPreparationSelection(proposalControl, decision);
-  assertPreparationProposal(
+  (await assertPreparationProposal(
     proposalRecords,
     proposalControl.manifest,
     proposalControl.manifestPath,
@@ -830,14 +834,14 @@ function assertPreparationStillAuthorizesFinal(
     decision.exactMain,
     preparation.proposal.headSha,
     candidateRoot
-  );
+  ));
   assertProposalReadback(proposalTree, proposalRecords, proposalControl, finalControl, preparation);
 }
 
-function listActivationComments(root: string, endpoint: string): readonly IssueCommentRecord[] {
-  const bytes = requireCommand('gh', [
+async function listActivationComments(root: string, endpoint: string): Promise<readonly IssueCommentRecord[]> {
+  const bytes = (await requireCommand('gh', [
     'api', '--paginate', '--slurp', `${endpoint}?per_page=100`
-  ], root, 'activation-provider-unavailable');
+  ], root, 'activation-provider-unavailable'));
   try {
     const pages = parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
       'activation-provider-readback-conflict');
@@ -852,11 +856,11 @@ function listActivationComments(root: string, endpoint: string): readonly IssueC
   }
 }
 
-function apiRecord(
+async function apiRecord(
   root: string,
   endpoint: string
-): Readonly<{ value: Record<string, unknown>; bytes: Buffer }> {
-  const bytes = requireCommand('gh', ['api', endpoint], root, 'activation-provider-unavailable');
+): Promise<Readonly<{ value: Record<string, unknown>; bytes: Buffer }>> {
+  const bytes = (await requireCommand('gh', ['api', endpoint], root, 'activation-provider-unavailable'));
   try {
     return Object.freeze({
       value: record(parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
@@ -894,19 +898,19 @@ function providerFromEnvironment(): AgentOperationActivationProvider {
   });
 }
 
-function assertProviderLive(
+async function assertProviderLive(
   root: string,
   repository: string,
   provider: AgentOperationActivationProvider
-): void {
-  const repoObservation = apiRecord(root, `/repos/${repository}`);
+): Promise<void> {
+  const repoObservation = (await apiRecord(root, `/repos/${repository}`));
   const repo = repoObservation.value;
   if (String(repo.id ?? '') !== provider.repositoryId || repo.full_name !== repository
       || repo.default_branch !== 'main') {
     unavailable('activation-provider-readback-conflict', repoObservation.bytes);
   }
-  const runObservation = apiRecord(root,
-    `/repos/${repository}/actions/runs/${provider.runId}/attempts/${provider.runAttempt}`);
+  const runObservation = (await apiRecord(root,
+    `/repos/${repository}/actions/runs/${provider.runId}/attempts/${provider.runAttempt}`));
   const run = runObservation.value;
   let actor: Record<string, unknown>;
   let runRepository: Record<string, unknown>;
@@ -923,17 +927,17 @@ function assertProviderLive(
       || actor.node_id !== provider.actorNodeId || String(runRepository.id ?? '') !== provider.repositoryId) {
     unavailable('activation-provider-readback-conflict', runObservation.bytes);
   }
-  const permissionObservation = apiRecord(root,
-    `/repos/${repository}/collaborators/${provider.actorLogin}/permission`);
+  const permissionObservation = (await apiRecord(root,
+    `/repos/${repository}/collaborators/${provider.actorLogin}/permission`));
   const permission = permissionObservation.value;
   const role = normalizeGitHubRepositoryPermission(permission);
   if (role !== provider.actorPermission || (role !== 'admin' && role !== 'maintain')) {
     unavailable('activation-provider-readback-conflict', permissionObservation.bytes);
   }
-  const jobsBytes = requireCommand('gh', [
+  const jobsBytes = (await requireCommand('gh', [
     'api', '--paginate', '--slurp',
     `/repos/${repository}/actions/runs/${provider.runId}/attempts/${provider.runAttempt}/jobs?per_page=100`
-  ], root, 'activation-provider-unavailable');
+  ], root, 'activation-provider-unavailable'));
   let jobsValue: unknown;
   try {
     jobsValue = parseJson(decodeUtf8(jobsBytes, 'activation-provider-readback-conflict'),
@@ -975,13 +979,13 @@ function assertProviderLive(
   }
 }
 
-function assertArtifactMetadata(
+async function assertArtifactMetadata(
   root: string,
   repository: string,
   publication: AgentOperationActivationPublication
-): void {
-  const metadataObservation = apiRecord(root,
-    `/repos/${repository}/actions/artifacts/${publication.artifactId}`);
+): Promise<void> {
+  const metadataObservation = (await apiRecord(root,
+    `/repos/${repository}/actions/artifacts/${publication.artifactId}`));
   const metadata = metadataObservation.value;
   let workflowRun: Record<string, unknown>;
   try {
@@ -1000,18 +1004,18 @@ function assertArtifactMetadata(
   }
 }
 
-function downloadArtifactPayload(
+async function downloadArtifactPayload(
   root: string,
   repository: string,
   publication: AgentOperationActivationPublication
-): Readonly<{ bytes: Buffer; payload: unknown }> {
-  assertArtifactMetadata(root, repository, publication);
+): Promise<Readonly<{ bytes: Buffer; payload: unknown }>> {
+  (await assertArtifactMetadata(root, repository, publication));
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-agent-operation-activation-'));
   try {
-    const archiveBytes = requireCommand('gh', [
+    const archiveBytes = (await requireCommand('gh', [
       'api', '-H', 'Accept: application/vnd.github+json',
       `/repos/${repository}/actions/artifacts/${publication.artifactId}/zip`
-    ], root, 'activation-provider-unavailable');
+    ], root, 'activation-provider-unavailable'));
     if (rawSha256(archiveBytes) !== publication.artifactDigest) {
       unavailable('activation-provider-readback-conflict', archiveBytes);
     }
@@ -1021,9 +1025,9 @@ function downloadArtifactPayload(
     const listArgs = process.platform === 'win32'
       ? ['-tf', archivePath]
       : ['-Z1', archivePath];
-    const list = requireCommand(
+    const list = (await requireCommand(
       archiveTool, listArgs, temporaryRoot, 'activation-provider-readback-conflict'
-    );
+    ));
     const entries = decodeUtf8(list, 'activation-provider-readback-conflict')
       .split(/\r?\n/u).filter(Boolean);
     if (entries.length !== 1 || entries[0] !== publication.artifactFileName) {
@@ -1032,9 +1036,9 @@ function downloadArtifactPayload(
     const readArgs = process.platform === 'win32'
       ? ['-xOf', archivePath, publication.artifactFileName]
       : ['-p', archivePath, publication.artifactFileName];
-    const bytes = requireCommand(
+    const bytes = (await requireCommand(
       archiveTool, readArgs, temporaryRoot, 'activation-provider-readback-conflict'
-    );
+    ));
     let payload: unknown;
     try {
       payload = parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
@@ -1051,14 +1055,14 @@ function downloadArtifactPayload(
   }
 }
 
-function allPublications(
+async function allPublications(
   root: string,
   repository: string,
   pullRequestNumber: number
-): readonly Readonly<{ publication: AgentOperationActivationPublication; commentId: number }>[] {
-  const inventory = listActivationComments(
+): Promise<readonly Readonly<{ publication: AgentOperationActivationPublication; commentId: number }>[]> {
+  const inventory = (await listActivationComments(
     root, `/repos/${repository}/issues/${pullRequestNumber}/comments`
-  );
+  ));
   const result: Array<{ publication: AgentOperationActivationPublication; commentId: number }> = [];
   for (const comment of inventory) {
     if (!comment.body.includes(AGENT_OPERATION_ACTIVATION_COMMENT_MARKER)) continue;
@@ -1089,12 +1093,12 @@ function assertNoDuplicatePublicationIdentities(
   }
 }
 
-function validateArtifactPayload(
+async function validateArtifactPayload(
   root: string,
   repository: string,
   publication: AgentOperationActivationPublication
-): AgentOperationActivationPreparation | AgentOperationActivationReceipt {
-  const downloaded = downloadArtifactPayload(root, repository, publication);
+): Promise<AgentOperationActivationPreparation | AgentOperationActivationReceipt> {
+  const downloaded = (await downloadArtifactPayload(root, repository, publication));
   let payload: AgentOperationActivationPreparation | AgentOperationActivationReceipt;
   try {
     payload = publication.request.phase === 'prepare'
@@ -1159,8 +1163,8 @@ export interface AgentOperationActivationHostedValues {
   decision: WorkDecisionReceipt;
   control: CandidateControlSnapshot;
   binding: ReturnType<typeof workBinding>;
-  pullRequest: ReturnType<typeof exactPullRequestEntry>;
-  records: ReturnType<typeof changedRecordsBetween>;
+  pullRequest: Awaited<ReturnType<typeof exactPullRequestEntry>>;
+  records: Awaited<ReturnType<typeof changedRecordsBetween>>;
   preparation: AgentOperationActivationPreparation;
   receipt: AgentOperationActivationReceipt;
   publication: AgentOperationActivationPublication;
@@ -1199,14 +1203,14 @@ function assertProposalReadback(
   }
 }
 
-function publishActivationComment(
+async function publishActivationComment(
   runtimeRoot: string, repository: string, publication: AgentOperationActivationPublication
-): Readonly<{ commentId: number; publication: AgentOperationActivationPublication }> {
+): Promise<Readonly<{ commentId: number; publication: AgentOperationActivationPublication }>> {
   const body = renderAgentOperationActivationPublicationComment(publication);
-const response = command('gh', [
+const response = (await command('gh', [
     'api', '--method', 'POST', `/repos/${repository}/issues/${publication.request.pullRequestNumber}/comments`,
     '--input', '-'
-  ], runtimeRoot, canonicalBytes({ body }));
+  ], runtimeRoot, canonicalBytes({ body })));
 if (response.status !== 0) unavailable('activation-provider-unavailable', response.stderr);
 let created: IssueCommentRecord;
 try {
@@ -1221,9 +1225,9 @@ try {
 if (created.body !== body || !hostedPublisherMatches(created)) {
     unavailable('activation-provider-readback-conflict', response.stdout);
   }
-const inventory = listActivationComments(
+const inventory = (await listActivationComments(
     runtimeRoot, `/repos/${repository}/issues/${publication.request.pullRequestNumber}/comments`
-  );
+  ));
 const matches = inventory.filter((comment) => comment.id === created.id
     && comment.body === body && hostedPublisherMatches(comment));
 if (matches.length !== 1) {
@@ -1264,7 +1268,11 @@ if (!canonicalBytes(payload).equals(bytes) || !canonicalEqual(payload.request, r
 
 /** Each property exposes one original observation, predicate or effect. Pure
  * builders project existing contract inputs; they perform no reads or decisions. */
-export function createAgentOperationActivationHostedStagePorts() {
+export function createAgentOperationActivationHostedStagePorts(checkout?: GitCandidateCheckout) {
+  if (checkout !== undefined) {
+    assertGitCandidateCheckoutCurrent(checkout);
+    if (checkout.purpose !== 'activation-static') throw new Error('Activation observations require their original static checkout.');
+  }
   // This invocation's observations prevent callers from splitting the original
   // admission sequence. They are not Scope, Work, Review or publication authority.
   let request: AgentOperationActivationRequest | undefined;
@@ -1272,7 +1280,7 @@ export function createAgentOperationActivationHostedStagePorts() {
   let decision: WorkDecisionReceipt | undefined;
   let control: CandidateControlSnapshot | undefined;
   let binding: ReturnType<typeof workBinding> | undefined;
-  let pullRequest: ReturnType<typeof exactPullRequestEntry> | undefined;
+  let pullRequest: Awaited<ReturnType<typeof exactPullRequestEntry>> | undefined;
   let records: readonly CodexDevelopmentGitChangedRecord[] | undefined;
   let paths: readonly string[] | undefined;
   let requestBinding: Readonly<{ root: string; request: AgentOperationActivationRequest; provider: AgentOperationActivationProvider; decision: WorkDecisionReceipt }> | undefined;
@@ -1287,11 +1295,11 @@ export function createAgentOperationActivationHostedStagePorts() {
   let publicationPayload: AgentOperationActivationPreparation | AgentOperationActivationReceipt | undefined;
   let publication: AgentOperationActivationPublication | undefined;
   let runtimeRoot: string | undefined;
-  let publicationInventory: ReturnType<typeof allPublications> | undefined;
+  let publicationInventory: Awaited<ReturnType<typeof allPublications>> | undefined;
   let preparationSelection: Readonly<{
-    inventory: ReturnType<typeof allPublications>; request: AgentOperationActivationRequest;
+    inventory: Awaited<ReturnType<typeof allPublications>>; request: AgentOperationActivationRequest;
     control: CandidateControlSnapshot; candidateRoot: string;
-    selected: ReturnType<typeof allPublications>[number];
+    selected: Awaited<ReturnType<typeof allPublications>>[number];
     payload?: AgentOperationActivationPreparation;
   }> | undefined;
   const qualifiedPublications = new WeakSet<AgentOperationActivationPublication>();
@@ -1305,12 +1313,12 @@ export function createAgentOperationActivationHostedStagePorts() {
     if (!condition) unavailable('activation-issuer-unavailable', 'hosted-stage-native-observation-binding-missing');
   }
 
-  function assertProductionObservations(input: Readonly<{
+  async function assertProductionObservations(input: Readonly<{
     request: AgentOperationActivationRequest; provider: AgentOperationActivationProvider;
     decision: WorkDecisionReceipt; control: CandidateControlSnapshot;
-    pullRequest: ReturnType<typeof exactPullRequestEntry>; paths: readonly string[];
+    pullRequest: Awaited<ReturnType<typeof exactPullRequestEntry>>; paths: readonly string[];
     binding?: ReturnType<typeof workBinding>;
-  }>): void {
+  }>): Promise<void> {
     requireObservation(request !== undefined && provider !== undefined && decision !== undefined
       && control !== undefined && binding !== undefined && pullRequest !== undefined && records !== undefined
       && paths !== undefined && requestBinding !== undefined && owners !== undefined
@@ -1322,21 +1330,21 @@ export function createAgentOperationActivationHostedStagePorts() {
       && owners.head === request.expectedHeadSha && owners.control === control && owners.paths === paths
       && request.manifestPath === control.manifestPath && request.manifestDigest === control.manifestDigest
       && (input.request.phase !== 'prepare' || input.binding === binding));
-    assertCleanExactRoot(requestBinding.root, request.expectedHeadSha);
+    (await assertCleanExactRoot(requestBinding.root, request.expectedHeadSha));
   }
 
-  return Object.freeze({
-    repositoryRoot: (value: string): string => {
-      const root = repositoryRoot(value);
+  const ports = Object.freeze({
+    repositoryRoot: async (value: string): Promise<string> => {
+      const root = (await repositoryRoot(value));
       if (runtimeRoot === undefined) runtimeRoot = root;
       return root;
     },
-    readRequest: (requestPath: string): AgentOperationActivationRequest => {
+    readRequest: async (requestPath: string): Promise<AgentOperationActivationRequest> => {
       requireObservation(request === undefined);
       request = readHostedActivationRequest(requestPath);
       return request;
     },
-    provider: (): AgentOperationActivationProvider => {
+    provider: async (): Promise<AgentOperationActivationProvider> => {
       requireObservation(provider === undefined);
       provider = providerFromEnvironment();
       return provider;
@@ -1344,20 +1352,20 @@ export function createAgentOperationActivationHostedStagePorts() {
     assertCleanExactRoot,
     workDecision: async (root: string): Promise<WorkDecisionReceipt> => {
       requireObservation(decision === undefined && provider !== undefined);
-      assertCleanExactRoot(root, provider.workflowSha);
-      decision = await requireResolvedWorkDecision(root);
+      (await assertCleanExactRoot(root, provider.workflowSha));
+      decision = (await requireResolvedWorkDecision(root));
       return decision;
     },
-    assertRequestBindings: (observedRequest: AgentOperationActivationRequest, observedProvider: AgentOperationActivationProvider,
-      observedDecision: WorkDecisionReceipt, root: string): void => {
+    assertRequestBindings: async (observedRequest: AgentOperationActivationRequest, observedProvider: AgentOperationActivationProvider,
+      observedDecision: WorkDecisionReceipt, root: string): Promise<void> => {
       requireObservation(request !== undefined && provider !== undefined && decision !== undefined
         && observedRequest === request && observedProvider === provider && observedDecision === decision);
-      assertRequestBindings(observedRequest, observedProvider, observedDecision, root);
+      (await assertRequestBindings(observedRequest, observedProvider, observedDecision, root));
       requestBinding = Object.freeze({ root, request: observedRequest, provider: observedProvider, decision: observedDecision });
     },
-    readControl: (root: string, revision: string, observedDecision: WorkDecisionReceipt): CandidateControlSnapshot => {
+    readControl: async (root: string, revision: string, observedDecision: WorkDecisionReceipt): Promise<CandidateControlSnapshot> => {
       requireObservation(requestBinding !== undefined && observedDecision === decision && root === requestBinding.root);
-      const observed = readCandidateControl(root, revision, observedDecision);
+      const observed = (await readCandidateControl(root, revision, observedDecision));
       observedControls.add(observed);
       if (revision === request!.expectedHeadSha) {
         requireObservation(control === undefined);
@@ -1365,63 +1373,63 @@ export function createAgentOperationActivationHostedStagePorts() {
       }
       return observed;
     },
-    workBinding: (observedDecision: WorkDecisionReceipt, observedControl: CandidateControlSnapshot, phase: 'prepare' | 'finalize') => {
+    workBinding: async (observedDecision: WorkDecisionReceipt, observedControl: CandidateControlSnapshot, phase: 'prepare' | 'finalize') => {
       requireObservation(observedDecision === decision && observedControl === control && phase === request?.phase);
       binding = workBinding(observedDecision, observedControl.manifest, phase);
       return binding;
     },
-    headRef: (): string => {
+    headRef: async (): Promise<string> => {
       const value = process.env.SEC_ACTIVATION_HEAD_REF;
       if (value === undefined) unavailable('activation-issuer-unavailable', 'SEC_ACTIVATION_HEAD_REF');
       return value;
     },
-    pullRequest: (observedDecision: WorkDecisionReceipt, observedRequest: AgentOperationActivationRequest, headRef: string, root: string) => {
+    pullRequest: async (observedDecision: WorkDecisionReceipt, observedRequest: AgentOperationActivationRequest, headRef: string, root: string) => {
       requireObservation(observedDecision === decision && observedRequest === request && root === requestBinding?.root
         && headRef === process.env.SEC_ACTIVATION_HEAD_REF);
-      pullRequest = exactPullRequestEntry(observedDecision, observedRequest, headRef, root);
+      pullRequest = (await exactPullRequestEntry(observedDecision, observedRequest, headRef, root));
       return pullRequest;
     },
-    changedRecords: (root: string, base: string, head: string): ReturnType<typeof changedRecordsBetween> => {
+    changedRecords: async (root: string, base: string, head: string): Promise<Awaited<ReturnType<typeof changedRecordsBetween>>> => {
       requireObservation(root === requestBinding?.root);
-      const observed = changedRecordsBetween(root, base, head);
+      const observed = (await changedRecordsBetween(root, base, head));
       issuedRecordInventories.add(observed);
       if (base === request?.expectedBaseSha && head === request.expectedHeadSha) records = observed;
       return observed;
     },
-    changedPaths: (observedRecords: readonly CodexDevelopmentGitChangedRecord[]): readonly string[] => {
+    changedPaths: async (observedRecords: readonly CodexDevelopmentGitChangedRecord[]): Promise<readonly string[]> => {
       const observed = changedPaths(observedRecords);
       if (observedRecords === records) paths = observed;
       return observed;
     },
-    assertChangedRecords: (observedControl: CandidateControlSnapshot, observedRecords: readonly CodexDevelopmentGitChangedRecord[]): void => {
+    assertChangedRecords: async (observedControl: CandidateControlSnapshot, observedRecords: readonly CodexDevelopmentGitChangedRecord[]): Promise<void> => {
       requireObservation(observedControl === control && observedRecords === records);
       CodexDevelopmentAssertWorkPackageChangedRecords(observedControl.manifest, observedRecords);
       changedRecordBinding = observedControl;
     },
-    observeOwners: (root: string, observedDecision: WorkDecisionReceipt, head: string, observedControl: CandidateControlSnapshot, observedPaths: readonly string[]): void => {
+    observeOwners: async (root: string, observedDecision: WorkDecisionReceipt, head: string, observedControl: CandidateControlSnapshot, observedPaths: readonly string[]): Promise<void> => {
       requireObservation(root === requestBinding?.root && observedDecision === decision && head === request?.expectedHeadSha
         && observedControl === control && observedPaths === paths);
-      observeOperationAuthorityOwners(root, observedDecision.exactMain, head, observedControl.manifest, observedPaths);
+      (await observeOperationAuthorityOwners(root, observedDecision.exactMain, head, observedControl.manifest, observedPaths));
       owners = Object.freeze({ root, decision: observedDecision, head, control: observedControl, paths: observedPaths });
     },
-    assertPreparationSelection: (observedControl: CandidateControlSnapshot, observedDecision: WorkDecisionReceipt): void => {
+    assertPreparationSelection: async (observedControl: CandidateControlSnapshot, observedDecision: WorkDecisionReceipt): Promise<void> => {
       requireObservation(observedDecision === decision && observedControls.has(observedControl));
       assertPreparationSelection(observedControl, observedDecision);
       selections.set(observedControl, observedDecision);
     },
-    assertPreparationProposal: (observedRecords: readonly CodexDevelopmentGitChangedRecord[], observedControl: CandidateControlSnapshot, base: string, head: string, root: string): void => {
+    assertPreparationProposal: async (observedRecords: readonly CodexDevelopmentGitChangedRecord[], observedControl: CandidateControlSnapshot, base: string, head: string, root: string): Promise<void> => {
       requireObservation(root === requestBinding?.root && base === decision?.exactMain
         && observedControls.has(observedControl) && issuedRecordInventories.has(observedRecords));
-      assertPreparationProposal(observedRecords, observedControl.manifest, observedControl.manifestPath, observedControl.manifestBytes, base, head, root);
+      (await assertPreparationProposal(observedRecords, observedControl.manifest, observedControl.manifestPath, observedControl.manifestBytes, base, head, root));
       proposals.set(observedControl, Object.freeze({ records: observedRecords, root, base, head }));
     },
-    createPreparation: (input: Readonly<{
+    createPreparation: async (input: Readonly<{
       request: AgentOperationActivationRequest; provider: AgentOperationActivationProvider;
       decision: WorkDecisionReceipt; control: CandidateControlSnapshot;
-      binding: ReturnType<typeof workBinding>; pullRequest: ReturnType<typeof exactPullRequestEntry>; paths: readonly string[];
-    }>): AgentOperationActivationPreparation => {
+      binding: ReturnType<typeof workBinding>; pullRequest: Awaited<ReturnType<typeof exactPullRequestEntry>>; paths: readonly string[];
+    }>): Promise<AgentOperationActivationPreparation> => {
       const { request, provider, decision, control, binding, pullRequest, paths } = input;
-      assertProductionObservations(input);
+      (await assertProductionObservations(input));
       requireObservation(request.phase === 'prepare' && selections.get(control) === decision
         && proposals.get(control)?.records === records && proposals.get(control)?.head === request.expectedHeadSha);
       payload = createAgentOperationActivationPreparation({
@@ -1446,13 +1454,13 @@ export function createAgentOperationActivationHostedStagePorts() {
     });
       return payload;
     },
-    createReceipt: (input: Readonly<{
+    createReceipt: async (input: Readonly<{
       request: AgentOperationActivationRequest; preparation: AgentOperationActivationPreparation;
       provider: AgentOperationActivationProvider; decision: WorkDecisionReceipt;
-      control: CandidateControlSnapshot; pullRequest: ReturnType<typeof exactPullRequestEntry>; paths: readonly string[];
-    }>): AgentOperationActivationReceipt => {
+      control: CandidateControlSnapshot; pullRequest: Awaited<ReturnType<typeof exactPullRequestEntry>>; paths: readonly string[];
+    }>): Promise<AgentOperationActivationReceipt> => {
       const { request, preparation, provider, decision, control, pullRequest, paths } = input;
-      assertProductionObservations(input);
+      (await assertProductionObservations(input));
       requireObservation(request.phase === 'finalize' && finalBinding?.decision === decision
         && preparationSelection?.request === request && preparationSelection.control === control
         && preparationSelection.candidateRoot === requestBinding?.root
@@ -1473,26 +1481,26 @@ export function createAgentOperationActivationHostedStagePorts() {
   });
       return payload;
     },
-    publications: (root: string, repository: string, pr: number): ReturnType<typeof allPublications> => {
+    publications: async (root: string, repository: string, pr: number): Promise<Awaited<ReturnType<typeof allPublications>>> => {
       requireObservation(root === runtimeRoot && decision !== undefined && repository === decision.repository
         && request !== undefined && pr === request.pullRequestNumber);
-      publicationInventory = allPublications(root, repository, pr);
+      publicationInventory = (await allPublications(root, repository, pr));
       return publicationInventory;
     },
-    assertPublicationIdentities: (inventory: ReturnType<typeof allPublications>): void => {
+    assertPublicationIdentities: async (inventory: Awaited<ReturnType<typeof allPublications>>): Promise<void> => {
       requireObservation(publicationInventory !== undefined && inventory === publicationInventory);
       assertNoDuplicatePublicationIdentities(inventory);
       for (const entry of inventory) qualifiedPublications.add(entry.publication);
     },
-    selectPreparationAncestor: (inventory: ReturnType<typeof allPublications>, observedRequest: AgentOperationActivationRequest,
-      observedControl: CandidateControlSnapshot): ReturnType<typeof allPublications>[number] => {
+    selectPreparationAncestor: async (inventory: Awaited<ReturnType<typeof allPublications>>, observedRequest: AgentOperationActivationRequest,
+      observedControl: CandidateControlSnapshot): Promise<Awaited<ReturnType<typeof allPublications>>[number]> => {
       requireObservation(request !== undefined && request.phase === 'finalize' && observedRequest === request
         && control !== undefined && observedControl === control && requestBinding !== undefined
         && publicationInventory !== undefined && inventory === publicationInventory
         && inventory.every(entry => qualifiedPublications.has(entry.publication)));
-      const selected = selectMaximalPreparationPublication(inventory, requestBinding.root,
+      const selected = (await selectMaximalPreparationPublication(inventory, requestBinding.root,
         request.pullRequestNumber, request.expectedBaseSha, request.expectedHeadSha,
-        control.manifestPath, control.manifestDigest);
+        control.manifestPath, control.manifestDigest));
       if (request.preparationCommentId !== selected.commentId) {
         unavailable('activation-stale', 'caller-selected-PRE-is-not-unique-maximal-ancestor');
       }
@@ -1500,23 +1508,23 @@ export function createAgentOperationActivationHostedStagePorts() {
       return selected;
     },
     isAncestor: isGitAncestor,
-    assertProviderLive: (root: string, repository: string, observedProvider: AgentOperationActivationProvider): void => {
+    assertProviderLive: async (root: string, repository: string, observedProvider: AgentOperationActivationProvider): Promise<void> => {
       requireObservation(root === runtimeRoot && decision !== undefined && repository === decision.repository);
-      assertProviderLive(root, repository, observedProvider);
+      (await assertProviderLive(root, repository, observedProvider));
       liveProviders.set(observedProvider, Object.freeze({ root, repository }));
     },
-    artifactPayload: (root: string, repository: string, observedPublication: AgentOperationActivationPublication) => {
+    artifactPayload: async (root: string, repository: string, observedPublication: AgentOperationActivationPublication) => {
       requireObservation(qualifiedPublications.has(observedPublication)
         && liveProviders.get(observedPublication.provider)?.root === root
         && liveProviders.get(observedPublication.provider)?.repository === repository);
-      artifactPayload = validateArtifactPayload(root, repository, observedPublication);
+      artifactPayload = (await validateArtifactPayload(root, repository, observedPublication));
       if (preparationSelection?.selected.publication === observedPublication
         && artifactPayload.schema === 'sec-agent-operation-activation-preparation-v2') {
         preparationSelection = Object.freeze({ ...preparationSelection, payload: artifactPayload });
       }
       return artifactPayload;
     },
-    preparationPayload: (observedPayload: AgentOperationActivationPreparation | AgentOperationActivationReceipt): AgentOperationActivationPreparation => {
+    preparationPayload: async (observedPayload: AgentOperationActivationPreparation | AgentOperationActivationReceipt): Promise<AgentOperationActivationPreparation> => {
       requireObservation(artifactPayload !== undefined && observedPayload === artifactPayload);
       requireObservation(preparationSelection !== undefined && preparationSelection.payload === observedPayload
         && preparationSelection.request === request && preparationSelection.selected.commentId === request?.preparationCommentId);
@@ -1526,22 +1534,22 @@ export function createAgentOperationActivationHostedStagePorts() {
       preparation = observedPayload;
       return observedPayload;
     },
-    assertFinalOperationBinding: (observedDecision: WorkDecisionReceipt, observedPreparation: AgentOperationActivationPreparation,
-      observedControl: CandidateControlSnapshot, observedBinding: ReturnType<typeof workBinding>): void => {
+    assertFinalOperationBinding: async (observedDecision: WorkDecisionReceipt, observedPreparation: AgentOperationActivationPreparation,
+      observedControl: CandidateControlSnapshot, observedBinding: ReturnType<typeof workBinding>): Promise<void> => {
       requireObservation(observedDecision === decision && observedPreparation === preparation
         && observedControl === control && observedBinding === binding);
       assertFinalOperationBinding(observedDecision, observedPreparation, observedControl, observedBinding);
       finalBinding = Object.freeze({ decision: observedDecision, preparation: observedPreparation, control: observedControl, binding: observedBinding });
     },
-    gitTree: (root: string, revision: string): string => {
+    gitTree: async (root: string, revision: string): Promise<string> => {
       requireObservation(root === requestBinding?.root);
-      const tree = gitTree(root, revision);
+      const tree = (await gitTree(root, revision));
       observedTrees.set(revision, tree);
       return tree;
     },
-    assertProposalReadback: (tree: string, observedRecords: readonly CodexDevelopmentGitChangedRecord[],
+    assertProposalReadback: async (tree: string, observedRecords: readonly CodexDevelopmentGitChangedRecord[],
       proposalControl: CandidateControlSnapshot, finalControl: CandidateControlSnapshot,
-      observedPreparation: AgentOperationActivationPreparation): void => {
+      observedPreparation: AgentOperationActivationPreparation): Promise<void> => {
       requireObservation(observedPreparation === preparation && finalControl === control
         && proposals.get(proposalControl)?.records === observedRecords && selections.get(proposalControl) === decision
         && tree === observedTrees.get(observedPreparation.proposal.headSha));
@@ -1551,20 +1559,20 @@ export function createAgentOperationActivationHostedStagePorts() {
     rebindProvider: rebindPayloadProvider,
     equal: canonicalEqual,
     payloadDigest,
-    writePayload: (outputPath: string, observedPayload: AgentOperationActivationPreparation | AgentOperationActivationReceipt): void => {
+    writePayload: async (outputPath: string, observedPayload: AgentOperationActivationPreparation | AgentOperationActivationReceipt): Promise<void> => {
       requireObservation(observedPayload === payload && requestBinding !== undefined && provider !== undefined);
-      assertCleanExactRoot(requestBinding.root, requestBinding.request.expectedHeadSha);
+      (await assertCleanExactRoot(requestBinding.root, requestBinding.request.expectedHeadSha));
       requireObservation(canonicalEqual(providerFromEnvironment(), provider));
       writeHostedPayload(outputPath, observedPayload);
     },
     artifactName: agentOperationActivationArtifactName,
-    readPublicationPayload: (payloadPath: string, observedRequest: AgentOperationActivationRequest,
-      observedProvider: AgentOperationActivationProvider): AgentOperationActivationPreparation | AgentOperationActivationReceipt => {
+    readPublicationPayload: async (payloadPath: string, observedRequest: AgentOperationActivationRequest,
+      observedProvider: AgentOperationActivationProvider): Promise<AgentOperationActivationPreparation | AgentOperationActivationReceipt> => {
       requireObservation(request !== undefined && provider !== undefined && observedRequest === request && observedProvider === provider);
       publicationPayload = readHostedPublicationPayload(payloadPath, observedRequest, observedProvider);
       return publicationPayload;
     },
-    createPublication: (observedRequest: AgentOperationActivationRequest, payload: AgentOperationActivationPreparation | AgentOperationActivationReceipt,
+    createPublication: async (observedRequest: AgentOperationActivationRequest, payload: AgentOperationActivationPreparation | AgentOperationActivationReceipt,
       observedProvider: AgentOperationActivationProvider, artifactId: string, artifactDigest: `sha256:${string}`) => {
       requireObservation(request !== undefined && provider !== undefined && publicationPayload !== undefined
         && observedRequest === request && payload === publicationPayload && observedProvider === provider);
@@ -1575,23 +1583,61 @@ export function createAgentOperationActivationHostedStagePorts() {
       });
       return publication;
     },
-    publicationRepository: (root: string, provider: AgentOperationActivationProvider): string =>
-      parseCurrentStateSpec(decodeUtf8(readGitBlob(root, `${provider.workflowSha}:${CONTROL_PATHS.currentState}`).bytes, 'activation-stale')).resolver.repository,
+    publicationRepository: async (root: string, provider: AgentOperationActivationProvider): Promise<string> =>
+      parseCurrentStateSpec(decodeUtf8((await readGitBlob(root, `${provider.workflowSha}:${CONTROL_PATHS.currentState}`)).bytes, 'activation-stale')).resolver.repository,
     assertArtifactMetadata,
-    publishComment: (root: string, repository: string, observedPublication: AgentOperationActivationPublication) => {
+    publishComment: async (root: string, repository: string, observedPublication: AgentOperationActivationPublication) => {
       requireObservation(root === runtimeRoot && observedPublication === publication && publicationPayload !== undefined
         && canonicalEqual(observedPublication.request, request) && canonicalEqual(observedPublication.provider, provider));
       const currentProvider = providerFromEnvironment();
       requireObservation(canonicalEqual(currentProvider, provider));
-      assertCleanExactRoot(root, currentProvider.workflowSha);
+      (await assertCleanExactRoot(root, currentProvider.workflowSha));
       const currentRepository = parseCurrentStateSpec(decodeUtf8(
-        readGitBlob(root, `${currentProvider.workflowSha}:${CONTROL_PATHS.currentState}`).bytes, 'activation-stale'
+        (await readGitBlob(root, `${currentProvider.workflowSha}:${CONTROL_PATHS.currentState}`)).bytes, 'activation-stale'
       )).resolver.repository;
       requireObservation(currentRepository === repository);
-      assertArtifactMetadata(root, repository, observedPublication);
-      return publishActivationComment(root, repository, observedPublication);
+      (await assertArtifactMetadata(root, repository, observedPublication));
+      return (await publishActivationComment(root, repository, observedPublication));
     },
     unavailable
+  });
+  type ScopedPorts = {
+    [K in keyof typeof ports]: K extends 'unavailable' ? typeof ports[K]
+      : typeof ports[K] extends (...args: infer A) => infer R
+        ? (...args: A) => Promise<Awaited<R>> : never;
+  };
+  let activePort = false;
+  const scoped = Object.fromEntries(Object.entries(ports).map(([name, method]) => [name,
+    name === 'unavailable' ? method : async (...args: unknown[]) => {
+      if (activePort) unavailable('activation-issuer-unavailable', 'hosted-stage-observation-already-active');
+      activePort = true;
+      try {
+        return await activationGitScope.run(checkout, async () => {
+          if (checkout !== undefined) assertGitCandidateCheckoutCurrent(checkout);
+          const result: unknown = await Reflect.apply(method, undefined, args);
+          if (checkout !== undefined) assertGitCandidateCheckoutCurrent(checkout);
+          return result;
+        });
+      } finally { activePort = false; }
+    }
+  ])) as ScopedPorts;
+  return Object.freeze(scoped);
+}
+
+/** Read-only source observation for callers/tests; it does not issue activation. */
+export async function observeAgentOperationActivationCandidateControl(
+  candidateRoot: string, revision: string,
+  receipt: Pick<WorkDecisionReceipt, 'repository' | 'exactMain' | 'exactMainTree'>,
+  checkout: GitCandidateCheckout
+): Promise<CandidateControlSnapshot> {
+  assertGitCandidateCheckoutCurrent(checkout);
+  if (checkout.purpose !== 'activation-static' || checkout.candidateRoot !== candidateRoot) {
+    throw new Error('Control observations require the original static checkout root.');
+  }
+  return activationGitScope.run(checkout, async () => {
+    const value = await readCandidateControl(candidateRoot, revision, receipt);
+    assertGitCandidateCheckoutCurrent(checkout);
+    return value;
   });
 }
 
@@ -1629,18 +1675,18 @@ async function resolveAgentOperationActivationUnchecked(
   runtimeRootInput: string,
   candidateRootInput: string
 ): Promise<ResolvedAgentOperationActivation> {
-  const runtimeRoot = repositoryRoot(runtimeRootInput);
-  const candidateRoot = repositoryRoot(candidateRootInput);
-  assertSameRepository(runtimeRoot, candidateRoot);
-  assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
-  const decision = await requireResolvedWorkDecision(runtimeRoot);
-  assertCleanExactRoot(runtimeRoot, decision.exactMain);
-  const targetCandidate = gitHead(candidateRoot);
-  const branch = gitBranch(candidateRoot);
+  const runtimeRoot = (await repositoryRoot(runtimeRootInput));
+  const candidateRoot = (await repositoryRoot(candidateRootInput));
+  (await assertSameRepository(runtimeRoot, candidateRoot));
+  (await assertCleanExactRoot(candidateRoot, (await gitHead(candidateRoot))));
+  const decision = (await requireResolvedWorkDecision(runtimeRoot));
+  (await assertCleanExactRoot(runtimeRoot, decision.exactMain));
+  const targetCandidate = (await gitHead(candidateRoot));
+  const branch = (await gitBranch(candidateRoot));
   const entries = decision.registry.entries.filter((entry) => entry.source === 'open-pr'
     && entry.headSha === targetCandidate && entry.baseSha === decision.exactMain
     && entry.prNumber !== null && entry.headTreeSha !== null);
-  if (entries.length !== 1 || entries[0]!.headTreeSha !== gitTree(candidateRoot, targetCandidate)) {
+  if (entries.length !== 1 || entries[0]!.headTreeSha !== (await gitTree(candidateRoot, targetCandidate))) {
     unavailable('activation-receipt-absent', 'exact-open-pr-missing');
   }
   const entry = entries[0]!;
@@ -1651,7 +1697,7 @@ async function resolveAgentOperationActivationUnchecked(
     manifestPath: entry.manifestPath,
     manifestDigest: entry.manifestDigest
   });
-  const publications = allPublications(runtimeRoot, decision.repository, entry.prNumber!);
+  const publications = (await allPublications(runtimeRoot, decision.repository, entry.prNumber!));
   assertNoDuplicatePublicationIdentities(publications);
   const finals = publications.filter(({ publication }) => publication.request.phase === 'finalize'
     && publication.request.pullRequestNumber === requestBinding.pullRequestNumber
@@ -1670,26 +1716,26 @@ async function resolveAgentOperationActivationUnchecked(
     if (preparations.length === 0) unavailable('activation-receipt-absent', targetCandidate);
     if (preparations.length !== 1) unavailable('activation-provider-readback-conflict', targetCandidate);
     const preparationPublication = preparations[0]!;
-    assertProviderLive(runtimeRoot, decision.repository, preparationPublication.publication.provider);
-    const preparationPayload = validateArtifactPayload(
+    (await assertProviderLive(runtimeRoot, decision.repository, preparationPublication.publication.provider));
+    const preparationPayload = (await validateArtifactPayload(
       runtimeRoot, decision.repository, preparationPublication.publication
-    );
+    ));
     if (preparationPayload.schema !== 'sec-agent-operation-activation-preparation-v2') {
       unavailable('activation-provider-readback-conflict', 'preparation-artifact-schema-drift');
     }
     const preparation = preparationPayload;
-    const control = readCandidateControl(candidateRoot, targetCandidate, decision);
+    const control = (await readCandidateControl(candidateRoot, targetCandidate, decision));
     const binding = workBinding(decision, control.manifest, 'prepare');
-    const pullRequest = exactPullRequestEntry(decision, preparation.request, branch, candidateRoot);
-    const records = changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
+    const pullRequest = (await exactPullRequestEntry(decision, preparation.request, branch, candidateRoot));
+    const records = (await changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate));
     const paths = changedPaths(records);
     CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
     assertPreparationSelection(control, decision);
-    assertPreparationProposal(records, control.manifest, control.manifestPath,
-      control.manifestBytes, decision.exactMain, targetCandidate, candidateRoot);
-    const authorityOwners = observeOperationAuthorityOwners(
+    (await assertPreparationProposal(records, control.manifest, control.manifestPath,
+      control.manifestBytes, decision.exactMain, targetCandidate, candidateRoot));
+    const authorityOwners = (await observeOperationAuthorityOwners(
       candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
-    );
+    ));
     const expected = createAgentOperationActivationPreparation({
       request: preparation.request,
       repository: decision.repository,
@@ -1731,14 +1777,14 @@ async function resolveAgentOperationActivationUnchecked(
     });
   }
   const final = finals[0]!;
-  assertProviderLive(runtimeRoot, decision.repository, final.publication.provider);
-  const receiptPayload = validateArtifactPayload(runtimeRoot, decision.repository, final.publication);
+  (await assertProviderLive(runtimeRoot, decision.repository, final.publication.provider));
+  const receiptPayload = (await validateArtifactPayload(runtimeRoot, decision.repository, final.publication));
   if (receiptPayload.schema !== 'sec-agent-operation-activation-receipt-v2') {
     unavailable('activation-provider-readback-conflict', 'final-artifact-schema-drift');
   }
   const receipt = receiptPayload;
   if (receipt.request.preparationCommentId === null) unavailable('activation-provider-readback-conflict');
-  const maximalPreparation = resolveMaximalPreparation(
+  const maximalPreparation = (await resolveMaximalPreparation(
     runtimeRoot,
     candidateRoot,
     decision.repository,
@@ -1747,32 +1793,32 @@ async function resolveAgentOperationActivationUnchecked(
     targetCandidate,
     entry.manifestPath,
     entry.manifestDigest
-  );
+  ));
   if (receipt.request.preparationCommentId !== maximalPreparation.commentId) {
     unavailable('activation-stale', 'FINAL-consumer-PRE-is-not-unique-maximal-ancestor');
   }
   if (!canonicalEqual(maximalPreparation.preparation, receipt.preparation)) {
     unavailable('activation-provider-readback-conflict', 'PRE-FINAL-payload-drift');
   }
-  const control = readCandidateControl(candidateRoot, targetCandidate, decision);
+  const control = (await readCandidateControl(candidateRoot, targetCandidate, decision));
   const binding = workBinding(decision, control.manifest, 'finalize');
-  const pullRequest = exactPullRequestEntry(decision, receipt.request, branch, candidateRoot);
-  const records = changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
+  const pullRequest = (await exactPullRequestEntry(decision, receipt.request, branch, candidateRoot));
+  const records = (await changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate));
   const paths = changedPaths(records);
   CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
-  const authorityOwners = observeOperationAuthorityOwners(
+  const authorityOwners = (await observeOperationAuthorityOwners(
     candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
-  );
+  ));
   if (branch !== pullRequest.headRef) {
     unavailable('activation-stale', 'consumer-whole-value-rederivation-drift');
   }
-  assertPreparationStillAuthorizesFinal(
+  (await assertPreparationStillAuthorizesFinal(
     candidateRoot,
     decision,
     receipt.preparation,
     control,
     binding
-  );
+  ));
   const expected = createAgentOperationActivationReceipt({
     request: receipt.request,
     preparation: receipt.preparation,
@@ -1814,47 +1860,48 @@ export async function resolveAgentOperationActivation(
   ));
 }
 
-function dispatchRequest(
+async function dispatchRequest(
   runtimeRoot: string,
   repository: string,
   request: AgentOperationActivationRequest
-): void {
+): Promise<void> {
   const payload = canonicalBytes({ event_type: AGENT_OPERATION_ACTIVATION_EVENT, client_payload: { payload: request } });
-  requireCommand('gh', [
+  (await requireCommand('gh', [
     'api', '--method', 'POST', `/repos/${repository}/dispatches`,
     '--input', '-'
-  ], runtimeRoot, 'activation-provider-unavailable', payload);
+  ], runtimeRoot, 'activation-provider-unavailable', payload));
 }
 
-function selectMaximalPreparationPublication(
-  publications: ReturnType<typeof allPublications>, candidateRoot: string,
+async function selectMaximalPreparationPublication(
+  publications: Awaited<ReturnType<typeof allPublications>>, candidateRoot: string,
   pullRequestNumber: number, exactBase: string, targetCandidate: string,
   manifestPath: string, manifestDigest: `sha256:${string}`
-): ReturnType<typeof allPublications>[number] {
-  const candidates = publications.filter(({ publication }) => {
-    const request = publication.request;
+): Promise<Awaited<ReturnType<typeof allPublications>>[number]> {
+  const candidates: Array<Awaited<ReturnType<typeof allPublications>>[number]> = [];
+  for (const candidate of publications) {
+    const request = candidate.publication.request;
     if (request.phase !== 'prepare' || request.pullRequestNumber !== pullRequestNumber
         || request.expectedBaseSha !== exactBase || request.expectedHeadSha === targetCandidate
-        || request.manifestPath !== manifestPath || request.manifestDigest !== manifestDigest) {
-      return false;
+        || request.manifestPath !== manifestPath || request.manifestDigest !== manifestDigest) continue;
+    if (await isGitAncestor(candidateRoot, request.expectedHeadSha, targetCandidate)) candidates.push(candidate);
+  }
+  if (candidates.length === 0) unavailable('activation-receipt-absent', targetCandidate);
+  const maximal: typeof candidates = [];
+  for (const candidate of candidates) {
+    let superseded = false;
+    for (const other of candidates) {
+      if (other !== candidate && await isGitAncestor(candidateRoot,
+        candidate.publication.request.expectedHeadSha, other.publication.request.expectedHeadSha)) {
+        superseded = true; break;
+      }
     }
-    return isGitAncestor(candidateRoot, request.expectedHeadSha, targetCandidate);
-  });
-if (candidates.length === 0) unavailable('activation-receipt-absent', targetCandidate);
-const maximal = candidates.filter((candidate) => !candidates.some((other) => (
-    other !== candidate
-    && isGitAncestor(
-      candidateRoot,
-      candidate.publication.request.expectedHeadSha,
-      other.publication.request.expectedHeadSha
-    )
-  )));
-if (maximal.length !== 1) unavailable('activation-provider-readback-conflict', targetCandidate);
-const selected = maximal[0]!;
-  return selected;
+    if (!superseded) maximal.push(candidate);
+  }
+  if (maximal.length !== 1) unavailable('activation-provider-readback-conflict', targetCandidate);
+  return maximal[0]!;
 }
 
-function resolveMaximalPreparation(
+async function resolveMaximalPreparation(
   runtimeRoot: string,
   candidateRoot: string,
   repository: string,
@@ -1863,17 +1910,17 @@ function resolveMaximalPreparation(
   targetCandidate: string,
   manifestPath: string,
   manifestDigest: `sha256:${string}`
-): Readonly<{
+): Promise<Readonly<{
   commentId: number;
   preparation: AgentOperationActivationPreparation;
-}> {
-  const publications = allPublications(runtimeRoot, repository, pullRequestNumber);
+}>> {
+  const publications = (await allPublications(runtimeRoot, repository, pullRequestNumber));
   assertNoDuplicatePublicationIdentities(publications);
-  const selected = selectMaximalPreparationPublication(
+  const selected = (await selectMaximalPreparationPublication(
     publications, candidateRoot, pullRequestNumber, exactBase, targetCandidate, manifestPath, manifestDigest
-  );
-  assertProviderLive(runtimeRoot, repository, selected.publication.provider);
-  const payload = validateArtifactPayload(runtimeRoot, repository, selected.publication);
+  ));
+  (await assertProviderLive(runtimeRoot, repository, selected.publication.provider));
+  const payload = (await validateArtifactPayload(runtimeRoot, repository, selected.publication));
   if (payload.schema !== 'sec-agent-operation-activation-preparation-v2') {
     unavailable('activation-provider-readback-conflict', 'preparation-artifact-schema-drift');
   }
@@ -1929,24 +1976,24 @@ async function main(): Promise<void> {
       'phase', 'candidate-root',
       ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(await resolveAgentRuntimeRepositoryRoot());
-    const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
-    assertSameRepository(runtimeRoot, candidateRoot);
-    assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
-    gitBranch(candidateRoot);
+    const runtimeRoot = (await repositoryRoot(await resolveAgentRuntimeRepositoryRoot()));
+    const candidateRoot = (await repositoryRoot(requiredOption(options, 'candidate-root')));
+    (await assertSameRepository(runtimeRoot, candidateRoot));
+    (await assertCleanExactRoot(candidateRoot, (await gitHead(candidateRoot))));
+    (await gitBranch(candidateRoot));
     const phase = requiredOption(options, 'phase');
     if (phase !== 'prepare' && phase !== 'finalize') unavailable('activation-issuer-unavailable', phase);
-    const decision = await requireResolvedWorkDecision(runtimeRoot);
-    assertCleanExactRoot(runtimeRoot, decision.exactMain);
-    const targetCandidate = gitHead(candidateRoot);
+    const decision = (await requireResolvedWorkDecision(runtimeRoot));
+    (await assertCleanExactRoot(runtimeRoot, decision.exactMain));
+    const targetCandidate = (await gitHead(candidateRoot));
     const entries = decision.registry.entries.filter((entry) => entry.source === 'open-pr'
       && entry.headSha === targetCandidate && entry.baseSha === decision.exactMain
       && entry.prNumber !== null && entry.headTreeSha !== null);
-    if (entries.length !== 1 || entries[0]!.headTreeSha !== gitTree(candidateRoot, targetCandidate)) {
+    if (entries.length !== 1 || entries[0]!.headTreeSha !== (await gitTree(candidateRoot, targetCandidate))) {
       unavailable('activation-stale', 'exact-open-pr-missing');
     }
     const entry = entries[0]!;
-    const control = readCandidateControl(candidateRoot, targetCandidate, decision);
+    const control = (await readCandidateControl(candidateRoot, targetCandidate, decision));
     if (entry.manifestPath !== control.manifestPath || entry.manifestDigest !== control.manifestDigest) {
       unavailable('activation-stale', 'registry-manifest-drift');
     }
@@ -1959,7 +2006,7 @@ async function main(): Promise<void> {
       manifestDigest: control.manifestDigest,
       preparationCommentId: phase === 'prepare'
         ? null
-        : resolveMaximalPreparation(
+        : (await resolveMaximalPreparation(
             runtimeRoot,
             candidateRoot,
             decision.repository,
@@ -1968,9 +2015,9 @@ async function main(): Promise<void> {
             targetCandidate,
             control.manifestPath,
             control.manifestDigest
-          ).commentId
+          )).commentId
     });
-    dispatchRequest(runtimeRoot, decision.repository, request);
+    (await dispatchRequest(runtimeRoot, decision.repository, request));
     process.stdout.write(`${JSON.stringify({
       status: 'dispatched',
       event: AGENT_OPERATION_ACTIVATION_EVENT,
@@ -1982,30 +2029,30 @@ async function main(): Promise<void> {
     assertExactOptionKeys(options, [
       'candidate-root', 'request-id', ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(await resolveAgentRuntimeRepositoryRoot());
-    const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
-    assertSameRepository(runtimeRoot, candidateRoot);
-    assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
-    const decision = await requireResolvedWorkDecision(runtimeRoot);
-    assertCleanExactRoot(runtimeRoot, decision.exactMain);
-    const targetCandidate = gitHead(candidateRoot);
+    const runtimeRoot = (await repositoryRoot(await resolveAgentRuntimeRepositoryRoot()));
+    const candidateRoot = (await repositoryRoot(requiredOption(options, 'candidate-root')));
+    (await assertSameRepository(runtimeRoot, candidateRoot));
+    (await assertCleanExactRoot(candidateRoot, (await gitHead(candidateRoot))));
+    const decision = (await requireResolvedWorkDecision(runtimeRoot));
+    (await assertCleanExactRoot(runtimeRoot, decision.exactMain));
+    const targetCandidate = (await gitHead(candidateRoot));
     const entries = decision.registry.entries.filter((entry) => entry.source === 'open-pr'
       && entry.headSha === targetCandidate && entry.baseSha === decision.exactMain
       && entry.prNumber !== null && entry.headTreeSha !== null);
-    if (entries.length !== 1 || entries[0]!.headTreeSha !== gitTree(candidateRoot, targetCandidate)) {
+    if (entries.length !== 1 || entries[0]!.headTreeSha !== (await gitTree(candidateRoot, targetCandidate))) {
       unavailable('activation-stale', 'exact-open-pr-missing');
     }
     const requestId = requiredOption(options, 'request-id');
     if (!/^sha256:[0-9a-f]{64}$/u.test(requestId)) {
       unavailable('activation-issuer-unavailable', requestId);
     }
-    const matches = allPublications(runtimeRoot, decision.repository, entries[0]!.prNumber!)
+    const matches = (await allPublications(runtimeRoot, decision.repository, entries[0]!.prNumber!))
       .filter(({ publication }) => publication.request.requestOperationId === requestId);
     if (matches.length === 0) unavailable('activation-receipt-absent', requestId);
     if (matches.length !== 1) unavailable('activation-provider-readback-conflict', requestId);
     const match = matches[0]!;
-    assertProviderLive(runtimeRoot, decision.repository, match.publication.provider);
-    validateArtifactPayload(runtimeRoot, decision.repository, match.publication);
+    (await assertProviderLive(runtimeRoot, decision.repository, match.publication.provider));
+    (await validateArtifactPayload(runtimeRoot, decision.repository, match.publication));
     process.stdout.write(`${JSON.stringify({
       status: 'observed',
       commentId: match.commentId,
@@ -2022,7 +2069,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   try {
-    await main();
+    (await main());
   } catch (error) {
     const blocked = error instanceof AgentOperationActivationUnavailableError
       ? error

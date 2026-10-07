@@ -1,10 +1,14 @@
+import type { CanonicalVerificationArtifactSet } from '../../assurance/verification/artifact/contract/artifact.ts';
+import { snapshotVerificationPublicationArtifacts, type VerificationArtifactPublicationArtifacts } from '../../assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES, CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
+import { assertProductVerificationArtifactSubject } from '../../assurance/verification/project/report.ts';
 import {
   buildProvenanceArtifacts,
   finalizeProvenanceArtifacts
 } from '../../assurance/verification/provenance/build-provenance.ts';
 import type { LockFile } from '../../compiler/contract.ts';
+import { cloneAndDeepFreeze } from '../../contracts/canonical.ts';
 import { type CommitFence } from '../../contracts/commit-fence.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
@@ -43,7 +47,30 @@ function readVerificationReport(workspaceRoot: string): VerificationReport | nul
 }
 
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
-  const report = readVerificationReport(workspaceRoot);
+  return buildProvenanceFromReport(workspaceRoot, lock, readVerificationReport(workspaceRoot));
+}
+
+/** Prepare diagnostic provenance from the same admitted publication. This
+ * captures plain evidence before suspension; it does not grant Lock completion. */
+export async function buildProvenanceFromVerificationPublication(
+  workspaceRoot: string,
+  lock: LockFile,
+  artifacts: VerificationArtifactPublicationArtifacts | null
+): Promise<ProvenanceFile> {
+  const capturedLock = cloneAndDeepFreeze(lock);
+  const capturedArtifacts = artifacts === null ? null : cloneAndDeepFreeze(
+    snapshotVerificationPublicationArtifacts(artifacts)
+  );
+  if (capturedArtifacts !== null) {
+    assertProductVerificationArtifactSubject(capturedLock, capturedArtifacts);
+  }
+  return buildProvenanceFromReport(workspaceRoot, capturedLock,
+    capturedArtifacts?.verificationReport ?? null);
+}
+
+async function buildProvenanceFromReport(
+  workspaceRoot: string, lock: LockFile, report: VerificationReport | null
+): Promise<ProvenanceFile> {
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   const artifacts = buildProvenanceArtifacts(lock, report, overrideManifest);
   const hashedArtifacts = artifacts.map((artifact) => {
@@ -80,6 +107,24 @@ export async function writeProvenance(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<ProvenanceFile> {
+  return publishProvenance(workspaceRoot, lock, () => buildProvenance(workspaceRoot, lock), commitFence);
+}
+
+/** Same-operation data handoff from Lock's canonical reader, not a producer
+ * qualification. Other callers retain writeProvenance's own observation path. */
+export async function writeProvenanceFromVerification(
+  workspaceRoot: string,
+  lock: LockFile,
+  artifacts: CanonicalVerificationArtifactSet,
+  commitFence?: CommitFence
+): Promise<ProvenanceFile> {
+  return publishProvenance(workspaceRoot, lock,
+    () => buildProvenanceFromReport(workspaceRoot, lock, artifacts.verificationReport), commitFence);
+}
+
+async function publishProvenance(
+  workspaceRoot: string, lock: LockFile, build: () => Promise<ProvenanceFile>, commitFence?: CommitFence
+): Promise<ProvenanceFile> {
   const provenancePath = resolveWorkspaceArtifactPath(
     workspaceRoot,
     CI_ARTIFACT_FILES.provenance
@@ -93,7 +138,7 @@ export async function writeProvenance(
     lock,
     [CI_ARTIFACT_FILES.provenance],
     async () => {
-      const provenance = await buildProvenance(workspaceRoot, lock);
+      const provenance = await build();
       await publishExistingParentCanonicalWorkspaceFile({
         workspaceRoot,
         targetPath: provenancePath,

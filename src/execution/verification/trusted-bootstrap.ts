@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { parseExactJsonBytes } from '../../contracts/exact-json.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../contracts/repository-path.ts';
 
 type Digest = `sha256:${string}`;
 export const TRUSTED_BOOTSTRAP_CHECKER_RECEIPT_FIELDS = Object.freeze([
@@ -59,16 +61,76 @@ export function deriveTrustedBootstrapAuthority(input: Readonly<{
   return Object.freeze({ verdict, reason });
 }
 
+/** Decode data only. Native evidence readers retain ownership of provenance.
+ * Keep their existing 32-MiB member limit; bound recursive containers as well. */
+export function parseTrustedBootstrapReceiptBytes(bytes: Uint8Array): unknown {
+  return parseExactJsonBytes(bytes, 'Trusted bootstrap receipt', {
+    maximumInputBytes: 32 * 1024 * 1024, maximumDepth: 32
+  });
+}
+
+function isDigest(value: unknown): value is Digest {
+  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+
+/** Shared data grammar, separate from subject/program and producer binding. */
+function assertCheckerReceiptSemantic(value: Record<string, unknown>): void {
+  if (value.schema !== 'sec-trusted-bootstrap-checker-receipt-v1'
+      || (value.phase !== 'pre' && value.phase !== 'post')
+      || !['checkerBaseSha', 'baseTreeSha', 'candidateHeadSha', 'candidateTreeSha',
+        'candidateParentSha', 'checkerToolBlob', 'checkerWorkflowBlob',
+        'candidateToolBlob', 'candidateWorkflowBlob'].every(key =>
+        typeof value[key] === 'string' && /^[0-9a-f]{40}$/u.test(value[key]))
+      || !['registryDigest', 'checkerActionKey', 'checkerActionResultDigest',
+        'checkerClosureDigest', 'checkerProgramDigest'].every(key => isDigest(value[key]))
+      || !['candidateActionKey', 'candidateActionResultDigest', 'candidateClosureDigest',
+        'sutEvidenceDigest', 'sutDiagnosticDigest'].every(key => value[key] === null || isDigest(value[key]))
+      || (value.authorityVerdict !== 'passed' && value.authorityVerdict !== 'failed'
+        && value.authorityVerdict !== 'manual-bootstrap-required')
+      || typeof value.authorityReason !== 'string' || value.authorityReason.length === 0
+      || !Array.isArray(value.baseUndecidablePaths)
+      || !Array.from(value.baseUndecidablePaths).every(CodexDevelopmentIsCanonicalRepositoryPath)
+      || new Set(value.baseUndecidablePaths).size !== value.baseUndecidablePaths.length
+      || (value.auxiliaryStatus !== 'not-observed' && value.auxiliaryStatus !== 'unavailable'
+        && value.auxiliaryStatus !== 'passed' && value.auxiliaryStatus !== 'failed'
+        && value.auxiliaryStatus !== 'invalid')
+      || (value.sutJobResult !== null && typeof value.sutJobResult !== 'string')
+      || value.checkerActionResultDigest !== value.checkerClosureDigest
+      || value.candidateParentSha !== value.checkerBaseSha) {
+    throw new Error('Trusted bootstrap checker receipt grammar is invalid.');
+  }
+  if (value.candidateActionKey === null
+    ? ['candidateActionResultDigest', 'candidateClosureDigest', 'candidateTrustRevision',
+      'candidateModuleCount'].some(key => value[key] !== null)
+    : !isDigest(value.candidateClosureDigest)
+      || value.candidateActionResultDigest !== value.candidateClosureDigest
+      || typeof value.candidateTrustRevision !== 'string' || value.candidateTrustRevision.length === 0
+      || !Number.isSafeInteger(value.candidateModuleCount) || Number(value.candidateModuleCount) < 1) {
+    throw new Error('Trusted bootstrap candidate Action fields are inconsistent.');
+  }
+  if (value.phase === 'pre' && (value.auxiliaryStatus !== 'not-observed'
+      || value.sutEvidenceDigest !== null || value.sutJobResult !== null
+      || value.sutDiagnosticDigest !== null)) {
+    throw new Error('Trusted bootstrap PRE contains POST diagnostics.');
+  }
+}
+
+function assertCheckerReceipt(value: unknown): asserts value is Record<string, unknown> {
+  assertTrustedBootstrapExactKeys(value, [...TRUSTED_BOOTSTRAP_CHECKER_RECEIPT_FIELDS, 'receiptDigest'],
+    'trusted bootstrap checker receipt');
+  assertCheckerReceiptSemantic(value);
+  const { receiptDigest, ...semantic } = value;
+  if (!isDigest(receiptDigest) || receiptDigest !== trustedBootstrapJsonDigest(semantic)) {
+    throw new Error('Trusted bootstrap checker receipt digest is invalid.');
+  }
+}
+
 export function assertTrustedBootstrapPreReceipt(value: unknown, input: Readonly<{
   baseSha: string; baseTreeSha: string; headSha: string; treeSha: string;
   registryDigest: Digest; checkerProgramDigest: Digest;
 }>): asserts value is Record<string, unknown> {
-  assertTrustedBootstrapExactKeys(value, [...TRUSTED_BOOTSTRAP_CHECKER_RECEIPT_FIELDS, 'receiptDigest'],
-    'trusted bootstrap PRE receipt');
-  const { receiptDigest, ...semantic } = value;
-  if (receiptDigest !== trustedBootstrapJsonDigest(semantic)
-      || value.schema !== 'sec-trusted-bootstrap-checker-receipt-v1'
-      || value.phase !== 'pre' || value.checkerBaseSha !== input.baseSha
+  assertCheckerReceipt(value);
+  if (value.phase !== 'pre' || value.checkerBaseSha !== input.baseSha
       || value.baseTreeSha !== input.baseTreeSha || value.candidateHeadSha !== input.headSha
       || value.candidateTreeSha !== input.treeSha || value.candidateParentSha !== input.baseSha
       || value.registryDigest !== input.registryDigest
@@ -81,11 +143,10 @@ export function prepareTrustedBootstrapCheckerReceipt(semantic: Record<string, u
   Readonly<Record<string, unknown>> {
   assertTrustedBootstrapExactKeys(semantic, TRUSTED_BOOTSTRAP_CHECKER_RECEIPT_FIELDS,
     'trusted bootstrap checker receipt semantic');
-  if (semantic.schema !== 'sec-trusted-bootstrap-checker-receipt-v1'
-      || (semantic.phase !== 'pre' && semantic.phase !== 'post')) {
-    throw new Error('Trusted bootstrap receipt schema or phase is invalid.');
-  }
-  return Object.freeze({ ...semantic, receiptDigest: trustedBootstrapJsonDigest(semantic) });
+  assertCheckerReceiptSemantic(semantic);
+  const retained = { ...semantic,
+    baseUndecidablePaths: Object.freeze([...(semantic.baseUndecidablePaths as string[])]) };
+  return Object.freeze({ ...retained, receiptDigest: trustedBootstrapJsonDigest(retained) });
 }
 
 function stable(value: Record<string, unknown>): Record<string, unknown> {
@@ -97,8 +158,11 @@ function stable(value: Record<string, unknown>): Record<string, unknown> {
 
 export function assertTrustedBootstrapStableReceipt(pre: Record<string, unknown>,
   post: Record<string, unknown>): void {
-  assertTrustedBootstrapExactKeys(post, [...TRUSTED_BOOTSTRAP_CHECKER_RECEIPT_FIELDS, 'receiptDigest'],
-    'trusted bootstrap POST receipt');
+  assertCheckerReceipt(pre);
+  assertCheckerReceipt(post);
+  if (pre.phase !== 'pre' || post.phase !== 'post') {
+    throw new Error('Trusted bootstrap stable receipt requires PRE then POST.');
+  }
   if (JSON.stringify(stable(pre)) !== JSON.stringify(stable(post))) {
     throw new Error('Trusted bootstrap PRE and POST candidate closure receipts differ.');
   }
@@ -106,8 +170,8 @@ export function assertTrustedBootstrapStableReceipt(pre: Record<string, unknown>
 
 export function assertTrustedBootstrapPreparedReceipt(actual: unknown,
   expected: Readonly<Record<string, unknown>>): void {
-  assertTrustedBootstrapExactKeys(actual, [...TRUSTED_BOOTSTRAP_CHECKER_RECEIPT_FIELDS, 'receiptDigest'],
-    'trusted bootstrap prepared receipt');
+  assertCheckerReceipt(actual);
+  assertCheckerReceipt(expected);
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error('Trusted bootstrap prepared receipt differs from native-issued stage facts.');
   }
@@ -151,7 +215,7 @@ export function evaluateTrustedBootstrapSutEvidence(input: Readonly<{
   };
   assertTrustedBootstrapSutEvidenceDigestInventory(input.files);
   const sumsSource = new TextDecoder('utf-8', { fatal: true }).decode(member('SHA256SUMS'));
-  const receipt: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(member('sut-receipt.json')));
+  const receipt: unknown = parseTrustedBootstrapReceiptBytes(member('sut-receipt.json'));
   assertTrustedBootstrapExactKeys(receipt, [
     'schema', 'baseSha', 'headSha', 'treeSha', 'parentSha', 'auxiliaryStatus',
     'evidenceSetDigest', 'bootstrapDigest', 'sandboxPolicyDigest', 'commandPlanDigest',

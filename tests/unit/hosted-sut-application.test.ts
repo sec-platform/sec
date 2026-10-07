@@ -1,4 +1,8 @@
 import { expect, test } from 'bun:test';
+import type { ProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/adapters/verification/platform/action/contract/environment.ts';
+import { buildTrustedBootstrapSutSandboxCommandPlan, hostedCandidateProcessEnvironment, hostedSutCandidatePreparationFromPlan, parseNativeHostedCandidatePreparation } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
+import { CodexDevelopmentPrepareTrustedBootstrapSutInputs, trustedBootstrapCandidatePreparation } from '../../src/adapters/verification/platform/ci/verification-materialization.ts';
 import { executeTrustedBootstrapSut, TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS, type TrustedBootstrapSutInput } from '../../src/application/hosted-sut.ts';
 import { readResourceCompositeSettlementFailures, ResourceCompositeSettlementError } from '../../src/execution/resource-settlement.ts';
 import type { PreparedTrustedBootstrapSutInputs } from '../../src/execution/verification/hosted.ts';
@@ -41,7 +45,8 @@ function fixture(options: Readonly<{ executionFailure?: Readonly<{ error: unknow
         if (options.executionFailure !== undefined) throw options.executionFailure.error;
         return observation(JSON.stringify({ schema: 'sec-trusted-bootstrap-sandbox-summary-v1',
           baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
-          parentSha: input.baseSha, status: 'passed', results: [] }));
+          parentSha: input.baseSha, status: 'passed', results: TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS.map(([, label]) =>
+            ({ label, exitCode: 0, truncated: false })) }));
       }
       if (options.teardownFailure !== undefined && calls.includes('bootstrap-execute')) throw options.teardownFailure.error;
       return observation('');
@@ -61,7 +66,7 @@ function fixture(options: Readonly<{ executionFailure?: Readonly<{ error: unknow
       calls.push('prepare');
       if (options.preparationFailure !== undefined) throw options.preparationFailure.error;
       return { preparedCandidateArchive: '/transport/archive', archiveDigest: digest,
-        archiveInventoryDigest: digest, dependencyMaterialization: {}, dependencyArchiveProjection: {} } as PreparedTrustedBootstrapSutInputs;
+        archiveInventoryDigest: digest, dependencyArchiveProjection: {} } as PreparedTrustedBootstrapSutInputs;
     },
     bootstrapEnvironment: () => ({ SAFE_INPUT: 'value' }),
     writeEvidenceMember: (name: string, value: unknown) => { members.set(name, value); },
@@ -78,6 +83,64 @@ test('TrustedBootstrap application publishes the original fixed evidence and joi
   expect(await executeTrustedBootstrapSut(input, observed.ports)).toEqual({ status: 'passed', bootstrapDigest: digest, receiptDigest: digest });
   expect(observed.calls).toEqual(['capability-self-test', 'teardown', 'evidence-root', 'prepare', 'bootstrap-execute', 'teardown', 'close', 'retire']);
   expect([...observed.members.keys()]).toEqual([...TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS.map(([name]) => name), 'SHA256SUMS', 'sut-receipt.json']);
+});
+
+test('TrustedBootstrap waits for asynchronous physical preparation before execution or retirement', async () => {
+  const observed = fixture();
+  const original = observed.ports.prepareBootstrap;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const running = executeTrustedBootstrapSut(input, { ...observed.ports, prepareBootstrap: async source => {
+    const prepared = original(source);
+    await gate;
+    return prepared;
+  } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(observed.calls).toEqual(['capability-self-test', 'teardown', 'evidence-root', 'prepare']);
+  release();
+  expect((await running).status).toBe('passed');
+  expect(observed.calls.slice(-4)).toEqual(['bootstrap-execute', 'teardown', 'close', 'retire']);
+});
+
+test('TrustedBootstrap cannot report passed when any required evidence observation is missing or duplicated', async () => {
+  for (const results of [[], [...TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS, TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS[0]!]
+    .map(([, label]) => ({ label, exitCode: 0, truncated: false }))]) {
+    const observed = fixture();
+    const original = observed.ports.run;
+    await expect(executeTrustedBootstrapSut(input, { ...observed.ports, run: async (plan, archive) => {
+      const result = await original(plan, archive);
+      return plan.phase !== 'bootstrap-execute' ? result : { ...result, failureTail: JSON.stringify({
+        schema: 'sec-trusted-bootstrap-sandbox-summary-v1', baseSha: input.baseSha, headSha: input.headSha,
+        treeSha: input.treeSha, parentSha: input.baseSha, status: 'passed', results }) };
+    } })).rejects.toThrow();
+    expect(JSON.parse(observed.members.get('sut-receipt.json') as string).auxiliaryStatus).toBe('failed');
+    expect(observed.calls.slice(-4)).toEqual(['bootstrap-execute', 'teardown', 'close', 'retire']);
+  }
+});
+
+test('TrustedBootstrap physical preparation rejects unissued sessions and caller-made publications before effects', async () => {
+  const fake = {} as ProcessResourceSession;
+  await expect(CodexDevelopmentPrepareTrustedBootstrapSutInputs(input, fake, '/unissued')).rejects.toThrow();
+  expect(() => trustedBootstrapCandidatePreparation({} as PreparedTrustedBootstrapSutInputs, fake, digest)).toThrow(/original supervisor and physical producer/u);
+});
+
+test('TrustedBootstrap prepared native plan binds its separate subject without claiming Action authorization', () => {
+  const preparation = parseNativeHostedCandidatePreparation({ schema: 'sec-trusted-bootstrap-candidate-preparation',
+    bootstrapDigest: digest, baseSha: input.baseSha, baseTreeSha: 'e'.repeat(40), headSha: input.headSha,
+    headTreeSha: input.treeSha, archiveDigest: digest, inventoryDigest: digest, dependencyClosureDigest: digest,
+    gitBundleDigest: digest, deadlineAtUnixMs: 1_900_000_000_000, inputAccess: 'writable' });
+  if (preparation.schema !== 'sec-trusted-bootstrap-candidate-preparation') throw new Error('Fixture schema changed.');
+  const source = { bootstrapDigest: digest, candidateArchiveDigest: digest, bunExecutable: '/trusted/bin/bun',
+    baseSha: input.baseSha, headSha: input.headSha, unitNonce: 'bootstrap-causal',
+    candidateEnvironment: hostedCandidateProcessEnvironment({ SEC_EXECUTION_ENVIRONMENT_REVISION: CI_VERIFICATION_HOSTED_PROVIDER_REVISION }),
+    candidatePreparation: preparation };
+  const plan = buildTrustedBootstrapSutSandboxCommandPlan(source);
+  expect(hostedSutCandidatePreparationFromPlan(plan)).toEqual(preparation);
+  expect(plan.executionAuthorizationDigest).toBeNull();
+  expect(plan.physicalCommandProjectionDigest).toBeNull();
+  expect(() => buildTrustedBootstrapSutSandboxCommandPlan({ ...source, candidatePreparation: { ...preparation, archiveDigest: `sha256:${'f'.repeat(64)}` } })).toThrow();
+  expect(() => hostedSutCandidatePreparationFromPlan({ ...plan, phase: 'execute' })).toThrow(/different business flow/u);
+  expect(() => parseNativeHostedCandidatePreparation({ ...preparation, actionKey: digest })).toThrow();
 });
 
 test.each([null, false, undefined])('TrustedBootstrap preserves raw process failure %p after mandatory teardown and receipt', async error => {

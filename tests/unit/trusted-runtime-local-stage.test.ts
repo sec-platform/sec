@@ -190,11 +190,11 @@ test('verification-only composition publishes through original journals and stop
     currentSubject: 'not-observed', sourceQualification: 'not-revalidated', executionStarted: false });
 });
 
-test('full closeout still continues to its original pre-merge review boundary', () => {
+test('full closeout cannot reach candidate execution when its native MainHealth producer is unavailable', () => {
   const observed = compositionScenario('full-closeout');
-  expect(observed.failure).toContain('TEST_PRE_MERGE_BOUNDARY');
-  expect(observed.counters).toMatchObject({ source: 1, review: 2, remoteWrite: 0, platform: 0 });
-  expect(observed.files).toContain('verification-action.json');
+  expect(observed.failure).toContain('TEST_NATIVE_MAIN_HEALTH_UNAVAILABLE');
+  expect(observed.counters).toMatchObject({ source: 0, review: 0, remoteWrite: 0, platform: 0 });
+  expect(observed.files).toEqual([]);
   expect(observed.leaseFiles).toEqual([]);
 });
 

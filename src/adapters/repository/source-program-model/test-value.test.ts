@@ -7,13 +7,10 @@ import {
   SourceProgramCompilationInterruptedError
 } from './compilation-operation.ts';
 import type { SourceProgramSupersessionReceipt } from './contract.ts';
+import { reconcileSourceProgramTestValueWithSupersession } from './reduction.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
 import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
-import {
-  compileSourceProgramTestBaselineEvidence,
-  compileSourceProgramTestValue,
-  reconcileSourceProgramTestValueWithSupersession
-} from './test-value.ts';
+import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue } from './test-value.ts';
 import { compileTypeScriptSourceProgramModel } from './typescript.ts';
 
 const repositoryRoot = process.cwd();

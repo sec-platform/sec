@@ -81,7 +81,7 @@ export async function executeTrustedBootstrapSut<
 >(input: TrustedBootstrapSutInput, ports: HostedSutPorts<Policy, Environment, ProviderOrigin, ResolutionSchema, TicketSchema, AuthorizationSchema, PhysicalSchema, ProviderRevision, ReceiptSchema, RawResultSchema, CommandSchema, ProcessResult, RetainedArchive> & Readonly<{
   sandboxPolicyDigest: VerificationActionKeyDigest;
   prepareEvidenceRoot(): void;
-  prepareBootstrap(input: TrustedBootstrapSutInput): PreparedTrustedBootstrapSutInputs;
+  prepareBootstrap(input: TrustedBootstrapSutInput): PreparedTrustedBootstrapSutInputs | Promise<PreparedTrustedBootstrapSutInputs>;
   bootstrapEnvironment(input: TrustedBootstrapSutInput): Readonly<Record<string, string>>;
   createBootstrapPlan(input: Readonly<{ bootstrapDigest: VerificationActionKeyDigest;
     candidateArchiveDigest: VerificationActionKeyDigest; bunExecutable: string;
@@ -119,13 +119,12 @@ export async function executeTrustedBootstrapSut<
   let processFailures: readonly ResourceSettlementFailure[] = [];
   try {
     ports.prepareEvidenceRoot();
-    prepared = ports.prepareBootstrap(input);
+    prepared = await ports.prepareBootstrap(input);
     const bootstrapDigest = ports.digest(Object.freeze({
       schema: 'sec-trusted-bootstrap-sut-operation-v1',
       baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
       manifestPath: input.manifestPath, archiveDigest: prepared.archiveDigest,
       archiveInventoryDigest: prepared.archiveInventoryDigest,
-      dependencyMaterialization: prepared.dependencyMaterialization,
       dependencyArchiveProjection: prepared.dependencyArchiveProjection,
       sandboxPolicyDigest: ports.sandboxPolicyDigest
     }));
@@ -174,12 +173,16 @@ export async function executeTrustedBootstrapSut<
     const summaryIdentityPassed = summary?.schema === 'sec-trusted-bootstrap-sandbox-summary-v1'
       && summary.baseSha === input.baseSha && summary.headSha === input.headSha
       && summary.treeSha === input.treeSha && summary.parentSha === input.baseSha;
+    const evidenceMembersPassed = TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS.every(([, label]) => {
+      const members = results.filter(value => value.label === label);
+      return members.length === 1 && members[0]!.exitCode === 0 && members[0]!.truncated === false;
+    });
     const status = !observationLost && ports.lifecycleComplete(execution.lifecycle)
       && execution.code === 0 && !execution.outputTruncated
       && execution.stdoutBytesObserved <= ports.outputByteLimit
       && execution.stderrBytesObserved <= ports.outputByteLimit
       && ports.cleanupComplete(cleanup) && archiveStable
-      && summaryIdentityPassed && summary?.status === 'passed' ? 'passed' as const : 'failed' as const;
+      && summaryIdentityPassed && evidenceMembersPassed && summary?.status === 'passed' ? 'passed' as const : 'failed' as const;
     const semantic = Object.freeze({
       schema: 'sec-trusted-bootstrap-sut-receipt-v3',
       baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,

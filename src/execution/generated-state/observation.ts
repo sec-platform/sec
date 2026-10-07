@@ -5,7 +5,7 @@ import type {
   GeneratedStateProducerBindingExpectation, GeneratedStateRetirementObservation,
   GeneratedStateRetirementObservationStatus
 } from './lifecycle-port.ts';
-import type { GeneratedStateRegistrationObservation } from './registration-port.ts';
+import type { GeneratedStateRegistrationObservation } from './registration-contract.ts';
 
 export interface GeneratedStateNativeObservationEvidence { readonly kind: 'generated-state-native-observation-evidence'; }
 export interface GeneratedStateObservationScope {

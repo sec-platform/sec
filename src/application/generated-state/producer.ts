@@ -15,6 +15,7 @@ import type {
 } from '../../execution/generated-state/lifecycle-port.ts';
 import type { GeneratedStateRegistrationMutationBackend, GeneratedStateRegistrationObservation, GeneratedStateRegistrationObservationBackend } from '../../execution/generated-state/registration-port.ts';
 import { issueGeneratedStatePublication } from '../../execution/generated-state/registration-session.ts';
+import { generatedStateOwnerRetirementRef } from '../../execution/generated-state/registration-transition.ts';
 import { withMigratedGeneratedStateMutation } from './registration.ts';
 
 function sameIdentity(left: GeneratedStatePhysicalIdentity, right: GeneratedStatePhysicalIdentity): boolean {
@@ -149,16 +150,21 @@ export function createGeneratedStateProducerRegistration(input: Readonly<{
       const retired = await mutation(async (session, resource) => {
         const before = observation(backend.readRegistrationCensus(resource), relativePath);
         const current = before.registration;
-        if (current === null || current.registrationDigest !== expected.registrationDigest || before.tip === null) throw new GeneratedStateProducerBindingBlockedError(
+        if (current === null || before.tip === null) throw new GeneratedStateProducerBindingBlockedError(
           'Generated-state retirement is not bound to the producer session registration.');
         const trimmed = outcome.trim(); if (trimmed.length === 0) throw new Error('Generated-state retirement outcome is empty.');
-        const ref = generatedStateDigest({ schema: 'sec-generated-state-owner-retirement-v1', registrationId: current.registrationId,
-          registrationDigest: current.registrationDigest, relativePath, owner: current.owner, producer: current.producer,
-          operationId: current.operationId, outcome: trimmed });
         if (current.phase === 'retired') {
-          if (current.retirementRef === ref) return current;
+          const predecessor = before.previousRegistration;
+          if (predecessor?.phase === 'active'
+              && (current.registrationDigest === expected.registrationDigest
+                || predecessor.registrationDigest === expected.registrationDigest)
+              && sameIdentity(predecessor.root, current.root)
+              && current.retirementRef === generatedStateOwnerRetirementRef(predecessor, trimmed)) return current;
           throw new Error('Generated-state registration was retired by a different authority.');
         }
+        if (current.registrationDigest !== expected.registrationDigest) throw new GeneratedStateProducerBindingBlockedError(
+          'Generated-state retirement is not bound to the producer session registration.');
+        const ref = generatedStateOwnerRetirementRef(current, trimmed);
         const value = retireGeneratedStateRegistration(current, ref, { clock: input.clock });
         backend.publishRegistration(resource, issueGeneratedStatePublication(session, { kind: 'registration', registration: value,
           previousRecordDigest: before.tip.recordDigest, event: 'registered' }));

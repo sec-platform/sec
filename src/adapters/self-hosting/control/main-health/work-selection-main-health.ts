@@ -13,12 +13,7 @@ import {
   withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
-import {
-  inspectExactNoFollowDirectoryPresence,
-  PhysicalNoFollowError,
-  readNoFollowOrdinaryFile
-} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
+import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { createMainHealthLedger, resolveOrdinaryMainHealthLane, type MainHealthRoutingState } from './contract.ts';
 import {
@@ -27,7 +22,6 @@ import {
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
   HOSTED_MAIN_HEALTH_FRESHNESS_MS,
   parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
   type TrustedRuntimeMainHealthReceipt
 } from './main-health-observation.ts';
 import {
@@ -123,15 +117,6 @@ function invalidRef(label: string, value: Uint8Array | string): MainHealthDigest
   }));
 }
 
-function decodeExactUtf8(bytes: Uint8Array): string {
-  const source = Buffer.from(bytes);
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  if (!Buffer.from(text, 'utf8').equals(source)) {
-    throw new Error('trusted runtime MainHealth receipt is not exact UTF-8');
-  }
-  return text;
-}
-
 async function observeTrustedRuntimeProvider(input: Readonly<{
   repositoryRoot: string;
   repository: string;
@@ -140,8 +125,8 @@ async function observeTrustedRuntimeProvider(input: Readonly<{
   now: string;
   qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt;
 }>): Promise<WorkSelectionMainHealthProviderObservation> {
-  let receiptBytes: Uint8Array | null = null;
-  if (input.qualifiedLocalReceipt === undefined) {
+  const qualifiedLocalReceipt = input.qualifiedLocalReceipt;
+  if (qualifiedLocalReceipt === undefined) {
     return Object.freeze({ kind: 'unavailable', ref: invalidRef(
       'trusted-runtime-live-qualification-required', `${input.repository}@${input.mainSha}`
     ) });
@@ -151,45 +136,24 @@ async function observeTrustedRuntimeProvider(input: Readonly<{
       '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts'
     );
     const qualification = assertTrustedRuntimeMainHealthQualification({
-      ...input, receipt: input.qualifiedLocalReceipt
+      ...input, receipt: qualifiedLocalReceipt
     });
-    const layout = resolveSecRuntimeStateForRepository({
-      repository: input.repository,
-      repositoryRoot: input.repositoryRoot
-    });
-    const locator = trustedRuntimeMainHealthReceiptLocator({
-      repositoryStateRoot: layout.repositoryStateRoot,
-      mainSha: input.mainSha,
-      receiptDigest: input.qualifiedLocalReceipt.receiptDigest
-    });
-    const presence = inspectExactNoFollowDirectoryPresence(
-      locator.directory,
-      'WorkSelection trusted MainHealth directory'
-    );
-    if (presence.state === 'absent') return Object.freeze({ kind: 'absent' });
-    receiptBytes = readNoFollowOrdinaryFile(presence.directory.target, locator.fileName);
-    if (receiptBytes === null) return Object.freeze({ kind: 'absent' });
-    const source = decodeExactUtf8(receiptBytes);
-    const receipt = parseTrustedRuntimeMainHealthReceipt(source);
-    if (!Buffer.from(receiptBytes).equals(
-      Buffer.from(`${encodeVerificationActionData(receipt)}\n`, 'utf8')
-    )) {
-      return Object.freeze({
-        kind: 'invalid',
-        ref: invalidRef('trusted-runtime-noncanonical-receipt-bytes', receiptBytes)
-      });
-    }
-    if (receipt.receiptDigest !== input.qualifiedLocalReceipt.receiptDigest
+    // Qualification is checked on the original production object, before any
+    // receipt data is parsed. Canonical data alone never recreates authority.
+    // No persistent copy is needed: all consumers share this lexical lifetime,
+    // and a recovery invocation obtains its own fresh qualification.
+    const receipt = parseTrustedRuntimeMainHealthReceipt(qualifiedLocalReceipt);
+    if (receipt.receiptDigest !== qualifiedLocalReceipt.receiptDigest
         || receipt.repository !== input.repository
         || receipt.mainSha !== input.mainSha
         || receipt.mainTreeSha !== input.mainTreeSha
         || Date.parse(receipt.observedAt) > Date.parse(input.now)) {
       return Object.freeze({
         kind: 'invalid',
-        ref: invalidRef('trusted-runtime-receipt-subject-or-time-drift', receiptBytes)
+        ref: invalidRef('trusted-runtime-receipt-subject-or-time-drift', receipt.receiptDigest)
       });
     }
-    assertTrustedRuntimeMainHealthQualification({ ...input, receipt: input.qualifiedLocalReceipt });
+    assertTrustedRuntimeMainHealthQualification({ ...input, receipt: qualifiedLocalReceipt });
     const expiresAt = new Date(Math.min(
       Date.parse(input.now) + HOSTED_MAIN_HEALTH_FRESHNESS_MS,
       Date.parse(qualification.expiresAt)
@@ -202,12 +166,11 @@ async function observeTrustedRuntimeProvider(input: Readonly<{
         mainSha: input.mainSha,
         mainTreeSha: input.mainTreeSha,
         trustRevision: input.mainSha,
-        runtimeRef: locator.sourceRef,
         executionId: receipt.executionId,
         verificationReceiptDigest: receipt.receiptDigest,
         observedAt: input.now,
         expiresAt
-      }))
+      }, receipt.schema))
     });
   } catch (error) {
     if (error instanceof PhysicalNoFollowError
@@ -215,7 +178,7 @@ async function observeTrustedRuntimeProvider(input: Readonly<{
       return Object.freeze({
         kind: 'unavailable',
         ref: invalidRef(
-          'trusted-runtime-physical-read-unavailable',
+          'trusted-runtime-physical-qualification-unavailable',
           error.message
         )
       });
@@ -224,7 +187,7 @@ async function observeTrustedRuntimeProvider(input: Readonly<{
       kind: 'invalid',
       ref: invalidRef(
         'trusted-runtime-observation-invalid',
-        receiptBytes ?? (error instanceof Error ? error.message : String(error))
+        error instanceof Error ? error.message : String(error)
       )
     });
   }

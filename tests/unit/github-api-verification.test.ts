@@ -160,6 +160,67 @@ test('closed verification query and write contracts reject before network',async
   expect(calls).toBe(0);
 });
 
+test('workflow run history uses an unfiltered numeric workflow endpoint and rejects malformed selectors before transport', async () => {
+  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
+  const cap = capability(async (target, init) => {
+    requests.push({ target: String(target), method: init?.method, body: init?.body });
+    return new Response('{"total_count":0,"workflow_runs":[]}');
+  });
+  await withGitHubApiTestSession({ capability: cap, operation: async () => {
+    expect(await executeGitHubApiOperation(cap, {
+      kind: 'verification-workflow-run-history', workflowId: '123', page: 2
+    })).toEqual({ total_count: 0, workflow_runs: [] });
+    expect(requests).toEqual([{
+      target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/123/runs?per_page=100&page=2',
+      method: 'GET', body: undefined
+    }]);
+    requests.length = 0;
+    for (const workflowId of ['0', '../runs', '123?status=success']) {
+      await expect(executeGitHubApiOperation(cap, {
+        kind: 'verification-workflow-run-history', workflowId, page: 1
+      })).rejects.toThrow();
+      expect(requests).toEqual([]);
+    }
+    await expect(executeGitHubApiOperation(cap, {
+      kind: 'verification-workflow-run-history', workflowId: '123', page: 0
+    })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  } });
+});
+
+test('verification provenance reads exact numeric attempt, suite, workflow and job endpoints without selector injection', async () => {
+  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
+  const cap = capability(async (target, init) => {
+    requests.push({ target: String(target), method: init?.method, body: init?.body });
+    return new Response('{}');
+  });
+  await withGitHubApiTestSession({ capability: cap, operation: async () => {
+    await executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 2 });
+    await executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: '12' });
+    await executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: '13' });
+    await executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: '14' });
+    expect(requests).toEqual([
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/runs/11/attempts/2', method: 'GET', body: undefined },
+      { target: 'https://api.github.com/repos/sec-platform/sec/check-suites/12', method: 'GET', body: undefined },
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/workflows/13', method: 'GET', body: undefined },
+      { target: 'https://api.github.com/repos/sec-platform/sec/actions/jobs/14', method: 'GET', body: undefined }
+    ]);
+    requests.length = 0;
+    for (const id of ['0', '../escape', '12?branch=main']) {
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: id, runAttempt: 1 })).rejects.toThrow();
+      expect(requests).toEqual([]);
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-check-suite', checkSuiteId: id })).rejects.toThrow();
+      expect(requests).toEqual([]);
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow', workflowId: id })).rejects.toThrow();
+      expect(requests).toEqual([]);
+      await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-job', jobId: id })).rejects.toThrow();
+      expect(requests).toEqual([]);
+    }
+    await expect(executeGitHubApiOperation(cap, { kind: 'verification-workflow-run-attempt', runId: '11', runAttempt: 0 })).rejects.toThrow();
+    expect(requests).toEqual([]);
+  } });
+});
+
 test('hosted verification credential identity rejects foreign workflow and revision',()=> {
   const source={GITHUB_ACTIONS:'true',GITHUB_SERVER_URL:'https://github.com',GITHUB_API_URL:'https://api.github.com',
     GITHUB_REPOSITORY:'sec-platform/sec',GITHUB_REF:'refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_WORKFLOW_SHA:'a'.repeat(40),
@@ -246,4 +307,45 @@ test('decoded-byte budget rejection stops artifact reading without returning par
     chargeDecodedBytes(bytes) { charged += bytes; throw new Error('borrowed decoded budget exhausted'); }
   })).rejects.toThrow('borrowed decoded budget exhausted');
   expect(charged).toBeGreaterThan(0);
+});
+
+test('canonical Session dispatch sends the exact GitHub HTTP request', async () => {
+  const request = Object.freeze({
+    schema: 'sec-verification-session-hosted-request-v1', prNumber: 42,
+    expectedBaseSha: '1'.repeat(40), expectedBaseTreeSha: '2'.repeat(40),
+    expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
+    manifestPath: 'config/repository/work-packages/fixture.md',
+    manifestDigest: `sha256:${'5'.repeat(64)}`, profile: 'quick',
+    expectedScopeProposalDigest: `sha256:${'6'.repeat(64)}`,
+    expectedActionPlanDigest: `sha256:${'7'.repeat(64)}`,
+    expectedSessionRevision: `sha256:${'8'.repeat(64)}`,
+    reviewPolicyDigest: `sha256:${'9'.repeat(64)}`,
+    requestOperationId: `sha256:${'a'.repeat(64)}`
+  });
+  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
+  const cap = capability(async (target, init) => {
+    requests.push({ target: String(target), method: init?.method, body: JSON.parse(String(init?.body)) });
+    return new Response(null, { status: 204 });
+  }, 'verification-dispatch');
+  const result = await withGitHubApiTestSession({ capability: cap, operation: async () =>
+    await executeGitHubApiOperation(cap, { kind: 'verification-dispatch', request }) });
+  expect(result).toBeNull();
+  expect(requests).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/dispatches', method: 'POST',
+    body: {
+      event_type: 'sec-verify-session-v2',
+      client_payload: { payload: {
+        schema: 'sec-verification-session-hosted-request-v1', prNumber: 42,
+        expectedBaseSha: '1'.repeat(40), expectedBaseTreeSha: '2'.repeat(40),
+        expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
+        manifestPath: 'config/repository/work-packages/fixture.md',
+        manifestDigest: `sha256:${'5'.repeat(64)}`, profile: 'quick',
+        expectedScopeProposalDigest: `sha256:${'6'.repeat(64)}`,
+        expectedActionPlanDigest: `sha256:${'7'.repeat(64)}`,
+        expectedSessionRevision: `sha256:${'8'.repeat(64)}`,
+        reviewPolicyDigest: `sha256:${'9'.repeat(64)}`,
+        requestOperationId: `sha256:${'a'.repeat(64)}`
+      } }
+    }
+  }]);
 });

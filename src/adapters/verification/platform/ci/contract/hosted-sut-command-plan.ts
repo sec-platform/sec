@@ -1,13 +1,321 @@
 import path from 'node:path';
 import type { HostedSutCommandPlan, HostedSutExecutionAuthorization } from "../../../../../execution/verification/hosted.ts";
+import { compileLinuxRepositoryNamespaceFence } from '../../../../runtime-state/physical/runtime/physical-no-follow-native.ts';
 
-import type { VerificationActionKeyDigest } from '../../../../../execution/verification/action.ts';
+import type { CiVerificationNormalizedOperation, VerificationActionKeyDigest } from '../../../../../execution/verification/action.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
-import { parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationHostedExecutionEnvironment, parseCiVerificationNormalizedOperation, resolveCiVerificationHostedExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest, exactObject } from '../verification-hosted-action-contract.ts';
 import { CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA } from './hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from './revision.ts';
+
+/** Correlation for one actual native Action. This data never issues a source,
+ * dependency generation, process observation or execution permission. */
+export type HostedSutCandidatePreparation = Readonly<{
+  schema: 'sec-hosted-candidate-preparation-v1';
+  actionKey: VerificationActionKeyDigest;
+  resolutionDigest: VerificationActionKeyDigest;
+  authorizationDigest: VerificationActionKeyDigest;
+  operationSemanticDigest: VerificationActionKeyDigest;
+  baseSha: string; baseTreeSha: string; headSha: string; headTreeSha: string;
+  archiveDigest: VerificationActionKeyDigest;
+  inventoryDigest: VerificationActionKeyDigest;
+  dependencyClosureDigest: VerificationActionKeyDigest;
+  gitBundleDigest: VerificationActionKeyDigest;
+  deadlineAtUnixMs: number;
+  inputAccess: 'read-only' | 'writable';
+}>;
+
+export type TrustedBootstrapCandidatePreparation = Readonly<{
+  schema: 'sec-trusted-bootstrap-candidate-preparation';
+  bootstrapDigest: VerificationActionKeyDigest;
+  baseSha: string; baseTreeSha: string; headSha: string; headTreeSha: string;
+  archiveDigest: VerificationActionKeyDigest; inventoryDigest: VerificationActionKeyDigest;
+  dependencyClosureDigest: VerificationActionKeyDigest; gitBundleDigest: VerificationActionKeyDigest;
+  deadlineAtUnixMs: number; inputAccess: 'writable';
+}>;
+export type NativeHostedCandidatePreparation = HostedSutCandidatePreparation | TrustedBootstrapCandidatePreparation;
+
+export function parseNativeHostedCandidatePreparation(value: unknown): NativeHostedCandidatePreparation {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)
+      && (value as Record<string, unknown>).schema === 'sec-trusted-bootstrap-candidate-preparation') {
+    const record = exactObject(value, ['schema', 'bootstrapDigest', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha',
+      'archiveDigest', 'inventoryDigest', 'dependencyClosureDigest', 'gitBundleDigest', 'deadlineAtUnixMs', 'inputAccess'],
+      'Trusted bootstrap physical candidate preparation');
+    if (!['bootstrapDigest', 'archiveDigest', 'inventoryDigest', 'dependencyClosureDigest', 'gitBundleDigest'].every(key =>
+      typeof record[key] === 'string' && /^sha256:[0-9a-f]{64}$/u.test(record[key] as string))
+        || !['baseSha', 'baseTreeSha', 'headSha', 'headTreeSha'].every(key => typeof record[key] === 'string'
+          && /^[0-9a-f]{40}$/u.test(record[key] as string))
+        || !Number.isSafeInteger(record.deadlineAtUnixMs) || Number(record.deadlineAtUnixMs) <= 0
+        || record.inputAccess !== 'writable') throw new Error('Trusted bootstrap physical preparation is invalid.');
+    return Object.freeze({ ...record }) as TrustedBootstrapCandidatePreparation;
+  }
+  return parseHostedSutCandidatePreparation(value);
+}
+
+export function parseHostedSutCandidatePreparation(value: unknown): HostedSutCandidatePreparation {
+  const record = exactObject(value, ['schema', 'actionKey', 'resolutionDigest', 'authorizationDigest',
+    'operationSemanticDigest', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'archiveDigest',
+    'inventoryDigest', 'dependencyClosureDigest', 'gitBundleDigest', 'deadlineAtUnixMs', 'inputAccess'],
+  'Hosted candidate preparation');
+  if (record.schema !== 'sec-hosted-candidate-preparation-v1'
+      || !['actionKey', 'resolutionDigest', 'authorizationDigest', 'operationSemanticDigest', 'archiveDigest',
+        'inventoryDigest', 'dependencyClosureDigest', 'gitBundleDigest'].every(key =>
+          typeof record[key] === 'string' && /^sha256:[0-9a-f]{64}$/u.test(record[key] as string))
+      || !['baseSha', 'baseTreeSha', 'headSha', 'headTreeSha'].every(key =>
+        typeof record[key] === 'string' && /^[0-9a-f]{40}$/u.test(record[key] as string))
+      || !Number.isSafeInteger(record.deadlineAtUnixMs) || Number(record.deadlineAtUnixMs) <= 0
+      || (record.inputAccess !== 'read-only' && record.inputAccess !== 'writable')) {
+    throw new Error('Hosted candidate preparation has invalid closed correlation.');
+  }
+  return Object.freeze({ ...record }) as HostedSutCandidatePreparation;
+}
+
+/** Only the original normalized Action selects this boundary. A phase label,
+ * arbitrary argv, caller boolean or environment variable cannot select it. */
+export function hostedSutCandidateInputAccess(operation: CiVerificationNormalizedOperation): 'read-only' | 'writable' {
+  const target = parseCiVerificationNormalizedOperation(operation).target;
+  return target.kind === 'bun-test' || (target.kind === 'bun-package-script'
+    && (target.identity === 'test' || target.identity === 'check')) ? 'read-only' : 'writable';
+}
+
+export function createHostedSutCandidatePreparation(input: Readonly<{
+  operation: CiVerificationNormalizedOperation;
+  authorization: Parameters<typeof buildHostedSutSandboxCommandPlan>[0]['executionAuthorization'];
+  deadlineAtUnixMs: number;
+}>): HostedSutCandidatePreparation {
+  const operation = parseCiVerificationNormalizedOperation(input.operation);
+  const authorization = input.authorization;
+  const { authorizationDigest, ...body } = authorization;
+  if (ciActionDigest(body) !== authorizationDigest || authorization.operationSemanticDigest !== operation.semanticDigest
+      || authorization.candidateSha !== operation.candidate.headSha
+      || authorization.providerOrigin.workflowSha !== operation.candidate.baseSha
+      || encodeVerificationActionData(authorization.normalizedArgv)
+        !== encodeVerificationActionData(ciVerificationNormalizedOperationArgv(operation))) {
+    throw new Error('Hosted candidate preparation differs from the original normalized Action.');
+  }
+  return parseHostedSutCandidatePreparation({ schema: 'sec-hosted-candidate-preparation-v1',
+    actionKey: authorization.actionKey, resolutionDigest: authorization.resolutionDigest,
+    authorizationDigest, operationSemanticDigest: operation.semanticDigest,
+    baseSha: operation.candidate.baseSha, baseTreeSha: operation.candidate.baseTreeSha,
+    headSha: operation.candidate.headSha, headTreeSha: operation.candidate.headTreeSha,
+    archiveDigest: authorization.inventoryClosure.archiveDigest,
+    inventoryDigest: authorization.inventoryClosure.inventoryDigest,
+    dependencyClosureDigest: authorization.inventoryClosure.dependencyClosureDigest,
+    gitBundleDigest: authorization.inventoryClosure.gitBundleDigest,
+    deadlineAtUnixMs: input.deadlineAtUnixMs, inputAccess: hostedSutCandidateInputAccess(operation) });
+}
+
+const HOSTED_CANDIDATE_ENTRY = '/sec-runtime/trusted/src/bootstrap/toolchain/native-verification-dependencies.ts';
+const HOSTED_CANDIDATE_PYTHON = CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath;
+export const HOSTED_CANDIDATE_PREPARATION_ENVIRONMENT = Object.freeze({
+  PATH: '/tool/bin:/usr/bin:/bin', HOME: '/home/sut', TMPDIR: '/tmp', LANG: 'C.UTF-8',
+  SEC_STATE_HOME: '/home/sut/.local/state/sec', SEC_CACHE_HOME: '/home/sut/.cache/sec',
+  GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0'
+});
+export function hostedCandidatePreparationArgv(): readonly string[] {
+  return Object.freeze(['/tool/bin/bun', '--no-env-file', '--no-install', HOSTED_CANDIDATE_ENTRY]);
+}
+export function hostedCandidatePreparationEnvironment(phase: 'prepare' | 'observe'): Readonly<Record<string, string>> {
+  return Object.freeze({ ...HOSTED_CANDIDATE_PREPARATION_ENVIRONMENT,
+    ...(phase === 'prepare' ? { NODE_PATH: '/sec-runtime/dependency-content/node_modules' } : {}) });
+}
+export function hostedCandidatePreparationNamespaceArgv(phase: 'prepare' | 'observe'): readonly string[] {
+  const script = ['set -euo pipefail',
+    // The original supervisor creates and retains these two private pipes at
+    // the exact namespace-launcher EXEC stop. Only this nested domain writes.
+    `exec > /authenticated-input/${phase}-stdout.pipe 2> /authenticated-input/${phase}-stderr.pipe`,
+    'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
+    'cd /sec-runtime/trusted',
+    ['/usr/bin/setpriv', '--reuid=65532', '--regid=65532', '--clear-groups', '--no-new-privs',
+      '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '/usr/bin/env', '-i',
+      ...Object.entries(hostedCandidatePreparationEnvironment(phase)).map(([key, value]) => `${key}=${value}`),
+      ...hostedCandidatePreparationArgv()].map(shellSingleQuote).join(' ')
+      + ` < /authenticated-input/${phase}.json`,
+    // The shell stays PID1; its actual terminal reap closes even untraced children.
+    'exit 0'].join('\n');
+  return Object.freeze(['/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL',
+    '/usr/bin/bash', '-ceu', script, `sec-hosted-candidate-${phase}`]);
+}
+export function hostedCandidatePreparationSettlementArgv(phase: 'prepare' | 'observe'): readonly string[] {
+  return Object.freeze([HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', 'pass', `sec-hosted-candidate-${phase}`]);
+}
+
+/** The archive producer normalizes absolute in-root links. Apply that same
+ * normalization to the private transport copy before manifest publication;
+ * the borrowed outer generation is read only and is never changed. */
+const HOSTED_CANDIDATE_NORMALIZE_LINKS = String.raw`
+import json,os,posixpath,stat,sys,time
+root=sys.argv[1]; source=os.path.realpath('/sec-runtime/trusted/node_modules'); count=0
+deadline=json.loads(sys.argv[2])['deadlineAtUnixMs']/1000
+for parent,dirs,files in os.walk(root,topdown=True,followlinks=False):
+    for name in dirs+files:
+        count+=1
+        if count>200000 or time.time()>=deadline:raise RuntimeError('candidate-link-normalization-bound')
+        file=os.path.join(parent,name); info=os.lstat(file)
+        if not stat.S_ISLNK(info.st_mode):continue
+        raw=os.readlink(file); member='node_modules/'+os.path.relpath(file,root)
+        if '\x00' in raw or '\\' in raw:raise RuntimeError('candidate-link-non-posix')
+        if posixpath.isabs(raw):
+            normalized=posixpath.normpath(raw)
+            if not normalized.startswith(source+'/'):raise RuntimeError('candidate-link-escape')
+            target='node_modules/'+posixpath.relpath(normalized,source)
+        else:target=posixpath.normpath(posixpath.join(posixpath.dirname(member),raw))
+        if not target.startswith('node_modules/') or target==member or member.startswith(target+'/'):raise RuntimeError('candidate-link-escape-or-cycle')
+        if posixpath.isabs(raw):
+            os.unlink(file); os.symlink(posixpath.relpath(target,posixpath.dirname(member)),file)
+`;
+
+/** This root-side transport adapter copies only the already authenticated,
+ * bounded outer trusted generation. The original TS physical issuer verifies
+ * the complete manifest again and issues the candidate generation itself. */
+const HOSTED_CANDIDATE_CONTENT_MANIFEST = String.raw`
+import hashlib,json,os,stat,sys,time
+binding=json.loads(sys.argv[1]); deadline=binding['deadlineAtUnixMs']/1000
+root='/sec-runtime/dependency-content'; entries=[]; total=0
+canonical=lambda value:json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+def digest(value):return 'sha256:'+hashlib.sha256(canonical(value)).hexdigest()
+def live():
+    if time.time()>=deadline:raise RuntimeError('candidate-content-deadline')
+for parent,dirs,files in os.walk(root,topdown=True,followlinks=False):
+    live(); dirs.sort(); files.sort()
+    for name in dirs+files:
+        live(); file=os.path.join(parent,name); before=os.lstat(file)
+        relative=os.path.relpath(file,root)
+        if len(entries)>=200000 or any(part in ('','.','..') for part in relative.split('/')):raise RuntimeError('candidate-content-entry-bound')
+        mode=stat.S_IMODE(before.st_mode)
+        if mode&0o7000:raise RuntimeError('candidate-content-special-mode')
+        if stat.S_ISLNK(before.st_mode):
+            target=os.readlink(file)
+            normalized=os.path.normpath(os.path.join(os.path.dirname(relative),target))
+            if os.path.isabs(target) or normalized=='..' or normalized.startswith('../'):raise RuntimeError('candidate-content-link-escape')
+            entry={'path':relative,'mode':mode,'type':'symlink','target':target}
+        elif stat.S_ISDIR(before.st_mode):
+            entry={'path':relative,'mode':mode,'type':'directory'}
+        elif stat.S_ISREG(before.st_mode):
+            total+=before.st_size
+            if total>4294967296:raise RuntimeError('candidate-content-byte-bound')
+            fd=os.open(file,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+            try:
+                if (os.fstat(fd).st_dev,os.fstat(fd).st_ino)!=(before.st_dev,before.st_ino):raise RuntimeError('candidate-content-replaced')
+                hashed=hashlib.sha256(); count=0
+                while True:
+                    live(); chunk=os.read(fd,1048576)
+                    if not chunk:break
+                    count+=len(chunk)
+                    if count>before.st_size:raise RuntimeError('candidate-content-grew')
+                    hashed.update(chunk)
+                after=os.fstat(fd)
+                if count!=before.st_size or (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns):raise RuntimeError('candidate-content-drift')
+            finally:os.close(fd)
+            entry={'path':relative,'mode':mode,'type':'file','size':before.st_size,'digest':'sha256:'+hashed.hexdigest()}
+        else:raise RuntimeError('candidate-content-entry-kind')
+        entries.append(entry)
+entries.sort(key=lambda item:item['path'].encode('utf-16-be'))
+content=digest(entries); transport=digest({'candidate':binding,'contentDigest':content})
+manifest={'schema':'sec-hosted-candidate-dependency-content-v1','candidate':binding,'entries':entries,'contentDigest':content,'transportDigest':transport}
+def write(name,value):
+    live(); data=canonical(value)+b'\n'
+    if len(data)>33554432:raise RuntimeError('candidate-manifest-bound')
+    fd=os.open('/authenticated-input/'+name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o444)
+    try:
+        while data:
+            live(); count=os.write(fd,data)
+            if count<=0:raise RuntimeError('candidate-manifest-write')
+            data=data[count:]
+        os.fsync(fd)
+    finally:os.close(fd)
+write('dependency-content-manifest.json',manifest)
+for phase in ('prepare','observe'):
+    write(phase+'.json',{'schema':'sec-native-verification-dependency-setup-v1','phase':phase,'kind':'hosted-candidate','candidate':binding,'deadlineAtUnixMs':binding['deadlineAtUnixMs'],'transportDigest':transport})
+`;
+
+const HOSTED_CANDIDATE_RESULT_COMPARISON = String.raw`
+import json,os,stat,sys,time
+binding=json.loads(sys.argv[1])
+if time.time()*1000>=binding['deadlineAtUnixMs']:raise RuntimeError('candidate-observation-deadline')
+def read(phase):
+    fd=os.open('/authenticated-input/'+phase+'-result.json',os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o400 or not 0<info.st_size<=4096:raise RuntimeError('candidate-result-shape')
+        raw=os.pread(fd,4097,0); after=os.fstat(fd)
+        if len(raw)!=info.st_size or (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns):raise RuntimeError('candidate-result-changed')
+        value=json.loads(raw)
+    finally:os.close(fd)
+    if value['schema']!='sec-native-verification-dependency-result-v1' or value['kind']!='hosted-candidate' or value['phase']!=phase or value['deadlineAtUnixMs']!=binding['deadlineAtUnixMs'] or value['trusted'] is not None:raise RuntimeError('candidate-result-context')
+    return value
+prepared=read('prepare'); observed=read('observe')
+if prepared['status']!='prepared' or prepared['contentRetirement']!='released' or observed['status']!='observed' or observed['contentRetirement']!='not-retained' or prepared['transportDigest']!=observed['transportDigest'] or prepared['workspace']['generationDigest']!=observed['workspace']['generationDigest'] or observed['workspace']['requiresFreshProcess']:raise RuntimeError('candidate-generation-fresh-observation')
+`;
+
+const SUT_IMMUTABLE_FREEZE_SCRIPT = String.raw`
+import ctypes, os, sys, time
+if len(sys.argv)!=2 or os.getresuid()!=(0,0,0): raise RuntimeError('sut-freeze-credentials')
+deadline=int(sys.argv[1])/1000
+libc=ctypes.CDLL(None,use_errno=True)
+libc.mount.argtypes=[ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_ulong,ctypes.c_void_p]
+libc.mount.restype=ctypes.c_int
+if deadline<=time.time(): raise RuntimeError('sut-freeze-deadline')
+# Preserve the original executable workspace mount: RDONLY|NOSUID|NODEV|REMOUNT.
+if libc.mount(None,b'/workspace',None,39,None)!=0:
+    error=ctypes.get_errno(); raise OSError(error,os.strerror(error))
+`;
+
+/** Fixed pre-candidate enforcement; the original physical owner still issues
+ * its private capability from retained kernel facts at the actual test fence. */
+const SUT_IMMUTABLE_EXEC_SCRIPT = String.raw`
+import os, sys, ctypes, platform, time, signal
+if platform.machine()!='x86_64' or len(sys.argv)<3: raise RuntimeError('sut-input-arguments')
+deadline=int(sys.argv[1])/1000
+if deadline<=time.time(): raise RuntimeError('sut-input-deadline')
+if os.getresuid()!=(65532,65532,65532) or os.getresgid()!=(65532,65532,65532) or os.getgroups(): raise RuntimeError('sut-input-credentials')
+with open('/proc/self/status') as stream: status=dict(line.split(':',1) for line in stream)
+if any(int(status[key],16) for key in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb')) or int(status['NoNewPrivs'])!=1: raise RuntimeError('sut-input-capabilities')
+for name in ('uid_map','gid_map'):
+    with open('/proc/self/'+name) as stream:
+        if stream.read().split()!=['0','0','4294967295']: raise RuntimeError('sut-input-userns')
+class StatFS(ctypes.Structure):
+    _fields_=[('type',ctypes.c_long),('bsize',ctypes.c_long),('blocks',ctypes.c_ulong),('bfree',ctypes.c_ulong),('bavail',ctypes.c_ulong),('files',ctypes.c_ulong),('ffree',ctypes.c_ulong),('fsid',ctypes.c_int*2),('namelen',ctypes.c_long),('frsize',ctypes.c_long),('flags',ctypes.c_long),('spare',ctypes.c_long*4)]
+libc=ctypes.CDLL(None,use_errno=True)
+libc.fstatfs.argtypes=[ctypes.c_int,ctypes.POINTER(StatFS)]; libc.fstatfs.restype=ctypes.c_int
+with open('/proc/self/mountinfo') as stream: rows=[line.rstrip().split(' ') for line in stream]
+fd=os.open('/workspace',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+try:
+    native=StatFS()
+    if libc.fstatfs(fd,ctypes.byref(native))!=0 or native.type!=0x01021994 or not native.flags&1: raise RuntimeError('sut-input-filesystem')
+    source_device=os.fstat(fd).st_dev
+    with open('/proc/self/fdinfo/'+str(fd)) as stream: info=dict(line.split(':',1) for line in stream)
+    selected=[row for row in rows if row[0]==info['mnt_id'].strip()]
+    if len(selected)!=1: raise RuntimeError('sut-input-mount')
+    row=selected[0]; separator=row.index('-')
+    if row[3]!='/' or row[4]!='/workspace' or separator!=6 or row[separator+1]!='tmpfs' or 'ro' not in row[5].split(',') or 'ro' not in row[separator+3].split(','): raise RuntimeError('sut-input-superblock')
+    for other in rows:
+        if other[0]!=row[0] and (other[4]=='/workspace' or other[4].startswith('/workspace/')): raise RuntimeError('sut-input-covering-mount')
+        if other[2]==row[2] and 'ro' not in other[other.index('-')+3].split(','): raise RuntimeError('sut-input-writable-alias')
+    ancestor=os.stat('/',follow_symlinks=False)
+    if ancestor.st_dev!=source_device and (ancestor.st_uid!=0 or ancestor.st_mode&0o022): raise RuntimeError('sut-input-ancestor')
+finally: os.close(fd)
+for name in os.listdir('/proc/self/fd'):
+    descriptor=int(name)
+    try: observed=os.fstat(descriptor)
+    except OSError: continue
+    if descriptor>2 or observed.st_dev==source_device: raise RuntimeError('sut-input-inherited-fd')
+for writable in ('/tmp','/home/sut'):
+    if os.stat(writable).st_dev==source_device or os.statvfs(writable).f_flag&os.ST_RDONLY: raise RuntimeError('sut-input-output-overlap')
+if os.getcwd()!='/workspace': raise RuntimeError('sut-input-cwd')
+program_bytes=bytes.fromhex('${Buffer.from(compileLinuxRepositoryNamespaceFence()).toString('hex')}')
+class Filter(ctypes.Structure): _fields_=[('code',ctypes.c_ushort),('jt',ctypes.c_ubyte),('jf',ctypes.c_ubyte),('k',ctypes.c_uint)]
+class Program(ctypes.Structure): _fields_=[('length',ctypes.c_ushort),('filters',ctypes.POINTER(Filter))]
+filters=(Filter*(len(program_bytes)//8)).from_buffer_copy(program_bytes); program=Program(len(filters),filters)
+libc.syscall.restype=ctypes.c_long
+if deadline<=time.time(): raise RuntimeError('sut-input-deadline-before-tsync')
+if libc.syscall(ctypes.c_long(317),ctypes.c_long(1),ctypes.c_long(1),ctypes.byref(program))!=0: raise RuntimeError('sut-input-tsync')
+remaining=deadline-time.time()
+if remaining<=0: raise RuntimeError('sut-input-expired')
+signal.setitimer(signal.ITIMER_REAL,remaining)
+os.execve('/tool/bin/bun',['/tool/bin/bun']+sys.argv[2:],dict(os.environ))
+`;
 
 const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES = Object.freeze([
   'SEC_ACTION_PLAN_DIGEST',
@@ -33,14 +341,18 @@ const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES = Object.freeze([
   'SEC_WORK_PACKAGE_MANIFEST_PATH'
 ] as const);
 
+export class HostedSutExecutionEnvironmentUnavailableError extends Error {
+  readonly code = 'SEC-HOSTED-SUT-EXECUTION-ENVIRONMENT-UNRESOLVED';
+  constructor() { super('Hosted SUT requires its explicitly supplied execution environment revision.'); }
+}
+
 export function hostedCandidateProcessEnvironment(
   source: NodeJS.ProcessEnv,
   semanticBindings: Readonly<Record<string, string>> = {}
 ): NodeJS.ProcessEnv {
-  const environment = resolveCiVerificationHostedExecutionEnvironment(
-    semanticBindings.SEC_EXECUTION_ENVIRONMENT_REVISION ?? source.SEC_EXECUTION_ENVIRONMENT_REVISION
-      ?? CI_VERIFICATION_HOSTED_PROVIDER_REVISION
-  );
+  const revision = semanticBindings.SEC_EXECUTION_ENVIRONMENT_REVISION ?? source.SEC_EXECUTION_ENVIRONMENT_REVISION;
+  if (revision === undefined || revision.length === 0) throw new HostedSutExecutionEnvironmentUnavailableError();
+  const environment = resolveCiVerificationHostedExecutionEnvironment(revision);
   const result: NodeJS.ProcessEnv = {
     PATH: '/tool/bin:/usr/bin:/bin',
     HOME: '/home/sut',
@@ -197,6 +509,114 @@ const HOSTED_SUT_NAMESPACE_SCRIPT = [
   `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuote(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT)} sec-hosted-sut-root "$expected_archive_digest" "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
 ].join('\n');
 
+let preparedCandidateNamespace: string | undefined;
+function replaceOwnedScript(source: string, before: string, after: string): string {
+  if (source.split(before).length !== 2) throw new Error('Hosted candidate script anchor is not unique.');
+  return source.replace(before, after);
+}
+function hostedCandidatePreparedNamespaceScript(): string {
+  if (preparedCandidateNamespace !== undefined) return preparedCandidateNamespace;
+  let chroot = replaceOwnedScript(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT,
+    'environment_count="$4"\nshift 4', 'binding="$4"\nenvironment_count="$5"\nshift 5');
+  chroot = replaceOwnedScript(chroot,
+    'rm -f /authenticated-input/prepared-candidate.tar\nrmdir /authenticated-input', '');
+  chroot = replaceOwnedScript(chroot, 'rm -rf -- /workspace/.sec-trusted-input', [
+    'mkdir /sec-runtime/trusted',
+    '/usr/bin/git -C /sec-runtime/trusted init --quiet',
+    '/usr/bin/git -C /sec-runtime/trusted -c protocol.file.allow=always fetch --quiet /workspace/.sec-trusted-input/candidate.bundle refs/sec/base:refs/sec/base',
+    '/usr/bin/git -C /sec-runtime/trusted reset --hard --quiet refs/sec/base',
+    '[ "$(/usr/bin/git -C /sec-runtime/trusted rev-parse HEAD)" = "$base_sha" ]',
+    `base_tree="$(${shellSingleQuote(HOSTED_CANDIDATE_PYTHON)} -I -S -c 'import json,sys; print(json.loads(sys.argv[1])["baseTreeSha"])' "$binding")"`,
+    `head_tree="$(${shellSingleQuote(HOSTED_CANDIDATE_PYTHON)} -I -S -c 'import json,sys; print(json.loads(sys.argv[1])["headTreeSha"])' "$binding")"`,
+    '[ "$(/usr/bin/git -C /sec-runtime/trusted rev-parse HEAD^{tree})" = "$base_tree" ]',
+    '[ "$(/usr/bin/git -C /workspace rev-parse HEAD^{tree})" = "$head_tree" ]',
+    '[ ! -e /sec-runtime/trusted/node_modules ] && [ ! -L /sec-runtime/trusted/node_modules ]',
+    'ln -s /sec-runtime/dependency-content/node_modules /sec-runtime/trusted/node_modules',
+    'find /sec-runtime/trusted -type d -exec chmod 0555 {} +',
+    'find /sec-runtime/trusted -type f -exec chmod a-w {} +'
+  ].join('\n'));
+  chroot = replaceOwnedScript(chroot, 'cd /workspace', [
+    [HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', HOSTED_CANDIDATE_CONTENT_MANIFEST].map(shellSingleQuote).join(' ') + ' "$binding"',
+    'exec 3</authenticated-input/prepared-candidate.tar',
+    ...(['prepare', 'observe'] as const).flatMap(phase => [
+      ...(phase === 'observe' ? [
+        'chmod 0755 /sec-runtime/trusted',
+        'rm -- /sec-runtime/trusted/node_modules',
+        'ln -s /workspace/node_modules /sec-runtime/trusted/node_modules',
+        'chmod 0555 /sec-runtime/trusted'
+      ] : []),
+      hostedCandidatePreparationNamespaceArgv(phase).map(shellSingleQuote).join(' '),
+      // Held at actual EXEC by the original supervisor until this phase's PID
+      // init and all writers have reached genuine terminal reap.
+      hostedCandidatePreparationSettlementArgv(phase).map(shellSingleQuote).join(' ')
+    ]),
+    [HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', HOSTED_CANDIDATE_RESULT_COMPARISON].map(shellSingleQuote).join(' ') + ' "$binding"',
+    'exec 3<&-',
+    '[ ! -e /workspace/.sec-trusted-input ]',
+    'chown -R 0:0 /sec-runtime/dependency-content',
+    'find /sec-runtime/dependency-content /sec-runtime/trusted -type d -exec chmod u+w {} +',
+    'rm -rf -- /sec-runtime/dependency-content /sec-runtime/trusted /authenticated-input',
+    'rm -- /usr/bin/unshare',
+    `deadline="$(${shellSingleQuote(HOSTED_CANDIDATE_PYTHON)} -I -S -c 'import json,sys; print(json.loads(sys.argv[1])["deadlineAtUnixMs"])' "$binding")"`,
+    `input_access="$(${shellSingleQuote(HOSTED_CANDIDATE_PYTHON)} -I -S -c 'import json,sys; print(json.loads(sys.argv[1])["inputAccess"])' "$binding")"`,
+    `if [ "$input_access" = read-only ]; then ${[HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', SUT_IMMUTABLE_FREEZE_SCRIPT].map(shellSingleQuote).join(' ')} "$deadline"; fi`,
+    'cd /workspace'
+  ].join('\n'));
+  const last = HOSTED_SUT_CHROOT_EXECUTION_SCRIPT.split('\n').at(-1)!;
+  const guarded = replaceOwnedScript(last, '/tool/bin/bun "$@"',
+    [HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', SUT_IMMUTABLE_EXEC_SCRIPT].map(shellSingleQuote).join(' ') + ' "$deadline" "$@"');
+  chroot = replaceOwnedScript(chroot, last, `if [ "$input_access" = read-only ]; then ${guarded}; fi\n${last}`);
+  let namespace = replaceOwnedScript(HOSTED_SUT_NAMESPACE_SCRIPT,
+    'environment_count="$7"\nshift 7', 'binding="$7"\nenvironment_count="$8"\nshift 8');
+  namespace = replaceOwnedScript(namespace, '[ "$candidate_archive" = "/proc/self/fd/3" ]', [
+    'copy_runtime /usr/bin/unshare /usr/bin/unshare',
+    'mkdir -p "$root/sec-runtime/dependency-content/node_modules"',
+    // The outer native issuer has already retained, prepared and sealed this
+    // exact trusted dependency generation. No candidate source is loaded.
+    '/usr/bin/cp -a --no-preserve=ownership -- /sec-runtime/trusted/node_modules/. "$root/sec-runtime/dependency-content/node_modules/"',
+    'find "$root/sec-runtime/dependency-content" -type d -exec chmod u+w {} +',
+    [HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', HOSTED_CANDIDATE_NORMALIZE_LINKS].map(shellSingleQuote).join(' ')
+      + ' "$root/sec-runtime/dependency-content/node_modules" "$binding"',
+    'for name in .bun-version bun.lock package.json bunfig.toml; do if [ "$name" = bunfig.toml ] && [ ! -e "/sec-runtime/trusted/$name" ]; then continue; fi; /usr/bin/cp -- "/sec-runtime/trusted/$name" "$root/sec-runtime/dependency-content/$name"; done',
+    'find "$root/sec-runtime/dependency-content" -type d -exec chmod 0555 {} +',
+    'find "$root/sec-runtime/dependency-content" -type f -exec chmod a-w {} +',
+    'chown -R 65532:65532 "$root/sec-runtime/dependency-content"',
+    '[ "$candidate_archive" = "/proc/self/fd/3" ]'
+  ].join('\n'));
+  namespace = replaceOwnedScript(namespace,
+    '/usr/bin/chmod 0400 "$root/authenticated-input/prepared-candidate.tar"',
+    '/usr/bin/chmod 0444 "$root/authenticated-input/prepared-candidate.tar"');
+  // Trusted Git setup precedes the one final candidate ownership transfer.
+  // The six-capability root worker has neither DAC_OVERRIDE nor FOWNER.
+  namespace = replaceOwnedScript(namespace, '"$root/workspace" "$root/home/sut" "$root/tmp"', '"$root/home/sut" "$root/tmp"');
+  namespace = replaceOwnedScript(namespace, shellSingleQuote(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT), shellSingleQuote(chroot));
+  namespace = replaceOwnedScript(namespace,
+    '"$expected_archive_digest" "$base_sha" "$head_sha" "${#environment[@]}"',
+    '"$expected_archive_digest" "$base_sha" "$head_sha" "$binding" "${#environment[@]}"');
+  preparedCandidateNamespace = namespace;
+  return namespace;
+}
+
+export function hostedSutCandidatePreparationFromPlan(plan: HostedSutCommandPlan<string, VerificationActionKeyDigest>): NativeHostedCandidatePreparation | null {
+  if (!['execute', 'bootstrap-execute'].includes(plan.phase) || plan.argv[7] !== hostedCandidatePreparedNamespaceScript()) return null;
+  const preparation = parseNativeHostedCandidatePreparation(JSON.parse(plan.argv[15]!));
+  if ((plan.phase === 'bootstrap-execute') !== (preparation.schema === 'sec-trusted-bootstrap-candidate-preparation')) {
+    throw new Error('Native candidate preparation belongs to a different business flow.');
+  }
+  return preparation;
+}
+export function hostedSutCandidateArgv(plan: HostedSutCommandPlan<string, VerificationActionKeyDigest>): readonly string[] {
+  const countIndex = hostedSutCandidatePreparationFromPlan(plan) === null ? 15 : 16;
+  return Object.freeze(['/tool/bin/bun', ...plan.argv.slice(countIndex + 2 + Number(plan.argv[countIndex]))]);
+}
+export function hostedSutCandidateGuardArgv(plan: HostedSutCommandPlan<string, VerificationActionKeyDigest>): readonly string[] | null {
+  const preparation = hostedSutCandidatePreparationFromPlan(plan);
+  return preparation?.inputAccess !== 'read-only' ? null : Object.freeze([
+    HOSTED_CANDIDATE_PYTHON, '-I', '-S', '-c', SUT_IMMUTABLE_EXEC_SCRIPT,
+    String(preparation.deadlineAtUnixMs), ...hostedSutCandidateArgv(plan).slice(1)
+  ]);
+}
+
 const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/test-runner.test.ts',
@@ -213,6 +633,11 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
 // bootstrap candidate may execute. Child output is streamed into bounded
 // digest/tail observations; it never reaches GitHub command files or the host
 // runner's inherited stdout directly.
+const TRUSTED_BOOTSTRAP_TCB_OBSERVATION_PROGRAM = [
+  'const { compileTcbClosureIdentity } = await import("./src/adapters/verification/platform/trust/runtime/closure-lock.ts");',
+  'const value = compileTcbClosureIdentity({ candidateRoot: process.cwd() });',
+  'process.stdout.write(JSON.stringify({ schema: value.schema, trustRevision: value.trustRevision, moduleCount: value.moduleCount, closureDigest: value.closureDigest }) + "\\n");'
+].join('');
 export const TRUSTED_BOOTSTRAP_SUT_HARNESS = [
   '(async () => {',
   'const { createHash } = require("node:crypto");',
@@ -275,6 +700,8 @@ export const TRUSTED_BOOTSTRAP_SUT_HARNESS = [
   '  if (head !== expectedHead || tree !== expectedTree || parents.length !== 2 || parents[0] !== expectedHead || parents[1] !== baseSha) throw new Error("candidate-identity");',
   '  parentSha = parents[1];',
   '  await execute("bind-origin-main", ["git", "update-ref", "refs/remotes/origin/main", baseSha]);',
+  `  const tcbArgv = ${JSON.stringify(['bun', '--no-env-file', '--no-install', '-e', TRUSTED_BOOTSTRAP_TCB_OBSERVATION_PROGRAM])};`,
+  '  const tcbPre = JSON.parse((await execute("tcb-lock-pre", tcbArgv)).stdoutTail.trim());',
   '  await execute("imports", ["bun", "run", "imports:check"]);',
   '  await execute("docs-doctor", ["bun", "run", "docs:doctor"]);',
   '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);',
@@ -285,6 +712,8 @@ export const TRUSTED_BOOTSTRAP_SUT_HARNESS = [
   '  await execute("repository-audit", ["bun", "src/adapters/repository/repository-audit/cli.ts", "--json"]);',
   '  await execute("affected-plan", ["bun", "run", "check", "--", "--affected", "--plan"]);',
   '  await execute("affected-tests", ["bun", "run", "test", "--", "--affected"]);',
+  '  const tcbPost = JSON.parse((await execute("tcb-lock-post", tcbArgv)).stdoutTail.trim());',
+  '  if (tcbPre.schema !== "sec-tcb-closure-lock-v2" || tcbPost.schema !== tcbPre.schema || tcbPost.closureDigest !== tcbPre.closureDigest || tcbPost.trustRevision !== tcbPre.trustRevision || tcbPost.moduleCount !== tcbPre.moduleCount) throw new Error("candidate-tcb-closure-changed");',
   '  const worktree = await execute("worktree-readback", ["git", "status", "--porcelain=v1"]);',
   '  if (worktree.stdoutTail.length !== 0) throw new Error("tracked-worktree-not-clean");',
   '} catch (error) { status = "failed"; diagnostic = error instanceof Error ? error.message : String(error); }',
@@ -476,14 +905,23 @@ function assertExactHostedSutScriptProjection(value: HostedSutCommandPlan<typeof
   const shellName = argv[8];
   const validShellName = shellName === 'sec-hosted-sut' || (value.phase === 'bootstrap-execute'
     && typeof shellName === 'string' && /^sec-hosted-sut:sha256:[0-9a-f]{64}$/u.test(shellName));
-  if (argv[7] !== HOSTED_SUT_NAMESPACE_SCRIPT || !validShellName || argv[9] !== value.unitName
+  const preparation = hostedSutCandidatePreparationFromPlan(value);
+  const countIndex = preparation === null ? 15 : 16;
+  if ((preparation === null && argv[7] !== HOSTED_SUT_NAMESPACE_SCRIPT) || !validShellName || argv[9] !== value.unitName
     || argv[10] !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH || !/^sha256:[0-9a-f]{64}$/u.test(argv[11] ?? '')
     || !path.posix.isAbsolute(argv[12] ?? '') || !/^[0-9a-f]{40}$/u.test(argv[13] ?? '')
-    || !/^[0-9a-f]{40}$/u.test(argv[14] ?? '') || !/^(?:0|[1-9][0-9]{0,2})$/u.test(argv[15] ?? '')) {
+    || !/^[0-9a-f]{40}$/u.test(argv[14] ?? '') || !/^(?:0|[1-9][0-9]{0,2})$/u.test(argv[countIndex] ?? '')) {
     throw new Error('Hosted SUT execution is not the exact script, unit and retained input projection.');
   }
-  const count = Number(argv[15]);
-  const environment = argv.slice(16, 16 + count);
+  if (preparation !== null && (preparation.archiveDigest !== argv[11] || preparation.baseSha !== argv[13]
+      || preparation.headSha !== argv[14]
+      || (preparation.schema === 'sec-hosted-candidate-preparation-v1'
+        ? preparation.authorizationDigest !== value.executionAuthorizationDigest
+        : value.executionAuthorizationDigest !== null))) {
+    throw new Error('Hosted candidate preparation differs from exact plan identity.');
+  }
+  const count = Number(argv[countIndex]);
+  const environment = argv.slice(countIndex + 1, countIndex + 1 + count);
   const names = environment.map(entry => /^([A-Z][A-Z0-9_]*)=/u.exec(entry)?.[1]);
   const fixed = { PATH: '/tool/bin:/usr/bin:/bin', HOME: '/home/sut', TMPDIR: '/tmp', LANG: 'C',
     GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', SEC_FORMAL_HOSTED_MODE: '1' };
@@ -499,7 +937,7 @@ function assertExactHostedSutScriptProjection(value: HostedSutCommandPlan<typeof
   }
   const provider = environment.find(entry => entry.startsWith('SEC_EXECUTION_ENVIRONMENT_REVISION='));
   resolveCiVerificationHostedExecutionEnvironment(provider?.slice('SEC_EXECUTION_ENVIRONMENT_REVISION='.length) ?? '');
-  const candidate = argv.slice(16 + count);
+  const candidate = argv.slice(countIndex + 1 + count);
   if (candidate[0] !== 'bun' || candidate.length < 2 || (value.phase === 'bootstrap-execute'
     && !equal(candidate, ['bun', '-e', TRUSTED_BOOTSTRAP_SUT_HARNESS]))) {
     throw new Error('Hosted SUT candidate command or bootstrap harness differs.');
@@ -589,6 +1027,7 @@ export function buildHostedSutSandboxCommandPlan(input: Readonly<{
   baseSha: string;
   headSha: string;
   normalizedArgv: readonly string[];
+  candidatePreparation?: HostedSutCandidatePreparation;
   candidateEnvironment: NodeJS.ProcessEnv;
   executionAuthorization: HostedSutExecutionAuthorization<typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./hosted-sut-observation.ts").CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION>;
 }>): HostedSutCommandPlan<typeof import("../verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST> {
@@ -631,6 +1070,21 @@ export function buildHostedSutSandboxCommandPlan(input: Readonly<{
         encodeVerificationActionData(environmentProjection)) {
     throw new Error('Hosted SUT physical command differs from its Action-bound execution authorization.');
   }
+  const preparation = input.candidatePreparation === undefined ? null : parseHostedSutCandidatePreparation(input.candidatePreparation);
+  if (preparation !== null && (preparation.actionKey !== authorization.actionKey
+      || preparation.authorizationDigest !== authorization.authorizationDigest
+      || preparation.resolutionDigest !== authorization.resolutionDigest
+      || preparation.operationSemanticDigest !== authorization.operationSemanticDigest
+      || preparation.baseSha !== input.baseSha || preparation.headSha !== input.headSha
+      || preparation.archiveDigest !== input.candidateArchiveDigest
+      || preparation.inventoryDigest !== authorization.inventoryClosure.inventoryDigest
+      || preparation.dependencyClosureDigest !== authorization.inventoryClosure.dependencyClosureDigest
+      || preparation.gitBundleDigest !== authorization.inventoryClosure.gitBundleDigest
+      || preparation.inputAccess !== (authorization.normalizedArgv[1] === 'test'
+        || (authorization.normalizedArgv[1] === 'run' && ['test', 'check'].includes(authorization.normalizedArgv[2] ?? ''))
+        ? 'read-only' : 'writable'))) {
+    throw new Error('Hosted candidate preparation lost its Action authorization or retained inventory.');
+  }
   const unitName = authorization.physicalCommand.unitName;
   const plan = finalizeHostedSutSandboxCommandPlan({
     phase: 'execute',
@@ -641,9 +1095,10 @@ export function buildHostedSutSandboxCommandPlan(input: Readonly<{
     physicalCommandProjectionDigest: authorization.physicalCommand.projectionDigest,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT, 'sec-hosted-sut',
+      '/usr/bin/bash', '-ceu', preparation === null ? HOSTED_SUT_NAMESPACE_SCRIPT : hostedCandidatePreparedNamespaceScript(), 'sec-hosted-sut',
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, input.candidateArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
+      ...(preparation === null ? [] : [encodeVerificationActionData(preparation)]),
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`), ...input.normalizedArgv
     ]
@@ -661,6 +1116,7 @@ export function buildTrustedBootstrapSutSandboxCommandPlan(input: Readonly<{
   headSha: string;
   candidateEnvironment: NodeJS.ProcessEnv;
   unitNonce: string;
+  candidatePreparation?: TrustedBootstrapCandidatePreparation;
 }>): HostedSutCommandPlan<typeof import("../verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST> {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.bootstrapDigest) ||
       !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
@@ -671,6 +1127,12 @@ export function buildTrustedBootstrapSutSandboxCommandPlan(input: Readonly<{
   const environment = Object.entries(input.candidateEnvironment)
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right));
+  const preparation = input.candidatePreparation === undefined ? null : parseNativeHostedCandidatePreparation(input.candidatePreparation);
+  if (preparation !== null && (preparation.schema !== 'sec-trusted-bootstrap-candidate-preparation'
+      || preparation.bootstrapDigest !== input.bootstrapDigest || preparation.archiveDigest !== input.candidateArchiveDigest
+      || preparation.baseSha !== input.baseSha || preparation.headSha !== input.headSha)) {
+    throw new Error('Bootstrap plan differs from its original physical preparation.');
+  }
   const unitName = input.unitSubjectDigest === undefined
     ? hostedSutSandboxUnitName(input.bootstrapDigest, input.unitNonce)
     : path.posix.basename(hostedSutSandboxRoot({
@@ -685,12 +1147,13 @@ export function buildTrustedBootstrapSutSandboxCommandPlan(input: Readonly<{
     physicalCommandProjectionDigest: null,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT,
+      '/usr/bin/bash', '-ceu', preparation === null ? HOSTED_SUT_NAMESPACE_SCRIPT : hostedCandidatePreparedNamespaceScript(),
       // Keep the full operation in the exact shell argv ($0) when its
       // namespace path uses the separate pre-materialization subject.
       input.unitSubjectDigest === undefined ? 'sec-hosted-sut' : `sec-hosted-sut:${input.bootstrapDigest}`,
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, input.candidateArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
+      ...(preparation === null ? [] : [encodeVerificationActionData(preparation)]),
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`),
       'bun', '-e', TRUSTED_BOOTSTRAP_SUT_HARNESS
@@ -743,4 +1206,3 @@ export function hostedSutTeardownCommandPlan(input: Readonly<{
     ]
   });
 }
-

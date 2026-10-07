@@ -4,6 +4,7 @@ import { sourceProgramTestChangedSharedInputPaths } from '../source-program-mode
 import {
   compileSourceProgramSupersessionReceipt,
   parseSourceProgramSupersessionEvidence,
+  reconcileSourceProgramTestValueWithSupersession,
   type SourceProgramSupersessionEvidence,
   type SourceProgramTestRetirementReceipt
 } from '../source-program-model/reduction.ts';
@@ -15,12 +16,7 @@ import {
   type SourceProgramTestAuthorAssessment,
   type SourceProgramTestAuthorDecisionPayload
 } from '../source-program-model/test-disposition-decisions.ts';
-import {
-  reconcileSourceProgramTestValueWithSupersession,
-  SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES,
-  summarizeSourceProgramTestUnknownDispositionClusters,
-  type SourceProgramTestValueCompilation
-} from '../source-program-model/test-value.ts';
+import { SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import type { RepositoryAuditLoadedImplementationEvidence } from './loaded-implementation.ts';
 import {
   compileSourceProgramAuditOperation,

@@ -61,23 +61,3 @@ export const CI_MAIN_HEALTH_POLICY = Object.freeze({
 export const CI_MAIN_HEALTH_POLICY_DIGEST = `sha256:${createHash('sha256')
   .update(JSON.stringify(CI_MAIN_HEALTH_POLICY))
   .digest('hex')}` as const;
-
-/** The local Session binds the actual authority protocol, not a claim that its
- * evidence originated in the Actions workflow. This data never issues a proof. */
-const TRUSTED_RUNTIME_MAIN_HEALTH_POLICY = Object.freeze({
-  schema: 'sec-trusted-runtime-main-health-policy-v1' as const,
-  producerIdentity: DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
-  sourceTransport: 'trusted-runtime-durable-readback' as const,
-  receiptSchema: 'sec-trusted-runtime-main-health-receipt-v2' as const,
-  dependencyPreparation: 'private-authority-ephemeral-v1' as const,
-  qualification: 'production-execution-after-successful-settlement' as const,
-  reuse: 'same-live-bounded-operation-only' as const,
-  lifetime: 'originating-operation-deadline-and-scope-exit' as const,
-  readback: 'exact-receipt-and-current-physical-root' as const,
-  conflictDisposition: 'locked' as const,
-  ordinaryLane: 'healthy-exact-main-and-tree' as const
-});
-
-export const TRUSTED_RUNTIME_MAIN_HEALTH_POLICY_DIGEST = `sha256:${createHash('sha256')
-  .update(JSON.stringify(TRUSTED_RUNTIME_MAIN_HEALTH_POLICY))
-  .digest('hex')}` as const;
