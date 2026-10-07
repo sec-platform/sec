@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-07
 ---
 
 # SEC 滚动近期计划
@@ -18,16 +18,10 @@ last-reviewed: 2026-10-02
     "tracking": "none"
   },
   "authority": "none",
-  "candidates": [
-    "development-critical-path-spine-v1",
-    "operation-read-plan-authority-canary-v1",
-    "sec-static-convergence-v1",
-    "candidate-control-transaction-v1",
-    "typescript-7-checker-acceleration-v1"
-  ],
-  "exactMain": "0394d330eb765f0b0e2fdf8a41f63bc78adda7cd",
-  "exactMainTree": "d89ea21bdef6e90c2f49dd6844a4e8a6a92398d8",
-  "projectionDigest": "sha256:105ce03bda87b774de515ceef0ce3dc68a6467871f105464937c342e88d61c4c",
+  "candidates": [],
+  "exactMain": "cebc132edd029804a0797e1e330787fc8896da14",
+  "exactMainTree": "13ae94937ee7711fdaa457ad6382bdf3aca7d00e",
+  "projectionDigest": "sha256:6e9193740ef250c76c6772943ac03c34251cab19bfd9dcd8d688270d3e6ea7b8",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
@@ -36,34 +30,14 @@ last-reviewed: 2026-10-02
 
 ### release-parent-atomic-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/release-parent-atomic-adoption-20261002.md` at `sha256:422dd5e18e7edcd1f1a62187354af460e133865e2608fb1c65e446925e642e65`, based on exact main `0394d330eb765f0b0e2fdf8a41f63bc78adda7cd` and tree `d89ea21bdef6e90c2f49dd6844a4e8a6a92398d8`.
+Proposal-only target manifest `config/repository/work-packages/release-parent-atomic-adoption-20261002.md` at `sha256:422dd5e18e7edcd1f1a62187354af460e133865e2608fb1c65e446925e642e65`, based on exact main `cebc132edd029804a0797e1e330787fc8896da14` and tree `13ae94937ee7711fdaa457ad6382bdf3aca7d00e`.
 
 ## 候选 Work Package
-
-### 1. development-critical-path-spine-v1
-
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
-
-### 2. operation-read-plan-authority-canary-v1
-
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
-
-### 3. sec-static-convergence-v1
-
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
-
-### 4. candidate-control-transaction-v1
-
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
-
-### 5. typescript-7-checker-acceleration-v1
-
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ## 重新规划硬触发器
 
 1. exact main、roadmap/catalog、registry/lifecycle/conflict或current-spec revision漂移；
-2. active/tracking/package与decision不一致，或候选少于二、多于五、重复、手工重排、增删；
+2. active/tracking/package与decision不一致，或候选多于五、重复、手工重排、增删；
 3. WorkDecision、显式transition authority或proposal exact binding不再与当前projection逐项相等；
 4. independent Review之后head/tree/base/manifest或本projection bytes改变。
 
