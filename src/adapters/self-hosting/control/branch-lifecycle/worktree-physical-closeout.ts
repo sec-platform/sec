@@ -805,8 +805,9 @@ export async function prepareWorktreePhysicalCloseout(
       });
     } catch (error) {
       if (!isGeneratedStateWorktreeRetirementBlocked(error)) throw error;
-      // The generated-state owner made no Effect.  Preserve its fail-closed
-      // classification and let #186 emit the canonical working-state blocker.
+      // The generated-state owner made no Effect. Preserve its fail-closed
+      // classification and let the worktree-closeout owner emit the canonical
+      // working-state blocker.
     }
   }
   await assertCoordinatedRepository(repository, commonLease);
