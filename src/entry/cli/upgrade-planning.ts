@@ -1,9 +1,5 @@
 import type { UpgradePlanningView } from '../../application/upgrade-planning.ts';
-import { formatFields, formatList, optionalFields } from './format-utils.ts';
-
-function formatCountSummaries(entries: UpgradePlanningView['migrationKindCounts']): string {
-  return formatList(entries.map((entry) => `${entry.id}=${entry.count}`));
-}
+import { formatFields, formatList, formatSummaryEntries, optionalFields } from './format-utils.ts';
 
 function formatMigration(migration: UpgradePlanningView['migrations'][number]): string {
   return formatFields([
@@ -35,9 +31,9 @@ export function formatUpgradePlanning(view: UpgradePlanningView): string {
       `migrations: ${view.migrationCount}`,
       `preflight checks: ${view.preflightCheckCount}`
     ]),
-    `Migration kinds: ${formatCountSummaries(view.migrationKindCounts)}`,
-    `Operation roles: ${formatCountSummaries(view.operationRoleCounts)}`,
-    `Impacts: ${formatList([...view.impacts])}`,
+    `Migration kinds: ${formatSummaryEntries(view.migrationKindCounts)}`,
+    `Operation roles: ${formatSummaryEntries(view.operationRoleCounts)}`,
+    `Impacts: ${formatList(view.impacts)}`,
     `Preflight evidence: ${view.preflightEvidenceCount}`,
     `Requires verification: ${view.requiresVerificationCount > 0} (${view.requiresVerificationCount} migrations)`,
     ...view.migrations.map(formatMigration),

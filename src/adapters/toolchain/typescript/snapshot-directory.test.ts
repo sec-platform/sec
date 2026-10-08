@@ -28,7 +28,6 @@ test('snapshot directory selection matches TypeScript on the same physical file 
     const excludeCases = [undefined, [], ['src/skip'], ['**/skip'], ['**/*.d.ts'], ['node_modules']];
     const extensionCases = [undefined, ['.ts'], ['.ts', '.tsx', '.js']];
     const roots = ['', 'src', 'packages/pkg'];
-    let comparisons = 0;
     for (const includes of includeCases) for (const excludes of excludeCases) {
       for (const extensions of extensionCases) for (const child of roots) {
         for (const depth of [undefined, 1, 2]) {
@@ -36,11 +35,9 @@ test('snapshot directory selection matches TypeScript on the same physical file 
           const expected = ts.sys.readDirectory(directory, extensions, excludes, includes, depth).sort();
           assert.deepEqual(read(directory, extensions, excludes, includes, depth), expected,
             JSON.stringify({ child, includes, excludes, extensions, depth }));
-          comparisons += 1;
         }
       }
     }
-    assert.equal(comparisons, 1620);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

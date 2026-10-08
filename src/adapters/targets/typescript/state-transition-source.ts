@@ -1,6 +1,6 @@
-import { CompilerError } from '../../../compiler/errors.ts';
 import { assertStateTransitionFunctions } from '../../../compiler/state-transition-plan.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import type { SemanticGeneratorPlanTask, StateTransitionMapGeneratorPlanTask } from '../../../semantics/generation/types.ts';
 import { CodeBuilder } from './code-builder.ts';
 
@@ -53,6 +53,6 @@ export function renderStateTransitionMapSource(
 export function renderTypeScriptSemanticTask(task: SemanticGeneratorPlanTask): string {
   switch (task.kind) {
     case 'generate-state-transition-map': return renderStateTransitionMapSource(task);
-    default: throw new CompilerError('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
+    default: throw new CodedFailure('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
   }
 }

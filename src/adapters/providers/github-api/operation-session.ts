@@ -9,10 +9,9 @@ export {
   GITHUB_API_READ_OPERATION_TIMEOUT_MS,
   GITHUB_API_REQUEST_TIMEOUT_MS, GitHubApiGraphqlResponseError, GitHubApiProviderError, assertGitHubApiCapability, assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
-  executeGitHubApiOperation, inspectGitHubApiCapability, observeGitHubApiMainRef, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
-  withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
-  withGitHubApiStatusWriteSession, withGitHubApiVerificationSession, type GitHubApiCapability,
-  type GitHubApiEffect,
+  dispatchAuthenticatedHostedJobResume, executeGitHubApiOperation,
+  inspectGitHubApiCapability, isGitHubApiProviderError, observeAuthenticatedHostedResumeEmitter, observeGitHubApiMainRef, withGitHubApiBranchCloseoutWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget, withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
+  withGitHubApiStatusWriteSession, withGitHubApiVerificationActionProviderSession, withGitHubApiVerificationSession, type GitHubApiCapability, type GitHubApiEffect,
   type GitHubApiOperation,
   type GitHubApiPrincipal
 } from './internal/operation-session-runtime.ts';

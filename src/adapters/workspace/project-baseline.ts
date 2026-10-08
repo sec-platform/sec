@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
 
 import { canonicalEquals } from '../../contracts/canonical.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
@@ -19,7 +20,7 @@ import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspa
 import { ensureDir } from "../filesystem/files.ts";
 import { PhysicalNoFollowError } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
-import { getWorkspacePaths, secRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from "../workspace-context.ts";
+import { getWorkspacePaths, secRelativePath, tsconfigRelativePath } from "../workspace-context.ts";
 import { calculateProjectFileHash } from './project-file-hash.ts';
 
 export interface ProjectBaselineAssertionOptions {

@@ -3,7 +3,7 @@ import { isDigest } from '../../../../../contracts/digest.ts';
 import {
   generatedStateDigest,
   type GeneratedStatePhysicalIdentity
-} from '../../../../runtime-state/generated-state/contract.ts';
+} from '../../../../../execution/generated-state/contract.ts';
 import type {
   PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';

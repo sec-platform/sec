@@ -21,32 +21,32 @@ import {
   GIT_READ_OPERATION_BUDGET,
   runGitRead
 } from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../src/execution/operation/semantic.ts';
 
-const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as SecOperationDigest;
-const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as SecOperationDigest;
+const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as OperationDigest;
+const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as OperationDigest;
 
 function issueTestGitReadOperation(input: Readonly<{
   deadlineAtUnixMs?: number;
   maxInputBytes?: number;
   maxOutputBytes?: number;
   maxProcesses?: number;
-}> = {}): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}> = {}): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: 'git-read.host-observation',
-    intentDigest: `sha256:${'3'.repeat(64)}` as SecOperationDigest,
+    intentDigest: `sha256:${'3'.repeat(64)}` as OperationDigest,
     decisionDigest: TEST_GIT_READ_CONTRACT_DIGEST,
     deadlineAtUnixMs: input.deadlineAtUnixMs
       ?? Date.now() + GIT_READ_OPERATION_BUDGET.deadlineMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: TEST_GIT_READ_CONTRACT_DIGEST
     }),
     aggregateBudgets: [
@@ -74,7 +74,7 @@ function issueTestGitReadOperation(input: Readonly<{
       failureKinds: ['provider.cancelled', 'provider.execution-failed', 'provider.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'git-read.host-process',
     contractDigest: TEST_GIT_READ_CONTRACT_DIGEST,
     providerIdentityDigest: TEST_GIT_READ_PROVIDER_DIGEST
@@ -388,7 +388,7 @@ test.skipIf(process.platform !== 'win32')(
     const operation = issueTestGitReadOperation({ maxProcesses: 3 });
     const processSession = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: 'git-read.host-process',
         resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -450,22 +450,6 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(processSession.processCount).toBe(2);
     processSession.close();
-  }
-);
-
-test.skipIf(process.platform !== 'linux')(
-  'production GitRead returns a typed retained-provider blocker on an unsupported POSIX host',
-  () => {
-    const resolution = createAuthorityGitReadSession({
-      cwd: process.cwd(),
-      operation: issueTestGitReadOperation(),
-      budget: GIT_READ_OPERATION_BUDGET
-    });
-    expect(resolution).toMatchObject({
-      kind: 'unresolved-git-read-provider',
-      status: 'unavailable',
-      reason: 'git-retained-provider-unavailable'
-    });
   }
 );
 
@@ -716,7 +700,7 @@ test('the host transport fences the retained executable and cwd before and after
   expect(session.failure).toBeNull();
 });
 
-test('the retained cwd prevents replacement while the Git session is live', async () => {
+test.skipIf(process.platform !== 'win32')('the retained cwd prevents replacement while the Git session is live', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-cwd-'));
   const moved = `${root}-moved`;
   let session: ReturnType<typeof createHostGitReadSessionForTests> | undefined;

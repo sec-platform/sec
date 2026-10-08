@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
-  resolveSecMarkdownSkillCoverage
+  resolveMarkdownSkillCoverage
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 
 test('ordinary root policies carry no Skill authority and unknown external Markdown stays unclassified', () => {
@@ -10,9 +10,9 @@ test('ordinary root policies carry no Skill authority and unknown external Markd
     'SECURITY.md',
     '.github/PULL_REQUEST_TEMPLATE.md'
   ]) {
-    expect(resolveSecMarkdownSkillCoverage(path)).toEqual({ kind: 'repository-content', skills: [] });
+    expect(resolveMarkdownSkillCoverage(path)).toEqual({ kind: 'repository-content', skills: [] });
   }
-  expect(resolveSecMarkdownSkillCoverage('notes/architecture.md')).toBeNull();
+  expect(resolveMarkdownSkillCoverage('notes/architecture.md')).toBeNull();
 });
 
 test('retired public documentation paths have no current classification', () => {
@@ -21,19 +21,19 @@ test('retired public documentation paths have no current classification', () => 
     'public-docs/README.md',
     'public-docs/principles.md'
   ]) {
-    expect(resolveSecMarkdownSkillCoverage(path)).toBeNull();
+    expect(resolveMarkdownSkillCoverage(path)).toBeNull();
   }
-  expect(resolveSecMarkdownSkillCoverage('public-docs/nested/unregistered.md')).toBeNull();
+  expect(resolveMarkdownSkillCoverage('public-docs/nested/unregistered.md')).toBeNull();
 });
 
 test('repository control Markdown is classified outside the documentation namespace', () => {
-  expect(resolveSecMarkdownSkillCoverage(
+  expect(resolveMarkdownSkillCoverage(
     'config/repository/work-packages/docs-control-convergence.md'
   )).toEqual({ kind: 'frozen-work-package', skills: [] });
-  expect(resolveSecMarkdownSkillCoverage('config/repository/active-work-package.md'))
+  expect(resolveMarkdownSkillCoverage('config/repository/active-work-package.md'))
     .toEqual({ kind: 'control-projection', skills: [] });
-  expect(resolveSecMarkdownSkillCoverage('config/repository/rolling-plan.md'))
+  expect(resolveMarkdownSkillCoverage('config/repository/rolling-plan.md'))
     .toEqual({ kind: 'control-projection', skills: [] });
-  expect(resolveSecMarkdownSkillCoverage('config/repository/work-selection.md'))
+  expect(resolveMarkdownSkillCoverage('config/repository/work-selection.md'))
     .toEqual({ kind: 'control-projection', skills: [] });
 });

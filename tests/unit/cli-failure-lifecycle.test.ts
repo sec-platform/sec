@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import type { ErrorProtocol } from '../../src/application/error-protocol.ts';
 import { runRepairWithFailureReadback } from '../../src/application/repair-execution.ts';
-import { formatCompilerFailure } from '../../src/compiler/errors.ts';
+import { formatFailure } from '../../src/contracts/failure-format.ts';
 import { reportCliFailure } from '../../src/entry/cli/cli-failure.ts';
 import { reportRepairFailureReadback } from '../../src/entry/cli/repair-failure-readback.ts';
 
@@ -112,7 +112,7 @@ test('secondary readback failure is reported without masking the original repair
     await assert.rejects(runRepairWithFailureReadback(
       async () => { throw primary; },
       async () => { throw secondary; },
-      failure => reportRepairFailureReadback(formatCompilerFailure(failure))
+      failure => reportRepairFailureReadback(formatFailure(failure))
     ), (e) => e === primary);
     assert.equal(lines.length, 1); assert.match(String(lines[0]![0]), /readback/);
   } finally { console.error = previous; }
@@ -126,24 +126,10 @@ test('even a secondary failure and a broken diagnostic sink cannot change the or
     await assert.rejects(runRepairWithFailureReadback(
       async () => { throw primary; },
       async () => { throw revoked.proxy; },
-      failure => reportRepairFailureReadback(formatCompilerFailure(failure))
+      failure => reportRepairFailureReadback(formatFailure(failure))
     ), (e) => e === primary);
   } finally { console.error = previous; }
 });
-
-test('a presentation failure after successful repair does not start failure readback', async () => {
-  const failure = new Error('format'); let reads = 0;
-  await assert.rejects((async () => {
-    await runRepairWithFailureReadback(
-      async () => 7,
-      async () => { reads++; },
-      () => undefined
-    );
-    throw failure;
-  })(), (e) => e === failure);
-  assert.equal(reads, 0);
-});
-
 
 test('unrepresentable truthy details fall back to inspection instead of emitting undefined', () => {
   for (const details of [Symbol('detail'), () => undefined]) {

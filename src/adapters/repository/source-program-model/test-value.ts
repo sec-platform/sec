@@ -9,10 +9,8 @@ import type {
   SourceProgramCandidateAnalysis,
   SourceProgramFileInput,
   SourceProgramModel,
-  SourceProgramSpan,
-  SourceProgramSupersessionReceipt
+  SourceProgramSpan
 } from './contract.ts';
-import { assertSourceProgramSupersessionReceipt } from './reduction.ts';
 import {
   observeSourceProgramTestContractCensus,
   SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS,
@@ -412,7 +410,7 @@ function sourceProgramTestBaselineEvidenceDigest(
     .sort((left, right) => compareCodeUnits(left.path, right.path)));
 }
 
-function dispositionFromEvidence(
+export function dispositionFromEvidence(
   pathValue: string,
   disposition: SourceProgramTestDispositionKind,
   sourceRevision: string,
@@ -477,135 +475,6 @@ function deriveSourceProgramTestDispositions(
         census
       )];
     }));
-}
-
-function supersessionReceiptIsBound(
-  receipt: SourceProgramSupersessionReceipt,
-  compilation: SourceProgramTestValueCompilation
-): boolean {
-  if (!DIGEST.test(receipt.receiptDigest)
-      || receipt.current.sourceRevision !== compilation.sourceRevision
-      || receipt.current.testCompilationDigest !== compilation.compilationDigest) return false;
-  const { receiptDigest: _receiptDigest, ...canonicalReceipt } = receipt;
-  return sha256(canonicalReceipt) === receipt.receiptDigest;
-}
-
-/**
- * Consume the one-way Source Program supersession proof after test
- * observations have been compiled.  This second phase avoids a Test Value ->
- * Supersession -> Test Value dependency cycle: the receipt is bound to the
- * observation compilation digest, and this projection records that receipt
- * without feeding the derived disposition back into its proof preimage.
- *
- * Only the existing owner-issued receipt can discharge a missing module:
- * author REWRITE remains a judgment, never semantic equivalence. Consumer-zero
- * retirement is not reconstructed from syntax census; until its actual owner
- * emits that proof per baseline test, DELETE remains UNKNOWN.
- */
-export function reconcileSourceProgramTestValueWithSupersession(
-  compilation: SourceProgramTestValueCompilation,
-  receipt: SourceProgramSupersessionReceipt
-): SourceProgramTestDispositionProjection {
-  const project = (
-    dispositions: readonly SourceProgramTestDisposition[],
-    findings: readonly SourceProgramTestFinding[],
-    supersessionReceiptDigest: string | null
-  ): SourceProgramTestDispositionProjection => {
-    const canonicalProjection = Object.freeze({
-      sourceRevision: compilation.sourceRevision,
-      baselineTestPaths: compilation.baselineTestPaths,
-      baselineDigest: compilation.baselineDigest,
-      baselineEvidenceDigest: compilation.baselineEvidenceDigest,
-      dispositions: Object.freeze([...dispositions]),
-      findings: Object.freeze([...findings]),
-      observationCompilationDigest: compilation.compilationDigest,
-      supersessionReceiptDigest
-    });
-    return Object.freeze({
-      ...canonicalProjection,
-      projectionDigest: sha256(canonicalProjection)
-    });
-  };
-  if ((receipt.status !== 'superseded' && receipt.status !== 'author-approved-change')
-      || !supersessionReceiptIsBound(receipt, compilation)) {
-    return project(compilation.dispositions, compilation.findings, null);
-  }
-
-  assertSourceProgramSupersessionReceipt(receipt);
-  const authorRewrite = receipt.status === 'author-approved-change';
-  if (authorRewrite) {
-    if (receipt.authorDecisionDigest === null) throw new Error('Author REWRITE requires the adopted decision identity');
-  }
-  const recordPathById = new Map(compilation.records.map(({ testId, path: testPath }) =>
-    [testId, testPath] as const));
-  const replacementsByBaselinePath = new Map<string, SourceProgramSupersessionReceipt['replacements']>();
-  for (const replacement of receipt.replacements) {
-    if (replacement.kind !== 'test' || replacement.baselinePaths.length !== 1) continue;
-    const baselinePath = replacement.baselinePaths[0]!;
-    const replacements = replacementsByBaselinePath.get(baselinePath) ?? [];
-    replacementsByBaselinePath.set(baselinePath, Object.freeze([...replacements, replacement]));
-  }
-
-  const resolvedPaths = new Set<string>();
-  const dispositions = compilation.dispositions.map((disposition) => {
-    if (disposition.disposition !== 'unknown') return disposition;
-    const replacements = replacementsByBaselinePath.get(disposition.path) ?? [];
-    if (replacements.length === 0
-        || replacements.some(({ proof }) => proof !== (authorRewrite ? 'owner-rewrite-judgment' : 'strict-observation-superset'))) {
-      return disposition;
-    }
-    const baselineIds = replacements.map(({ baselineId }) => baselineId);
-    const replacementIds = [...new Set(replacements.flatMap(({ currentIds }) => currentIds))]
-      .sort(compareCodeUnits);
-    const replacementPaths = [...new Set(replacementIds.flatMap((testId) => {
-      const testPath = recordPathById.get(testId);
-      return testPath === undefined ? [] : [testPath];
-    }))].sort(compareCodeUnits);
-    const receiptPaths = [...new Set(replacements.flatMap(({ currentPaths }) => currentPaths))]
-      .sort(compareCodeUnits);
-    if (replacementIds.length === 0
-        || replacementIds.some((testId) => !recordPathById.has(testId))
-        || sha256(replacementPaths) !== sha256(receiptPaths)
-        || new Set(baselineIds).size !== baselineIds.length) return disposition;
-    resolvedPaths.add(disposition.path);
-    if (authorRewrite) {
-      const owners = [...new Set(replacements.map(({ owner }) => owner))];
-      if (owners.length !== 1 || owners[0] === null) throw new Error('Author REWRITE has inconsistent baseline ownership');
-      const canonical = Object.freeze({
-        path: disposition.path,
-        disposition: 'rewrite' as const,
-        evidence: Object.freeze({
-          owner: owners[0]!, sourceRevision: compilation.sourceRevision,
-          replacementTestIds: Object.freeze(replacementIds),
-          census: disposition.evidence.census, supersession: null,
-          ownerDecisionDigest: receipt.authorDecisionDigest
-        }),
-        baselineDigest: disposition.baselineDigest
-      });
-      return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) });
-    }
-    return dispositionFromEvidence(
-      disposition.path,
-      'merge',
-      compilation.sourceRevision,
-      disposition.baselineDigest,
-      disposition.evidence.census,
-      replacementIds,
-      Object.freeze({
-        receiptDigest: receipt.receiptDigest,
-        baselineTestId: baselineIds.length === 1
-          ? baselineIds[0]!
-          : sha256([...baselineIds].sort(compareCodeUnits)),
-        proof: 'strict-observation-superset'
-      })
-    );
-  });
-  if (resolvedPaths.size === 0) {
-    return project(compilation.dispositions, compilation.findings, null);
-  }
-  const findings = compilation.findings.filter(({ code, path: findingPath }) =>
-    code !== 'test-module-disposition-unknown' || !resolvedPaths.has(findingPath));
-  return project(dispositions, findings, receipt.receiptDigest);
 }
 
 /**

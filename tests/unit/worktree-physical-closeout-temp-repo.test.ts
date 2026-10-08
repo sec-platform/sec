@@ -20,9 +20,9 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
 
 import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirement } from '../../src/adapters/filesystem/write-lease.ts';
-import { generatedStateProducerHooks } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
@@ -48,6 +48,7 @@ import {
   retireSettledCompilerDependencyStageIntents
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
+import { generatedStateProducerHooks } from '../helpers/generated-state-fixture.ts';
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
@@ -61,7 +62,7 @@ function gitPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 
-function writeCompilerDependencyInputsV1(root: string): void {
+function writeCompilerDependencyInputs(root: string): void {
   writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({
     packageManager: `bun@${process.versions.bun}`,
     dependencies: { commander: '1.0.0' },
@@ -72,7 +73,7 @@ function writeCompilerDependencyInputsV1(root: string): void {
   writeFileSync(path.join(root, '.gitignore'), 'node_modules/\n.tmp/\n', 'utf8');
 }
 
-function materializeCompilerDependencyFixtureV1(root: string): void {
+function materializeCompilerDependencyFixture(root: string): void {
   const packages = [
     { name: 'commander', version: '1.0.0' },
     { name: 'typescript', version: '1.0.0', main: './lib/typescript.js' }
@@ -100,7 +101,7 @@ function fixture(options: Readonly<{ compilerDependencies?: boolean; documentati
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
   git(repository, ['config', 'core.autocrlf', 'false']);
   writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
-  if (options.compilerDependencies === true) writeCompilerDependencyInputsV1(repository);
+  if (options.compilerDependencies === true) writeCompilerDependencyInputs(repository);
   if (options.documentationCoordination === true) writeFileSync(path.join(repository, '.gitignore'), '.tmp/\n', 'utf8');
   git(repository, ['add', '.']);
   git(repository, ['commit', '-m', 'main']);
@@ -117,7 +118,7 @@ function fixture(options: Readonly<{ compilerDependencies?: boolean; documentati
   return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
 }
 
-async function persistRetiredPhaseForCrashV1(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseout>>): Promise<string> {
+async function persistRetiredPhaseForCrash(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseout>>): Promise<string> {
   const tombstone = path.join(path.dirname(authorization.target.path), authorization.tombstoneName);
   relocateRetainedNoFollowDirectory({
     directory: inspectNoFollowDirectoryChain(authorization.target.path, 'crash phase source').target,
@@ -161,7 +162,7 @@ test('real registered worktree reaches registry and physical absence under one d
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-});
+}, worktreePhysicalCloseoutOperations);
 
     expect(existsSync(authorization.authorizationPath)).toBe(true);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
@@ -217,7 +218,7 @@ test('completed worktree evidence is retained while the branch is live and recla
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -262,7 +263,7 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const commonDir = git(value.repository, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
     const execute = () => executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -313,7 +314,7 @@ test('closeout retires only an empty ignored documentation coordination leaf', a
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     expect(existsSync(lock)).toBeFalse();
     expect(existsSync(authorization.authorizationPath)).toBeTrue();
     expect((await executeWorktreePhysicalCloseout({
@@ -343,7 +344,7 @@ test('nonempty documentation coordination state rejects closeout without deletin
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    })).rejects.toThrow('refuses nonempty state');
+    }, worktreePhysicalCloseoutOperations)).rejects.toThrow('refuses nonempty state');
     expect(readFileSync(lock, 'utf8')).toBe('x');
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
   } finally {
@@ -363,7 +364,7 @@ test('non-file documentation coordination state rejects closeout without deletin
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    })).rejects.toThrow();
+    }, worktreePhysicalCloseoutOperations)).rejects.toThrow();
     expect(existsSync(lock)).toBeTrue();
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
   } finally {
@@ -381,7 +382,7 @@ test('completed worktree GC rejects unknown operation evidence instead of deleti
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -415,7 +416,7 @@ test('one branch settlement retires completed current worktree evidence it makes
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     expect(authorization.schema).toBe(WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -501,7 +502,7 @@ test('prepared worktree evidence remains a recovery root', async () => {
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const result = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
     expect(result.retiredOperationIds).toEqual([]);
     expect(result.retained).toContainEqual({
@@ -527,7 +528,7 @@ test('fieldless historical proofless residue converges only from exact durable a
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const {
       authorizationDigest: ignoredAuthorizationDigest,
       generatedStateRetirement: ignoredGeneratedStateRetirement,
@@ -747,8 +748,7 @@ test('fieldless historical proofless residue converges only from exact durable a
   }
 }, 30_000);
 
-test('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
   const value = fixture();
   const externalTarget = path.join(value.root, 'external-junction-target');
   try {
@@ -774,7 +774,7 @@ test('authorized externally unregistered worktree converges physical residue wit
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const registryAdminPath = path.join(
       authorization.repository.commonDir,
       ...authorization.registryAdmin.relativePath.split('/')
@@ -840,7 +840,7 @@ test('closeout composes provider retirement for an automatically reused dependen
   try {
     await ensureCompilerDepsReady({
       materialize: async (_args, command) => {
-        materializeCompilerDependencyFixtureV1(command.cwd);
+        materializeCompilerDependencyFixture(command.cwd);
         return { code: 0, stdout: 'ok', stderr: '' };
       },
       generatedStateLifecycle: repositoryLifecycle
@@ -868,7 +868,7 @@ test('closeout composes provider retirement for an automatically reused dependen
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     expect(authorization.generatedStateRetirement).toMatchObject({ terminal: 'completed' });
     const generatedStateRetentionRoot = authorization.generatedStateRetirement?.retentionRoot?.path;
     expect(generatedStateRetentionRoot).toBeString();
@@ -925,8 +925,7 @@ test('closeout composes provider retirement for an automatically reused dependen
   }
 }, 40_000);
 
-test('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
   const value = fixture();
   const externalJunctionTarget = path.join(value.root, 'junction-external');
   try {
@@ -966,7 +965,7 @@ test('Windows real closeout streams a large tracked leaf, normalizes readonly, a
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     expect(prepared.authorization.inventory.entries.find((entry) => entry.relativePath === 'tracked-cache/large-object.bin')).toMatchObject({
       kind: 'file', size: largeSize
     });
@@ -1020,7 +1019,7 @@ test('first same-branch completed token remains target-valid after a second regi
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const firstReceipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1033,7 +1032,7 @@ test('first same-branch completed token remains target-valid after a second regi
       repositoryRoot: value.repository, targetPath: secondTarget, expectedBranch: value.branch,
       expectedHeadSha: secondHeadSha, expectedTreeSha: secondTreeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const secondReceipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: secondTarget, expectedBranch: value.branch,
       expectedHeadSha: secondHeadSha, expectedTreeSha: secondTreeSha,
@@ -1070,7 +1069,7 @@ test('dependency owner retires settled compiler staging intents in a linked work
     });
     await ensureCompilerDepsReady({
       materialize: async (_args, command) => {
-        materializeCompilerDependencyFixtureV1(command.cwd);
+        materializeCompilerDependencyFixture(command.cwd);
         return { code: 0, stdout: 'ok', stderr: '' };
       },
       generatedStateLifecycle: lifecycle
@@ -1159,7 +1158,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
           expectedHeadSha: value.headSha,
           expectedTreeSha: value.treeSha,
           expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-        })).rejects.toThrow('working-state-not-clean');
+        }, worktreePhysicalCloseoutOperations)).rejects.toThrow('working-state-not-clean');
         expect(existsSync(path.join(value.target, '.sec', 'foreign.txt'))).toBe(true);
         continue;
       }
@@ -1170,7 +1169,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
         expectedHeadSha: value.headSha,
         expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-      });
+      }, worktreePhysicalCloseoutOperations);
       const receipt = await executeWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
         targetPath: value.target,
@@ -1195,7 +1194,7 @@ test('self-signed unregister receipt cannot elevate a token without this-process
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const registryAdminPath = path.join(
       prepared.authorization.repository.commonDir,
       ...prepared.authorization.registryAdmin.relativePath.split('/')
@@ -1270,7 +1269,7 @@ test('dirty untracked and ignored targets block before durable authorization or 
           expectedHeadSha: value.headSha,
           expectedTreeSha: value.treeSha,
           expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-        })
+        }, worktreePhysicalCloseoutOperations)
       ).rejects.toThrow('working-state-not-clean');
       expect(existsSync(value.target)).toBe(true);
       expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
@@ -1288,11 +1287,11 @@ test('detached scratch closeout is branch-token-ineligible and reaches physical/
     const authorization = await prepareDetachedScratchWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: scratch, expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     await expect(prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: scratch, expectedBranch: `detached-scratch-${value.headSha}`,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    })).rejects.toThrow('cannot mint');
+    }, worktreePhysicalCloseoutOperations)).rejects.toThrow('cannot mint');
     const receipt = await executeDetachedScratchWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: scratch, expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
@@ -1317,7 +1316,7 @@ test('an unregistered physical orphan cannot be adopted or removed', async () =>
         expectedHeadSha: value.headSha,
         expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-      })
+      }, worktreePhysicalCloseoutOperations)
     ).rejects.toThrow('unknown historical orphans cannot be adopted');
     expect(existsSync(value.target)).toBe(true);
   } finally {
@@ -1350,12 +1349,12 @@ test('prepared token cannot be promoted by a caller-completed public retirement 
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     // This helper uses only the public lease/retirement API to create a fully
     // valid pre-bound proof and durable phase, then a normal execute process
     // converges it.  It deliberately never executes the engine branch that
     // held the target lease and receives its `retireOwnedNamespace` result.
-    await persistRetiredPhaseForCrashV1(prepared.authorization);
+    await persistRetiredPhaseForCrash(prepared.authorization);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1380,7 +1379,7 @@ test('trusted closeout consumption rejects a deleted or replaced retained proof 
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1417,8 +1416,8 @@ test('foreign retained-proof content blocks execute and leaves the retirement fe
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
-    await persistRetiredPhaseForCrashV1(authorization);
+    }, worktreePhysicalCloseoutOperations);
+    await persistRetiredPhaseForCrash(authorization);
     writeFileSync(path.join(authorization.proofRoot.path, 'foreign-proof.txt'), 'foreign\n');
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
@@ -1434,8 +1433,7 @@ test('foreign retained-proof content blocks execute and leaves the retirement fe
   }
 }, 30_000);
 
-test('physical residue retry advances immutable receipt generation without erasing the first attempt', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('physical residue retry advances immutable receipt generation without erasing the first attempt', async () => {
   const value = fixture();
   try {
     const authorization = await prepareWorktreePhysicalCloseout({
@@ -1445,7 +1443,7 @@ test('physical residue retry advances immutable receipt generation without erasi
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     // Real external state transition: Git unregisters the worktree, then an
     // out-of-band actor leaves a physical residue before this executor can
     // resume.  The engine receives neither a production hook nor a test-only
@@ -1515,7 +1513,7 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     const tombstone = relocateRetainedNoFollowDirectory({
       directory: inspectNoFollowDirectoryChain(value.target, 'test tombstone source').target,
       tombstoneName: authorization.tombstoneName
@@ -1535,7 +1533,7 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
         repositoryRoot: second.repository, targetPath: second.target, expectedBranch: second.branch,
         expectedHeadSha: second.headSha, expectedTreeSha: second.treeSha,
         expectedRecoveryAuthorityDigest: second.recoveryAuthorityDigest
-      });
+      }, worktreePhysicalCloseoutOperations);
       relocateRetainedNoFollowDirectory({
         directory: inspectNoFollowDirectoryChain(second.target, 'test rebuilt source').target,
         tombstoneName: secondAuthorization.tombstoneName
@@ -1563,8 +1561,8 @@ test('retired target phase resumes before unregister and rejects registry disapp
         repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
         expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-      });
-      const tombstone = await persistRetiredPhaseForCrashV1(authorization);
+      }, worktreePhysicalCloseoutOperations);
+      const tombstone = await persistRetiredPhaseForCrash(authorization);
       expect(existsSync(value.target)).toBe(false);
       if (crashBoundary === 'after-unregister') {
         const gitdir = /^gitdir: ([^\r\n]+)/u.exec(readFileSync(path.join(tombstone, '.git'), 'utf8'))?.[1];
@@ -1600,8 +1598,8 @@ test('a rebuilt original path survives retained registry-admin deletion without 
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
-    const tombstone = await persistRetiredPhaseForCrashV1(authorization);
+    }, worktreePhysicalCloseoutOperations);
+    const tombstone = await persistRetiredPhaseForCrash(authorization);
     mkdirSync(value.target);
     writeFileSync(path.join(value.target, 'new-owner.txt'), 'must survive\n');
     const receipt = await executeWorktreePhysicalCloseout({
@@ -1630,7 +1628,7 @@ test('locked worktree and target-root replacement fail closed before unregister'
         expectedHeadSha: locked.headSha,
         expectedTreeSha: locked.treeSha,
         expectedRecoveryAuthorityDigest: locked.recoveryAuthorityDigest
-      })
+      }, worktreePhysicalCloseoutOperations)
     ).rejects.toThrow('target-is-locked');
     expect(gitPath(git(locked.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(locked.target));
   } finally {
@@ -1649,7 +1647,7 @@ test('locked worktree and target-root replacement fail closed before unregister'
       expectedHeadSha: replaced.headSha,
       expectedTreeSha: replaced.treeSha,
       expectedRecoveryAuthorityDigest: replaced.recoveryAuthorityDigest
-    });
+    }, worktreePhysicalCloseoutOperations);
     renameSync(replaced.target, `${replaced.target}-original`);
     symlinkSync(outside, replaced.target, 'dir');
     const receipt = await executeWorktreePhysicalCloseout({

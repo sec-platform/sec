@@ -1,11 +1,15 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { withGitCandidateCheckout } from '../../src/adapters/providers/git-bundle/runtime.ts';
 
-import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
+import { AgentOperationActivationUnavailableError, createAgentOperationActivationHostedStagePorts, observeAgentOperationActivationCandidateControl, observeOperationAuthorityOwners, resolveAgentOperationActivation } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
+import { selectHostedJobRuntimePhase } from '../../src/application/hosted-job-runtime.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import {
@@ -13,20 +17,20 @@ import {
   assertAgentOperationActivationWorkPackageCensus
 } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation-census.ts';
 import {
-  createSecAgentOperationActivationPreparation,
-  createSecAgentOperationActivationProvider,
-  createSecAgentOperationActivationPublication,
-  createSecAgentOperationActivationReceipt,
-  createSecAgentOperationActivationRequest,
-  parseSecAgentOperationActivationPreparation,
-  parseSecAgentOperationActivationPublicationComment,
-  parseSecAgentOperationActivationReceipt,
-  renderSecAgentOperationActivationPublicationComment,
-  secAgentOperationActivationArtifactName,
-  secAgentOperationActivationOperationId,
-  type SecAgentOperationActivationPreparationInput,
-  type SecAgentOperationActivationProvider,
-  type SecAgentOperationActivationRequest
+  agentOperationActivationArtifactName,
+  agentOperationActivationOperationId,
+  createAgentOperationActivationPreparation,
+  createAgentOperationActivationProvider,
+  createAgentOperationActivationPublication,
+  createAgentOperationActivationReceipt,
+  createAgentOperationActivationRequest,
+  parseAgentOperationActivationPreparation,
+  parseAgentOperationActivationPublicationComment,
+  parseAgentOperationActivationReceipt,
+  renderAgentOperationActivationPublicationComment,
+  type AgentOperationActivationPreparationInput,
+  type AgentOperationActivationProvider,
+  type AgentOperationActivationRequest
 } from '../../src/adapters/self-hosting/control/agent/operation-activation.ts';
 
 const sha = (character: string): string => character.repeat(40);
@@ -55,8 +59,8 @@ test('activation test census accepts colocated regular blobs and rejects non-fil
   }
 });
 
-function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProvider {
-  return createSecAgentOperationActivationProvider({
+function provider(runId: string, workflowSha = sha('a')): AgentOperationActivationProvider {
+  return createAgentOperationActivationProvider({
     repositoryId: '123',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${workflowSha}`,
@@ -73,8 +77,8 @@ function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActiv
   });
 }
 
-function prepareRequest(): SecAgentOperationActivationRequest {
-  return createSecAgentOperationActivationRequest({
+function prepareRequest(): AgentOperationActivationRequest {
+  return createAgentOperationActivationRequest({
     phase: 'prepare',
     pullRequestNumber: 400,
     expectedBaseSha: sha('a'),
@@ -85,7 +89,7 @@ function prepareRequest(): SecAgentOperationActivationRequest {
   });
 }
 
-function preparationInput(): SecAgentOperationActivationPreparationInput {
+function preparationInput(): AgentOperationActivationPreparationInput {
   const request = prepareRequest();
   return {
     request,
@@ -123,7 +127,7 @@ function preparationInput(): SecAgentOperationActivationPreparationInput {
       'config/repository/rolling-plan.md',
       'config/repository/work-packages/delegation-consumer-zero-retirement-v1.md'
     ],
-    operationId: secAgentOperationActivationOperationId(request.requestOperationId),
+    operationId: agentOperationActivationOperationId(request.requestOperationId),
     role: 'worker',
     operationKind: 'implement',
     workDecisionReceiptDigest: digest('6'),
@@ -157,21 +161,21 @@ tests:
 }
 
 test('hosted PRE is canonical and binds request, provider, and full manifest scope', () => {
-  const first = createSecAgentOperationActivationPreparation(preparationInput());
-  const second = createSecAgentOperationActivationPreparation({
+  const first = createAgentOperationActivationPreparation(preparationInput());
+  const second = createAgentOperationActivationPreparation({
     ...preparationInput(),
     authorizedPaths: [...preparationInput().authorizedPaths].reverse(),
     proposalChangedPaths: [...preparationInput().proposalChangedPaths].reverse()
   });
   expect(second).toEqual(first);
-  expect(parseSecAgentOperationActivationPreparation(
+  expect(parseAgentOperationActivationPreparation(
     JSON.parse(JSON.stringify(first))
   )).toEqual(first);
-  expect(() => createSecAgentOperationActivationPreparation({
+  expect(() => createAgentOperationActivationPreparation({
     ...preparationInput(),
     proposalChangedPaths: ['source/forbidden.ts']
   })).toThrow(/scope is inconsistent/u);
-  expect(() => createSecAgentOperationActivationPreparation({
+  expect(() => createAgentOperationActivationPreparation({
     ...preparationInput(),
     provider: provider('11', sha('e'))
   })).toThrow(/scope is inconsistent/u);
@@ -211,8 +215,8 @@ test('hosted PRE requires every stale default-branch Work Package to be deleted'
 });
 
 test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE scope', () => {
-  const preparation = createSecAgentOperationActivationPreparation(preparationInput());
-  const request = createSecAgentOperationActivationRequest({
+  const preparation = createAgentOperationActivationPreparation(preparationInput());
+  const request = createAgentOperationActivationRequest({
     phase: 'finalize',
     pullRequestNumber: preparation.proposal.number,
     expectedBaseSha: preparation.trustedBaseSha,
@@ -221,7 +225,7 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     manifestDigest: preparation.proposal.manifestDigest,
     preparationCommentId: 501
   });
-  const receipt = createSecAgentOperationActivationReceipt({
+  const receipt = createAgentOperationActivationReceipt({
     request,
     preparation,
     pullRequest: {
@@ -238,15 +242,15 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     workDecisionDecisionDigest: digest('9'),
     provider: provider('12')
   });
-  expect(parseSecAgentOperationActivationReceipt(
+  expect(parseAgentOperationActivationReceipt(
     JSON.parse(JSON.stringify(receipt))
   )).toEqual(receipt);
   const { schema: _receiptSchema, activationDigest: _activationDigest, ...receiptInput } = receipt;
-  expect(() => createSecAgentOperationActivationReceipt({
+  expect(() => createAgentOperationActivationReceipt({
     ...receiptInput,
     changedPaths: ['source/forbidden.ts']
   })).toThrow(/exact PRE authority/u);
-  expect(() => createSecAgentOperationActivationReceipt({
+  expect(() => createAgentOperationActivationReceipt({
     ...receiptInput,
     controlDigests: { ...preparation.controlDigests, rollingPlan: digest('f') }
   })).toThrow(/exact PRE authority/u);
@@ -254,22 +258,22 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
 
 test('App comment is only a canonical immutable-artifact locator', () => {
   const request = prepareRequest();
-  const publication = createSecAgentOperationActivationPublication({
+  const publication = createAgentOperationActivationPublication({
     request,
     payloadDigest: digest('a'),
     artifactId: '9001',
-    artifactName: secAgentOperationActivationArtifactName(
+    artifactName: agentOperationActivationArtifactName(
       request.phase, request.requestOperationId
     ),
     artifactFileName: 'agent-operation-activation.json',
     artifactDigest: digest('b'),
     provider: provider('11')
   });
-  const rendered = renderSecAgentOperationActivationPublicationComment(publication);
-  expect(parseSecAgentOperationActivationPublicationComment(rendered)).toEqual(publication);
+  const rendered = renderAgentOperationActivationPublicationComment(publication);
+  expect(parseAgentOperationActivationPublicationComment(rendered)).toEqual(publication);
   expect(rendered).not.toContain('authorizedPaths');
   const { schema: _publicationSchema, publicationDigest: _publicationDigest, ...publicationInput } = publication;
-  expect(() => createSecAgentOperationActivationPublication({
+  expect(() => createAgentOperationActivationPublication({
     ...publicationInput,
     artifactName: 'candidate-local-ref'
   })).toThrow(/artifact name/u);
@@ -277,13 +281,13 @@ test('App comment is only a canonical immutable-artifact locator', () => {
 
 test('candidate-local objects cannot satisfy the hosted provider schema', () => {
   const { schema: _providerSchema, providerDigest: _providerDigest, ...providerInput } = provider('11');
-  expect(() => createSecAgentOperationActivationProvider({
+  expect(() => createAgentOperationActivationProvider({
     ...providerInput,
     workflowPath: '.github/workflows/candidate.yml',
     workflowRef: `.github/workflows/candidate.yml@${sha('a')}`
   } as never)).toThrow(/provider workflow/u);
   const { schema: _requestSchema, requestOperationId: _requestOperationId, ...requestInput } = prepareRequest();
-  expect(() => createSecAgentOperationActivationRequest({
+  expect(() => createAgentOperationActivationRequest({
     ...requestInput,
     phase: 'finalize',
     preparationCommentId: null
@@ -338,7 +342,7 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
   }
 });
 
-test('V3 activation reader observes the trusted document owner and preserves missing-ref rejection', async () => {
+test('V3 activation reader preserves exact trusted bytes and missing-ref rejection under ambient Git state', async () => {
   const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';
   const authorityId = 'urn:uuid:00000000-0000-4000-8000-000000000002';
   const source = workPackageManifest('reader-v3', 'issue-311').toString('utf8')
@@ -372,13 +376,462 @@ test('V3 activation reader observes the trusted document owner and preserves mis
     gitProtocolSuccess(git(['add', '.']));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'candidate reader fixture']));
     const candidate = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
-    expect(() => observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
-      .toThrow('activation-scope-conflict');
-    const owners = observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
     const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trusted}:${guidance}`])).trim();
     const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${candidate}:${guidance}`])).trim();
     expect(trustedBlob).not.toBe(candidateBlob);
-    expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
-      owner: authorityId, revision: trustedBlob, projection: null });
+    for (const state of ['clean', 'repository', 'config', 'trace', 'replacement'] as const) {
+      if (state === 'replacement') {
+        gitProtocolSuccess(git(['replace', trustedBlob, candidateBlob]));
+        expect(gitProtocolSuccess(git(['cat-file', 'blob', trustedBlob]))).toBe('Candidate owner\n');
+      }
+      const trace = path.join(root, '.git', 'unadmitted-trace.log');
+      const injected: NodeJS.ProcessEnv = state === 'repository' ? { GIT_DIR: path.join(root, 'foreign.git') }
+        : state === 'config' ? { GIT_CONFIG_COUNT: 'invalid' }
+        : state === 'trace' ? { GIT_TRACE: trace }
+        : state === 'replacement' ? { GIT_NO_REPLACE_OBJECTS: undefined } : {};
+      const previous = Object.fromEntries(Object.keys(injected).map(key => [key, process.env[key]]));
+      try {
+        for (const key of Object.keys(injected)) {
+          if (injected[key] === undefined) delete process.env[key];
+          else process.env[key] = injected[key];
+        }
+        await expect(observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
+          .rejects.toThrow('activation-scope-conflict');
+        const owners = await observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
+        expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
+          owner: authorityId, revision: trustedBlob, contentDigest: rawSha256('Trusted owner\n'), projection: null });
+        expect(existsSync(trace)).toBe(false);
+      } finally {
+        for (const key of Object.keys(injected)) {
+          if (previous[key] === undefined) delete process.env[key];
+          else process.env[key] = previous[key];
+        }
+      }
+    }
+  });
+});
+
+
+test('hosted phase selector returns the phase for an exact job and phase data pair', () => {
+  expect(selectHostedJobRuntimePhase({
+    argv: ['--job', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
+  })).toBe('produce-hosted');
+  expect(selectHostedJobRuntimePhase({
+    argv: ['--job', 'agent-operation-activation', '--phase', 'publish-hosted'],
+    authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'publish-hosted'
+  })).toBe('publish-hosted');
+  expect(selectHostedJobRuntimePhase({
+    argv: ['--job', 'coordinate-verification-session', '--phase', 'prepare-parent-plan'],
+    authenticatedJobId: 'coordinate-verification-session', authenticatedPhase: 'prepare-parent-plan'
+  })).toBe('prepare-parent-plan');
+});
+
+test('hosted phase selector rejects empty, incomplete and extra selector tokens', () => {
+  for (const argv of [
+    [],
+    ['--job'],
+    ['--job', 'agent-operation-activation'],
+    ['--job', 'agent-operation-activation', '--phase'],
+    ['--phase', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', 'extra'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--json'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--phase', 'publish-hosted']
+  ]) {
+    expect(() => selectHostedJobRuntimePhase({ argv,
+      authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
+    })).toThrow();
+  }
+});
+
+test('hosted phase selector compares both supplied job and phase identities exactly', () => {
+  const argv = ['--job', 'agent-operation-activation', '--phase', 'produce-hosted'];
+  for (const pair of [
+    { authenticatedJobId: 'coordinate-verification-session', authenticatedPhase: 'produce-hosted' },
+    { authenticatedJobId: 'Agent-operation-activation', authenticatedPhase: 'produce-hosted' },
+    { authenticatedJobId: 'agent-operation-activation ', authenticatedPhase: 'produce-hosted' },
+    { authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'publish-hosted' },
+    { authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'Produce-hosted' },
+    { authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted ' }
+  ]) {
+    expect(() => selectHostedJobRuntimePhase({ argv, ...pair })).toThrow();
+  }
+});
+
+test('hosted phase selector rejects reordered flags and legacy unbounded command options', () => {
+  for (const argv of [
+    ['--phase', 'produce-hosted', '--job', 'agent-operation-activation'],
+    ['--job-id', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--command', 'produce-hosted'],
+    ['--job', 'agent-operation-activation', '--job', 'produce-hosted'],
+    ['--phase', 'agent-operation-activation', '--phase', 'produce-hosted'],
+    ['--job=agent-operation-activation', '--phase=produce-hosted'],
+    ['request'], ['observe'], ['produce-hosted'], ['publish-hosted'],
+    ['produce-hosted', '--json', '--json'],
+    ['publish-hosted', '--arbitrary-program', 'candidate.js'],
+    ['produce-hosted', '--runtime-root', '.', '--candidate-root', '.', '--request', 'request.json',
+      '--output', 'output.json', '--json', '--skip-source-guard', 'true'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--arbitrary-program', 'candidate.js'],
+    ['--job', 'agent-operation-activation', '--phase', 'produce-hosted', '--skip-source-guard', 'true']
+  ]) {
+    expect(() => selectHostedJobRuntimePhase({ argv,
+      authenticatedJobId: 'agent-operation-activation', authenticatedPhase: 'produce-hosted'
+    })).toThrow();
+  }
+});
+
+
+test('actual activation Git ports ignore ambient config, trace and repository redirects inside the private lifetime', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'input.txt'), 'trusted\n');
+    gitProtocolSuccess(git(['add', '.'])); gitProtocolSuccess(git(['commit', '--quiet', '-m', 'activation input']));
+    const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    await withGitCandidateCheckout({ sourceRoot: root, baseSha: revision, headSha: revision,
+      purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+      const trace = path.join(root, 'ambient-trace-must-not-exist');
+      const hostile = { GIT_DIR: path.join(root, 'foreign.git'), GIT_WORK_TREE: root,
+        GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: '/must-not-execute',
+        GIT_CONFIG_GLOBAL: path.join(root, 'foreign-config'), GIT_TRACE: trace,
+        GIT_EXTERNAL_DIFF: '/must-not-execute', GIT_ALLOW_PROTOCOL: 'none' };
+      const before = new Map(Object.keys(hostile).map(key => [key, process.env[key]]));
+      try {
+        Object.assign(process.env, hostile);
+        const ports = createAgentOperationActivationHostedStagePorts(checkout);
+        expect(await ports.repositoryRoot(checkout.candidateRoot)).toBe(checkout.candidateRoot);
+        await ports.assertCleanExactRoot(checkout.candidateRoot, revision);
+        expect(existsSync(trace)).toBe(false);
+      } finally {
+        for (const [key, value] of before) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+      }
+    });
+  });
+});
+
+test('actual activation Git consumer rejects cancellation after acquisition before any later observation', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'input.txt'), 'trusted\n');
+    gitProtocolSuccess(git(['add', '.'])); gitProtocolSuccess(git(['commit', '--quiet', '-m', 'activation cancellation']));
+    const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const controller = new AbortController(), reason = new Error('activation scope revoked');
+    let generation = '', entered = false, portRejected = false, scopeRejected = false;
+    let portFailure: unknown;
+    try {
+      try {
+        await withGitCandidateCheckout({ sourceRoot: root, baseSha: revision, headSha: revision,
+          purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000, signal: controller.signal }, async checkout => {
+          entered = true;
+          generation = path.dirname(checkout.candidateRoot);
+          const ports = createAgentOperationActivationHostedStagePorts(checkout);
+          controller.abort(reason);
+          try { await ports.assertCleanExactRoot(checkout.candidateRoot, revision); }
+          catch (error) { portRejected = true; portFailure = error; throw error; }
+        });
+      } catch { scopeRejected = true; }
+      // The expected scope rejection must never swallow a failed port oracle.
+      expect(entered).toBe(true);
+      expect(portRejected).toBe(true);
+      expect(portFailure).toBe(reason);
+      expect(scopeRejected).toBe(true);
+    } finally {
+      if (generation !== '') rmSync(generation, { recursive: true, force: true });
+    }
+  });
+});
+
+
+// Exercise the complete production control reader, including its mandatory
+// literal-pathspec ls-tree census. Fixture bytes and expected identities are
+// authored independently; no live Work/activation/publication is granted.
+test('actual activation control reader accepts the full census argv and rejects a missing declared test', async () => {
+  for (const missingTest of [false, true]) await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'base.txt'), 'base\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'control base']));
+    const base = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const baseTree = gitProtocolSuccess(git(['rev-parse', 'HEAD^{tree}'])).trim();
+    const manifestPath = 'config/repository/work-packages/control-reader.md';
+    const tests = ['tests/unit/agent-operation-activation.test.ts', 'tests/unit/行为 [literal].test.ts'];
+    const manifest = workPackageManifest('control-reader', 'issue-311').toString('utf8')
+      .replace(sha('a'), base).replace(`  - ${tests[0]}\n`, `  - ${tests[0]}\n  - ${tests[1]}\n`);
+    const manifestDigest = `sha256:${createHash('sha256').update(manifest).digest('hex')}` as const;
+    const files = {
+      [manifestPath]: manifest,
+      'config/repository/current-state.yaml': `schema: sec-current-state-live-v1
+resolver:
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
+stableFacts: {}
+`,
+      'config/repository/active-work-package.md': `---
+schema: sec-active-work-package-pointer-v2
+status: conditional
+last-reviewed: 2026-10-05
+---
+\`\`\`yaml
+selectionMode: exact-manifest-not-on-default-branch-v1
+defaultBranchRef: refs/remotes/origin/main
+defaultRefFreshness: live-platform-match-required
+manifest: ${manifestPath}
+manifestDigest: ${manifestDigest}
+digestBytes: git-blob
+unavailableDefaultRef: unresolved
+matchingDefaultBlob: none
+\`\`\`
+`,
+      'config/repository/rolling-plan.md': `## 当前唯一 Work Package
+### control-reader
+## 候选 Work Package
+### 1. next-one
+### 2. next-two
+`,
+      [tests[0]!]: 'export {};\n',
+      ...(missingTest ? {} : { [tests[1]!]: 'export {};\n' })
+    };
+    for (const [name, bytes] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+      writeFileSync(path.join(root, name), bytes);
+    }
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'control candidate']));
+    const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    let failure: unknown;
+    let control: Awaited<ReturnType<typeof observeAgentOperationActivationCandidateControl>> | undefined;
+    await withGitCandidateCheckout({ sourceRoot: root, baseSha: base, headSha: head,
+      purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+      try {
+        control = await observeAgentOperationActivationCandidateControl(checkout.candidateRoot, head,
+          { repository: 'sec-platform/sec', exactMain: base, exactMainTree: baseTree }, checkout);
+      } catch (error) { failure = error; }
+    });
+    if (missingTest) {
+      expect(control).toBeUndefined();
+      expect(failure).toBeInstanceOf(AgentOperationActivationUnavailableError);
+      const unavailable = failure as AgentOperationActivationUnavailableError;
+      expect(unavailable.reasonCode).toBe('activation-stale');
+      // The adapter intentionally exposes a digest, not raw owner diagnostics.
+      // Author the missing path independently instead of calling its census.
+      const detail = 'work-package-test-blobs-missing:["tests/unit/行为 [literal].test.ts"]';
+      expect(unavailable.blockerDigest).toBe(`sha256:${createHash('sha256').update(detail).digest('hex')}`);
+    } else {
+      expect(failure).toBeUndefined();
+      expect(control).toBeDefined();
+      if (control === undefined) throw new Error('Actual control reader produced no successful observation.');
+      expect(control.manifestPath).toBe(manifestPath);
+      expect(control.manifestDigest).toBe(manifestDigest);
+      expect(control.manifest.tests).toEqual(tests);
+      expect(Buffer.from(control.manifestBytes).toString('utf8')).toBe(manifest);
+    }
+  });
+});
+
+test.skipIf(process.platform === 'win32')('actual activation trusted-root status suppresses repository-local fsmonitor', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'input.txt'), 'trusted\n');
+    gitProtocolSuccess(git(['add', '.'])); gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted status']));
+    const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const marker = path.join(root, '.git', 'fsmonitor-executed');
+    const helper = path.join(root, '.git', 'fsmonitor-helper');
+    writeFileSync(helper, `#!/bin/sh\nprintf called > '${marker}'\nprintf '\\0'\n`);
+    chmodSync(helper, 0o755);
+    gitProtocolSuccess(git(['config', 'core.fsmonitor', helper]));
+    // Independent native Git confirms this local setting actually selects the
+    // helper. The production consumer must then suppress the same setting.
+    gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(existsSync(marker)).toBe(true);
+    rmSync(marker);
+    await withGitCandidateCheckout({ sourceRoot: root, trustedRoot: root, baseSha: revision, headSha: revision,
+      purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+      const ports = createAgentOperationActivationHostedStagePorts(checkout);
+      expect(await ports.repositoryRoot(root)).toBe(root);
+      await ports.assertCleanExactRoot(root, revision);
+      expect(existsSync(marker)).toBe(false);
+    });
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
+test.skipIf(process.platform === 'win32')('actual activation ports retain the acquired Git despite a later hostile PATH', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'input.txt'), 'trusted\n');
+    gitProtocolSuccess(git(['add', '.'])); gitProtocolSuccess(git(['commit', '--quiet', '-m', 'retained PATH']));
+    const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const bin = mkdtempSync(path.join(tmpdir(), 'sec-activation-hostile-path-'));
+    const marker = path.join(bin, 'alternate-git-executed');
+    writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nprintf called > '${marker}'\nexit 1\n`);
+    chmodSync(path.join(bin, 'git'), 0o755);
+    const originalPath = process.env.PATH;
+    try {
+      await withGitCandidateCheckout({ sourceRoot: root, baseSha: revision, headSha: revision,
+        purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+        const ports = createAgentOperationActivationHostedStagePorts(checkout);
+        process.env.PATH = bin;
+        expect(await ports.repositoryRoot(checkout.candidateRoot)).toBe(checkout.candidateRoot);
+        await ports.assertCleanExactRoot(root, revision);
+        expect(existsSync(marker)).toBe(false);
+      });
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+});
+
+test.skipIf(process.platform === 'win32')('actual activation port rejects replacement of its admitted executable before execution', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'input.txt'), 'trusted\n');
+    gitProtocolSuccess(git(['add', '.'])); gitProtocolSuccess(git(['commit', '--quiet', '-m', 'retained executable']));
+    const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const bin = mkdtempSync(path.join(tmpdir(), 'sec-activation-retained-git-'));
+    const executable = path.join(bin, 'git');
+    const originalExecutable = Bun.which('git');
+    expect(originalExecutable).not.toBeNull();
+    copyFileSync(realpathSync(originalExecutable!), executable);
+    chmodSync(executable, 0o755);
+    const originalPath = process.env.PATH;
+    const marker = path.join(bin, 'replacement-executed');
+    let generation = '', portRejected = false, scopeRejected = false;
+    try {
+      process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+      try {
+        await withGitCandidateCheckout({ sourceRoot: root, baseSha: revision, headSha: revision,
+          purpose: 'activation-static', deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+          generation = path.dirname(checkout.candidateRoot);
+          const ports = createAgentOperationActivationHostedStagePorts(checkout);
+          renameSync(executable, path.join(bin, 'original-git'));
+          writeFileSync(executable, `#!/bin/sh\nprintf called > '${marker}'\nexit 0\n`);
+          chmodSync(executable, 0o755);
+          try { await ports.repositoryRoot(checkout.candidateRoot); }
+          catch (error) { portRejected = true; throw error; }
+        });
+      } catch { scopeRejected = true; }
+      expect(generation).not.toBe('');
+      expect(portRejected).toBe(true);
+      expect(scopeRejected).toBe(true);
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+      if (generation !== '') rmSync(generation, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+});
+
+
+for (const driver of ['clean', 'process'] as const) for (const name of ['activation-record', 'unspecified', 'unset']) {
+  test.skipIf(process.platform !== 'linux')(`actual activation status rejects ${driver} driver ${name} without execution`, async () => {
+    await inGitProtocolRepository(async (root, git) => {
+      writeFileSync(path.join(root, 'input.txt'), 'tracked before driver configuration\n');
+      writeFileSync(path.join(root, '.gitattributes'), `*.txt filter=${name}\n`);
+      gitProtocolSuccess(git(['add', '.']));
+      gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted attribute input']));
+      const revision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+      const marker = path.join(root, '.git', 'filter-executed');
+      gitProtocolSuccess(git(['config', `filter.${name}.${driver}`, `printf executed > '${marker}'; cat`]));
+      writeFileSync(path.join(root, 'input.txt'), 'force real content comparison\n');
+      let entered = false, statusAttempted = false, statusRejected = false, scopeRejected = false;
+      let observedRoot: string | undefined;
+      try {
+        await withGitCandidateCheckout({ sourceRoot: root, trustedRoot: root,
+          baseSha: revision, headSha: revision, purpose: 'activation-static',
+          deadlineAtUnixMs: Date.now() + 120_000 }, async checkout => {
+          entered = true;
+          const ports = createAgentOperationActivationHostedStagePorts(checkout);
+          observedRoot = await ports.repositoryRoot(root);
+          statusAttempted = true;
+          try { await ports.assertCleanExactRoot(root, revision); }
+          catch (error) { statusRejected = true; throw error; }
+        });
+      } catch { scopeRejected = true; }
+      expect(entered).toBe(true);
+      expect(observedRoot).toBe(root);
+      expect(statusAttempted).toBe(true);
+      expect(statusRejected).toBe(true);
+      expect(scopeRejected).toBe(true);
+      expect(existsSync(marker)).toBe(false);
+    });
+  });
+}
+
+test.skipIf(process.platform === 'win32')('activation status read suppresses repository-local fsmonitor execution', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    gitProtocolSuccess(git(['commit', '--quiet', '--allow-empty', '-m', 'status fixture']));
+    const helper = path.join(root, '.git', 'fsmonitor');
+    const sentinel = `${helper}.executed`;
+    writeFileSync(helper, '#!/bin/sh\nprintf executed > "$0.executed"\nprintf "\\0"\n', { mode: 0o755 });
+    gitProtocolSuccess(git(['config', 'core.fsmonitor', helper]));
+    gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(existsSync(sentinel)).toBe(true);
+    rmSync(sentinel);
+    // No current-state exists: the real entry stops after the clean-root reads,
+    // before any GitHub observation or publication can be requested.
+    await expect(resolveAgentOperationActivation(root, root)).rejects.toThrow('activation-stale');
+    expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+
+test.skipIf(process.platform === 'win32').each(['clean', 'process'] as const)(
+  'activation rejects configured %s filters before native status can execute them', async (driver) => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, '.gitattributes'), 'tracked filter=activation\n');
+    writeFileSync(path.join(root, 'tracked'), 'before\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'filter fixture']));
+    const sentinel = path.join(root, '.git', 'filter.executed');
+    const helper = `printf executed > '${sentinel}'; ${driver === 'clean' ? 'cat' : 'exit 1'}`;
+    const config = path.join(root, '.git', 'included-config');
+    gitProtocolSuccess(git(['config', '--file', config, `filter.activation.${driver}`, helper]));
+    gitProtocolSuccess(git(['config', 'include.path', config]));
+    writeFileSync(path.join(root, 'tracked'), 'AFTER!\n');
+    git(['status', '--porcelain=v2', '-z', '--untracked-files=all']);
+    expect(existsSync(sentinel)).toBe(true);
+    rmSync(sentinel);
+    await expect(resolveAgentOperationActivation(root, root)).rejects.toMatchObject({
+      reasonCode: 'activation-stale', blockerDigest: rawSha256('worktree-filter-helper-unavailable')
+    });
+    expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+test.skipIf(process.platform === 'win32')('activation rejects gitlinks before status can execute nested repository filters', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    const nested = path.join(root, 'nested');
+    gitProtocolSuccess(git(['init', '--quiet', nested]));
+    writeFileSync(path.join(nested, '.gitattributes'), 'tracked filter=activation\n');
+    writeFileSync(path.join(nested, 'tracked'), 'before\n');
+    gitProtocolSuccess(git(['-C', nested, 'add', '.']));
+    gitProtocolSuccess(git(['-C', nested, 'commit', '--quiet', '-m', 'nested filter fixture']));
+    const nestedHead = gitProtocolSuccess(git(['-C', nested, 'rev-parse', 'HEAD'])).trim();
+    gitProtocolSuccess(git(['update-index', '--add', '--cacheinfo', `160000,${nestedHead},nested`]));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'gitlink fixture']));
+    const sentinel = path.join(nested, '.git', 'filter.executed');
+    gitProtocolSuccess(git(['-C', nested, 'config', 'filter.activation.clean', `printf executed > '${sentinel}'; cat`]));
+    writeFileSync(path.join(nested, 'tracked'), 'AFTER!\n');
+    gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(existsSync(sentinel)).toBe(true);
+    rmSync(sentinel);
+    await expect(resolveAgentOperationActivation(root, root)).rejects.toMatchObject({
+      reasonCode: 'activation-stale', blockerDigest: rawSha256('worktree-submodule-observation-unavailable')
+    });
+    expect(existsSync(sentinel)).toBe(false);
+  });
+});
+
+
+test.skipIf(process.platform === 'win32')('activation preserves native dirty-worktree rejection without helper configuration', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'tracked'), 'before\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'ordinary dirty fixture']));
+    writeFileSync(path.join(root, 'tracked'), 'AFTER!\n');
+    const nativeStatus = gitProtocolSuccess(git(['status', '--porcelain=v2', '-z', '--untracked-files=all']));
+    expect(nativeStatus.length).toBeGreaterThan(0);
+    await expect(resolveAgentOperationActivation(root, root)).rejects.toMatchObject({
+      reasonCode: 'activation-stale', blockerDigest: rawSha256(nativeStatus)
+    });
   });
 });

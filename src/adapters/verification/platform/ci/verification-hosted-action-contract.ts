@@ -1,31 +1,15 @@
-import { encodeVerificationActionData, parseVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, type CiVerificationActionPlanClosure, type CiVerificationActionProposal } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
-import {
-  CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest,
-  CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionArtifactInput,
-  type CodexDevelopmentVerificationActionArtifactProducer,
-  type CodexDevelopmentVerificationActionTerminalArtifact
-} from './contract/evidence.ts';
-import {
-  type CodexDevelopmentHostedSutInventoryClosure, type CodexDevelopmentHostedSutProcessLifecycle
-} from './contract/hosted-sut-observation.ts';
-import {
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
-} from './contract/revision.ts';
-import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
-import {
-  type CodexDevelopmentGateProcessResult
-} from './runtime/ci-orchestration-core.ts';
+import type { VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import type { HostedActionArtifactInput, HostedActionExecutionTicket, HostedActionResolution, HostedSutCommandPlan, HostedSutInventory, HostedSutProcessObservation, VerificationSessionHostedRequest } from "../../../../execution/verification/hosted.ts";
+import { encodeVerificationActionData, parseVerificationActionPlan } from '../action/contract/action.ts';
+import { parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionProposal } from '../action/contract/ci.ts';
+import { parseVerificationActionProviderStartMarker, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderDecision, type VerificationActionProviderStartMarker, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation } from '../action/contract/provider.ts';
+import { CodexDevelopmentParseVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionArtifactProducer, type CodexDevelopmentVerificationActionTerminalArtifact } from './contract/evidence.ts';
+
+import type { VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
+import { parseVerificationSessionHostedRequest, VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from "./contract/session-request.ts";
 import {
   type VerificationActionGitHubProviderSnapshot
 } from './runtime/verification-action-github-provider.ts';
-import {
-  parseVerificationSessionHostedRequest,
-  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
-  type VerificationSessionHostedEnvelope
-} from './runtime/verification-session-runtime.ts';
 import type { CodexDevelopmentRetainedHostedSutArchive } from './verification-materialization.ts';
 
 export const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
@@ -79,71 +63,22 @@ const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD = 3;
 export const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH =
   `/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD}` as const;
 
-export type CodexDevelopmentHostedSutSandboxCommandPlan = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA;
-  policyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST;
-  phase: 'capability-self-test' | 'execute' | 'bootstrap-execute' | 'teardown';
-  unitName: string;
-  command: '/usr/bin/unshare' | '/usr/bin/bash';
-  argv: readonly string[];
-  candidateEnvironmentNames: readonly string[];
-  executionAuthorizationDigest: VerificationActionKeyDigest | null;
-  physicalCommandProjectionDigest: VerificationActionKeyDigest | null;
-  planDigest: VerificationActionKeyDigest;
-}>;
 
-export type CodexDevelopmentHostedSutSandboxProcessObservation =
-  CodexDevelopmentGateProcessResult & Readonly<{
-    lifecycle: CodexDevelopmentHostedSutProcessLifecycle;
-    stdoutDigest: VerificationActionKeyDigest;
-    stderrDigest: VerificationActionKeyDigest;
-    stdoutBytesObserved: number;
-    stderrBytesObserved: number;
-    outputTruncated: boolean;
-  }>;
+
+
 
 export type CodexDevelopmentHostedSutSandboxProcess = (
-  plan: CodexDevelopmentHostedSutSandboxCommandPlan,
+  plan: HostedSutCommandPlan<typeof CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST>,
   retainedArchive?: CodexDevelopmentRetainedHostedSutArchive
-) => Promise<CodexDevelopmentHostedSutSandboxProcessObservation>;
+) => Promise<HostedSutProcessObservation<import("./runtime/ci-orchestration-core.ts").CodexDevelopmentGateProcessResult>>;
 
 export type CodexDevelopmentHostedActionProposal = CiVerificationActionProposal & Readonly<{
-  sessionRequest: VerificationSessionHostedRequest;
+  sessionRequest: VerificationSessionHostedRequest<typeof import("./contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>;
 }>;
 
-export type CodexDevelopmentHostedActionResolution = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA;
-  requestDigest: VerificationActionKeyDigest;
-  actionKeyHex: string;
-  actionPlan: VerificationActionPlan;
-  actionPlanClosure: CiVerificationActionPlanClosure;
-  artifactInput: CodexDevelopmentVerificationActionArtifactInput;
-  executionEnvironment: typeof CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
-  resolutionDigest: VerificationActionKeyDigest;
-}>;
 
-export type CodexDevelopmentHostedActionExecutionTicket = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA;
-  resolutionDigest: VerificationActionKeyDigest;
-  actionKey: VerificationActionKeyDigest;
-  candidateSha: string;
-  candidateBytesDigest: VerificationActionKeyDigest;
-  startStatusId: number;
-  startStatusNodeId: string;
-  startMarkerDigest: VerificationActionKeyDigest;
-  startArtifactOriginId: string;
-  startArtifactName: string;
-  startArtifactArchiveDigest: VerificationActionKeyDigest;
-  preparedCandidateArtifactName: string;
-  preparedCandidateArchiveDigest: VerificationActionKeyDigest;
-  preparedCandidateInventoryDigest: VerificationActionKeyDigest;
-  preparedCandidateEntryCount: number;
-  preparedCandidateTotalFileBytes: number;
-  baseDependencyClosureDigest: VerificationActionKeyDigest;
-  authenticatedGitClosureDigest: VerificationActionKeyDigest;
-  producer: CodexDevelopmentVerificationActionArtifactProducer;
-  ticketDigest: VerificationActionKeyDigest;
-}>;
+
+
 
 export type CodexDevelopmentHostedActionArtifactObservation = Readonly<{
   providerObservation: VerificationActionProviderTerminalObservation;
@@ -226,14 +161,14 @@ export function CodexDevelopmentReadHostedActionArtifactIndex(input: Readonly<{
   const startObservations = Object.freeze(value.startObservations.map((entry) => {
     const observation = entry as VerificationActionProviderStartObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionStartMarkerV2(observation.payload);
+      parseVerificationActionProviderStartMarker(observation.payload);
     }
     return observation;
   }));
   const terminalAnchorObservations = Object.freeze(value.terminalAnchorObservations.map((entry) => {
     const observation = entry as VerificationActionProviderTerminalAnchorObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionTerminalStatusAnchorV2(observation.payload);
+      parseVerificationActionProviderTerminalAnchor(observation.payload);
     }
     return observation;
   }));
@@ -257,7 +192,7 @@ export function CodexDevelopmentParseHostedActionRequest(
   });
 }
 
-export function parseHostedEnvelope(value: unknown): VerificationSessionHostedEnvelope {
+export function parseHostedEnvelope(value: unknown): VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA> {
   const envelope = exactObject(value, [
     'schema', 'requestOperationId', 'scopeAuthorization', 'preGateReview', 'mainHealth',
     'session', 'actionPlanClosure', 'envelopeDigest'
@@ -285,15 +220,15 @@ export function parseHostedEnvelope(value: unknown): VerificationSessionHostedEn
     throw new Error('Hosted Session envelope Action closure mismatch.');
   }
   return Object.freeze({
-    ...(envelope as unknown as VerificationSessionHostedEnvelope),
+    ...(envelope as unknown as VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>),
     actionPlanClosure
   });
 }
 
 export function CodexDevelopmentResolveHostedAction(input: Readonly<{
   request: CodexDevelopmentHostedActionProposal;
-  envelope: VerificationSessionHostedEnvelope;
-}>): CodexDevelopmentHostedActionResolution {
+  envelope: VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
+}>): HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA> {
   const request = CodexDevelopmentParseHostedActionRequest(
     encodeVerificationActionData(input.request)
   );
@@ -322,9 +257,7 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
     throw new Error('Hosted Action proposed key is not one exact canonical plan member.');
   }
   const actionPlan = parseVerificationActionPlan(encodeVerificationActionData(matches[0]));
-  if (actionPlan.action.environment.providerRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION) {
-    throw new Error('Hosted Action member does not bind the canonical hosted execution environment.');
-  }
+  const executionEnvironment = resolveCiVerificationHostedExecutionEnvironment(actionPlan.action.environment.providerRevision);
   const artifactInput = Object.freeze({
     baseSha: session.baseSha,
     baseTreeSha: session.baseTreeSha,
@@ -342,7 +275,7 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
       manifestDigest: session.manifestDigest,
       action: actionPlan.action
     })
-  }) satisfies CodexDevelopmentVerificationActionArtifactInput;
+  }) satisfies HostedActionArtifactInput;
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
     requestDigest: ciActionDigest(request),
@@ -350,14 +283,14 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
     actionPlan,
     actionPlanClosure: envelope.actionPlanClosure,
     artifactInput,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
+    executionEnvironment
   });
   return Object.freeze({ ...withoutDigest, resolutionDigest: ciActionDigest(withoutDigest) });
 }
 
 export function CodexDevelopmentParseHostedActionResolution(
   source: string
-): CodexDevelopmentHostedActionResolution {
+): HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA> {
   const value = exactObject(JSON.parse(source) as unknown, [
     'schema', 'requestDigest', 'actionKeyHex', 'actionPlan', 'actionPlanClosure', 'artifactInput',
     'executionEnvironment', 'resolutionDigest'
@@ -378,13 +311,13 @@ export function CodexDevelopmentParseHostedActionResolution(
       encodeVerificationActionData(actionPlan)) {
     throw new Error('Hosted Action resolution plan is not one exact closure member.');
   }
+  const executionEnvironment = resolveCiVerificationHostedExecutionEnvironment(actionPlan.action.environment.providerRevision);
   if (value.actionKeyHex !== actionPlan.action.actionKey.slice(7) ||
-      actionPlan.action.environment.providerRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
       encodeVerificationActionData(value.executionEnvironment) !==
-        encodeVerificationActionData(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
+        encodeVerificationActionData(executionEnvironment)) {
     throw new Error('Hosted Action resolution environment or key projection mismatch.');
   }
-  const artifactInput = value.artifactInput as CodexDevelopmentVerificationActionArtifactInput;
+  const artifactInput = value.artifactInput as HostedActionArtifactInput;
   if (artifactInput === null || typeof artifactInput !== 'object' ||
       artifactInput.inputClosureDigest !== ciActionDigest(actionPlan.action.inputClosure) ||
       artifactInput.candidateBytesDigest !== CodexDevelopmentVerificationActionCandidateBytesDigest({
@@ -400,7 +333,7 @@ export function CodexDevelopmentParseHostedActionResolution(
     actionPlan,
     actionPlanClosure,
     artifactInput,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
+    executionEnvironment
   });
   if (value.resolutionDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted Action resolution digest mismatch.');
@@ -412,22 +345,22 @@ export function CodexDevelopmentParseHostedActionResolution(
 }
 
 export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  marker: VerificationActionStartMarkerV2;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
+  marker: VerificationActionProviderStartMarker;
   startObservation: VerificationActionProviderStartObservation;
   startStatus: VerificationActionProviderStatusObservation;
   preparedCandidateArtifactName: string;
-  preparedCandidateInventory: CodexDevelopmentHostedSutInventoryClosure;
-}>): CodexDevelopmentHostedActionExecutionTicket {
+  preparedCandidateInventory: HostedSutInventory;
+}>): HostedActionExecutionTicket<import("./contract/evidence.ts").CodexDevelopmentVerificationActionArtifactProducer, typeof CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA> {
   const resolution = CodexDevelopmentParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const marker = parseVerificationActionStartMarkerV2(input.marker);
+  const marker = parseVerificationActionProviderStartMarker(input.marker);
   const observation = input.startObservation;
-  const expectedName = verificationActionStartMarkerNameV2(resolution.actionPlan.action.actionKey);
+  const expectedName = verificationActionProviderStartArtifactName(resolution.actionPlan.action.actionKey);
   if (marker.actionKey !== resolution.actionPlan.action.actionKey ||
       marker.candidateSha !== resolution.artifactInput.headSha ||
-      marker.executionEnvironmentRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
+      marker.executionEnvironmentRevision !== resolution.executionEnvironment.executionEnvironmentRevision ||
       observation.expired || observation.payload === null || observation.archiveDigest === null ||
       observation.referencedOrigin === null || observation.artifactName !== expectedName ||
       observation.payload.markerDigest !== marker.markerDigest ||
@@ -477,7 +410,7 @@ export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonl
 
 export function CodexDevelopmentParseHostedActionExecutionTicket(
   source: string
-): CodexDevelopmentHostedActionExecutionTicket {
+): HostedActionExecutionTicket<import("./contract/evidence.ts").CodexDevelopmentVerificationActionArtifactProducer, typeof CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA> {
   const value = exactObject(JSON.parse(source) as unknown, [
     'schema', 'resolutionDigest', 'actionKey', 'candidateSha', 'candidateBytesDigest',
     'startStatusId', 'startStatusNodeId', 'startMarkerDigest', 'startArtifactOriginId',
@@ -537,7 +470,7 @@ export function CodexDevelopmentParseHostedActionExecutionTicket(
   const expectedPreparedArtifactName =
     `sec-verification-action-prepared-v2-${withoutDigest.actionKey.slice(7)}-run-${withoutDigest.producer.runId}` +
     `-attempt-${withoutDigest.producer.runAttempt}`;
-  if (value.startArtifactName !== verificationActionStartMarkerNameV2(withoutDigest.actionKey) ||
+  if (value.startArtifactName !== verificationActionProviderStartArtifactName(withoutDigest.actionKey) ||
       value.preparedCandidateArtifactName !== expectedPreparedArtifactName ||
       value.ticketDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted Action execution ticket V2 digest or artifact name mismatch.');
@@ -577,7 +510,7 @@ export function hostedActionProviderIndexFromSnapshot(
 }
 
 export function CodexDevelopmentReduceHostedActionProviderIndex(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
   repositoryId: number;
   repository: string;
   index: CodexDevelopmentHostedActionProviderIndex;
@@ -595,10 +528,10 @@ export function CodexDevelopmentReduceHostedActionProviderIndex(input: Readonly<
     repository: input.repository,
     actionKey,
     candidateSha: resolution.artifactInput.headSha,
-    executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    executionEnvironmentRevision: resolution.executionEnvironment.executionEnvironmentRevision,
     statusReadback: readbacks[0]!,
     startObservations: input.index.startObservations.filter(
-      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerNameV2(actionKey)
+      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionProviderStartArtifactName(actionKey)
     ),
     terminalObservations: input.index.terminalObservations
       .map((entry) => entry.providerObservation)

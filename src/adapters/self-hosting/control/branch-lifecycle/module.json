@@ -5,29 +5,6 @@
   ],
   "capabilityProviders": [
     {
-      "capability": "branch-lifecycle.clone-configuration",
-      "operations": [
-        "configureBranchLifecycleClone"
-      ],
-      "effectKinds": [
-        "filesystem",
-        "process",
-        "provider"
-      ],
-      "ownerInternalOperations": [
-        "configureBranchLifecycleClone"
-      ],
-      "operationRoles": [
-        {
-          "operation": "configureBranchLifecycleClone",
-          "role": "domain-owner",
-          "semanticOperation": "control.branch-lifecycle.configure-clone",
-          "requirementId": null,
-          "recovery": null
-        }
-      ]
-    },
-    {
       "capability": "branch-lifecycle.closed-unmerged-recovery-retirement",
       "operations": [
         "retireClosedUnmergedRecoveryFamily"

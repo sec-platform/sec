@@ -13,7 +13,7 @@ import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/r
 import { assertCanonicalBunPackageRunner, readCanonicalBunRuntimeProjection } from '../../../toolchain/runtime/bun-version.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { CurrentStatePath } from '../../control/documentation/document-control-journal-codec.ts';
-import { CodexDevelopmentParseCurrentStateSpec } from '../../control/documentation/document-control-plane-contract.ts';
+import { parseCurrentStateSpec } from '../../control/documentation/document-control-plane-contract.ts';
 import { resolveSourceCheckpointStatusFromSession } from '../../control/documentation/document-control-source-checkpoint.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../runner/contract.ts';
 import {
@@ -66,7 +66,7 @@ async function observeTrustedTool(request: DevelopmentSourceCheckpointRequest) {
   return withAuthorityGitReadSession({ cwd: toolRoot, budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET }, async (session) => {
     const head = await text(session, ['rev-parse', '--verify', 'HEAD']);
     if (head !== request.trustedMain) throw new Error('Source checkpoint trusted main revision differs.');
-    const spec = CodexDevelopmentParseCurrentStateSpec(await text(session, ['show', `${head}:${CurrentStatePath}`]));
+    const spec = parseCurrentStateSpec(await text(session, ['show', `${head}:${CurrentStatePath}`]));
     assertDevelopmentSourceCheckpointNonDefaultRef(request.expectedRef, spec.resolver.defaultBranch);
     const branch = await text(session, ['symbolic-ref', '--quiet', 'HEAD']);
     const currentDefault = await text(session, ['rev-parse', '--verify', spec.resolver.defaultRef]);

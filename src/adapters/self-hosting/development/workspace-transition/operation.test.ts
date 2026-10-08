@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'bun:test';
 
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { GitReadSession } from '../../../providers/git-read/runtime/session.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 
@@ -16,7 +16,7 @@ let hookObservation: 'ready' | 'materialization-required' = 'ready';
 let hookMaterializations = 0;
 let currentHead = HEAD;
 let parentProcessSession: ProcessResourceSession | null = null;
-let parentOperation: SecBoundSemanticOperation | null = null;
+let parentOperation: BoundSemanticOperation | null = null;
 
 function completed(value: string) {
   return Object.freeze({
@@ -41,7 +41,7 @@ const session = Object.freeze({
 
 mock.module('../../../providers/git-read/authority.ts', () => ({
   async withAuthorityGitReadSession<T>(
-    input: Readonly<{ operation?: SecBoundSemanticOperation; processSession?: ProcessResourceSession }>,
+    input: Readonly<{ operation?: BoundSemanticOperation; processSession?: ProcessResourceSession }>,
     callback: (value: GitReadSession) => Promise<T>
   ): Promise<T> {
     expect(input.operation).toBeDefined();
@@ -84,7 +84,7 @@ mock.module('../hooks/install.ts', () => ({
     });
   },
   async installGitHooksWithSession(input: Readonly<{
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     processSession: ProcessResourceSession;
   }>) {
     expect(input.operation === parentOperation).toBe(true);

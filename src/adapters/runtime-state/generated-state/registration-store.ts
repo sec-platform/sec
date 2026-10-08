@@ -1,33 +1,56 @@
-import { readdirSync } from 'node:fs';
+import { lstatSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
+import type {
+  GeneratedStateMigrationPlan, GeneratedStateNativeMutationResource,
+  GeneratedStateNativeObservationResource,
+  GeneratedStateNativeResource,
+  GeneratedStatePublicationAuthority,
+  GeneratedStateRegistrationCensus,
+  GeneratedStateRegistrationObservation as GeneratedStateRegistrationLedgerObservation,
+  GeneratedStateRegistrationRecord as GeneratedStateRegistrationLedgerRecord,
+  GeneratedStateMigrationIntent as GeneratedStateRegistrationMigrationIntent,
+  GeneratedStateRegistrationMutationBackend,
+  GeneratedStateRegistrationObservationBackend,
+  GeneratedStateRegistrationResponsibilities,
+  GeneratedStateMigrationSource as LegacyGeneratedStateRegistrationCensus
+} from '../../../execution/generated-state/registration-port.ts';
+import { consumeGeneratedStatePublication } from '../../../execution/generated-state/registration-session.ts';
+import { assertGeneratedStateRegistrationResponsibilityAdmission, assertGeneratedStateRegistrationTransitionAdmission } from '../../../execution/generated-state/registration-transition.ts';
+import { canonicalBytes } from './canonical-bytes.ts';
+import { parseGeneratedStateCleanupIntentBytes, parseWorktreeRetirementIntent } from './journal-codec.ts';
 
-import { acquirePhysicalMutationLease, observePhysicalJournalMutationEntry } from '../physical/runtime/mutation-lease.ts';
-import {
-  assertPhysicallyDisjointDirectoryChains,
-  createExclusiveNoFollowDirectory,
-  createNoFollowOrdinaryDirectoryChain,
-  inspectExactNoFollowDirectoryPresence,
-  inspectNoFollowDirectoryChain,
-  inspectNoFollowOrdinaryFileEntry,
-  physicallyContainsDirectoryChain,
-  publishExclusiveDurableCanonicalFile,
-  replaceDurableCanonicalFile,
-  type PhysicalDirectoryChain,
-  type PhysicalDirectoryIdentity
-} from '../physical/runtime/physical-no-follow.ts';
-import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName, withRuntimeStateJournalMutation } from '../workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
 import {
   generatedStateDigest,
   normalizeGeneratedStateRelativePath,
   parseGeneratedStateRegistration,
   type GeneratedStatePhysicalIdentity,
   type GeneratedStateRegistration
-} from './contract.ts';
+} from '../../../execution/generated-state/contract.ts';
+import {
+  acquirePhysicalMutationLease, assertPhysicalMutationLeaseOwned,
+  ensurePhysicalMutationCoordinationNamespace,
+  observePhysicalJournalMutationEntry,
+  preparePhysicalMutationCoordinationResource
+} from '../physical/runtime/mutation-lease.ts';
+import {
+  assertPhysicallyDisjointDirectoryChains,
+  createNoFollowOrdinaryDirectoryChain,
+  inspectExactNoFollowDirectoryPresence,
+  inspectNoFollowDirectoryChain,
+  inspectNoFollowLinkEntry,
+  inspectNoFollowOrdinaryFileEntry,
+  physicallyContainsDirectoryChain,
+  publishExclusiveDurableCanonicalFile,
+  type PhysicalDirectoryChain,
+  type PhysicalDirectoryIdentity
+} from '../physical/runtime/physical-no-follow.ts';
+import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName } from '../workspace-state/journal-filesystem.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
+import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
 
 /**
- * Registration storage owns immutable generations, ledger/pointer CAS and
+ * Registration storage owns immutable self-contained chain publication and
  * schema migration under one physical mutation lease. Keep the migration
  * admission issuer and consumer private here: splitting them into a generic
  * migration service would expose authority or require a callback cycle.
@@ -41,7 +64,9 @@ interface GeneratedStateRegistrationStoreOptions {
 
 const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
 export interface GeneratedStateRuntimeStore {
+  readonly workspaceRoot: string;
   readonly legacyRegistrationsRoot: string;
+  readonly previousRegistrationsRoot: string;
   readonly registrationsRoot: string;
   readonly settlementsRoot: string;
   readonly transactionsRoot: string;
@@ -52,6 +77,7 @@ export interface GeneratedStateRuntimeStore {
 interface GeneratedStateRuntimePaths {
   readonly workspaceStateRoot: string;
   readonly legacyRegistrationsRoot: string;
+  readonly previousRegistrationsRoot: string;
   readonly registrationsRoot: string;
   readonly settlementsRoot: string;
   readonly transactionsRoot: string;
@@ -116,9 +142,6 @@ function materializeGeneratedStateRuntimeDirectory(
     : createNoFollowOrdinaryDirectoryChain(plan.ancestor, plan.missingSegments);
 }
 
-export function canonicalBytes(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
-}
 
 export function identityOf(value: Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>): GeneratedStatePhysicalIdentity {
   return Object.freeze({ device: value.device, inode: value.inode, objectId: value.objectId });
@@ -138,6 +161,61 @@ export function registrationKey(relativePath: string): string {
   })).slice('sha256:'.length);
 }
 
+type ObservedGeneratedStateRoot = Readonly<{
+  kind: 'directory' | 'file' | 'link' | 'missing';
+  identity: GeneratedStatePhysicalIdentity | null;
+  directory: PhysicalDirectoryIdentity | null;
+  linkTarget: string | null;
+}>;
+
+export function observeGeneratedStatePhysicalRoot(workspaceRoot: string, relativePath: string): ObservedGeneratedStateRoot {
+  const absolutePath = path.join(workspaceRoot, ...normalizeGeneratedStateRelativePath(relativePath).split('/'));
+  let metadata: ReturnType<typeof lstatSync>;
+  try {
+    metadata = lstatSync(absolutePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+    }
+    throw error;
+  }
+  if (metadata.isSymbolicLink()) {
+    const parent = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Generated-state link parent').target;
+    const entry = inspectNoFollowLinkEntry(parent, path.basename(absolutePath));
+    if (entry === null || entry.linkTarget === null) {
+      return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+    }
+    return Object.freeze({
+      kind: 'link',
+      identity: Object.freeze({
+        device: entry.device,
+        inode: entry.inode,
+        objectId: generatedStateDigest({ kind: 'link', target: entry.linkTarget })
+      }),
+      directory: null,
+      linkTarget: entry.linkTarget
+    });
+  }
+  if (metadata.isDirectory()) {
+    const directory = inspectNoFollowDirectoryChain(absolutePath, 'Generated-state root').target;
+    return Object.freeze({ kind: 'directory', identity: identityOf(directory), directory, linkTarget: null });
+  }
+  if (!metadata.isFile()) return Object.freeze({ kind: 'link', identity: null, directory: null, linkTarget: null });
+  const parent = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Generated-state file parent').target;
+  const entry = inspectNoFollowOrdinaryFileEntry(parent, path.basename(absolutePath));
+  if (entry === null) return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+  return Object.freeze({
+    kind: 'file',
+    identity: Object.freeze({
+      device: entry.device,
+      inode: entry.inode,
+      objectId: `${entry.device}:${entry.inode}`
+    }),
+    directory: null,
+    linkTarget: null
+  });
+}
+
 function runtimePaths(
   workspaceRoot: string,
   options: GeneratedStateRegistrationStoreOptions
@@ -150,7 +228,8 @@ function runtimePaths(
   return Object.freeze({
     workspaceStateRoot: roots.workspaceStateRoot,
     legacyRegistrationsRoot: path.join(generatedRoot, 'registrations'),
-    registrationsRoot: path.join(generatedRoot, 'registrations-v2'),
+    previousRegistrationsRoot: path.join(generatedRoot, 'registrations-v2'),
+    registrationsRoot: path.join(generatedRoot, 'registrations-v3'),
     settlementsRoot: path.join(generatedRoot, 'settlements'),
     transactionsRoot: path.join(generatedRoot, 'transactions')
   });
@@ -216,6 +295,8 @@ export async function openRuntimeStore(
   });
   return Object.freeze({
     legacyRegistrationsRoot: locations.legacyRegistrationsRoot,
+    workspaceRoot: path.resolve(workspaceRoot),
+    previousRegistrationsRoot: locations.previousRegistrationsRoot,
     registrationsRoot: locations.registrationsRoot,
     settlementsRoot: locations.settlementsRoot,
     transactionsRoot: locations.transactionsRoot,
@@ -236,6 +317,8 @@ export function openRuntimeStoreReadOnly<Options extends GeneratedStateRegistrat
   if (presence.state === 'absent') return null;
   return Object.freeze({
     legacyRegistrationsRoot: locations.legacyRegistrationsRoot,
+    workspaceRoot: path.resolve(workspaceRoot),
+    previousRegistrationsRoot: locations.previousRegistrationsRoot,
     registrationsRoot: locations.registrationsRoot,
     settlementsRoot: locations.settlementsRoot,
     transactionsRoot: locations.transactionsRoot,
@@ -249,13 +332,11 @@ export function openRuntimeStoreReadOnly<Options extends GeneratedStateRegistrat
   });
 }
 
-export function registrationPath(store: GeneratedStateRuntimeStore, relativePath: string): string {
-  return path.join(store.registrationsRoot, `${registrationKey(relativePath)}.json`);
-}
-
 const GENERATED_STATE_REGISTRATION_POINTER_SCHEMA = 'sec-generated-state-registration-pointer-v2' as const;
 const GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA = 'sec-generated-state-registration-ledger-v2' as const;
+const GENERATED_STATE_REGISTRATION_CHAIN_SCHEMA = 'sec-generated-state-registration-chain-v3' as const;
 const GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA = 'sec-generated-state-registration-migration-v1' as const;
+const GENERATED_STATE_REGISTRATION_CHAIN_MIGRATION_SCHEMA = 'sec-generated-state-registration-migration-v3' as const;
 const GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY = 10_000;
 const GENERATED_STATE_REGISTRATION_ROOT_ENTRY_CAPACITY = 30_000;
 
@@ -265,88 +346,18 @@ type GeneratedStateRegistrationPointer = Readonly<{
   readonly ledgerRecordDigest: `sha256:${string}`;
 }>;
 
-type GeneratedStateRegistrationLedgerRecord = Readonly<{
-  readonly schema: typeof GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA;
-  readonly recordDigest: `sha256:${string}`;
-  readonly previousRecordDigest: `sha256:${string}` | null;
-  readonly sequence: number;
-  readonly relativePath: string;
-  readonly registrationDigest: `sha256:${string}`;
-  /** Base64 of the exact canonical immutable generation bytes. */
-  readonly registrationBytes: string;
-}>;
 
-export type GeneratedStateRegistrationLedgerObservation = Readonly<{
-  readonly tip: GeneratedStateRegistrationLedgerRecord | null;
-  readonly registration: GeneratedStateRegistration | null;
-  readonly retiredPredecessor: GeneratedStateRegistration | null;
-  readonly previousRegistration: GeneratedStateRegistration | null;
-}>;
 
 type GeneratedStateRegistrationMigrationTarget = Readonly<{
   readonly relativePath: string;
   readonly registrationDigest: `sha256:${string}`;
 }>;
 
-type GeneratedStateRegistrationMigrationIntent = Readonly<{
-  readonly schema: typeof GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA;
-  readonly phase: 'prepared' | 'complete';
-  readonly migrationDigest: `sha256:${string}`;
-  readonly sourceRoot: GeneratedStatePhysicalIdentity;
-  readonly sourceInventoryDigest: `sha256:${string}`;
-  readonly sourceGenerationCount: number;
-  readonly sourcePointerCount: number;
-  readonly targets: readonly GeneratedStateRegistrationMigrationTarget[];
-  readonly previousIntentDigest: `sha256:${string}` | null;
-  readonly intentDigest: `sha256:${string}`;
-}>;
 
-type LegacyGeneratedStateRegistrationCensus = Readonly<{
-  readonly sourceRoot: PhysicalDirectoryIdentity;
-  readonly sourceInventoryDigest: `sha256:${string}`;
-  readonly sourceEntryIdentityDigest: `sha256:${string}`;
-  readonly sourceGenerationCount: number;
-  readonly sourcePointerCount: number;
-  readonly generations: ReadonlyMap<`sha256:${string}`, Readonly<{
-    readonly registration: GeneratedStateRegistration;
-    readonly bytes: Buffer;
-  }>>;
-  readonly pointers: ReadonlyMap<string, Readonly<{
-    readonly registration: GeneratedStateRegistration;
-    readonly bytes: Buffer;
-  }>>;
-}>;
 
-/**
- * A migration admission is intentionally an in-process capability.  The
- * durable intent below proves the bytes and physical roots involved, but a
- * digest is not an issuer credential.  Only the owner lease creates this
- * object, and the migration routine never accepts caller-shaped JSON as
- * authority.
- */
-interface GeneratedStateRegistrationMigrationAdmission {
-  readonly kind: 'generated-state-registration-migration-admission';
-}
 
-const generatedStateRegistrationMigrationAdmissions = new WeakSet<object>();
 
-function issueGeneratedStateRegistrationMigrationAdmission(): GeneratedStateRegistrationMigrationAdmission {
-  const admission = Object.freeze({
-    kind: 'generated-state-registration-migration-admission' as const
-  });
-  generatedStateRegistrationMigrationAdmissions.add(admission);
-  return admission;
-}
 
-function assertGeneratedStateRegistrationMigrationAdmission(
-  admission: GeneratedStateRegistrationMigrationAdmission
-): void {
-  if (!generatedStateRegistrationMigrationAdmissions.has(admission)) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      'Generated-state registration migration requires an owner-issued admission.'
-    );
-  }
-}
 
 const GENERATED_STATE_REGISTRATION_POINTER_KEYS = Object.freeze([
   'ledgerRecordDigest', 'registrationDigest', 'schema'
@@ -370,13 +381,15 @@ function hasExactObjectKeys(value: unknown, keys: readonly string[]): value is R
 }
 
 function registrationMigrationMaterial(input: Readonly<{
+  physicalPreimageDigest?: `sha256:${string}`;
   sourceRoot: GeneratedStatePhysicalIdentity;
   sourceInventoryDigest: `sha256:${string}`;
   sourceGenerationCount: number;
   sourcePointerCount: number;
   targets: readonly GeneratedStateRegistrationMigrationTarget[];
 }>): Readonly<{
-  schema: typeof GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA;
+  schema: typeof GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA | typeof GENERATED_STATE_REGISTRATION_CHAIN_MIGRATION_SCHEMA;
+  physicalPreimageDigest?: `sha256:${string}`;
   sourceRoot: GeneratedStatePhysicalIdentity;
   sourceInventoryDigest: `sha256:${string}`;
   sourceGenerationCount: number;
@@ -384,7 +397,8 @@ function registrationMigrationMaterial(input: Readonly<{
   targets: readonly GeneratedStateRegistrationMigrationTarget[];
 }> {
   return Object.freeze({
-    schema: GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA,
+    schema: input.physicalPreimageDigest === undefined ? GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA : GENERATED_STATE_REGISTRATION_CHAIN_MIGRATION_SCHEMA,
+    ...(input.physicalPreimageDigest === undefined ? {} : { physicalPreimageDigest: input.physicalPreimageDigest }),
     sourceRoot: input.sourceRoot,
     sourceInventoryDigest: input.sourceInventoryDigest,
     sourceGenerationCount: input.sourceGenerationCount,
@@ -422,8 +436,11 @@ function parseRegistrationMigrationIntent(
   } catch {
     throw new GeneratedStateProducerBindingBlockedError('Generated-state registration migration intent is malformed.');
   }
-  if (!hasExactObjectKeys(value, GENERATED_STATE_REGISTRATION_MIGRATION_KEYS) ||
-      value.schema !== GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA ||
+  const chain = typeof value === 'object' && value !== null &&
+    (value as Record<string, unknown>).schema === GENERATED_STATE_REGISTRATION_CHAIN_MIGRATION_SCHEMA;
+  if (!hasExactObjectKeys(value, chain ? [...GENERATED_STATE_REGISTRATION_MIGRATION_KEYS, 'physicalPreimageDigest'] : GENERATED_STATE_REGISTRATION_MIGRATION_KEYS) ||
+      (value.schema !== GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA && value.schema !== GENERATED_STATE_REGISTRATION_CHAIN_MIGRATION_SCHEMA) ||
+      (chain && (typeof value.physicalPreimageDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.physicalPreimageDigest))) ||
       (value.phase !== 'prepared' && value.phase !== 'complete') ||
       typeof value.migrationDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.migrationDigest) ||
       typeof value.sourceInventoryDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.sourceInventoryDigest) ||
@@ -456,6 +473,7 @@ function parseRegistrationMigrationIntent(
     }));
   }
   const material = registrationMigrationMaterial({
+    ...(chain ? { physicalPreimageDigest: value.physicalPreimageDigest as `sha256:${string}` } : {}),
     sourceRoot: Object.freeze({
       device: value.sourceRoot.device,
       inode: value.sourceRoot.inode,
@@ -495,6 +513,7 @@ function registrationLedgerStableDigest(
 ): `sha256:${string}` {
   return generatedStateDigest(Object.freeze({
     schema: record.schema,
+    ...(record.schema === GENERATED_STATE_REGISTRATION_CHAIN_SCHEMA ? { event: record.event } : {}),
     previousRecordDigest: record.previousRecordDigest,
     sequence: record.sequence,
     relativePath: record.relativePath,
@@ -506,11 +525,13 @@ function registrationLedgerStableDigest(
 function makeRegistrationLedgerRecord(
   registration: GeneratedStateRegistration,
   previousRecordDigest: `sha256:${string}` | null,
-  sequence: number
+  sequence: number,
+  event: 'registered' | 'disposed' = 'registered'
 ): GeneratedStateRegistrationLedgerRecord {
   const registrationBytes = Buffer.from(canonicalBytes(registration), 'utf8');
   const unsigned: Omit<GeneratedStateRegistrationLedgerRecord, 'recordDigest'> = Object.freeze({
-    schema: GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA,
+    schema: GENERATED_STATE_REGISTRATION_CHAIN_SCHEMA,
+    event,
     previousRecordDigest,
     sequence,
     relativePath: registration.relativePath,
@@ -552,11 +573,14 @@ function parseRegistrationLedgerRecord(
   } catch {
     throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger record is malformed.');
   }
-  if (!hasExactObjectKeys(value, GENERATED_STATE_REGISTRATION_LEDGER_KEYS)) {
+  const chain = typeof value === 'object' && value !== null &&
+    (value as Record<string, unknown>).schema === GENERATED_STATE_REGISTRATION_CHAIN_SCHEMA;
+  if (!hasExactObjectKeys(value, chain ? [...GENERATED_STATE_REGISTRATION_LEDGER_KEYS, 'event'] : GENERATED_STATE_REGISTRATION_LEDGER_KEYS)) {
     throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger record has noncanonical keys.');
   }
   const record = value as unknown as GeneratedStateRegistrationLedgerRecord;
-  if (record.schema !== GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA ||
+  if ((record.schema !== GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA && record.schema !== GENERATED_STATE_REGISTRATION_CHAIN_SCHEMA) ||
+      (chain && record.event !== 'registered' && record.event !== 'disposed') ||
       !/^sha256:[0-9a-f]{64}$/u.test(record.recordDigest) ||
       (record.previousRecordDigest !== null && !/^sha256:[0-9a-f]{64}$/u.test(record.previousRecordDigest)) ||
       !Number.isSafeInteger(record.sequence) || record.sequence < 1 ||
@@ -567,6 +591,7 @@ function parseRegistrationLedgerRecord(
       Buffer.from(record.registrationBytes, 'base64').toString('base64') !== record.registrationBytes ||
       registrationLedgerStableDigest({
         schema: record.schema,
+        ...(chain ? { event: record.event } : {}),
         previousRecordDigest: record.previousRecordDigest,
         sequence: record.sequence,
         relativePath: record.relativePath,
@@ -590,7 +615,8 @@ function parseRegistrationLedgerRecord(
     );
   }
   if (registration.relativePath !== record.relativePath ||
-      registration.registrationDigest !== record.registrationDigest) {
+      registration.registrationDigest !== record.registrationDigest ||
+      (record.event === 'disposed' && registration.phase !== 'retired')) {
     throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger generation binding is invalid.');
   }
   return Object.freeze(record);
@@ -719,8 +745,11 @@ function assertRegistrationMigrationBoundary(
   store: GeneratedStateRuntimeStore,
   intents: readonly GeneratedStateRegistrationMigrationIntent[]
 ): void {
+  const previousPresence = inspectExactNoFollowDirectoryPresence(store.previousRegistrationsRoot,
+    'Previous registration migration evidence');
   const legacyPresence = inspectExactNoFollowDirectoryPresence(
-    store.legacyRegistrationsRoot,
+    store.registrationsRoot !== store.previousRegistrationsRoot && previousPresence.state === 'present'
+      ? store.previousRegistrationsRoot : store.legacyRegistrationsRoot,
     'Legacy generated-state registration migration evidence'
   );
   if (legacyPresence.state === 'absent') {
@@ -763,9 +792,34 @@ function observeRegistrationPointerGuard(
 
 export function readRegistrationLedgerObservation(
   store: GeneratedStateRuntimeStore,
-  relativePath: string
+  relativePath: string,
+  legacyMigration = false
 ): GeneratedStateRegistrationLedgerObservation {
   const normalized = normalizeGeneratedStateRelativePath(relativePath);
+  const presence = inspectExactNoFollowDirectoryPresence(store.registrationsRoot, 'Generated-state registration chain reader');
+  if (presence.state === 'absent' && !legacyMigration) {
+    const previous = inspectExactNoFollowDirectoryPresence(store.previousRegistrationsRoot, 'Previous registration reader');
+    if (previous.state === 'present') {
+      // Observation is zero-write. Stable registration identity may guide
+      // continuation; adoption/publication still requires the original owner
+      // lease and the complete migration protocol.
+      return readRegistrationLedgerObservation(Object.freeze({ ...store,
+        registrationsRoot: store.previousRegistrationsRoot }), normalized, true);
+    }
+    const legacy = readLegacyRegistrationCensus(store);
+    const registration = legacy?.pointers.get(normalized)?.registration ?? null;
+    return Object.freeze({ tip: null, registration, retiredPredecessor: null, previousRegistration: null });
+  }
+  return readRegistrationLedgerCensus(store, legacyMigration).observations.get(normalized) ??
+    Object.freeze({ tip: null, registration: null, retiredPredecessor: null, previousRegistration: null });
+}
+
+
+/** One fresh physical namespace snapshot, never cached across publication. */
+function readRegistrationLedgerCensus(
+  store: GeneratedStateRuntimeStore,
+  legacyMigration = false
+): GeneratedStateRegistrationCensus {
   const registrationsRoot = inspectNoFollowDirectoryChain(
     store.registrationsRoot,
     'Generated-state registration ledger root'
@@ -788,8 +842,12 @@ export function readRegistrationLedgerObservation(
   const guardedPointers = new Set<string>();
   for (const name of names) {
     const guardedPointer = observeRegistrationPointerGuard(store, registrationsRoot, name);
-    if (guardedPointer !== null) { guardedPointers.add(guardedPointer); continue; }
+    if (guardedPointer !== null) {
+      if (!legacyMigration) throw new GeneratedStateProducerBindingBlockedError('Current registration chain contains a forbidden pointer guard.');
+      guardedPointers.add(guardedPointer); continue;
+    }
     if (/^[0-9a-f]{64}\.json$/u.test(name)) {
+      if (!legacyMigration) throw new GeneratedStateProducerBindingBlockedError('Current registration chain contains a forbidden pointer.');
       const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
       if (entry === null || entry.bytes === null || entry.kind !== 'file') {
         throw new GeneratedStateProducerBindingBlockedError(
@@ -800,6 +858,7 @@ export function readRegistrationLedgerObservation(
       continue;
     }
     if (/^registration-[0-9a-f]{64}\.json$/u.test(name)) {
+      if (!legacyMigration) throw new GeneratedStateProducerBindingBlockedError('Current registration chain contains a forbidden generation.');
       const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
       if (entry === null || entry.bytes === null || entry.kind !== 'file') {
         throw new GeneratedStateProducerBindingBlockedError(
@@ -830,7 +889,17 @@ export function readRegistrationLedgerObservation(
           `Generated-state registration ledger record is absent or foreign: ${name}.`
         );
       }
-      records.push(parseRegistrationLedgerRecord(entry.bytes, name));
+      const record = parseRegistrationLedgerRecord(entry.bytes, name);
+      if (record.schema !== (legacyMigration ? GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA : GENERATED_STATE_REGISTRATION_CHAIN_SCHEMA)) {
+        throw new GeneratedStateProducerBindingBlockedError('Registration record belongs to a different format namespace.');
+      }
+      records.push(record);
+      if (!legacyMigration) {
+        const bytes = Buffer.from(record.registrationBytes, 'base64');
+        generations.set(record.registrationDigest, Object.freeze({
+          registration: parseGeneratedStateRegistration(JSON.parse(bytes.toString('utf8')) as unknown), bytes
+        }));
+      }
       continue;
     }
     if (/^registration-migration-[0-9a-f]{64}-(?:prepared|complete)\.json$/u.test(name)) {
@@ -840,7 +909,11 @@ export function readRegistrationLedgerObservation(
           `Generated-state registration migration intent is absent or foreign: ${name}.`
         );
       }
-      migrationIntents.push(parseRegistrationMigrationIntent(entry.bytes, name));
+      const intent = parseRegistrationMigrationIntent(entry.bytes, name);
+      if (intent.schema !== (legacyMigration ? GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA : GENERATED_STATE_REGISTRATION_CHAIN_MIGRATION_SCHEMA)) {
+        throw new GeneratedStateProducerBindingBlockedError('Registration migration intent belongs to a different format namespace.');
+      }
+      migrationIntents.push(intent);
       continue;
     }
     throw new GeneratedStateProducerBindingBlockedError(
@@ -856,7 +929,12 @@ export function readRegistrationLedgerObservation(
       'Generated-state registration ledger root changed during immutable census.'
     );
   }
-  assertRegistrationMigrationBoundary(store, migrationIntents);
+  if (legacyMigration) {
+    const legacyStore = Object.freeze({ ...store, registrationsRoot: store.previousRegistrationsRoot });
+    assertRegistrationMigrationBoundary(legacyStore, migrationIntents);
+  } else {
+    assertRegistrationMigrationBoundary(store, migrationIntents);
+  }
 
   const recordsByPath = new Map<string, GeneratedStateRegistrationLedgerRecord[]>();
   const recordByDigest = new Map<`sha256:${string}`, GeneratedStateRegistrationLedgerRecord>();
@@ -880,7 +958,11 @@ export function readRegistrationLedgerObservation(
 
   const rootsByPath = new Map<string, GeneratedStateRegistrationLedgerRecord>();
   const tipsByPath = new Map<string, GeneratedStateRegistrationLedgerRecord>();
+  const pathByKey = new Map<string, string>();
   for (const [recordPath, pathRecords] of recordsByPath) {
+    const key = registrationKey(recordPath);
+    if (pathByKey.has(key)) throw new GeneratedStateProducerBindingBlockedError('Registration path key collision.');
+    pathByKey.set(key, recordPath);
     if (pathRecords.length > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
       throw new GeneratedStateProducerBindingBlockedError(
         `Generated-state registration ledger exceeds its bounded path capacity: ${recordPath}.`
@@ -891,14 +973,14 @@ export function readRegistrationLedgerObservation(
     const roots: GeneratedStateRegistrationLedgerRecord[] = [];
     const registrationDigests = new Set<`sha256:${string}`>();
     for (const record of pathRecords) {
-      if (registrationDigests.has(record.registrationDigest)) {
+      if (record.event !== 'disposed' && registrationDigests.has(record.registrationDigest)) {
         throw new GeneratedStateProducerBindingBlockedError(
           `Generated-state registration ledger repeats one generation in a path chain: ${recordPath}.`
         );
       }
-      registrationDigests.add(record.registrationDigest);
+      if (record.event !== 'disposed') registrationDigests.add(record.registrationDigest);
       if (record.previousRecordDigest === null) {
-        if (record.sequence !== 1) {
+        if (record.sequence !== 1 || record.event === 'disposed') {
           throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger root sequence is invalid: ${recordPath}.`);
         }
         roots.push(record);
@@ -907,6 +989,10 @@ export function readRegistrationLedgerObservation(
       const predecessor = byDigest.get(record.previousRecordDigest);
       if (predecessor === undefined || predecessor.sequence !== record.sequence - 1) {
         throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger predecessor is missing: ${recordPath}.`);
+      }
+      if (record.event === 'disposed' &&
+          (predecessor.event === 'disposed' || predecessor.registrationDigest !== record.registrationDigest)) {
+        throw new GeneratedStateProducerBindingBlockedError(`Disposed registration does not bind its exact retired predecessor: ${recordPath}.`);
       }
       const previousChild = children.get(record.previousRecordDigest);
       if (previousChild !== undefined && previousChild !== record.recordDigest) {
@@ -942,6 +1028,7 @@ export function readRegistrationLedgerObservation(
   }
 
   for (const [recordPath, tip] of tipsByPath) {
+    if (!legacyMigration) continue;
     const pointer = pointers.get(registrationKey(recordPath));
     const generation = generations.get(tip.registrationDigest);
     if (generation === undefined) {
@@ -959,20 +1046,33 @@ export function readRegistrationLedgerObservation(
     }
     if (pointer.registrationDigest !== tip.registrationDigest ||
         pointer.ledgerRecordDigest !== tip.recordDigest) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state registration pointer does not bind the ledger tip: ${recordPath}.`
-      );
+      const pointedRecord = recordByDigest.get(pointer.ledgerRecordDigest);
+      const pointedRegistration = generations.get(pointer.registrationDigest)?.registration;
+      const retired = generation.registration;
+      if (pointedRecord === undefined || pointedRegistration === undefined ||
+          pointedRecord.registrationDigest !== pointer.registrationDigest ||
+          tip.previousRecordDigest !== pointedRecord.recordDigest ||
+          retired.phase !== 'retired' || pointedRegistration.phase !== 'active' ||
+          retired.operationId !== pointedRegistration.operationId ||
+          retired.registrationId !== pointedRegistration.registrationId ||
+          !samePhysicalIdentity(retired.root, pointedRegistration.root) ||
+          !samePhysicalIdentity(retired.workspace, pointedRegistration.workspace) ||
+          retired.retirementRef === null) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration pointer does not bind a legal unique retirement successor: ${recordPath}.`
+        );
+      }
     }
   }
   for (const name of guardedPointers) {
-    if (![...tipsByPath.keys()].some(recordPath => `${registrationKey(recordPath)}.json` === name)) {
+    if (!pathByKey.has(name.slice(0, -'.json'.length))) {
       throw new GeneratedStateProducerBindingBlockedError(
         `Generated-state registration pointer guard has no ledger chain: ${name}.`
       );
     }
   }
   for (const pointerKey of pointers.keys()) {
-    if (![...tipsByPath.keys()].some((recordPath) => registrationKey(recordPath) === pointerKey)) {
+    if (!pathByKey.has(pointerKey)) {
       throw new GeneratedStateProducerBindingBlockedError(
         `Generated-state registration pointer has no ledger chain: ${pointerKey}.`
       );
@@ -1000,35 +1100,30 @@ export function readRegistrationLedgerObservation(
       `Generated-state registration generation is not bound to the immutable ledger: ${generation.registration.relativePath}.`
     );
   }
-  const tip = tipsByPath.get(normalized);
-  if (tip !== undefined) {
+  const observations = new Map<string, GeneratedStateRegistrationLedgerObservation>();
+  for (const [normalized, tip] of tipsByPath) {
     const generation = generations.get(tip.registrationDigest);
     if (generation === undefined) throw new GeneratedStateProducerBindingBlockedError('Generated-state registration tip generation disappeared.');
-    const previousRecord = tip.previousRecordDigest === null ? null : recordByDigest.get(tip.previousRecordDigest) ?? null;
+    const registeredTip = tip.event === 'disposed' && tip.previousRecordDigest !== null
+      ? recordByDigest.get(tip.previousRecordDigest) ?? tip : tip;
+    const previousRecord = registeredTip.previousRecordDigest === null ? null : recordByDigest.get(registeredTip.previousRecordDigest) ?? null;
     const previousRegistration = previousRecord === null
       ? null
       : generations.get(previousRecord.registrationDigest)?.registration ?? null;
-    if (tip.previousRecordDigest !== null && previousRegistration === null) {
+    if (registeredTip.previousRecordDigest !== null && previousRegistration === null) {
       throw new GeneratedStateProducerBindingBlockedError(
         `Generated-state registration predecessor disappeared: ${normalized}.`
       );
     }
-    if (!pointers.has(registrationKey(normalized))) {
-      return Object.freeze({
-        tip,
-        registration: null,
-        retiredPredecessor: generation.registration,
-        previousRegistration
-      });
-    }
-    return Object.freeze({
+    const disposed = legacyMigration ? !pointers.has(registrationKey(normalized)) : tip.event === 'disposed';
+    observations.set(normalized, Object.freeze({
       tip,
-      registration: generation.registration,
-      retiredPredecessor: null,
+      registration: disposed ? null : generation.registration,
+      retiredPredecessor: disposed ? generation.registration : null,
       previousRegistration
-    });
+    }));
   }
-  return Object.freeze({ tip: null, registration: null, retiredPredecessor: null, previousRegistration: null });
+  return Object.freeze({ observations, recordsByPath });
 }
 
 export function loadRegistration(
@@ -1036,174 +1131,52 @@ export function loadRegistration(
   relativePath: string
 ): GeneratedStateRegistration | null {
   if (store === null) return null;
-  const currentPresence = inspectExactNoFollowDirectoryPresence(
-    store.registrationsRoot,
-    'Generated-state registration ledger root'
-  );
-  if (currentPresence.state === 'absent') {
-    const legacyPresence = inspectExactNoFollowDirectoryPresence(
-      store.legacyRegistrationsRoot,
-      'Legacy generated-state registration root'
-    );
-    if (legacyPresence.state === 'present') {
-      throw new GeneratedStateProducerBindingBlockedError(
-        'Generated-state registration schema migration is required.'
-      );
-    }
-    return null;
-  }
   return readRegistrationLedgerObservation(store, relativePath).registration;
 }
 
-type GeneratedStateRegistrationPointerSnapshot = Readonly<{
-  readonly identity: Readonly<{ device: string; inode: string }> | null;
-  readonly bytes: Buffer | null;
-}>;
-
-function assertGeneratedStateRegistrationBytes(bytes: Uint8Array): void {
-  parseGeneratedStateRegistration(JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown);
-}
-
-function assertGeneratedStateRegistrationPointerBytes(bytes: Uint8Array): void {
-  parseRegistrationPointer(bytes);
-}
-
-export function inspectRegistrationPointer(
-  store: GeneratedStateRuntimeStore,
-  relativePath: string
-): Readonly<{
-  readonly parent: PhysicalDirectoryIdentity;
-  readonly name: string;
-  readonly snapshot: GeneratedStateRegistrationPointerSnapshot;
-}> {
-  const locator = registrationPath(store, relativePath);
-  const parent = inspectNoFollowDirectoryChain(
-    path.dirname(locator),
-    'Generated-state registration pointer parent'
-  ).target;
-  const name = path.basename(locator);
-  const entry = inspectNoFollowOrdinaryFileEntry(parent, name);
-  return Object.freeze({
-    parent,
-    name,
-    snapshot: Object.freeze({
-      identity: entry === null ? null : Object.freeze({ device: entry.device, inode: entry.inode }),
-      bytes: entry?.bytes === null || entry?.bytes === undefined ? null : Buffer.from(entry.bytes)
-    })
-  });
-}
-
-function sameRegistrationPointerSnapshot(
-  left: GeneratedStateRegistrationPointerSnapshot,
-  right: GeneratedStateRegistrationPointerSnapshot
-): boolean {
-  return (left.identity === null) === (right.identity === null) &&
-    (left.identity === null || (
-      left.identity.device === right.identity!.device &&
-      left.identity.inode === right.identity!.inode
-    )) &&
-    (left.bytes === null) === (right.bytes === null) &&
-    (left.bytes === null || left.bytes.equals(right.bytes!));
-}
-
-export function persistRegistration(
+function persistRegistration(
   store: GeneratedStateRuntimeStore,
   registration: GeneratedStateRegistration,
-  expectedPointer: GeneratedStateRegistrationPointerSnapshot,
-  expectedPreviousRecordDigest: `sha256:${string}` | null
+  expectedPreviousRecordDigest: `sha256:${string}` | null,
+  event: 'registered' | 'disposed' = 'registered'
 ): void {
-  const bytes = canonicalBytes(registration);
-  const pointer = inspectRegistrationPointer(store, registration.relativePath);
-  if (!sameRegistrationPointerSnapshot(pointer.snapshot, expectedPointer)) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state registration pointer changed before durable CAS: ${registration.relativePath}.`
-    );
+  if (!generatedStateMutationStores.has(store)) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication requires the original owner mutation lease.');
   }
   const observation = readRegistrationLedgerObservation(store, registration.relativePath);
-  let predecessor = observation.tip;
-  if (expectedPreviousRecordDigest === null) {
-    if (predecessor !== null) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state birth cannot replace an existing immutable registration generation: ${registration.relativePath}.`
-      );
-    }
-  } else {
-    if (predecessor === null || predecessor.recordDigest !== expectedPreviousRecordDigest) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state registration predecessor changed or is unavailable: ${registration.relativePath}.`
-      );
-    }
-  }
-  const generationName = registrationGenerationName(registration.registrationDigest);
-  publishExclusiveDurableCanonicalFile({
-    parent: pointer.parent,
-    name: generationName,
-    bytes: Buffer.from(bytes, 'utf8'),
-    validate: assertGeneratedStateRegistrationBytes
-  });
-  const recordSequence = predecessor === null ? 1 : predecessor.sequence + 1;
-  if (!Number.isSafeInteger(recordSequence) || recordSequence < 1 ||
-      recordSequence > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
+  assertGeneratedStateRegistrationResponsibilityAdmission({ kind: 'registration', registration,
+    previousRecordDigest: expectedPreviousRecordDigest, event }, observation,
+    readNativeRegistrationResponsibilities(store, registration.relativePath));
+  const predecessor = observation.tip;
+  if ((predecessor?.recordDigest ?? null) !== expectedPreviousRecordDigest) {
     throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state registration ledger reached its bounded capacity: ${registration.relativePath}.`
+      `Generated-state registration predecessor changed before publication: ${registration.relativePath}.`
     );
   }
-  const record = makeRegistrationLedgerRecord(
-    registration,
-    predecessor?.recordDigest ?? null,
-    recordSequence
-  );
-  const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
-  publishExclusiveDurableCanonicalFile({
-    parent: pointer.parent,
-    name: recordName,
-    bytes: Buffer.from(canonicalBytes(record), 'utf8'),
-    validate: (candidate) => parseRegistrationLedgerRecord(candidate, recordName)
-  });
-  const pointerValue: GeneratedStateRegistrationPointer = Object.freeze({
-    schema: GENERATED_STATE_REGISTRATION_POINTER_SCHEMA,
-    registrationDigest: registration.registrationDigest,
-    ledgerRecordDigest: record.recordDigest
-  });
-  const pointerBytes = Buffer.from(canonicalBytes(pointerValue), 'utf8');
-  const pointerPublished = withRuntimeStateJournalMutation(
-    store.fs,
-    path.join(pointer.parent.path, pointer.name),
-    completeFirstPublication => {
-      if (expectedPointer.identity === null) {
-        const published = publishExclusiveDurableCanonicalFile({
-          parent: pointer.parent,
-          name: pointer.name,
-          bytes: pointerBytes,
-          validate: assertGeneratedStateRegistrationPointerBytes
-        });
-        if (!published.created) {
-          throw new GeneratedStateProducerBindingBlockedError(
-            `Generated-state registration pointer became occupied during durable CAS: ${registration.relativePath}.`
-          );
-        }
-        completeFirstPublication(published);
-      } else {
-        replaceDurableCanonicalFile({
-          parent: pointer.parent,
-          name: pointer.name,
-          bytes: pointerBytes,
-          expectedExisting: expectedPointer.identity,
-          validate: assertGeneratedStateRegistrationPointerBytes
-        });
-      }
-    },
-    expectedPointer.identity === null ? 'create-absent-data' : undefined
-  );
-  if (pointerPublished === null) {
-    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration pointer mutation is contended.');
+  if (event === 'disposed' && (registration.phase !== 'retired' ||
+      observation.registration?.registrationDigest !== registration.registrationDigest)) {
+    throw new GeneratedStateProducerBindingBlockedError('Disposal requires the exact current retired registration.');
   }
-
-  const finalPointer = inspectRegistrationPointer(store, registration.relativePath).snapshot;
-  if (finalPointer.bytes === null || !finalPointer.bytes.equals(pointerBytes) || finalPointer.identity === null) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state registration pointer failed exact durable readback: ${registration.relativePath}.`
-    );
+  if (event === 'disposed' && observeGeneratedStatePhysicalRoot(store.workspaceRoot, registration.relativePath).kind !== 'missing') {
+    throw new GeneratedStateProducerBindingBlockedError('Disposal cannot be published before exact source physical absence readback.');
+  }
+  const sequence = (predecessor?.sequence ?? 0) + 1;
+  if (sequence > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration chain reached its bounded capacity.');
+  }
+  const record = makeRegistrationLedgerRecord(registration, expectedPreviousRecordDigest, sequence, event);
+  const name = registrationLedgerName(record.relativePath, record.recordDigest);
+  const parent = inspectNoFollowDirectoryChain(store.registrationsRoot, 'Registration publication root').target;
+  const published = publishExclusiveDurableCanonicalFile({
+    parent, name, bytes: Buffer.from(canonicalBytes(record), 'utf8'),
+    validate: candidate => parseRegistrationLedgerRecord(candidate, name)
+  });
+  if (!published.created) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication became occupied.');
+  }
+  const readback = readRegistrationLedgerObservation(store, registration.relativePath);
+  if (readback.tip?.recordDigest !== record.recordDigest) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration publication failed exact terminal readback.');
   }
 }
 
@@ -1254,264 +1227,443 @@ function readRegistrationMigrationIntents(
   return Object.freeze(intents);
 }
 
-function ensureRegistrationLedgerMigration(
-  store: GeneratedStateRuntimeStore,
-  legacy: LegacyGeneratedStateRegistrationCensus | null,
-  admission: GeneratedStateRegistrationMigrationAdmission
-): void {
-  assertGeneratedStateRegistrationMigrationAdmission(admission);
-  const registrationsRoot = inspectNoFollowDirectoryChain(
-    store.registrationsRoot,
-    'Generated-state registration migration target root'
-  ).target;
-  const existingIntents = readRegistrationMigrationIntents(registrationsRoot);
-  if (legacy === null) {
-    if (existingIntents.length !== 0) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        'Generated-state registration migration source evidence is absent.'
-      );
-    }
-    return;
+/** Old formats are strict, read-only inputs. The original census/parser owns
+ * their byte and graph semantics; no pointer guard is acquired or rewritten. */
+function readRegistrationMigrationSource(store: GeneratedStateRuntimeStore): LegacyGeneratedStateRegistrationCensus | null {
+  const legacy = readLegacyRegistrationCensus(store);
+  const previous = inspectExactNoFollowDirectoryPresence(store.previousRegistrationsRoot, 'Previous registration source');
+  if (previous.state === 'absent') return legacy;
+  const root = previous.directory.target;
+  const names = readdirSync(root.path).sort();
+  if (names.length > GENERATED_STATE_REGISTRATION_ROOT_ENTRY_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError('Previous registration source exceeds bounded capacity.');
   }
-  const targets = Object.freeze([...legacy.pointers.values()]
-    .map(({ registration }) => Object.freeze({
-      relativePath: registration.relativePath,
-      registrationDigest: registration.registrationDigest
-    }))
-    .sort((left, right) => left.relativePath.localeCompare(right.relativePath)));
-  const material = registrationMigrationMaterial({
-    sourceRoot: identityOf(legacy.sourceRoot),
-    sourceInventoryDigest: legacy.sourceInventoryDigest,
-    sourceGenerationCount: legacy.sourceGenerationCount,
-    sourcePointerCount: legacy.sourcePointerCount,
-    targets
+  const entries = names.map(name => {
+    const guarded = observeRegistrationPointerGuard(store, root, name);
+    if (guarded !== null) return Object.freeze({ name, guard: guarded });
+    const entry = inspectNoFollowOrdinaryFileEntry(root, name);
+    if (entry === null || entry.kind !== 'file' || entry.bytes === null) {
+      throw new GeneratedStateProducerBindingBlockedError('Previous registration source contains a foreign entry.');
+    }
+    return Object.freeze({ name, bytes: Buffer.from(entry.bytes).toString('base64'), device: entry.device, inode: entry.inode });
   });
-  const prepared = makeRegistrationMigrationIntent(material, 'prepared', null);
-  const complete = makeRegistrationMigrationIntent(material, 'complete', prepared.intentDigest);
-  for (const intent of existingIntents) {
-    const expected = intent.phase === 'prepared' ? prepared : complete;
-    if (intent.intentDigest !== expected.intentDigest) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        'Generated-state registration migration intent does not bind the current legacy inventory.'
-      );
+  const sourceStore = Object.freeze({ ...store, registrationsRoot: store.previousRegistrationsRoot });
+  const census = readRegistrationLedgerCensus(sourceStore, true);
+  const pointers = new Map<string, Readonly<{ registration: GeneratedStateRegistration; bytes: Buffer }>>();
+  const disposedPaths = new Set<string>();
+  const generations = new Map<`sha256:${string}`, Readonly<{ registration: GeneratedStateRegistration; bytes: Buffer }>>();
+  for (const [relativePath, observation] of census.observations) {
+    const registration = observation.registration ?? observation.retiredPredecessor;
+    if (registration === null) continue;
+    if (observation.registration === null) disposedPaths.add(relativePath);
+    const value = Object.freeze({ registration, bytes: Buffer.from(canonicalBytes(registration), 'utf8') });
+    pointers.set(relativePath, value);
+    generations.set(registration.registrationDigest, value);
+  }
+  const after = inspectNoFollowDirectoryChain(root.path, 'Previous registration source readback').target;
+  if (!samePhysicalIdentity(root, after)) throw new GeneratedStateProducerBindingBlockedError('Previous registration source root changed.');
+  return Object.freeze({ sourceRoot: root,
+    sourceInventoryDigest: generatedStateDigest({ entries, legacyInventory: legacy?.sourceInventoryDigest ?? null }),
+    sourceEntryIdentityDigest: generatedStateDigest({ entries, legacyIdentity: legacy?.sourceEntryIdentityDigest ?? null }),
+    sourceGenerationCount: names.filter(name => /^registration-[0-9a-f]{64}\.json$/u.test(name)).length,
+    sourcePointerCount: names.filter(name => /^[0-9a-f]{64}\.json$/u.test(name)).length,
+    generations, pointers, disposedPaths, recordsByPath: census.recordsByPath
+  });
+}
+
+function registrationMigrationRecords(source: LegacyGeneratedStateRegistrationCensus,
+  registration: GeneratedStateRegistration): readonly GeneratedStateRegistrationLedgerRecord[] {
+  const historical = source.recordsByPath?.get(registration.relativePath);
+  const records: GeneratedStateRegistrationLedgerRecord[] = [];
+  for (const old of historical === undefined ? [] : [...historical].sort((left, right) => left.sequence - right.sequence)) {
+    const value = parseGeneratedStateRegistration(JSON.parse(Buffer.from(old.registrationBytes, 'base64').toString('utf8')) as unknown);
+    records.push(makeRegistrationLedgerRecord(value, records.at(-1)?.recordDigest ?? null, records.length + 1));
+  }
+  if (records.length === 0) records.push(makeRegistrationLedgerRecord(registration, null, 1));
+  if (source.disposedPaths?.has(registration.relativePath)) {
+    records.push(makeRegistrationLedgerRecord(registration, records.at(-1)!.recordDigest, records.length + 1, 'disposed'));
+  }
+  if (records.length > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError('Migrated registration chain exceeds its bounded capacity.');
+  }
+  return Object.freeze(records);
+}
+
+function observeRegistrationMigrationPhysicalPreimage(
+  store: GeneratedStateRuntimeStore,
+  source: LegacyGeneratedStateRegistrationCensus
+): `sha256:${string}` {
+  const workspace = inspectNoFollowDirectoryChain(store.workspaceRoot, 'Registration migration workspace preimage').target;
+  const roots = [...source.pointers.values()].map(({ registration }) => {
+    if (!samePhysicalIdentity(registration.workspace, workspace)) {
+      throw new GeneratedStateProducerBindingBlockedError('Registration migration workspace physical preimage is foreign.');
+    }
+    const observed = observeGeneratedStatePhysicalRoot(store.workspaceRoot, registration.relativePath);
+    if (observed.kind !== 'missing' &&
+        (observed.identity === null || !samePhysicalIdentity(observed.identity, registration.root))) {
+      throw new GeneratedStateProducerBindingBlockedError('Registration migration root physical preimage is foreign.');
+    }
+    return Object.freeze({ relativePath: registration.relativePath, kind: observed.kind,
+      identity: observed.identity, linkTarget: observed.linkTarget });
+  }).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return generatedStateDigest({ workspace: identityOf(workspace), roots });
+}
+
+
+const generatedStateMutationStores = new WeakSet<object>();
+
+interface NativeRegistrationMutation {
+  readonly store: GeneratedStateRuntimeStore;
+  readonly lease: NonNullable<ReturnType<typeof acquirePhysicalMutationLease>>;
+  readonly sources: WeakMap<object, LegacyGeneratedStateRegistrationCensus>;
+  readonly plans: WeakMap<object, GeneratedStateMigrationPlan>;
+  plan: GeneratedStateMigrationPlan | null;
+  records: ReadonlyMap<string, GeneratedStateRegistrationLedgerRecord>;
+}
+const nativeRegistrationMutations = new WeakMap<object, NativeRegistrationMutation>();
+const nativeRegistrationObservations = new WeakMap<object, Readonly<{ workspaceRoot: string;
+  workspace: PhysicalDirectoryIdentity; store: GeneratedStateRuntimeStore | null;
+  options: GeneratedStateRegistrationStoreOptions }>>();
+const nativeObservationEvidence = new WeakMap<object, Readonly<{ resource: GeneratedStateNativeObservationResource;
+  scope: import('../../../execution/generated-state/observation.ts').GeneratedStateObservationScope;
+  factsDigest: `sha256:${string}` }>>();
+
+function immutableObservationFacts<Value>(value: Value): Value {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) immutableObservationFacts(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+function nativeObservationFacts(resource: GeneratedStateNativeObservationResource, relativePath: string):
+  import('../../../execution/generated-state/observation.ts').GeneratedStateObservationFacts {
+  const state = nativeRegistrationObservations.get(resource);
+  if (state === undefined || !samePhysicalIdentity(state.workspace,
+      inspectNoFollowDirectoryChain(state.workspaceRoot, 'Observation evidence workspace readback').target)) {
+    throw new GeneratedStateProducerBindingBlockedError('Observation evidence resource is foreign or physically stale.');
+  }
+  const store = retainedGeneratedStateObservationStore(resource);
+  const physical = observeGeneratedStatePhysicalRoot(state.workspaceRoot, relativePath);
+  const ledger = store === null ? { tip: null, registration: null, retiredPredecessor: null, previousRegistration: null } :
+    readRegistrationLedgerObservation(store, relativePath);
+  return immutableObservationFacts(structuredClone({ ledger, physical: { kind: physical.kind, identity: physical.identity } }));
+}
+/** Canonical native consumer verification, never a caller-provided predicate. */
+export async function readVerifiedGeneratedStateObservationFacts(
+  evidence: import('../../../execution/generated-state/observation.ts').GeneratedStateNativeObservationEvidence,
+  expectedScope: Readonly<{ workspaceRoot: string; relativePath: string; expectedPhysical?: GeneratedStatePhysicalIdentity }>
+): Promise<import('../../../execution/generated-state/observation.ts').GeneratedStateObservationFacts> {
+  const original = nativeObservationEvidence.get(evidence);
+  if (original === undefined || path.resolve(expectedScope.workspaceRoot) !== path.resolve(original.scope.workspaceRoot) ||
+      normalizeGeneratedStateRelativePath(expectedScope.relativePath) !== original.scope.relativePath ||
+      (expectedScope.expectedPhysical !== undefined && (original.scope.expected?.physical === undefined ||
+        !samePhysicalIdentity(expectedScope.expectedPhysical, original.scope.expected.physical)))) {
+    throw new GeneratedStateProducerBindingBlockedError('Observation evidence is forged or belongs to another exact scope.');
+  }
+  const facts = nativeObservationFacts(original.resource, original.scope.relativePath);
+  if (generatedStateDigest(facts) !== original.factsDigest) throw new GeneratedStateProducerBindingBlockedError('Observation evidence ledger or physical facts changed.');
+  await retainedGeneratedStateObservationStore(original.resource)?.assertCurrent();
+  return facts;
+}
+
+function nativeRegistrationMutation(resource: GeneratedStateNativeMutationResource): NativeRegistrationMutation {
+  const state = nativeRegistrationMutations.get(resource);
+  if (state === undefined) throw new GeneratedStateProducerBindingBlockedError('Generated-state native mutation resource is foreign or settled.');
+  assertPhysicalMutationLeaseOwned(state.lease);
+  return state;
+}
+
+/** Adapter-internal retained resource lookup. It never adopts caller JSON. */
+export function retainedGeneratedStateMutationStore(resource: GeneratedStateNativeMutationResource): GeneratedStateRuntimeStore {
+  return nativeRegistrationMutation(resource).store;
+}
+export function retainedGeneratedStateObservationStore(resource: GeneratedStateNativeResource): GeneratedStateRuntimeStore | null {
+  const observation = nativeRegistrationObservations.get(resource);
+  return observation === undefined ? nativeRegistrationMutation(resource as GeneratedStateNativeMutationResource).store :
+    observation.store ?? openRuntimeStoreReadOnly(observation.workspaceRoot, observation.options);
+}
+
+function readNativeRegistrationResponsibilities(store: GeneratedStateRuntimeStore, relativePath: string): GeneratedStateRegistrationResponsibilities {
+  let cleanupIntent: GeneratedStateRegistrationResponsibilities['cleanupIntent'] = null;
+  const normalized = normalizeGeneratedStateRelativePath(relativePath);
+  for (const name of readdirSync(store.transactionsRoot)) {
+    if (!/^current-[0-9a-f]{64}\.json$/u.test(name)) continue;
+    const source = store.fs.readText(path.join(store.transactionsRoot, name));
+    const candidate = JSON.parse(source) as { relativePath?: unknown };
+    if (typeof candidate.relativePath !== 'string' || name !== `current-${registrationKey(candidate.relativePath)}.json`) {
+      throw new GeneratedStateProducerBindingBlockedError('Cleanup responsibility pointer has a foreign path binding.');
+    }
+    const intent = parseGeneratedStateCleanupIntentBytes(source, candidate.relativePath);
+    if (normalized === intent.relativePath || normalized.startsWith(`${intent.relativePath}/`) || intent.relativePath.startsWith(`${normalized}/`)) {
+      if (cleanupIntent !== null) throw new GeneratedStateProducerBindingBlockedError('Registration intersects multiple cleanup responsibilities.');
+      cleanupIntent = intent;
     }
   }
-  if (existingIntents.some(({ phase }) => phase === 'complete')) {
-    assertRegistrationMigrationBoundary(store, existingIntents);
-    // A complete marker is historical evidence, not a permanent bypass.  A
-    // later mutation must perform one complete target census before it can
-    // continue.  The census validates every generation, ledger chain,
-    // pointer, migration target and unknown-residue boundary; it also fences
-    // the target root identity before and after the read.  One call is enough
-    // because the census covers the whole namespace rather than only the
-    // requested registration path.
-    readRegistrationLedgerObservation(
-      store,
-      complete.targets[0]?.relativePath ?? '.generated-state-registration-migration-empty'
-    );
-    return;
-  }
+  const worktreePath = path.join(store.transactionsRoot, 'worktree-retirement-active.json');
+  return Object.freeze({
+    cleanupIntent,
+    cleanupTombstoneState: cleanupIntent === null ? 'absent' : inspectExactNoFollowDirectoryPresence(path.join(store.workspaceRoot,
+      '.tmp', 'generated-state-quarantine', cleanupIntent.tombstoneName), 'Registration cleanup tombstone terminal readback').state === 'absent' ? 'absent' : 'present',
+    worktreeIntent: store.fs.exists(worktreePath) ? parseWorktreeRetirementIntent(JSON.parse(store.fs.readText(worktreePath))) : null
+  });
+}
 
-  const allowedTargetNames = new Set<string>([
-    registrationMigrationIntentName(prepared),
-    registrationMigrationIntentName(complete)
-  ]);
-  for (const { registration } of legacy.pointers.values()) {
-    const record = makeRegistrationLedgerRecord(registration, null, 1);
-    allowedTargetNames.add(registrationGenerationName(registration.registrationDigest));
-    allowedTargetNames.add(registrationLedgerName(record.relativePath, record.recordDigest));
-    allowedTargetNames.add(`${registrationKey(registration.relativePath)}.json`);
-  }
-  for (const name of readdirSync(registrationsRoot.path, { withFileTypes: true }).map((entry) => entry.name)) {
-    const guardedPointer = observeRegistrationPointerGuard(store, registrationsRoot, name);
-    if (!allowedTargetNames.has(guardedPointer ?? name)) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state registration migration target contains unknown residue: ${name}.`
-      );
-    }
-  }
-
-  const preparedName = registrationMigrationIntentName(prepared);
-  publishExactRegistrationMigrationFile(
-    registrationsRoot,
-    preparedName,
-    Buffer.from(canonicalBytes(prepared), 'utf8'),
-    (candidate) => parseRegistrationMigrationIntent(candidate, preparedName)
-  );
-  for (const { registration, bytes } of legacy.pointers.values()) {
-    const generationName = registrationGenerationName(registration.registrationDigest);
-    publishExactRegistrationMigrationFile(
-      registrationsRoot,
-      generationName,
-      bytes,
-      assertGeneratedStateRegistrationBytes
-    );
-    const record = makeRegistrationLedgerRecord(registration, null, 1);
-    const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
-    publishExactRegistrationMigrationFile(
-      registrationsRoot,
-      recordName,
-      Buffer.from(canonicalBytes(record), 'utf8'),
-      (candidate) => parseRegistrationLedgerRecord(candidate, recordName)
-    );
-    const pointer: GeneratedStateRegistrationPointer = Object.freeze({
-      schema: GENERATED_STATE_REGISTRATION_POINTER_SCHEMA,
-      registrationDigest: registration.registrationDigest,
-      ledgerRecordDigest: record.recordDigest
-    });
-    const pointerName = `${registrationKey(registration.relativePath)}.json`;
-    const pointerPath = path.join(registrationsRoot.path, pointerName);
-    const pointerBytes = Buffer.from(canonicalBytes(pointer), 'utf8');
-    const existing = inspectNoFollowOrdinaryFileEntry(registrationsRoot, pointerName);
-    const published = withRuntimeStateJournalMutation(store.fs, pointerPath, completeFirstPublication => {
-      if (existing !== null) {
-        publishExactRegistrationMigrationFile(registrationsRoot, pointerName, pointerBytes,
-          assertGeneratedStateRegistrationPointerBytes);
-        return;
+export function createGeneratedStateRegistrationObservationBackend(): GeneratedStateRegistrationObservationBackend {
+  return Object.freeze({
+    captureObservationEvidence: (resource, scope) => {
+      const state = nativeRegistrationObservations.get(resource);
+      if (state === undefined || path.resolve(scope.workspaceRoot) !== state.workspaceRoot) throw new GeneratedStateProducerBindingBlockedError('Observation capture has a foreign original workspace resource.');
+      const retainedScope = immutableObservationFacts(structuredClone({ ...scope, relativePath: normalizeGeneratedStateRelativePath(scope.relativePath) }));
+      const facts = nativeObservationFacts(resource, retainedScope.relativePath);
+      const evidence = Object.freeze({ kind: 'generated-state-native-observation-evidence' as const });
+      nativeObservationEvidence.set(evidence, Object.freeze({ resource, scope: retainedScope, factsDigest: generatedStateDigest(facts) }));
+      return Object.freeze({ evidence, facts });
+    },
+    openObservation: input => {
+      const store = openRuntimeStoreReadOnly(input.workspaceRoot, input);
+      const workspace = inspectNoFollowDirectoryChain(input.workspaceRoot, 'Read-only generated-state workspace').target;
+      const resource = Object.freeze({ kind: 'generated-state-native-observation-resource' as const });
+      nativeRegistrationObservations.set(resource, Object.freeze({ workspaceRoot: path.resolve(input.workspaceRoot), workspace,
+        store, options: Object.freeze({ environment: input.environment === undefined ? undefined : Object.freeze({ ...input.environment }) }) })); return resource;
+    },
+    assertObservationCurrent: async resource => {
+      const observation = nativeRegistrationObservations.get(resource);
+      if (observation !== undefined && !samePhysicalIdentity(observation.workspace,
+          inspectNoFollowDirectoryChain(observation.workspaceRoot, 'Read-only generated-state workspace readback').target)) {
+        throw new GeneratedStateProducerBindingBlockedError('Read-only generated-state workspace identity changed.');
       }
-      const receipt = publishExclusiveDurableCanonicalFile({
-        parent: registrationsRoot, name: pointerName, bytes: pointerBytes,
-        validate: assertGeneratedStateRegistrationPointerBytes
-      });
-      completeFirstPublication(receipt);
-    }, existing === null ? 'create-absent-data' : undefined);
-    if (published === null) {
-      throw new GeneratedStateProducerBindingBlockedError('Generated-state migration pointer mutation is contended.');
+      await retainedGeneratedStateObservationStore(resource)?.assertCurrent();
+    },
+    observePhysicalRoot: (resource, relativePath) => {
+      const observation = nativeRegistrationObservations.get(resource);
+      const workspaceRoot = observation?.workspaceRoot ?? nativeRegistrationMutation(resource as GeneratedStateNativeMutationResource).store.workspaceRoot;
+      const physical = observeGeneratedStatePhysicalRoot(workspaceRoot, relativePath);
+      return Object.freeze({ kind: physical.kind, identity: physical.identity });
+    },
+    readRegistrationObservation: (resource, relativePath) => {
+      const store = retainedGeneratedStateObservationStore(resource);
+      return store === null ? Object.freeze({ tip: null, registration: null, retiredPredecessor: null, previousRegistration: null }) :
+        readRegistrationLedgerObservation(store, relativePath);
+    },
+    readRegistrationCensus: resource => {
+      const store = retainedGeneratedStateObservationStore(resource);
+      if (store === null) return Object.freeze({ recordsByPath: new Map(), observations: new Map() });
+      if (inspectExactNoFollowDirectoryPresence(store.registrationsRoot, 'Registration observation current namespace').state === 'present') {
+        return readRegistrationLedgerCensus(store);
+      }
+      if (inspectExactNoFollowDirectoryPresence(store.previousRegistrationsRoot, 'Registration observation previous namespace').state === 'present') {
+        return readRegistrationLedgerCensus(Object.freeze({ ...store, registrationsRoot: store.previousRegistrationsRoot }), true);
+      }
+      const legacy = readLegacyRegistrationCensus(store);
+      return Object.freeze({ recordsByPath: new Map(), observations: new Map([...(legacy?.pointers ?? [])].map(([relativePath, entry]) =>
+        [relativePath, Object.freeze({ tip: null, registration: entry.registration, retiredPredecessor: null, previousRegistration: null })])) });
     }
+  } satisfies GeneratedStateRegistrationObservationBackend);
+}
+
+function copyMigrationSource(source: LegacyGeneratedStateRegistrationCensus): LegacyGeneratedStateRegistrationCensus {
+  return Object.freeze({ ...source, sourceRoot: Object.freeze({ ...source.sourceRoot }),
+    generations: new Map([...source.generations].map(([key, entry]) => [key, Object.freeze({
+      registration: entry.registration, bytes: Buffer.from(entry.bytes) })])),
+    pointers: new Map([...source.pointers].map(([key, entry]) => [key, Object.freeze({
+      registration: entry.registration, bytes: Buffer.from(entry.bytes) })])),
+    disposedPaths: source.disposedPaths === undefined ? undefined : new Set(source.disposedPaths),
+    recordsByPath: source.recordsByPath === undefined ? undefined : new Map([...source.recordsByPath]
+      .map(([key, records]) => [key, Object.freeze([...records])])) });
+}
+
+function retainedMigrationPlan(state: NativeRegistrationMutation, plan: GeneratedStateMigrationPlan): GeneratedStateMigrationPlan {
+  const original = state.plans.get(plan);
+  if (original === undefined || original !== state.plan) throw new GeneratedStateProducerBindingBlockedError(
+    'Generated-state migration plan is not bound to this native mutation resource.');
+  return original;
+}
+
+function assertNativeMigrationSource(state: NativeRegistrationMutation, plan: GeneratedStateMigrationPlan): void {
+  const source = readRegistrationMigrationSource(state.store);
+  const original = plan.source;
+  if (source === null || !samePhysicalIdentity(source.sourceRoot, original.sourceRoot) ||
+      source.sourceInventoryDigest !== original.sourceInventoryDigest ||
+      source.sourceEntryIdentityDigest !== original.sourceEntryIdentityDigest ||
+      source.sourceGenerationCount !== original.sourceGenerationCount ||
+      source.sourcePointerCount !== original.sourcePointerCount) {
+    throw new GeneratedStateProducerBindingBlockedError('Legacy generated-state registration source changed during migration.');
   }
-  const sourceReadback = readLegacyRegistrationCensus(store);
-  if (sourceReadback === null ||
-      !samePhysicalIdentity(sourceReadback.sourceRoot, legacy.sourceRoot) ||
-      sourceReadback.sourceInventoryDigest !== legacy.sourceInventoryDigest ||
-      sourceReadback.sourceEntryIdentityDigest !== legacy.sourceEntryIdentityDigest ||
-      sourceReadback.sourceGenerationCount !== legacy.sourceGenerationCount ||
-      sourceReadback.sourcePointerCount !== legacy.sourcePointerCount) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      'Legacy generated-state registration source changed during migration.'
-    );
-  }
-  const completeName = registrationMigrationIntentName(complete);
-  publishExactRegistrationMigrationFile(
-    registrationsRoot,
-    completeName,
-    Buffer.from(canonicalBytes(complete), 'utf8'),
-    (candidate) => parseRegistrationMigrationIntent(candidate, completeName)
-  );
-  const finalIntents = readRegistrationMigrationIntents(registrationsRoot);
-  assertRegistrationMigrationBoundary(store, finalIntents);
-  for (const { registration } of legacy.pointers.values()) {
-    const readback = readRegistrationLedgerObservation(store, registration.relativePath);
-    if (readback.registration?.registrationDigest !== registration.registrationDigest ||
-        readback.tip?.registrationDigest !== registration.registrationDigest) {
-      throw new GeneratedStateProducerBindingBlockedError(
-        `Generated-state registration migration readback differs: ${registration.relativePath}.`
-      );
-    }
+  if (observeRegistrationMigrationPhysicalPreimage(state.store, original) !== plan.prepared.physicalPreimageDigest) {
+    throw new GeneratedStateProducerBindingBlockedError('Registration migration physical preimage changed before completion.');
   }
 }
 
-export async function withGeneratedStateMutationLease<Value>(
-  workspaceRoot: string,
-  options: GeneratedStateRegistrationStoreOptions,
-  execute: (store: GeneratedStateRuntimeStore) => Promise<Value>
-): Promise<Value> {
-  const store = await openRuntimeStore(workspaceRoot, options);
-  const generatedRoot = inspectNoFollowDirectoryChain(
-    path.dirname(store.registrationsRoot),
-    'Generated-state registration mutation owner root'
-  ).target;
-  const lease = acquirePhysicalMutationLease(
-    generatedRoot,
-    '.generated-state-registration-mutation.lock'
-  );
-  if (lease === null) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      'Generated-state registration mutation lease is unavailable; registration bytes are preserved.'
-    );
+function assertNativeMigrationRecords(state: NativeRegistrationMutation, plan: GeneratedStateMigrationPlan,
+  complete: boolean): void {
+  const root = inspectNoFollowDirectoryChain(state.store.registrationsRoot, 'Migration target readback').target;
+  const allowed = new Set([registrationMigrationIntentName(plan.prepared), registrationMigrationIntentName(plan.complete),
+    ...plan.records.map(record => registrationLedgerName(record.relativePath, record.recordDigest))]);
+  for (const name of readdirSync(root.path)) {
+    if (!allowed.has(name) && !complete) throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration migration target contains unknown residue: ${name}.`);
   }
-  let value: Value | undefined;
-  let primaryFailed = false;
-  let primaryFailure: unknown;
-  try {
-    // Registration recovery uses its durable ledger, not predecessor lease identity.
-    lease.acknowledgeReclaimedRecovery();
-    await store.assertCurrent();
-    // Validate the legacy source before materializing the new namespace.  A
-    // malformed/foreign source must leave no target directory behind; the
-    // parent lease is the only transient effect in that case.
-    const legacy = readLegacyRegistrationCensus(store);
-    const currentTarget = inspectExactNoFollowDirectoryPresence(
-      store.registrationsRoot,
-      'Generated-state registration mutation target'
-    );
-    if (currentTarget.state === 'absent') {
-      createExclusiveNoFollowDirectory(
-        generatedRoot,
-        path.basename(store.registrationsRoot)
-      );
+  for (const record of plan.records) {
+    const name = registrationLedgerName(record.relativePath, record.recordDigest);
+    const entry = inspectNoFollowOrdinaryFileEntry(root, name);
+    if (entry === null || entry.kind !== 'file' || entry.bytes === null || Buffer.from(entry.bytes).toString('utf8') !== canonicalBytes(record)) {
+      throw new GeneratedStateProducerBindingBlockedError(`Generated-state migration record differs: ${name}.`);
     }
-    await store.assertCurrent();
-    ensureRegistrationLedgerMigration(
-      store,
-      legacy,
-      issueGeneratedStateRegistrationMigrationAdmission()
-    );
-    await store.assertCurrent();
-    value = await execute(store);
-    await store.assertCurrent();
-  } catch (error) {
-    primaryFailed = true;
-    primaryFailure = error;
   }
-  let settlementFailed = false;
-  let settlementFailure: unknown;
-  try {
-    if (lease.recoveryPending) lease.restoreReclaimedOwner();
-    else await lease.release();
-  } catch (error) {
-    settlementFailed = true;
-    settlementFailure = error;
-  }
-  if (primaryFailed && settlementFailed) {
-    throw new AggregateError(
-      [primaryFailure, settlementFailure],
-      'Generated-state registration mutation and lease settlement both failed.'
-    );
-  }
-  if (primaryFailed) throw primaryFailure;
-  if (settlementFailed) throw settlementFailure;
-  return value as Value;
+  if (complete) readRegistrationLedgerCensus(state.store);
 }
 
-export async function ensureGeneratedStateRegistrationLedger(input: Readonly<{
-  repositoryRoot: string;
-  workspaceRoot?: string;
-}>, options: GeneratedStateRegistrationStoreOptions = {}): Promise<void> {
-  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
-  const locations = runtimePaths(workspaceRoot, options);
-  const legacy = inspectExactNoFollowDirectoryPresence(
-    locations.legacyRegistrationsRoot,
-    'Generated-state legacy registration ledger admission'
-  );
-  const current = inspectExactNoFollowDirectoryPresence(
-    locations.registrationsRoot,
-    'Generated-state registration ledger admission'
-  );
-  if (legacy.state === 'absent' && current.state === 'absent') return;
-  await withGeneratedStateMutationLease(workspaceRoot, options, async () => undefined);
-}
-
-/**
- * A producer may only retire state for which it can prove an issuer-created
- * active registration.  This error is deliberately distinct from an ordinary
- * lifecycle failure: callers must preserve the physical target and surface a
- * typed provenance blocker rather than retrying with a new birth.
- */
-export class GeneratedStateProducerBindingBlockedError extends Error {
-  readonly code = 'GENERATED_STATE_PROVENANCE_BLOCKED' as const;
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'GeneratedStateProducerBindingBlockedError';
-  }
+/** Native primitives retain the original lease, source census and exact plan.
+ * They never choose a migration stage or silently continue an old operation. */
+export function createGeneratedStateRegistrationMutationBackend(): GeneratedStateRegistrationMutationBackend {
+  const publishIntent = (resource: GeneratedStateNativeMutationResource, authority: GeneratedStatePublicationAuthority,
+    phase: 'prepared' | 'complete'): void => {
+    const state = nativeRegistrationMutation(resource);
+    const request = consumeGeneratedStatePublication(authority, resource);
+    const plan = state.plan;
+    const expected = phase === 'prepared' ? plan?.prepared : plan?.complete;
+    const migrationRequest = request.kind === 'migration-prepared' || request.kind === 'migration-complete'
+      ? request : null;
+    if (plan === null || expected === undefined || migrationRequest === null ||
+        migrationRequest.kind !== `migration-${phase}` ||
+        canonicalBytes(migrationRequest.intent) !== canonicalBytes(expected)) throw new GeneratedStateProducerBindingBlockedError(
+      'Migration publication does not bind the exact retained native plan.');
+    const root = inspectNoFollowDirectoryChain(state.store.registrationsRoot, 'Migration publication root').target;
+    if (phase === 'prepared') {
+      const allowed = new Set([registrationMigrationIntentName(plan.prepared), registrationMigrationIntentName(plan.complete),
+        ...plan.records.map(record => registrationLedgerName(record.relativePath, record.recordDigest))]);
+      for (const name of readdirSync(root.path)) if (!allowed.has(name)) throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration migration target contains unknown residue: ${name}.`);
+    } else {
+      assertNativeMigrationSource(state, plan);
+      assertNativeMigrationRecords(state, plan, false);
+    }
+    const name = registrationMigrationIntentName(expected);
+    publishExactRegistrationMigrationFile(root, name, Buffer.from(canonicalBytes(expected)),
+      candidate => parseRegistrationMigrationIntent(candidate, name));
+  };
+  return Object.freeze({
+    acquireMutation: async input => {
+      const store = await openRuntimeStore(input.workspaceRoot, input);
+      const root = inspectNoFollowDirectoryChain(path.dirname(store.registrationsRoot), 'Registration mutation owner root').target;
+      const coordinationResource = preparePhysicalMutationCoordinationResource(root,
+        '.generated-state-registration-mutation.lock', path.basename(store.registrationsRoot));
+      const lease = acquirePhysicalMutationLease(root, '.generated-state-registration-mutation.lock', { coordinationResource });
+      if (lease === null) throw new GeneratedStateProducerBindingBlockedError('Generated-state registration mutation lease is unavailable; registration bytes are preserved.');
+      try {
+        await store.assertCurrent();
+        ensurePhysicalMutationCoordinationNamespace(lease);
+        await store.assertCurrent();
+      } catch (error) {
+        try { if (lease.recoveryPending) lease.restoreReclaimedOwner(); else await lease.release(); }
+        catch (settlement) {
+          throw new AggregateError([error, settlement], 'Registration acquisition and native lease settlement both failed.', { cause: error });
+        }
+        throw error;
+      }
+      const resource = Object.freeze({ kind: 'generated-state-native-mutation-resource' as const });
+      nativeRegistrationMutations.set(resource, { store, lease, sources: new WeakMap(), plans: new WeakMap(), plan: null, records: new Map() });
+      generatedStateMutationStores.add(store);
+      return resource;
+    },
+    assertCurrent: async resource => { await nativeRegistrationMutation(resource).store.assertCurrent(); },
+    acknowledgeRecovery: resource => {
+      const state = nativeRegistrationMutation(resource);
+      readRegistrationLedgerCensus(state.store);
+      state.lease.acknowledgeReclaimedRecovery();
+    },
+    settleMutation: async resource => {
+      const state = nativeRegistrationMutations.get(resource);
+      if (state === undefined) throw new GeneratedStateProducerBindingBlockedError('Generated-state native mutation resource is foreign or settled.');
+      try { if (state.lease.recoveryPending) state.lease.restoreReclaimedOwner(); else await state.lease.release(); }
+      finally { generatedStateMutationStores.delete(state.store); nativeRegistrationMutations.delete(resource); }
+    },
+    readRegistrationCensus: resource => readRegistrationLedgerCensus(nativeRegistrationMutation(resource).store),
+    readRegistrationResponsibilities: (resource, relativePath) => readNativeRegistrationResponsibilities(nativeRegistrationMutation(resource).store, relativePath),
+    observeWorkspace: resource => identityOf(inspectNoFollowDirectoryChain(nativeRegistrationMutation(resource).store.workspaceRoot,
+      'Generated-state workspace root').target),
+    observeRoot: (resource, relativePath) => {
+      const value = observeGeneratedStatePhysicalRoot(nativeRegistrationMutation(resource).store.workspaceRoot, relativePath);
+      return Object.freeze({ kind: value.kind, identity: value.identity, linkTarget: value.linkTarget });
+    },
+    readMigrationSource: resource => {
+      const state = nativeRegistrationMutation(resource);
+      const source = readRegistrationMigrationSource(state.store);
+      if (source === null) return null;
+      const exposed = copyMigrationSource(source);
+      state.sources.set(exposed, copyMigrationSource(source));
+      return exposed;
+    },
+    readMigrationIntents: resource => readRegistrationMigrationIntents(inspectNoFollowDirectoryChain(
+      nativeRegistrationMutation(resource).store.registrationsRoot, 'Migration intent observation').target),
+    observeMigrationPhysicalPreimage: (resource, source) => {
+      const state = nativeRegistrationMutation(resource);
+      const original = state.sources.get(source);
+      if (original === undefined) throw new GeneratedStateProducerBindingBlockedError('Migration source is foreign.');
+      return observeRegistrationMigrationPhysicalPreimage(state.store, original);
+    },
+    describeMigration: (resource, source, physicalPreimageDigest) => {
+      const state = nativeRegistrationMutation(resource);
+      const original = state.sources.get(source);
+      if (original === undefined) throw new GeneratedStateProducerBindingBlockedError('Migration source is foreign.');
+      const intents = readRegistrationMigrationIntents(inspectNoFollowDirectoryChain(state.store.registrationsRoot,
+        'Migration plan native observation').target);
+      const completed = intents.find(intent => intent.phase === 'complete');
+      const expectedPreimage = completed?.physicalPreimageDigest ?? observeRegistrationMigrationPhysicalPreimage(state.store, original);
+      if (physicalPreimageDigest !== expectedPreimage) throw new GeneratedStateProducerBindingBlockedError('Migration physical preimage is not native-bound.');
+      const records = Object.freeze([...original.pointers.values()].flatMap(({ registration }) => registrationMigrationRecords(original, registration)));
+      const targets = Object.freeze([...original.pointers.values()].map(({ registration }) => Object.freeze({
+        relativePath: registration.relativePath, registrationDigest: registrationMigrationRecords(original, registration)[0]!.registrationDigest
+      })).sort((a, b) => a.relativePath.localeCompare(b.relativePath)));
+      const material = registrationMigrationMaterial({ physicalPreimageDigest, sourceRoot: identityOf(original.sourceRoot),
+        sourceInventoryDigest: original.sourceInventoryDigest, sourceGenerationCount: original.sourceGenerationCount,
+        sourcePointerCount: original.sourcePointerCount, targets });
+      const prepared = makeRegistrationMigrationIntent(material, 'prepared', null);
+      const complete = makeRegistrationMigrationIntent(material, 'complete', prepared.intentDigest);
+      const retained = Object.freeze({ source: original, prepared, complete, records });
+      const exposed = Object.freeze({ ...retained, source: copyMigrationSource(original) });
+      state.plan = retained; state.plans.set(exposed, retained);
+      state.records = new Map(records.map(record => [record.recordDigest, record]));
+      return exposed;
+    },
+    assertMigrationSourceUnchanged: (resource, plan) => {
+      const state = nativeRegistrationMutation(resource); assertNativeMigrationSource(state, retainedMigrationPlan(state, plan));
+    },
+    assertMigrationTarget: (resource, plan) => {
+      const state = nativeRegistrationMutation(resource); assertNativeMigrationRecords(state, retainedMigrationPlan(state, plan), true);
+    },
+    publishRegistration: (resource, authority) => {
+      const state = nativeRegistrationMutation(resource);
+      const request = consumeGeneratedStatePublication(authority, resource);
+      if (request.kind !== 'registration') throw new GeneratedStateProducerBindingBlockedError('Foreign registration publication kind.');
+      const current = readRegistrationLedgerObservation(state.store, request.registration.relativePath);
+      assertGeneratedStateRegistrationResponsibilityAdmission(request, current,
+        readNativeRegistrationResponsibilities(state.store, request.registration.relativePath));
+      const workspace = inspectNoFollowDirectoryChain(state.store.workspaceRoot, 'Registration publication workspace').target;
+      const physical = observeGeneratedStatePhysicalRoot(state.store.workspaceRoot, request.registration.relativePath);
+      assertGeneratedStateRegistrationTransitionAdmission(request, current, workspace, physical);
+      persistRegistration(state.store, request.registration, request.previousRecordDigest, request.event);
+    },
+    publishMigrationPrepared: (resource, authority) => publishIntent(resource, authority, 'prepared'),
+    publishMigrationComplete: (resource, authority) => publishIntent(resource, authority, 'complete'),
+    publishMigrationEvent: (resource, authority) => {
+      const state = nativeRegistrationMutation(resource);
+      const request = consumeGeneratedStatePublication(authority, resource);
+      if (request.kind !== 'migration-event' || state.plan === null) throw new GeneratedStateProducerBindingBlockedError('Foreign migration event publication.');
+      const expected = state.records.get(request.record.recordDigest);
+      if (expected === undefined || canonicalBytes(request.record) !== canonicalBytes(expected)) throw new GeneratedStateProducerBindingBlockedError('Migration event is outside the retained native plan.');
+      const root = inspectNoFollowDirectoryChain(state.store.registrationsRoot, 'Migration event publication root').target;
+      const preparedName = registrationMigrationIntentName(state.plan.prepared);
+      const prepared = inspectNoFollowOrdinaryFileEntry(root, preparedName);
+      if (prepared === null || prepared.kind !== 'file' || prepared.bytes === null || Buffer.from(prepared.bytes).toString('utf8') !== canonicalBytes(state.plan.prepared)) throw new GeneratedStateProducerBindingBlockedError('Migration event requires exact prepared publication.');
+      if (expected.previousRecordDigest !== null) {
+        const previous = state.records.get(expected.previousRecordDigest);
+        const entry = previous === undefined ? null : inspectNoFollowOrdinaryFileEntry(root,
+          registrationLedgerName(previous.relativePath, previous.recordDigest));
+        if (previous === undefined || entry === null || entry.kind !== 'file' || entry.bytes === null || Buffer.from(entry.bytes).toString('utf8') !== canonicalBytes(previous)) throw new GeneratedStateProducerBindingBlockedError('Migration event predecessor is absent or foreign.');
+      }
+      const name = registrationLedgerName(expected.relativePath, expected.recordDigest);
+      publishExactRegistrationMigrationFile(root, name, Buffer.from(canonicalBytes(expected)), candidate => parseRegistrationLedgerRecord(candidate, name));
+    }
+  } satisfies GeneratedStateRegistrationMutationBackend);
 }

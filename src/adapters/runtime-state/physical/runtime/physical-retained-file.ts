@@ -5,7 +5,7 @@ import { inspectNoFollowDirectoryChain } from './physical-directory-chain.ts';
 import {
   linuxRetainBulkDirectoryChain,
   windowsRetainBulkDirectoryChain
-} from './physical-directory-tree.ts';
+} from './physical-directory-tree-copy.ts';
 import {
   assertRetainedNoFollowCapability,
   assertRetainedNoFollowProvenDirectoryGeneration,
@@ -528,7 +528,7 @@ function retainNoFollowFile(
         WINDOWS_GENERIC_READ,
         WINDOWS_FILE_OPEN,
         label,
-        false,
+        true,
         WINDOWS_SHARE_READ,
         false,
         role === 'executable'

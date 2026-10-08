@@ -1,6 +1,6 @@
 import type { ManifestEntry, PlanFile } from '../compiler/contract.ts';
 
-export type AddBlockManifest = Pick<ManifestEntry, 'registrySourceId' | 'registryKind'> & {
+export type AddBlockManifest = Pick<ManifestEntry, 'registrySourceId' | 'registryKind' | 'registryResolution'> & {
   manifest: Pick<ManifestEntry['manifest'], 'version' | 'acceptance'>;
 };
 
@@ -30,7 +30,8 @@ export async function addBlockToPlan(blockId: string, operations: AddBlockOperat
     id: blockId,
     version: selected.manifest.version,
     registrySourceId: selected.registrySourceId,
-    registryKind: selected.registryKind
+    registryKind: selected.registryKind,
+    ...(selected.registryResolution ? { registryResolution: structuredClone(selected.registryResolution) } : {})
   } as const;
   if (existing) return { plan: current, changed: false, selectedBlock };
 

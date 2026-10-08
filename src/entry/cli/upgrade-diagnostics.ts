@@ -14,6 +14,6 @@ export function formatUpgradeDiagnostics(view: UpgradeDiagnosticsView): string {
       `code: ${view.errorCode}`
     ]),
     `Message: ${view.message}`,
-    `Attribution: ${formatList([...view.attribution])}`
+    `Attribution: ${formatList(view.attribution)}`
   ].join('\n');
 }

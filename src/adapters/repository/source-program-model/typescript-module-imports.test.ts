@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
-import { assembleSecRepositoryModuleGraph } from './module-graph.ts';
+import { assembleRepositoryModuleGraph } from './module-graph.ts';
 import { typeScriptModuleImportFacts } from './typescript-module-imports.ts';
 const cases: readonly {
   name: string; source: string; imports: readonly { kind: string; specifier: string; typeOnly: boolean }[];
@@ -44,7 +44,7 @@ for (const { name, source, imports, unresolved } of cases) {
 
 test('unresolved loader observations survive graph assembly alongside known reverse edges', () => {
   const facts = typeScriptModuleImportFacts(fixtureProgram("import {value} from './b.ts'; void import(target);"));
-  const graph = assembleSecRepositoryModuleGraph({ files: ['src/a.ts', 'src/b.ts'], ...facts });
+  const graph = assembleRepositoryModuleGraph({ files: ['src/a.ts', 'src/b.ts'], ...facts });
   assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), ['src/b.ts']);
   assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts']);
   assert.deepEqual(graph.unresolvedFiles, ['src/a.ts']);
@@ -101,7 +101,7 @@ test('declaration files retain dependency impact without inventing runtime evalu
   for (const extension of ['d.ts', 'd.mts', 'd.cts']) {
     const fileName = `src/a.${extension}`;
     const facts = typeScriptModuleImportFacts(fixtureProgram(source, fileName));
-    const graph = assembleSecRepositoryModuleGraph({ files: [fileName, 'src/b.ts'], ...facts });
+    const graph = assembleRepositoryModuleGraph({ files: [fileName, 'src/b.ts'], ...facts });
     assert.deepEqual(graph.directDependencies(fileName), ['src/b.ts']);
     assert.deepEqual(graph.directRuntimeDependencies(fileName), []);
   }

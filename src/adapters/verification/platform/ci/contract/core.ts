@@ -3,8 +3,10 @@ import type { CiArtifactKind } from '../../../../../assurance/verification/ci-ar
 import { CI_ARTIFACT_KINDS } from '../../../../../assurance/verification/ci-artifacts/contract/types.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../../assurance/verification/contract/revision.ts';
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
+import { CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, compileCiVerificationHostedWorkflowSteps } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
+import { HOSTED_OWNED_ENTRY_RECIPES } from '../../../../providers/github-api/contract/hosted-owned-entry-recipes.ts';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
-import { platformCommand } from '../../sec-command.ts';
+import { platformCommand } from '../../platform-command.ts';
 import { slowTestSuiteIds } from '../../test-impact/contract/budget.ts';
 import {
   CI_VERIFICATION_EXECUTION_MODEL
@@ -25,43 +27,13 @@ export const CI_VERIFICATION_PR_STEP_ORDER = [
   'Assemble canonical five-state terminal artifact',
   'Create exact post-upload terminal anchor',
   'Publish neutral terminal provider tombstone',
-  'Compose V4 Evidence only from canonical Action terminals',
+  'Compose Verification Evidence only from canonical Action terminals',
   'Finalize provenance-bound Verification Session artifact'
 ] as const;
-const CI_VERIFICATION_RELEASE_STEP_ORDER = [
-  'Resolve trusted release request, exact head, and verifier boundary',
-  'Checkout exact release head',
-  'Verify checked-out release parent and tree',
-  'Setup Bun',
-  'Cache bun install',
-  'Install dependencies once',
-  'Run exact-head full verification',
-  'Build and bind exact-head release set',
-  'Upload exact-head release manifests',
-  'Upload exact-head runtime and documentation release set',
-  'Upload compact full verification evidence'
-] as const;
+const CI_VERIFICATION_RELEASE_STEP_ORDER = HOSTED_OWNED_ENTRY_RECIPES[1].job.steps.map(step => step.name);
 export const CI_MAIN_HEALTH_JOB_NAME = CI_MAIN_HEALTH_POLICY.context;
-export const CI_MAIN_HEALTH_STEP_ORDER = [
-  'Bind canonical MainHealth request to live main',
-  'Checkout exact pushed main revision',
-  'Setup trusted Bun',
-  'Cache Bun install',
-  'Install dependencies from the frozen lock',
-  'Reject import organization drift',
-  'Run exact-main TypeScript checks',
-  'Reject static architecture contradictions',
-  'Validate active documentation authority',
-  'Run the complete fast test inventory'
-] as const;
-export const CI_MAIN_HEALTH_COMMANDS = [
-  'bun install --frozen-lockfile',
-  'bun run imports:check --all',
-  'bun run typecheck:verified',
-  'bun run audit -- --worktree-source-program --enforce',
-  'bun run docs:doctor',
-  'bun run test -- --scope fast'
-] as const;
+export const CI_MAIN_HEALTH_STEP_ORDER = HOSTED_OWNED_ENTRY_RECIPES[0].job.steps.map(step => step.name);
+export const CI_MAIN_HEALTH_COMMANDS = HOSTED_OWNED_ENTRY_RECIPES[0].job.steps.flatMap(step => 'run' in step ? [step.run] : []);
 
 function ciArtifactUploadCommand(kind: CiArtifactKind): string {
   return platformCommand('artifacts', '--paths', '--json', '--compact', '--kind', kind);
@@ -117,25 +89,9 @@ export type CiContract = {
   steps: CiContractStep[];
 };
 
-const prWorkflowCommands = [
-  'bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted',
-  'bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted',
-  'bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider',
-  'bun src/adapters/verification/platform/ci/verification.ts resolve-hosted-action',
-  'install --frozen-lockfile --ignore-scripts',
-  'bun src/adapters/verification/platform/ci/verification.ts prepare-hosted-action-inputs',
-  'bun src/adapters/verification/platform/ci/verification.ts self-test-hosted-action-sandbox',
-  'bun src/adapters/verification/platform/ci/verification.ts execute-hosted-action-sut',
-  'bun src/adapters/verification/platform/ci/verification.ts assemble-hosted-action-terminal',
-  'bun src/adapters/verification/platform/ci/verification.ts compose-hosted-evidence',
-  'bun src/adapters/verification/platform/ci/runtime/verification-session.ts finalize-hosted'
-];
+const prWorkflowCommands = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES.filter(policy => policy.workflowPath === '.github/workflows/compiler-pr-validation.yml' && policy.runtime.kind === 'per-job-runtime').flatMap(policy => compileCiVerificationHostedWorkflowSteps(policy).flatMap(step => typeof step === 'object' && step !== null && 'run' in step && typeof step.run === 'string' ? [step.run] : []));
 
-const releaseWorkflowCommands = [
-  'bun install --frozen-lockfile',
-  'bun src/adapters/verification/platform/ci/verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"',
-  'bun run release:build'
-];
+const releaseWorkflowCommands = HOSTED_OWNED_ENTRY_RECIPES[1].job.steps.flatMap(step => 'run' in step ? [step.run] : []);
 
 const prQuickLaneCommands = [
   'bun run imports:check',

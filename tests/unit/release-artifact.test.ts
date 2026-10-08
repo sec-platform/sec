@@ -138,7 +138,7 @@ test('release runtime requirement rejects absent and mismatched Bun without a No
       throw new Error('expected an unsupported Bun runtime failure');
     } catch (error) {
       expect(error).toMatchObject({
-        name: 'SecError',
+        name: 'CodedFailure',
         code: 'RUNTIME-LAYOUT-001',
         details: {
           disposition: 'unsupported',

@@ -11,7 +11,7 @@ import { encodeVerificationActionData } from '../../src/adapters/verification/pl
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { createVerificationSessionLocalPreparationRequest } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import { parseTrustedRuntimeContainerReceipt, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID } from '../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
@@ -93,7 +93,7 @@ function runPendingStatus(saved: unknown, receiptOverrides: Record<string, unkno
     writeFileSync(path.join(records, 'verification-pending-qualification.json'), bytes({ ...record, pendingDigest: digest(record) }));
     const requestPath = path.join(root, 'request.json');
     writeFileSync(requestPath, JSON.stringify(saved));
-    return spawnSync(process.execPath, [path.resolve('src/adapters/verification/platform/ci/runtime/verification-session.ts'),
+    return spawnSync(process.execPath, [path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts"),
       'status', '--request', requestPath], { cwd: root, env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache },
       encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024 });
   } finally { rmSync(parent, { recursive: true, force: true }); }

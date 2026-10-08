@@ -5,7 +5,10 @@ import path from 'node:path';
 import {
   PhysicalNoFollowError,
   assertDurableCanonicalFileIdentityReceipt,
+  createExclusiveNoFollowDirectory,
   deleteRetainedNoFollowEntry,
+  flushNoFollowDirectory,
+  inspectExactNoFollowDirectoryPresence,
   inspectNoFollowOrdinaryFileEntry,
   observeDurableCanonicalFileReplacement,
   publishExclusiveDurableCanonicalFile,
@@ -14,6 +17,7 @@ import {
   tryRetainExclusiveFileGuard,
   type DurableCanonicalFileIdentityReceipt,
   type DurableCanonicalFilePublicationReceipt,
+  type NoFollowDirectoryTreeEntry,
   type PhysicalDirectoryIdentity,
   type RetainedExclusiveFileGuard
 } from './physical-no-follow.ts';
@@ -56,10 +60,17 @@ export interface PhysicalMutationLeaseOptions {
   readonly processNonce?: string;
   readonly ttlMs?: number;
   readonly journalResource?: PhysicalJournalMutationResource;
+  readonly coordinationResource?: PhysicalMutationCoordinationResource;
 }
 
 const PROCESS_NONCE = randomUUID();
 const issuedLeaseAssertions = new WeakMap<object, () => void>();
+const issuedCoordinationNamespaces = new WeakMap<object, () => PhysicalDirectoryIdentity>();
+export function ensurePhysicalMutationCoordinationNamespace(handle: PhysicalMutationLeaseHandle): PhysicalDirectoryIdentity {
+  const ensure = issuedCoordinationNamespaces.get(handle);
+  if (ensure === undefined) throw new Error('Coordination namespace handle was not issued by its physical owner.');
+  return ensure();
+}
 const issuedJournalDeletions = new WeakMap<object, (expected: Readonly<{ device: string; inode: string; bytes: Uint8Array }>) => void>();
 
 export function deletePhysicalJournalMutationFile(
@@ -102,16 +113,16 @@ export function completePhysicalJournalMutationRetirement(
   retire(expectedPayloadBytes, actor);
 }
 
-const issuedJournalInitializations = new WeakMap<object, (receipt: DurableCanonicalFilePublicationReceipt) => void>();
+const issuedJournalInitializations = new WeakMap<object, (bytes: Uint8Array) => DurableCanonicalFilePublicationReceipt>();
 
-/** Consume only the native no-replace publisher's exact first-data receipt. */
-export function completePhysicalJournalMutationInitialization(
+/** Publish the first payload through its original retained initializer. */
+export function publishPhysicalJournalMutationInitialization(
   handle: PhysicalMutationLeaseHandle,
-  receipt: DurableCanonicalFilePublicationReceipt
-): void {
-  const complete = issuedJournalInitializations.get(handle);
-  if (complete === undefined) throw new Error('Journal initialization handle was not issued by its owner.');
-  complete(receipt);
+  bytes: Uint8Array
+): DurableCanonicalFilePublicationReceipt {
+  const publish = issuedJournalInitializations.get(handle);
+  if (publish === undefined) throw new Error('Journal initialization handle was not issued by its owner.');
+  return publish(bytes);
 }
 
 
@@ -230,6 +241,15 @@ export function acquirePhysicalMutationLease(
   if (parseOwner(Buffer.from(JSON.stringify(owner))) === null) {
     throw new Error('Physical mutation lease owner is invalid.');
   }
+  if (options.journalResource !== undefined && options.coordinationResource !== undefined) {
+    throw new Error('Physical mutation resource domains are mutually exclusive.');
+  }
+  if (options.coordinationResource !== undefined) {
+    const admission = issuedCoordinationResources.get(options.coordinationResource);
+    if (admission === undefined) throw new Error('Coordination resource was not issued by its physical owner.');
+    assertCoordinationBinding(parent, name, admission.binding.material.resourceName, admission.binding);
+    return acquireGuardedMutationLease(parent, name, owner, admission);
+  }
   if (options.journalResource !== undefined) {
     return acquireGuardedJournalMutationLease(parent, name, owner, options.journalResource);
   }
@@ -278,12 +298,14 @@ function createMutationLeaseHandle(input: Readonly<{
   reclaimedOwner: PhysicalMutationLeaseOwner | null;
   reclaimedOwnerBytes: Buffer | null;
   guard?: RetainedExclusiveFileGuard;
-  binding?: PhysicalJournalMutationBinding;
+  binding?: PhysicalMutationBinding;
   initializing?: boolean;
 }>): PhysicalMutationLeaseHandle {
-  const { parent, name, owner, reclaimedOwner, reclaimedOwnerBytes, guard, binding } = input;
+  const { parent, name, owner, reclaimedOwner, reclaimedOwnerBytes, guard } = input;
+  let binding = input.binding;
   let bytes = input.bytes;
   let initializing = input.initializing ?? false;
+  let firstPublication: 'never-entered' | 'entered' | 'ready' = initializing ? 'never-entered' : 'ready';
   const serialize = (active: PhysicalMutationLeaseOwner | null, recovery: PhysicalMutationLeaseOwner | null): Buffer =>
     binding === undefined ? recordBytes(active!, recovery) : guardedRecordBytes(binding, initializing ? 'initializing' : 'ready', active, recovery);
   let heldReceipt: DurableCanonicalFileIdentityReceipt = input.receipt;
@@ -291,6 +313,7 @@ function createMutationLeaseHandle(input: Readonly<{
 
   const requireCurrent = (operation: string) => {
     guard?.assertCurrent();
+    if (binding?.material.effectDomain === 'namespace-coordination') assertCoordinationNamespace(parent, binding as PhysicalCoordinationBinding);
     assertDurableCanonicalFileIdentityReceipt(heldReceipt);
     const current = inspectNoFollowOrdinaryFileEntry(parent, name);
     if (current === null || current.bytes === null ||
@@ -367,6 +390,17 @@ function createMutationLeaseHandle(input: Readonly<{
       }
       recordOperation(() => {
         requireCurrent('reclaimed-owner restoration');
+        if (binding?.material.effectDomain === 'namespace-coordination') {
+          const predecessor = parseGuardedRecord(reclaimedOwnerBytes);
+          if (predecessor?.binding.material.effectDomain === 'namespace-coordination' &&
+              (predecessor.binding as PhysicalCoordinationBinding).namespacePhysical === null &&
+              (binding as PhysicalCoordinationBinding).namespacePhysical !== null) {
+            // Namespace birth is already durable. Restoring the old bytes would
+            // erase its physical pin; keep the ready record and original recovery
+            // lineage for the next guarded coordinator instead of acknowledging it.
+            throw new Error('Coordination namespace birth is durable; ready physical pin and reclaimed lineage are preserved instead of restoring initializing bytes.');
+          }
+        }
         heldReceipt = replaceDurableCanonicalFile({
           parent,
           name,
@@ -395,6 +429,37 @@ function createMutationLeaseHandle(input: Readonly<{
         throw new Error('Physical mutation lease recovery must be acknowledged or restored before release.');
       }
       if (initializing) {
+        if (binding?.material.effectDomain === 'direct-canonical-journal-records'
+            && firstPublication === 'never-entered' && reclaimedOwner === null) {
+          recordOperation(() => {
+            const current = requireCurrent('unpublished initialization cancellation');
+            assertJournalBinding(parent, name, binding!.material.resourceName, binding!);
+            if (inspectNoFollowOrdinaryFileEntry(parent, binding!.material.resourceName) !== null
+                || observeDurableCanonicalFileReplacement({ parent, name: binding!.material.resourceName }) !== 'none'
+                || observeDurableCanonicalFileReplacement({ parent, name }) !== 'none') {
+              throw new Error('Journal initialization cancellation has unresolved publication evidence; state is preserved.');
+            }
+            // The original held scope retires its own exact identities. This is
+            // cooperative exclusion, not atomic byte-CAS against foreign writers.
+            deleteRetainedNoFollowEntry({ root: parent, relativePath: name, kind: 'file',
+              device: current.device, inode: current.inode, ancestorDirectories: [] });
+            flushNoFollowDirectory(parent);
+            if (inspectNoFollowOrdinaryFileEntry(parent, name) !== null) {
+              throw new Error('Journal initialization control cancellation readback differs.');
+            }
+            guard!.assertCurrent();
+            deleteRetainedNoFollowEntry({ root: parent, relativePath: binding!.anchorName, kind: 'file',
+              device: binding!.anchorPhysical.device, inode: binding!.anchorPhysical.inode, ancestorDirectories: [] });
+            flushNoFollowDirectory(parent);
+            if (inspectNoFollowOrdinaryFileEntry(parent, binding!.anchorName) !== null
+                || inspectNoFollowOrdinaryFileEntry(parent, binding!.material.resourceName) !== null) {
+              throw new Error('Journal initialization cancellation final readback differs.');
+            }
+          });
+          released = true;
+          settleGuard();
+          return;
+        }
         // The original first creator did not prove winning the payload slot.
         // Keep the initialization record, but release the native observation handle.
         released = true;
@@ -423,78 +488,126 @@ function createMutationLeaseHandle(input: Readonly<{
       settleGuard();
     }
   });
-  if (binding !== undefined) issuedJournalDeletions.set(handle, expected => {
-    if (released || initializing) throw new Error('Journal exact deletion requires a held ready resource.');
-    requireCurrent('exact resource deletion');
-    deleteRetainedNoFollowEntry({ root: parent, relativePath: binding.material.resourceName, kind: 'file',
-      device: expected.device, inode: expected.inode, expectedFileBytes: expected.bytes,
-      resourceGuard: guard!, ancestorDirectories: [] });
-    requireCurrent('exact resource deletion readback');
-  });
-  if (binding !== undefined) issuedJournalRetirements.set(handle, (expectedPayloadBytes, actor) => {
-    if (released || initializing || !recoveryAcknowledged) {
-      throw new Error('Journal terminal retirement requires a held settled direct-record scope.');
+  if (binding?.material.effectDomain === 'namespace-coordination') issuedCoordinationNamespaces.set(handle, () => {
+    if (released) throw new Error('Coordination namespace handle is no longer held.');
+    if (!initializing) {
+      requireCurrent('namespace readback');
+      return assertCoordinationNamespace(parent, binding as PhysicalCoordinationBinding)!;
     }
-    const interruption = actor === undefined ? undefined : retirementInterruptions.get(actor);
-    if (actor !== undefined && interruption === undefined) throw new Error('Journal retirement interruption actor was not issued.');
-    const interrupt = (point: JournalRetirementInterruptionPoint): void => {
-      if (interruption?.point === point) { interruption.interrupt(); throw new Error('Journal retirement interruption returned.'); }
-    };
-    const expected = Buffer.from(expectedPayloadBytes);
+    let namespace: PhysicalDirectoryIdentity | undefined;
     recordOperation(() => {
-      requireCurrent('terminal retirement');
-      const payload = inspectNoFollowOrdinaryFileEntry(parent, binding.material.resourceName);
-      if (payload?.bytes === null || payload?.bytes === undefined || !Buffer.from(payload.bytes).equals(expected)) {
-        throw new Error('Journal terminal retirement payload preimage changed.');
-      }
-      // This stop-new-admission state precedes every destructive step. Partial
-      // record/anchor removal is UNKNOWN, never permission to initialize anew.
-      const retiring = guardedRecordBytes(binding, 'retiring', owner, null);
-      heldReceipt = replaceDurableCanonicalFile({ parent, name, bytes: retiring,
+      requireCurrent('namespace birth admission');
+      namespace = createExclusiveNoFollowDirectory(parent, binding!.material.resourceName);
+      flushNoFollowDirectory(namespace);
+      flushNoFollowDirectory(parent);
+      guard!.assertCurrent();
+      const nextBinding: PhysicalCoordinationBinding = Object.freeze({ ...binding as PhysicalCoordinationBinding,
+        namespacePhysical: Object.freeze({ device: namespace.device, inode: namespace.inode, objectId: namespace.objectId }) });
+      assertCoordinationNamespace(parent, nextBinding);
+      const next = guardedRecordBytes(nextBinding, 'ready', owner, recoveryAcknowledged ? null : reclaimedOwner);
+      heldReceipt = replaceDurableCanonicalFile({ parent, name, bytes: next,
         expectedExisting: heldReceipt.physical, expectedExistingBytes: bytes,
-        validate: candidate => { if (!Buffer.from(candidate).equals(retiring)) throw new Error('Journal retirement fence differs.'); }
-      });
-      bytes = retiring;
-      guard!.assertCurrent();
-      interrupt('after-retirement-fence');
-      deletePhysicalJournalMutationFile(handle, { device: payload.device, inode: payload.inode, bytes: expected });
-      interrupt('after-payload-removal');
-      const record = requireCurrent('terminal record retirement');
-      deleteRetainedNoFollowEntry({ root: parent, relativePath: name, kind: 'file',
-        device: record.device, inode: record.inode, ancestorDirectories: [] });
-      interrupt('after-record-removal');
-      guard!.assertCurrent();
-      deleteRetainedNoFollowEntry({ root: parent, relativePath: binding.anchorName, kind: 'file',
-        device: binding.anchorPhysical.device, inode: binding.anchorPhysical.inode, ancestorDirectories: [] });
-      interrupt('after-anchor-removal');
+        validate: candidate => { if (!Buffer.from(candidate).equals(next)) throw new Error('Coordination namespace pin readback differs.'); } });
+      binding = nextBinding; bytes = next; initializing = false;
+      requireCurrent('namespace pin readback');
     });
-    released = true;
-    settleGuard();
+    return namespace!;
   });
-  if (binding !== undefined) issuedJournalInitializations.set(handle, receipt => {
-    if (released) throw new Error('Journal first-data publication handle is no longer held.');
-    if (!initializing) return;
-    requireCurrent('first-data publication acknowledgement');
-    assertDurableCanonicalFileIdentityReceipt(receipt);
-    const resourceName = binding.material.resourceName;
-    const current = inspectNoFollowOrdinaryFileEntry(parent, resourceName);
-    if (!receipt.created || receipt.path !== path.join(parent.path, resourceName)
-      || current?.bytes === null || current?.bytes === undefined
-      || current.device !== receipt.physical.device || current.inode !== receipt.physical.inode
-      || receipt.digest !== `sha256:${createHash('sha256').update(current.bytes).digest('hex')}`) {
-      throw new Error('Journal first-data publication did not win the exact admitted payload slot.');
-    }
-    const ready = guardedRecordBytes(binding, 'ready', owner, null);
-    heldReceipt = replaceDurableCanonicalFile({ parent, name, bytes: ready,
-      expectedExisting: heldReceipt.physical, expectedExistingBytes: bytes,
-      validate: candidate => {
-        if (!Buffer.from(candidate).equals(ready)) throw new Error('Journal initialization completion readback differs.');
+  if (binding?.material.effectDomain === 'direct-canonical-journal-records') {
+    const journalBinding = binding;
+    issuedJournalDeletions.set(handle, expected => {
+      if (released || initializing) throw new Error('Journal exact deletion requires a held ready resource.');
+      requireCurrent('exact resource deletion');
+      deleteRetainedNoFollowEntry({ root: parent, relativePath: journalBinding.material.resourceName, kind: 'file',
+        device: expected.device, inode: expected.inode, expectedFileBytes: expected.bytes,
+        resourceGuard: guard!, ancestorDirectories: [] });
+      requireCurrent('exact resource deletion readback');
+    });
+  }
+  if (binding?.material.effectDomain === 'direct-canonical-journal-records') {
+    const journalBinding = binding;
+    issuedJournalRetirements.set(handle, (expectedPayloadBytes, actor) => {
+      if (released || initializing || !recoveryAcknowledged) {
+        throw new Error('Journal terminal retirement requires a held settled direct-record scope.');
       }
+      const interruption = actor === undefined ? undefined : retirementInterruptions.get(actor);
+      if (actor !== undefined && interruption === undefined) throw new Error('Journal retirement interruption actor was not issued.');
+      const interrupt = (point: JournalRetirementInterruptionPoint): void => {
+        if (interruption?.point === point) { interruption.interrupt(); throw new Error('Journal retirement interruption returned.'); }
+      };
+      const expected = Buffer.from(expectedPayloadBytes);
+      recordOperation(() => {
+        requireCurrent('terminal retirement');
+        const payload = inspectNoFollowOrdinaryFileEntry(parent, journalBinding.material.resourceName);
+        if (payload?.bytes === null || payload?.bytes === undefined || !Buffer.from(payload.bytes).equals(expected)) {
+          throw new Error('Journal terminal retirement payload preimage changed.');
+        }
+        // This stop-new-admission state precedes every destructive step. Partial
+        // record/anchor removal is UNKNOWN, never permission to initialize anew.
+        const retiring = guardedRecordBytes(journalBinding, 'retiring', owner, null);
+        heldReceipt = replaceDurableCanonicalFile({ parent, name, bytes: retiring,
+          expectedExisting: heldReceipt.physical, expectedExistingBytes: bytes,
+          validate: candidate => { if (!Buffer.from(candidate).equals(retiring)) throw new Error('Journal retirement fence differs.'); }
+        });
+        bytes = retiring;
+        guard!.assertCurrent();
+        interrupt('after-retirement-fence');
+        deletePhysicalJournalMutationFile(handle, { device: payload.device, inode: payload.inode, bytes: expected });
+        interrupt('after-payload-removal');
+        const record = requireCurrent('terminal record retirement');
+        deleteRetainedNoFollowEntry({ root: parent, relativePath: name, kind: 'file',
+          device: record.device, inode: record.inode, ancestorDirectories: [] });
+        interrupt('after-record-removal');
+        guard!.assertCurrent();
+        deleteRetainedNoFollowEntry({ root: parent, relativePath: journalBinding.anchorName, kind: 'file',
+          device: journalBinding.anchorPhysical.device, inode: journalBinding.anchorPhysical.inode, ancestorDirectories: [] });
+        interrupt('after-anchor-removal');
+      });
+      released = true;
+      settleGuard();
     });
-    guard!.assertCurrent();
-    bytes = ready;
-    initializing = false;
-  });
+  }
+  if (binding?.material.effectDomain === 'direct-canonical-journal-records') {
+    const journalBinding = binding;
+    issuedJournalInitializations.set(handle, suppliedBytes => {
+      if (released) throw new Error('Journal first-data publication handle is no longer held.');
+      if (initializing && firstPublication !== 'never-entered') {
+        throw new Error('Journal first-data publisher is not the original unentered initializer.');
+      }
+      const payloadBytes = Buffer.from(suppliedBytes);
+      requireCurrent('first-data publication acknowledgement');
+      if (initializing) firstPublication = 'entered';
+      const receipt = publishExclusiveDurableCanonicalFile({ parent, name: journalBinding.material.resourceName,
+        bytes: payloadBytes, validate: candidate => {
+          if (!Buffer.from(candidate).equals(payloadBytes)) throw new Error('Journal first-data publication bytes differ.');
+        }
+      });
+      // A ready direct-record owner may recreate its deleted payload under the
+      // same guarded namespace. It has no pending initialization to acknowledge.
+      if (!initializing) return receipt;
+      assertDurableCanonicalFileIdentityReceipt(receipt);
+      const resourceName = journalBinding.material.resourceName;
+      const current = inspectNoFollowOrdinaryFileEntry(parent, resourceName);
+      if (!receipt.created || receipt.path !== path.join(parent.path, resourceName)
+        || current?.bytes === null || current?.bytes === undefined
+        || current.device !== receipt.physical.device || current.inode !== receipt.physical.inode
+        || receipt.digest !== `sha256:${createHash('sha256').update(current.bytes).digest('hex')}`) {
+        throw new Error('Journal first-data publication did not win the exact admitted payload slot.');
+      }
+      const ready = guardedRecordBytes(journalBinding, 'ready', owner, null);
+      heldReceipt = replaceDurableCanonicalFile({ parent, name, bytes: ready,
+        expectedExisting: heldReceipt.physical, expectedExistingBytes: bytes,
+        validate: candidate => {
+          if (!Buffer.from(candidate).equals(ready)) throw new Error('Journal initialization completion readback differs.');
+        }
+      });
+      guard!.assertCurrent();
+      bytes = ready;
+      initializing = false;
+      firstPublication = 'ready';
+      return receipt;
+    });
+  }
   issuedLeaseAssertions.set(handle, () => {
     if (released) throw new Error('Physical mutation lease is no longer held.');
     requireCurrent('owned assertion');
@@ -505,10 +618,15 @@ function createMutationLeaseHandle(input: Readonly<{
 
 const GUARDED_RECORD_SCHEMA = 'sec-physical-journal-mutation-record-v4' as const;
 const JOURNAL_ANCHOR_SCHEMA = 'sec-physical-journal-mutation-anchor-v2' as const;
+const COORDINATION_ANCHOR_SCHEMA = 'sec-physical-namespace-coordination-anchor-v1' as const;
+const COORDINATION_RECORD_SCHEMA = 'sec-physical-namespace-coordination-record-v1' as const;
 const MAXIMUM_GUARDED_RECORD_BYTES = 16384;
 
 export interface PhysicalJournalMutationResource {
   readonly kind: 'physical-journal-mutation-resource';
+}
+export interface PhysicalMutationCoordinationResource {
+  readonly kind: 'physical-mutation-coordination-resource';
 }
 
 interface JournalAnchorMaterial {
@@ -526,16 +644,26 @@ interface PhysicalJournalMutationBinding {
   readonly anchorPhysical: Readonly<{ device: string; inode: string }>;
   readonly anchorDigest: string;
 }
+interface CoordinationAnchorMaterial extends Omit<JournalAnchorMaterial, 'schema' | 'effectDomain'> {
+  readonly schema: typeof COORDINATION_ANCHOR_SCHEMA;
+  readonly effectDomain: 'namespace-coordination';
+}
+interface PhysicalCoordinationBinding extends Omit<PhysicalJournalMutationBinding, 'material'> {
+  readonly material: CoordinationAnchorMaterial;
+  readonly namespacePhysical: Readonly<{ device: string; inode: string; objectId: string }> | null;
+}
+type PhysicalMutationBinding = PhysicalJournalMutationBinding | PhysicalCoordinationBinding;
 
 interface GuardedMutationRecord {
-  readonly schema: typeof GUARDED_RECORD_SCHEMA;
-  readonly binding: PhysicalJournalMutationBinding;
+  readonly schema: typeof GUARDED_RECORD_SCHEMA | typeof COORDINATION_RECORD_SCHEMA;
+  readonly binding: PhysicalMutationBinding;
   readonly phase: 'initializing' | 'ready' | 'retiring';
   readonly activeOwner: PhysicalMutationLeaseOwner | null;
   readonly recoveryOwner: PhysicalMutationLeaseOwner | null;
 }
 
 const issuedJournalResources = new WeakMap<object, Readonly<{ binding: PhysicalJournalMutationBinding; initialRecord?: Readonly<{ device: string; inode: string }> }>>();
+const issuedCoordinationResources = new WeakMap<object, Readonly<{ binding: PhysicalCoordinationBinding }>>();
 
 /** Read-only census projection. A recognized idle pair is retained protocol,
  * not an active mutation and not permission to retire either member. */
@@ -573,10 +701,10 @@ function leaf(value: unknown): value is string {
     && value !== '.' && value !== '..' && !/[\\/\0]/u.test(value);
 }
 
-function anchorNameFor(resourceName: string): string {
+function anchorNameFor(resourceName: string, domain: 'direct-canonical-journal-records' | 'namespace-coordination' = 'direct-canonical-journal-records'): string {
   // Parent object + canonical protected leaf select one rendezvous even when
   // journal-root views assign different diagnostic lease-record names.
-  return `.sec-journal-guard-${createHash('sha256').update(resourceName).digest('hex')}.lock`;
+  return `.sec-${domain === 'namespace-coordination' ? 'namespace-coordination' : 'journal'}-guard-${createHash('sha256').update(resourceName).digest('hex')}.lock`;
 }
 
 function assertJournalResourceNames(name: string, resourceName: string): void {
@@ -609,17 +737,18 @@ function journalAnchorMaterial(
   });
 }
 
-function anchorBytes(material: JournalAnchorMaterial): Buffer {
+function anchorBytes(material: JournalAnchorMaterial | CoordinationAnchorMaterial): Buffer {
   return Buffer.from(`${JSON.stringify(material)}\n`, 'utf8');
 }
 
 function guardedRecordBytes(
-  binding: PhysicalJournalMutationBinding,
+  binding: PhysicalMutationBinding,
   phase: 'initializing' | 'ready' | 'retiring',
   activeOwner: PhysicalMutationLeaseOwner | null,
   recoveryOwner: PhysicalMutationLeaseOwner | null
 ): Buffer {
-  return Buffer.from(`${JSON.stringify({ schema: GUARDED_RECORD_SCHEMA, binding, phase, activeOwner, recoveryOwner })}\n`, 'utf8');
+  const schema = binding.material.effectDomain === 'namespace-coordination' ? COORDINATION_RECORD_SCHEMA : GUARDED_RECORD_SCHEMA;
+  return Buffer.from(`${JSON.stringify({ schema, binding, phase, activeOwner, recoveryOwner })}\n`, 'utf8');
 }
 
 function parseGuardedRecord(bytes: Uint8Array): GuardedMutationRecord | null {
@@ -631,32 +760,39 @@ function parseGuardedRecord(bytes: Uint8Array): GuardedMutationRecord | null {
   const binding = record.binding;
   const material = binding?.material;
   const parent = material?.parent;
-  if (record.schema !== GUARDED_RECORD_SCHEMA
+  const coordination = material?.effectDomain === 'namespace-coordination';
+  if (record.schema !== (coordination ? COORDINATION_RECORD_SCHEMA : GUARDED_RECORD_SCHEMA)
     || (record.phase !== 'initializing' && record.phase !== 'ready' && record.phase !== 'retiring')
+    || (coordination && record.phase === 'retiring')
     || typeof material?.resourceGeneration !== 'string' || !/^[0-9a-f-]{36}$/u.test(material.resourceGeneration)
-    || material?.schema !== JOURNAL_ANCHOR_SCHEMA
-    || material?.effectDomain !== 'direct-canonical-journal-records'
+    || material?.schema !== (coordination ? COORDINATION_ANCHOR_SCHEMA : JOURNAL_ANCHOR_SCHEMA)
+    || (!coordination && material?.effectDomain !== 'direct-canonical-journal-records')
     || !leaf(material.leaseName) || !leaf(material.resourceName)
     || material.leaseName === material.resourceName
-    || binding.anchorName !== anchorNameFor(material.resourceName)
+    || binding.anchorName !== anchorNameFor(material.resourceName, material.effectDomain)
     || typeof parent?.device !== 'string' || typeof parent.inode !== 'string' || typeof parent.objectId !== 'string'
     || typeof binding.anchorPhysical?.device !== 'string' || typeof binding.anchorPhysical.inode !== 'string'
     || typeof binding.anchorDigest !== 'string') return null;
-  const canonicalMaterial: JournalAnchorMaterial = {
+  const canonicalMaterial: JournalAnchorMaterial | CoordinationAnchorMaterial = {
     resourceGeneration: material.resourceGeneration,
-    schema: JOURNAL_ANCHOR_SCHEMA,
+    schema: coordination ? COORDINATION_ANCHOR_SCHEMA : JOURNAL_ANCHOR_SCHEMA,
     parent: { device: parent.device, inode: parent.inode, objectId: parent.objectId },
     leaseName: material.leaseName,
     resourceName: material.resourceName,
-    effectDomain: 'direct-canonical-journal-records'
-  };
+    effectDomain: coordination ? 'namespace-coordination' : 'direct-canonical-journal-records'
+  } as JournalAnchorMaterial | CoordinationAnchorMaterial;
   if (binding.anchorDigest !== createHash('sha256').update(anchorBytes(canonicalMaterial)).digest('hex')) return null;
-  const canonicalBinding: PhysicalJournalMutationBinding = {
+  if (coordination && (binding.namespacePhysical !== null &&
+      (typeof binding.namespacePhysical?.device !== 'string' || typeof binding.namespacePhysical.inode !== 'string' || typeof binding.namespacePhysical.objectId !== 'string') ||
+      (record.phase === 'initializing') !== (binding.namespacePhysical === null))) return null;
+  const canonicalBinding: PhysicalMutationBinding = {
     material: canonicalMaterial,
     anchorName: binding.anchorName,
     anchorPhysical: { device: binding.anchorPhysical.device, inode: binding.anchorPhysical.inode },
-    anchorDigest: binding.anchorDigest
-  };
+    anchorDigest: binding.anchorDigest,
+    ...(coordination ? { namespacePhysical: binding.namespacePhysical === null ? null : {
+      device: binding.namespacePhysical.device, inode: binding.namespacePhysical.inode, objectId: binding.namespacePhysical.objectId } } : {})
+  } as PhysicalMutationBinding;
   if ((record.activeOwner !== null && (typeof record.activeOwner !== 'object' || Array.isArray(record.activeOwner)))
     || (record.recoveryOwner !== null && (typeof record.recoveryOwner !== 'object' || Array.isArray(record.recoveryOwner)))) return null;
   const activeOwner = record.activeOwner === null ? null : parseOwner(Buffer.from(JSON.stringify(record.activeOwner)));
@@ -665,7 +801,7 @@ function parseGuardedRecord(bytes: Uint8Array): GuardedMutationRecord | null {
     || (record.recoveryOwner !== null && recoveryOwner === null)
     || (activeOwner === null && recoveryOwner !== null)
     || (activeOwner !== null && recoveryOwner !== null && sameOwner(activeOwner, recoveryOwner))) return null;
-  const result = { schema: GUARDED_RECORD_SCHEMA, binding: canonicalBinding, phase: record.phase, activeOwner, recoveryOwner };
+  const result = { schema: coordination ? COORDINATION_RECORD_SCHEMA : GUARDED_RECORD_SCHEMA, binding: canonicalBinding, phase: record.phase, activeOwner, recoveryOwner };
   return Buffer.from(bytes).equals(guardedRecordBytes(canonicalBinding, record.phase, activeOwner, recoveryOwner)) ? result : null;
 }
 
@@ -673,11 +809,276 @@ function assertJournalBinding(
   parent: PhysicalDirectoryIdentity,
   name: string,
   resourceName: string,
-  binding: PhysicalJournalMutationBinding
-): void {
+  binding: PhysicalMutationBinding
+): asserts binding is PhysicalJournalMutationBinding {
   if (JSON.stringify(binding.material) !== JSON.stringify(journalAnchorMaterial(parent, name, resourceName, binding.material.resourceGeneration))) {
     throw new Error('Guarded journal resource binding differs from its physical parent or canonical resource.');
   }
+}
+
+export class PhysicalMutationCoordinationBlockedError extends Error {
+  readonly code = 'PHYSICAL_MUTATION_COORDINATION_BLOCKED';
+  constructor(readonly status: 'legacy-unproven' | 'unknown', message: string) { super(message); }
+}
+function assertCoordinationBinding(parent: PhysicalDirectoryIdentity, name: string, namespaceLeaf: string,
+  binding: PhysicalMutationBinding): asserts binding is PhysicalCoordinationBinding {
+  const expected = { ...journalAnchorMaterial(parent, name, namespaceLeaf, binding.material.resourceGeneration),
+    schema: COORDINATION_ANCHOR_SCHEMA, effectDomain: 'namespace-coordination' };
+  if (JSON.stringify(binding.material) !== JSON.stringify(expected)) throw new PhysicalMutationCoordinationBlockedError(
+    'unknown', 'Coordination resource binding differs from its retained parent or namespace.');
+}
+function assertCoordinationNamespace(parent: PhysicalDirectoryIdentity, binding: PhysicalCoordinationBinding): PhysicalDirectoryIdentity | null {
+  const presence = inspectExactNoFollowDirectoryPresence(path.join(parent.path, binding.material.resourceName), 'Coordination namespace');
+  const expected = binding.namespacePhysical;
+  if (expected === null) {
+    if (presence.state !== 'absent') throw new PhysicalMutationCoordinationBlockedError('unknown',
+      'Coordination namespace birth has no durable physical pin; present namespace is preserved.');
+    return null;
+  }
+  if (presence.state !== 'present' || presence.directory.target.device !== expected.device ||
+      presence.directory.target.inode !== expected.inode || presence.directory.target.objectId !== expected.objectId) {
+    throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination namespace physical identity changed.');
+  }
+  return presence.directory.target;
+}
+function issueCoordinationResource(binding: PhysicalCoordinationBinding): PhysicalMutationCoordinationResource {
+  const resource = Object.freeze({ kind: 'physical-mutation-coordination-resource' as const });
+  issuedCoordinationResources.set(resource, Object.freeze({ binding }));
+  return resource;
+}
+export function readPhysicalMutationCoordinationResource(parent: PhysicalDirectoryIdentity, name: string,
+  namespaceLeaf: string): PhysicalMutationCoordinationResource | null {
+  assertJournalResourceNames(name, namespaceLeaf);
+  const current = inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_GUARDED_RECORD_BYTES });
+  const guardName = anchorNameFor(namespaceLeaf, 'namespace-coordination');
+  if (current === null) {
+    if (observeDurableCanonicalFileReplacement({ parent, name }) === 'pending' ||
+        inspectNoFollowOrdinaryFileEntry(parent, guardName) !== null) throw new PhysicalMutationCoordinationBlockedError(
+      'unknown', 'Coordination initialization or replacement is unresolved; state is preserved.');
+    return null;
+  }
+  const record = current.bytes === null ? null : parseGuardedRecord(current.bytes);
+  if (record === null || record.binding.material.effectDomain !== 'namespace-coordination') {
+    throw new PhysicalMutationCoordinationBlockedError(current.bytes !== null && parseRecord(current.bytes) !== null ? 'legacy-unproven' : 'unknown',
+      'Coordination lease is legacy or foreign; original bytes are preserved.');
+  }
+  const binding = record.binding;
+  assertCoordinationBinding(parent, name, namespaceLeaf, binding);
+  const anchor = inspectNoFollowOrdinaryFileEntry(parent, guardName, { maximumBytes: 8192 });
+  if (anchor?.bytes === null || anchor?.bytes === undefined || anchor.device !== binding.anchorPhysical.device ||
+      anchor.inode !== binding.anchorPhysical.inode || !Buffer.from(anchor.bytes).equals(anchorBytes(binding.material))) {
+    throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination anchor identity or bytes changed.');
+  }
+  return issueCoordinationResource(binding);
+}
+export function preparePhysicalMutationCoordinationResource(parent: PhysicalDirectoryIdentity, name: string,
+  namespaceLeaf: string): PhysicalMutationCoordinationResource {
+  let existing: PhysicalMutationCoordinationResource | null;
+  try {
+    existing = readPhysicalMutationCoordinationResource(parent, name, namespaceLeaf);
+  } catch (error) {
+    if (!(error instanceof PhysicalMutationCoordinationBlockedError) || error.status !== 'legacy-unproven') throw error;
+    // Read stays strict. Only a provably dead local predecessor's exact bytes
+    // are adopted into the guarded protocol; every other legacy fact remains
+    // preserved by the strict reader.
+    return adoptLegacyPhysicalMutationCoordinationResource(parent, name, namespaceLeaf);
+  }
+  if (existing !== null) return existing;
+  const material: CoordinationAnchorMaterial = Object.freeze({ ...journalAnchorMaterial(parent, name, namespaceLeaf, randomUUID()),
+    schema: COORDINATION_ANCHOR_SCHEMA, effectDomain: 'namespace-coordination' });
+  const guardName = anchorNameFor(namespaceLeaf, 'namespace-coordination');
+  const bytes = anchorBytes(material);
+  const anchor = publishExclusiveDurableCanonicalFile({ parent, name: guardName, bytes,
+    validate: candidate => { if (!Buffer.from(candidate).equals(bytes)) throw new Error('Coordination anchor bytes differ.'); } });
+  if (!anchor.created) throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination anchor initialization is owned by another initializer.');
+  const guard = tryRetainExclusiveFileGuard(parent, guardName, anchor.physical, bytes);
+  if (guard === null) throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination initialization is contended.');
+  let failure: { error: unknown } | undefined;
+  try {
+    guard.assertCurrent();
+    const presence = inspectExactNoFollowDirectoryPresence(path.join(parent.path, namespaceLeaf), 'Coordination initial namespace');
+    const physical = presence.state === 'absent' ? null : presence.directory.target;
+    if (physical !== null) { flushNoFollowDirectory(physical); flushNoFollowDirectory(parent); }
+    const binding: PhysicalCoordinationBinding = Object.freeze({ material, anchorName: guardName,
+      anchorPhysical: anchor.physical, anchorDigest: createHash('sha256').update(bytes).digest('hex'),
+      namespacePhysical: physical === null ? null : Object.freeze({ device: physical.device, inode: physical.inode, objectId: physical.objectId }) });
+    assertCoordinationNamespace(parent, binding);
+    const initial = guardedRecordBytes(binding, physical === null ? 'initializing' : 'ready', null, null);
+    const receipt = publishExclusiveDurableCanonicalFile({ parent, name, bytes: initial,
+      validate: candidate => { if (!Buffer.from(candidate).equals(initial)) throw new Error('Coordination initial record bytes differ.'); } });
+    if (!receipt.created) throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination lease preimage appeared during initialization; state is preserved.');
+    guard.assertCurrent();
+    return issueCoordinationResource(binding);
+  } catch (error) { failure = { error }; throw error; }
+  finally { try { guard.dispose(); } catch (settlement) {
+    if (failure !== undefined) throw new AggregateError([failure.error, settlement], 'Coordination initialization and guard settlement failed.');
+    throw settlement;
+  } }
+}
+
+/** True only for an expired same-host owner whose process is provably gone.
+ * A live, foreign or unexpired owner means the legacy record is UNKNOWN; a PID
+ * probe never authorizes takeover, and only ESRCH counts as a dead process. */
+function isAbandonedLegacyCoordinationOwner(owner: PhysicalMutationLeaseOwner): boolean {
+  if (owner.host !== hostname() || owner.expiresAtMs > Date.now()) return false;
+  try {
+    process.kill(owner.pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException | null)?.code === 'ESRCH';
+  }
+}
+
+/** One-way durable adoption of the exact legacy coordinator record of a dead
+ * predecessor. The original plain owner stays the guarded record's active
+ * owner, so the next acquisition derives the reclaimed lineage and its
+ * consumer readback settles it. Unproven bytes are never removed. */
+function adoptLegacyPhysicalMutationCoordinationResource(parent: PhysicalDirectoryIdentity, name: string,
+  namespaceLeaf: string): PhysicalMutationCoordinationResource {
+  const legacyEntry = inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_GUARDED_RECORD_BYTES });
+  const legacyBytes = legacyEntry?.bytes === null || legacyEntry?.bytes === undefined ? null : Buffer.from(legacyEntry.bytes);
+  const legacy = legacyBytes === null ? null : parseRecord(legacyBytes);
+  if (legacyBytes === null || legacy === null || !isAbandonedLegacyCoordinationOwner(legacy.activeOwner)) {
+    throw new PhysicalMutationCoordinationBlockedError('legacy-unproven',
+      'Coordination lease is legacy or foreign; original bytes are preserved.');
+  }
+  const guardName = anchorNameFor(namespaceLeaf, 'namespace-coordination');
+  const anchor = inspectNoFollowOrdinaryFileEntry(parent, guardName, { maximumBytes: 8192 });
+  if (anchor === null) return createGuardedLegacyCoordinationAdoption(parent, name, namespaceLeaf, guardName, legacyBytes, legacy.activeOwner);
+  return resumeGuardedLegacyCoordinationAdoption(parent, name, namespaceLeaf, guardName, anchor, legacyBytes, legacy.activeOwner);
+}
+
+function retainedCoordinationAdoptionBinding(parent: PhysicalDirectoryIdentity, material: CoordinationAnchorMaterial,
+  guardName: string, anchorPhysical: Readonly<{ device: string; inode: string }>, anchorBytesValue: Uint8Array): PhysicalCoordinationBinding {
+  const presence = inspectExactNoFollowDirectoryPresence(path.join(parent.path, material.resourceName), 'Coordination adopted namespace');
+  const physical = presence.state === 'absent' ? null : presence.directory.target;
+  if (physical !== null) { flushNoFollowDirectory(physical); flushNoFollowDirectory(parent); }
+  return Object.freeze({
+    material,
+    anchorName: guardName,
+    anchorPhysical: Object.freeze({ device: anchorPhysical.device, inode: anchorPhysical.inode }),
+    anchorDigest: createHash('sha256').update(anchorBytesValue).digest('hex'),
+    namespacePhysical: physical === null ? null : Object.freeze({ device: physical.device, inode: physical.inode, objectId: physical.objectId })
+  });
+}
+
+/** Durable CAS of the exact legacy preimage under the retained adoption guard.
+ * Drifted bytes or a changed owner are preserved instead of being overwritten. */
+function replaceLegacyCoordinationRecord(parent: PhysicalDirectoryIdentity, name: string, guard: RetainedExclusiveFileGuard,
+  expectedBytes: Buffer, expectedOwner: PhysicalMutationLeaseOwner, bytes: Buffer): void {
+  guard.assertCurrent();
+  const current = inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_GUARDED_RECORD_BYTES });
+  if (current?.bytes === null || current?.bytes === undefined || !Buffer.from(current.bytes).equals(expectedBytes)) {
+    throw new PhysicalMutationCoordinationBlockedError('unknown',
+      'Legacy coordination lease changed during adoption; original bytes are preserved.');
+  }
+  const record = parseRecord(current.bytes);
+  if (record === null || !sameOwner(record.activeOwner, expectedOwner)) {
+    throw new PhysicalMutationCoordinationBlockedError('unknown',
+      'Legacy coordination lease owner changed during adoption; original bytes are preserved.');
+  }
+  replaceDurableCanonicalFile({
+    parent, name, bytes,
+    expectedExisting: { device: current.device, inode: current.inode },
+    expectedExistingBytes: expectedBytes,
+    validate: candidate => {
+      if (!Buffer.from(candidate).equals(bytes)) throw new Error('Coordination adoption readback differs.');
+    }
+  });
+  guard.assertCurrent();
+}
+
+function createGuardedLegacyCoordinationAdoption(parent: PhysicalDirectoryIdentity, name: string, namespaceLeaf: string,
+  guardName: string, legacyBytes: Buffer, legacyOwner: PhysicalMutationLeaseOwner): PhysicalMutationCoordinationResource {
+  const material: CoordinationAnchorMaterial = Object.freeze({ ...journalAnchorMaterial(parent, name, namespaceLeaf, randomUUID()),
+    schema: COORDINATION_ANCHOR_SCHEMA, effectDomain: 'namespace-coordination' });
+  const bytes = anchorBytes(material);
+  const anchor = publishExclusiveDurableCanonicalFile({ parent, name: guardName, bytes,
+    validate: candidate => { if (!Buffer.from(candidate).equals(bytes)) throw new Error('Coordination anchor bytes differ.'); } });
+  if (!anchor.created) throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination anchor initialization is owned by another initializer.');
+  const guard = tryRetainExclusiveFileGuard(parent, guardName, anchor.physical, bytes);
+  if (guard === null) throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination adoption is contended.');
+  let failure: { error: unknown } | undefined;
+  try {
+    guard.assertCurrent();
+    const binding = retainedCoordinationAdoptionBinding(parent, material, guardName, anchor.physical, bytes);
+    assertCoordinationNamespace(parent, binding);
+    const next = guardedRecordBytes(binding, binding.namespacePhysical === null ? 'initializing' : 'ready', legacyOwner, null);
+    replaceLegacyCoordinationRecord(parent, name, guard, legacyBytes, legacyOwner, next);
+    return issueCoordinationResource(binding);
+  } catch (error) { failure = { error }; throw error; }
+  finally { try { guard.dispose(); } catch (settlement) {
+    if (failure !== undefined) throw new AggregateError([failure.error, settlement], 'Coordination adoption and guard settlement failed.');
+    throw settlement;
+  } }
+}
+
+/** Canonical adoption anchor bytes or null. Byte equality against the
+ * canonical reconstruction rejects reordered or extended material. */
+function parseRetainedCoordinationMaterial(bytes: Uint8Array, parent: PhysicalDirectoryIdentity, name: string,
+  namespaceLeaf: string): CoordinationAnchorMaterial | null {
+  let value: unknown;
+  try { value = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return null; }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const material = value as Record<string, unknown>;
+  const recordedParent = typeof material.parent === 'object' && material.parent !== null && !Array.isArray(material.parent)
+    ? material.parent as Record<string, unknown> : null;
+  if (material.schema !== COORDINATION_ANCHOR_SCHEMA || material.effectDomain !== 'namespace-coordination'
+    || typeof material.resourceGeneration !== 'string' || !/^[0-9a-f-]{36}$/u.test(material.resourceGeneration)
+    || material.leaseName !== name || material.resourceName !== namespaceLeaf
+    || recordedParent === null || recordedParent.device !== parent.device || recordedParent.inode !== parent.inode
+    || recordedParent.objectId !== parent.objectId) return null;
+  const canonical: CoordinationAnchorMaterial = Object.freeze({
+    resourceGeneration: material.resourceGeneration,
+    schema: COORDINATION_ANCHOR_SCHEMA,
+    parent: Object.freeze({ device: parent.device, inode: parent.inode, objectId: parent.objectId }),
+    leaseName: name,
+    resourceName: namespaceLeaf,
+    effectDomain: 'namespace-coordination'
+  });
+  return Buffer.from(bytes).equals(anchorBytes(canonical)) ? canonical : null;
+}
+
+/** A prior adoption may have been interrupted between its anchor publication
+ * and the durable record CAS. The retained anchor resumes exactly that step;
+ * a record already completed into the guarded protocol is returned as-is. */
+function resumeGuardedLegacyCoordinationAdoption(parent: PhysicalDirectoryIdentity, name: string, namespaceLeaf: string,
+  guardName: string, anchor: NoFollowDirectoryTreeEntry, legacyBytes: Buffer,
+  legacyOwner: PhysicalMutationLeaseOwner): PhysicalMutationCoordinationResource {
+  const material = anchor.bytes === null ? null : parseRetainedCoordinationMaterial(anchor.bytes, parent, name, namespaceLeaf);
+  if (material === null) throw new PhysicalMutationCoordinationBlockedError('unknown',
+    'Coordination adoption anchor is foreign; retained state is preserved.');
+  const bytes = anchorBytes(material);
+  const guard = tryRetainExclusiveFileGuard(parent, guardName, { device: anchor.device, inode: anchor.inode }, bytes);
+  if (guard === null) throw new PhysicalMutationCoordinationBlockedError('unknown', 'Coordination adoption is contended.');
+  let failure: { error: unknown } | undefined;
+  try {
+    guard.assertCurrent();
+    recoverDurableCanonicalFileReplacement({ parent, name });
+    guard.assertCurrent();
+    try {
+      const existing = readPhysicalMutationCoordinationResource(parent, name, namespaceLeaf);
+      if (existing !== null) return existing;
+    } catch (error) {
+      if (!(error instanceof PhysicalMutationCoordinationBlockedError) || error.status !== 'legacy-unproven') throw error;
+    }
+    const current = inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_GUARDED_RECORD_BYTES });
+    const currentBytes = current?.bytes === null || current?.bytes === undefined ? null : Buffer.from(current.bytes);
+    const record = currentBytes === null ? null : parseRecord(currentBytes);
+    if (currentBytes === null || !currentBytes.equals(legacyBytes) || record === null || !sameOwner(record.activeOwner, legacyOwner)) {
+      throw new PhysicalMutationCoordinationBlockedError('unknown',
+        'Legacy coordination lease changed during adoption; original bytes are preserved.');
+    }
+    const binding = retainedCoordinationAdoptionBinding(parent, material, guardName, { device: anchor.device, inode: anchor.inode }, bytes);
+    assertCoordinationNamespace(parent, binding);
+    const next = guardedRecordBytes(binding, binding.namespacePhysical === null ? 'initializing' : 'ready', legacyOwner, null);
+    replaceLegacyCoordinationRecord(parent, name, guard, currentBytes, legacyOwner, next);
+    return issueCoordinationResource(binding);
+  } catch (error) { failure = { error }; throw error; }
+  finally { try { guard.dispose(); } catch (settlement) {
+    if (failure !== undefined) throw new AggregateError([failure.error, settlement], 'Coordination adoption and guard settlement failed.');
+    throw settlement;
+  } }
 }
 
 function issueJournalResource(binding: PhysicalJournalMutationBinding, initialRecord?: Readonly<{ device: string; inode: string }>): PhysicalJournalMutationResource {
@@ -777,12 +1178,21 @@ function acquireGuardedJournalMutationLease(
   if (admission === undefined) throw new Error('Journal resource was not issued by its physical owner.');
   const { binding } = admission;
   assertJournalBinding(parent, name, binding.material.resourceName, binding);
-  const guard = tryRetainExclusiveFileGuard(parent, binding.anchorName, binding.anchorPhysical, anchorBytes(binding.material), binding.material.resourceName);
+  return acquireGuardedMutationLease(parent, name, owner, admission);
+}
+
+function acquireGuardedMutationLease(parent: PhysicalDirectoryIdentity, name: string, owner: PhysicalMutationLeaseOwner,
+  admission: Readonly<{ binding: PhysicalMutationBinding; initialRecord?: Readonly<{ device: string; inode: string }> }>): PhysicalMutationLeaseHandle | null {
+  const { binding } = admission;
+  const journal = binding.material.effectDomain === 'direct-canonical-journal-records';
+  const guard = tryRetainExclusiveFileGuard(parent, binding.anchorName, binding.anchorPhysical, anchorBytes(binding.material),
+    journal ? binding.material.resourceName : undefined);
   if (guard === null) return null;
   try {
     guard.assertCurrent();
     // This can mutate a Windows interrupted replacement, and therefore MUST
     // follow native guard acquisition and post-lock identity readback.
+    if (!journal) assertCoordinationNamespace(parent, binding as PhysicalCoordinationBinding);
     recoverDurableCanonicalFileReplacement({ parent, name });
     guard.assertCurrent();
     const current = inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_GUARDED_RECORD_BYTES });
@@ -792,17 +1202,18 @@ function acquireGuardedJournalMutationLease(
     }
     if (record.phase === 'retiring') throw new Error('Journal terminal retirement is partial; original state is preserved.');
     const initializing = record.phase === 'initializing';
-    if (initializing && (admission.initialRecord === undefined || record.activeOwner !== null
+    if (initializing && journal && (admission.initialRecord === undefined || record.activeOwner !== null
       || current!.device !== admission.initialRecord.device || current!.inode !== admission.initialRecord.inode
       || inspectNoFollowOrdinaryFileEntry(parent, binding.material.resourceName) !== null)) {
       throw new Error('Journal first-data publication has no current original initializer; residue is preserved.');
     }
-    if (!initializing) {
+    if (!initializing && journal) {
       // The protected payload has the same direct-record effect domain. Its
       // interrupted CAS is settled while exclusion is held, before lineage ack.
       recoverDurableCanonicalFileReplacement({ parent, name: binding.material.resourceName });
       guard.assertCurrent();
     }
+    if (!journal) assertCoordinationNamespace(parent, record.binding as PhysicalCoordinationBinding);
     const predecessor = record.recoveryOwner ?? record.activeOwner;
     const next = guardedRecordBytes(binding, record.phase, owner, predecessor);
     const receipt = replaceDurableCanonicalFile({

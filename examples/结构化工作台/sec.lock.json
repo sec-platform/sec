@@ -63,11 +63,11 @@
     "structure": {
       "kind": "language",
       "subjectId": "sec.requirement-structure",
-      "revision": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
+      "revision": "5f9e7b4c8975c661f4f2ba4313d66d4b7e280118f9620650ada084f1e21be536",
       "content": {
         "algorithm": "sha256",
-        "digest": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
-        "byteLength": 39570,
+        "digest": "5f9e7b4c8975c661f4f2ba4313d66d4b7e280118f9620650ada084f1e21be536",
+        "byteLength": 46613,
         "format": "text/markdown"
       },
       "dependencies": [
@@ -80,11 +80,11 @@
     "module-envelope": {
       "kind": "library",
       "subjectId": "sec:design-document:module-envelope",
-      "revision": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663",
+      "revision": "1086f23d193d248360968dae510de17d0ce639a116e6ed10747d55c20fb820d6",
       "content": {
         "algorithm": "sha256",
-        "digest": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663",
-        "byteLength": 97103,
+        "digest": "1086f23d193d248360968dae510de17d0ce639a116e6ed10747d55c20fb820d6",
+        "byteLength": 100956,
         "format": "text/markdown"
       },
       "dependencies": [],

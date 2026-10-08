@@ -30,7 +30,9 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_TRUST_ROOT.causalRuntimePaths.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
   expect(parsed.reviewedSutEdges).toEqual([]);
-  expect(parsed.reviewedBoundaryEdges).toEqual([]);
+  expect(parsed.reviewedBoundaryEdges).toEqual([
+    'src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts'
+  ]);
   expect(parsed.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
@@ -61,6 +63,22 @@ test('canonical trust-root registry is structurally strict and separates static 
     kind: 'static-prefix',
     rule: '.env'
   });
+  for (const helper of [
+    'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+    'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py'
+  ]) {
+    expect(matchSecTrustedBootstrapPath(helper, TCB_TRUST_ROOT)).toEqual({ kind: 'causal-runtime', rule: helper });
+    expect(parsed.staticExactPaths).not.toContain(helper);
+    expect(TCB_CLOSURE_LOCK.moduleContentDigests[helper]).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(matchSecTrustedBootstrapPath(path.posix.join(path.posix.dirname(helper), 'other.py'), TCB_TRUST_ROOT))
+      .toBeNull();
+  }
+  const entry = 'src/bootstrap/toolchain/native-verification-dependencies.ts';
+  expect(parsed.runtimeEntrypoints).toContain(entry);
+  expect(TCB_CLOSURE_LOCK.modules).toContain(entry);
+  expect(parsed.staticDirectoryPaths).not.toContain('src/bootstrap/toolchain/');
+  expect(matchSecTrustedBootstrapPath('src/bootstrap/toolchain/unreviewed-entry.ts', TCB_TRUST_ROOT)).toBeNull();
+  expect(matchSecTrustedBootstrapPath('src/unreviewed.py', TCB_TRUST_ROOT)).toBeNull();
   expect(TCB_TRUST_ROOT.paths).not.toContain('scripts/codex/');
 });
 
@@ -131,6 +149,10 @@ test('policy and derived causal closure are both validated when composing the tr
   const base = SEC_TRUSTED_BOOTSTRAP_REGISTRY;
   const modules = TCB_CLOSURE_LOCK.modules;
   const syntheticModule = 'scripts/codex/untrusted.ts';
+  expect(() => createSecTrustedBootstrapTrustRoot({
+    registry: base,
+    causalRuntimePaths: [...modules, SEC_TCB_CLOSURE_RUNTIME_PATH].sort()
+  })).toThrow(`Trusted bootstrap path cannot be both staticExact and causalRuntime: ${SEC_TCB_CLOSURE_RUNTIME_PATH}.`);
   const causalFailures = [
     modules.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER),
     [...modules].reverse(),

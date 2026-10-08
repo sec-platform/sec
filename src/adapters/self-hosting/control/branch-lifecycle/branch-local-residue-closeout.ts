@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import {
   assertWorkspaceWriteLease,
@@ -26,10 +26,10 @@ import {
 import {
   assertGitLocalRefDeleteBatchReceipt,
   deleteExactLocalGitRefs,
-  type GitLocalRefDeleteBatchReceipt,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
-  MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT
+  MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT,
+  type GitLocalRefDeleteBatchReceipt
 } from '../../../providers/git/ref-effect.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
@@ -89,10 +89,10 @@ const LOCAL_REF_EFFECT_CONTRACT = sha256({
   owner: 'control.branch-lifecycle',
   operation: 'merged-local-residue-ref-delete',
   effect: 'one-exact-local-ref-batch-with-common-directory-lease'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const LOCAL_REF_EFFECT_PROVIDER = sha256({
   owner: 'external-capabilities.git', provider: 'physical-provider'
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 type Digest = `sha256:${string}`;
 
@@ -1735,13 +1735,13 @@ function assertAuthorizedObservation(
 }
 
 function compileLocalRefEffectOperation(operationId: Digest) {
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.merged-local-residue-ref-delete',
-    intentDigest: operationId as SecOperationDigest,
+    intentDigest: operationId as OperationDigest,
     decisionDigest: LOCAL_REF_EFFECT_CONTRACT,
     deadlineAtUnixMs: Date.now() + LOCAL_REF_EFFECT_DURATION_MS,
-    attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: operationId as SecOperationDigest
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: operationId as OperationDigest
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: LOCAL_REF_EFFECT_DURATION_MS },
@@ -1761,7 +1761,7 @@ function compileLocalRefEffectOperation(operationId: Digest) {
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: LOCAL_REF_EFFECT_REQUIREMENT,
     contractDigest: LOCAL_REF_EFFECT_CONTRACT,
     providerIdentityDigest: LOCAL_REF_EFFECT_PROVIDER
@@ -1829,7 +1829,7 @@ async function deleteExactTransaction(
   const operation = compileLocalRefEffectOperation(operationId);
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: LOCAL_REF_EFFECT_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets

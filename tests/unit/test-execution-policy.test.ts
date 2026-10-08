@@ -152,6 +152,7 @@ test.serial('caller receipts never mint terminal authority without the productio
           throw new Error('physical root remains');
         }
       });
+      throw new Error('Expected cleanup failure to retain physical residue');
     } catch (error) {
       expect(error).toBeInstanceOf(EffectfulTestPhysicalResidueError);
       expect(error).toMatchObject({

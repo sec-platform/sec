@@ -63,10 +63,10 @@ const selectionResult = Object.freeze({
 });
 
 mock.module(${JSON.stringify(selectionHref)}, () => ({
-  observeSecWorkSelectionWithProviderV1: async () => {
+  observeWorkSelectionWithProvider: async () => {
     throw new Error('Test-only selection provider used outside its issued actor');
   },
-  observeSecWorkSelectionLive: async (input) => {
+  observeWorkSelectionLive: async (input) => {
     if (sessionDepth !== 1) throw new Error('selection escaped the shared MainHealth session');
     if (input.mainHealthSnapshot !== latestSnapshot) {
       throw new Error('selection did not consume the exact T2 MainHealth snapshot');

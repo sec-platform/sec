@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto';
 
 import type { PlanFile } from '../../src/compiler/contract.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
+import { uniqueSortedByKey } from '../../src/contracts/canonical.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/semantics/policies/rules.ts';
 const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
@@ -142,15 +143,15 @@ function fixture(): BuildEngineeringIRInput {
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCodedFailure(run: () => unknown, code: string): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test('canonical primitive known-answer vectors remain byte-identical', () => {
@@ -355,5 +356,41 @@ test('plan validation hard fails when app.id is absent', () => {
     acceptance: []
   } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS);
 
-  expectCompilerError(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
+  expectCodedFailure(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
+});
+
+
+test('distinct transitions cannot silently collide in the input revision tuple key', () => {
+  const input = fixture();
+  const state = input.semanticContracts![0]!.contract.states[0]!;
+  state.values = ['a\0b', 'c', 'a', 'b\0c'];
+  const first = { from: 'a\0b', to: 'c', by: 'processItem' };
+  const second = { from: 'a', to: 'b\0c', by: 'processItem' };
+  for (const transitions of [[first, second], [second, first]]) {
+    state.transitions = transitions;
+    expect(() => buildEngineeringIR(input)).toThrow(expect.objectContaining({ code: 'CANONICAL-KEY-CONFLICT' }));
+  }
+});
+
+
+test('keyed canonical duplicates preserve the last equal representative but never choose conflicting data', () => {
+  const first = { id: 'b', value: { z: 2, a: 1 } };
+  const equal = { value: { a: 1, z: 2 }, id: 'b' };
+  const other = { id: 'a', value: { a: 3, z: 4 } };
+  let calls = 0;
+  const values = [first, other, equal];
+  const result = uniqueSortedByKey(values, value => { calls++; return value.id; });
+  expect(result[0]).toBe(other);
+  expect(result[1]).toBe(equal);
+  expect(calls).toBe(values.length);
+  expect(values).toEqual([first, other, equal]);
+  const conflict = { id: 'b', value: { a: 999, z: 999 } };
+  for (const entries of [[first, conflict], [conflict, first]]) {
+    try {
+      uniqueSortedByKey(entries, value => value.id);
+      throw new Error('Expected a conflicting-key failure');
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'CANONICAL-KEY-CONFLICT', message: 'Canonical duplicate key has conflicting values' });
+    }
+  }
 });

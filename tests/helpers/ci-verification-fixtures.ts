@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import type { VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
+
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 

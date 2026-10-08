@@ -5,10 +5,10 @@ import { requireSourceProgramCandidateAnalysis } from './contract.ts';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
-import { isCanonicalSecOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
+import { isCanonicalOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
 import type {
-  SecRepositoryModuleArchitectureProjection,
-  SecRepositoryModuleMembership
+  RepositoryModuleArchitectureProjection,
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -41,6 +41,7 @@ import {
   compileSourceProgramOwnerIntentEvidence,
   isCompiledRepositorySourceProgramModel
 } from './repository.ts';
+import type { SourceProgramSemanticUnit, SourceProgramSupersessionEvidence, SourceProgramSupersessionEvidenceIdentity, SourceProgramSupersessionEvidenceIdentityInput, SourceProgramSupersessionTestUnit } from './supersession-evidence-contract.ts';
 import {
   assertSourceProgramTestAuthorAssessment,
   qualifySourceProgramTestAuthorAssessment,
@@ -48,11 +49,11 @@ import {
   type SourceProgramTestAuthorApproval,
   type SourceProgramTestAuthorAssessment
 } from './test-disposition-decisions.ts';
-import type { SourceProgramTestDefinitionContext, SourceProgramTestDefinitionInputs } from './test-observations.ts';
 import {
-  reconcileSourceProgramTestValueWithSupersession,
+  dispositionFromEvidence,
   type SourceProgramTestDisposition,
   type SourceProgramTestDispositionProjection,
+  type SourceProgramTestFinding,
   type SourceProgramTestRegistration,
   type SourceProgramTestSemanticClass,
   type SourceProgramTestValueCompilation
@@ -67,6 +68,7 @@ import {
   compileWorkspaceSourceRevision,
   type WorkspaceSourceFile
 } from './workspace-source-snapshot.ts';
+export type { SourceProgramSupersessionEvidence, SourceProgramSupersessionEvidenceIdentity, SourceProgramSupersessionEvidenceIdentityInput } from './supersession-evidence-contract.ts';
 
 const compiledGraphCutReductionPlans = new WeakSet<object>();
 const compiledAggregateImportReductionPlans = new WeakSet<object>();
@@ -159,7 +161,7 @@ export interface SourceProgramGraphCutReductionPlan {
 
 export interface SourceProgramReductionCompilerContext {
   readonly typeScriptModel: SourceProgramModel;
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly reviewedProcessDispatchers: readonly string[];
   readonly operation?: SourceProgramCompilationOperation;
 }
@@ -186,7 +188,7 @@ export interface SourceProgramAggregateImportReductionPlan {
 
 export interface SourceProgramArchitectureSnapshot {
   readonly sourceRevision: string;
-  readonly architecture: SecRepositoryModuleArchitectureProjection;
+  readonly architecture: RepositoryModuleArchitectureProjection;
 }
 
 export type SourceProgramReductionAdmissionFailureCode =
@@ -321,24 +323,6 @@ const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST = sha256(
   SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA
 );
 
-export interface SourceProgramSupersessionEvidenceIdentity {
-  /** Digest of the exact repository revision locator resolved by the Git owner. */
-  readonly revisionDigest: string;
-  /** Digest of the exact repository tree compiled into the Source Program. */
-  readonly treeDigest: string;
-  /** Digest of the compiler and provider capability closure. */
-  readonly toolchainDigest: string;
-  /** Digest of every configuration input that can change compiled facts. */
-  readonly configurationDigest: string;
-  /** Digest of the strict evidence grammar consumed by this compiler. */
-  readonly schemaDigest: string;
-}
-
-export type SourceProgramSupersessionEvidenceIdentityInput = Omit<
-  SourceProgramSupersessionEvidenceIdentity,
-  'schemaDigest'
->;
-
 export function compileSourceProgramSupersessionEvidenceIdentity(
   input: SourceProgramSupersessionEvidenceIdentityInput
 ): SourceProgramSupersessionEvidenceIdentity {
@@ -349,46 +333,6 @@ export function compileSourceProgramSupersessionEvidenceIdentity(
     ...input,
     schemaDigest: SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
   });
-}
-
-interface SourceProgramSupersessionTestUnit {
-  readonly testId: string;
-  readonly path: string;
-  readonly owner: string | null;
-  readonly registrationContentDigest: string;
-  readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
-  readonly observedProductionPaths: readonly string[];
-  readonly capabilityOperations: readonly string[];
-  readonly unknowns: readonly string[];
-  readonly definitionInputDigest: string;
-}
-
-export interface SourceProgramSupersessionEvidence {
-  readonly actionKey: string;
-  readonly identity: Readonly<SourceProgramSupersessionEvidenceIdentity & {
-    readonly sourceRevision: string;
-  }>;
-  readonly source: Readonly<{
-    readonly modelDigest: string;
-    readonly testCompilationDigest: string;
-    readonly intentEvidenceDigest: string;
-  }>;
-  readonly productionUnits: readonly SourceProgramSemanticUnit[];
-  readonly resourceUnits: readonly SourceProgramSemanticUnit[];
-  readonly entrypointUnits: readonly SourceProgramSemanticUnit[];
-  readonly tests: readonly SourceProgramSupersessionTestUnit[];
-  readonly testDefinitionInputs: readonly SourceProgramTestDefinitionInputs[];
-  readonly testDefinitionContext: SourceProgramTestDefinitionContext | null;
-  readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  readonly unknowns: readonly Readonly<{
-    readonly code: string;
-    readonly path: string;
-    readonly detail: string;
-    readonly spanDigest: string;
-    readonly sourceContentDigest: string | null;
-    readonly dependencyInputDigest: string;
-  }>[];
-  readonly evidenceDigest: string;
 }
 
 export interface CompileSourceProgramSupersessionEvidenceInput {
@@ -410,14 +354,6 @@ export interface CompileSourceProgramSupersessionInput {
   /** Available only to the live authenticated host, never decoded from worker JSON. */
   readonly authorApproval?: SourceProgramTestAuthorApproval;
   readonly operation?: SourceProgramCompilationOperation;
-}
-
-interface SourceProgramSemanticUnit {
-  readonly id: string;
-  readonly occurrenceId: string;
-  readonly owner: string | null;
-  readonly path: string;
-  readonly signature: string;
 }
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -485,7 +421,7 @@ function resourceBudgetIsExact(value: unknown): value is SourceProgramOperationR
   return hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
     && resource !== null
     && typeof value.maximum === 'number'
-    && isCanonicalSecOperationBudgetMaximum(resource, value.maximum);
+    && isCanonicalOperationBudgetMaximum(resource, value.maximum);
 }
 
 function operationObligationEvidenceIsExact(
@@ -1331,6 +1267,135 @@ export function assertSourceProgramSupersessionReceipt(receipt: SourceProgramSup
   if (!compiledSourceProgramSupersessionReceipts.has(receipt)) {
     throw new Error('Supersession authority requires an owner-issued receipt');
   }
+}
+
+function supersessionReceiptIsBound(
+  receipt: SourceProgramSupersessionReceipt,
+  compilation: SourceProgramTestValueCompilation
+): boolean {
+  if (!DIGEST.test(receipt.receiptDigest)
+      || receipt.current.sourceRevision !== compilation.sourceRevision
+      || receipt.current.testCompilationDigest !== compilation.compilationDigest) return false;
+  const { receiptDigest: _receiptDigest, ...canonicalReceipt } = receipt;
+  return sha256(canonicalReceipt) === receipt.receiptDigest;
+}
+
+/**
+ * Consume the one-way Source Program supersession proof after test
+ * observations have been compiled.  This second phase avoids a Test Value ->
+ * Supersession -> Test Value dependency cycle: the receipt is bound to the
+ * observation compilation digest, and this projection records that receipt
+ * without feeding the derived disposition back into its proof preimage.
+ *
+ * Only the existing owner-issued receipt can discharge a missing module:
+ * author REWRITE remains a judgment, never semantic equivalence. Consumer-zero
+ * retirement is not reconstructed from syntax census; until its actual owner
+ * emits that proof per baseline test, DELETE remains UNKNOWN.
+ */
+export function reconcileSourceProgramTestValueWithSupersession(
+  compilation: SourceProgramTestValueCompilation,
+  receipt: SourceProgramSupersessionReceipt
+): SourceProgramTestDispositionProjection {
+  const project = (
+    dispositions: readonly SourceProgramTestDisposition[],
+    findings: readonly SourceProgramTestFinding[],
+    supersessionReceiptDigest: string | null
+  ): SourceProgramTestDispositionProjection => {
+    const canonicalProjection = Object.freeze({
+      sourceRevision: compilation.sourceRevision,
+      baselineTestPaths: compilation.baselineTestPaths,
+      baselineDigest: compilation.baselineDigest,
+      baselineEvidenceDigest: compilation.baselineEvidenceDigest,
+      dispositions: Object.freeze([...dispositions]),
+      findings: Object.freeze([...findings]),
+      observationCompilationDigest: compilation.compilationDigest,
+      supersessionReceiptDigest
+    });
+    return Object.freeze({
+      ...canonicalProjection,
+      projectionDigest: sha256(canonicalProjection)
+    });
+  };
+  if ((receipt.status !== 'superseded' && receipt.status !== 'author-approved-change')
+      || !supersessionReceiptIsBound(receipt, compilation)) {
+    return project(compilation.dispositions, compilation.findings, null);
+  }
+
+  assertSourceProgramSupersessionReceipt(receipt);
+  const authorRewrite = receipt.status === 'author-approved-change';
+  if (authorRewrite) {
+    if (receipt.authorDecisionDigest === null) throw new Error('Author REWRITE requires the adopted decision identity');
+  }
+  const recordPathById = new Map(compilation.records.map(({ testId, path: testPath }) =>
+    [testId, testPath] as const));
+  const replacementsByBaselinePath = new Map<string, SourceProgramSupersessionReceipt['replacements']>();
+  for (const replacement of receipt.replacements) {
+    if (replacement.kind !== 'test' || replacement.baselinePaths.length !== 1) continue;
+    const baselinePath = replacement.baselinePaths[0]!;
+    const replacements = replacementsByBaselinePath.get(baselinePath) ?? [];
+    replacementsByBaselinePath.set(baselinePath, Object.freeze([...replacements, replacement]));
+  }
+
+  const resolvedPaths = new Set<string>();
+  const dispositions = compilation.dispositions.map((disposition) => {
+    if (disposition.disposition !== 'unknown') return disposition;
+    const replacements = replacementsByBaselinePath.get(disposition.path) ?? [];
+    if (replacements.length === 0
+        || replacements.some(({ proof }) => proof !== (authorRewrite ? 'owner-rewrite-judgment' : 'strict-observation-superset'))) {
+      return disposition;
+    }
+    const baselineIds = replacements.map(({ baselineId }) => baselineId);
+    const replacementIds = [...new Set(replacements.flatMap(({ currentIds }) => currentIds))]
+      .sort(compareCodeUnits);
+    const replacementPaths = [...new Set(replacementIds.flatMap((testId) => {
+      const testPath = recordPathById.get(testId);
+      return testPath === undefined ? [] : [testPath];
+    }))].sort(compareCodeUnits);
+    const receiptPaths = [...new Set(replacements.flatMap(({ currentPaths }) => currentPaths))]
+      .sort(compareCodeUnits);
+    if (replacementIds.length === 0
+        || replacementIds.some((testId) => !recordPathById.has(testId))
+        || sha256(replacementPaths) !== sha256(receiptPaths)
+        || new Set(baselineIds).size !== baselineIds.length) return disposition;
+    resolvedPaths.add(disposition.path);
+    if (authorRewrite) {
+      const owners = [...new Set(replacements.map(({ owner }) => owner))];
+      if (owners.length !== 1 || owners[0] === null) throw new Error('Author REWRITE has inconsistent baseline ownership');
+      const canonical = Object.freeze({
+        path: disposition.path,
+        disposition: 'rewrite' as const,
+        evidence: Object.freeze({
+          owner: owners[0]!, sourceRevision: compilation.sourceRevision,
+          replacementTestIds: Object.freeze(replacementIds),
+          census: disposition.evidence.census, supersession: null,
+          ownerDecisionDigest: receipt.authorDecisionDigest
+        }),
+        baselineDigest: disposition.baselineDigest
+      });
+      return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) });
+    }
+    return dispositionFromEvidence(
+      disposition.path,
+      'merge',
+      compilation.sourceRevision,
+      disposition.baselineDigest,
+      disposition.evidence.census,
+      replacementIds,
+      Object.freeze({
+        receiptDigest: receipt.receiptDigest,
+        baselineTestId: baselineIds.length === 1
+          ? baselineIds[0]!
+          : sha256([...baselineIds].sort(compareCodeUnits)),
+        proof: 'strict-observation-superset'
+      })
+    );
+  });
+  if (resolvedPaths.size === 0) {
+    return project(compilation.dispositions, compilation.findings, null);
+  }
+  const findings = compilation.findings.filter(({ code, path: findingPath }) =>
+    code !== 'test-module-disposition-unknown' || !resolvedPaths.has(findingPath));
+  return project(dispositions, findings, receipt.receiptDigest);
 }
 
 export function compileSourceProgramSupersessionReceipt(

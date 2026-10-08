@@ -1,10 +1,12 @@
 import type { LockFile, PlanFile } from '../compiler/contract.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import { compileUpgradeExecutionTerminal } from '../compiler/upgrade/execution-terminal.ts';
 import {
   upgradeFailureWithSecondaryFailures,
   withRollbackDiagnostics
 } from '../compiler/upgrade/failure.ts';
+import { CodedFailure } from '../contracts/failure.ts';
+import { failureMessage } from '../contracts/failure-inspection.ts';
+import { settleResourcesAsync } from '../execution/resource-settlement.ts';
 import {
   createUpgradeExecutionAttempt,
   createUpgradePlan,
@@ -160,7 +162,7 @@ type UpgradeRecoverySnapshotLocator = Readonly<{
 type UpgradeRollbackResolution = Readonly<{
   settlement: UpgradeExecutionTerminal['settlement'];
   retainBackupForRecovery: boolean;
-  diagnosticFailure: CompilerError;
+  diagnosticFailure: CodedFailure;
 }>;
 
 interface UpgradeRollbackOperations {
@@ -187,7 +189,7 @@ async function resolveUpgradeRollback(
 
   let settlement: UpgradeExecutionTerminal['settlement'] = 'rolled-back';
   let rollbackFailure: unknown = input.appliedTerminalCommitUnknown
-    ? new CompilerError(
+    ? new CodedFailure(
         'UPGRADE-BLOCKED-005',
         'Upgrade applied terminal publication could not be resolved as committed or absent'
       )
@@ -206,14 +208,12 @@ async function resolveUpgradeRollback(
     settlement = 'recovery-required';
   }
 
-  const failure = input.applyFailure instanceof CompilerError
+  const failure = input.applyFailure instanceof CodedFailure
     ? withRollbackDiagnostics(input.applyFailure)
-    : new CompilerError(
+    : new CodedFailure(
         'UPGRADE-BLOCKED-005',
         `Upgrade apply failed: ${
-          input.applyFailure instanceof Error
-            ? input.applyFailure.message
-            : String(input.applyFailure)
+          failureMessage(input.applyFailure)
         }`,
         {
           rollbackStatus:
@@ -224,12 +224,10 @@ async function resolveUpgradeRollback(
 
   const diagnosticFailure = rollbackFailure === null
     ? failure
-    : new CompilerError(
+    : new CodedFailure(
         'UPGRADE-BLOCKED-005',
         `Upgrade recovery is required: ${
-          rollbackFailure instanceof Error
-            ? rollbackFailure.message
-            : String(rollbackFailure)
+          failureMessage(rollbackFailure)
         }`,
         {
           rollbackStatus: 'recovery-required',
@@ -268,7 +266,7 @@ function buildUpgradeCommittedFailure(input: Readonly<{
     ? input.failure
     : new Error(String(input.failure));
   const postCommitFailure = input.durabilityUncertain
-    ? new CompilerError(
+    ? new CodedFailure(
         'UPGRADE-BLOCKED-005',
         `Upgrade applied terminal is externally visible but its durability did not settle: ${primary.message}`,
         {
@@ -332,7 +330,7 @@ export interface UpgradeApplyLifecycleOperations<TBackup> {
   clearExecutionTerminal(): Promise<void>;
   clearDiagnostics(): Promise<void>;
   publishPlan(plan: UpgradePlan): Promise<unknown>;
-  apply(): Promise<LockFile>;
+  apply(backup: TBackup): Promise<LockFile>;
   readonly terminalReadback: UpgradeExecutionTerminalReadbackOperations;
   readonly terminalPublication: AppliedUpgradeTerminalPublicationOperations;
   recordGeneratedArtifacts(lock: LockFile): Promise<void>;
@@ -343,10 +341,56 @@ export interface UpgradeApplyLifecycleOperations<TBackup> {
   publishDiagnostics(input: Readonly<{
     phase: 'apply' | 'recovery';
     terminal: UpgradeExecutionTerminal;
-    failure: CompilerError;
+    failure: CodedFailure;
     resultLock: LockFile | null;
   }>): Promise<void>;
   retireBackup(backup: TBackup, primaryFailure: Error | null): Promise<void>;
+}
+
+/** Capture both callable identity and its receiver before resource ownership.
+ * A later callback must not replace recovery, publication or retirement. */
+function captureUpgradePort<Args extends unknown[], Result>(
+  receiver: object,
+  operation: (...args: Args) => Result
+): (...args: Args) => Result {
+  if (typeof operation !== 'function') {
+    throw new TypeError('Upgrade apply lifecycle operations must be callable');
+  }
+  return (...args) => Reflect.apply(operation, receiver, args) as Result;
+}
+
+function captureUpgradeApplyOperations<TBackup>(
+  operations: UpgradeApplyLifecycleOperations<TBackup>
+): UpgradeApplyLifecycleOperations<TBackup> {
+  const { terminalReadback, terminalPublication } = operations;
+  if (terminalReadback === null ||
+      (typeof terminalReadback !== 'object' && typeof terminalReadback !== 'function') ||
+      terminalPublication === null ||
+      (typeof terminalPublication !== 'object' && typeof terminalPublication !== 'function')) {
+    throw new TypeError('Upgrade terminal operations must be callable');
+  }
+  return Object.freeze({
+    snapshot: captureUpgradePort(operations, operations.snapshot),
+    recoverySnapshot: captureUpgradePort(operations, operations.recoverySnapshot),
+    clearExecutionTerminal: captureUpgradePort(operations, operations.clearExecutionTerminal),
+    clearDiagnostics: captureUpgradePort(operations, operations.clearDiagnostics),
+    publishPlan: captureUpgradePort(operations, operations.publishPlan),
+    apply: captureUpgradePort(operations, operations.apply),
+    recordGeneratedArtifacts: captureUpgradePort(operations, operations.recordGeneratedArtifacts),
+    restore: captureUpgradePort(operations, operations.restore),
+    publishExecutionTerminal: captureUpgradePort(operations, operations.publishExecutionTerminal),
+    publishDiagnostics: captureUpgradePort(operations, operations.publishDiagnostics),
+    retireBackup: captureUpgradePort(operations, operations.retireBackup),
+    terminalReadback: Object.freeze({
+      readPersistedPlan: captureUpgradePort(terminalReadback, terminalReadback.readPersistedPlan),
+      readWorkspacePlan: captureUpgradePort(terminalReadback, terminalReadback.readWorkspacePlan)
+    }),
+    terminalPublication: Object.freeze({
+      publish: captureUpgradePort(terminalPublication, terminalPublication.publish),
+      resolvePublication: captureUpgradePort(terminalPublication, terminalPublication.resolvePublication),
+      isBeforeEffectFailure: captureUpgradePort(terminalPublication, terminalPublication.isBeforeEffectFailure)
+    })
+  });
 }
 
 /**
@@ -364,25 +408,24 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
   }>,
   operations: UpgradeApplyLifecycleOperations<TBackup>
 ): Promise<UpgradeAppliedWorkspaceResult> {
-  const requiredOperations = [
-    operations.snapshot,
-    operations.recoverySnapshot,
-    operations.clearExecutionTerminal,
-    operations.clearDiagnostics,
-    operations.publishPlan,
-    operations.apply,
-    operations.recordGeneratedArtifacts,
-    operations.restore,
-    operations.publishExecutionTerminal,
-    operations.publishDiagnostics,
-    operations.retireBackup
-  ];
-  if (requiredOperations.some(operation => typeof operation !== 'function')) {
-    throw new TypeError('Upgrade apply lifecycle operations must be callable');
+  operations = captureUpgradeApplyOperations(operations);
+  const backup = await operations.snapshot();
+  let recoverySnapshot: UpgradeRecoverySnapshotLocator;
+  try {
+    recoverySnapshot = operations.recoverySnapshot(backup);
+  } catch (error) {
+    // No upgrade effects have started. Projection failure still leaves an
+    // acquired backup to retire. Keep arbitrary thrown values and independent
+    // retirement failures through the existing resource settlement protocol.
+    await settleResourcesAsync({
+      primary: { label: 'upgrade-recovery-snapshot', error },
+      cleanup: [{
+        label: 'upgrade-backup',
+        settle: () => operations.retireBackup(backup, null)
+      }]
+    });
+    throw error;
   }
-
-  const backup = await operations.snapshot.call(operations);
-  const recoverySnapshot = operations.recoverySnapshot.call(operations, backup);
   let pendingApplyFailure: Error | null = null;
   let retainBackupForRecovery = false;
   let appliedTerminalCommitted = false;
@@ -394,7 +437,7 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
     await operations.clearExecutionTerminal.call(operations);
     await operations.clearDiagnostics.call(operations);
     await operations.publishPlan.call(operations, input.upgradePlan);
-    const lock = await operations.apply.call(operations);
+    const lock = await operations.apply.call(operations, backup);
     const expectedTerminal = await buildUpgradeExecutionTerminal({
       plan: input.upgradePlan,
       attempt: input.attempt,
@@ -418,7 +461,7 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
       postCommitFailures.push(terminalPublication.publicationFailure);
     }
     if (terminal.settlement !== 'applied') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'UPGRADE-BLOCKED-005',
         'Upgrade execution did not settle as applied'
       );
@@ -449,6 +492,9 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
       throw pendingApplyFailure;
     }
 
+    // Recovery owns the backup until restoration and its resolution both
+    // return. Diagnostic accessors may throw after a failed restore.
+    retainBackupForRecovery = true;
     const rollback = await resolveUpgradeRollback(
       {
         applyFailure: error,
@@ -459,7 +505,7 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
         restore: () => operations.restore.call(operations, backup)
       }
     );
-    if (rollback.retainBackupForRecovery) retainBackupForRecovery = true;
+    retainBackupForRecovery = rollback.retainBackupForRecovery;
 
     try {
       await publishUpgradeApplyFailureArtifacts(

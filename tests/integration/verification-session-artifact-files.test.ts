@@ -2,6 +2,7 @@ import { afterEach, expect, spyOn, test } from 'bun:test';
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
 
 import * as leafObservation from '../../src/adapters/runtime-state/physical/runtime/physical-leaf-observation.ts';
 import * as physical from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -47,7 +48,7 @@ test('VerificationSession artifact JSON consumers reject malformed UTF-8 before 
   expect(readSessionArtifactBytes(target)).toEqual(bytes);
   expect(() => readSessionArtifactText(target)).toThrow(TypeError);
   expect(() => readJson(target)).toThrow(TypeError);
-  await expect(verificationSessionCli(['artifact-status', '--artifact', target])).rejects.toBeInstanceOf(TypeError);
+  await expect(verificationSessionCli(['artifact-status', '--artifact', target], worktreePhysicalCloseoutOperations)).rejects.toBeInstanceOf(TypeError);
 });
 
 test('VerificationSession artifact text preserves a BOM and JSON still rejects it', () => {
@@ -103,7 +104,7 @@ test('VerificationSession artifact consumer rejects hardlinked files and CLI rej
   expect(readFileSync(alias, 'utf8')).toBe('{"owner":"original"}\n');
   const symlink = path.join(root, 'linked.json');
   symlinkSync(target, symlink);
-  await expect(verificationSessionCli(['artifact-status', '--artifact', symlink]))
+  await expect(verificationSessionCli(['artifact-status', '--artifact', symlink], worktreePhysicalCloseoutOperations))
     .rejects.toBeInstanceOf(physical.PhysicalNoFollowError);
 });
 

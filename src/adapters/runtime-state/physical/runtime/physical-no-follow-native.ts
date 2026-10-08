@@ -166,6 +166,84 @@ export function requireLinuxLibc(): LinuxLibc {
   return linuxLibc;
 }
 
+/** Descriptor-bound observation. f_flags alone is per-mount, not proof that
+ * every alias of the superblock is read-only; the input owner also consumes
+ * the kernel mountinfo superblock options for this exact descriptor's mnt_id. */
+export function linuxRetainedFilesystemObservation(fd: number): Readonly<{
+  type: bigint; flags: bigint; filesystemId: string;
+}> {
+  if (process.platform !== 'linux' || (process.arch !== 'x64' && process.arch !== 'arm64')) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Filesystem observation ABI is unavailable.');
+  }
+  const value = Buffer.alloc(120);
+  if (requireLinuxLibc().symbols.fstatfs(fd, ptr(value)) !== 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained filesystem observation failed.');
+  }
+  return Object.freeze({ type: value.readBigUInt64LE(0), flags: value.readBigUInt64LE(80),
+    filesystemId: value.subarray(56, 64).toString('hex') });
+}
+
+/** Pure x86-64 filter bytes. This data does not issue a physical capability. */
+export function compileLinuxRepositoryNamespaceFence(): Uint8Array {
+  const instructions: Array<readonly [number, number, number, number]> = [
+    [0x20, 0, 0, 4], // seccomp_data.arch
+    [0x15, 1, 0, 0xc000003e], // AUDIT_ARCH_X86_64; reject compat ABIs.
+    [0x06, 0, 0, 0x80000000],
+    [0x20, 0, 0, 0], // seccomp_data.nr
+    [0x45, 0, 1, 0x40000000], // x32 shares arch but has a distinct syscall ABI.
+    [0x06, 0, 0, 0x80000000],
+    [0x15, 0, 4, 56], // clone: ordinary threads/fork remain available.
+    [0x20, 0, 0, 16], // Low 32 bits of args[0], x86-64 clone flags.
+    [0x45, 0, 1, 0x10020000], // CLONE_NEWUSER | CLONE_NEWNS
+    [0x06, 0, 0, 0x00050001],
+    [0x06, 0, 0, 0x7fff0000]
+  ];
+  // Original and new mount APIs, namespace entry/creation, root replacement,
+  // and cross-process memory injection cannot escape the retained input view.
+  for (const number of [101, 155, 161, 165, 166, 272, 308, 311, 428, 429, 430, 431, 432, 433, 442]) {
+    instructions.push([0x15, 0, 1, number], [0x06, 0, 0, 0x00050001]);
+  }
+  // clone3 points to mutable argument memory. Do not dereference it in a
+  // userspace broker; ENOSYS preserves ordinary libc clone fallback.
+  instructions.push([0x15, 0, 1, 435], [0x06, 0, 0, 0x00050026], [0x06, 0, 0, 0x7fff0000]);
+  const bytes = Buffer.alloc(instructions.length * 8);
+  instructions.forEach(([code, jt, jf, k], index) => {
+    bytes.writeUInt16LE(code, index * 8); bytes[index * 8 + 2] = jt;
+    bytes[index * 8 + 3] = jf; bytes.writeUInt32LE(k, index * 8 + 4);
+  });
+  return bytes;
+}
+
+let repositoryNamespaceFenceProcess: number | null = null;
+
+/** Irreversibly narrows this process and all current threads via TSYNC. The
+ * original execution owner must run it in a dedicated workload process; its
+ * outer privileged owner keeps namespace/container cleanup responsibility.
+ * No environment bit, Seccomp status, or supplied filter can select success. */
+export function installLinuxRepositoryNamespaceFence(): void {
+  if (process.platform !== 'linux' || process.arch !== 'x64') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Repository namespace fence ABI is unavailable.');
+  }
+  if (repositoryNamespaceFenceProcess === process.pid) return;
+  const instructions = compileLinuxRepositoryNamespaceFence();
+  const program = Buffer.alloc(16);
+  program.writeUInt16LE(instructions.length / 8, 0);
+  program.writeBigUInt64LE(BigInt(ptr(instructions)), 8);
+  const library = dlopen('libc.so.6', {
+    syscall: { args: [FFIType.i64, FFIType.i64, FFIType.i64, FFIType.ptr], returns: FFIType.i64 }
+  } as const);
+  try {
+    // seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program).
+    // Positive TID means a thread could not synchronize, not partial success.
+    if (Number(library.symbols.syscall(317, 1, 1, ptr(program))) !== 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Repository namespace fence did not synchronize every thread.');
+    }
+    repositoryNamespaceFenceProcess = process.pid;
+  } finally {
+    library.close();
+  }
+}
+
 type LinuxExecutableLibc = ReturnType<typeof loadLinuxExecutableLibc>;
 
 let linuxExecutableLibc: LinuxExecutableLibc | undefined;
@@ -710,6 +788,22 @@ export function linuxOpenReadableLeafAt(parentFd: number, component: string, lab
   return fd;
 }
 
+/** Open only an existing leaf for append and readback. No creation/truncation;
+ * NONBLOCK prevents an untrusted FIFO from blocking before descriptor checks. */
+export function linuxOpenAppendLeafAt(parentFd: number, component: string, label: string): number {
+  ensureLeafName(component);
+  const fd = requireLinuxLibc().symbols.openat(
+    parentFd, Buffer.from(`${component}\0`, 'utf8'),
+    LINUX_O_RDWR | 0x400 /* O_APPEND */ | LINUX_O_NONBLOCK | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC, 0
+  );
+  if (fd < 0) {
+    const errno = linuxErrno();
+    if (errno === 2) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened for no-follow append (errno ${errno}).`);
+  }
+  return fd;
+}
+
 export function linuxOpenRoot(label: string): number {
   const library = requireLinuxLibc();
   const fd = library.symbols.openat(
@@ -1242,7 +1336,6 @@ const WINDOWS_FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE = 0x0000_0010;
 
 export const WINDOWS_NT_FILE_RENAME_INFORMATION = 10;
 
-const WINDOWS_NT_FILE_END_OF_FILE_INFORMATION = 20;
 
 export const WINDOWS_NT_FILE_RENAME_INFORMATION_EX = 65;
 
@@ -1461,29 +1554,57 @@ export function windowsOpenDirectory(absolutePath: string, label: string, forFlu
     WINDOWS_FILE_FLAG_BACKUP_SEMANTICS | WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT,
     null
   );
-  if (handle === WINDOWS_INVALID_HANDLE) {
-    const lastError = library.symbols.GetLastError();
-    if (lastError === 2 || lastError === 3) {
-      throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
-    }
-    // A few Windows filesystem providers leave the thread error slot at zero
-    // after an already-removed directory is opened through the no-follow
-    // handle API.  Confirm that narrow case with lstat (which does not follow
-    // a reparse point); an existing entry still falls through to the unsafe
-    // classification below.
-    if (lastError === 0) {
+  if (handle !== WINDOWS_INVALID_HANDLE) return handle;
+  const lastError = library.symbols.GetLastError();
+  if (lastError === 2 || lastError === 3) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+  }
+  // Some providers do not expose a useful Win32 error after a failed open.
+  // Ask the NT owner for the exact child beneath a proven, retained parent.
+  // This is an absence probe only; it never supplies the requested handle.
+  if (lastError === 0) {
+    const canonicalPath = path.resolve(absolutePath);
+    const parentPath = path.dirname(canonicalPath);
+    // A filesystem/UNC root has no smaller parent at which to anchor a probe.
+    // Zero error alone never proves root absence.
+    if (windowsPathKey(parentPath) !== windowsPathKey(canonicalPath)) {
+      const parentLabel = `${label} absence parent`;
+      const parent = inspectWindowsDirectoryChain(parentPath, parentLabel).target;
+      const parentHandle = windowsOpenDirectory(parent.path, parentLabel);
+      let childHandle: bigint | null = null;
+      let provenAbsent = false;
+      let failure: { error: unknown } | undefined;
       try {
-        lstatSync(absolutePath);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT' || code === 'ENOTDIR') {
-          throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+        if (!sameIdentity(parent, windowsIdentity(parentHandle, parent.path, parentLabel))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${parentLabel} changed before observation.`);
         }
+        childHandle = windowsOpenRelativeDirectory(
+          parentHandle, parent, path.basename(canonicalPath), canonicalPath,
+          WINDOWS_FILE_OPEN, `${label} absence probe`, WINDOWS_SHARE_READ_WRITE_DELETE, true
+        );
+        // windowsOpenRelativeDirectory returns null before its own parent
+        // identity check, so the absence branch needs this explicit fence.
+        if (!sameIdentity(parent, windowsIdentity(parentHandle, parent.path, parentLabel))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${parentLabel} changed during observation.`);
+        }
+        provenAbsent = childHandle === null;
+      } catch (error) {
+        failure = { error };
+      }
+      settleResources({
+        ...(failure === undefined ? {} : { primary: { label: `${label} absence probe`, error: failure.error } }),
+        cleanup: [
+          { label: `${label} absence child`, settle: () => { if (childHandle !== null) closeWindowsHandle(childHandle); } },
+          { label: parentLabel, settle: () => closeWindowsHandle(parentHandle) }
+        ]
+      });
+      if (provenAbsent) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
       }
     }
-    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
   }
-  return handle;
+  throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+    `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
 }
 
 interface RetainedWindowsHostNamespaceDirectoryRecord {
@@ -2009,28 +2130,6 @@ export function windowsRetainedOrdinaryFileLinkCount(handle: bigint, label: stri
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} link count is invalid.`);
   }
   return links;
-}
-
-export function windowsTruncateRetainedOrdinaryFile(handle: bigint, size: number, label: string): void {
-  if (!Number.isSafeInteger(size) || size < 0) {
-    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is invalid.`);
-  }
-  const end = Buffer.alloc(8);
-  end.writeBigInt64LE(BigInt(size));
-  const ioStatus = Buffer.alloc(16);
-  const status = requireWindowsNtdll().symbols.NtSetInformationFile(
-    handle,
-    ioStatus,
-    end,
-    end.byteLength,
-    WINDOWS_NT_FILE_END_OF_FILE_INFORMATION
-  );
-  if (status < 0) {
-    throw physicalError(
-      'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
-      `${label} retained truncate failed (NTSTATUS ${status}).`
-    );
-  }
 }
 
 export function windowsWriteRetainedFile(handle: bigint, bytes: Uint8Array, label: string): void {

@@ -4,7 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { CodexDevelopmentTrustedBootstrapSutHarness } from '../../src/adapters/verification/platform/ci/verification.ts';
+import { TRUSTED_BOOTSTRAP_SUT_HARNESS } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { slowTestSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import {
@@ -23,7 +23,7 @@ import {
   readTcbClosureCandidateFile,
   selectTcbClosureCandidateAction
 } from '../../src/adapters/verification/platform/trust/runtime/closure-lock.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
+import { readCompilerFile, readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtures.ts';
 
 type WorkflowStep = Readonly<{
   name: string;
@@ -63,20 +63,6 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
   const found = workflow.jobs[job]?.steps.find((candidate) => candidate.name === name);
   if (!found) throw new Error(`Missing workflow step ${job}/${name}.`);
   return found;
-}
-
-function embeddedTrustedBootstrapChecker(source: string): string {
-  const normalizedSource = source.replaceAll('\r\n', '\n');
-  const startDelimiter = `cat > "$out/checker.mjs" <<'CHECKER'\n`;
-  const start = normalizedSource.indexOf(startDelimiter);
-  if (start < 0) throw new Error('trusted bootstrap workflow checker start delimiter is missing.');
-  const checkerStart = start + startDelimiter.length;
-  const endDelimiter = '\n          CHECKER\n';
-  const end = normalizedSource.indexOf(endDelimiter, checkerStart);
-  if (end < 0) throw new Error('trusted bootstrap workflow checker end delimiter is missing.');
-  return normalizedSource.slice(checkerStart, end).split('\n')
-    .map((line) => line.startsWith('              ') ? line.slice(14) : line)
-    .join('\n');
 }
 
 test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
@@ -121,11 +107,11 @@ test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
     scripts: Record<string, string>;
   }).scripts;
   expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
-  expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain(
+  expect(packageScripts['typecheck:verified']).toContain('bootstrap/development/runner-cli.ts typecheck');
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
   );
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).not.toContain(
+  expect(TRUSTED_BOOTSTRAP_SUT_HARNESS).not.toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck"]);'
   );
 });
@@ -172,9 +158,15 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
   const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
-  const checkerSource = embeddedTrustedBootstrapChecker(source);
-  expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
-    .not.toThrow();
+  const checkerSource = await readCompilerTypeScriptMutationFixture('src/application/trusted-bootstrap-verification.ts', 'tcb-analysis');
+  const preProgram = step(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt').run;
+  expect(preProgram).toContain('(cd "$TRUSTED_BASE_ROOT" && bun --no-env-file src/bootstrap/development/trusted-bootstrap-verification-cli.ts materialize --output "$out/checker.mjs")');
+  expect(preProgram).toContain('SEC_BOOTSTRAP_PHASE=pre');
+  expect(preProgram).not.toContain("<<'CHECKER'");
+  const postProgram = workflow.jobs['checker-post']?.steps.map(value => value.run ?? '').join('\n');
+  expect(postProgram).toContain('sha256sum -c SHA256SUMS');
+  expect(postProgram).toContain('bun "$BOOTSTRAP_EVIDENCE_ROOT/checker.mjs"');
+  expect(postProgram).not.toContain('materialize --output');
   expect([
     createTcbClosureCandidateSnapshot,
     readTcbClosureCandidateFile,
@@ -260,25 +252,23 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];
   expect(sutSteps.some((step) => step.name === 'Checkout exact trusted base checker')).toBe(false);
   expect(sutSteps.some((step) => step.uses?.includes('download-artifact'))).toBe(false);
-  expect(step(workflow, 'candidate-sut', 'Checkout exact trusted base sandbox owner').with)
+  expect(step(workflow, 'candidate-sut', 'Checkout exact trusted hosted launcher').with)
     .toMatchObject({
-      ref: '${{ needs.resolve.outputs.base }}',
+      ref: '${{ github.workflow_sha }}',
       'fetch-depth': 0,
       'persist-credentials': false
     });
   expect(step(workflow, 'candidate-sut', 'Checkout exact candidate SUT only').with)
     .toMatchObject({ path: 'candidate-sut', 'persist-credentials': false });
-  expect(step(workflow, 'candidate-sut', 'Restore exact-base dependency download cache').with)
-    .toMatchObject({
-      path: '/tmp/sec-hosted-dependency-home/.bun/install/cache',
-      key: "${{ runner.os }}-trusted-bootstrap-bun-${{ hashFiles('bun.lock') }}"
-    });
+  expect(workflow.jobs['candidate-sut']?.['runs-on']).toBe('ubuntu-24.04');
+  expect(workflow.jobs['candidate-sut']?.permissions?.['id-token']).toBe('write');
   expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').env)
     .toMatchObject({
-      SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
+      GH_TOKEN: '${{ github.token }}',
+      SEC_HOSTED_NEEDS_JSON: '${{ toJSON(needs) }}'
     });
   expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').run)
-    .toContain('bun src/adapters/verification/platform/ci/verification.ts execute-trusted-bootstrap-sut');
+    .toBe('exec bun --no-env-file src/bootstrap/development/hosted-job-runtime.ts --job candidate-sut --phase execute-trusted-bootstrap-sut');
   expect(sutSteps.some((candidate) =>
     candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];
@@ -336,8 +326,13 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   if (typeof sutUploadPath !== 'string') {
     throw new Error('trusted bootstrap SUT artifact path must be one string.');
   }
-  expect(sutUploadPath.split('\n').filter(Boolean).every((path) => path.startsWith(`${sutArtifactRoot}/`)))
-    .toBe(true);
+  const sutUploadRoot = '${{ github.workspace }}/.tmp/codex/hosted-job/candidate-sut/out/sut';
+  expect(sutUploadPath.split('\n').filter(Boolean).map(path => path.slice(sutUploadRoot.length + 1)))
+    .toEqual(['tcb-lock-pre.json', 'imports.log', 'docs-doctor.log', 'typecheck.log', 'diff-check.log',
+      'focused-tests.log', 'repository-audit.json', 'affected-plan.json', 'affected-tests.log',
+      'tcb-lock-post.json', 'SHA256SUMS', 'sut-receipt.json']);
+  expect(sutUploadPath.split('\n').every(path => path.startsWith(`${sutUploadRoot}/`))).toBe(true);
+  expect(sutUpload.if).toBe('always()');
   const finalUpload = step(workflow, 'checker-post', 'Upload final canonical trusted bootstrap evidence');
   expect(finalUpload.if).toBe('always()');
   expect(finalUpload.with?.['if-no-files-found']).toBe('error');

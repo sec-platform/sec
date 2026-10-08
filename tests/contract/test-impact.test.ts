@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { compileRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../src/adapters/repository/source-program-model/test-impact-projection.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
@@ -13,7 +14,7 @@ import { classifyTestImpactSource } from '../../src/adapters/verification/platfo
 import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 
 function git(root: string, args: readonly string[]): string {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: canonicalGitChildEnvironment() });
   if (result.status !== 0) {
     throw new Error(`Git fixture command failed: git ${args.join(' ')}\n${result.stderr}`);
   }
@@ -30,9 +31,6 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
       ...sources,
       ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
         ? { 'src/compiler/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
-        : {}),
-      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/bootstrap/change-management/upgrade/'))
-        ? { 'src/bootstrap/upgrade/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
         : {})
     };
     for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
@@ -60,10 +58,6 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-}
-
-function semanticSourceProvider(sources: Readonly<Record<string, string>>) {
-  return sourceProvider(sources);
 }
 
 function expectUnique(values: readonly string[]): void {
@@ -204,7 +198,7 @@ test('compiler-resolved named barrel references do not select unrelated consumer
   const facade = 'src/compiler/virtual-public.ts';
   const alphaTest = 'tests/unit/virtual-alpha.test.ts';
   const betaTest = 'tests/unit/virtual-beta.test.ts';
-  const provider = semanticSourceProvider({
+  const provider = sourceProvider({
     [alpha]: 'export const alpha = 1;',
     [beta]: 'export const beta = 2;',
     [facade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
@@ -250,20 +244,33 @@ test('deleted local dependency makes selection unresolved', () => {
   });
 });
 
-test('imported machine data uses the same reverse dependency graph', () => {
+test('imported machine data retains exact consumers for present and missing sources', () => {
   const data = 'src/compiler/virtual-registry.json';
   const consumer = 'src/compiler/virtual-registry-consumer.ts';
   const selected = 'tests/unit/virtual-registry-consumer.test.ts';
-  const provider = sourceProvider({
-      [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
-      [selected]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;"
-  });
+  const unrelated = 'tests/unit/virtual-unrelated.test.ts';
+  const sources = {
+    [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
+    [selected]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;",
+    'src/compiler/virtual-unrelated.ts': 'export const unrelated = true;',
+    [unrelated]: "import { unrelated } from '../../src/compiler/virtual-unrelated.ts'; void unrelated;"
+  };
 
-  expect(selectTestsForSources([data], provider)).toEqual({
-    fast: [selected],
-    slow: [],
-    owners: ['compiler']
-  });
+  for (const dataPresent of [true, false]) {
+    const provider = sourceProvider({
+      ...sources,
+      ...(dataPresent ? { [data]: '{"enabled":true}\n' } : {})
+    });
+    expect(resolveTestImpactSelectionTrustBoundary(provider)).toEqual({
+      selectionResolved: dataPresent,
+      unresolvedModuleFiles: dataPresent ? [] : [consumer]
+    });
+    expect(selectTestsForSources([data], provider)).toEqual({
+      fast: [selected],
+      slow: [],
+      owners: ['compiler']
+    });
+  }
 });
 
 test('non-code product inputs reach tests through semantic module owners', () => {

@@ -1,11 +1,11 @@
 import { compareCodeUnits, stableById, uniqueSorted } from '../../contracts/canonical.ts';
-import { SecError as CompilerError } from '../../contracts/failure.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
 import { SEMANTIC_CONTRACT_FORMAT_VERSION, SEMANTIC_EFFECT_KINDS, SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticContract, type SemanticContractEffect, type SemanticContractEntity, type SemanticContractImport, type SemanticContractOperation, type SemanticContractResponsibility, type SemanticContractResponsibilityBinding, type SemanticContractScenario, type SemanticContractScenarioStep, type SemanticContractState, type SemanticContractTransition } from './types.ts';
 
 function assertId(value: string | undefined, context: string): asserts value is string {
   if (!value?.trim()) {
-    throw new CompilerError('CONTRACT-SEMANTIC-001', `${context} requires a non-empty id`);
+    throw new CodedFailure('CONTRACT-SEMANTIC-001', `${context} requires a non-empty id`);
   }
 }
 
@@ -14,7 +14,7 @@ function assertUniqueIds(values: readonly { id: string }[], context: string): vo
   for (const value of values) {
     assertId(value.id, context);
     if (seen.has(value.id)) {
-      throw new CompilerError('CONTRACT-SEMANTIC-002', `${context} contains duplicate id "${value.id}"`);
+      throw new CodedFailure('CONTRACT-SEMANTIC-002', `${context} contains duplicate id "${value.id}"`);
     }
     seen.add(value.id);
   }
@@ -116,7 +116,7 @@ function isQualifiedReference(value: string): boolean {
   const segments = value.split('::');
   if (segments.length === 1) return false;
   if (segments.length !== 2 || segments.some((segment) => !segment.trim())) {
-    throw new CompilerError('CONTRACT-SEMANTIC-018', `Malformed qualified semantic reference "${value}"`);
+    throw new CodedFailure('CONTRACT-SEMANTIC-018', `Malformed qualified semantic reference "${value}"`);
   }
   return true;
 }
@@ -132,14 +132,14 @@ function targetExists(target: string, entities: Map<string, SemanticContractEnti
 function assertReference(set: ReadonlySet<string>, value: string, context: string): void {
   if (isQualifiedReference(value)) return;
   if (!set.has(value)) {
-    throw new CompilerError('CONTRACT-SEMANTIC-003', `${context} references unknown id "${value}"`);
+    throw new CodedFailure('CONTRACT-SEMANTIC-003', `${context} references unknown id "${value}"`);
   }
 }
 
 function assertTargetReference(entities: Map<string, SemanticContractEntity>, value: string, context: string): void {
   if (isQualifiedReference(value)) return;
   if (!targetExists(value, entities)) {
-    throw new CompilerError('CONTRACT-SEMANTIC-004', `${context} references unknown entity or field "${value}"`);
+    throw new CodedFailure('CONTRACT-SEMANTIC-004', `${context} references unknown entity or field "${value}"`);
   }
 }
 
@@ -150,7 +150,7 @@ function assertOperationResponsibilityConsistency(contract: SemanticContract): v
       if (isQualifiedReference(operationId)) continue;
       const existing = responsibilityByOperation.get(operationId);
       if (existing && existing !== responsibility.id) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'CONTRACT-SEMANTIC-017',
           `Operation "${operationId}" is listed by multiple responsibilities: "${existing}" and "${responsibility.id}"`
         );
@@ -163,7 +163,7 @@ function assertOperationResponsibilityConsistency(contract: SemanticContract): v
     if (isQualifiedReference(operation.responsibility)) continue;
     const listedResponsibility = responsibilityByOperation.get(operation.id);
     if (listedResponsibility !== operation.responsibility) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-017',
         `Operation "${operation.id}" responsibility "${operation.responsibility}" does not match implements owner "${listedResponsibility ?? 'none'}"`
       );
@@ -173,14 +173,14 @@ function assertOperationResponsibilityConsistency(contract: SemanticContract): v
 
 export function normalizeSemanticContract(input: SemanticContract): SemanticContract {
   if (input?.formatVersion !== SEMANTIC_CONTRACT_FORMAT_VERSION) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'CONTRACT-SEMANTIC-005',
       `Semantic contract must use formatVersion "${SEMANTIC_CONTRACT_FORMAT_VERSION}"`
     );
   }
   assertId(input.id, 'Semantic contract');
   if (!input.namespace?.trim()) {
-    throw new CompilerError('CONTRACT-SEMANTIC-006', `Semantic contract "${input.id}" requires namespace`);
+    throw new CodedFailure('CONTRACT-SEMANTIC-006', `Semantic contract "${input.id}" requires namespace`);
   }
 
   const contract: SemanticContract = {
@@ -225,7 +225,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     assertUniqueIds(entity.fields, `Entity "${entity.id}" fields`);
     for (const field of entity.fields) {
       if (!field.type?.trim()) {
-        throw new CompilerError('CONTRACT-SEMANTIC-007', `Field "${entity.id}.${field.id}" requires type`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-007', `Field "${entity.id}.${field.id}" requires type`);
       }
     }
   }
@@ -243,22 +243,22 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     if (!isQualifiedReference(state.entity)) {
       const entity = entities.get(state.entity);
       if (!entity) {
-        throw new CompilerError('CONTRACT-SEMANTIC-008', `State "${state.id}" references unknown entity "${state.entity}"`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-008', `State "${state.id}" references unknown entity "${state.entity}"`);
       }
       if (!entity.fields.some((field) => field.id === state.field)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-009', `State "${state.id}" references unknown field "${state.entity}.${state.field}"`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-009', `State "${state.id}" references unknown field "${state.entity}.${state.field}"`);
       }
     } else if (!state.field?.trim()) {
-      throw new CompilerError('CONTRACT-SEMANTIC-009', `State "${state.id}" requires a field`);
+      throw new CodedFailure('CONTRACT-SEMANTIC-009', `State "${state.id}" requires a field`);
     }
     assertReference(responsibilityIds, state.owner, `State "${state.id}" owner`);
     if (state.values.length === 0) {
-      throw new CompilerError('CONTRACT-SEMANTIC-010', `State "${state.id}" requires at least one value`);
+      throw new CodedFailure('CONTRACT-SEMANTIC-010', `State "${state.id}" requires at least one value`);
     }
     const values = new Set(state.values);
     for (const transition of state.transitions) {
       if (!values.has(transition.from) || !values.has(transition.to)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-011', `State "${state.id}" transition ${transition.from}->${transition.to} uses unknown value`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-011', `State "${state.id}" transition ${transition.from}->${transition.to} uses unknown value`);
       }
       assertReference(operationIds, transition.by, `State "${state.id}" transition`);
     }
@@ -269,7 +269,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     const bindingDeclarations = new Set<string>();
     for (const binding of responsibility.bindings ?? []) {
       if (!SEMANTIC_RESPONSIBILITY_TARGET_KINDS.includes(binding.target.kind)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-019', `Responsibility "${responsibility.id}" binding uses unsupported target kind "${String(binding.target.kind)}"`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-019', `Responsibility "${responsibility.id}" binding uses unsupported target kind "${String(binding.target.kind)}"`);
       }
       assertId(binding.target.id, `Responsibility "${responsibility.id}" binding target`);
       const targetSet = binding.target.kind === 'entity'
@@ -281,16 +281,16 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
             : scenarioIds;
       assertReference(targetSet, binding.target.id, `Responsibility "${responsibility.id}" binding target`);
       if (!binding.declaration.path || !isSafeRelativePath(binding.declaration.path)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-020', `Responsibility "${responsibility.id}" binding declaration path must be repository-relative`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-020', `Responsibility "${responsibility.id}" binding declaration path must be repository-relative`);
       }
       assertId(binding.declaration.exportName, `Responsibility "${responsibility.id}" binding declaration exportName`);
       const targetKey = `${binding.target.kind}:${binding.target.id}`;
       const declarationKey = `${binding.declaration.path}:${binding.declaration.exportName}`;
       if (bindingTargets.has(targetKey)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding target "${targetKey}"`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding target "${targetKey}"`);
       }
       if (bindingDeclarations.has(declarationKey)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding declaration "${declarationKey}"`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding declaration "${declarationKey}"`);
       }
       bindingTargets.add(targetKey);
       bindingDeclarations.add(declarationKey);
@@ -315,7 +315,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
 
   for (const effect of contract.effects) {
     if (!SEMANTIC_EFFECT_KINDS.includes(effect.kind)) {
-      throw new CompilerError('CONTRACT-SEMANTIC-013', `Effect "${effect.id}" uses unsupported kind "${String(effect.kind)}"`);
+      throw new CodedFailure('CONTRACT-SEMANTIC-013', `Effect "${effect.id}" uses unsupported kind "${String(effect.kind)}"`);
     }
   }
 
@@ -328,7 +328,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
       for (const dependency of step.after) assertReference(stepIds, dependency, `Scenario "${scenario.id}" step "${step.id}" after`);
       if (step.onError) assertReference(stepIds, step.onError, `Scenario "${scenario.id}" step "${step.id}" onError`);
       if (step.retryMaxAttempts !== undefined && (!Number.isInteger(step.retryMaxAttempts) || step.retryMaxAttempts < 1)) {
-        throw new CompilerError('CONTRACT-SEMANTIC-014', `Scenario "${scenario.id}" step "${step.id}" retryMaxAttempts must be a positive integer`);
+        throw new CodedFailure('CONTRACT-SEMANTIC-014', `Scenario "${scenario.id}" step "${step.id}" retryMaxAttempts must be a positive integer`);
       }
     }
   }

@@ -33,7 +33,7 @@ const testImpactProvider = () => {
 };
 afterAll(() => testImpactFixture?.dispose());
 const testBudgetProjection = async () => compileTestBudgetProjection((await testImpactProvider()).testInventory);
-const CodexDevelopmentBuildVerificationPlan = async (
+const buildVerificationPlanForTest = async (
   profile: CodexDevelopmentVerificationPlanProfile,
   files: readonly string[] | null
 ) => buildVerificationPlanWithProvider(profile, files, await testImpactProvider());
@@ -70,20 +70,20 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
 });
 
 test('CI translates owner-issued selection into executable plan gates', async () => {
-  const pipeline = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const pipeline = await buildVerificationPlanForTest('quick', [
     'src/adapters/compilation/compose/generate-runtime-library.ts'
   ]);
   expect(pipeline.selectionResolved).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
   expect(pipeline.affectedOwners).toContain('adapters.compilation');
 
-  const runtime = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const runtime = await buildVerificationPlanForTest('quick', [
     'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(runtime.selectionResolved).toBe(true);
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);
 
-  const directSlow = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const directSlow = await buildVerificationPlanForTest('quick', [
     'tests/e2e/dry-run-plan.test.ts'
   ]);
   expect(directSlow).toMatchObject({
@@ -95,7 +95,7 @@ test('CI translates owner-issued selection into executable plan gates', async ()
 }, 180_000);
 
 test('Quick plan resolves the canonical active documentation corpus', async () => {
-  const plan = await CodexDevelopmentBuildVerificationPlan('quick', [...currentActiveDocumentationPaths()]);
+  const plan = await buildVerificationPlanForTest('quick', [...currentActiveDocumentationPaths()]);
 
   expect(plan.selectionResolved).toBe(true);
   expect(plan.gates.map((gate) => gate.id).filter((id) => !id.startsWith('slow-suite-'))).toEqual([
@@ -107,14 +107,14 @@ test('Quick plan resolves the canonical active documentation corpus', async () =
 
 test('Quick docs gate follows the canonical documentation lifecycle owner', async () => {
   for (const file of currentActiveDocumentationPaths()) {
-    const plan = await CodexDevelopmentBuildVerificationPlan('quick', [file]);
+    const plan = await buildVerificationPlanForTest('quick', [file]);
     expect(plan.selectionResolved).toBe(true);
     expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
     expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
     expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
   }
 
-  const unknownDocsYaml = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const unknownDocsYaml = await buildVerificationPlanForTest('quick', [
     'docs/unregistered.manifest.yaml'
   ]);
   expect(unknownDocsYaml.selectionResolved).toBe(false);
@@ -123,7 +123,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', asyn
   expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
     .toHaveLength((await slowTestPrRiskBaselineSuiteIds()).length);
 
-  const documentationExample = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const documentationExample = await buildVerificationPlanForTest('quick', [
     'examples/documentation-example.ts'
   ]);
   expect(documentationExample.gates.map(({ id }) => id)).toContain('docs-doctor');
@@ -161,13 +161,13 @@ test('Git raw path identity reaches canonical validation without separator laund
   const raw = new TextEncoder().encode('M\0docs\\work\\current-state.yaml\0');
   const changedFiles = parseGitChangedFileOutput(raw);
   expect(changedFiles).toEqual(['docs\\work\\current-state.yaml']);
-  await expect(CodexDevelopmentBuildVerificationPlan('quick', changedFiles)).rejects.toThrow(
+  await expect(buildVerificationPlanForTest('quick', changedFiles)).rejects.toThrow(
     'not canonical repository-relative POSIX'
   );
 });
 
 test('Ticket semantic Contract reaches CI through the owner-issued plan boundary', async () => {
-  const selection = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const selection = await buildVerificationPlanForTest('quick', [
     'catalog/registry/official/ticket.basic/contracts/ticket.yaml'
   ]);
   expect(selection).toMatchObject({

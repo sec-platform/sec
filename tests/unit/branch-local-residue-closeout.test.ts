@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
 
 import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import {
@@ -26,7 +27,7 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import {
   executeMergedLocalBranchResidueCloseout,
   parseMergedPullRequestHeads,

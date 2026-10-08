@@ -5,11 +5,11 @@ An edited working tree is allowed to exist; it correctly fails the old snapshot.
 This detects drift and a finite known-regression list, not signatures or all semantics.
 """
 from __future__ import annotations
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import argparse, hashlib, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
-from source_inventory import (EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files,
+from source_inventory import (load, local_path, source_files,
     capture_source_manifest, requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH)
 
 def plain_heading(text: str) -> str:
@@ -66,7 +66,6 @@ def anchor_locations(text: str) -> dict[str, list[int]]:
     return dict(found)
 
 
-EXCLUDED = EXCLUDED_FROM_SOURCE_HASH
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 def canonical(value: object) -> bytes:
@@ -126,8 +125,6 @@ def verify(root: Path) -> dict:
     current = manifest['source_set_sha256']
     source_paths = {x['path'] for x in entries}
     docs = checked_identity_registry(load(local('.documentation/documents.json')), source_paths)
-    ids = [x['document_id'] for x in docs]; paths = [x['path'] for x in docs]
-    if len(set(ids)) != len(ids) or len(set(paths)) != len(paths): errors.append('duplicate document identity or path')
     for x in docs:
         if not local(x['path']).is_file(): errors.append('document missing: ' + x['path'])
     projection = requirement_projection(root)

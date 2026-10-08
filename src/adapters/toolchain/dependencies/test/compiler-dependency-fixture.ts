@@ -1,12 +1,10 @@
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createGeneratedStateCleanupOperationSession } from '../../../../execution/generated-state/cleanup-budget.ts';
 
+import { generatedStateProducerHooks } from '../../../../../tests/helpers/generated-state-fixture.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
-import {
-  createGeneratedStateCleanupOperationSession,
-  generatedStateProducerHooks
-} from '../../../runtime-state/generated-state/lifecycle.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationContext,

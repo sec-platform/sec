@@ -1,6 +1,12 @@
+import path from 'node:path';
+
 import { z } from 'zod';
 
 import { sha256 } from '../../../contracts/canonical.ts';
+import {
+  LINUX_VERIFICATION_RUNTIME_RESERVED_ROOTS,
+  LINUX_VERIFICATION_UNIT_PROFILE
+} from '../../runtime-state/physical/contract/linux-verification-unit.ts';
 import source from './environment-spec.json' with { type: 'json' };
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u)
@@ -26,10 +32,53 @@ const imageRetirement = z.object({
   decision: boundedText
 }).strict();
 
+const nativeProfile = z.object({
+  schema: z.literal('sec-linux-verification-native-profile-v1'),
+  profileId: z.literal('sec-linux-native-verification-unit-v1'),
+  platform: z.literal('linux/amd64'),
+  providerRequirement: z.literal('linux-systemd-cgroup2-native-unit-v1'),
+  resources: z.object({ cpus: z.literal(2), memoryGiB: z.literal(4), pids: z.literal(256) }).strict(),
+  acceptedContent: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('unresolved'), reason: boundedText }).strict(),
+    z.object({ status: z.literal('accepted'), manifestDigest: digest }).strict()
+  ])
+}).strict();
+
+const runtimePath = z.string().min(1).max(4096)
+  .refine((value) => !value.startsWith('/') && !/[\\\u0000-\u0020\u007f]/u.test(value)
+    && value.split('/').every((part) => part !== '' && part !== '.' && part !== '..'));
+const runtimeMode = z.number().int().min(0).max(0o777)
+  .refine((value) => (value & 0o022) === 0);
+const nativeManifestSchema = z.object({
+  schema: z.literal('sec-linux-verification-native-runtime-manifest-v1'),
+  platform: z.literal('linux/amd64'),
+  sources: z.array(z.object({
+    id: shellToken,
+    kind: z.enum(['archive', 'deb']),
+    url: httpsUrl,
+    digest,
+    version: boundedText
+  }).strict()).min(1).max(4096),
+  files: z.array(z.discriminatedUnion('type', [
+    z.object({ path: runtimePath, type: z.literal('directory'), mode: runtimeMode }).strict(),
+    z.object({
+      path: runtimePath, type: z.literal('file'), mode: runtimeMode,
+      size: z.number().int().min(0).max(4 * 1024 * 1024 * 1024), digest, sourceId: shellToken
+    }).strict(),
+    z.object({
+      path: runtimePath, type: z.literal('symlink'), mode: z.literal(0o777),
+      target: z.string().min(1).max(4096), sourceId: shellToken
+    }).strict()
+  ])).min(1).max(100_000)
+}).strict();
+
+export type SecLinuxVerificationNativeRuntimeManifest = z.infer<typeof nativeManifestSchema>;
+
 const authoritySchema = z.object({
   schema: z.literal('sec-linux-verification-environment-authority-v1'),
   environmentId: boundedText,
   platform: z.literal('linux/amd64'),
+  nativeRuntime: nativeProfile,
   image: z.object({
     name: boundedText.regex(/^[a-z0-9]+(?:[._/-][a-z0-9]+)*$/u),
     buildRevision: boundedText,
@@ -156,6 +205,11 @@ export function parseSecLinuxVerificationEnvironmentAuthority(
   const parsed = authoritySchema.safeParse(input);
   if (!parsed.success) fail(z.prettifyError(parsed.error));
   const value = parsed.data;
+  if (value.nativeRuntime.acceptedContent.status === 'accepted'
+      && [value.image.runtimeContentDigest, value.image.dockerProjectionDigest,
+        value.trustedRuntime.imageDigest].includes(value.nativeRuntime.acceptedContent.manifestDigest)) {
+    fail('native runtime manifest cannot relabel a historical image identity');
+  }
   if (value.image.runtimeContentDigest === value.image.dockerProjectionDigest) {
     fail('runtime content and Docker projection identities must remain distinct');
   }
@@ -275,3 +329,103 @@ export const SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST =
   computeSecLinuxVerificationRunnerInputDigest(
     SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
   );
+
+export const SEC_LINUX_VERIFICATION_NATIVE_PROFILE =
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.nativeRuntime;
+export const SEC_LINUX_VERIFICATION_NATIVE_PROFILE_DIGEST =
+  sha256(SEC_LINUX_VERIFICATION_NATIVE_PROFILE) as `sha256:${string}`;
+
+/** Parsing establishes a content description, never a live runtime capability. */
+export function parseSecLinuxVerificationNativeRuntimeManifest(
+  input: unknown
+): SecLinuxVerificationNativeRuntimeManifest {
+  const parsed = nativeManifestSchema.safeParse(input);
+  if (!parsed.success) fail(z.prettifyError(parsed.error));
+  const manifest = parsed.data;
+  const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+  const sources = new Map(manifest.sources.map((entry) => [entry.id, entry]));
+  const files = new Map(manifest.files.map((entry) => [entry.path, entry]));
+  if (sources.size !== manifest.sources.length || files.size !== manifest.files.length) {
+    fail('native runtime sources and paths must be unique');
+  }
+  for (const entries of [manifest.sources.map(({ id }) => id), manifest.files.map(({ path }) => path)]) {
+    if (entries.some((entry, index) => index > 0 && entries[index - 1]! >= entry)) {
+      fail('native runtime sources and paths must be in code-unit order');
+    }
+  }
+  const archives = [
+    ...Object.values(authority.archives),
+    { url: authority.trustedRuntime.bunArchiveUrl, digest: authority.trustedRuntime.bunArchiveDigest,
+      version: authority.trustedRuntime.bunVersion }
+  ];
+  for (const source of manifest.sources) {
+    if (source.kind === 'archive') {
+      if (!archives.some((entry) => entry.url === source.url && entry.digest === source.digest
+          && entry.version === source.version)) fail('native archive must bind an original accepted source');
+    } else {
+      const url = new URL(source.url);
+      if (url.origin !== 'https://snapshot.ubuntu.com'
+          || !url.pathname.startsWith(`/ubuntu/${authority.ubuntu.snapshot}/pool/`)
+          || !url.pathname.endsWith('.deb') || url.username || url.password || url.search || url.hash
+          || /%/u.test(url.pathname)) fail('native package must bind the original Ubuntu snapshot');
+    }
+  }
+  // Resolve symlinks in the manifest's root, never through the host filesystem.
+  const resolveEntry = (requested: string): typeof manifest.files[number] => {
+    let pending = requested.split('/');
+    const resolved: string[] = [];
+    let links = 0;
+    while (pending.length > 0) {
+      const part = pending.shift()!;
+      const entryPath = [...resolved, part].join('/');
+      const entry = files.get(entryPath);
+      if (entry === undefined) fail(`native runtime target is missing: ${entryPath}`);
+      if (entry.type === 'symlink') {
+        if (++links > 64) fail('native runtime symlink cycle or depth exceeded');
+        const target = path.posix.normalize(path.posix.join(...resolved, entry.target));
+        if (target === '..' || target.startsWith('../') || target.startsWith('/')) {
+          fail('native runtime symlink escapes its root');
+        }
+        pending = [...target.split('/'), ...pending];
+        resolved.length = 0;
+      } else {
+        if (pending.length > 0 && entry.type !== 'directory') fail('native runtime parent is not a directory');
+        resolved.push(part);
+      }
+    }
+    return files.get(resolved.join('/'))!;
+  };
+  let totalBytes = 0;
+  for (const entry of manifest.files) {
+    if (LINUX_VERIFICATION_RUNTIME_RESERVED_ROOTS.includes(entry.path.split('/')[0]!)) {
+      fail('native runtime path overlaps a reserved verification-unit root');
+    }
+    const parent = path.posix.dirname(entry.path);
+    if (parent !== '.' && files.get(parent)?.type !== 'directory') {
+      fail('native runtime entries require declared non-symlink parents');
+    }
+    if (entry.type !== 'directory' && !sources.has(entry.sourceId)) fail('native runtime source is missing');
+    if (entry.type === 'symlink') {
+      if (entry.target.startsWith('/') || /[\\\u0000-\u0020\u007f]/u.test(entry.target)
+          || path.posix.normalize(entry.target) !== entry.target) fail('native runtime symlink target is not canonical');
+      resolveEntry(entry.path);
+    }
+    if (entry.type === 'file') totalBytes += entry.size;
+  }
+  if (totalBytes > LINUX_VERIFICATION_UNIT_PROFILE.maximumSnapshotBytes) {
+    fail('native runtime exceeds the verification-unit content byte bound');
+  }
+  const bun = resolveEntry(authority.trustedRuntime.bunExecutablePath.slice(1));
+  if (bun.type !== 'file' || bun.digest !== authority.trustedRuntime.bunExecutableDigest
+      || (bun.mode & 0o111) === 0
+      || sources.get(bun.sourceId)?.digest !== authority.trustedRuntime.bunArchiveDigest) {
+    fail('native runtime must contain the original accepted Bun executable');
+  }
+  for (const executable of ['usr/bin/python3', 'usr/bin/git', 'usr/bin/env', 'usr/bin/unshare', 'usr/bin/setpriv', 'bin/sh']) {
+    const entry = resolveEntry(executable);
+    if (entry.type !== 'file' || (entry.mode & 0o111) === 0) {
+      fail(`native runtime executable is missing: ${executable}`);
+    }
+  }
+  return deepFreeze(manifest);
+}

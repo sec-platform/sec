@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync, fchmodSync, fstatSync, fsyncSync, readSync, writeFileSync
+  closeSync, fchmodSync, fstatSync, fsyncSync, readSync, writeFileSync, writeSync
 } from 'node:fs';
 import path from 'node:path';
 
 import {
-  assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain
+  assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess
 } from './physical-directory-chain.ts';
 import {
   inspectNoFollowOrdinaryFileEntry,
@@ -18,6 +18,7 @@ import {
   type DurableCanonicalFilePublicationReceipt,
   type DurableCanonicalFileReplacementRecovery,
   type PhysicalDirectoryIdentity,
+  type PhysicalDirectoryChain,
   type RetainedNoFollowFileObservation,
   type RetainedNoFollowFileTransaction,
   type RetainedNoFollowFileTransactionTestActor,
@@ -34,7 +35,7 @@ import {
   WINDOWS_SHARE_READ_WRITE_DELETE, WINDOWS_SYNCHRONIZE,
   closeLinuxDescriptorsBestEffort, closeWindowsHandle, closeWindowsHandlesBestEffort,
   inspectLinuxDirectoryChain, linuxErrno, linuxIdentity, linuxOpenAt, linuxOpenLeafAt,
-  linuxOpenReadableLeafAt, linuxOpenRetainedAbsoluteDirectory, linuxOpenRoot,
+  linuxOpenReadableLeafAt, linuxOpenAppendLeafAt, linuxOpenRetainedAbsoluteDirectory, linuxOpenRoot,
   readLinuxRetainedFile, readWindowsRetainedFile, requireLinuxLibc, requireWindowsKernel32,
   windowsFlushRetainedDirectory, windowsIdentity, windowsMarkRetainedLeafForDelete,
   windowsOpenDirectory, windowsOpenRelativeDirectory, windowsOpenRelativeLeaf,
@@ -51,8 +52,63 @@ import {
   retainedNoFollowOrdinaryFilePosixMetadataForInternal,
   type RetainedNoFollowPosixMetadataForInternal
 } from './physical-retained-file.ts';
+import { settleResources } from '../../../../execution/resource-settlement.ts';
 
 /** Durable canonical-file publication, transaction and replacement recovery. */
+
+/** Append a bounded projection through a retained parent and the opened leaf.
+ * The caller owns authorization of this existing destination. This does not
+ * authenticate a pathname or exclude another writer with the same privileges. */
+export function appendExistingNoFollowOrdinaryFile(input: Readonly<{
+  parent: PhysicalDirectoryChain;
+  name: string;
+  bytes: Uint8Array;
+  maximumFileBytes: number;
+}>): void {
+  if (process.platform !== 'linux') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained append currently requires Linux.');
+  }
+  const { parent, name, maximumFileBytes } = input;
+  ensureLeafName(name);
+  if (!Number.isSafeInteger(maximumFileBytes) || maximumFileBytes < 1
+      || maximumFileBytes > NO_FOLLOW_FILE_READ_LIMIT_BYTES
+      || !(input.bytes instanceof Uint8Array) || input.bytes.byteLength > maximumFileBytes) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained append byte bound is invalid.');
+  }
+  const bytes = Buffer.from(input.bytes);
+  const retained = retainNoFollowDirectoryForChildProcess(parent, 3, 'Retained append parent');
+  let fd: number | undefined;
+  let failure: { error: unknown } | undefined;
+  try {
+    retained.assertCurrent();
+    const parentFd = retained.stdioSourceDescriptor;
+    if (parentFd === undefined || parentFd === null) throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained append lacks its parent descriptor.');
+    fd = linuxOpenAppendLeafAt(parentFd, name, 'Retained append leaf');
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.nlink !== 1 || before.size + bytes.length > maximumFileBytes) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained append target is not one bounded ordinary file.');
+    }
+    assertSameNoFollowDirectoryIdentity(parent.target, 'Retained append parent before effect');
+    if (writeSync(fd, bytes) !== bytes.length) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Retained append was only partially written.');
+    fsyncSync(fd);
+    const after = fstatSync(fd);
+    const observed = Buffer.alloc(bytes.length);
+    if (after.nlink !== 1 || after.size !== before.size + bytes.length
+        || readSync(fd, observed, 0, observed.length, before.size) !== bytes.length
+        || !observed.equals(bytes)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Retained append readback differs; effect outcome requires observation.');
+    }
+    retained.assertCurrent();
+    assertSameNoFollowDirectoryIdentity(parent.target, 'Retained append parent after effect');
+  } catch (error) { failure = { error }; }
+  settleResources({
+    ...(failure === undefined ? {} : { primary: { label: 'retained append', error: failure.error } }),
+    cleanup: [
+      { label: 'append descriptor', settle: () => { if (fd !== undefined) closeSync(fd); } },
+      { label: 'append parent', settle: () => retained.dispose() }
+    ]
+  });
+}
 
 function syncDirectory(parent: PhysicalDirectoryIdentity): void {
   assertSameNoFollowDirectoryIdentity(parent, 'Durable publication parent');

@@ -115,59 +115,18 @@ test('gate-result parser fails closed on unknown transport schema', () => {
   }))).toThrow('schema is not supported');
 });
 
-function githubProviderFetch(defaultBranches: readonly string[]): Readonly<{
+function githubProviderFetch(): Readonly<{
   calls: string[];
   fetchImpl: GitHubApiTransport;
 }> {
   const calls: string[] = [];
-  let repositoryReads = 0;
-  const status = {
-    id: 123,
-    state: 'success',
-    context: 'sec/integration-authorization',
-    description: `gate ${'a'.repeat(12)} rules ${'8'.repeat(12)}`,
-    target_url: 'https://github.com/sec-platform/sec/pull/496',
-    creator: { login: 'sec-integrator[bot]', id: 900001 }
+  return {
+    calls,
+    fetchImpl: async (target) => {
+      calls.push(String(target));
+      throw new Error('Unexpected provider request before trusted-runtime qualification.');
+    }
   };
-  const response = (value: unknown): Response => new Response(JSON.stringify(value), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' }
-  });
-  const fetchImpl = async (
-    input: string | URL | Request,
-    init?: RequestInit
-  ): Promise<Response> => {
-    const url = input instanceof Request ? input.url : String(input);
-    const method = init?.method ?? 'GET';
-    const parsed = new URL(url);
-    const requestPath = parsed.pathname + parsed.search;
-    calls.push(`${method} ${requestPath}`);
-    if (method === 'GET' && requestPath === '/repos/sec-platform/sec') {
-      const defaultBranch = defaultBranches[Math.min(repositoryReads, defaultBranches.length - 1)]!;
-      repositoryReads += 1;
-      return response({ full_name: 'sec-platform/sec', default_branch: defaultBranch });
-    }
-    if (method === 'GET' && requestPath === '/repos/sec-platform/sec/pulls/496') {
-      return response({
-        state: 'open',
-        draft: false,
-        base: { ref: 'release/next', sha: BASE },
-        head: { sha: HEAD }
-      });
-    }
-    if (method === 'GET' && requestPath === '/repos/sec-platform/sec/branches/release%2Fnext') {
-      return response({ commit: { sha: BASE } });
-    }
-    if (method === 'POST' && requestPath === `/repos/sec-platform/sec/statuses/${HEAD}`) {
-      return response(status);
-    }
-    if (method === 'GET'
-        && requestPath === `/repos/sec-platform/sec/commits/${HEAD}/statuses?per_page=100&page=1`) {
-      return response([status]);
-    }
-    return new Response(JSON.stringify({ message: 'unexpected request' }), { status: 404 });
-  };
-  return Object.freeze({ calls, fetchImpl });
 }
 
 async function publishWithProvider(
@@ -192,7 +151,8 @@ async function publishWithProvider(
     operation: async () => await publishIntegrationAuthorizationStatus({
       result: gateResult,
       targetUrl: 'https://github.com/sec-platform/sec/pull/496',
-      capability
+      repositoryRoot: process.cwd(),
+      expectedPrincipal: { login: 'sec-integrator[bot]', nodeId: 'MDQ6VXNlcjkwMDAwMQ==', userId: 900001 }
     })
   });
 }
@@ -201,7 +161,7 @@ async function publishWithProvider(
 // readbacks never established an actual producer qualification; those live
 // post-qualification obligations require the real integration fixture.
 test('terminal publisher rejects caller Gate data before any provider request', async () => {
-  const provider = githubProviderFetch(['release/next', 'release/next']);
+  const provider = githubProviderFetch();
   const { resultDigest: _oldDigest, ...data } = result();
   const rehashed = { ...data, resultDigest: sha256(data) as `sha256:${string}` };
   await expect(publishWithProvider(provider, rehashed))
@@ -219,7 +179,7 @@ test('terminal publisher rejects omitted or relabelled transition JSON before pr
   for (const fields of variants) {
     const { resultDigest: _oldDigest, ...data } = fields;
     const callerResult = { ...data, resultDigest: sha256(data) } as unknown as IntegrationAuthorizationGateResult;
-    const provider = githubProviderFetch(['release/next', 'other-default']);
+    const provider = githubProviderFetch();
     await expect(publishWithProvider(provider, callerResult))
       .rejects.toThrow('actual trusted-runtime transition producer');
     expect(provider.calls).toEqual([]);

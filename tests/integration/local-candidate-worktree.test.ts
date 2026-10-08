@@ -4,6 +4,7 @@ import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, rea
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
 
 import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { createLocalGitWorktreeAddFailureActorForTests } from '../../src/adapters/providers/git/local-worktree.ts';
@@ -39,7 +40,7 @@ async function withFixture(run: (value: ReturnType<typeof fixture>, lease: Local
   const value = fixture();
   let lease: LocalCandidateWorktreeLease | undefined;
   try {
-    lease = await acquireLocalCandidateWorktree(value.input);
+    lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     await run(value, lease);
   } finally {
     await lease?.release();
@@ -92,7 +93,7 @@ test('acquisition rejects a mismatched native worktree registration without remo
     const bytes = readFileSync(lease.markerPath);
     const admin = readFileSync(path.join(lease.owner.candidateRoot, '.git'), 'utf8').trim().slice('gitdir: '.length);
     writeFileSync(path.join(admin, 'gitdir'), `${path.join(value.root, 'different', '.git')}\n`);
-    await expect(acquireLocalCandidateWorktree(value.input)).rejects.toThrow();
+    await expect(acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations)).rejects.toThrow();
     expect(existsSync(lease.owner.candidateRoot)).toBe(true);
     expect(readFileSync(lease.markerPath)).toEqual(bytes);
   });
@@ -122,7 +123,7 @@ test.skipIf(process.platform !== 'linux')('settled native checkout failure canno
     const headSha = git(value.root, '-c', 'user.name=Candidate Fixture', '-c', 'user.email=candidate@example.invalid',
       'commit-tree', headTreeSha, '-p', 'HEAD', '-m', 'unmaterializable native candidate');
     const target = path.join(value.root, '.tmp', 'codex', 'verification-session-candidates', headSha);
-    await expect(acquireLocalCandidateWorktree({ ...value.input, candidate: { headSha, headTreeSha } }))
+    await expect(acquireLocalCandidateWorktree({ ...value.input, candidate: { headSha, headTreeSha } }, worktreePhysicalCloseoutOperations))
       .rejects.toThrow(/Local Git command failed|not clean/u);
     // Native Git is the oracle for its own partial-effect settlement. The
     // session must not issue a lease or erase the recovery owner marker.
@@ -139,14 +140,14 @@ test('prepared acquisition failure remains retryable and genuine same-process cl
   try {
     const failureActor = createLocalGitWorktreeAddFailureActorForTests({ phase: 'before-start',
       fail: async () => { throw new Error('fixture admission failed before native start'); } });
-    await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor })).rejects.toThrow('before native start');
+    await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor }, worktreePhysicalCloseoutOperations)).rejects.toThrow('before native start');
     const markerPath = path.join(value.root, '.tmp', 'codex', 'verification-session-candidates', `${value.input.candidate.headSha}.owner.json`);
     expect(JSON.parse(readFileSync(markerPath, 'utf8')).attempt.phase).toBe('prepared');
-    lease = await acquireLocalCandidateWorktree(value.input);
+    lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     expect(lease.reused).toBe(false);
     expect(JSON.parse(readFileSync(markerPath, 'utf8')).attempt.phase).toBe('settled');
     await lease.release();
-    lease = await acquireLocalCandidateWorktree(value.input);
+    lease = await acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations);
     expect(lease.reused).toBe(true);
     expect(git(lease.owner.candidateRoot, 'rev-parse', 'HEAD')).toBe(value.input.candidate.headSha);
     expect(git(lease.owner.candidateRoot, 'status', '--porcelain=v1')).toBe('');
@@ -208,11 +209,11 @@ for (const residue of ['present', 'absent'] as const) {
       // Repointing JSON at it must not bypass a different unresolved add.
       const preparedFailure = createLocalGitWorktreeAddFailureActorForTests({ phase: 'before-start',
         fail: async () => { throw new Error('fixture prepared decoy, no native start'); } });
-      await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor: preparedFailure })).rejects.toThrow('prepared decoy');
+      await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor: preparedFailure }, worktreePhysicalCloseoutOperations)).rejects.toThrow('prepared decoy');
       const preparedMarkerPath = path.join(value.root, '.tmp', 'codex', 'verification-session-candidates', `${value.input.candidate.headSha}.owner.json`);
       const preparedDecoy = JSON.parse(readFileSync(preparedMarkerPath, 'utf8'));
       rmSync(preparedMarkerPath);
-      await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor })).rejects.toThrow('genuinely unproven');
+      await expect(acquireLocalCandidateWorktree({ ...value.input, failureActor }, worktreePhysicalCloseoutOperations)).rejects.toThrow('genuinely unproven');
       const target = path.join(value.root, '.tmp', 'codex', 'verification-session-candidates', value.input.candidate.headSha);
       const markerPath = `${target}.owner.json`;
       const markerBytes = readFileSync(markerPath);
@@ -223,7 +224,7 @@ for (const residue of ['present', 'absent'] as const) {
         expect(git(target, 'rev-parse', 'HEAD^{tree}')).toBe(value.input.candidate.headTreeSha);
         expect(git(target, 'status', '--porcelain=v1')).toBe('');
       }
-      await expect(acquireLocalCandidateWorktree(value.input)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
+      await expect(acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
       expect(readFileSync(markerPath)).toEqual(markerBytes);
       expect(nativeStarts).toBe(1);
       expect(nativeChild!.exitCode).toBeNull();
@@ -233,12 +234,12 @@ for (const residue of ['present', 'absent'] as const) {
       forged.attempt.phase = 'settled';
       forged.attempt.settlementDigest = `sha256:${'9'.repeat(64)}`;
       writeFileSync(markerPath, `${JSON.stringify(forged)}\n`);
-      await expect(acquireLocalCandidateWorktree(value.input)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
+      await expect(acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
       for (const attemptId of [forged.attempt.attemptId, '00000000-0000-0000-0000-000000000001', preparedDecoy.attempt.attemptId]) {
         forged.attempt = { attemptId, phase: 'prepared', settlementDigest: null };
         const forgedBytes = `${JSON.stringify(forged)}\n`;
         writeFileSync(markerPath, forgedBytes);
-        await expect(acquireLocalCandidateWorktree(value.input)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
+        await expect(acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations)).rejects.toMatchObject({ reason: 'attempt-unresolved' });
         expect(readFileSync(markerPath, 'utf8')).toBe(forgedBytes);
         expect(existsSync(target)).toBe(residue === 'present');
       }
@@ -277,7 +278,7 @@ test('legacy candidate marker cannot imply prior-attempt closure and is preserve
     const owner = JSON.parse(readFileSync(lease.markerPath, 'utf8')).owner;
     const legacy = `${JSON.stringify(owner)}\n`;
     writeFileSync(lease.markerPath, legacy);
-    await expect(acquireLocalCandidateWorktree(value.input)).rejects.toMatchObject({ reason: 'legacy-attempt-unknown' });
+    await expect(acquireLocalCandidateWorktree(value.input, worktreePhysicalCloseoutOperations)).rejects.toMatchObject({ reason: 'legacy-attempt-unknown' });
     expect(readFileSync(lease.markerPath, 'utf8')).toBe(legacy);
     expect(existsSync(lease.owner.candidateRoot)).toBe(true);
   });

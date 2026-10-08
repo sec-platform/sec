@@ -5,26 +5,20 @@ import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationSte
 import { compareCodeUnits } from '../../contracts/canonical.ts';
 import type { CommitFence } from "../../contracts/commit-fence.ts";
 import { relativePosixPath } from '../../contracts/relative-path.ts';
+import type { DependencyProjectOperation } from '../../execution/dependency-materialization.ts';
 import { defaultLogger } from '../diagnostics/json-logger.ts';
 import { listFilesRecursive } from '../filesystem/discovery.ts';
 import { writeText } from "../filesystem/files.ts";
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, runCommand } from '../runtime-state/physical/runtime/process.ts';
 import {
-  ensureProjectDependencies,
-  withProjectDependencyBridge
+  ensureProjectDependencies
 } from '../toolchain/dependencies/runtime.ts';
 import { compilerRoot, getWorkspacePaths } from "../workspace-context.ts";
 import {
   assertIsolatedStagingTree,
   type IsolatedStagingTreeOptions
 } from './assert-isolated-staging-tree.ts';
-import {
-  withSemanticMutationIsolatedPhaseTelemetry,
-  type SemanticMutationIsolatedPhase
-} from './isolation/isolated-verification-phase-telemetry.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
-
-type RuntimeVerificationMode = 'service' | 'full';
 
 export interface IsolatedRuntimeDependencySources {
   readonly compilerModulesRoot: string;
@@ -144,26 +138,17 @@ async function timed<T>(label: string, emitTiming: boolean, execute: () => Promi
 
 export async function runRuntimeVerification(
   workspaceRoot: string,
-  _mode: RuntimeVerificationMode = 'full',
-  options: RuntimeVerificationOptions = {}
+  options: RuntimeVerificationOptions = {},
+  dependencies: DependencyProjectOperation
 ): Promise<RuntimeVerificationLaneReport> {
   const isolated = options.isolated === true;
   if (isolated && !options.stagingWorkspaceRoot) {
     throw new Error('Isolated runtime verification requires its staging workspace root');
   }
-  const withPhase = async <T>(
-    phase: SemanticMutationIsolatedPhase,
-    execute: () => Promise<T>
-  ): Promise<T> => isolated
-    ? withSemanticMutationIsolatedPhaseTelemetry(options.stagingWorkspaceRoot!, phase, execute)
-    : execute();
-
-  const runtimeUnitFiles = await withPhase('runtime-test-discovery', async () =>
-    relativeRuntimeUnitFiles(
-      workspaceRoot,
-      (await listFilesRecursive(path.join(getWorkspacePaths(workspaceRoot).testsRoot, 'runtime', 'unit')))
-        .filter((file) => file.endsWith('.test.ts'))
-    )
+  const runtimeUnitFiles = relativeRuntimeUnitFiles(
+    workspaceRoot,
+    (await listFilesRecursive(path.join(getWorkspacePaths(workspaceRoot).testsRoot, 'runtime', 'unit')))
+      .filter((file) => file.endsWith('.test.ts'))
   );
 
   const lane: RuntimeVerificationLaneReport = {
@@ -183,11 +168,11 @@ export async function runRuntimeVerification(
   if (runtimeUnitFiles.length === 0) return lane;
 
   if (isolated) {
-    await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
+    await ensureProjectDependencies(workspaceRoot, {
       beforeCommit: options.beforeCommit,
       signal: options.signal,
       installMode: 'prebound-only'
-    }));
+    });
   }
 
   const isolatedRuntimeRoot = isolated
@@ -197,15 +182,11 @@ export async function runRuntimeVerification(
     ? path.join(isolatedRuntimeRoot, 'bunfig.toml')
     : undefined;
   if (isolatedRuntimeRoot && isolatedConfigPath) {
-    await withPhase('runtime-process-environment-materialize', async () => {
-      await ensureIsolatedProcessDirectories(isolatedRuntimeRoot, options.beforeCommit);
-      await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
-    });
+    await ensureIsolatedProcessDirectories(isolatedRuntimeRoot, options.beforeCommit);
+    await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
   }
   if (isolated) {
-    await withPhase('runtime-staging-tree-validation', () =>
-      assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions)
-    );
+    await assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions);
   }
 
   const environment = isolated
@@ -228,11 +209,14 @@ export async function runRuntimeVerification(
     );
     const result = isolated
       ? await executeRuntimeUnit()
-      : await withPhase('runtime-dependency-validation', () => withProjectDependencyBridge(
+      : await (async () => {
+          if (dependencies === undefined) throw new Error('Live runtime verification requires its bound dependency operation.');
+          return dependencies.withProjectDependencyBridge(
           workspaceRoot,
           executeRuntimeUnit,
           { beforeCommit: options.beforeCommit, signal: options.signal }
-        ));
+          );
+        })();
     const status = normalizeStatus(result.code);
     lane.status = status;
     lane.unit = {

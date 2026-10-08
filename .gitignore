@@ -29,10 +29,6 @@ test-results/
 report/
 .gitnexus/
 graphify-out/
-.claude/scheduled_tasks.lock
-.claude/settings.local.json
-.claude/skills/
-.claude/worktrees/
 .VSCodeCounter/
 CLAUDE.md
 .trae/

@@ -6,47 +6,48 @@ import path from 'node:path';
 
 import { afterAll, test as bunTest, expect } from 'bun:test';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
   issueGitHubApiTestCapability,
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import {
-  CodexDevelopmentActivateMainHealthRepairRollingPlan,
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentAssertInitiallyAbsentEntryTransition,
-  CodexDevelopmentClassifyFreezeConvergence,
-  CodexDevelopmentClassifyInitiallyAbsentEntryTuple,
-  CodexDevelopmentClassifyPublishedControlBinding,
-  CodexDevelopmentClassifyTerminalRetirementPrefix,
-  CodexDevelopmentCreateFreezeProjection,
-  CodexDevelopmentDocumentControlRecoveryEntryStem,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingPlan,
-  CodexDevelopmentResolveActiveWorkPackage,
-  CodexDevelopmentResolveWorkSelectionProjectionMode,
-  type CodexDevelopmentActivePointer,
-  type CodexDevelopmentDocumentControlRecoveryTargetKey,
-  type CodexDevelopmentInitiallyAbsentTuple,
-  type CodexDevelopmentInitiallyAbsentTupleByteClass,
-  type CodexDevelopmentInitiallyAbsentTupleEdge,
-  type CodexDevelopmentInitiallyAbsentTupleEntry,
-  type CodexDevelopmentInitiallyAbsentTuplePlatform,
-  type CodexDevelopmentInitiallyAbsentTupleState
+  activateMainHealthRepairRollingPlan,
+  assertControlPlaneBinding,
+  assertInitiallyAbsentEntryTransition,
+  classifyFreezeConvergence,
+  classifyInitiallyAbsentEntryTuple,
+  classifyPublishedControlBinding,
+  classifyTerminalRetirementPrefix,
+  createFreezeProjection,
+  documentControlRecoveryEntryStem,
+  parseActivePointer,
+  parseCurrentStateSpec,
+  parseRollingPlan,
+  resolveActiveWorkPackage,
+  resolveWorkSelectionProjectionMode,
+  type ActivePointer,
+  type DocumentControlRecoveryTargetKey,
+  type InitiallyAbsentTuple,
+  type InitiallyAbsentTupleByteClass,
+  type InitiallyAbsentTupleEdge,
+  type InitiallyAbsentTupleEntry,
+  type InitiallyAbsentTuplePlatform,
+  type InitiallyAbsentTupleState
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
-  CodexDevelopmentDurabilityBarrierError,
-  CodexDevelopmentUnsafeAnchoredPathError,
+  DurabilityBarrierError,
+  UnsafeAnchoredPathError,
   createDocumentControlRoutingTestActorForTests,
   freezeDocumentControlPlane,
   observeActiveWorkPackage,
   projectDocumentControlPlaneStatusCli,
   resolveLiveControlPlane,
-  withDocumentControlHostCliTestSessionV1,
-  type CodexDevelopmentDurabilityEvent,
-  type CodexDevelopmentFreezeFault,
-  type CodexDevelopmentFreezeResult
+  withDocumentControlHostCliTestSession,
+  type DurabilityEvent,
+  type FreezeFault,
+  type FreezeResult
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
 import {
   createMainHealthLedger,
@@ -60,24 +61,24 @@ import {
 } from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
-  SEC_ROADMAP_WORK_CATALOG_BEGIN,
-  SEC_ROADMAP_WORK_CATALOG_END,
-  compileSecRoadmapTerminalCompaction,
-  createSecWorkCurrentSpecObservation,
-  createSecWorkDecisionReceipt,
-  createSecWorkRegistryObservation,
+  ROADMAP_WORK_CATALOG_BEGIN,
+  ROADMAP_WORK_CATALOG_END,
+  compileRoadmapTerminalCompaction,
+  createWorkCurrentSpecObservation,
+  createWorkDecisionReceipt,
+  createWorkRegistryObservation,
   currentSpecRevisionFromBody,
-  parseSecRoadmapWorkCatalog,
-  renderSecWorkRollingPlan
+  parseRoadmapWorkCatalog,
+  renderWorkRollingSelectionPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { digest, rawSha256 } from '../../src/contracts/canonical.ts';
 import {
-  SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
-  SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-  SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1,
-  compileSecDocumentControlFreezeChildFailureV1,
-  parseSecDocumentControlFreezeChildFailureV1,
-  renderSecDocumentControlFreezeChildFailureV1
+  DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES,
+  DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
+  DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE,
+  compileDocumentControlFreezeChildFailure,
+  parseDocumentControlFreezeChildFailure,
+  renderDocumentControlFreezeChildFailure
 } from '../helpers/document-control-freeze-child-failure.ts';
 
 const fixtureGitHubCapabilities = new Map<string, ReturnType<typeof issueGitHubApiTestCapability>>();
@@ -193,7 +194,7 @@ const documentControlRoutingTestActor = createDocumentControlRoutingTestActorFor
       cwd,
       encoding: 'buffer',
       windowsHide: true,
-      env: environment === undefined ? process.env : { ...process.env, ...environment }
+      env: environment ?? canonicalGitChildEnvironment()
     });
     return {
       status: result.status,
@@ -206,7 +207,7 @@ const documentControlRoutingTestActor = createDocumentControlRoutingTestActorFor
 const test = Object.assign(
   ((name: string, operation: () => void | Promise<unknown>, options?: unknown) => bunTest(
     name,
-    () => withDocumentControlHostCliTestSessionV1(operation, documentControlRoutingTestActor),
+    () => withDocumentControlHostCliTestSession(operation, documentControlRoutingTestActor),
     options as never
   )) as typeof bunTest,
   {
@@ -214,7 +215,7 @@ const test = Object.assign(
       const register = bunTest.skipIf(condition);
       return ((name: string, operation: () => void | Promise<unknown>, options?: unknown) => register(
         name,
-        () => withDocumentControlHostCliTestSessionV1(operation, documentControlRoutingTestActor),
+        () => withDocumentControlHostCliTestSession(operation, documentControlRoutingTestActor),
         options as never
       ));
     }
@@ -230,25 +231,25 @@ const FREEZE_TARGET_ID = 'freeze-target-v1';
 const FREEZE_TARGET_PATH = `config/repository/work-packages/${FREEZE_TARGET_ID}.md`;
 
 test('initially-absent pure T/N/R contract exhaustively owns classification and its five edges', () => {
-  const byteClasses: readonly CodexDevelopmentInitiallyAbsentTupleByteClass[] = [
+  const byteClasses: readonly InitiallyAbsentTupleByteClass[] = [
     'absent', 'exact-next', 'unknown'
   ];
   const identities = [null, '', 'A', 'B'] as const;
   const entries = byteClasses.flatMap((byteClass) => identities.map((identity) => Object.freeze({
     byteClass,
     identity
-  }) as CodexDevelopmentInitiallyAbsentTupleEntry));
+  }) as InitiallyAbsentTupleEntry));
   const absent = Object.freeze({ byteClass: 'absent' as const, identity: null });
   const exactA = Object.freeze({ byteClass: 'exact-next' as const, identity: 'A' });
   const exactB = Object.freeze({ byteClass: 'exact-next' as const, identity: 'B' });
   const tuple = (
-    target: CodexDevelopmentInitiallyAbsentTupleEntry = absent,
-    next: CodexDevelopmentInitiallyAbsentTupleEntry = absent,
-    retiredNext: CodexDevelopmentInitiallyAbsentTupleEntry = absent
-  ): CodexDevelopmentInitiallyAbsentTuple => Object.freeze({ target, next, retiredNext });
+    target: InitiallyAbsentTupleEntry = absent,
+    next: InitiallyAbsentTupleEntry = absent,
+    retiredNext: InitiallyAbsentTupleEntry = absent
+  ): InitiallyAbsentTuple => Object.freeze({ target, next, retiredNext });
   const expectedClassification = (
-    platform: CodexDevelopmentInitiallyAbsentTuplePlatform,
-    observation: CodexDevelopmentInitiallyAbsentTuple
+    platform: InitiallyAbsentTuplePlatform,
+    observation: InitiallyAbsentTuple
   ) => {
     const values = [observation.target, observation.next, observation.retiredNext];
     if (values.some((entry) => (
@@ -261,7 +262,7 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
       return { status: 'invalid', reason: 'unknown-bytes' } as const;
     }
     const topology = values.map((entry) => entry.byteClass).join('/');
-    const stateByTopology: Readonly<Record<string, CodexDevelopmentInitiallyAbsentTupleState>> = platform === 'win32'
+    const stateByTopology: Readonly<Record<string, InitiallyAbsentTupleState>> = platform === 'win32'
       ? {
           'absent/absent/absent': 'win32-w0',
           'absent/exact-next/absent': 'win32-w1',
@@ -285,7 +286,7 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
   for (const platform of ['win32', 'linux'] as const) {
     for (const target of entries) for (const next of entries) for (const retiredNext of entries) {
       const observation = tuple(target, next, retiredNext);
-      expect(CodexDevelopmentClassifyInitiallyAbsentEntryTuple({ platform, tuple: observation })).toEqual(
+      expect(classifyInitiallyAbsentEntryTuple({ platform, tuple: observation })).toEqual(
         expectedClassification(platform, observation)
       );
     }
@@ -308,23 +309,23 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
     { target: absent, next: absent, retiredNext: { byteClass: 'unknown', identity: '' } }
   ];
   for (const malformed of malformedRows) {
-    expect(CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-      platform: 'linux', tuple: malformed as CodexDevelopmentInitiallyAbsentTuple
+    expect(classifyInitiallyAbsentEntryTuple({
+      platform: 'linux', tuple: malformed as InitiallyAbsentTuple
     })).toEqual({ status: 'invalid', reason: 'malformed-observation' });
   }
-  expect(CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-    platform: 'darwin' as CodexDevelopmentInitiallyAbsentTuplePlatform,
-    tuple: null as unknown as CodexDevelopmentInitiallyAbsentTuple
+  expect(classifyInitiallyAbsentEntryTuple({
+    platform: 'darwin' as InitiallyAbsentTuplePlatform,
+    tuple: null as unknown as InitiallyAbsentTuple
   })).toEqual({ status: 'invalid', reason: 'unsupported-platform' });
-  expect(CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
+  expect(classifyInitiallyAbsentEntryTuple({
     platform: 'linux',
-    tuple: tuple({ byteClass: 'unknown', identity: null } as CodexDevelopmentInitiallyAbsentTupleEntry)
+    tuple: tuple({ byteClass: 'unknown', identity: null } as InitiallyAbsentTupleEntry)
   })).toEqual({ status: 'invalid', reason: 'malformed-observation' });
-  expect(CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
+  expect(classifyInitiallyAbsentEntryTuple({
     platform: 'linux',
     tuple: tuple({ byteClass: 'unknown', identity: 'A' })
   })).toEqual({ status: 'invalid', reason: 'unknown-bytes' });
-  expect(CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
+  expect(classifyInitiallyAbsentEntryTuple({
     platform: 'linux',
     tuple: tuple(exactA, absent, exactB)
   })).toEqual({ status: 'invalid', reason: 'identity-mismatch' });
@@ -336,14 +337,14 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
   const edges = {
     win32: ['win32-w0->win32-w1', 'win32-w1->win32-w2'],
     linux: ['linux-l0->linux-l1', 'linux-l1->linux-l2', 'linux-l2->linux-l3']
-  } as const satisfies Readonly<Record<CodexDevelopmentInitiallyAbsentTuplePlatform, readonly CodexDevelopmentInitiallyAbsentTupleEdge[]>>;
+  } as const satisfies Readonly<Record<InitiallyAbsentTuplePlatform, readonly InitiallyAbsentTupleEdge[]>>;
   for (const platform of ['win32', 'linux'] as const) {
     const states = legalTuples[platform];
     const platformEdges = edges[platform];
     for (let predecessorIndex = 0; predecessorIndex < states.length; predecessorIndex += 1) {
       for (let successorIndex = 0; successorIndex < states.length; successorIndex += 1) {
         for (const expectedEdge of platformEdges) {
-          const result = CodexDevelopmentAssertInitiallyAbsentEntryTransition({
+          const result = assertInitiallyAbsentEntryTransition({
             platform,
             predecessor: states[predecessorIndex]!,
             successor: states[successorIndex]!,
@@ -363,7 +364,7 @@ test('initially-absent pure T/N/R contract exhaustively owns classification and 
     { platform: 'linux', predecessor: tuple(absent, exactA), successor: tuple(exactB, exactB), expectedEdge: 'linux-l1->linux-l2' },
     { platform: 'linux', predecessor: tuple(exactA, exactA), successor: tuple(exactB, absent, exactB), expectedEdge: 'linux-l2->linux-l3' }
   ] as const) {
-    expect(CodexDevelopmentAssertInitiallyAbsentEntryTransition(discontinuity)).toEqual({
+    expect(assertInitiallyAbsentEntryTransition(discontinuity)).toEqual({
       status: 'invalid', reason: 'identity-mismatch'
     });
   }
@@ -374,7 +375,7 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
     cwd,
     encoding: 'buffer',
     windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+    env: canonicalGitChildEnvironment()
   });
   return result.status === 0 ? result.stdout : undefined;
 }
@@ -391,7 +392,7 @@ function runGit(cwd: string, args: string[]): string {
     cwd,
     encoding: 'utf8',
     windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+    env: canonicalGitChildEnvironment()
   });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
@@ -405,54 +406,54 @@ async function expectUnsafeReparseRejection(operation: Promise<unknown>): Promis
     (error: unknown) => error
   );
   expect(['win32', 'linux']).toContain(process.platform);
-  expect(failure).toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+  expect(failure).toBeInstanceOf(UnsafeAnchoredPathError);
   expect(failure).toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
   expect((failure as Error).message).toMatch(/reparse point|symbolic link|junction/u);
 }
 
 test('freeze child failure envelope is bounded canonical and redacts unknown errors', () => {
-  expect(compileSecDocumentControlFreezeChildFailureV1(
+  expect(compileDocumentControlFreezeChildFailure(
     new Error('Git index escapes its canonical transaction root.')
-  )).toEqual(SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1);
+  )).toEqual(DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE);
   const secret = 'C:\\private\\workspace\\credential.txt';
   const unexpected = Object.assign(new Error(`${secret}:${'x'.repeat(4096)}`), {
     code: 'ESECRET'
   });
-  const rendered = renderSecDocumentControlFreezeChildFailureV1(unexpected);
+  const rendered = renderDocumentControlFreezeChildFailure(unexpected);
   expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(
-    SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1
+    DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES
   );
   expect(rendered).not.toContain(secret);
   expect(rendered).not.toContain('ESECRET');
-  expect(parseSecDocumentControlFreezeChildFailureV1(rendered)).toEqual(
-    SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1
+  expect(parseDocumentControlFreezeChildFailure(rendered)).toEqual(
+    DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE
   );
   for (const malformed of [
-    'x'.repeat(SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1 + 1),
+    'x'.repeat(DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES + 1),
     new Uint8Array([0xff]),
     `${JSON.stringify({
-      schema: SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.schema,
-      name: SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.name,
+      schema: DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE.schema,
+      name: DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE.name,
       code: null
     })}\n`,
     `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
       stack: 'forbidden diagnostic'
     })}\n`,
     `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
       message: secret
     })}\n`,
     `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
       code: 'ESECRET'
     })}\n`,
     `${JSON.stringify({
-      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      ...DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
       message: '🧪'.repeat(129)
     })}\n`,
-    ` ${JSON.stringify(SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1)}\n`
-  ]) expect(() => parseSecDocumentControlFreezeChildFailureV1(malformed)).toThrow();
+    ` ${JSON.stringify(DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE)}\n`
+  ]) expect(() => parseDocumentControlFreezeChildFailure(malformed)).toThrow();
 });
 
 bunTest.skipIf(process.platform !== 'win32')(
@@ -476,7 +477,7 @@ bunTest.skipIf(process.platform !== 'win32')(
   30_000
 );
 
-function pointerFor(blob: Uint8Array): CodexDevelopmentActivePointer {
+function pointerFor(blob: Uint8Array): ActivePointer {
   return {
     schema: 'sec-active-work-package-pointer-v2',
     selectionMode: 'exact-manifest-not-on-default-branch-v1',
@@ -672,7 +673,7 @@ function workSelectionCatalogSourceFixture(input: {
         ...candidateItems
       ]
     : candidateItems;
-  return `${SEC_ROADMAP_WORK_CATALOG_BEGIN}
+  return `${ROADMAP_WORK_CATALOG_BEGIN}
 \`\`\`json
 ${JSON.stringify({
     schema: 'sec-roadmap-work-catalog-v1',
@@ -680,7 +681,7 @@ ${JSON.stringify({
     items: catalogItems
   }, null, 2)}
 \`\`\`
-${SEC_ROADMAP_WORK_CATALOG_END}`;
+${ROADMAP_WORK_CATALOG_END}`;
 }
 
 function workSelectionReceiptFixture(input: {
@@ -690,14 +691,14 @@ function workSelectionReceiptFixture(input: {
   activeCurrentPackage?: boolean;
 }) {
   const catalogSource = workSelectionCatalogSourceFixture(input);
-  const catalog = parseSecRoadmapWorkCatalog(catalogSource);
-  return createSecWorkDecisionReceipt({
+  const catalog = parseRoadmapWorkCatalog(catalogSource);
+  return createWorkDecisionReceipt({
     repository: 'sec-platform/sec',
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree,
     roadmapRevision: rawSha256(catalogSource),
     catalog,
-    registry: createSecWorkRegistryObservation({
+    registry: createWorkRegistryObservation({
       defaultTreeSha: input.exactMainTree,
       entries: []
     }),
@@ -713,7 +714,7 @@ function workSelectionReceiptFixture(input: {
       controlState: 'consistent',
       controlRef: 'fixture:control'
     },
-    currentSpecs: catalog.items.map((catalogItem) => createSecWorkCurrentSpecObservation({
+    currentSpecs: catalog.items.map((catalogItem) => createWorkCurrentSpecObservation({
       workId: catalogItem.workId,
       currentSpecRef: catalogItem.currentSpecRef,
       providerResourceRef: `github-node:${catalogItem.tracking}`,
@@ -727,7 +728,7 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-'));
   const repositoryRoot = path.join(parent, 'repository');
   const remoteRoot = path.join(parent, 'remote.git');
-  const seed = await freezeFixtureSeedV1();
+  const seed = await freezeFixtureSeed();
   await Promise.all([
     cp(seed.repositoryRoot, repositoryRoot, { recursive: true }),
     cp(seed.remoteRoot, remoteRoot, { recursive: true })
@@ -746,21 +747,21 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   };
 }
 
-interface FreezeFixtureSeedV1 {
+interface FreezeFixtureSeed {
   readonly parent: string;
   readonly repositoryRoot: string;
   readonly remoteRoot: string;
   readonly baseSha: string;
 }
 
-let freezeFixtureSeedPromiseV1: Promise<FreezeFixtureSeedV1> | undefined;
+let freezeFixtureSeedPromise: Promise<FreezeFixtureSeed> | undefined;
 
-function freezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
-  freezeFixtureSeedPromiseV1 ??= createFreezeFixtureSeedV1();
-  return freezeFixtureSeedPromiseV1;
+function freezeFixtureSeed(): Promise<FreezeFixtureSeed> {
+  freezeFixtureSeedPromise ??= createFreezeFixtureSeed();
+  return freezeFixtureSeedPromise;
 }
 
-async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
+async function createFreezeFixtureSeed(): Promise<FreezeFixtureSeed> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-seed-'));
   const repositoryRoot = path.join(parent, 'repository');
   const remoteRoot = path.join(parent, 'remote.git');
@@ -789,7 +790,7 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
   const projectionBaseTree = runGit(repositoryRoot, ['rev-parse', `${projectionBaseSha}^{tree}`]);
   await writeFile(
     path.join(repositoryRoot, 'config/repository/rolling-plan.md'),
-    renderSecWorkRollingPlan({
+    renderWorkRollingSelectionPlan({
       receipt: workSelectionReceiptFixture({
         exactMain: projectionBaseSha,
         exactMainTree: projectionBaseTree,
@@ -801,7 +802,7 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
   );
   runGit(repositoryRoot, ['add', 'config/repository/rolling-plan.md']);
   runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish rolling projection']);
-  const terminalCompaction = compileSecRoadmapTerminalCompaction({
+  const terminalCompaction = compileRoadmapTerminalCompaction({
     roadmapSource: workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
     completedWorkIds: ['issue-310']
   });
@@ -849,22 +850,22 @@ tests:
 }
 
 afterAll(async () => {
-  if (freezeFixtureSeedPromiseV1 === undefined) return;
-  const seed = await freezeFixtureSeedPromiseV1;
+  if (freezeFixtureSeedPromise === undefined) return;
+  const seed = await freezeFixtureSeedPromise;
   await rm(seed.parent, { recursive: true, force: true });
 });
 
 test('terminal retirement accepts every canonical prefix cut and rejects namespace holes', () => {
   const entryCount = 9;
   for (let deletedPrefixCount = 0; deletedPrefixCount <= entryCount; deletedPrefixCount += 1) {
-    expect(CodexDevelopmentClassifyTerminalRetirementPrefix(
+    expect(classifyTerminalRetirementPrefix(
       Array.from({ length: entryCount }, (_, index) => index >= deletedPrefixCount)
     )).toEqual({ status: 'valid', deletedPrefixCount });
   }
   for (const hole of [1, 3, 7]) {
     const presence = Array.from({ length: entryCount }, () => true);
     presence[hole] = false;
-    expect(CodexDevelopmentClassifyTerminalRetirementPrefix(presence)).toEqual({
+    expect(classifyTerminalRetirementPrefix(presence)).toEqual({
       status: 'invalid',
       reason: 'non-prefix-hole'
     });
@@ -879,12 +880,12 @@ test('freeze convergence treats exact successor retirement as semantic current s
     worktreeRollingMatches: true,
     retirementSatisfied: true
   } as const;
-  expect(CodexDevelopmentClassifyFreezeConvergence(exact)).toBe('semantic-noop');
-  expect(CodexDevelopmentClassifyFreezeConvergence({
+  expect(classifyFreezeConvergence(exact)).toBe('semantic-noop');
+  expect(classifyFreezeConvergence({
     ...exact,
     retirementSatisfied: false
   })).toBe('publication-required');
-  expect(CodexDevelopmentClassifyFreezeConvergence({
+  expect(classifyFreezeConvergence({
     ...exact,
     candidateTreeMatches: false
   })).toBe('publication-required');
@@ -892,8 +893,8 @@ test('freeze convergence treats exact successor retirement as semantic current s
 
 test('published control binding classifies authority and binding without boolean XOR drift', () => {
   const classify = (overrides: Partial<Parameters<
-    typeof CodexDevelopmentClassifyPublishedControlBinding
-  >[0]> = {}) => CodexDevelopmentClassifyPublishedControlBinding({
+    typeof classifyPublishedControlBinding
+  >[0]> = {}) => classifyPublishedControlBinding({
     authorityProven: true,
     historicalBaseIsLiveDefault: false,
     pointerBindsDefault: false,
@@ -930,37 +931,37 @@ test('shared resolver fails closed for stale, unavailable, malformed, and checko
   const checkoutCrlfBytes = Buffer.from('schema: frozen\r\n', 'utf8');
   const pointer = pointerFor(gitBlob);
 
-  expect(CodexDevelopmentResolveActiveWorkPackage({
+  expect(resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: gitBlob,
     defaultManifestBlob: null,
     defaultRefState: 'stale'
   })).toEqual({ state: 'unresolved', reason: 'default-ref-stale' });
-  expect(CodexDevelopmentResolveActiveWorkPackage({
+  expect(resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: gitBlob,
     defaultManifestBlob: null,
     defaultRefState: 'unavailable'
   })).toEqual({ state: 'unresolved', reason: 'default-ref-unavailable' });
-  expect(CodexDevelopmentResolveActiveWorkPackage({
+  expect(resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: checkoutCrlfBytes,
     defaultManifestBlob: oldDefaultBlob,
     defaultRefState: 'fresh'
   })).toEqual({ state: 'invalid', reason: 'candidate-digest-mismatch' });
-  expect(CodexDevelopmentResolveActiveWorkPackage({
+  expect(resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: gitBlob,
     defaultManifestBlob: oldDefaultBlob,
     defaultRefState: 'fresh'
   })).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });
-  expect(CodexDevelopmentResolveActiveWorkPackage({
+  expect(resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: undefined,
     defaultManifestBlob: gitBlob,
     defaultRefState: 'fresh'
   })).toEqual({ state: 'none', reason: 'matching-default-blob' });
-  expect(CodexDevelopmentResolveActiveWorkPackage({
+  expect(resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: undefined,
     defaultManifestBlob: null,
@@ -982,7 +983,7 @@ unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 \`\`\`
 `;
-  expect(() => CodexDevelopmentParseActivePointer(malformedPointer))
+  expect(() => parseActivePointer(malformedPointer))
     .toThrow('must contain exactly');
 
   const competingPointer = `---
@@ -1011,10 +1012,10 @@ unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 \`\`\`
 `;
-  expect(() => CodexDevelopmentParseActivePointer(competingPointer))
+  expect(() => parseActivePointer(competingPointer))
     .toThrow('exactly one YAML selector block');
 
-  expect(() => CodexDevelopmentParseCurrentStateSpec(`
+  expect(() => parseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
@@ -1026,7 +1027,7 @@ resolver:
 stableFacts: {}
 `)).toThrow('requireRemoteMatch must be true');
 
-  const validSpec = CodexDevelopmentParseCurrentStateSpec(`
+  const validSpec = parseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
@@ -1037,9 +1038,9 @@ resolver:
   requireRemoteMatch: true
 stableFacts: {}
 `);
-  expect(() => CodexDevelopmentResolveWorkSelectionProjectionMode(validSpec))
+  expect(() => resolveWorkSelectionProjectionMode(validSpec))
     .toThrow('workSelection stable fact is required');
-  const requiredWorkSelectionSpec = CodexDevelopmentParseCurrentStateSpec(`
+  const requiredWorkSelectionSpec = parseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
@@ -1053,9 +1054,9 @@ stableFacts:
     catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
-  expect(CodexDevelopmentResolveWorkSelectionProjectionMode(requiredWorkSelectionSpec))
+  expect(resolveWorkSelectionProjectionMode(requiredWorkSelectionSpec))
     .toBe('required-v1');
-  expect(() => CodexDevelopmentResolveWorkSelectionProjectionMode({
+  expect(() => resolveWorkSelectionProjectionMode({
     ...requiredWorkSelectionSpec,
     stableFacts: { workSelection: { projection: 'candidate-controlled' } }
   })).toThrow('unsupported or incomplete');
@@ -1070,7 +1071,7 @@ stableFacts:
       : field === 'defaultBranch'
         ? 'defaultBranch: main'
         : 'defaultRef: refs/remotes/origin/main';
-    expect(() => CodexDevelopmentParseCurrentStateSpec(
+    expect(() => parseCurrentStateSpec(
       `
 schema: sec-current-state-live-v1
 resolver:
@@ -1084,7 +1085,7 @@ stableFacts: {}
 `.replace(original, invalidSource)
     )).toThrow();
   }
-  expect(() => CodexDevelopmentParseActivePointer(`---
+  expect(() => parseActivePointer(`---
 schema: sec-active-work-package-pointer-v2
 status: conditional
 last-reviewed: 2026-07-23
@@ -1100,7 +1101,7 @@ unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 \`\`\`
 `)).toThrow('canonical Work Package manifest path');
-  expect(() => CodexDevelopmentAssertControlPlaneBinding({
+  expect(() => assertControlPlaneBinding({
     spec: validSpec,
     pointer: { ...pointer, defaultBranchRef: 'refs/remotes/upstream/main' }
   })).toThrow('must match');
@@ -1128,7 +1129,7 @@ test('real Git lifecycle resolves missing path to active and published blob to n
 
     runGit(repositoryRoot, ['switch', '--quiet', 'main']);
     expect(readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`)).toBeUndefined();
-    expect(CodexDevelopmentResolveActiveWorkPackage({
+    expect(resolveActiveWorkPackage({
       pointer,
       candidateManifestBlob: candidateBlob!,
       defaultManifestBlob: null,
@@ -1138,7 +1139,7 @@ test('real Git lifecycle resolves missing path to active and published blob to n
     runGit(repositoryRoot, ['merge', '--quiet', '--ff-only', 'candidate']);
     const publishedBlob = readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`);
     expect(publishedBlob).toEqual(candidateBlob!);
-    expect(CodexDevelopmentResolveActiveWorkPackage({
+    expect(resolveActiveWorkPackage({
       pointer,
       candidateManifestBlob: candidateBlob!,
       defaultManifestBlob: publishedBlob!,
@@ -1148,7 +1149,7 @@ test('real Git lifecycle resolves missing path to active and published blob to n
     await writeFile(path.join(repositoryRoot, 'external-change.txt'), 'next main\n', 'utf8');
     runGit(repositoryRoot, ['add', 'external-change.txt']);
     runGit(repositoryRoot, ['commit', '--quiet', '-m', 'subsequent external change']);
-    expect(CodexDevelopmentResolveActiveWorkPackage({
+    expect(resolveActiveWorkPackage({
       pointer,
       candidateManifestBlob: candidateBlob!,
       defaultManifestBlob: readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`)!,
@@ -1171,8 +1172,8 @@ test('status resolves a published rolling projection as history after its exact 
       path.join(fixture.repositoryRoot, POINTER_PATH),
       'utf8'
     );
-    const projection = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    const projection = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -1242,8 +1243,8 @@ test('same-package freeze preserves the exact current tracking identity', async 
       path.join(fixture.repositoryRoot, POINTER_PATH),
       'utf8'
     );
-    expect(() => CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource()),
+    expect(() => createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes,
@@ -1252,8 +1253,8 @@ test('same-package freeze preserves the exact current tracking identity', async 
       baseSha: fixture.baseSha,
       reviewedOn: '2026-08-09'
     })).toThrow('cannot replace the exact tracking identity');
-    const samePackage = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource()),
+    const samePackage = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes,
@@ -1282,12 +1283,12 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
     );
     const receipt = workSelectionReceiptFixture({ exactMain: fixture.baseSha, exactMainTree });
     const selection = { receipt };
-    const selectedRollingPlanSource = renderSecWorkRollingPlan({
+    const selectedRollingPlanSource = renderWorkRollingSelectionPlan({
       receipt,
       reviewedOn: '2026-08-12'
     });
-    const requiredSpec = CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin'));
-    const projection = CodexDevelopmentCreateFreezeProjection({
+    const requiredSpec = parseCurrentStateSpec(currentStateSource('origin'));
+    const projection = createFreezeProjection({
       spec: requiredSpec,
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
@@ -1300,11 +1301,11 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       reviewedOn: '2026-08-12'
     });
     expect(projection.rollingPlanSource).toBe(selectedRollingPlanSource);
-    expect(CodexDevelopmentParseRollingPlan(projection.rollingPlanSource)).toEqual({
+    expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
       activePackageId: FREEZE_TARGET_ID,
       candidatePackageIds: ['candidate-two-v1', 'candidate-three-v1']
     });
-    expect(() => CodexDevelopmentCreateFreezeProjection({
+    expect(() => createFreezeProjection({
       spec: requiredSpec,
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
@@ -1317,7 +1318,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('must equal the trusted WorkDecision renderer exactly');
-    expect(() => CodexDevelopmentCreateFreezeProjection({
+    expect(() => createFreezeProjection({
       spec: requiredSpec,
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
@@ -1333,7 +1334,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('must equal the target manifest package and tracking identity');
-    expect(() => CodexDevelopmentCreateFreezeProjection({
+    expect(() => createFreezeProjection({
       spec: requiredSpec,
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
@@ -1344,8 +1345,8 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
-    expect(() => CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource()),
+    expect(() => createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -1441,14 +1442,14 @@ tests:
     } as const;
     const currentPointerSource = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8');
     const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
-    const currentPointer = CodexDevelopmentParseActivePointer(currentPointerSource);
+    const currentPointer = parseActivePointer(currentPointerSource);
     const publishedActivePackage = Object.freeze({
       manifestPath: currentPointer.manifest,
       manifestDigest: currentPointer.manifestDigest,
       defaultManifestBytes: currentManifestBytes
     });
-    const projection = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    const projection = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes,
@@ -1459,7 +1460,7 @@ tests:
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     });
-    expect(CodexDevelopmentParseRollingPlan(projection.rollingPlanSource)).toEqual({
+    expect(parseRollingPlan(projection.rollingPlanSource)).toEqual({
       activePackageId: repairId,
       candidatePackageIds: [
         FREEZE_TARGET_ID,
@@ -1475,7 +1476,7 @@ tests:
     expect(projection.rollingPlanSource).toContain(decision.binding!.healthRevision);
     expect(projection.rollingPlanSource).toContain(repairFailure);
     expect(projection.rollingPlanSource).not.toContain('last-reviewed: 2026-08-08\n---\n\n# Freeze fixture\n\n## 当前唯一');
-    const normalizedProjection = CodexDevelopmentActivateMainHealthRepairRollingPlan({
+    const normalizedProjection = activateMainHealthRepairRollingPlan({
       source: rollingPlanSource().replace('### 2. candidate-two-v1\n', '### 2. candidate-two-v1  \n'),
       ...directRepairInput,
       publishedActivePackageId: CURRENT_ACTIVE_ID
@@ -1493,8 +1494,8 @@ tests:
 
 ## Gate、单写者与重算`
     );
-    const maximalProjection = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    const maximalProjection = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource,
       currentRollingPlanSource: maximalPriorTopology,
       currentManifestBytes,
@@ -1505,7 +1506,7 @@ tests:
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     });
-    expect(CodexDevelopmentParseRollingPlan(maximalProjection.rollingPlanSource).candidatePackageIds)
+    expect(parseRollingPlan(maximalProjection.rollingPlanSource).candidatePackageIds)
       .toEqual([
         FREEZE_TARGET_ID,
         'candidate-two-v1',
@@ -1513,23 +1514,23 @@ tests:
         'candidate-four-v1',
         'candidate-five-v1'
       ]);
-    expect(() => CodexDevelopmentActivateMainHealthRepairRollingPlan({
+    expect(() => activateMainHealthRepairRollingPlan({
       source: maximalPriorTopology,
       ...directRepairInput,
       publishedActivePackageId: null
     })).toThrow('cannot preserve all prior identities within the five-candidate bound');
-    const unpublishedProjection = CodexDevelopmentActivateMainHealthRepairRollingPlan({
+    const unpublishedProjection = activateMainHealthRepairRollingPlan({
       source: rollingPlanSource(),
       ...directRepairInput,
       publishedActivePackageId: null
     });
-    expect(CodexDevelopmentParseRollingPlan(unpublishedProjection).candidatePackageIds[0])
+    expect(parseRollingPlan(unpublishedProjection).candidatePackageIds[0])
       .toBe(CURRENT_ACTIVE_ID);
     const wrongManifestBytes = await readFile(
       path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'))
     );
-    expect(() => CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    expect(() => createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes,
@@ -1540,8 +1541,8 @@ tests:
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('differs from the exact manifest or repository identity');
-    expect(() => CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    expect(() => createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes,
@@ -1568,8 +1569,8 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
   try {
     const manifestBytes = await readFile(path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/')));
     const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
-    const canonical = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource()),
+    const canonical = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource()),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -1625,10 +1626,10 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
       worktreeProjected: true
     });
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(result.candidateTreeSha);
-    const pointer = CodexDevelopmentParseActivePointer(
+    const pointer = parseActivePointer(
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
-    const rolling = CodexDevelopmentParseRollingPlan(
+    const rolling = parseRollingPlan(
       await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8')
     );
     expect(pointer.manifest).toBe(FREEZE_TARGET_PATH);
@@ -1790,7 +1791,7 @@ test('proposal-only recovery rejects the activation lane and completes as PROPOS
       worktreeProjected: true
     });
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(recovered.candidateTreeSha);
-    expect(CodexDevelopmentParseRollingPlan(
+    expect(parseRollingPlan(
       await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8')
     ).activePackageId).toBe(proposalId);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
@@ -1915,7 +1916,7 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
       reviewedOn: '2026-08-10'
     });
     expect(replanned.candidateTreeSha).not.toBe(first.candidateTreeSha);
-    const pointer = CodexDevelopmentParseActivePointer(
+    const pointer = parseActivePointer(
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
     expect<string>(pointer.manifestDigest)
@@ -1983,8 +1984,8 @@ test('committed candidate replan rebinds after main advances without changing it
       'utf8'
     );
     await writeFile(manifestFile, firstManifest);
-    const firstProjection = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    const firstProjection = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -2108,8 +2109,8 @@ test('committed candidate replan repairs one ancestry-proven published control p
       'utf8'
     );
     await writeFile(manifestFile, firstManifest);
-    const firstProjection = CodexDevelopmentCreateFreezeProjection({
-      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+    const firstProjection = createFreezeProjection({
+      spec: parseCurrentStateSpec(currentStateSource('origin')),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
       currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
@@ -2212,7 +2213,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
       candidateHeadSha: null
     });
     const repairedManifest = readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)!;
-    const repairedPointer = CodexDevelopmentParseActivePointer(
+    const repairedPointer = parseActivePointer(
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
     expect<string>(repairedPointer.manifestDigest)
@@ -2262,7 +2263,7 @@ for (const faultAfter of [
   'after-pointer-publish',
   'after-rolling-temp-write',
   'after-rolling-publish'
-] as const satisfies readonly CodexDevelopmentFreezeFault[]) {
+] as const satisfies readonly FreezeFault[]) {
   test(`nonterminal ${faultAfter} remains unresolved and recovers only by rolling forward`, async () => {
     const fixture = await createFreezeFixture();
     try {
@@ -2295,7 +2296,7 @@ for (const faultAfter of [
   }, 30_000);
 }
 
-type RecoveryJournalViewV4 = Readonly<{
+type RecoveryJournalView = Readonly<{
   schema: 'sec-document-control-plane-freeze-journal-v4';
   operationId: `sha256:${string}`;
   phase: string;
@@ -2306,20 +2307,20 @@ type RecoveryJournalViewV4 = Readonly<{
   }>;
   index: Readonly<{ pre: string; next: string }>;
   indexTransportDigest: `sha256:${string}`;
-  result: CodexDevelopmentFreezeResult;
+  result: FreezeResult;
 }>;
 
 const JOURNAL_TRANSACTION_RELATIVE = '.tmp/codex/document-control-plane-freeze-v1';
 const JOURNAL_ACTIVE_NEXT = /^journal\.json\.([0-9a-f]{64})\.(prepared|index-published|pointer-published|rolling-published|terminal)\.next$/u;
-const FreezeEntryRecoveryNameForTestV1 = /^\.entry-[0-9a-f]{64}\.(pre|retired-pre|retired-next)$/u;
+const FREEZE_ENTRY_RECOVERY_NAME_FOR_TEST = /^\.entry-[0-9a-f]{64}\.(pre|retired-pre|retired-next)$/u;
 
 function entryRecoveryPathForTest(
   transactionRoot: string,
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey,
+  targetKey: DocumentControlRecoveryTargetKey,
   operationId: string,
   suffix: 'pre' | 'retired-pre' | 'retired-next'
 ): string {
-  const stem = CodexDevelopmentDocumentControlRecoveryEntryStem({ operationId, targetKey });
+  const stem = documentControlRecoveryEntryStem({ operationId, targetKey });
   return path.join(transactionRoot, `${stem}.${suffix}`);
 }
 
@@ -2338,7 +2339,7 @@ function journalRetiredNextPath(
 async function expectLinuxExactS1(input: {
   artifactRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   operationId: string;
   expectedPre: Uint8Array;
 }): Promise<Readonly<{
@@ -2383,7 +2384,7 @@ async function readSingleActiveJournalRecovery(repositoryRoot: string): Promise<
   name: string;
   filePath: string;
   bytes: Buffer;
-  journal: RecoveryJournalViewV4;
+  journal: RecoveryJournalView;
 }>> {
   const transactionRoot = path.join(repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
   const names = (await readdir(transactionRoot)).filter((name) => JOURNAL_ACTIVE_NEXT.test(name));
@@ -2391,7 +2392,7 @@ async function readSingleActiveJournalRecovery(repositoryRoot: string): Promise<
   const name = names[0]!;
   const filePath = path.join(transactionRoot, name);
   const bytes = await readFile(filePath);
-  const journal = JSON.parse(bytes.toString('utf8')) as RecoveryJournalViewV4;
+  const journal = JSON.parse(bytes.toString('utf8')) as RecoveryJournalView;
   expect(bytes).toEqual(Buffer.from(`${JSON.stringify(journal, null, 2)}\n`, 'utf8'));
   expect(JOURNAL_ACTIVE_NEXT.exec(name)![1]).toBe(journal.operationId.slice('sha256:'.length));
   expect(JOURNAL_ACTIVE_NEXT.exec(name)![2]).toBe(journal.phase);
@@ -2442,14 +2443,14 @@ test('recovery entry identity is operation plus closed logical target and contai
   const operationId = `sha256:${'a'.repeat(64)}`;
   const keys = ['freeze-journal', 'git-index', 'active-pointer', 'rolling-plan'] as const;
   const stems = keys.map((targetKey) => (
-    CodexDevelopmentDocumentControlRecoveryEntryStem({ operationId, targetKey })
+    documentControlRecoveryEntryStem({ operationId, targetKey })
   ));
   expect(new Set(stems).size).toBe(keys.length);
   expect(stems.every((stem) => /^\.entry-[0-9a-f]{64}$/u.test(stem))).toBe(true);
   expect(stems.join('\n')).not.toContain(path.sep);
-  expect(() => CodexDevelopmentDocumentControlRecoveryEntryStem({
+  expect(() => documentControlRecoveryEntryStem({
     operationId,
-    targetKey: 'D:\\moved\\repository\\.git\\index' as CodexDevelopmentDocumentControlRecoveryTargetKey
+    targetKey: 'D:\\moved\\repository\\.git\\index' as DocumentControlRecoveryTargetKey
   })).toThrow('outside the closed target set');
 });
 
@@ -2518,7 +2519,7 @@ bunTest('production first and revised proposals settle terminal retirement after
     expect(revised.manifestDigest).not.toBe(first.manifestDigest);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(revised.candidateTreeSha);
     expect(readGitBlob(fixture.repositoryRoot, `:${proposalPath}`)).toEqual(revisedBytes);
-    expect(CodexDevelopmentParseActivePointer(
+    expect(parseActivePointer(
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     )).toMatchObject({ manifest: proposalPath, manifestDigest: revised.manifestDigest });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
@@ -2593,9 +2594,9 @@ async function writeOptionalEntry(filePath: string, bytes: Buffer | null): Promi
   await writeFile(filePath, bytes);
 }
 
-interface PublishTupleFixtureV1 {
+interface PublishTupleFixture {
   readonly fixture: FreezeFixture;
-  readonly journal: RecoveryJournalViewV4;
+  readonly journal: RecoveryJournalView;
   readonly paths: Readonly<{
     target: string;
     next: string;
@@ -2608,7 +2609,7 @@ interface PublishTupleFixtureV1 {
   readonly next: Buffer;
 }
 
-async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixtureV1> {
+async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixture> {
   const fixture = await createFreezeFixture();
   await expect(freezeDocumentControlPlane({
     cwd: fixture.repositoryRoot,
@@ -2617,7 +2618,7 @@ async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixtureV1>
     faultAfter: 'after-journal-prepare'
   })).rejects.toThrow('after-journal-prepare');
   const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
   const indexPath = repositoryIndexPath(fixture.repositoryRoot);
   const artifactRoot = path.dirname(indexPath);
   const operationId = journal.operationId;
@@ -2638,7 +2639,7 @@ async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixtureV1>
 }
 
 async function writePublishTuple(
-  prepared: PublishTupleFixtureV1,
+  prepared: PublishTupleFixture,
   entries: Readonly<{
     target: Buffer | null;
     next: Buffer | null;
@@ -2656,7 +2657,7 @@ async function writePublishTuple(
   ]);
 }
 
-async function readPreEffectTupleSnapshot(prepared: PublishTupleFixtureV1): Promise<Readonly<{
+async function readPreEffectTupleSnapshot(prepared: PublishTupleFixture): Promise<Readonly<{
   tuple: Readonly<Record<'target' | 'next' | 'quarantine' | 'retiredPre' | 'retiredNext', Awaited<ReturnType<typeof readOptionalEntrySnapshot>>>>;
   index: Awaited<ReturnType<typeof readOptionalEntrySnapshot>>;
   pointer: Awaited<ReturnType<typeof readOptionalEntrySnapshot>>;
@@ -2679,9 +2680,9 @@ async function readPreEffectTupleSnapshot(prepared: PublishTupleFixtureV1): Prom
   });
 }
 
-async function expectPreEffectTupleRejection(prepared: PublishTupleFixtureV1): Promise<void> {
+async function expectPreEffectTupleRejection(prepared: PublishTupleFixture): Promise<void> {
   const before = await readPreEffectTupleSnapshot(prepared);
-  const durability: CodexDevelopmentDurabilityEvent[] = [];
+  const durability: DurabilityEvent[] = [];
   const renames: unknown[] = [];
   const creates: unknown[] = [];
   const cleanups: unknown[] = [];
@@ -2704,7 +2705,7 @@ async function expectPreEffectTupleRejection(prepared: PublishTupleFixtureV1): P
 for (const invalidCase of [
   {
     name: 'PRE target coexists with quarantine while NEXT is absent',
-    entries: (prepared: PublishTupleFixtureV1) => ({
+    entries: (prepared: PublishTupleFixture) => ({
       target: prepared.pre,
       next: null,
       quarantine: prepared.pre,
@@ -2714,7 +2715,7 @@ for (const invalidCase of [
   },
   {
     name: 'target and NEXT are absent with an orphan quarantine',
-    entries: (prepared: PublishTupleFixtureV1) => ({
+    entries: (prepared: PublishTupleFixture) => ({
       target: null,
       next: null,
       quarantine: prepared.pre,
@@ -2741,7 +2742,7 @@ if (process.platform === 'win32') {
     { name: 'W2', faultAfter: 'after-index-next-install', expected: ['target', 'quarantine'] }
   ] as const satisfies readonly Readonly<{
     name: string;
-    faultAfter: CodexDevelopmentFreezeFault;
+    faultAfter: FreezeFault;
     expected: readonly ('target' | 'next' | 'quarantine')[];
   }>[]) {
     test(`Windows entry CAS state ${stateCase.name} is recoverable under its retained-entry semantics`, async () => {
@@ -2841,7 +2842,7 @@ if (process.platform === 'win32') {
       });
       await writeFile(prepared.paths.next, prepared.next);
       const before = await readPreEffectTupleSnapshot(prepared);
-      const durability: CodexDevelopmentDurabilityEvent[] = [];
+      const durability: DurabilityEvent[] = [];
       const cleanups: unknown[] = [];
       await expect(freezeDocumentControlPlane({
         cwd: prepared.fixture.repositoryRoot,
@@ -2866,7 +2867,7 @@ if (process.platform === 'win32') {
     const fixture = await createFreezeFixture();
     const replacement = Buffer.from('replacement pointer after namespace mutation\n', 'utf8');
     const pointerRenameLabels: string[] = [];
-    const pointerStages: CodexDevelopmentDurabilityEvent['stage'][] = [];
+    const pointerStages: DurabilityEvent['stage'][] = [];
     let replacementPath: string | undefined;
     let heldPublishedPath: string | undefined;
     try {
@@ -2887,7 +2888,7 @@ if (process.platform === 'win32') {
           await rename(event.targetPath, heldPublishedPath);
           await writeFile(event.targetPath, replacement);
         }
-      })).rejects.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+      })).rejects.toBeInstanceOf(UnsafeAnchoredPathError);
       expect(replacementPath).toBeDefined();
       expect(heldPublishedPath).toBeDefined();
       const journal = JSON.parse(await readFile(
@@ -2907,7 +2908,7 @@ if (process.platform === 'win32') {
 if (process.platform === 'linux') {
   const linuxInvalidTupleCases: readonly Readonly<{
     name: string;
-    setup(prepared: PublishTupleFixtureV1): Promise<void>;
+    setup(prepared: PublishTupleFixture): Promise<void>;
   }>[] = [
     {
       name: 'T=PRE with conflicting Q and RP',
@@ -3026,7 +3027,7 @@ for (const recoveryCase of [
     phase: 'terminal'
   }
 ] as const satisfies readonly Readonly<{
-  faultAfter: CodexDevelopmentFreezeFault;
+  faultAfter: FreezeFault;
   phase: string;
 }>[]) {
   test(`journal recovery census restores exact ${recoveryCase.phase} NEXT after PRE quarantine`, async () => {
@@ -3085,7 +3086,7 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     })).rejects.toThrow('after-journal-index-published-next-install');
     const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
     const installedBytes = await readFile(journalPath);
-    const installed = JSON.parse(installedBytes.toString('utf8')) as RecoveryJournalViewV4;
+    const installed = JSON.parse(installedBytes.toString('utf8')) as RecoveryJournalView;
     expect(installed.phase).toBe('index-published');
     const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(status.activation).toEqual({
@@ -3133,7 +3134,7 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     let renameEffects = 0;
     let cleanupEffects = 0;
-    const durabilityEffects: CodexDevelopmentDurabilityEvent[] = [];
+    const durabilityEffects: DurabilityEvent[] = [];
     const second = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3174,7 +3175,7 @@ if (process.platform === 'linux') {
       const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
       const terminalBytes = await readFile(journalPath);
       const terminalMetadata = await lstat(journalPath);
-      const terminal = JSON.parse(terminalBytes.toString('utf8')) as RecoveryJournalViewV4;
+      const terminal = JSON.parse(terminalBytes.toString('utf8')) as RecoveryJournalView;
       expect(terminal.phase).toBe('terminal');
       const active = await readSingleActiveJournalRecovery(fixture.repositoryRoot);
       expect(active.bytes).toEqual(Buffer.from(terminalBytes));
@@ -3285,7 +3286,7 @@ if (process.platform === 'linux') {
       expect(active.journal.phase).toBe('index-published');
       const journalPath = path.join(active.transactionRoot, 'journal.json');
       const canonicalBytes = await readFile(journalPath);
-      const canonical = JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV4;
+      const canonical = JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalView;
       expect(canonical.phase).toBe('prepared');
       await expectLinuxExactS1({
         artifactRoot: active.transactionRoot,
@@ -3342,7 +3343,7 @@ if (process.platform === 'linux') {
       expect(selectedHooks).toBe(1);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe('index-published');
       const pointerPath = path.join(fixture.repositoryRoot, POINTER_PATH);
       await expectLinuxExactS1({
@@ -3398,7 +3399,7 @@ if (process.platform === 'linux') {
       expect(selectedHooks).toBe(1);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe('prepared');
       const indexPath = repositoryIndexPath(fixture.repositoryRoot);
       await expectLinuxExactS1({
@@ -3455,7 +3456,7 @@ if (process.platform === 'linux') {
       expect(active.journal.phase).toBe('terminal');
       const journalPath = path.join(active.transactionRoot, 'journal.json');
       const canonicalBytes = await readFile(journalPath);
-      expect((JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV4).phase)
+      expect((JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalView).phase)
         .toBe('rolling-published');
       await expectLinuxExactS1({
         artifactRoot: active.transactionRoot,
@@ -3504,7 +3505,7 @@ if (process.platform === 'linux') {
       })).rejects.toBe(fault);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe('pointer-published');
       const rollingPlanPath = path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md');
       await expectLinuxExactS1({
@@ -3549,13 +3550,13 @@ if (process.platform === 'linux') {
     { kind: 'rolling', faultAfter: 'after-rolling-next-install' }
   ] as const satisfies readonly Readonly<{
     kind: 'index' | 'pointer' | 'rolling';
-    faultAfter: CodexDevelopmentFreezeFault;
+    faultAfter: FreezeFault;
   }>[];
   for (const installedCase of installedNextCases) {
     for (const state of ['S3', 'S4'] as const) {
       test(`Linux ${installedCase.kind} ${state} rejects same-byte different-inode NEXT authority without effects`, async () => {
         const fixture = await createFreezeFixture();
-        const durability: CodexDevelopmentDurabilityEvent[] = [];
+        const durability: DurabilityEvent[] = [];
         const renames: unknown[] = [];
         const creates: unknown[] = [];
         const cleanups: unknown[] = [];
@@ -3568,7 +3569,7 @@ if (process.platform === 'linux') {
           })).rejects.toThrow(installedCase.faultAfter);
           const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
           const journal = (
-            JSON.parse(await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')) as RecoveryJournalViewV4
+            JSON.parse(await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')) as RecoveryJournalView
           );
           const indexPath = repositoryIndexPath(fixture.repositoryRoot);
           const targetPath = installedCase.kind === 'index'
@@ -3824,7 +3825,7 @@ test('same-tree raw index stat drift is a semantic NOOP without effects', async 
     expect(driftedIndex.equals(exactIndex)).toBe(false);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
     const objectCensusBefore = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
-    const durabilityEffects: CodexDevelopmentDurabilityEvent[] = [];
+    const durabilityEffects: DurabilityEvent[] = [];
     let renameEffects = 0;
     let cleanupEffects = 0;
     let fenceIndex: Buffer | undefined;
@@ -4016,7 +4017,7 @@ test('journal residue census double-read blocks content or exact-object identity
       faultAfter: 'after-terminal'
     })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-    const residueNames = (await readdir(transactionRoot)).filter((name) => FreezeEntryRecoveryNameForTestV1.test(name));
+    const residueNames = (await readdir(transactionRoot)).filter((name) => FREEZE_ENTRY_RECOVERY_NAME_FOR_TEST.test(name));
     expect(residueNames.length).toBeGreaterThan(0);
     const residuePath = path.join(transactionRoot, residueNames[0]!);
     const original = await readFile(residuePath);
@@ -4099,7 +4100,7 @@ test('freeze journal V4 separates index transport integrity and rejects every le
     })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(legacyFixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
-    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
     expect(journal).not.toHaveProperty('retainedTemporaryIndexName');
     expect(Buffer.from(journal.index.next, 'base64').byteLength).toBeGreaterThan(0);
     expect((await resolveLiveControlPlane(legacyFixture.repositoryRoot, { observeGitHub: false })).activation)
@@ -4129,7 +4130,7 @@ test('freeze journal V4 separates index transport integrity and rejects every le
     })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(digestFixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
-    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
     const mutatedIndex = Buffer.from(journal.index.next, 'base64');
     mutatedIndex[0] = mutatedIndex[0]! ^ 0xff;
     const mutated = {
@@ -4189,7 +4190,7 @@ test('closed-world transaction census rejects a legacy temporary-index residue b
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journal = JSON.parse(
       await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')
-    ) as RecoveryJournalViewV4;
+    ) as RecoveryJournalView;
     expect((await readdir(transactionRoot)).filter((name) => /^index-.*\.next$/u.test(name))).toEqual([]);
     const residueName = 'index-123-456.next';
     const residuePath = path.join(transactionRoot, residueName);
@@ -4600,7 +4601,7 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
     } else {
       expect(process.platform).toBe('linux');
       expect(swapped).toBe(true);
-      expect(freezeFailure).toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+      expect(freezeFailure).toBeInstanceOf(UnsafeAnchoredPathError);
       expect(freezeFailure).toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
       // Admission rejected the changed parent before installing NEXT. The
       // canonical target can be absent here; exact PRE and NEXT must survive.
@@ -4641,7 +4642,7 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
       reviewedOn: '2026-08-09'
     });
     expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
-    expect(CodexDevelopmentParseActivePointer(await readFile(activePointer, 'utf8')).manifest)
+    expect(parseActivePointer(await readFile(activePointer, 'utf8')).manifest)
       .toBe(FREEZE_TARGET_PATH);
     expect(await readFile(externalPointer, 'utf8')).toBe('external sentinel\n');
   } finally {
@@ -4656,7 +4657,7 @@ test('anchored rename cannot be redirected by a parent-to-junction swap after ha
 for (const faultAfter of [
   'after-pointer-pre-quarantine',
   'after-pointer-next-install'
-] as const satisfies readonly CodexDevelopmentFreezeFault[]) {
+] as const satisfies readonly FreezeFault[]) {
   test(`entry CAS rolls forward the exact ${faultAfter} crash state`, async () => {
     const fixture = await createFreezeFixture();
     const entryEvents: Array<Readonly<{ label: string; sourcePath: string; targetPath: string }>> = [];
@@ -4864,7 +4865,7 @@ if (process.platform === 'win32') {
           await rename(event.filePath, heldPath);
           await writeFile(event.filePath, unknown);
         }
-      })).rejects.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+      })).rejects.toBeInstanceOf(UnsafeAnchoredPathError);
       expect(cleanupPath).toBeDefined();
       expect(heldPath).toBeDefined();
       expect(await readFile(cleanupPath!)).toEqual(unknown);
@@ -4938,7 +4939,7 @@ for (const createKind of ['directory', 'file'] as const) {
         expect(freezeFailure).toBe(swapFailure);
       } else {
         expect(['win32', 'linux']).toContain(process.platform);
-        expect(freezeFailure).toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+        expect(freezeFailure).toBeInstanceOf(UnsafeAnchoredPathError);
         expect(freezeFailure).toMatchObject({ code: 'DOCUMENT-CONTROL-UNSAFE-PATH-001' });
       }
 
@@ -5004,7 +5005,7 @@ test('fresh transaction directories flush each containing parent before freeze e
           throw new Error('injected newly-created parent barrier failure');
         }
       }
-    })).rejects.toBeInstanceOf(CodexDevelopmentDurabilityBarrierError);
+    })).rejects.toBeInstanceOf(DurabilityBarrierError);
     await expect(readFile(
       path.join(failedFixture.repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1/journal.json')
     )).rejects.toMatchObject({ code: 'ENOENT' });
@@ -5088,7 +5089,7 @@ test('freeze rejects reparse and nonregular paths while ignoring an ambient outs
       cwd: indexLockFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
-    })).rejects.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+    })).rejects.toBeInstanceOf(UnsafeAnchoredPathError);
   } finally {
     await indexLockFixture.dispose();
   }
@@ -5161,7 +5162,7 @@ if (process.platform === 'win32') {
         () => undefined,
         (error: unknown) => error
       );
-      expect(failure).not.toBeInstanceOf(CodexDevelopmentUnsafeAnchoredPathError);
+      expect(failure).not.toBeInstanceOf(UnsafeAnchoredPathError);
       expect(failure).toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' });
     } finally {
       if (denyApplied && pointerTemp !== undefined) {
@@ -5182,7 +5183,7 @@ if (process.platform === 'win32') {
 test('every rename is followed by file flush and parent barrier before the next step', async () => {
   const fixture = await createFreezeFixture();
   try {
-    const events: CodexDevelopmentDurabilityEvent[] = [];
+    const events: DurabilityEvent[] = [];
     const result = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -5221,7 +5222,7 @@ test('unsupported parent barrier fails typed before index advancement and remain
     } catch (error) {
       failure = error;
     }
-    expect(failure).toBeInstanceOf(CodexDevelopmentDurabilityBarrierError);
+    expect(failure).toBeInstanceOf(DurabilityBarrierError);
     expect(failure).toMatchObject({
       code: 'DOCUMENT-CONTROL-DURABILITY-001',
       operation: 'parent-directory-barrier'
@@ -5317,7 +5318,7 @@ test('after-terminal fault preserves the terminal result and idempotent recovery
     const journal = JSON.parse(await readFile(
       path.join(fixture.repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1/journal.json'),
       'utf8'
-    )) as { phase: string; result: CodexDevelopmentFreezeResult };
+    )) as { phase: string; result: FreezeResult };
     expect(journal.phase).toBe('terminal');
     const recovered = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
@@ -5346,7 +5347,7 @@ test('a complete terminal transaction recovers after the whole worktree moves', 
     const terminal = JSON.parse(await readFile(
       path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'),
       'utf8'
-    )) as RecoveryJournalViewV4;
+    )) as RecoveryJournalView;
     await rename(fixture.repositoryRoot, movedRoot);
     const recovered = await freezeDocumentControlPlane({
       cwd: movedRoot,
@@ -5421,8 +5422,8 @@ test('repository controls use the shared live resolver and preserve one bounded 
     readFile(POINTER_PATH, 'utf8'),
     readFile('config/repository/rolling-plan.md', 'utf8')
   ]);
-  const currentState = CodexDevelopmentParseCurrentStateSpec(currentStateSource);
-  const pointer = CodexDevelopmentParseActivePointer(pointerSource);
+  const currentState = parseCurrentStateSpec(currentStateSource);
+  const pointer = parseActivePointer(pointerSource);
   const manifestBlob = readGitBlob(process.cwd(), `:${pointer.manifest}`);
   const activePackageId = path.basename(pointer.manifest, '.md');
 
@@ -5446,7 +5447,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
     process.cwd(),
     `${pointer.defaultBranchRef}:${pointer.manifest}`
   ) ?? null;
-  const repositoryResolution = CodexDevelopmentResolveActiveWorkPackage({
+  const repositoryResolution = resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: manifestBlob!,
     defaultManifestBlob,
@@ -5466,7 +5467,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
     });
   }
 
-  const parsedRollingPlan = CodexDevelopmentParseRollingPlan(rollingPlan);
+  const parsedRollingPlan = parseRollingPlan(rollingPlan);
   expect(parsedRollingPlan.activePackageId).toBe(activePackageId);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
@@ -5485,7 +5486,7 @@ for (const faultAfter of ['after-journal-prepare', 'after-journal-index-publishe
       await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09', faultAfter })).rejects.toThrow(faultAfter);
       const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalView;
       expect(journal.phase).toBe(faultAfter === 'after-journal-prepare' ? 'prepared' : 'index-published');
       const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09' });

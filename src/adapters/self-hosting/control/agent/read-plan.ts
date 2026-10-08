@@ -1,23 +1,23 @@
 import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 import {
-  isSecAgentSkillId,
-  type SecAgentSkillId,
-  type SecSkillApplicabilityEnvelope
+  isAgentSkillId,
+  type AgentSkillId,
+  type SkillApplicabilityEnvelope
 } from './skill.ts';
 import {
-  parseSecTaskCapsule,
-  type SecDigest,
-  type SecTaskCapsule
+  parseTaskCapsule,
+  type AgentContentDigest,
+  type TaskCapsule
 } from './task-capsule.ts';
 
-export const SEC_OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-input-v2' as const;
-export const SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA = 'sec-operation-read-closure-request-v2' as const;
-const SEC_OPERATION_READ_PLAN_SCHEMA = 'sec-operation-read-plan-v2' as const;
-const SEC_OPERATION_READ_PLAN_REVISION = 'operation-read-plan-compiler-v2' as const;
-const SEC_MAINTAINER_MUTATION_POLICY = 'current-physical-state-authoritative-v1' as const;
-const SEC_PROTECTED_ROOT_POLICY = 'outside-candidate-write-authority-v1' as const;
-export const SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
+export const OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-input-v2' as const;
+export const OPERATION_READ_CLOSURE_REQUEST_SCHEMA = 'sec-operation-read-closure-request-v2' as const;
+const OPERATION_READ_PLAN_SCHEMA = 'sec-operation-read-plan-v2' as const;
+const OPERATION_READ_PLAN_REVISION = 'operation-read-plan-compiler-v2' as const;
+const MAINTAINER_MUTATION_POLICY = 'current-physical-state-authoritative-v1' as const;
+const PROTECTED_ROOT_POLICY = 'outside-candidate-write-authority-v1' as const;
+export const OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
   'assistant-memory',
   'chat-history',
   'full-issue-census',
@@ -26,7 +26,7 @@ export const SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
   'unrelated-issue-census'
 ] as const);
 
-interface SecOperationReadReference {
+interface OperationReadReference {
   readonly id: string;
   readonly ref: string;
   readonly owner: string;
@@ -35,53 +35,53 @@ interface SecOperationReadReference {
   readonly projection: null;
 }
 
-interface SecConditionalReadReference extends SecOperationReadReference {
+interface ConditionalReadReference extends OperationReadReference {
   readonly frontierId: string;
 }
 
-interface SecOperationReadFrontier {
+interface OperationReadFrontier {
   readonly id: string;
   readonly reasonCode: string;
   readonly allowedRefIds: readonly string[];
 }
 
-interface SecOperationReadReceipt {
+interface OperationReadReceipt {
   readonly refId: string;
   readonly owner: string;
   readonly revision: string;
   readonly reasonCode: string;
-  readonly contentDigest: SecDigest;
+  readonly contentDigest: AgentContentDigest;
 }
 
-interface SecOperationInvalidationInput {
+interface OperationInvalidationInput {
   readonly id: string;
   readonly revision: string;
 }
 
-export interface SecOperationReadPlanInput {
-  readonly schema: typeof SEC_OPERATION_READ_PLAN_INPUT_SCHEMA;
-  readonly taskCapsule: SecTaskCapsule;
-  readonly requiredRefs: readonly SecOperationReadReference[];
-  readonly conditionalRefs: readonly SecConditionalReadReference[];
+export interface OperationReadPlanInput {
+  readonly schema: typeof OPERATION_READ_PLAN_INPUT_SCHEMA;
+  readonly taskCapsule: TaskCapsule;
+  readonly requiredRefs: readonly OperationReadReference[];
+  readonly conditionalRefs: readonly ConditionalReadReference[];
   readonly forbiddenSources: readonly string[];
   readonly maxSkillBodies: 0 | 1;
-  readonly unresolvedFrontier: readonly SecOperationReadFrontier[];
-  readonly readReceipts: readonly SecOperationReadReceipt[];
-  readonly invalidationInputs: readonly SecOperationInvalidationInput[];
+  readonly unresolvedFrontier: readonly OperationReadFrontier[];
+  readonly readReceipts: readonly OperationReadReceipt[];
+  readonly invalidationInputs: readonly OperationInvalidationInput[];
 }
 
-export interface SecOperationReadPlan extends Omit<SecOperationReadPlanInput, 'schema'> {
-  readonly schema: typeof SEC_OPERATION_READ_PLAN_SCHEMA;
-  readonly compilerRevision: typeof SEC_OPERATION_READ_PLAN_REVISION;
+export interface OperationReadPlan extends Omit<OperationReadPlanInput, 'schema'> {
+  readonly schema: typeof OPERATION_READ_PLAN_SCHEMA;
+  readonly compilerRevision: typeof OPERATION_READ_PLAN_REVISION;
   readonly preApplicabilitySkillBodiesRead: 0;
-  readonly maintainerMutationPolicy: typeof SEC_MAINTAINER_MUTATION_POLICY;
-  readonly protectedRootPolicy: typeof SEC_PROTECTED_ROOT_POLICY;
-  readonly readPlanDigest: SecDigest;
+  readonly maintainerMutationPolicy: typeof MAINTAINER_MUTATION_POLICY;
+  readonly protectedRootPolicy: typeof PROTECTED_ROOT_POLICY;
+  readonly readPlanDigest: AgentContentDigest;
 }
 
-export type SecMaintainerMutationDecision = Readonly<{
+export type MaintainerMutationDecision = Readonly<{
   schema: 'sec-maintainer-mutation-decision-v1';
-  policy: typeof SEC_MAINTAINER_MUTATION_POLICY;
+  policy: typeof MAINTAINER_MUTATION_POLICY;
   status:
     | 'unchanged'
     | 'accept-current'
@@ -144,10 +144,10 @@ function token(value: unknown, label: string): string {
   return normalized;
 }
 
-function digest(value: unknown, label: string): SecDigest {
+function digest(value: unknown, label: string): AgentContentDigest {
   const normalized = text(value, label);
   if (!/^sha256:[0-9a-f]{64}$/u.test(normalized)) fail(`${label} must be one lowercase SHA-256 digest.`);
-  return normalized as SecDigest;
+  return normalized as AgentContentDigest;
 }
 
 function array(value: unknown, label: string): readonly unknown[] {
@@ -170,12 +170,12 @@ function sortedById<Value extends { readonly id: string }>(values: readonly Valu
   return [...values].sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
-function parseReadRefs(value: unknown, conditional: false): SecOperationReadReference[];
-function parseReadRefs(value: unknown, conditional: true): SecConditionalReadReference[];
+function parseReadRefs(value: unknown, conditional: false): OperationReadReference[];
+function parseReadRefs(value: unknown, conditional: true): ConditionalReadReference[];
 function parseReadRefs(
   value: unknown,
   conditional: boolean
-): SecOperationReadReference[] | SecConditionalReadReference[] {
+): OperationReadReference[] | ConditionalReadReference[] {
   const label = conditional ? 'conditionalRefs' : 'requiredRefs';
   const refs = array(value, label).map((entry, index) => {
     const item = record(entry, `${label}[${index}]`);
@@ -193,10 +193,10 @@ function parseReadRefs(
       ? { ...common, frontierId: token(item.frontierId, `${label}[${index}].frontierId`) }
       : common;
   });
-  return sortedById(refs, label) as SecOperationReadReference[] | SecConditionalReadReference[];
+  return sortedById(refs, label) as OperationReadReference[] | ConditionalReadReference[];
 }
 
-function parseFrontier(value: unknown): SecOperationReadFrontier[] {
+function parseFrontier(value: unknown): OperationReadFrontier[] {
   return sortedById(array(value, 'unresolvedFrontier').map((entry, index) => {
     const item = record(entry, `unresolvedFrontier[${index}]`);
     exactKeys(item, FRONTIER_KEYS, `unresolvedFrontier[${index}]`);
@@ -215,10 +215,10 @@ function scopeCoversRepositoryPath(scope: string, repositoryPath: string): boole
   return repositoryPath === exact || (scope.endsWith('/') && repositoryPath.startsWith(`${exact}/`));
 }
 
-function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan {
+function compileFromRecord(input: Record<string, unknown>): OperationReadPlan {
   exactKeys(input, INPUT_KEYS, 'input');
-  if (input.schema !== SEC_OPERATION_READ_PLAN_INPUT_SCHEMA) fail('input schema is unsupported.');
-  const taskCapsule = parseSecTaskCapsule(input.taskCapsule);
+  if (input.schema !== OPERATION_READ_PLAN_INPUT_SCHEMA) fail('input schema is unsupported.');
+  const taskCapsule = parseTaskCapsule(input.taskCapsule);
   const planningContext = taskCapsule.planningContext;
   const requiredRefs = parseReadRefs(input.requiredRefs, false);
   const conditionalRefs = parseReadRefs(input.conditionalRefs, true);
@@ -289,7 +289,7 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
     fail('skillCandidateIds must be empty when maxSkillBodies is zero.');
   }
 
-  const coreInvalidation: SecOperationInvalidationInput[] = [
+  const coreInvalidation: OperationInvalidationInput[] = [
     { id: 'goal-digest', revision: planningContext.goalDigest },
     { id: 'owner-facts', revision: sha256(planningContext.ownerFacts) },
     { id: 'scope-proposal', revision: sha256(planningContext.scopeProposal) },
@@ -320,14 +320,14 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
   );
 
   const forbiddenSources = sortedUniqueStrings(input.forbiddenSources, 'forbiddenSources');
-  for (const mandatory of SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES) {
+  for (const mandatory of OPERATION_MANDATORY_FORBIDDEN_SOURCES) {
     if (!forbiddenSources.includes(mandatory)) {
       fail(`forbiddenSources omits mandatory baseline source: ${mandatory}.`);
     }
   }
   const withoutDigest = {
-    schema: SEC_OPERATION_READ_PLAN_SCHEMA,
-    compilerRevision: SEC_OPERATION_READ_PLAN_REVISION,
+    schema: OPERATION_READ_PLAN_SCHEMA,
+    compilerRevision: OPERATION_READ_PLAN_REVISION,
     taskCapsule,
     requiredRefs,
     conditionalRefs,
@@ -337,44 +337,44 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
     unresolvedFrontier,
     readReceipts,
     invalidationInputs,
-    maintainerMutationPolicy: SEC_MAINTAINER_MUTATION_POLICY,
-    protectedRootPolicy: SEC_PROTECTED_ROOT_POLICY
+    maintainerMutationPolicy: MAINTAINER_MUTATION_POLICY,
+    protectedRootPolicy: PROTECTED_ROOT_POLICY
   };
   return deepFreeze({
     ...withoutDigest,
-    readPlanDigest: sha256(withoutDigest) as SecDigest
+    readPlanDigest: sha256(withoutDigest) as AgentContentDigest
   });
 }
 
 /** Pure projection compiler. It performs no repository, provider, process or filesystem reads. */
-export function compileSecOperationReadPlan(input: unknown): SecOperationReadPlan {
+export function compileOperationReadPlan(input: unknown): OperationReadPlan {
   return compileFromRecord(record(input, 'input'));
 }
 
 /** Parse a serialized plan and recompute every canonical field and digest. */
-export function parseSecOperationReadPlan(value: unknown): SecOperationReadPlan {
+export function parseOperationReadPlan(value: unknown): OperationReadPlan {
   const plan = record(value, 'plan');
   exactKeys(plan, PLAN_KEYS, 'plan');
-  if (plan.schema !== SEC_OPERATION_READ_PLAN_SCHEMA
-      || plan.compilerRevision !== SEC_OPERATION_READ_PLAN_REVISION
+  if (plan.schema !== OPERATION_READ_PLAN_SCHEMA
+      || plan.compilerRevision !== OPERATION_READ_PLAN_REVISION
       || plan.preApplicabilitySkillBodiesRead !== 0
-      || plan.maintainerMutationPolicy !== SEC_MAINTAINER_MUTATION_POLICY
-      || plan.protectedRootPolicy !== SEC_PROTECTED_ROOT_POLICY) {
+      || plan.maintainerMutationPolicy !== MAINTAINER_MUTATION_POLICY
+      || plan.protectedRootPolicy !== PROTECTED_ROOT_POLICY) {
     fail('plan schema, revision, or fixed policy binding is unsupported.');
   }
-  const input: SecOperationReadPlanInput = {
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: plan.taskCapsule as SecTaskCapsule,
-    requiredRefs: plan.requiredRefs as readonly SecOperationReadReference[],
-    conditionalRefs: plan.conditionalRefs as readonly SecConditionalReadReference[],
+  const input: OperationReadPlanInput = {
+    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
+    taskCapsule: plan.taskCapsule as TaskCapsule,
+    requiredRefs: plan.requiredRefs as readonly OperationReadReference[],
+    conditionalRefs: plan.conditionalRefs as readonly ConditionalReadReference[],
     forbiddenSources: plan.forbiddenSources as readonly string[],
     maxSkillBodies: plan.maxSkillBodies as 0 | 1,
-    unresolvedFrontier: plan.unresolvedFrontier as readonly SecOperationReadFrontier[],
-    readReceipts: plan.readReceipts as readonly SecOperationReadReceipt[],
-    invalidationInputs: (plan.invalidationInputs as readonly SecOperationInvalidationInput[])
+    unresolvedFrontier: plan.unresolvedFrontier as readonly OperationReadFrontier[],
+    readReceipts: plan.readReceipts as readonly OperationReadReceipt[],
+    invalidationInputs: (plan.invalidationInputs as readonly OperationInvalidationInput[])
       .filter((binding) => !(CORE_INVALIDATION_IDS as readonly string[]).includes(binding.id))
   };
-  const compiled = compileSecOperationReadPlan(input);
+  const compiled = compileOperationReadPlan(input);
   if (compiled.readPlanDigest !== plan.readPlanDigest) fail('readPlanDigest mismatch.');
   if (JSON.stringify(canonicalJson(compiled)) !== JSON.stringify(canonicalJson(plan))) {
     fail('plan is not the canonical compiler projection.');
@@ -383,17 +383,17 @@ export function parseSecOperationReadPlan(value: unknown): SecOperationReadPlan 
 }
 
 /** Skill metadata projection; the caller must replace changed paths with exact Git observation. */
-export function projectSecSkillEnvelopeFromOperationReadPlan(
-  plan: SecOperationReadPlan
-): SecSkillApplicabilityEnvelope {
-  const verified = parseSecOperationReadPlan(plan);
+export function projectSkillApplicabilityEnvelopeFromOperationReadPlan(
+  plan: OperationReadPlan
+): SkillApplicabilityEnvelope {
+  const verified = parseOperationReadPlan(plan);
   const planningContext = verified.taskCapsule.planningContext;
   const candidates = planningContext.skillCandidateIds.map((candidate) => {
-    if (!isSecAgentSkillId(candidate)) {
+    if (!isAgentSkillId(candidate)) {
       fail(`Task Capsule Skill candidate is not in the trusted Skill registry: ${candidate}.`);
     }
     return candidate;
-  }) as SecAgentSkillId[];
+  }) as AgentSkillId[];
   return deepFreeze({
     role: planningContext.role,
     operationKind: planningContext.operationKind,
@@ -414,9 +414,9 @@ export function projectSecSkillEnvelopeFromOperationReadPlan(
  * a separate trusted recovery/CAS executor must verify principal, provenance,
  * resource, preimage/current revision and expiry before any write.
  */
-export function resolveSecMaintainerMutationV1(
+export function resolveMaintainerMutation(
   value: unknown
-): SecMaintainerMutationDecision {
+): MaintainerMutationDecision {
   const input = record(value, 'maintainerMutation');
   exactKeys(input, [
     'resourceKind', 'snapshotRevision', 'currentRevision', 'conflictsWithOperation',
@@ -445,7 +445,7 @@ export function resolveSecMaintainerMutationV1(
   const snapshotRevision = text(input.snapshotRevision, 'snapshotRevision');
   const base = {
     schema: 'sec-maintainer-mutation-decision-v1' as const,
-    policy: SEC_MAINTAINER_MUTATION_POLICY,
+    policy: MAINTAINER_MUTATION_POLICY,
     authoritativeRevision
   };
   if (snapshotRevision === authoritativeRevision) {

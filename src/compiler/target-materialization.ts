@@ -1,4 +1,4 @@
-import { CompilerError } from './errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 
 export const OPAQUE_MODULE_MATERIALIZATION_MODES = Object.freeze([
   'workspace-link',
@@ -26,7 +26,7 @@ function legacyBooleanCandidate(
   if (value === undefined) return null;
   if (value === 'true') return { source, mode: 'build-copy' };
   if (value === 'false') return { source, mode: 'workspace-link' };
-  throw new CompilerError(
+  throw new CodedFailure(
     'OPAQUE-MODULE-004',
     `${source} must be exactly "true" or "false" when used as a legacy opaque-module materialization input`,
     { source, value }
@@ -46,7 +46,7 @@ export function resolveOpaqueModuleMaterializationMode(
   if (explicitMode !== undefined) {
     // TypeScript types do not validate JavaScript/configuration callers.
     if (explicitMode !== 'workspace-link' && explicitMode !== 'build-copy') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'OPAQUE-MODULE-004',
         'Explicit opaque-module materialization mode is unsupported',
         { value: explicitMode }
@@ -68,7 +68,7 @@ export function resolveOpaqueModuleMaterializationMode(
 
   const modes = new Set(candidates.map((candidate) => candidate.mode));
   if (modes.size > 1) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'OPAQUE-MODULE-004',
       'Opaque-module materialization inputs conflict',
       {

@@ -6,7 +6,6 @@ import { defaultInstallRegistry } from '../../src/adapters/compilation/compose/i
 import { readText, writeText } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import type { InstallPlanStep, LockFile } from '../../src/compiler/contract.ts';
-import { parsePrismaSchema } from '../../src/compiler/templates/prisma-schema.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function mergePrismaStep(stepId: string, from: string, to = 'prisma/schema.prisma'): InstallPlanStep {
@@ -47,8 +46,13 @@ test('install strategy registry serializes read-modify-write steps sharing one t
     });
 
     const schema = await readText(path.join(prismaRoot, 'schema.prisma'));
-    expect(parsePrismaSchema(schema).blocks
-      .filter((block) => block.type === 'model')
-      .map((block) => block.name)).toEqual(['Alpha', 'Beta']);
+    expect(schema).toBe(`model Alpha {
+  id Int @id
+}
+
+model Beta {
+  id Int @id
+}
+`);
   }, 'engineering-compiler-install-target-scheduling-');
 });

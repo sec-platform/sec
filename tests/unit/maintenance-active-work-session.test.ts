@@ -8,7 +8,7 @@ import { issueGitHubApiTestCapability, withGitHubApiTestSession } from '../../sr
 import { observeActiveWorkPackage } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
 import { requireActiveWorkPackageOwnerObservation } from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
-import { compileSecWorkRollingProposalProjection, renderSecWorkRollingProposalPlan } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { compileWorkRollingProposalProjection, renderWorkRollingProposalPlan } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 
 function git(root: string, args: string[]) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -79,8 +79,8 @@ unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 \`\`\`
 `);
-    put('config/repository/rolling-plan.md', renderSecWorkRollingProposalPlan({
-      projection: compileSecWorkRollingProposalProjection({ exactMain: seedSha, exactMainTree: seedTree,
+    put('config/repository/rolling-plan.md', renderWorkRollingProposalPlan({
+      projection: compileWorkRollingProposalProjection({ exactMain: seedSha, exactMainTree: seedTree,
         active: { packageId: 'session-fixture-v1', tracking: 'none', manifestPath: manifest,
           manifestDigest: CodexDevelopmentWorkPackageManifestDigest(bytes) as `sha256:${string}` },
         candidates: ['next-fixture-v1', 'last-fixture-v1'] }), reviewedOn: '2026-10-05'

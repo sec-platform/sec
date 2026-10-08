@@ -1,23 +1,17 @@
 import { createHash } from 'node:crypto';
+import type { CiVerificationActionDigest, CiVerificationActionPlanClosure, CiVerificationGatePhase, CiVerificationNormalizedOperation, CiVerificationNormalizedTarget, VerificationActionExecutionClass, VerificationActionInputRef, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../../../../assurance/verification/result/contract/schema.ts';
 import { assertCanonicalPortableLogicalPath } from '../../../../../contracts/logical-path.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
-import {
-  createVerificationActionKey,
-  createVerificationActionPlan,
-  encodeVerificationActionData,
-  parseVerificationActionPlan,
-  type VerificationActionExecutionClass,
-  type VerificationActionInputRef,
-  type VerificationActionKeyDigest,
-  type VerificationActionPlan
-} from './action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, parseVerificationActionPlan } from './action.ts';
 import {
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS,
   CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
   CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
-  CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION
+  CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+  CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION,
+  createCiVerificationNativeProviderRevision
 } from './environment.ts';
 
 export const CI_VERIFICATION_ACTION_DISPATCH_TYPE =
@@ -39,8 +33,6 @@ const CI_VERIFICATION_ACTION_PARENT_JOB_NAME =
 const CI_VERIFICATION_ACTION_PARENT_PLAN_STEP_NAME =
   'Prepare canonical parent Action dispatch plan' as const;
 
-export type CiVerificationGatePhase = 'quick' | 'risk' | 'full' | 'workspace';
-
 export type CiVerificationGateStep = Readonly<{
   id: string;
   phase: CiVerificationGatePhase;
@@ -49,12 +41,10 @@ export type CiVerificationGateStep = Readonly<{
   inputs?: readonly VerificationActionInputRef[];
 }>;
 
-const CI_VERIFICATION_ACTION_PRODUCER_REVISION =
+const CI_VERIFICATION_ACTION_PRODUCER_REVISION: CiVerificationActionPlanClosure["producerRevision"] =
   'sec-ci-verification-action-producer-v2' as const;
-const CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA =
+const CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA: CiVerificationActionPlanClosure["schema"] =
   'sec-ci-verification-action-plan-closure-v2' as const;
-
-export type CiVerificationActionDigest = `sha256:${string}`;
 
 export const SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT = 32 * 1024 * 1024;
 export const SOURCE_PROGRAM_TRANSITION_GATE_ID = 'source-program-transition-assessment' as const;
@@ -191,6 +181,79 @@ export const CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT: CiVerificationExecuti
     executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
   });
 
+export const CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT: CiVerificationExecutionEnvironment =
+  Object.freeze({
+    contractRevision: CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
+    kind: 'hosted',
+    os: 'linux',
+    arch: 'x64',
+    runnerImage: 'ubuntu-24.04',
+    toolchainRevision: CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+    executionEnvironmentRevision: CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION
+  });
+
+function nativeExecutionEnvironment(kind: 'hosted' | 'local'): CiVerificationExecutionEnvironment | null {
+  const executionEnvironmentRevision = createCiVerificationNativeProviderRevision(kind);
+  if (executionEnvironmentRevision === null) return null;
+  return Object.freeze({
+    contractRevision: CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
+    kind,
+    os: 'linux',
+    arch: 'x64',
+    runnerImage: null,
+    toolchainRevision: CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+    executionEnvironmentRevision
+  });
+}
+
+const nativeHostedExecutionEnvironment = nativeExecutionEnvironment('hosted');
+
+/** Source acceptance selects a profile; this value does not attest a live host. */
+export function createCiVerificationNativeHostedExecutionEnvironment(): CiVerificationExecutionEnvironment {
+  if (nativeHostedExecutionEnvironment === null) fail('native execution environment content is unresolved.');
+  return nativeHostedExecutionEnvironment;
+}
+
+/** No caller-supplied platform or digest can manufacture a native environment. */
+export function createCiVerificationNativeLocalExecutionEnvironment(): CiVerificationExecutionEnvironment {
+  const environment = nativeExecutionEnvironment('local');
+  if (environment === null) fail('native execution environment content is unresolved.');
+  return environment;
+}
+
+/** Parsing and Scope reconstruction consume this one closed profile collection. */
+export const CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS: readonly CiVerificationExecutionEnvironment[] =
+  Object.freeze([
+    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+    ...(nativeHostedExecutionEnvironment === null ? [] : [nativeHostedExecutionEnvironment])
+  ]);
+
+export function resolveCiVerificationHostedExecutionEnvironment(
+  providerRevision: string
+): CiVerificationExecutionEnvironment {
+  const environment = CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS.find(
+    (value) => value.executionEnvironmentRevision === providerRevision
+  );
+  if (environment !== undefined) return environment;
+  fail('hosted execution environment revision is not one of the closed profiles.');
+}
+
+export function parseCiVerificationHostedExecutionEnvironment(
+  value: unknown
+): CiVerificationExecutionEnvironment {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('hosted execution environment must be an object.');
+  }
+  const revision = (value as Record<string, unknown>).executionEnvironmentRevision;
+  if (typeof revision !== 'string') fail('hosted execution environment revision must be text.');
+  const expected = resolveCiVerificationHostedExecutionEnvironment(revision);
+  if (encodeVerificationActionData(value) !== encodeVerificationActionData(expected)) {
+    fail('hosted execution environment differs from its closed profile.');
+  }
+  return expected;
+}
+
 export function createCiVerificationLocalExecutionEnvironment(input: {
   readonly os: string;
   readonly arch: string;
@@ -217,9 +280,8 @@ export function createCiVerificationLocalExecutionEnvironment(input: {
 
 function canonicalExecutionEnvironmentRevision(providerRevision: string): string {
   const revision = text(providerRevision, 'candidate.providerRevision');
-  // The Session runtime still supplies the former hosted provider label. It is
-  // an input spelling only: the Action producer always compiles it to the one
-  // active environment revision before hashing or serializing an Action.
+  // Preserve the former label only as an existing compatibility input spelling.
+  // New Session producers bind the explicitly selected canonical revision.
   return revision === 'github-actions@trusted-default'
     ? CI_VERIFICATION_HOSTED_PROVIDER_REVISION
     : revision;
@@ -250,53 +312,6 @@ export interface CiVerificationProducerGate {
   readonly coveredScopeIds: readonly string[];
   readonly inputs?: readonly VerificationActionInputRef[];
 }
-
-export interface CiVerificationActionPlanClosure {
-  readonly schema: typeof CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA;
-  readonly producerRevision: typeof CI_VERIFICATION_ACTION_PRODUCER_REVISION;
-  readonly actions: readonly VerificationActionPlan[];
-  readonly normalizedOperations: readonly CiVerificationNormalizedOperation[];
-  readonly actionPlanDigest: CiVerificationActionDigest;
-}
-
-type CiVerificationNormalizedTarget =
-  | Readonly<{
-      kind: 'bun-package-script';
-      identity: string;
-      readonly args: readonly string[];
-    }>
-  | Readonly<{
-      kind: 'bun-test';
-      identity: 'test';
-      readonly args: readonly string[];
-    }>
-  | Readonly<{
-      kind: 'bun-typescript-entrypoint';
-      identity: string;
-      readonly args: readonly string[];
-    }>;
-
-export type CiVerificationNormalizedOperation = Readonly<{
-  schema: 'sec-ci-verification-normalized-operation-v2';
-  gateId: string;
-  phase: CiVerificationGatePhase;
-  runtime: 'bun';
-  workingDirectory: '.';
-  target: CiVerificationNormalizedTarget;
-  environmentBindings: readonly Readonly<{ name: string; digest: CiVerificationActionDigest }>[];
-  coveredScopeIds: readonly string[];
-  candidate: Readonly<{
-    baseSha: string;
-    baseTreeSha: string;
-    headSha: string;
-    headTreeSha: string;
-    manifestDigest: CiVerificationActionDigest;
-    scopeAuthorizationRevision: CiVerificationActionDigest;
-    profile: 'quick' | 'full';
-    executionEnvironmentRevision: string;
-  }>;
-  semanticDigest: CiVerificationActionDigest;
-}>;
 
 export function ciVerificationNormalizedOperationArgv(
   operation: CiVerificationNormalizedOperation

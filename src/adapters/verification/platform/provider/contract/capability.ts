@@ -1,10 +1,10 @@
 /**
- * Provider capability resolution (Issue #347 section A).
+ * Provider capability resolution.
  *
  * Writer / reviewer / verification-executor providers are separate
  * capabilities. Availability is resolved into normalized state before any
- * expensive integration stage; raw quota/billing/upsell prose (#244-untrusted
- * diagnostic) never enters prompt/control/evidence truth — only a bounded
+ * expensive integration stage; raw quota/billing/upsell prose is untrusted
+ * diagnostic input and never enters prompt/control/evidence truth — only a bounded
  * reasonCode and a content digest are retained. A provider already known
  * unavailable in the same availability epoch must not be retried.
  *
@@ -16,7 +16,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { CompilerError } from '../../../../../compiler/errors.ts';
+import { CodedFailure } from '../../../../../contracts/failure.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
 const VERIFICATION_PROVIDER_CAPABILITY_SCHEMA =
@@ -218,23 +218,23 @@ export function assertProviderCapabilityUsableV1(input: {
 }): VerificationProviderCapability {
   const now = instant(input.now, 'now');
   if (now < input.epoch.observedAt) {
-    throw new CompilerError('PROVIDER-AVAILABILITY-NOT-YET-OBSERVED',
+    throw new CodedFailure('PROVIDER-AVAILABILITY-NOT-YET-OBSERVED',
       `Provider availability epoch ${input.epoch.epochId} was observed at ${input.epoch.observedAt}.`,
       { epochId: input.epoch.epochId, observedAt: input.epoch.observedAt });
   }
   if (now >= input.epoch.expiresAt) {
-    throw new CompilerError('PROVIDER-AVAILABILITY-EXPIRED',
+    throw new CodedFailure('PROVIDER-AVAILABILITY-EXPIRED',
       `Provider availability epoch ${input.epoch.epochId} expired at ${input.epoch.expiresAt}.`,
       { epochId: input.epoch.epochId, expiresAt: input.epoch.expiresAt });
   }
   const capability = resolveProviderAvailability(input.epoch, input.capability);
   if (now < capability.observedAt) {
-    throw new CompilerError('PROVIDER-AVAILABILITY-NOT-YET-OBSERVED',
+    throw new CodedFailure('PROVIDER-AVAILABILITY-NOT-YET-OBSERVED',
       `Provider capability ${input.capability} was observed at ${capability.observedAt}.`,
       { capability: input.capability, observedAt: capability.observedAt });
   }
   if (capability.role !== input.expectedRole) {
-    throw new CompilerError('PROVIDER-ROLE-MISMATCH',
+    throw new CodedFailure('PROVIDER-ROLE-MISMATCH',
       `Provider ${input.capability} is registered for ${capability.role}, not ${input.expectedRole}.`,
       { capability: input.capability, actualRole: capability.role, expectedRole: input.expectedRole });
   }
@@ -275,7 +275,7 @@ export function assertProviderRetryGuard(input: {
 }): void {
   if (input.previous.epochId !== input.requested.epochId) return;
   if (input.previous.availability === 'unavailable') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PROVIDER-UNAVAILABLE-NOT-RETRIED',
       `Provider ${input.requested.capability} is unavailable in availability epoch `
         + `${input.requested.epochId} and must not be retried until a relevant availability input changes.`,

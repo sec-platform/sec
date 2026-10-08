@@ -4,17 +4,17 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleArchitectureProjection,
-  type SecModuleCausalRelationKind,
-  type SecModuleOperationRole,
-  type SecRepositoryModuleArchitectureProjection,
-  type SecRepositoryModuleBoundaryViolation,
-  type SecRepositoryModuleEdgeWitness,
-  type SecRepositoryModuleFileStrongComponent,
-  type SecRepositoryModuleMembership,
-  type SecRepositoryModuleOwnerEdge,
-  type SecRepositoryModuleReciprocalPair,
-  type SecRepositoryModuleStrongComponent
+  compileRepositoryModuleArchitectureProjection,
+  type RepositoryModuleArchitectureProjection,
+  type RepositoryModuleBoundaryViolation,
+  type RepositoryModuleCausalRelationKind,
+  type RepositoryModuleEdgeWitness,
+  type RepositoryModuleFileStrongComponent,
+  type RepositoryModuleMembership,
+  type RepositoryModuleOperationRole,
+  type RepositoryModuleOwnerEdge,
+  type RepositoryModuleReciprocalPair,
+  type RepositoryModuleStrongComponent
 } from '../architecture/contract.ts';
 import {
   sourceProgramSurfaceForPath,
@@ -29,7 +29,10 @@ import {
   assertRepositorySourceProgramCompilationReceipt,
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
-import { compileSourceProgramOwnerIntentEvidence } from './repository.ts';
+import {
+  compileSourceProgramOwnerIntentEvidence,
+  observeRepositorySourceProgramDescriptorOperationExports
+} from './repository.ts';
 
 type SourceProgramReconciliationBinding = Readonly<{
   before: RepositorySourceProgramCompilationReceipt;
@@ -163,7 +166,7 @@ function assertSourceProgramReconciliationProjection(
 
 type BoundRelation = Readonly<{
   subject: string;
-  relation: SecModuleCausalRelationKind;
+  relation: RepositoryModuleCausalRelationKind;
   ownerModuleId: string;
   declaration: SourceProgramDeclaration | null;
   path: string;
@@ -172,7 +175,7 @@ type BoundRelation = Readonly<{
 
 type BoundRole = Readonly<{
   semanticOperation: string;
-  role: SecModuleOperationRole;
+  role: RepositoryModuleOperationRole;
   ownerModuleId: string;
   declaration: SourceProgramDeclaration | null;
 }>;
@@ -269,7 +272,7 @@ function reconciliationModelIndex(model: SourceProgramModel): ReconciliationMode
 }
 
 function relationPhase(
-  relation: SecModuleCausalRelationKind
+  relation: RepositoryModuleCausalRelationKind
 ): SourceProgramReconciliationPhase | null {
   switch (relation) {
     case 'declares':
@@ -286,7 +289,7 @@ function relationPhase(
   }
 }
 
-function rolePhase(role: SecModuleOperationRole): SourceProgramReconciliationPhase | null {
+function rolePhase(role: RepositoryModuleOperationRole): SourceProgramReconciliationPhase | null {
   switch (role) {
     case 'durable-worker': return 'writer';
     case 'provider-settlement-issuer':
@@ -300,7 +303,7 @@ function rolePhase(role: SecModuleOperationRole): SourceProgramReconciliationPha
 
 function bindRelations(
   index: ReconciliationModelIndex,
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): readonly BoundRelation[] {
   const relations: BoundRelation[] = [];
   for (const descriptor of membership.descriptors) {
@@ -326,7 +329,7 @@ function bindRelations(
 
 function bindRoles(
   index: ReconciliationModelIndex,
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): readonly BoundRole[] {
   const roles: BoundRole[] = [];
   for (const descriptor of membership.descriptors) {
@@ -1175,30 +1178,30 @@ export type SourceProgramArchitectureEvolutionReference = Readonly<{
   referenceDigest: `sha256:${string}`;
 }>;
 
-function ownerEdgeKey(edge: SecRepositoryModuleOwnerEdge): string {
+function ownerEdgeKey(edge: RepositoryModuleOwnerEdge): string {
   return `${edge.fromOwner}->${edge.toOwner}`;
 }
 
-function reciprocalPairKey(pair: SecRepositoryModuleReciprocalPair): string {
+function reciprocalPairKey(pair: RepositoryModuleReciprocalPair): string {
   return [...pair.ownerIds].sort(compareCodeUnits).join('<->');
 }
 
-function strongComponentKey(component: SecRepositoryModuleStrongComponent): string {
+function strongComponentKey(component: RepositoryModuleStrongComponent): string {
   return [...component.ownerIds].sort(compareCodeUnits).join('<->');
 }
 
-function edgeWitnessKey(witness: SecRepositoryModuleEdgeWitness): string {
+function edgeWitnessKey(witness: RepositoryModuleEdgeWitness): string {
   return `${witness.fromPath}->${witness.toPath}\0${witness.kind}\0${witness.specifier}`;
 }
 
-function ownerEdgeWitnessKeys(edges: readonly SecRepositoryModuleOwnerEdge[]): readonly string[] {
+function ownerEdgeWitnessKeys(edges: readonly RepositoryModuleOwnerEdge[]): readonly string[] {
   return sortedUnique(edges.flatMap((edge) => edge.witnesses.map((witness) => (
     `${edge.fromOwner}->${edge.toOwner}\0${edgeWitnessKey(witness)}`
   ))));
 }
 
 function ownerCycleRelations(
-  components: readonly SecRepositoryModuleStrongComponent[]
+  components: readonly RepositoryModuleStrongComponent[]
 ): readonly string[] {
   return sortedUnique(components.flatMap(({ ownerIds }) => {
     const owners = [...ownerIds].sort(compareCodeUnits);
@@ -1209,7 +1212,7 @@ function ownerCycleRelations(
 }
 
 function fileCycleRelations(
-  components: readonly SecRepositoryModuleFileStrongComponent[]
+  components: readonly RepositoryModuleFileStrongComponent[]
 ): readonly string[] {
   return sortedUnique(components.flatMap(({ ownerId, paths, edges }) => {
     const members = [...paths].sort(compareCodeUnits);
@@ -1226,14 +1229,14 @@ function fileCycleRelations(
 }
 
 function fileCycleEdgeWitnesses(
-  components: readonly SecRepositoryModuleFileStrongComponent[]
+  components: readonly RepositoryModuleFileStrongComponent[]
 ): readonly string[] {
   return sortedUnique(components.flatMap(({ ownerId, edges }) => edges.map((edge) => (
     `${ownerId}\0${edgeWitnessKey(edge)}`
   ))));
 }
 
-function violationKey(violation: SecRepositoryModuleBoundaryViolation): string {
+function violationKey(violation: RepositoryModuleBoundaryViolation): string {
   // `detail` may carry revision-bound evidence digests. The violation identity
   // is its stable rule and graph endpoints; changing proof bytes must not look
   // like one violation was retired while a different violation was added.
@@ -1246,7 +1249,7 @@ function difference(after: readonly string[], before: readonly string[]): readon
 }
 
 function architectureIdentity(
-  architecture: SecRepositoryModuleArchitectureProjection
+  architecture: RepositoryModuleArchitectureProjection
 ): Readonly<{
   digest: `sha256:${string}`;
   ownerEdges: readonly string[];
@@ -1273,7 +1276,7 @@ function architectureIdentity(
   const cyclicStructuralEdgeCounts = new Map<string, number>();
   const addStructuralWitness = (
     ownerEdge: string,
-    witness: SecRepositoryModuleEdgeWitness
+    witness: RepositoryModuleEdgeWitness
   ): void => {
     const key = `${ownerEdge}\0${witness.fromPath}->${witness.toPath}\0${witness.kind}`;
     cyclicStructuralEdgeCounts.set(key, (cyclicStructuralEdgeCounts.get(key) ?? 0) + 1);
@@ -1380,15 +1383,23 @@ export function compileSourceProgramArchitectureEvolutionReference(input: Readon
   if (binding === undefined) {
     throw new Error('Architecture evolution requires one reconciliation-bound source graph');
   }
-  const beforeArchitecture = compileSecRepositoryModuleArchitectureProjection(
+  const beforeArchitecture = compileRepositoryModuleArchitectureProjection(
     binding.before.workspaceSnapshot.moduleGraph,
     binding.before.workspaceSnapshot.moduleMembership,
-    binding.before.model
+    {
+      ...binding.before.model,
+      descriptorOperationExports:
+        observeRepositorySourceProgramDescriptorOperationExports(binding.before.model) ?? undefined
+    }
   );
-  const afterArchitecture = compileSecRepositoryModuleArchitectureProjection(
+  const afterArchitecture = compileRepositoryModuleArchitectureProjection(
     binding.after.workspaceSnapshot.moduleGraph,
     binding.after.workspaceSnapshot.moduleMembership,
-    binding.after.model
+    {
+      ...binding.after.model,
+      descriptorOperationExports:
+        observeRepositorySourceProgramDescriptorOperationExports(binding.after.model) ?? undefined
+    }
   );
   const beforeIdentity = architectureIdentity(beforeArchitecture);
   const afterIdentity = architectureIdentity(afterArchitecture);

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { TemplateEngine } from '../../src/adapters/compilation/compose/template-engine.ts';
+import { renderTemplateString } from '../../src/compiler/templates/render-template-string.ts';
 
 for (const newline of ['\n', '\r\n']) {
   test(`template conditionals preserve literal ${JSON.stringify(newline)} bytes around paired directives`, () => {
@@ -13,54 +14,54 @@ for (const newline of ['\n', '\r\n']) {
     ].join(newline);
     // Markers are syntax. Active text, including each surrounding newline,
     // is content, not a formatter's permission to delete whitespace.
-    expect(TemplateEngine.renderString(source, { enabled: true, nested: false }))
+    expect(renderTemplateString(source, { enabled: true, nested: false }))
       .toBe(['before', '', 'enabled', '', 'not-nested', '', '', 'after'].join(newline));
-    expect(TemplateEngine.renderString(source, { enabled: false, nested: false }))
+    expect(renderTemplateString(source, { enabled: false, nested: false }))
       .toBe(['before', '', 'after'].join(newline));
   });
 }
 
 test('unknown, inherited, non-boolean, and malformed conditions fail closed', () => {
-  expect(() => TemplateEngine.renderString(
+  expect(() => renderTemplateString(
     '/*#IF missing*/value/*#ENDIF*/',
     {}
   )).toThrow(/unknown context key/);
-  expect(() => TemplateEngine.renderString(
+  expect(() => renderTemplateString(
     '/*#IF toString*/value/*#ENDIF*/',
     {}
   )).toThrow(/unknown context key/);
-  expect(() => TemplateEngine.renderString(
+  expect(() => renderTemplateString(
     '/*#IF enabled*/value/*#ENDIF*/',
     { enabled: 'true' }
   )).toThrow(/requires a boolean/);
-  expect(() => TemplateEngine.renderString(
+  expect(() => renderTemplateString(
     '/*#IF enabled*//*#IF dormantMissing*/value/*#ENDIF*//*#ENDIF*/',
     { enabled: false }
   )).toThrow(/unknown context key/);
-  expect(() => TemplateEngine.renderString(
+  expect(() => renderTemplateString(
     '/*#IF enabled*/value',
     { enabled: true }
   )).toThrow(/missing \/\*#ENDIF\*\//);
-  expect(() => TemplateEngine.renderString(
+  expect(() => renderTemplateString(
     'value/*#ENDIF*/',
     {}
   )).toThrow(/unmatched \/\*#ENDIF\*\//);
 });
 
 test('interpolation uses literal keys and literal replacement bytes', () => {
-  expect(TemplateEngine.renderString(
+  expect(renderTemplateString(
     'value=__value__; count=__count__',
     { value: '$&-$`-$\'', count: 2 }
   )).toBe('value=$&-$`-$\'; count=2');
 
-  expect(() => TemplateEngine.renderString('value=__missing__', {}))
+  expect(() => renderTemplateString('value=__missing__', {}))
     .toThrow(/placeholder references an unknown context key/);
-  expect(() => TemplateEngine.renderString('value=__enabled__', { enabled: true }))
+  expect(() => renderTemplateString('value=__enabled__', { enabled: true }))
     .toThrow(/placeholder requires a string or number/);
-  expect(() => TemplateEngine.renderString('unchanged', {
+  expect(() => renderTemplateString('unchanged', {
     'value.*': 'invalid'
   })).toThrow(/context key is not canonical/);
-  expect(() => TemplateEngine.renderString('unchanged', {
+  expect(() => renderTemplateString('unchanged', {
     value: Number.NaN
   })).toThrow(/context value is unsupported/);
 });

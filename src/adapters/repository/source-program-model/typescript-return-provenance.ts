@@ -1,13 +1,13 @@
+import ts from 'typescript';
+import {
+  compareCodeUnits,
+  sha256
+} from '../../../contracts/canonical.ts';
 import type {
   SourceProgramDeclaration,
   SourceProgramReturnProvenance,
   SourceProgramReturnValueProvenance
 } from './contract.ts';
-import {
-  compareCodeUnits,
-  sha256
-} from '../../../contracts/canonical.ts';
-import ts from 'typescript';
 
 /** Bounded return-value provenance interpretation; no model or workspace state. */
 type ReturnProvenanceValues = readonly SourceProgramReturnValueProvenance[];

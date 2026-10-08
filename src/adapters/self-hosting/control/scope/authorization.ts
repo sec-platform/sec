@@ -1,53 +1,17 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import type { ScopeAuthorization, ScopeAuthorizationDigest, ScopeAuthorizationIssuer } from '../../../../execution/verification/session.ts';
 
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 /** Content-integrity decision object, not a signature. Consumers independently verify issuer provenance and live candidate facts. */
 
-const SCOPE_AUTHORIZATION_SCHEMA = 'sec-scope-authorization-v1' as const;
-export type ScopeAuthorizationDigest = `sha256:${string}`;
-
-interface ScopeAuthorizationIssuer {
-  readonly principalId: string;
-  readonly role: 'trusted-base-a0';
-  readonly trustRevision: string;
-  readonly producerIdentity: string;
-  readonly sourceTransport: 'trusted-base' | 'github-actions';
-  readonly sourceRunId: string;
-  readonly sourceRef: string;
-  readonly sourceDigest: ScopeAuthorizationDigest;
-}
+const SCOPE_AUTHORIZATION_SCHEMA: ScopeAuthorization["schema"] = 'sec-scope-authorization-v1' as const;
 
 type ScopeAuthorizationStableIssuer = Pick<
   ScopeAuthorizationIssuer,
   'principalId' | 'role' | 'trustRevision' | 'producerIdentity'
 >;
-
-export interface ScopeAuthorization {
-  readonly schema: typeof SCOPE_AUTHORIZATION_SCHEMA;
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly baseSha: string;
-  readonly baseTreeSha: string;
-  readonly headSha: string;
-  readonly headTreeSha: string;
-  readonly manifestPath: string;
-  readonly manifestDigest: ScopeAuthorizationDigest;
-  /** Digest of the immutable proposal before trusted-base authorization. */
-  readonly proposalDigest: ScopeAuthorizationDigest;
-  readonly authorizedPaths: readonly string[];
-  /** Full downstream session proposal coherence; excluded from authorizationRevision. */
-  readonly sessionProposalDigest: ScopeAuthorizationDigest;
-  readonly actionPlanClosureDigest: ScopeAuthorizationDigest;
-  readonly profile: string;
-  readonly environmentDigest: ScopeAuthorizationDigest;
-  readonly issuer: ScopeAuthorizationIssuer;
-  readonly issuedAt: string;
-  readonly expiresAt: string;
-  readonly authorizationRevision: ScopeAuthorizationDigest;
-  readonly authorizationDigest: ScopeAuthorizationDigest;
-}
 
 export type ScopeAuthorizationInput = Omit<
   ScopeAuthorization,

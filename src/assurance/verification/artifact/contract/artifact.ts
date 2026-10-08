@@ -4,6 +4,7 @@ import type { AcceptanceCoverageReport } from '../../../acceptance/coverage.ts';
 import { validatePolicyReport } from "../../../policies/report.ts";
 import { acceptanceIdsProvenByVerificationReports } from '../../acceptance/contract/proof.ts';
 import { validateAcceptanceCoverageReport } from '../../acceptance/validation.ts';
+import { isVerificationLane, verificationLaneProfile } from '../../contract/lanes.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationReport, VerificationStatus } from '../../contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary, buildExpectedProductVerificationClaimSummary, buildProductVerificationObservationBindings, inferProductVerificationRuntimeMode, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_GATE_ID, PRODUCT_RUNTIME_GATE_ID, type ProductVerificationObservations } from '../../profile/contract/product.ts';
 import { CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, type VerificationGateResult } from '../../result/contract/result.ts';
@@ -21,12 +22,15 @@ export type CurrentCanonicalVerificationReport = Omit<VerificationReport, 'summa
   };
 };
 
-export interface CanonicalVerificationArtifactSet {
+export interface ValidatedVerificationArtifactSet {
   readonly verificationReport: CurrentCanonicalVerificationReport;
   readonly runtimeReport: RuntimeVerificationLaneReport;
   readonly policyReport: PolicyReport;
   readonly acceptanceCoverage: AcceptanceCoverageReport;
 }
+
+/** Complete-lane evidence retains a separate consumer admission contract. */
+export interface CanonicalVerificationArtifactSet extends ValidatedVerificationArtifactSet {}
 
 function exactKeys(value: unknown, expected: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -186,7 +190,8 @@ function exactVerificationClaimSummary(
 
 function exactVerificationReport(
   value: unknown,
-  acceptanceCoverage: AcceptanceCoverageReport
+  acceptanceCoverage: AcceptanceCoverageReport,
+  requireAllLanes: boolean
 ): value is VerificationReport {
   if (!exactKeys(value, ['build', 'unit', 'acceptance', 'policy', 'fast', 'runtime', 'summary', 'logs']) ||
       !exactFastVerificationReport(value.fast) || !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs)) {
@@ -201,7 +206,8 @@ function exactVerificationReport(
   const summaryHasClaim = exactKeys(summary, ['status', 'requestedLane', 'failedLanes', 'claimSummary']);
   if (!summaryHasClaim ||
       (summary.status !== 'passed' && summary.status !== 'failed') ||
-      summary.requestedLane !== 'all' || !Array.isArray(summary.failedLanes) ||
+      !isVerificationLane(summary.requestedLane) ||
+      (requireAllLanes && summary.requestedLane !== 'all') || !Array.isArray(summary.failedLanes) ||
       !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime') ||
       !exactVerificationClaimSummary(
         summary.claimSummary,
@@ -217,7 +223,7 @@ function exactVerificationReport(
 
   const report = value as unknown as VerificationReport;
   const failedLanes = [
-    ...(report.fast.status === 'failed' ? ['fast' as const] : []),
+    ...(verificationLaneProfile(report.summary.requestedLane).runFast && report.fast.status === 'failed' ? ['fast' as const] : []),
     ...(report.runtime.status === 'failed' ? ['runtime' as const] : [])
   ];
   const expectedSummaryStatus = report.summary.claimSummary!.overall.overallStatus === 'passed'
@@ -236,11 +242,12 @@ function exactVerificationReport(
     CodexDevelopmentVerificationDataEqual(report.summary.failedLanes, failedLanes);
 }
 
-function exactCurrentCanonicalVerificationReport(
+function exactCurrentVerificationReport(
   value: unknown,
-  acceptanceCoverage: AcceptanceCoverageReport
+  acceptanceCoverage: AcceptanceCoverageReport,
+  requireAllLanes: boolean
 ): value is CurrentCanonicalVerificationReport {
-  return exactVerificationReport(value, acceptanceCoverage) &&
+  return exactVerificationReport(value, acceptanceCoverage, requireAllLanes) &&
     (value as VerificationReport).summary.claimSummary !== undefined;
 }
 
@@ -263,9 +270,10 @@ function exactAcceptanceCoverage(
     report.blocks.every((entry) => entry.coveredBy.every((id) => accepted.has(id)));
 }
 
-export function isCanonicalVerificationArtifactSet(
-  input: VerificationArtifactSet
-): input is CanonicalVerificationArtifactSet {
+function isProfileValidatedVerificationArtifactSet(
+  input: VerificationArtifactSet,
+  requireAllLanes: boolean
+): input is ValidatedVerificationArtifactSet {
   let candidate: VerificationArtifactSet;
   try {
     const snapshot = CodexDevelopmentSnapshotVerificationData(input, 'verification artifact set');
@@ -278,7 +286,7 @@ export function isCanonicalVerificationArtifactSet(
   const acceptanceCoverage = validatedAcceptanceCoverage(candidate.acceptanceCoverage);
   const policyReport = validatedPolicyReport(candidate.policyReport);
   if (acceptanceCoverage === null || policyReport === null ||
-      !exactCurrentCanonicalVerificationReport(candidate.verificationReport, acceptanceCoverage) ||
+      !exactCurrentVerificationReport(candidate.verificationReport, acceptanceCoverage, requireAllLanes) ||
       !exactRuntimeVerificationReport(candidate.runtimeReport) ||
       !exactAcceptanceCoverage(
         candidate.acceptanceCoverage,
@@ -300,6 +308,28 @@ export function isCanonicalVerificationArtifactSet(
       violations: structuredClone(policyReport.violations)
     }) &&
     acceptanceCoverage.status === candidate.runtimeReport.status;
+}
+
+export function isVerificationArtifactSet(input: VerificationArtifactSet): input is ValidatedVerificationArtifactSet {
+  return isProfileValidatedVerificationArtifactSet(input, false);
+}
+
+export function assertVerificationArtifactSet(input: VerificationArtifactSet): asserts input is ValidatedVerificationArtifactSet {
+  if (!isVerificationArtifactSet(input)) throw new Error('Verification observations do not match the exact artifact schema');
+}
+
+/** Validate the complete report/claim/evidence tuple for its declared lane.
+ * Partial evidence remains partial: only the completion wrapper below requires all. */
+export function assertVerificationPublicationArtifactSet(input: VerificationArtifactSet): void {
+  if (!isProfileValidatedVerificationArtifactSet(input, false)) {
+    throw new Error('Verification publication artifacts do not match the exact profile-aware canonical schema');
+  }
+}
+
+export function isCanonicalVerificationArtifactSet(
+  input: VerificationArtifactSet
+): input is CanonicalVerificationArtifactSet {
+  return isProfileValidatedVerificationArtifactSet(input, true);
 }
 
 export function assertCanonicalVerificationArtifactSet(

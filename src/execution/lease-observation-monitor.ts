@@ -1,3 +1,4 @@
+import { throwIfNativeAborted } from '../contracts/native-abort.ts';
 import { ResourceCompositeSettlementError } from './resource-settlement.ts';
 
 // Observation cadence is not a lease duration and cannot extend lease authority.
@@ -52,7 +53,21 @@ export async function withLeaseObservationMonitor<T>(
     // the lease. Drain it before allowing the enclosing writer to release.
     const failureBeforeDrain = failure;
     await pending;
-    if (failureBeforeDrain !== undefined) throw failureBeforeDrain.reason;
+    if (failureBeforeDrain !== undefined) {
+      // The observed lease loss remains first. Only the same failure or this
+      // monitor's actual native cancellation is a duplicate, not an arbitrary
+      // later body/settlement failure. Preserve that distinct value intact.
+      let cancellation = false;
+      try { throwIfNativeAborted(controller.signal); }
+      catch (reason) { cancellation = Object.is(error, reason); }
+      if (Object.is(error, failureBeforeDrain.reason) || cancellation) {
+        throw failureBeforeDrain.reason;
+      }
+      throw new ResourceCompositeSettlementError([
+        { label: 'lease-observation', error: failureBeforeDrain.reason },
+        { label: 'lease-monitored-operation', error }
+      ]);
+    }
     if (failure !== undefined) {
       throw new ResourceCompositeSettlementError([
         { label: 'lease-monitored-operation', error },

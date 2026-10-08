@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
-import { CompilerError } from '../../compiler/errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { ExplainGraph } from '../../semantics/projection/explain.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import { readOptionalRetainedJson } from '../runtime-state/physical/runtime/retained-file-read.ts';
@@ -12,7 +12,7 @@ function readOptionalValidatedProvenance(filePath: string, label: string): Prove
   try {
     return readOptionalProvenanceFile(filePath, label);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'EXPLAIN-BLOCKED-003',
       `${label} is malformed: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -22,7 +22,7 @@ function readOptionalValidatedProvenance(filePath: string, label: string): Prove
 export async function readRequiredExplanationProvenance(workspaceRoot: string, label: string): Promise<ProvenanceFile> {
   const filePath = await resolveWorkspaceProvenancePath(workspaceRoot);
   const value = readOptionalValidatedProvenance(filePath, label);
-  if (value === null) throw new CompilerError('EXPLAIN-BLOCKED-003', `${label} is missing`);
+  if (value === null) throw new CodedFailure('EXPLAIN-BLOCKED-003', `${label} is missing`);
   return value;
 }
 
@@ -33,12 +33,12 @@ export function readRequiredExplanationVerification(workspaceRoot: string) {
       'Explain Verification artifact set'
     );
     if (artifacts === null) {
-      throw new CompilerError('EXPLAIN-BLOCKED-003', 'Verification artifact set is missing');
+      throw new CodedFailure('EXPLAIN-BLOCKED-003', 'Verification artifact set is missing');
     }
     return artifacts;
   } catch (error) {
-    if (error instanceof CompilerError) throw error;
-    throw new CompilerError(
+    if (error instanceof CodedFailure) throw error;
+    throw new CodedFailure(
       'EXPLAIN-BLOCKED-003',
       `Verification artifact closure is not canonical: ${error instanceof Error ? error.message : String(error)}`
     );

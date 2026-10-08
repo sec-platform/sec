@@ -8,8 +8,8 @@ import {
   uniqueSorted
 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
-import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
+import { normalizeRepositoryPath } from '../architecture/contract.ts';
 import type {
   SourceProgramEntrypointKind,
   SourceProgramModel,
@@ -40,7 +40,7 @@ const SCHEMA = 'sec-source-program-test-impact-projection-v5' as const;
 
 const digestSchema = z.string().regex(DIGEST);
 const repositoryPathSchema = z.string().min(1).refine(
-  (value) => normalizeSecRepositoryPath(value) === value,
+  (value) => normalizeRepositoryPath(value) === value,
   'repository path must be canonical'
 );
 const physicalSubjectSchema = z.object({
@@ -168,9 +168,9 @@ function referenceOrder(left: SourceProgramReference, right: SourceProgramRefere
 
 function compactReference(reference: SourceProgramReference): z.infer<typeof semanticReferenceSchema> {
   return {
-    path: normalizeSecRepositoryPath(reference.path),
+    path: normalizeRepositoryPath(reference.path),
     moduleSpecifier: reference.moduleSpecifier,
-    targetPath: reference.targetPath === null ? null : normalizeSecRepositoryPath(reference.targetPath),
+    targetPath: reference.targetPath === null ? null : normalizeRepositoryPath(reference.targetPath),
     precise: reference.name !== '*'
       && reference.targetObservationId !== null
       && reference.targetPath !== null
@@ -279,7 +279,7 @@ function assertProjectionInputsIssued(input: Readonly<{
           || projectGeneration.snapshotDigest !== workspaceSnapshot.snapshotDigest
           || projectGeneration.moduleMembershipDigest !== workspaceSnapshot.moduleMembershipDigest
           || projectGeneration.moduleGraphDigest !== workspaceSnapshot.moduleGraphDigest))) {
-    throw new SecError(
+    throw new CodedFailure(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact projection requires snapshot-issued TypeScript and test observations',
       { kind: 'projection-input-unissued' }
@@ -315,23 +315,23 @@ function compileTestImpactProjection(input: Readonly<{
     ...testObservations.resourceReads
   ]) {
     const consumer = Object.freeze({
-      targetPath: normalizeSecRepositoryPath(targetPath),
-      testPath: normalizeSecRepositoryPath(testPath)
+      targetPath: normalizeRepositoryPath(targetPath),
+      testPath: normalizeRepositoryPath(testPath)
     });
     observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
   }
   for (const { path: testPath, target: targetPath } of testObservations.localProgramInvocations) {
     const consumer = Object.freeze({
-      targetPath: normalizeSecRepositoryPath(targetPath),
-      testPath: normalizeSecRepositoryPath(testPath)
+      targetPath: normalizeRepositoryPath(targetPath),
+      testPath: normalizeRepositoryPath(testPath)
     });
     observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
   }
   for (const registration of testObservations.registrations) {
     for (const targetPath of registration.observedProductionPaths) {
       const consumer = Object.freeze({
-        targetPath: normalizeSecRepositoryPath(targetPath),
-        testPath: normalizeSecRepositoryPath(registration.path)
+        targetPath: normalizeRepositoryPath(targetPath),
+        testPath: normalizeRepositoryPath(registration.path)
       });
       observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
     }
@@ -357,7 +357,7 @@ function compileTestImpactProjection(input: Readonly<{
     moduleOwners: workspaceSnapshot.moduleMembership.descriptors
       .map(({ moduleId, root }) => ({
         moduleId,
-        root: normalizeSecRepositoryPath(root)
+        root: normalizeRepositoryPath(root)
       }))
       .sort((left, right) => compareCodeUnits(
         `${left.root}\0${left.moduleId}`,
@@ -381,20 +381,20 @@ function compileTestImpactProjection(input: Readonly<{
       )),
     declarationPaths: uniqueSorted(repositoryModel.declarations.map(({ path }) => path)),
     moduleGraph: {
-      files: uniqueSorted(moduleGraph.files.map(normalizeSecRepositoryPath)),
+      files: uniqueSorted(moduleGraph.files.map(normalizeRepositoryPath)),
       references: moduleGraph.references.map((reference) => ({
-        from: normalizeSecRepositoryPath(reference.from),
+        from: normalizeRepositoryPath(reference.from),
         kind: reference.kind,
         typeOnly: reference.typeOnly,
         specifier: reference.specifier,
-        candidateTargets: uniqueSorted(reference.candidateTargets.map(normalizeSecRepositoryPath)),
+        candidateTargets: uniqueSorted(reference.candidateTargets.map(normalizeRepositoryPath)),
         resolvedTarget: reference.resolvedTarget === null
           ? null
-          : normalizeSecRepositoryPath(reference.resolvedTarget)
+          : normalizeRepositoryPath(reference.resolvedTarget)
       })).sort((left, right) => compareCodeUnits(moduleReferenceKey(left), moduleReferenceKey(right))),
-      unresolvedFiles: uniqueSorted(moduleGraph.unresolvedFiles.map(normalizeSecRepositoryPath))
+      unresolvedFiles: uniqueSorted(moduleGraph.unresolvedFiles.map(normalizeRepositoryPath))
     },
-    testFiles: uniqueSorted(testObservations.testPaths.map(normalizeSecRepositoryPath)),
+    testFiles: uniqueSorted(testObservations.testPaths.map(normalizeRepositoryPath)),
     semanticReferences: [...semanticReferenceMap.values()]
       .sort((left, right) => compareCodeUnits(semanticReferenceKey(left), semanticReferenceKey(right)))
   };
@@ -438,7 +438,7 @@ export function assertIssuedTestImpactProjection(
   projection: TestImpactProjectionReceipt | undefined
 ): asserts projection is IssuedTestImpactProjection {
   if (projection === undefined || !issuedProjections.has(projection)) {
-    throw new SecError(
+    throw new CodedFailure(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact requires an owner-issued compact Source Program projection',
       { kind: 'projection-unissued' }

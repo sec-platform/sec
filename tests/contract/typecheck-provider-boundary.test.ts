@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectFactIdentity,
@@ -44,17 +44,18 @@ import {
   projectVerificationActionTerminal
 } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
+import { settleResourcesAsync, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const DEPENDENCY_GENERATION_DIGEST = `sha256:${'7'.repeat(64)}` as const;
@@ -92,8 +93,8 @@ function testActionForOperation(
 
 function issuePassedVerificationTerminalFixture() {
   const effectContractDigest = testDigest('typecheck-terminal-fixture-effect');
-  const operation = bindSecSemanticOperation(
-    compileSecSemanticOperationPlan({
+  const operation = bindSemanticOperation(
+    compileSemanticOperationPlan({
       operation: 'verification.typecheck-terminal-fixture',
       intentDigest: testDigest('typecheck-terminal-fixture-intent'),
       decisionDigest: testDigest('typecheck-terminal-fixture-decision'),
@@ -105,29 +106,29 @@ function issuePassedVerificationTerminalFixture() {
         effectKinds: ['process'],
         failureKinds: ['process.failed']
       }],
-      attempt: issueSecSemanticOperationAttemptContext({
+      attempt: issueSemanticOperationAttemptContext({
         authorityGrantDigest: testDigest('typecheck-terminal-fixture-grant')
       })
     }),
-    [compileSecCapabilityBinding({
+    [compileCapabilityBinding({
       requirementId: 'typescript.project-check',
       contractDigest: effectContractDigest,
       providerIdentityDigest: testDigest('typecheck-terminal-fixture-provider')
     })]
   );
-  const settlement = issueSecProviderSettlementReceipt(operation, {
+  const settlement = issueProviderSettlementReceipt(operation, {
     requirementId: 'typescript.project-check',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: testDigest('typecheck-terminal-fixture-settlement')
   });
-  const settlements = compileSecProviderSettlementSet(operation, [settlement]);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, settlements, {
+  const settlements = compileProviderSettlementSet(operation, [settlement]);
+  const readback = issueNormalDomainReadbackReceipt(operation, settlements, {
     readbackContractDigest: testDigest('typecheck-terminal-fixture-readback-contract'),
     readbackReferenceDigest: testDigest('typecheck-terminal-fixture-readback'),
     currentPhysicalEpochDigest: testDigest('typecheck-terminal-fixture-epoch'),
     disposition: 'applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(operation, settlements, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(operation, settlements, readback, {
     ownerTerminalContractDigest: testDigest('typecheck-terminal-fixture-owner-contract'),
     ownerTerminalReferenceDigest: testDigest('typecheck-terminal-fixture-owner-reference')
   });
@@ -206,79 +207,102 @@ async function withCheckerExecutionBoundary<T>(
     maximumBytes: 16 * 1024 * 1024,
     maximumEntries: 256
   });
-  const authority = await sealExistingWindowsReadOnlyTreeAuthority(
-    root.path,
-    inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
-      path.join(root.path, ...relativePath.split('/'))
-    )),
-    {
-      deadlineAtMs: Date.now() + 30_000,
-      ownerRootPath: path.dirname(root.path),
-      repositoryRootPath: process.cwd()
-    }
-  );
-  const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
-  const dependencyIdentity = inspectNoFollowDirectoryChain(
-    dependencyRoot,
-    'test checker dependency root'
-  ).target;
-  const dependencyInventory = scanNoFollowDirectoryTreeInventory(dependencyIdentity, {
-    deadlineAtMs: performance.now() + 30_000,
-    maximumBytes: 256 * 1024 * 1024,
-    maximumEntries: 20_000
-  });
-  const dependencyTreeDigest = testDigest(dependencyInventory);
-  const dependencyDirectory = (await materializeRetainedNoFollowProvenDirectoryGeneration({
-    binding: {
-      generationDigest: testDigest({ dependencyRoot, dependencyTreeDigest }),
-      treeDigest: dependencyTreeDigest,
-      treeEntryCount: dependencyInventory.length
-    },
-    deadlineAtUnixMs: Date.now() + 30_000,
-    inventory: dependencyInventory,
-    proofText: null,
-    releaseMode: 'restore-owner-write',
-    root: dependencyIdentity
-  })).generation;
-  const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
-  await fs.mkdir(auxiliaryRoot);
-  const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(auxiliaryRoot, 'test checker action-private auxiliary root'),
-    4,
-    'test checker action-private auxiliary root'
-  );
-  const operation = compileTypecheckSemanticOperation({
-    checker,
-    deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-    diagnosticArguments: [],
-    projectConfigPath: checker.provider.projectConfig
-  });
-  const processSession = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
-      operation,
-      requirementId: 'typescript.project-check',
-      resourceCeilings: [
-        {
-          resource: 'duration-ms',
-          maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
-        },
-        { resource: 'input-bytes', maximum: 0 },
-        {
-          resource: 'output-bytes',
-          maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
-            + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
-        },
-        { resource: 'processes', maximum: 1 }
-      ]
-    })
-  });
-  const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
-    checker,
-    operation,
-    processSession
-  });
+  const cleanup: Array<Parameters<typeof settleResourcesAsync>[0]['cleanup'][number]> = [];
+  let primary: ResourceSettlementFailure | undefined;
   try {
+    const authority = await sealExistingWindowsReadOnlyTreeAuthority(
+      root.path,
+      inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+        path.join(root.path, ...relativePath.split('/'))
+      )),
+      {
+        deadlineAtMs: Date.now() + 30_000,
+        ownerRootPath: path.dirname(root.path),
+        repositoryRootPath: process.cwd()
+      }
+    );
+    cleanup.push({ label: 'checker working-directory ACL authority', settle: () => authority.release() });
+    const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
+    cleanup[cleanup.length - 1] = { label: 'checker working directory', settle: () => workingDirectory.retire() };
+    const dependencyIdentity = inspectNoFollowDirectoryChain(
+      dependencyRoot,
+      'test checker dependency root'
+    ).target;
+    const dependencyInventory = scanNoFollowDirectoryTreeInventory(dependencyIdentity, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumBytes: 256 * 1024 * 1024,
+      maximumEntries: 20_000
+    });
+    const dependencyTreeDigest = testDigest(dependencyInventory);
+    const dependencyDirectory = (await materializeRetainedNoFollowProvenDirectoryGeneration({
+      binding: {
+        generationDigest: testDigest({ dependencyRoot, dependencyTreeDigest }),
+        treeDigest: dependencyTreeDigest,
+        treeEntryCount: dependencyInventory.length
+      },
+      deadlineAtUnixMs: Date.now() + 30_000,
+      inventory: dependencyInventory,
+      proofText: null,
+      releaseMode: 'restore-owner-write',
+      root: dependencyIdentity
+    })).generation;
+    cleanup.push({ label: 'checker dependency directory', settle: async () => { await dependencyDirectory.retire(); } });
+    const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
+    await fs.mkdir(auxiliaryRoot);
+    const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(auxiliaryRoot, 'test checker action-private auxiliary root'),
+      4,
+      'test checker action-private auxiliary root'
+    );
+    cleanup.push({ label: 'checker auxiliary directory', settle: () => auxiliaryDirectory.dispose() });
+    const operation = compileTypecheckSemanticOperation({
+      checker,
+      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+      diagnosticArguments: [],
+      projectConfigPath: checker.provider.projectConfig
+    });
+    const processSession = openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueOperationRequirementBindingContext({
+        operation,
+        requirementId: 'typescript.project-check',
+        resourceCeilings: [
+          {
+            resource: 'duration-ms',
+            maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+          },
+          { resource: 'input-bytes', maximum: 0 },
+          {
+            resource: 'output-bytes',
+            maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+              + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
+          },
+          { resource: 'processes', maximum: 1 }
+        ]
+      })
+    });
+    cleanup.push({
+      label: 'checker process session',
+      settle: () => {
+        const receipt = processSession.close();
+        assertProcessResourceSessionReceipt(receipt, {
+          operationIdentityDigest: operation.plan.identity.identityDigest,
+          boundAttemptDigest: operation.boundAttemptDigest,
+          requirementId: 'typescript.project-check'
+        });
+        expect(receipt).toMatchObject({
+          failedProcessCount: 0,
+          processCount: expectedProcessCount,
+          settledProcessCount: expectedProcessCount,
+          successfulProcessRecordCount: expectedProcessCount
+        });
+      }
+    });
+    const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
+      checker,
+      operation,
+      processSession
+    });
     return await callback(Object.freeze({
       auxiliaryDirectory,
       buildInfoFileName: 'tsconfig.tsbuildinfo',
@@ -286,22 +310,14 @@ async function withCheckerExecutionBoundary<T>(
       processExecutionAdmission,
       workingDirectory
     }));
+  } catch (error) {
+    primary = { label: 'checker boundary', error };
+    throw error;
   } finally {
-    const receipt = processSession.close();
-    assertProcessResourceSessionReceipt(receipt, {
-      operationIdentityDigest: operation.plan.identity.identityDigest,
-      boundAttemptDigest: operation.boundAttemptDigest,
-      requirementId: 'typescript.project-check'
+    await settleResourcesAsync({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [...cleanup].reverse()
     });
-    expect(receipt).toMatchObject({
-      failedProcessCount: 0,
-      processCount: expectedProcessCount,
-      settledProcessCount: expectedProcessCount,
-      successfulProcessRecordCount: expectedProcessCount
-    });
-    auxiliaryDirectory.dispose();
-    await dependencyDirectory.retire();
-    await workingDirectory.retire();
   }
 }
 
@@ -316,7 +332,7 @@ function workspaceSnapshotFixture(
     Object.freeze({ path: 'src/example/checked.ts', source: programSource, contentDigest: rawSha256(programSource) }),
     Object.freeze({ path: 'docs/projection.md', source: unrelatedSource, contentDigest: rawSha256(unrelatedSource) })
   ]);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path: repositoryPath }) => repositoryPath), descriptorPath],
     descriptorSources: [{
       descriptorPath,
@@ -584,10 +600,7 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       checker: installed,
       deadlineAtUnixMs
     });
-    const actionAt = (
-      deadlineAtUnixMs: number,
-      _observedProjectGenerationDigest = testDigest('typecheck-project-generation')
-    ) => createVerificationActionKey(
+    const actionAt = (deadlineAtUnixMs: number) => createVerificationActionKey(
       compileTypecheckActionInput({
         dependencies,
         dependencyGenerationDigest: DEPENDENCY_GENERATION_DIGEST,
@@ -619,18 +632,16 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       .not.toBe(first.actionKey);
     expect(changed({ projectInput: projectInputFixture(undefined, undefined, 'second projection\n') }))
       .toBe(first.actionKey);
-    expect(actionAt(1_900_000_000_000, testDigest('changed-typecheck-project-generation')).actionKey)
-      .toBe(first.actionKey);
     expect(() => changed({
       projectInput: { ...projectInput } as typeof projectInput
     })).toThrow('was not issued');
     const baseSemanticOperation = semanticAt(1_900_000_000_000);
-    const changedBudgetPlan = compileSecSemanticOperationPlan({
+    const changedBudgetPlan = compileSemanticOperationPlan({
       operation: baseSemanticOperation.plan.identity.operation,
       intentDigest: baseSemanticOperation.plan.identity.intentDigest,
       decisionDigest: baseSemanticOperation.plan.identity.decisionDigest,
       deadlineAtUnixMs: 1_900_000_000_000,
-      attempt: issueSecSemanticOperationAttemptContext({
+      attempt: issueSemanticOperationAttemptContext({
         authorityGrantDigest: baseSemanticOperation.plan.attempt.authorityGrantDigest
       }),
       aggregateBudgets: baseSemanticOperation.plan.execution.aggregateBudgets.map((budget) => (
@@ -640,7 +651,7 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       )),
       requirements: baseSemanticOperation.plan.execution.requirements
     });
-    const changedBudgetOperation = bindSecSemanticOperation(
+    const changedBudgetOperation = bindSemanticOperation(
       changedBudgetPlan,
       baseSemanticOperation.bindings
     );
@@ -745,23 +756,23 @@ test('typecheck consumes Source Program input and joins checker plus retained di
     });
     expect(new Set(operation.plan.execution.requirements.flatMap(({ effectKinds }) => effectKinds)))
       .toEqual(new Set(['filesystem', 'process']));
-    const checker = issueSecProviderSettlementReceipt(operation, {
+    const checker = issueProviderSettlementReceipt(operation, {
       requirementId: 'typescript.project-check',
       physicalDisposition: 'unknown',
       providerSettlementReferenceDigest: testDigest('checker-handle-lost')
     });
-    expect(() => compileSecProviderSettlementSet(operation, [])).toThrow(
+    expect(() => compileProviderSettlementSet(operation, [])).toThrow(
       'exactly one receipt per requirement'
     );
-    expect(() => compileSecProviderSettlementSet(operation, [checker])).toThrow(
+    expect(() => compileProviderSettlementSet(operation, [checker])).toThrow(
       'exactly one receipt per requirement'
     );
-    const diagnostic = issueSecProviderSettlementReceipt(operation, {
+    const diagnostic = issueProviderSettlementReceipt(operation, {
       requirementId: 'verification.action-diagnostics',
       physicalDisposition: 'settled',
       providerSettlementReferenceDigest: testDigest('diagnostic-object-settled')
     });
-    const settlementSet = compileSecProviderSettlementSet(operation, [checker, diagnostic]);
+    const settlementSet = compileProviderSettlementSet(operation, [checker, diagnostic]);
     expect(settlementSet.settlements.map(({ requirementId, physicalDisposition }) => ({
       requirementId,
       physicalDisposition
@@ -769,13 +780,13 @@ test('typecheck consumes Source Program input and joins checker plus retained di
       { requirementId: 'typescript.project-check', physicalDisposition: 'unknown' },
       { requirementId: 'verification.action-diagnostics', physicalDisposition: 'settled' }
     ]));
-    const readback = issueSecNormalDomainReadbackReceipt(operation, settlementSet, {
+    const readback = issueNormalDomainReadbackReceipt(operation, settlementSet, {
       readbackContractDigest: testDigest('typecheck-readback-contract'),
       readbackReferenceDigest: testDigest('typecheck-input-invalidated'),
       currentPhysicalEpochDigest: testDigest('typecheck-current-physical-epoch'),
       disposition: 'unknown'
     });
-    const terminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+    const terminalJoin = issueNormalOwnerTerminalJoinReceipt(
       operation,
       settlementSet,
       readback,

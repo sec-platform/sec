@@ -1,10 +1,10 @@
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { addGeneratedPaths } from '../../compiler/contract/lock-schema.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import { isEmptyDiagnosticsDetails } from '../../compiler/upgrade/failure.ts';
 import { classifyPreflightFailure } from '../../compiler/upgrade/planning.ts';
 import type { CommitFence } from '../../contracts/commit-fence.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import {
   parseUpgradeExecutionTerminalJson,
@@ -46,7 +46,7 @@ export async function publishUpgradePlan(
   );
   const readback = requirePersistedUpgradePlan(workspaceRoot);
   if (readback.planRevision !== plan.planRevision) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade plan readback differs from publication');
+    throw new CodedFailure('UPGRADE-BLOCKED-005', 'Upgrade plan readback differs from publication');
   }
   return readback;
 }
@@ -66,7 +66,7 @@ export async function writeUpgradeDiagnostics(
         plan: UpgradePlan;
         terminal: UpgradeExecutionTerminal;
       },
-  error: CompilerError,
+  error: CodedFailure,
   lock: LockFile | null,
   commitFence: CommitFence
 ): Promise<void> {
@@ -140,7 +140,7 @@ export async function publishUpgradeExecutionTerminal(
   });
   const readback = requirePersistedUpgradeExecutionTerminal(workspaceRoot);
   if (readback.terminalRevision !== terminal.terminalRevision) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-BLOCKED-005',
       'Upgrade execution terminal readback differs from publication'
     );

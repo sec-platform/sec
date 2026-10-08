@@ -1,8 +1,10 @@
+import { CodedFailure } from '../../contracts/failure.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import type { RegistryManifestResolution } from '../../contracts/registry-source.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
-import { assertManifestStackCompatibility } from '../align/align-interfaces.ts';
-import type { LockFile, ManifestEntry, PlanFile } from '../contract.ts';
-import { CompilerError } from '../errors.ts';
+import { assertManifestStackCompatibility, isManifestStackCompatible } from '../align/align-interfaces.ts';
+import { SUPPORTED_STACK, type LockFile, type ManifestEntry, type PlanFile } from '../contract.ts';
+import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
 import { resolveManifestGraph } from './manifest-graph.ts';
 
 type InstallOwnership = Readonly<Pick<LockFile['installPlan'][number], 'blockId' | 'action' | 'to'>>;
@@ -19,7 +21,7 @@ function assertInstallTargetOwnership(installPlan: readonly InstallOwnership[]):
     if (group.length <= 1) continue;
     const target = group[0]!.to;
     if (group.every((step) => step.action === 'merge-prisma' && step.to === target)) continue;
-    throw new CompilerError(
+    throw new CodedFailure(
       'RESOLVE-CONFLICT-006',
       `Install target "${target}" has multiple owners without an explicit composition strategy`,
       {
@@ -52,11 +54,25 @@ export function prepareManifestResolution(
   explicitEntries: readonly ManifestEntry[],
   allEntries: readonly ManifestEntry[]
 ) {
-  const graph = resolveManifestGraph(explicitEntries, allEntries);
-  // Closure discovery can add providers that were not in the author's plan.
-  // Validate the actual selected set before resource lookup or a successful lock.
-  for (const { manifest } of graph.entries) {
+  // A target filter must not conceal contradictory source definitions. This
+  // pure consumer also accepts catalog values independently of the loader.
+  assertManifestDefinitionConsistency([...explicitEntries, ...allEntries]);
+  for (const { manifest } of explicitEntries) {
     assertManifestStackCompatibility(manifest.id, manifest.stackProfiles);
+  }
+  // Hard conditions define the automatic candidate domain before ambiguity or
+  // closure selection. Explicit choices still fail through their original rule.
+  const compatibleEntries = allEntries.filter(({ manifest }) => isManifestStackCompatible(manifest.stackProfiles));
+  let graph: ReturnType<typeof resolveManifestGraph>;
+  try {
+    graph = resolveManifestGraph(explicitEntries, compatibleEntries);
+  } catch (error) {
+    if (error instanceof CodedFailure && error.code === 'RESOLVE-MISSING-001') {
+      throw new CodedFailure(error.code, `${error.message} in the stack-compatible catalog for ${SUPPORTED_STACK}`, {
+        candidateDomain: 'stack-compatible', stack: SUPPORTED_STACK, causeDetails: error.details
+      }, { cause: error });
+    }
+    throw error;
   }
   const resolvedBlocks = graph.entries.map((entry, index) => ({
     id: entry.manifest.id,
@@ -74,5 +90,11 @@ export function prepareManifestResolution(
       action: install.kind, from: install.from, to: install.to }))
   );
   assertInstallTargetOwnership(installDescriptors);
-  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors };
+  const registryResolutions: RegistryManifestResolution[] = graph.entries.flatMap(entry => entry.registryResolution ? [{
+    blockId: entry.manifest.id,
+    selected: { version: entry.manifest.version, registrySourceId: entry.registrySourceId,
+      registryKind: entry.registryKind, registryLocation: entry.registryLocation, registryPath: entry.registryPath },
+    resolution: structuredClone(entry.registryResolution)
+  }] : []);
+  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors, registryResolutions };
 }

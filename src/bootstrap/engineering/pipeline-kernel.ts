@@ -33,11 +33,11 @@ import {
   executePipelineTransactionLifecycle
 } from '../../application/pipeline-transaction-lifecycle.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { getErrorCode } from '../../compiler/errors.ts';
 import type { PipelineSource } from '../../compiler/pipeline/source.ts';
 import { requirePipelineSource } from '../../compiler/pipeline/source.ts';
 import type { PipelineStageId } from '../../compiler/pipeline/stages.ts';
 import { capturePipelineRequestedStages } from '../../compiler/pipeline/stages.ts';
+import { getErrorCode } from '../../contracts/failure-inspection.ts';
 ;
 
 type StageExecutionOptions<T> = PipelineStageExecutionOptions<T>;

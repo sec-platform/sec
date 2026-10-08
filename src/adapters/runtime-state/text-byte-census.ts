@@ -1,5 +1,5 @@
 /**
- * SEC Canonical Text Byte Census Contract (Issue #209 Phase A).
+ * SEC Canonical Text Byte Census Contract.
  *
  * Defines the classification, anomaly, and report types used by the canonical
  * SEC development text census to scan one captured committed Git tree and

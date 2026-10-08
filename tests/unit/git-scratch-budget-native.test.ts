@@ -17,12 +17,12 @@ import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 const scenarios = process.platform === 'win32'
   ? ['empty', 'populated', 'narrow-parent', 'narrow-record-parent', 'stdin-worker'] as const
   : ['empty', 'populated', 'narrow-parent', 'narrow-record-parent'] as const;
-for (const scenario of scenarios) {
-  const populated = scenario !== 'empty';
-  test(`an unaffordable ${scenario} scratch batch performs no partial effect`, () =>
-    inGitProtocolRepository(async (root, git) => {
-      writeFileSync(path.join(root, 'old'), 'retained worktree content');
-      gitProtocolSuccess(git(['add', '--', 'old']));
+test('unaffordable scratch batches perform no partial effect', () =>
+  inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'old'), 'retained worktree content');
+    gitProtocolSuccess(git(['add', '--', 'old']));
+    for (const scenario of scenarios) {
+      const populated = scenario !== 'empty';
       const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-scratch-'));
       await settleWorkspaceCallback(async () => {
         const indexPath = path.join(scratchRoot, 'index');
@@ -54,8 +54,8 @@ for (const scenario of scenarios) {
           }, async () => { await scratch.close(); });
         });
       }, async () => { rmSync(scratchRoot, { recursive: true, force: true }); });
-    }));
-}
+    }
+  }));
 
 test.skipIf(process.platform !== 'linux')(
   'production scratch owner reconstructs an untrusted cache without mutating inputs or invoking index helpers',

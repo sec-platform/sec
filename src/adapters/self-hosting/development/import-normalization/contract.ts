@@ -1,4 +1,5 @@
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
+import type { VerificationActionKey, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import {
   isSourceProgramInputPath,
   type SourceProgramOperationProducerClosure
@@ -14,11 +15,7 @@ import {
   type StagedWorkspaceSourceSelection,
   type WorkspaceSourceSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
-import {
-  createVerificationActionKey,
-  type VerificationActionKey,
-  type VerificationActionKeyDigest
-} from '../../../verification/platform/action/contract/action.ts';
+import { createVerificationActionKey } from '../../../verification/platform/action/contract/action.ts';
 
 const CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA =
   'sec-candidate-normalization-snapshot-subject' as const;

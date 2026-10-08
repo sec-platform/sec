@@ -1,3 +1,4 @@
+import { lstatSync } from 'node:fs';
 import { devNull } from 'node:os';
 import path from 'node:path';
 import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
@@ -22,22 +23,22 @@ export type { GitCommitIdentity, GitDevelopmentCommitContract, GitDevelopmentCom
 ;
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementReceipt,
-  type SecSemanticOperationAttemptContext,
-  type SecSemanticOperationIntent
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementReceipt,
+  type SemanticOperationAttemptContext,
+  type SemanticOperationIntent
 } from '../../../../execution/operation/semantic.ts';
-import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowFileTransaction, retainNoFollowOrdinaryFile, retainedNoFollowOrdinaryFileMtimeForInternal, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowFileTransaction, retainNoFollowOrdinaryFile, retainedNoFollowOrdinaryFileMtimeForInternal, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { RetainedCommandTransportError, resolveExecutableLocator, type ByteCommandResult } from '../../../runtime-state/physical/runtime/process.ts';
+import { RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, resolveExecutableLocator, type ByteCommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import type { RetainedCommandAuxiliaryInput } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../git/environment.ts';
 import {
@@ -161,16 +162,16 @@ type GitReadSessionRunOptions = Readonly<{
 }>;
 
 export type GitReadSessionReceipt = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest | null;
-  readonly boundAttemptDigest: SecOperationDigest | null;
+  readonly operationIdentityDigest: OperationDigest | null;
+  readonly boundAttemptDigest: OperationDigest | null;
   readonly requirementId: string | null;
-  readonly providerIdentityDigest: SecOperationDigest | null;
+  readonly providerIdentityDigest: OperationDigest | null;
   readonly processSessionOwnership: 'owned' | 'borrowed';
   readonly processCount: number;
   readonly inputBytes: number;
   readonly outputBytes: number;
   readonly failureDetailDigest: `sha256:${string}` | null;
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 const ISSUED_GIT_READ_SESSION_RECEIPTS = new WeakSet<object>();
@@ -178,8 +179,8 @@ const ISSUED_GIT_READ_SESSION_RECEIPTS = new WeakSet<object>();
 export function assertGitReadSessionReceipt(
   receipt: GitReadSessionReceipt,
   expected?: Readonly<{
-    operationIdentityDigest: SecOperationDigest;
-    boundAttemptDigest: SecOperationDigest;
+    operationIdentityDigest: OperationDigest;
+    boundAttemptDigest: OperationDigest;
     requirementId: string;
   }>
 ): void {
@@ -317,6 +318,9 @@ export type GitScratchIndexTreeResolution =
   | Readonly<{ readonly status: 'unavailable'; readonly reason: GitScratchIndexTreeFailureReason }>;
 
 type GitScratchExecutionOwner = Readonly<{
+  readonly operation: BoundSemanticOperation | null;
+  readonly signal: AbortSignal;
+  readonly deadlineAtMonotonicMs: number;
   /** Conservative root-command capacity, not a reservation or a new grant. */
   remainingRootProcesses(): number;
   /** Native capacity also charges Windows stdin workers and termination helpers. */
@@ -337,8 +341,8 @@ type GitScratchExecutionOwner = Readonly<{
 const GIT_SCRATCH_EXECUTION_OWNERS = new WeakMap<object, GitScratchExecutionOwner>();
 
 type GitDevelopmentCommitExecutionOwner = Readonly<{
-  readonly operation: SecBoundSemanticOperation;
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly operation: BoundSemanticOperation;
+  readonly providerIdentityDigest: OperationDigest;
   run(
     args: readonly string[],
     environment: Readonly<Record<string, string>>,
@@ -354,7 +358,7 @@ function authorizedDevelopmentCommitOwner(
 ): GitDevelopmentCommitExecutionOwner | null {
   const owner = GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS.get(session);
   if (owner === undefined || !isProductionGitReadSession(session)) return null;
-  let contractDigest: SecOperationDigest;
+  let contractDigest: OperationDigest;
   try {
     contractDigest = compileGitDevelopmentCommitContractDigest(contract);
   } catch {
@@ -521,7 +525,7 @@ type GitReadHostSessionInput =
   | (GitReadHostSessionCommonInput & Readonly<{
       origin: 'production';
       /** The process Effect and its aggregate budgets must be bound before provider admission. */
-      operation: SecBoundSemanticOperation;
+      operation: BoundSemanticOperation;
       /** Optional caller-owned parent process ledger; Git borrows but never closes it. */
       processSession?: ProcessResourceSession;
       /** Internal operation-owned resource; borrowing never conveys close authority. */
@@ -537,15 +541,15 @@ const TEST_GIT_READ_PROCESS_CONTRACT = sha256({
   operation: 'external-capabilities.git-read.test-host-observe',
   provider: 'test-host-local-git',
   effect: 'process'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const TEST_GIT_READ_PROCESS_PROVIDER = sha256({
   provider: 'external-capabilities.git-read.test-host-process'
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 function issueTestGitReadProcessOperation(
   input: GitReadHostSessionCommonInput,
   budget: GitReadSessionBudget
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const startedAt = Date.now();
   const deadlineAtUnixMs = Math.min(
     input.deadlineAtUnixMs ?? startedAt + budget.deadlineMs,
@@ -555,12 +559,12 @@ function issueTestGitReadProcessOperation(
   if (!Number.isSafeInteger(durationMs) || durationMs < 1) {
     throw new Error('Test Git read process operation deadline is exhausted.');
   }
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'external-capabilities.git-read.test-host-observe',
-    intentDigest: sha256({ cwd: input.cwd, budget }) as SecOperationDigest,
+    intentDigest: sha256({ cwd: input.cwd, budget }) as OperationDigest,
     decisionDigest: TEST_GIT_READ_PROCESS_CONTRACT,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: TEST_GIT_READ_PROCESS_CONTRACT
     }),
     aggregateBudgets: [
@@ -586,7 +590,7 @@ function issueTestGitReadProcessOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: TEST_GIT_READ_PROCESS_REQUIREMENT,
     contractDigest: TEST_GIT_READ_PROCESS_CONTRACT,
     providerIdentityDigest: TEST_GIT_READ_PROCESS_PROVIDER
@@ -594,7 +598,7 @@ function issueTestGitReadProcessOperation(
 }
 
 function semanticOperationBudget(
-  operation: SecBoundSemanticOperation | undefined,
+  operation: BoundSemanticOperation | undefined,
   resource: 'input-bytes' | 'output-bytes' | 'processes' | 'records'
 ): number | null {
   return operation?.plan.execution.aggregateBudgets
@@ -610,7 +614,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   const requestedDeadlineAt = boundedGitReadDeadlineAt(startedAt, budget, input.deadlineAtUnixMs);
   const env = Object.freeze(isolatedGitReadEnvironment(input.environment ?? {}, input.source));
   let processResourceSession: ProcessResourceSession | null = null;
-  let processOperation: SecBoundSemanticOperation | null = null;
+  let processOperation: BoundSemanticOperation | null = null;
   let processRequirementId: string | null = null;
   let ownsProcessResourceSession = true;
   let operationAdmissionFailure: string | null = null;
@@ -638,7 +642,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     } else {
       processResourceSession = openProcessResourceSession({
         operation: processOperation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation: processOperation,
           requirementId: processRequirementId,
           resourceCeilings: processOperation.plan.execution.aggregateBudgets.filter(({ resource }) => (
@@ -1328,7 +1332,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
         const finalOutputBytes = processResourceSession?.outputBytes ?? processOutputBytesAtStart;
         const providerIdentityDigest = issuedSession.providerIdentity === null
           ? null
-          : sha256(issuedSession.providerIdentity) as SecOperationDigest;
+          : sha256(issuedSession.providerIdentity) as OperationDigest;
         const withoutDigest = Object.freeze({
           operationIdentityDigest: processOperation?.plan.identity.identityDigest ?? null,
           boundAttemptDigest: processOperation?.boundAttemptDigest ?? null,
@@ -1347,7 +1351,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
           receiptDigest: sha256({
             domain: 'external-capabilities.git-read.session-receipt',
             receipt: withoutDigest
-          }) as SecOperationDigest
+          }) as OperationDigest
         });
         ISSUED_GIT_READ_SESSION_RECEIPTS.add(closeReceipt);
         if (ownsProcessResourceSession) processResourceSession = null;
@@ -1385,6 +1389,9 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     return Number.isSafeInteger(available) ? Math.max(0, available) : 0;
   };
   GIT_SCRATCH_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
+    operation: processOperation,
+    signal: processResourceSession?.signal ?? AbortSignal.abort(new Error('Git process session is unavailable.')),
+    deadlineAtMonotonicMs: processResourceSession?.deadlineAtMonotonicMs ?? deadlineMonotonicAt,
     remainingRootProcesses: remainingRootProcessCapacity,
     remainingNativeResources: () => issuedSession.observeNativeResourceCapacity()?.remaining ?? 0,
     remainingRecords: () => Math.max(0, recordLimit - recordCount),
@@ -1428,7 +1435,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     const scratchOwner = GIT_SCRATCH_EXECUTION_OWNERS.get(issuedSession)!;
     GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
       operation: input.operation,
-      providerIdentityDigest: sha256(issuedSession.providerIdentity) as SecOperationDigest,
+      providerIdentityDigest: sha256(issuedSession.providerIdentity) as OperationDigest,
       run(args, environment, commandInput) {
         if (gitPhysicalProvider === null) {
           throw new Error('Git retained executable/cwd provider is unavailable for development commit.');
@@ -1524,7 +1531,7 @@ export function createAuthorityGitReadSession(input: Readonly<{
   cwd: string;
   environment?: Readonly<Record<string, string | undefined>>;
   /** Owner-issued operation that binds the process Effect and aggregate resources. */
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   /**
    * Caller-owned parent process ledger. The Git provider verifies the exact
    * operation/attempt/requirement binding and borrows it without closing it.
@@ -1558,6 +1565,458 @@ export function createAuthorityGitReadSession(input: Readonly<{
 function pathIsInside(parent: string, candidate: string): boolean {
   const relative = path.relative(parent, candidate);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+export class GitIsolatedWorktreeObservationError extends Error {
+  readonly code = 'git-isolated-worktree-observation-unavailable' as const;
+  constructor(readonly reason: string, cause?: unknown) {
+    super(`Git isolated worktree observation is unavailable: ${reason}.`, { cause });
+    this.name = 'GitIsolatedWorktreeObservationError';
+  }
+}
+
+const ISOLATED_WORKTREE_CLEANUP_UNKNOWN = new WeakSet<object>();
+class GitIsolatedWorktreeCleanupUnknownError extends Error {
+  constructor(readonly generation: PhysicalDirectoryIdentity | undefined, cause: unknown) {
+    super('Git isolated worktree resources or generation have unresolved settlement.', { cause });
+    this.name = 'GitIsolatedWorktreeCleanupUnknownError';
+    ISOLATED_WORKTREE_CLEANUP_UNKNOWN.add(this);
+  }
+}
+
+export function isGitIsolatedWorktreeCleanupUnknown(error: unknown): boolean {
+  return error !== null && typeof error === 'object' && ISOLATED_WORKTREE_CLEANUP_UNKNOWN.has(error);
+}
+
+/** This capability observes the real worktree and actual admitted index. It
+ * never substitutes the private HEAD/index as the original repository identity. */
+export type GitIsolatedWorktreeObservation = Readonly<{
+  readonly workingTreeRoot: string;
+  readonly headSha: string;
+  /** Content observations cannot select a repository or override the owner policy. */
+  read(args: readonly string[]): Promise<ByteCommandResult>;
+  status(): Promise<ByteCommandResult>;
+  close(): Promise<void>;
+}>;
+
+/** Fixed no-helper cleanliness policy. Configuration outside this supported
+ * domain is unavailable, not silently treated as a clean ordinary checkout. */
+const ISOLATED_STATUS_CONFIG = Object.freeze([
+  ['core.filemode', ['true']], ['core.symlinks', ['true']],
+  ['core.ignorecase', ['false']], ['core.ignorestat', ['false']],
+  ['core.trustctime', ['true']], ['core.checkstat', ['default']],
+  ['core.autocrlf', ['false']], ['core.eol', ['native', 'lf']],
+  ['core.excludesfile', []], ['core.sparsecheckout', ['false']],
+  ['index.sparse', ['false']]
+] as const);
+
+/** An original production Git session supplies the executable, ledger, time
+ * bounds and real repository identity. The enclosing private generation owns
+ * the parent; callers receive no configurable Git directory or environment. */
+export async function createAuthorityGitIsolatedWorktreeObservation(input: Readonly<{
+  gitReadSession: GitReadSession;
+  parent: PhysicalDirectoryIdentity;
+  expectedHead: string;
+}>): Promise<GitIsolatedWorktreeObservation> {
+  const { gitReadSession, parent, expectedHead } = input;
+  const owner = GIT_SCRATCH_EXECUTION_OWNERS.get(gitReadSession);
+  const unavailable = (reason: string, cause?: unknown): never => {
+    throw new GitIsolatedWorktreeObservationError(reason, cause);
+  };
+  if (!isProductionGitReadSession(gitReadSession) || owner === undefined) {
+    return unavailable('original-production-session-required');
+  }
+  if (owner.operation?.plan.identity.operation !== 'external-capabilities.git-bundle.checkout'
+      || owner.operation.plan.execution.requirements.length !== 1
+      || !owner.operation.plan.execution.requirements[0]!.effectKinds.includes('filesystem')) {
+    return unavailable('original-checkout-filesystem-effect-required');
+  }
+  if (process.platform !== 'linux') return unavailable('unsupported-worktree-observation-platform');
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(expectedHead)) return unavailable('invalid-exact-head');
+  // Do not accidentally strip a caller's existing semantic redirection and
+  // reinterpret a nested scratch/config session as the original repository.
+  if (['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES'].some(key => gitEnvironmentValue(gitReadSession.env, key) !== undefined)) {
+    return unavailable('nested-repository-selection');
+  }
+  const cwd = gitReadSession.cwd;
+  const gate = (): void => {
+    if (owner.signal.aborted || Date.now() >= gitReadSession.deadlineAt
+        || performance.now() >= owner.deadlineAtMonotonicMs
+        || !gitReadSession.verifyExecutable() || gitReadSession.verifyWorkingDirectory?.() !== true) {
+      unavailable('original-session-not-current');
+    }
+  };
+  const checkedRead = async (args: readonly string[]): Promise<ByteCommandResult> => {
+    gate();
+    const result = await gitReadSession.run(args);
+    gate();
+    if (result.kind !== 'completed') return unavailable('metadata-read-unsettled');
+    return result.result;
+  };
+  const assertHead = async (): Promise<void> => {
+    const result = await checkedRead(['rev-parse', '--verify', '--end-of-options', 'HEAD^{commit}']);
+    if (result.code !== 0 || Buffer.from(result.stdout).toString('utf8') !== `${expectedHead}\n`) {
+      unavailable('real-head-changed');
+    }
+  };
+  const configValues = new Map<string, string | null>();
+  const observeConfig = async (initial: boolean): Promise<void> => {
+    gate();
+    // One fixed-key query keeps repeated observations inside the original
+    // process budget. It cannot request credentials or arbitrary config data.
+    const pattern = `^(${ISOLATED_STATUS_CONFIG.map(([name]) => name.replaceAll('.', '[.]')).join('|')})$`;
+    const observed = await owner.run(['config', '--null', '--get-regexp', pattern], gitReadSession.env, []);
+    gate();
+    if (observed.kind !== 'completed') return unavailable('config-observation-unsettled');
+    const result = observed.result;
+    const values = new Map<string, string>();
+    if (result.code === 0) {
+      const fields = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout).split('\0');
+      if (fields.pop() !== '') return unavailable('config-observation-truncated');
+      for (const field of fields) {
+        const separator = field.indexOf('\n');
+        if (separator < 1) return unavailable('config-observation-malformed');
+        const key = field.slice(0, separator).toLowerCase();
+        if (!ISOLATED_STATUS_CONFIG.some(([name]) => name === key)) return unavailable('config-query-outside-policy');
+        values.set(key, field.slice(separator + 1).trim().toLowerCase());
+      }
+    } else if (result.code !== 1 || result.stdout.length !== 0) return unavailable('config-observation-failed');
+    for (const [name, accepted] of ISOLATED_STATUS_CONFIG) {
+      const value = values.get(name) ?? null;
+      if (value !== null && !(accepted as readonly string[]).includes(value)) return unavailable(`unsupported-${name}`);
+      if (initial) configValues.set(name, value);
+      else if (configValues.get(name) !== value) return unavailable('clean-policy-changed');
+    }
+  };
+  await assertHead();
+  await observeConfig(true);
+  const identity = await checkedRead(['rev-parse', '--path-format=absolute', '--show-toplevel',
+    '--git-path', 'objects', '--git-path', 'index', '--git-path', 'info', '--show-object-format']);
+  const lines = identity.code === 0 ? parseGitLineReply(identity.stdout, 5) : null;
+  if (lines === null || lines.length !== 5 || lines[0] !== cwd
+      || (lines[4] !== 'sha1' && lines[4] !== 'sha256')
+      || lines.slice(0, 4).some(value => !path.isAbsolute(value))) return unavailable('unsupported-repository-identity');
+  const objectsPath = path.resolve(lines[1]!);
+  const indexPath = path.resolve(lines[2]!);
+  const infoPath = path.resolve(lines[3]!);
+  const objectFormat = lines[4];
+  if (expectedHead.length !== (objectFormat === 'sha1' ? 40 : 64)
+      || pathIsInside(cwd, parent.path) || pathIsInside(parent.path, cwd)
+      || pathIsInside(objectsPath, parent.path) || pathIsInside(parent.path, objectsPath)) {
+    return unavailable('observation-parent-not-disjoint');
+  }
+  const headTree = await checkedRead(['ls-tree', '-r', '-z', '--full-tree', expectedHead]);
+  if (headTree.code !== 0) return unavailable('head-tree-unavailable');
+  const treeText = new TextDecoder('utf-8', { fatal: true }).decode(headTree.stdout);
+  if (treeText !== '' && !treeText.endsWith('\0')) return unavailable('head-tree-truncated');
+  const headAttributes = new Map<string, Readonly<{ objectId: string; mode: number }>>();
+  for (const entry of treeText === '' ? [] : treeText.slice(0, -1).split('\0')) {
+    const parsed = /^(100644|100755|120000) blob ((?:[0-9a-f]{40}|[0-9a-f]{64}))\t([^\0]+)$/u.exec(entry);
+    if (parsed === null) return unavailable('unsupported-head-entry');
+    const name = parsed[3]!;
+    if (name === '.gitattributes' || name.endsWith('/.gitattributes')) {
+      if (parsed[1] === '120000') return unavailable('attribute-link-unsupported');
+      headAttributes.set(name, Object.freeze({ objectId: parsed[2]!, mode: parseInt(parsed[1]!, 8) }));
+    }
+  }
+  let generation: PhysicalDirectoryIdentity | undefined;
+  const retained: Array<RetainedNoFollowOrdinaryFile | RetainedNoFollowChildProcessDirectory> = [];
+  let privateRoot: RetainedNoFollowChildProcessDirectory | undefined;
+  let repositoryIndex: RetainedNoFollowOrdinaryFile | undefined;
+  let repositoryObjects: RetainedNoFollowChildProcessDirectory | undefined;
+  let privateIndex: RetainedNoFollowOrdinaryFile | undefined;
+  let originalExclude: RetainedNoFollowOrdinaryFile | undefined;
+  let closed = false;
+  let closing = false;
+  let terminal: unknown;
+  let failed = false;
+  let active: Promise<ByteCommandResult> | null = null;
+  let closeResult: Promise<void> | null = null;
+  const absentAttributes: PhysicalDirectoryIdentity[] = [];
+  const info = inspectNoFollowDirectoryChain(infoPath, 'Git original info directory');
+  const assertNoInfoAttributes = (): void => {
+    assertSameNoFollowDirectoryIdentity(info.target);
+    if (inspectNoFollowOrdinaryFileEntry(info.target, 'attributes', { maximumBytes: 0 }) !== null) {
+      unavailable('repository-info-attributes-unsupported');
+    }
+  };
+  const readRetained = (file: RetainedNoFollowOrdinaryFile): Buffer => {
+    gate();
+    if (file.size > owner.remainingObservedBytes()) return unavailable('metadata-byte-budget');
+    owner.chargeObservedBytes(file.size);
+    const bytes = Buffer.from(file.readBytes());
+    file.assertCurrent();
+    return bytes;
+  };
+  let generationRetired = false;
+  const release = (): void => {
+    settlePhysicalResources({ cleanup: retained.slice().reverse().map((capability, index) => ({
+      label: `isolated-status-retained:${index}`, settle: () => capability.dispose()
+    })) });
+  };
+  const retire = (): void => {
+    if (generation === undefined) { generationRetired = true; return; }
+    const inventory = scanNoFollowDirectoryTreeMetadata(generation, {
+      deadlineAtMs: owner.deadlineAtMonotonicMs, maximumEntries: 8,
+      maximumBytes: GIT_INDEX_PLANNING_BUDGET_CEILING.maxRawBytes + 128 * 1024,
+      signal: owner.signal
+    });
+    retireNoFollowDirectoryTree({ parent, root: generation, inventory,
+      deadlineAtMonotonicMs: owner.deadlineAtMonotonicMs });
+    generationRetired = true;
+  };
+  try {
+    assertNoInfoAttributes();
+    repositoryIndex = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(indexPath)),
+      path.basename(indexPath), undefined, 'Git real index generation', 8);
+    retained.push(repositoryIndex);
+    if (repositoryIndex.size > GIT_INDEX_PLANNING_BUDGET_CEILING.maxRawBytes) return unavailable('index-byte-budget');
+    let index: GitIndexGeneration;
+    try { index = decodeGitIndexGeneration(readRetained(repositoryIndex), objectFormat); }
+    catch (error) { return unavailable('unsupported-real-index', error); }
+    if (index.entries.some(entry => entry.mode === 0o160000 || entry.assumeValid || entry.extendedFlags !== 0)) {
+      return unavailable('unsupported-real-index-flags-or-gitlinks');
+    }
+    if (gitReadSession.consumeRecords(index.entries.length) !== null) return unavailable('index-record-budget');
+    const names = Object.freeze(index.entries.map(entry =>
+      new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(entry.pathHex, 'hex'))));
+    const possibleAttributes = new Set<string>(['.gitattributes', ...headAttributes.keys()]);
+    const indexAttributes = new Map<string, Readonly<{ objectId: string; mode: number }>>();
+    for (let entryIndex = 0; entryIndex < names.length; entryIndex += 1) {
+      const name = names[entryIndex]!;
+      const entry = index.entries[entryIndex]!;
+      if (name === '.gitattributes' || name.endsWith('/.gitattributes')) {
+        indexAttributes.set(name, entry);
+      }
+      const parts = name.split('/');
+      for (let end = 1; end < parts.length; end += 1) {
+        possibleAttributes.add(`${parts.slice(0, end).join('/')}/.gitattributes`);
+      }
+    }
+    if (indexAttributes.size !== headAttributes.size || [...headAttributes].some(([name, expected]) => {
+      const observed = indexAttributes.get(name);
+      return observed?.objectId !== expected.objectId || observed.mode !== expected.mode;
+    })) return unavailable('staged-attribute-change-unsupported');
+    // Both attribute checks and status use the same immutable HEAD attribute
+    // view. Prove that it represents the real admitted attributes; never use
+    // --cached for one child and mutable worktree attributes for the next.
+    for (const name of possibleAttributes) {
+      gate();
+      const parent = inspectNoFollowDirectoryChain(path.dirname(path.join(cwd, name)), 'Git attribute parent');
+      const expected = headAttributes.get(name);
+      const observed = inspectNoFollowOrdinaryFileEntry(parent.target, '.gitattributes', {
+        maximumBytes: Math.min(GIT_INDEX_PLANNING_BUDGET_CEILING.maxRawBytes, owner.remainingObservedBytes())
+      });
+      if (expected === undefined) {
+        if (observed !== null) return unavailable('untracked-attribute-source-unsupported');
+        absentAttributes.push(parent.target);
+        continue;
+      }
+      if (observed === null) return unavailable('worktree-attribute-source-missing');
+      const attribute = retainNoFollowOrdinaryFile(parent, '.gitattributes', undefined, 'Git admitted attribute source');
+      retained.push(attribute);
+      const bytes = readRetained(attribute);
+      const original = await checkedRead(['cat-file', 'blob', expected.objectId]);
+      if (original.code !== 0 || !bytes.equals(original.stdout)) return unavailable('worktree-attribute-change-unsupported');
+      attribute.assertCurrent();
+    }
+    // Copying an index must not make its stat cache appear newer than the real
+    // file and suppress racy-clean checks. In this supported flags-free domain,
+    // zero cached stat data forces native comparison without changing entries.
+    const privateBytes = encodeGitIndexGeneration({ ...index, entries: Object.freeze(index.entries.map(entry => {
+      const stat = Buffer.alloc(40); stat.writeUInt32BE(entry.mode, 24);
+      return Object.freeze({ ...entry, statHex: stat.toString('hex') });
+    })) });
+    let excludeBytes: Buffer | null = null;
+    const exclude = inspectNoFollowOrdinaryFileEntry(info.target, 'exclude', { maximumBytes: 128 * 1024 });
+    if (exclude !== null) {
+      originalExclude = retainNoFollowOrdinaryFile(info, 'exclude', undefined, 'Git real exclusions', 11);
+      retained.push(originalExclude);
+      excludeBytes = readRetained(originalExclude);
+    }
+    repositoryObjects = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(objectsPath),
+      6, 'Git real object directory');
+    retained.push(repositoryObjects);
+    generation = createExclusiveNoFollowRandomDirectory(parent, 'git-observe-');
+    const fixedInfo = createExclusiveNoFollowDirectory(generation, 'info');
+    createExclusiveNoFollowDirectory(generation, 'refs');
+    createExclusiveNoFollowDirectory(generation, 'objects');
+    const publish = (target: PhysicalDirectoryIdentity, name: string, bytes: Uint8Array): void => {
+      publishExclusiveDurableCanonicalFile({ parent: target, name, bytes,
+        validate: observed => { if (!Buffer.from(observed).equals(bytes)) unavailable('private-metadata-publication'); } });
+    };
+    const config = `[core]\nrepositoryformatversion=${objectFormat === 'sha256' ? 1 : 0}\nbare=false\nfilemode=true\nsymlinks=true\nignorecase=false\nignorestat=false\ntrustctime=true\nautocrlf=false\neol=lf\nfsmonitor=false\nuntrackedcache=false\nsplitindex=false\nsparsecheckout=false\nattributesfile=${devNull}\nhookspath=${devNull}\n`
+      + (objectFormat === 'sha256' ? '[extensions]\nobjectformat=sha256\n' : '');
+    publish(generation, 'config', Buffer.from(config));
+    publish(generation, 'HEAD', Buffer.from(`${expectedHead}\n`));
+    publish(generation, 'index', privateBytes);
+    if (excludeBytes !== null) publish(fixedInfo, 'exclude', excludeBytes);
+    const control = assertSameNoFollowDirectoryIdentity(generation);
+    privateRoot = retainNoFollowDirectoryForChildProcess(control, 5, 'Git isolated control directory');
+    retained.push(privateRoot);
+    privateIndex = retainNoFollowOrdinaryFile(control, 'index', undefined, 'Git isolated real-index projection', 7);
+    retained.push(privateIndex);
+    const fixedConfig = retainNoFollowOrdinaryFile(control, 'config', undefined, 'Git isolated fixed config', 9);
+    const fixedHead = retainNoFollowOrdinaryFile(control, 'HEAD', undefined, 'Git isolated fixed HEAD', 10);
+    retained.push(fixedConfig, fixedHead);
+    const environment = Object.freeze(isolatedGitReadEnvironment({
+      GIT_DIR: privateRoot.childPath,
+      GIT_WORK_TREE: `/proc/self/fd/${RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR}`,
+      GIT_INDEX_FILE: privateIndex.childPath,
+      GIT_ATTR_SOURCE: expectedHead,
+      GIT_OBJECT_DIRECTORY: repositoryObjects.childPath,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined
+    }, gitReadSession.env));
+    const auxiliaryInputs: readonly RetainedCommandAuxiliaryInput[] = Object.freeze([
+      { kind: 'directory' as const, capability: privateRoot },
+      { kind: 'directory' as const, capability: repositoryObjects },
+      { kind: 'ordinary-file' as const, capability: privateIndex },
+      { kind: 'ordinary-file' as const, capability: repositoryIndex },
+      { kind: 'ordinary-file' as const, capability: fixedConfig },
+      { kind: 'ordinary-file' as const, capability: fixedHead },
+      ...(originalExclude === undefined ? [] : [{ kind: 'ordinary-file' as const, capability: originalExclude }])
+    ].map(value => Object.freeze(value)));
+    const metadataBytes = privateBytes.byteLength + Buffer.byteLength(config, 'utf8')
+      + expectedHead.length + 1 + (excludeBytes?.byteLength ?? 0);
+    const metadataSnapshot = (): string => {
+      gate();
+      if (metadataBytes > owner.remainingObservedBytes()) return unavailable('metadata-byte-budget');
+      owner.chargeObservedBytes(metadataBytes);
+      assertSameNoFollowDirectoryIdentity(generation!);
+      const rootStat = lstatSync(generation!.path, { bigint: true });
+      if (!rootStat.isDirectory() || String(rootStat.dev) !== generation!.device
+          || String(rootStat.ino) !== generation!.inode) return unavailable('private-metadata-root-changed');
+      const entries = scanNoFollowDirectoryTreeInventory(generation!, {
+        deadlineAtMs: owner.deadlineAtMonotonicMs, maximumEntries: 8,
+        maximumBytes: metadataBytes, includePermissionMode: true, signal: owner.signal
+      });
+      assertSameNoFollowDirectoryIdentity(generation!);
+      return sha256({ rootMode: String(rootStat.mode & 0o7777n), entries });
+    };
+    const metadataDigest = metadataSnapshot();
+    const current = (): void => {
+      gate();
+      assertNoInfoAttributes();
+      for (const capability of retained) capability.assertCurrent();
+      for (const parent of absentAttributes) {
+        assertSameNoFollowDirectoryIdentity(parent);
+        if (inspectNoFollowOrdinaryFileEntry(parent, '.gitattributes', { maximumBytes: 0 }) !== null) {
+          unavailable('attribute-source-membership-changed');
+        }
+      }
+      if (originalExclude === undefined
+          && inspectNoFollowOrdinaryFileEntry(info.target, 'exclude', { maximumBytes: 0 }) !== null) {
+        unavailable('exclusions-changed');
+      }
+      if (metadataSnapshot() !== metadataDigest) unavailable('private-metadata-changed');
+    };
+    const isolatedRead = async (args: readonly string[]): Promise<ByteCommandResult> => {
+      current();
+      // A fixed command-line selection also makes an older Git fail closed;
+      // it cannot silently ignore an unrecognized GIT_ATTR_SOURCE variable.
+      const command = await owner.run([`--attr-source=${expectedHead}`, ...args], environment, auxiliaryInputs);
+      current();
+      if (command.kind !== 'completed') return unavailable('isolated-read-failed');
+      return command.result;
+    };
+    const assertNoFilterConversions = async (): Promise<void> => {
+      let offset = 0;
+      while (offset < names.length) {
+        let size = 0;
+        const selected: string[] = [];
+        while (offset < names.length) {
+          const name = names[offset]!;
+          const bytes = Buffer.byteLength(name, 'utf8') + 1;
+          if (bytes > 12 * 1024) return unavailable('attribute-path-budget');
+          if (selected.length > 0 && size + bytes > 12 * 1024) break;
+          selected.push(name); size += bytes; offset += 1;
+        }
+        // Requested-attribute output aliases state words and literal driver
+        // names (for example filter=unspecified). --all reveals membership;
+        // reject every present filter attribute, including explicit -filter,
+        // rather than mistake a named conversion for the absent state.
+        const result = await isolatedRead(['check-attr', '--all', '-z', '--', ...selected]);
+        const fields = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout).split('\0');
+        if (result.code !== 0 || fields.pop() !== '' || fields.length % 3 !== 0) {
+          return unavailable('attribute-observation-malformed');
+        }
+        const requested = new Set(selected);
+        for (let index = 0; index < fields.length; index += 3) {
+          if (!requested.has(fields[index]!) || fields[index + 1]!.length === 0) {
+            return unavailable('attribute-observation-outside-request');
+          }
+          if (fields[index + 1] === 'filter') return unavailable('filter-conversion-unsupported');
+        }
+      }
+    };
+    const read = (args: readonly string[]): Promise<ByteCommandResult> => {
+      const captured = captureGitReadArguments(args, 128 * 1024);
+      if (captured.status !== 'ready' || !gitReadCommandIsObservation(captured.args, {
+        fixedRoot: true, commands: ['status', 'diff', 'show']
+      })) return Promise.reject(new GitIsolatedWorktreeObservationError('content-command-not-permitted'));
+      if (closed || closing || active !== null || failed) return Promise.reject(
+        new GitIsolatedWorktreeObservationError('observation-not-idle'));
+      const running = (async () => {
+        current();
+        await assertHead();
+        await observeConfig(false);
+        await assertNoFilterConversions();
+        const result = await isolatedRead(captured.args);
+        await assertNoFilterConversions();
+        await observeConfig(false);
+        await assertHead();
+        current();
+        return result;
+      })();
+      const tracked = running.catch(error => { failed = true; terminal = error; throw error; })
+        .finally(() => { active = null; });
+      active = tracked;
+      return tracked;
+    };
+    const close = (): Promise<void> => {
+      if (closeResult !== null) return closeResult;
+      closing = true;
+      closeResult = (async () => {
+        if (active !== null) { try { await active; } catch { /* preserve the recorded primary */ } }
+        const primary: PhysicalResourceSettlementFailure | undefined = failed
+          ? { label: 'isolated-status-operation', error: terminal } : undefined;
+        let released = false;
+        try {
+          settlePhysicalResources({ primary, cleanup: [
+            { label: 'isolated-status-final-readback', settle: current },
+            { label: 'isolated-status-resources', settle: () => { release(); released = true; } },
+            { label: 'isolated-status-generation', settle: () => {
+              if (!released) unavailable('retained-resources-unsettled');
+              retire();
+            } }
+          ] });
+        } catch (error) {
+          if (!released || !generationRetired) throw new GitIsolatedWorktreeCleanupUnknownError(generation, error);
+          throw error;
+        } finally { closed = true; }
+      })();
+      return closeResult;
+    };
+    current();
+    return Object.freeze({ workingTreeRoot: cwd, headSha: expectedHead, read,
+      status: () => read(['status', '--porcelain=v2', '-z', '--untracked-files=all']), close });
+  } catch (error) {
+    let released = false;
+    try {
+      settlePhysicalResources({ primary: { label: 'isolated-status-acquisition', error }, cleanup: [
+        { label: 'isolated-status-acquisition-resources', settle: () => { release(); released = true; } },
+        { label: 'isolated-status-acquisition-generation', settle: () => {
+          if (!released) unavailable('retained-resources-unsettled');
+          retire();
+        } }
+      ] });
+    } catch (failure) {
+      if (!released || !generationRetired) throw new GitIsolatedWorktreeCleanupUnknownError(generation, failure);
+      throw failure;
+    }
+    return unavailable('acquisition-unsettled');
+  }
 }
 
 /**
@@ -2121,12 +2580,12 @@ export async function materializeAuthorityDevelopmentCommitObject(input: Readonl
 
 /** Git owns its provider binding and settlement, but never the grant or attempt lineage. */
 export function bindGitDevelopmentCommitOperation(input: Readonly<{
-  intent: SecSemanticOperationIntent;
-  attempt: SecSemanticOperationAttemptContext;
-  providerIdentityDigest: SecOperationDigest;
+  intent: SemanticOperationIntent;
+  attempt: SemanticOperationAttemptContext;
+  providerIdentityDigest: OperationDigest;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: input.intent.identity.operation,
     intentDigest: input.intent.identity.intentDigest,
     decisionDigest: input.intent.identity.decisionDigest,
@@ -2135,8 +2594,8 @@ export function bindGitDevelopmentCommitOperation(input: Readonly<{
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     attempt: input.attempt
   });
-  return bindSecSemanticOperation(plan, plan.execution.requirements.map((requirement) =>
-    compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, plan.execution.requirements.map((requirement) =>
+    compileCapabilityBinding({
       requirementId: requirement.id,
       contractDigest: requirement.contractDigest,
       providerIdentityDigest: input.providerIdentityDigest
@@ -2144,13 +2603,13 @@ export function bindGitDevelopmentCommitOperation(input: Readonly<{
 }
 
 export function settleGitDevelopmentCommitOperation(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   result: GitDevelopmentCommitEffectResult
-): SecProviderSettlementReceipt {
-  return issueSecProviderSettlementReceipt(operation, {
+): ProviderSettlementReceipt {
+  return issueProviderSettlementReceipt(operation, {
     requirementId: 'repository.commit',
     physicalDisposition: result.status === 'completed' ? 'settled' : 'unknown',
-    providerSettlementReferenceDigest: sha256(result) as SecOperationDigest
+    providerSettlementReferenceDigest: sha256(result) as OperationDigest
   });
 }
 

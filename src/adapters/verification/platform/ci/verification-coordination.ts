@@ -1,40 +1,23 @@
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
-import { encodeVerificationActionData, isVerificationActionRunnable, type VerificationActionDependencyResolution, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationActionPlanClosure } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { reduceVerificationActionProviderState, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
-import {
-  aggregateV4Status,
-  CodexDevelopmentAssertVerificationActionTerminalArtifact,
-  CodexDevelopmentCreateVerificationEvidenceProducer,
-  CodexDevelopmentFinalizeVerificationActionTerminalArtifact,
-  CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationActionArtifactProducer,
-  type CodexDevelopmentVerificationActionTerminalArtifact,
-  type CodexDevelopmentVerificationEvidenceV4
-} from './contract/evidence.ts';
-import {
-  CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentReduceHostedSutObservation,
-  CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2,
-  type CodexDevelopmentHostedActionRawResult
-} from './contract/hosted-sut-observation.ts';
-import {
-  type VerificationSessionHostedEnvelope
-} from './runtime/verification-session-runtime.ts';
-import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, ciActionDigest, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
-import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedActionStartObservation, CodexDevelopmentHostedActionTerminalAnchorObservation } from './verification-hosted-action-contract.ts';
+import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
+import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import type { HostedActionExecutionTicket, HostedActionRawResult, HostedActionResolution, VerificationSessionHostedEnvelope } from "../../../../execution/verification/hosted.ts";
+import type { VerificationEvidence } from '../../../../execution/verification/session.ts';
+import { encodeVerificationActionData, isVerificationActionRunnable, type VerificationActionDependencyResolution } from '../action/contract/action.ts';
+import { resolveCiVerificationHostedExecutionEnvironment } from '../action/contract/ci.ts';
+import { reduceVerificationActionProviderState, verificationActionProviderStartArtifactName, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
+import { aggregateV4Status, CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationActionArtifactProducer, type CodexDevelopmentVerificationActionTerminalArtifact } from './contract/evidence.ts';
+import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentParseHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation } from './contract/hosted-sut-observation.ts';
+import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionStartObservation, CodexDevelopmentHostedActionTerminalAnchorObservation } from './verification-hosted-action-contract.ts';
+import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import { hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
-export function CodexDevelopmentParseHostedActionRawResult(
-  source: string
-): CodexDevelopmentHostedActionRawResult {
-  return parseHostedActionRawResultContractV2(source);
-}
+
 
 export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  ticket: CodexDevelopmentHostedActionExecutionTicket;
-  rawResult: CodexDevelopmentHostedActionRawResult;
+  resolution: HostedActionResolution<import("../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA>;
+  ticket: HostedActionExecutionTicket<import("./contract/evidence.ts").CodexDevelopmentVerificationActionArtifactProducer, typeof import("./verification-hosted-action-contract.ts").CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA>;
+  rawResult: HostedActionRawResult<typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./contract/revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("./contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof import("./contract/hosted-sut-observation.ts").CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   expectedRawResultDigest: VerificationActionKeyDigest;
   producer: CodexDevelopmentVerificationActionArtifactProducer;
 }>): CodexDevelopmentVerificationActionTerminalArtifact {
@@ -89,7 +72,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
     normalizedOperation,
     result: terminal.result,
     cleanup: terminal.cleanup,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment: resolveCiVerificationHostedExecutionEnvironment(resolution.actionPlan.action.environment.providerRevision),
     input: resolution.artifactInput,
     producer: input.producer,
     executionProof: terminal.proof
@@ -137,7 +120,7 @@ function deriveHostedSyntheticNotRunActionKeys(
 }
 
 export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
-  envelope: VerificationSessionHostedEnvelope;
+  envelope: VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
   startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
   terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];
@@ -148,7 +131,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
   const membersByKey = new Map(plan.actions.map((member) => [member.action.actionKey, member] as const));
   const actionKeyForName = (name: string, kind: 'start' | 'terminal' | 'anchor'): VerificationActionKeyDigest => {
     const member = plan.actions.find((entry) => {
-      if (kind === 'start') return verificationActionStartMarkerNameV2(entry.action.actionKey) === name;
+      if (kind === 'start') return verificationActionProviderStartArtifactName(entry.action.actionKey) === name;
       if (kind === 'terminal') return verificationActionProviderTerminalArtifactName(entry.action.actionKey) === name;
       return verificationActionProviderTerminalAnchorName(entry.action.actionKey) === name;
     });
@@ -181,7 +164,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
       const member = membersByKey.get(actionKey)!;
       CodexDevelopmentAssertVerificationActionTerminalArtifact(observation.artifact, {
         actionPlan: member,
-        executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
+        executionEnvironmentRevision: resolveCiVerificationHostedExecutionEnvironment(member.action.environment.providerRevision).executionEnvironmentRevision
       });
       if (provider.payload === null || provider.payload.payloadDigest !== observation.artifact.artifactDigest ||
           provider.payload.actionKey !== actionKey || provider.payload.candidateSha !== envelope.session.headSha ||
@@ -235,7 +218,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
       repository: envelope.scopeAuthorization.repository,
       actionKey,
       candidateSha: envelope.session.headSha,
-      executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+      executionEnvironmentRevision: resolveCiVerificationHostedExecutionEnvironment(member.action.environment.providerRevision).executionEnvironmentRevision,
       statusReadback: statusReadbacksByKey.get(actionKey)!,
       startObservations: startsByKey.has(actionKey) ? [startsByKey.get(actionKey)!] : [],
       terminalObservations: terminalsByKey.has(actionKey)
@@ -315,8 +298,24 @@ function finalizeCoordination(
   return Object.freeze({ ...withoutDigest, coordinationDigest: ciActionDigest(withoutDigest) });
 }
 
+/** Sole projection from an authenticated terminal to its reusable gate. */
+export function projectHostedTerminalGate(
+  action: CiVerificationActionPlanClosure['actions'][number]['action'],
+  artifact: CodexDevelopmentVerificationActionTerminalArtifact
+) {
+  const evidenceRef = `verification-action-artifact:${artifact.artifactDigest}`;
+  const reusableTerminal = artifact.result.status === 'passed' || artifact.result.status === 'failed';
+  const result = CodexDevelopmentBuildVerificationGateResult({
+    ...artifact.result,
+    disposition: reusableTerminal ? 'reused' : artifact.result.disposition,
+    execution: reusableTerminal ? null : artifact.result.execution,
+    evidenceRefs: [...new Set([...artifact.result.evidenceRefs, evidenceRef])]
+  });
+  return Object.freeze({ action, result, cleanup: artifact.cleanup });
+}
+
 export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
-  envelope: VerificationSessionHostedEnvelope;
+  envelope: VerificationSessionHostedEnvelope<typeof import("./contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA>;
   observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
   startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
   terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];
@@ -325,7 +324,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   now?: () => Date;
 }>): Readonly<{
   coordination: CodexDevelopmentHostedActionCoordination;
-  evidence: CodexDevelopmentVerificationEvidenceV4 | null;
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null;
 }> {
   const envelope = parseHostedEnvelope(input.envelope);
   const coordination = CodexDevelopmentCoordinateHostedActions({
@@ -351,19 +350,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   const gates = envelope.actionPlanClosure.actions.map((member) => {
     const artifact = byKey.get(member.action.actionKey);
     if (artifact !== undefined) {
-      const evidenceRef = `verification-action-artifact:${artifact.artifactDigest}`;
-      const reusableTerminal = artifact.result.status === 'passed' || artifact.result.status === 'failed';
-      const result = CodexDevelopmentBuildVerificationGateResult({
-        ...artifact.result,
-        disposition: reusableTerminal ? 'reused' : artifact.result.disposition,
-        execution: reusableTerminal ? null : artifact.result.execution,
-        evidenceRefs: [...new Set([...artifact.result.evidenceRefs, evidenceRef])]
-      });
-      return Object.freeze({
-        action: member.action,
-        result,
-        cleanup: artifact.cleanup
-      });
+      return projectHostedTerminalGate(member.action, artifact);
     }
     if (!syntheticNotRunActionKeys.has(member.action.actionKey)) {
       throw new Error('Hosted Evidence composition is complete without a terminal or failed prerequisite.');
