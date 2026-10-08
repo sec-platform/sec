@@ -14,6 +14,7 @@ import {
   type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { isResourceCompositeSettlementError, settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
+import { GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES, isGitCandidateBundleByteLength } from '../../runtime-state/physical/contract/git-bundle.ts';
 import {
   parseGitLineReply,
   parseGitObjectIdReply
@@ -85,8 +86,6 @@ const CANDIDATE_BUNDLE_PROCESS_PROVIDER = sha256({
 const CANDIDATE_BUNDLE_DURATION_MS = 120_000;
 const CANDIDATE_BUNDLE_MAXIMUM_PROCESSES = 32;
 const CANDIDATE_BUNDLE_MAXIMUM_INPUT_BYTES = 64 * 1024;
-const CANDIDATE_BUNDLE_MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
-const CANDIDATE_BUNDLE_MAXIMUM_FILE_BYTES = 8 * 1024 * 1024;
 const CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES = 256 * 1024;
 const CANDIDATE_BUNDLE_EXECUTABLE_BYTES = 64 * 1024 * 1024;
 const CANDIDATE_BUNDLE_BARE_NAME = 'bundle-source.git';
@@ -108,6 +107,13 @@ const GIT_READ_BUDGET = Object.freeze({
   maxCommandStderrBytes: 64 * 1024,
   maxExecutableBytes: CANDIDATE_BUNDLE_EXECUTABLE_BYTES
 });
+
+// Git identity observations settle before the four fixed transport commands.
+// Their aggregate read bound plus init/fetch/verify stdout+stderr and bundle
+// stderr leave the entire shared file bound available to bundle stdout.
+const CANDIDATE_BUNDLE_MAXIMUM_OUTPUT_BYTES = GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES
+  + 7 * CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES
+  + GIT_READ_BUDGET.maxStdoutBytes + GIT_READ_BUDGET.maxStderrBytes;
 
 export type GitCandidateBundle = Readonly<{
   readonly bundlePath: string;
@@ -382,7 +388,7 @@ async function materializeCandidateBundle(input: Readonly<{
       assertGitPhysicalResourceAdmissionInternal(provider, {
         processes: 4,
         inputBytes: 0,
-        outputBytes: CANDIDATE_BUNDLE_MAXIMUM_FILE_BYTES
+        outputBytes: GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES
           + 7 * CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES
       });
       const sourceAuxiliary = [...retainedSources.values()].map((capability) => Object.freeze({
@@ -430,14 +436,13 @@ async function materializeCandidateBundle(input: Readonly<{
         '-C', bareCapability.childPath,
         'bundle', 'create', '-',
         'refs/sec/base', 'refs/sec/head'
-      ], 'bundle creation', directoryAuxiliary, CANDIDATE_BUNDLE_MAXIMUM_FILE_BYTES);
+      ], 'bundle creation', directoryAuxiliary, GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES);
       const publication = publishExclusiveDurableCanonicalFile({
         parent: input.temporaryRootIdentity.target,
         name: CANDIDATE_BUNDLE_FILE_NAME,
         bytes: bundleBytes,
         validate: (bytes) => {
-          if (bytes.byteLength === 0
-              || bytes.byteLength > CANDIDATE_BUNDLE_MAXIMUM_FILE_BYTES) {
+          if (!isGitCandidateBundleByteLength(bytes.byteLength)) {
             throw new Error('Git candidate bundle output exceeds its fixed byte domain.');
           }
         }

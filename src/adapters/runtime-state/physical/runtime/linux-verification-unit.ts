@@ -2,6 +2,7 @@ import type { OperationRequirementBindingContext } from '../../../../execution/o
 import type { BoundSemanticOperation, OperationDigest, ProviderSettlementReceipt } from '../../../../execution/operation/semantic.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import { parseSecLinuxVerificationNativeRuntimeManifest, SEC_LINUX_VERIFICATION_NATIVE_PROFILE } from '../../../providers/linux-verification/contract.ts';
+import { isGitCandidateBundleByteLength } from '../contract/git-bundle.ts';
 import {
   assertLinuxVerificationUnitResultBytes, canonicalLinuxVerificationUnitInvocation,
   LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_PROFILE,
@@ -199,7 +200,7 @@ export async function prepareLinuxVerificationUnitSession(inputs: LinuxVerificat
       || sha256(inputs.runtime.manifest) !== inputs.runtime.manifestDigest) invalid('Native runtime input manifest is not exact.');
   assertRetainedNoFollowCapability(inputs.bundle.file, 'ordinary-file', 'native Git bundle');
   const bundleBytes = inputs.bundle.file.digest();
-  if (bundleBytes.byteDigest !== inputs.bundle.bundleDigest || bundleBytes.size > 8 * 1024 * 1024) invalid('Native bundle input bytes differ.');
+  if (bundleBytes.byteDigest !== inputs.bundle.bundleDigest || !isGitCandidateBundleByteLength(bundleBytes.size)) invalid('Native bundle input bytes differ.');
   for (const key of ['baseSha', 'headSha', 'baseTreeSha', 'headTreeSha'] as const) if (!GIT_ID.test(inputs.bundle[key])) invalid('Native bundle source pins are invalid.');
   if (inputs.dependencies !== null) {
     assertRetainedNoFollowProvenDirectoryGeneration(inputs.dependencies.physicalGeneration);
