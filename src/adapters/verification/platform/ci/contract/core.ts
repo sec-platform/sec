@@ -17,19 +17,21 @@ const CI_CONTRACT_STATUS_ACTIVE = 'active' as const;
 
 export const CI_VERIFICATION_PR_EVENT = 'repository_dispatch' as const;
 const CI_VERIFICATION_PR_DISPATCH_TYPE = CI_VERIFICATION_SESSION_DISPATCH_TYPE;
-export const CI_VERIFICATION_PR_STEP_ORDER = [
-  'Resolve proposal against live default, PR, candidate, and actor',
-  'Publish or join Review request and wait for exact Review clearance',
-  'Dispatch or join canonical ActionKey producers until terminal',
-  'Create immutable Action start marker from fresh provider census',
-  'Publish durable start tombstone and issue execution ticket',
-  'Execute one normalized candidate operation without credentials',
-  'Assemble canonical five-state terminal artifact',
-  'Create exact post-upload terminal anchor',
-  'Publish neutral terminal provider tombstone',
-  'Compose Verification Evidence only from canonical Action terminals',
-  'Finalize provenance-bound Verification Session artifact'
-] as const;
+const prRuntimeWorkflowSteps = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES
+  .filter(policy => policy.workflowPath === '.github/workflows/compiler-pr-validation.yml'
+    && policy.runtime.kind !== 'api-only')
+  .sort((left, right) => left.jobId.localeCompare(right.jobId))
+  .flatMap(compileCiVerificationHostedWorkflowSteps);
+
+/** Runtime-backed jobs grouped by job ID, preserving each job's step order.
+ * Includes retained entries.
+ * API-only jobs are excluded. Concurrent jobs have no execution total order. */
+export const CI_VERIFICATION_PR_STEP_ORDER = Object.freeze(prRuntimeWorkflowSteps.map(step => {
+  if (typeof step !== 'object' || step === null || !('name' in step) || typeof step.name !== 'string') {
+    throw new Error('Hosted runtime recipe has an unnamed workflow step.');
+  }
+  return step.name;
+}));
 const CI_VERIFICATION_RELEASE_STEP_ORDER = HOSTED_OWNED_ENTRY_RECIPES[1].job.steps.map(step => step.name);
 export const CI_MAIN_HEALTH_JOB_NAME = CI_MAIN_HEALTH_POLICY.context;
 export const CI_MAIN_HEALTH_STEP_ORDER = HOSTED_OWNED_ENTRY_RECIPES[0].job.steps.map(step => step.name);
@@ -89,7 +91,9 @@ export type CiContract = {
   steps: CiContractStep[];
 };
 
-const prWorkflowCommands = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES.filter(policy => policy.workflowPath === '.github/workflows/compiler-pr-validation.yml' && policy.runtime.kind === 'per-job-runtime').flatMap(policy => compileCiVerificationHostedWorkflowSteps(policy).flatMap(step => typeof step === 'object' && step !== null && 'run' in step && typeof step.run === 'string' ? [step.run] : []));
+const prWorkflowCommands = prRuntimeWorkflowSteps.flatMap(step =>
+  typeof step === 'object' && step !== null && 'run' in step && typeof step.run === 'string'
+    ? [step.run] : []);
 
 const releaseWorkflowCommands = HOSTED_OWNED_ENTRY_RECIPES[1].job.steps.flatMap(step => 'run' in step ? [step.run] : []);
 

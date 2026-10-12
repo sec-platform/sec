@@ -16,6 +16,7 @@ export type CiContractInspectionSource = Readonly<{
   executionModel: string;
   prWorkflowEvent: string;
   prDispatchType: string;
+  /** Runtime-backed jobs grouped by job ID; preserves per-job step order and excludes API-only jobs. */
   prWorkflowStepCount: number;
   prWorkflowStepOrder: readonly string[];
   releaseWorkflowStepCount: number;

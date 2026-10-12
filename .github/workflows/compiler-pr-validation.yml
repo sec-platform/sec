@@ -1020,6 +1020,8 @@ jobs:
   main-health:
     name: sec/main-health
     if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}
+    # Exact-main source checks do not acquire the isolated candidate runtime.
+    # This leaf receives its own hosted VM independently of its consumers.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
