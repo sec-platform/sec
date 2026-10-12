@@ -1355,7 +1355,9 @@ jobs:
   main-health:
     name: sec/main-health
     if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}
-    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    # Exact-main source checks do not acquire the isolated candidate runtime.
+    # Keep this leaf independent of the self-hosted pools its consumers join.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read

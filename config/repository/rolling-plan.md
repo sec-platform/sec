@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-10-07
+last-reviewed: 2026-10-13
 ---
 
 # SEC 滚动近期计划
@@ -12,27 +12,28 @@ last-reviewed: 2026-10-07
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:422dd5e18e7edcd1f1a62187354af460e133865e2608fb1c65e446925e642e65",
-    "manifestPath": "config/repository/work-packages/release-parent-atomic-adoption-20261002.md",
-    "packageId": "release-parent-atomic-adoption-20261002",
+    "manifestDigest": "sha256:5b0fddc4c8b38d38ac43bb77b1b36acfb69f9e928a687f41f61516a264e87e85",
+    "manifestPath": "config/repository/work-packages/main-health-hosted-recovery-20261013.md",
+    "packageId": "main-health-hosted-recovery-20261013",
     "tracking": "none"
   },
   "authority": "none",
   "candidates": [],
-  "exactMain": "cebc132edd029804a0797e1e330787fc8896da14",
-  "exactMainTree": "13ae94937ee7711fdaa457ad6382bdf3aca7d00e",
-  "projectionDigest": "sha256:6e9193740ef250c76c6772943ac03c34251cab19bfd9dcd8d688270d3e6ea7b8",
+  "exactMain": "0536dca0da634fe26fe175bc4694883f966ae356",
+  "exactMainTree": "6435d35751e2293410eed80cbb3eb013f02afb11",
+  "projectionDigest": "sha256:1a6ce45503e4849e8717496ee511964989af986bd6976e881dd8a4a7bd59874b",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### release-parent-atomic-adoption-20261002
+### main-health-hosted-recovery-20261013
 
-Proposal-only target manifest `config/repository/work-packages/release-parent-atomic-adoption-20261002.md` at `sha256:422dd5e18e7edcd1f1a62187354af460e133865e2608fb1c65e446925e642e65`, based on exact main `cebc132edd029804a0797e1e330787fc8896da14` and tree `13ae94937ee7711fdaa457ad6382bdf3aca7d00e`.
+Proposal-only target manifest `config/repository/work-packages/main-health-hosted-recovery-20261013.md` at `sha256:5b0fddc4c8b38d38ac43bb77b1b36acfb69f9e928a687f41f61516a264e87e85`, based on exact main `0536dca0da634fe26fe175bc4694883f966ae356` and tree `6435d35751e2293410eed80cbb3eb013f02afb11`.
 
 ## 候选 Work Package
+
 
 ## 重新规划硬触发器
 
