@@ -1,4 +1,5 @@
-import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { uniqueSortedSemanticTuples } from '../../semantics/definitions/identity-components.ts';
 import type { SemanticAttribute, SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
 import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 
@@ -37,20 +38,20 @@ export function normalizeAttributes(attributes: readonly SemanticAttribute[]): S
     .sort((left, right) => compareCodeUnits(left.key, right.key));
 }
 
-function provenanceKey(provenance: FactProvenance): string {
-  return [provenance.kind, provenance.sourceId, provenance.sourcePath ?? '', provenance.revision ?? ''].join('\u0000');
+function provenanceKey(provenance: FactProvenance): readonly (string | undefined)[] {
+  return [provenance.kind, provenance.sourceId, provenance.sourcePath, provenance.revision];
 }
 
-function evidenceKey(evidence: EvidenceReference): string {
-  return [evidence.kind, evidence.ref, evidence.digest ?? ''].join('\u0000');
+function evidenceKey(evidence: EvidenceReference): readonly (string | undefined)[] {
+  return [evidence.kind, evidence.ref, evidence.digest];
 }
 
 export function normalizeProvenance(provenance: readonly FactProvenance[]): FactProvenance[] {
-  return uniqueSortedByKey(provenance, provenanceKey);
+  return uniqueSortedSemanticTuples(provenance, provenanceKey);
 }
 
 export function normalizeEvidence(evidence: readonly EvidenceReference[]): EvidenceReference[] {
-  return uniqueSortedByKey(evidence, evidenceKey);
+  return uniqueSortedSemanticTuples(evidence, evidenceKey);
 }
 
 

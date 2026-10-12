@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
@@ -105,6 +106,57 @@ function expectCompilerError(run: () => unknown, code: string): void {
   }
   throw new Error(`Expected CompilerError ${code}`);
 }
+
+test('literal #step in legal namespace, scenario and step components survives build and cached validation', () => {
+  for (const [namespace, scenarioId, stepId] of [
+    ['a#step', 'b', 'c'],
+    ['a#step', 'b#step', 'c#step'],
+    ['#step', '#step', '#step'],
+    ['a', 'b', 'c']
+  ]) {
+    const loaded = contract();
+    loaded.contract.namespace = namespace!;
+    loaded.contract.scenarios[0]!.id = scenarioId!;
+    loaded.contract.scenarios[0]!.steps[0]!.id = stepId!;
+    const source = { ...baseInput(), semanticContracts: [loaded] };
+    const ir = buildEngineeringIR(source);
+    const expectedId = `scenario:${namespace}:${scenarioId}#step:${stepId}`;
+    expect(ir.entities.find((entity) => entity.kind === 'scenario-step')!.id).toBe(expectedId);
+    expect(validateEngineeringIR(ir, source).ir.entities.some((entity) => entity.id === expectedId)).toBe(true);
+  }
+});
+
+test('a second edit changes only the named event and does not merge independently named declarations', () => {
+  const loaded = contract();
+  loaded.contract.events.push({ id: 'OtherEvent', label: 'same label', payloadType: 'Item' });
+  const before = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
+  loaded.contract.events[0]!.payloadType = 'ChangedPayload';
+  const after = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
+  expect(after.entities.find((entity) => entity.id === 'event:item:OtherEvent')).toEqual(before.entities.find((entity) => entity.id === 'event:item:OtherEvent'));
+  expect(after.entities.find((entity) => entity.id === 'event:item:ItemClosed')).not.toEqual(before.entities.find((entity) => entity.id === 'event:item:ItemClosed'));
+  expect(after.semanticRevision).not.toBe(before.semanticRevision);
+  expect(before.entities.filter((entity) => entity.kind === 'event')).toHaveLength(2);
+  loaded.contract.namespace = 'item:OtherEvent';
+  expect(() => buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] })).toThrow();
+});
+
+test('distinct NUL-bearing state transitions survive compilation and a second transition edit', () => {
+  const loaded = contract();
+  loaded.contract.states[0]!.values = ['a', 'a\u0000b', 'b\u0000c', 'c', 'edited'];
+  loaded.contract.states[0]!.transitions = [
+    { from: 'a\u0000b', to: 'c', by: 'closeItem' },
+    { from: 'a', to: 'b\u0000c', by: 'closeItem' }
+  ];
+  const before = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
+  const transitions = before.facts.filter((fact) => fact.predicate === 'TRANSITIONS_TO');
+  expect(transitions).toHaveLength(2);
+  loaded.contract.states[0]!.transitions[1]!.to = 'edited';
+  const after = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
+  expect(after.inputRevision).not.toBe(before.inputRevision);
+  expect(after.facts.filter((fact) => fact.predicate === 'TRANSITIONS_TO')).toHaveLength(2);
+  const unchanged = transitions.find((fact) => fact.object.kind === 'value' && typeof fact.object.value === 'object' && fact.object.value !== null && !Array.isArray(fact.object.value) && fact.object.value.from === 'a\u0000b')!;
+  expect(after.facts.some((fact) => fact.id === unchanged.id)).toBe(true);
+});
 
 test('semantic contract becomes authoritative entities, facts, transitions, and scenario steps', () => {
   const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });

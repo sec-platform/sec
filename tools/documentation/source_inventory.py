@@ -254,6 +254,8 @@ def source_files(root: Path) -> tuple[Path, ...]:
     members = set(files)
     if root / BASELINE_PATH not in members:
         raise ValueError('baseline boundary must be included in the authoritative source domain')
+    if local_path(root, declaration['entry'][3:]) not in members:
+        raise ValueError('baseline entry must belong to the authoritative source members')
     pending = list(namespaces)
     while pending:
         visited += 1

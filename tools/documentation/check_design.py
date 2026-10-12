@@ -226,9 +226,12 @@ def decision_model(root: Path):
     A U may retain separate fields or combine adoption with its responsibility
     reference and implementation/verification work with its remaining obligations.
     """
-    rows=[]
+    from check_docs import markdown_visible_lines
+    rows=[];visible={}
     for p in sorted((root/'docs/状态').glob('*.md')):
-        t=p.read_text(encoding='utf-8');matches=list(re.finditer(r'^### (U\d{3})｜[^\n]*\n',t,re.M))
+        t='\n'.join(line for _,line in markdown_visible_lines(p.read_text(encoding='utf-8'))) + '\n'
+        visible[p]=t
+        matches=list(re.finditer(r'^### (U\d{3})｜[^\n]*\n',t,re.M))
         for i,m in enumerate(matches):
             section=t[m.end():matches[i+1].start()if i+1<len(matches)else len(t)]
             for field, alternatives in (
@@ -248,8 +251,10 @@ def decision_model(root: Path):
         owners[row['id']]=row['path']
     if not owners:raise DesignError('No independent U entries')
     # Actual navigation consumes the original owner; no second numeric inventory.
-    for p in sorted((root/'docs/状态').glob('*.md')):
-        for location,fragment in re.findall(r'\]\(([^)#]+)#(u\d{3})\)',p.read_text(encoding='utf-8')):
+    for p,t in visible.items():
+        # Inline code is data as well; retain only the existing authored link surface.
+        t=re.sub(r'(`+).*?\1', '', t)
+        for location,fragment in re.findall(r'\]\(([^)#]+)#(u\d{3})\)',t):
             identity=fragment.upper()
             target=(p.parent/location).resolve()
             owner=owners.get(identity)

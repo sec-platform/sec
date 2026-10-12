@@ -48,6 +48,14 @@ function sourceCensus(snapshot: PhysicalWorkspaceSourceSnapshot): string {
   return sha256(snapshot.files.map(({ path, mode, contentDigest }) => ({ path, mode, contentDigest })));
 }
 
+export function assertDevelopmentSourceCheckpointToolRoot(gitRoot: string, toolRoot: string): void {
+  // Use the same native absolute-path domain as the source-checkpoint status
+  // observer; Git emits forward slashes even for a Windows source checkout.
+  if (path.resolve(gitRoot) !== path.resolve(toolRoot)) {
+    throw new Error('Source checkpoint tools require the exact repository root.');
+  }
+}
+
 async function observeTrustedTool(request: DevelopmentSourceCheckpointRequest) {
   // This root is supplied by the runtime layout, never by the candidate or a
   // caller-authored root/digest. As with the package runner, this assumes the
@@ -70,8 +78,10 @@ async function observeTrustedTool(request: DevelopmentSourceCheckpointRequest) {
     assertDevelopmentSourceCheckpointNonDefaultRef(request.expectedRef, spec.resolver.defaultBranch);
     const branch = await text(session, ['symbolic-ref', '--quiet', 'HEAD']);
     const currentDefault = await text(session, ['rev-parse', '--verify', spec.resolver.defaultRef]);
+    assertDevelopmentSourceCheckpointToolRoot(
+      await text(session, ['rev-parse', '--show-toplevel']), toolRoot
+    );
     if (branch !== `refs/heads/${spec.resolver.defaultBranch}` || head !== currentDefault
-        || await text(session, ['rev-parse', '--show-toplevel']) !== toolRoot
         || (await text(session, ['status', '--porcelain=v1', '--untracked-files=all'])).length !== 0) {
       throw new Error('Source checkpoint tools require the clean default worktree at the exact requested main.');
     }

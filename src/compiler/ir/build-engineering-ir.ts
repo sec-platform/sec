@@ -11,17 +11,23 @@ import { CompilerError } from '../errors.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
+  acceptanceEntityId,
   addEntity as addEntityToStore,
   appEntityId,
   artifactEntityId,
+  assertEngineeringIRInputIdentities,
   assertEngineeringIRReferences,
+  blockEntityId,
   capabilityEntityId,
   claimSemanticNamespace as claimSemanticNamespaceForStore,
+  contractStateId,
   engineeringGraphId,
   generatorEntityId,
   normalizedArtifactTarget,
+  portEntityId,
   semanticEntity,
   valueAttribute,
+  verificationPolicyEntityId,
   type SemanticNamespaceOwner
 } from './ir-identity.ts';
 import { compilerProvenance, manifestProvenance, uniqueSorted } from './ir-normalization.ts';
@@ -50,6 +56,7 @@ export interface BuildEngineeringIRInput extends InputRevisionDomain {
 }
 
 export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringIR {
+  assertEngineeringIRInputIdentities(input);
   const entities = new Map<string, SemanticEntity>();
   const facts = new Map<string, SemanticFact>();
   const semanticNamespaceOwnerByNamespace = new Map<string, SemanticNamespaceOwner>();
@@ -66,7 +73,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   addEntity(semanticEntity(appId, 'app', input.app.name));
 
   for (const block of [...input.resolvedBlocks].sort((left, right) => compareCodeUnits(left.id, right.id))) {
-    const blockId = `block:${block.id}`;
+    const blockId = blockEntityId(block.id);
     addEntity(semanticEntity(blockId, 'block', block.id, [
       valueAttribute('version', block.version),
       valueAttribute('manifestKind', block.kind),
@@ -78,7 +85,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   const resolvedBlockIds = new Set(input.resolvedBlocks.map((block) => block.id));
   for (const entry of [...input.manifests].sort((left, right) => compareCodeUnits(left.blockId, right.blockId))) {
     if (!resolvedBlockIds.has(entry.blockId)) throw new CompilerError('IR-IDENTITY-002', `Manifest input references unresolved block "${entry.blockId}"`);
-    const blockId = `block:${entry.blockId}`;
+    const blockId = blockEntityId(entry.blockId);
     const provenance = manifestProvenance(entry);
 
     for (const capability of uniqueSorted(entry.manifest.requires)) {
@@ -92,19 +99,19 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
       addFact({ subject: blockId, predicate: 'PROVIDES', object: { kind: 'entity', entityId: capabilityId }, authority: 'authoritative', provenance });
     }
     for (const pin of [...entry.manifest.pins.inputs].sort((left, right) => compareCodeUnits(left.id, right.id))) {
-      const portId = `port:${entry.blockId}:input:${pin.id}`;
+      const portId = portEntityId(entry.blockId, 'input', pin.id);
       addEntity(semanticEntity(portId, 'port', pin.id, [valueAttribute('direction', 'input'), valueAttribute('type', pin.type), valueAttribute('required', pin.required ?? false)]));
       addFact({ subject: blockId, predicate: 'REQUIRES', object: { kind: 'entity', entityId: portId }, authority: 'authoritative', provenance });
     }
     for (const pin of [...entry.manifest.pins.outputs].sort((left, right) => compareCodeUnits(left.id, right.id))) {
-      const portId = `port:${entry.blockId}:output:${pin.id}`;
+      const portId = portEntityId(entry.blockId, 'output', pin.id);
       addEntity(semanticEntity(portId, 'port', pin.id, [valueAttribute('direction', 'output'), valueAttribute('type', pin.type), valueAttribute('required', pin.required ?? false)]));
       addFact({ subject: blockId, predicate: 'PROVIDES', object: { kind: 'entity', entityId: portId }, authority: 'authoritative', provenance });
     }
   }
 
-  for (const acceptanceId of uniqueSorted(input.acceptanceIds)) addEntity(semanticEntity(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId));
-  for (const policyId of uniqueSorted(input.policyDeclarations.map((policy) => policy.id))) addEntity(semanticEntity(`policy:${policyId}`, 'policy', policyId));
+  for (const acceptanceId of uniqueSorted(input.acceptanceIds)) addEntity(semanticEntity(acceptanceEntityId(acceptanceId), 'acceptance', acceptanceId));
+  for (const policyId of uniqueSorted(input.policyDeclarations.map((policy) => policy.id))) addEntity(semanticEntity(verificationPolicyEntityId(policyId), 'policy', policyId));
 
   // Preserve the raw-key ordering and duplicate occurrences, but serialize
   // each captured flow only once instead of on every sort comparison.
@@ -152,9 +159,9 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     appendSemanticContract(contract, sink);
   }
 
-  const acceptanceEntityIds = new Set(input.acceptanceIds.map((id) => `acceptance:${id}`));
+  const acceptanceEntityIdById = new Map(input.acceptanceIds.map((id) => [id, acceptanceEntityId(id)]));
   for (const entry of [...input.manifests].sort((left, right) => compareCodeUnits(left.blockId, right.blockId))) {
-    const blockId = `block:${entry.blockId}`;
+    const blockId = blockEntityId(entry.blockId);
     const provenance = manifestProvenance(entry);
     for (const declaration of [...(entry.manifest.generators ?? [])].sort((left, right) => compareCodeUnits(left.id, right.id))) {
       const contractMatches = linkedContracts.filter((candidate) =>
@@ -172,7 +179,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
       const generatorId = generatorEntityId(entry.blockId, declaration.id);
       const target = normalizedArtifactTarget(declaration.target);
       const artifactId = artifactEntityId(target);
-      const stateId = `state:${loaded.contract.namespace}:${state.id}`;
+      const stateId = contractStateId(loaded.contract.namespace, state.id);
       addEntity(semanticEntity(generatorId, 'generator', declaration.id, [
         valueAttribute('blockId', entry.blockId),
         valueAttribute('contractId', declaration.contract),
@@ -194,8 +201,9 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
       addFact({ subject: stateId, predicate: 'LOWERS_TO', object: { kind: 'entity', entityId: artifactId }, authority: 'derived', provenance: compilerProvenance(`generator:${generatorId}:lowering`) });
       addFact({ subject: generatorId, predicate: 'GENERATES', object: { kind: 'entity', entityId: artifactId }, authority: 'authoritative', provenance });
       for (const verificationId of uniqueSorted(declaration.verification)) {
-        const acceptanceId = `acceptance:${verificationId}`;
-        if (acceptanceEntityIds.has(acceptanceId)) {
+        // A verification selector can be arbitrary text when it is not an acceptance id.
+        const acceptanceId = acceptanceEntityIdById.get(verificationId);
+        if (acceptanceId !== undefined) {
           addFact({ subject: artifactId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: acceptanceId }, authority: 'authoritative', provenance });
         } else {
           addFact({ subject: artifactId, predicate: 'VERIFIED_BY', object: { kind: 'value', value: { selector: verificationId } }, authority: 'authoritative', provenance });

@@ -27,6 +27,78 @@ JS = """(()=>{const x=document.getElementById('sec-nav-filter');if(!x)return;x.a
 
 class BuildError(Exception): pass
 
+class PublicationSettlementError(BuildError):
+    """Keep publication and every failed cleanup observable, including commit state."""
+    def __init__(self, primary, settlement, *, committed, output, residuals=(), unsettled_stream=None):
+        self.primary=primary
+        self.settlement=tuple(settlement)
+        self.committed=committed
+        self.output=output
+        self.residuals=tuple(residuals)
+        self.unsettled_stream=unsettled_stream
+        state='output published' if committed else 'output not published'
+        causes=([f'operation: {type(primary).__name__}: {primary}'] if primary else [])
+        causes.extend(f'{resource}: {type(error).__name__}: {error}' for resource,error in settlement)
+        causes.extend('unsettled resource: '+resource for resource in residuals)
+        super().__init__(f'{state}: {output}; ' + '; '.join(causes))
+
+
+def publish_output(out, content, before, validate):
+    """One owner from exclusive acquisition through independent cleanup settlement."""
+    lock=out.with_name(out.name+'.lock')
+    temp=None;fd=None;stream=None;stream_close_error=None;lock_fd=None;owned=False;committed=False;primary=None
+    try:
+        try:
+            lock_fd=os.open(lock,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+        except FileExistsError as error:
+            raise BuildError('Another publisher or unremoved lock exists: '+str(lock)) from error
+        owned=True
+        os.write(lock_fd,str(os.getpid()).encode())
+        now=out.read_bytes() if out.is_file() else None
+        if before!=now:raise BuildError('Output changed during build; not overwritten')
+        fd,temp=tempfile.mkstemp(prefix='.'+out.name+'.',suffix='.tmp',dir=out.parent)
+        # fdopen owns the handle only after it successfully returns.
+        stream=os.fdopen(fd,'wb');fd=None
+        stream.write(content);stream.flush();os.fsync(stream.fileno())
+        try:
+            stream.close()
+            if stream.closed is not True:
+                raise BuildError('Temporary stream close did not confirm a closed handle')
+        except BaseException as error:
+            stream_close_error=error
+            raise
+        stream=None
+        validate()
+        os.replace(temp,out);committed=True;temp=None
+    except BaseException as error:
+        # A normal pre-publication close failure is a settlement failure, not a
+        # second operation cause. Its retained stream is inspected below, never retried.
+        primary=None if error is stream_close_error else error
+        raise
+    finally:
+        settlement=[];residuals=[];unsettled_stream=None
+        def settle(resource,action):
+            try:action()
+            except BaseException as error:settlement.append((resource,error))
+        if fd is not None:settle('descriptor close',lambda:os.close(fd))
+        if stream is not None:
+            if stream_close_error is not None:
+                settlement.append(('temporary stream close',stream_close_error))
+            else:
+                settle('temporary stream close',stream.close)
+            try:
+                closed=stream.closed is True
+            except BaseException as error:
+                settlement.append(('temporary stream close observation',error));closed=False
+            if not closed:
+                residuals.append('temporary stream '+str(temp));unsettled_stream=stream
+        if temp is not None:settle('temporary file '+str(temp),lambda:Path(temp).unlink(missing_ok=True))
+        if lock_fd is not None:settle('publisher lock descriptor close',lambda:os.close(lock_fd))
+        if owned:settle('publisher lock '+str(lock),lambda:lock.unlink(missing_ok=True))
+        if settlement or residuals:
+            raise PublicationSettlementError(primary,settlement,committed=committed,output=out,
+                                             residuals=residuals,unsettled_stream=unsettled_stream) from primary
+
 def sha(data: bytes) -> str: return hashlib.sha256(data).hexdigest()
 def canon(value): return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()
 def b64(data): return base64.b64encode(data).decode('ascii')
@@ -514,21 +586,7 @@ def main(argv=None):
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
         check_docs.verify(root, sealed=True)
     out.parent.mkdir(parents=True,exist_ok=True)
-    lock=out.with_name(out.name+'.lock');temp=None;fd=None
-    try:
-        fd=os.open(lock,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600);os.write(fd,str(os.getpid()).encode());os.close(fd);fd=None
-    except FileExistsError as e:raise BuildError('Another publisher or unremoved lock exists: '+str(lock))from e
-    try:
-        now=out.read_bytes()if out.is_file()else None
-        if before!=now:raise BuildError('Output changed during build; not overwritten')
-        fd,temp=tempfile.mkstemp(prefix='.'+out.name+'.',suffix='.tmp',dir=out.parent)
-        with os.fdopen(fd,'wb')as f:fd=None;f.write(content);f.flush();os.fsync(f.fileno())
-        unchanged(root,captured,args)
-        os.replace(temp,out);temp=None
-    finally:
-        if fd is not None:os.close(fd)
-        if temp is not None:Path(temp).unlink(missing_ok=True)
-        lock.unlink(missing_ok=True)
+    publish_output(out,content,before,lambda:unchanged(root,captured,args))
     print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(captured),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else 0,'rendered_this_build':len(book.svg) if args.diagrams=='required' else 0,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
     return 0
 

@@ -4,6 +4,35 @@ import tempfile
 import unittest
 import check_design as d
 
+class DecisionVisibility(unittest.TestCase):
+ def owner(self,identity='U001'):
+  return '### '+identity+'｜Fixture\n'+''.join('**'+field+'：** body\n' for field in
+   ('采用决定','结构与执行落点','实施与验证工作','还需要什么','关闭条件','重开或调整条件'))
+ def decisions(self,text):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);folder=root/'docs/状态';folder.mkdir(parents=True)
+   (folder/'owner.md').write_text(text,encoding='utf-8')
+   return d.decision_model(root)
+ def test_fenced_and_commented_owners_and_navigation_are_data(self):
+  text='<!--\n'+self.owner('U003')+'[hidden](wrong.md#u999)\n-->\n'
+  text+='```md\n'+self.owner('U001')+'[hidden](wrong.md#u998)\n```\n'
+  text+='~~~md\n'+self.owner('U002')+'~~~\n'+self.owner()
+  rows=self.decisions(text+'`[code](wrong.md#u997)`\n[real](owner.md#u001)\n')
+  self.assertEqual([row['id'] for row in rows],['U001'])
+  self.assertEqual(rows[0]['line'],len(text.splitlines())-len(self.owner().splitlines())+1)
+ def test_visible_duplicates_and_dangling_navigation_still_reject(self):
+  with self.assertRaisesRegex(d.DesignError,'Duplicate independent U identity'):
+   self.decisions(self.owner()+self.owner())
+  with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner'):
+   self.decisions(self.owner()+'[dangling](missing.md#u999)\n')
+ def test_hidden_fields_cannot_satisfy_visible_owner(self):
+  text='### U001｜Fixture\n```md\n'+self.owner().split('\n',1)[1]+'```\n'
+  with self.assertRaisesRegex(d.DesignError,'missing substantive field'):
+   self.decisions(text)
+ def test_unclosed_fence_is_not_silently_accepted(self):
+  with self.assertRaisesRegex(ValueError,'unclosed fenced'):
+   self.decisions(self.owner()+'```md\n')
+
 class Architecture(unittest.TestCase):
  def source(self):return(Path(d.__file__).resolve().parents[2]/d.TABLE_PATH).read_bytes()
  def test_current_table(self):m=d.dependency_model(self.source());self.assertEqual(set(m['dependencies']),d.MODULES)

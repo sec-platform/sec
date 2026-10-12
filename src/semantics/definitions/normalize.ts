@@ -1,6 +1,7 @@
 import { compareCodeUnits, stableById, uniqueSorted } from '../../contracts/canonical.ts';
 import { SecError as CompilerError } from '../../contracts/failure.ts';
 import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
+import { assertSemanticContractIdentityComponents, compareSemanticTuple, semanticReferenceParts, semanticTargetParts } from './identity-components.ts';
 import { SEMANTIC_CONTRACT_FORMAT_VERSION, SEMANTIC_EFFECT_KINDS, SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticContract, type SemanticContractEffect, type SemanticContractEntity, type SemanticContractImport, type SemanticContractOperation, type SemanticContractResponsibility, type SemanticContractResponsibilityBinding, type SemanticContractScenario, type SemanticContractScenarioStep, type SemanticContractState, type SemanticContractTransition } from './types.ts';
 
 function assertId(value: string | undefined, context: string): asserts value is string {
@@ -41,7 +42,7 @@ function normalizeState(state: SemanticContractState): SemanticContractState {
     values: uniqueSorted(state.values ?? []),
     transitions: [...(state.transitions ?? [])]
       .map(normalizeTransition)
-      .sort((left, right) => compareCodeUnits(`${left.from}:${left.to}:${left.by}`, `${right.from}:${right.to}:${right.by}`))
+      .sort((left, right) => compareSemanticTuple([left.from, left.to, left.by], [right.from, right.to, right.by]))
   };
 }
 
@@ -63,9 +64,9 @@ function normalizeResponsibility(responsibility: SemanticContractResponsibility)
     ...authoritative,
     bindings: [...(responsibility.bindings ?? [])]
       .map(normalizeResponsibilityBinding)
-      .sort((left, right) => compareCodeUnits(
-        `${left.target.kind}:${left.target.id}:${left.declaration.path}:${left.declaration.exportName}`,
-        `${right.target.kind}:${right.target.id}:${right.declaration.path}:${right.declaration.exportName}`
+      .sort((left, right) => compareSemanticTuple(
+        [left.target.kind, left.target.id, left.declaration.path, left.declaration.exportName],
+        [right.target.kind, right.target.id, right.declaration.path, right.declaration.exportName]
       )),
     owns: uniqueSorted(responsibility.owns ?? []),
     implements: uniqueSorted(responsibility.implements ?? []),
@@ -113,18 +114,13 @@ function normalizeImport(entry: SemanticContractImport): SemanticContractImport 
 }
 
 function isQualifiedReference(value: string): boolean {
-  const segments = value.split('::');
-  if (segments.length === 1) return false;
-  if (segments.length !== 2 || segments.some((segment) => !segment.trim())) {
-    throw new CompilerError('CONTRACT-SEMANTIC-018', `Malformed qualified semantic reference "${value}"`);
-  }
-  return true;
+  return semanticReferenceParts(value).qualifier !== undefined;
 }
 
 function targetExists(target: string, entities: Map<string, SemanticContractEntity>): boolean {
-  const [entityId, fieldId, ...rest] = target.split('.');
-  const entity = entities.get(entityId ?? '');
-  if (!entity || rest.length > 0) return false;
+  const { entityId, fieldId } = semanticTargetParts(target);
+  const entity = entities.get(entityId);
+  if (!entity) return false;
   if (!fieldId) return true;
   return entity.fields.some((field) => field.id === fieldId);
 }
@@ -182,6 +178,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
   if (!input.namespace?.trim()) {
     throw new CompilerError('CONTRACT-SEMANTIC-006', `Semantic contract "${input.id}" requires namespace`);
   }
+  assertSemanticContractIdentityComponents(input);
 
   const contract: SemanticContract = {
     formatVersion: SEMANTIC_CONTRACT_FORMAT_VERSION,
@@ -284,8 +281,8 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
         throw new CompilerError('CONTRACT-SEMANTIC-020', `Responsibility "${responsibility.id}" binding declaration path must be repository-relative`);
       }
       assertId(binding.declaration.exportName, `Responsibility "${responsibility.id}" binding declaration exportName`);
-      const targetKey = `${binding.target.kind}:${binding.target.id}`;
-      const declarationKey = `${binding.declaration.path}:${binding.declaration.exportName}`;
+      const targetKey = JSON.stringify([binding.target.kind, binding.target.id]);
+      const declarationKey = JSON.stringify([binding.declaration.path, binding.declaration.exportName]);
       if (bindingTargets.has(targetKey)) {
         throw new CompilerError('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding target "${targetKey}"`);
       }

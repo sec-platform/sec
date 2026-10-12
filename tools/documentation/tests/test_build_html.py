@@ -29,6 +29,98 @@ class Originals(HTMLParser):
         if tag=='a' and 'download' in a and self.current:
             self.files[self.current]=base64.b64decode(a['href'].split(',',1)[1],validate=True)
 
+class PublicationSettlement(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(prefix='gift-publish-settlement-')
+        self.addCleanup(self.temp.cleanup)
+        self.home=Path(self.temp.name);self.out=self.home/'reading.html'
+        self.out.write_bytes(b'previous')
+        self.lock=self.out.with_name(self.out.name+'.lock')
+    def publish(self):
+        b.publish_output(self.out,b'next',b'previous',lambda:None)
+    def test_lock_metadata_failure_settles_owned_descriptor_and_lock(self):
+        primary=OSError('PID write failed')
+        native_close=b.os.close
+        with patch.object(b.os,'write',side_effect=primary),patch.object(b.os,'close',wraps=native_close) as close:
+            with self.assertRaises(OSError) as result:self.publish()
+        self.assertIs(result.exception,primary);close.assert_called_once()
+        self.assertFalse(self.lock.exists());self.assertEqual(self.out.read_bytes(),b'previous')
+    def test_primary_and_multiple_cleanup_errors_remain_independent(self):
+        primary=OSError('replace failed');temporary=PermissionError('temporary unlink failed');lock_error=PermissionError('lock unlink failed')
+        native_unlink=Path.unlink
+        def unlink(path,*args,**kwargs):
+            if path==self.lock:raise lock_error
+            if path.suffix=='.tmp':raise temporary
+            return native_unlink(path,*args,**kwargs)
+        with patch.object(b.os,'replace',side_effect=primary),patch.object(Path,'unlink',unlink):
+            with self.assertRaises(b.PublicationSettlementError) as result:self.publish()
+        error=result.exception
+        self.assertIs(error.primary,primary);self.assertFalse(error.committed)
+        self.assertEqual([cause for _,cause in error.settlement],[temporary,lock_error])
+        self.assertEqual(self.out.read_bytes(),b'previous')
+        self.assertTrue(self.lock.exists());self.assertEqual(len(list(self.home.glob('.*.tmp'))),1)
+        self.assertIn('replace failed',str(error));self.assertIn('temporary unlink failed',str(error))
+    def test_post_replace_cleanup_failure_reports_published_output(self):
+        native_unlink=Path.unlink
+        def unlink(path,*args,**kwargs):
+            if path==self.lock:raise PermissionError('lock cleanup failed')
+            return native_unlink(path,*args,**kwargs)
+        with patch.object(Path,'unlink',unlink):
+            with self.assertRaises(b.PublicationSettlementError) as result:self.publish()
+        self.assertTrue(result.exception.committed);self.assertIsNone(result.exception.primary)
+        self.assertIn('output published',str(result.exception));self.assertEqual(self.out.read_bytes(),b'next')
+    def test_descriptor_cleanup_failure_still_attempts_lock_unlink(self):
+        primary=OSError('PID write failed');cleanup=OSError('close failed')
+        native_close=b.os.close
+        def close(fd):
+            native_close(fd);raise cleanup
+        with patch.object(b.os,'write',side_effect=primary),patch.object(b.os,'close',side_effect=close):
+            with self.assertRaises(b.PublicationSettlementError) as result:self.publish()
+        self.assertIs(result.exception.primary,primary)
+        self.assertIs(result.exception.settlement[0][1],cleanup)
+        self.assertFalse(self.lock.exists());self.assertFalse(result.exception.committed)
+    def test_stream_write_and_close_failures_are_both_retained(self):
+        primary=OSError('stream write failed');cleanup=OSError('stream close failed')
+        native_fdopen=b.os.fdopen
+        class Stream:
+            def __init__(self,fd,mode):self.stream=native_fdopen(fd,mode)
+            @property
+            def closed(self):return self.stream.closed
+            def write(self,data):raise primary
+            def close(self):self.stream.close();raise cleanup
+        with patch.object(b.os,'fdopen',side_effect=Stream):
+            with self.assertRaises(b.PublicationSettlementError) as result:self.publish()
+        self.assertIs(result.exception.primary,primary)
+        self.assertIs(result.exception.settlement[0][1],cleanup)
+        self.assertFalse(result.exception.committed);self.assertFalse(self.lock.exists())
+        self.assertEqual(list(self.home.glob('.*.tmp')),[])
+        self.assertEqual(self.out.read_bytes(),b'previous')
+    def test_successful_write_then_first_close_failure_retains_uncertain_stream_without_retry(self):
+        cleanup=OSError('first close failed before releasing handle')
+        native_fdopen=b.os.fdopen;streams=[]
+        class Stream:
+            def __init__(self,fd,mode):
+                self.stream=native_fdopen(fd,mode);self.closes=0;streams.append(self)
+            @property
+            def closed(self):return self.stream.closed
+            def write(self,data):return self.stream.write(data)
+            def flush(self):return self.stream.flush()
+            def fileno(self):return self.stream.fileno()
+            def close(self):self.closes+=1;raise cleanup
+        try:
+            with patch.object(b.os,'fdopen',side_effect=Stream),patch.object(b.os,'replace') as replace:
+                with self.assertRaises(b.PublicationSettlementError) as result:self.publish()
+            error=result.exception
+            self.assertIsNone(error.primary);self.assertIs(error.settlement[0][1],cleanup)
+            self.assertIs(error.unsettled_stream,streams[0]);self.assertTrue(error.residuals)
+            self.assertIn('unsettled resource',str(error));self.assertFalse(error.committed)
+            self.assertEqual(streams[0].closes,1);self.assertFalse(streams[0].closed)
+            replace.assert_not_called();self.assertFalse(self.lock.exists())
+            self.assertEqual(self.out.read_bytes(),b'previous')
+        finally:
+            # Fixture recovery owns its deliberately retained native handle.
+            for stream in streams:stream.stream.close()
+
 class ReadingTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='sec-reading-test-')

@@ -2085,44 +2085,47 @@ test('one immutable Action terminal is reusable across different Session closure
   expect(encodeVerificationActionData(artifact)).not.toContain(right.actionPlanClosure.actionPlanDigest);
 });
 
-test('test backend serializes one shared ActionKey while different roots and closures join one origin', async () => {
+test('different Session closures reuse one provider terminal and dispatch only their missing members', () => {
   const gates = hostedGates();
   const left = hostedResolution([gates[0]!, gates[1]!]);
   const right = hostedResolution([gates[0]!, gates[2]!]);
   const uniqueLeft = left.actionPlanClosure.actions[1]!.action.actionKey;
   const uniqueRight = right.actionPlanClosure.actions[1]!.action.actionKey;
   const shared = left.actionPlan.action.actionKey;
-  const terminalOrigins = new Map<VerificationActionKeyDigest, string>();
-  const inFlight = new Map<VerificationActionKeyDigest, Promise<string>>();
-  const physical = new Map<VerificationActionKeyDigest, number>();
-  const active = new Map<VerificationActionKeyDigest, number>();
-  let maximumSameKeyActive = 0;
-  const execute = async (actionKey: VerificationActionKeyDigest): Promise<string> => {
-    const terminal = terminalOrigins.get(actionKey);
-    if (terminal !== undefined) return terminal;
-    const joined = inFlight.get(actionKey);
-    if (joined !== undefined) return joined;
-    const pending = (async () => {
-      active.set(actionKey, (active.get(actionKey) ?? 0) + 1);
-      maximumSameKeyActive = Math.max(maximumSameKeyActive, active.get(actionKey)!);
-      physical.set(actionKey, (physical.get(actionKey) ?? 0) + 1);
-      await Promise.resolve();
-      const origin = `artifact://${actionKey.slice(7)}/origin-1`;
-      terminalOrigins.set(actionKey, origin);
-      active.set(actionKey, active.get(actionKey)! - 1);
-      return origin;
-    })();
-    inFlight.set(actionKey, pending);
-    return pending;
+  expect(left.actionPlanClosure.actionPlanDigest).not.toBe(right.actionPlanClosure.actionPlanDigest);
+  expect(shared).toBe(right.actionPlan.action.actionKey);
+  expect(uniqueLeft).not.toBe(uniqueRight);
+
+  const leftEnvelope = hostedEnvelopeFixture(left.actionPlanClosure);
+  const rightEnvelope = hostedEnvelopeFixture(right.actionPlanClosure);
+  const leftProvider = hostedProviderInputs(leftEnvelope, new Map([[0, { status: 'passed' }]]));
+  const rightMissing = hostedProviderInputs(rightEnvelope, new Map());
+  const rightProvider = {
+    ...leftProvider,
+    providerStatusReadbacks: [
+      leftProvider.providerStatusReadbacks[0]!,
+      rightMissing.providerStatusReadbacks[1]!
+    ]
   };
-  const [sharedLeft, sharedRight] = await Promise.all([
-    execute(shared), execute(shared), execute(uniqueLeft), execute(uniqueRight)
-  ]).then((values) => values.slice(0, 2));
-  expect(maximumSameKeyActive).toBe(1);
-  expect(physical.get(shared)).toBe(1);
-  expect(physical.get(uniqueLeft)).toBe(1);
-  expect(physical.get(uniqueRight)).toBe(1);
-  expect(sharedLeft).toBe(sharedRight);
+
+  const leftCoordination = CodexDevelopmentCoordinateHostedActions({
+    envelope: leftEnvelope,
+    ...leftProvider
+  });
+  const rightCoordination = CodexDevelopmentCoordinateHostedActions({
+    envelope: rightEnvelope,
+    ...rightProvider
+  });
+  expect(leftCoordination).toMatchObject({
+    disposition: 'dispatch',
+    dispatchActionKeys: [uniqueLeft],
+    missingActionKeys: [uniqueLeft]
+  });
+  expect(rightCoordination).toMatchObject({
+    disposition: 'dispatch',
+    dispatchActionKeys: [uniqueRight],
+    missingActionKeys: [uniqueRight]
+  });
 });
 
 test('credential sanitizer never treats provider environment identity as a writable token', () => {

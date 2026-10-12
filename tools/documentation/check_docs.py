@@ -10,7 +10,7 @@ import argparse, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
 from source_inventory import (EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files,
-    capture_source_manifest, requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH)
+    capture_source_manifest, requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH, baseline)
 
 def plain_heading(text: str) -> str:
     # Only presentation markup is removed; no Unicode normalization/case-fold
@@ -22,10 +22,8 @@ def plain_heading(text: str) -> str:
     text = text.replace('`', '').replace('*', '').replace('~', '')
     return html.unescape(text)
 
-def anchor_locations(text: str) -> dict[str, list[int]]:
-    """Map fragment to all observed 1-based lines (ambiguity is preserved)."""
-    found: dict[str, list[int]] = collections.defaultdict(list)
-    counts: collections.Counter = collections.Counter()
+def markdown_visible_lines(text: str):
+    """Yield line-preserving text outside fenced examples and HTML comments."""
     fence = None
     comment = False
     for line_number, original in enumerate(text.splitlines(), 1):
@@ -35,9 +33,11 @@ def anchor_locations(text: str) -> dict[str, list[int]]:
             closing = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
             if closing and closing[1][0] == fence[0] and len(closing[1]) >= fence[1] and not closing[2].strip():
                 fence = None
+            yield line_number, ''
             continue
         if comment:
             if '-->' not in line:
+                yield line_number, ''
                 continue
             line = line.split('-->', 1)[1]; comment = False
         while '<!--' in line:
@@ -48,7 +48,19 @@ def anchor_locations(text: str) -> dict[str, list[int]]:
                 line = before; comment = True; break
         marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
         if marker:
-            fence = (marker[1][0], len(marker[1])); continue
+            fence = (marker[1][0], len(marker[1]))
+            yield line_number, ''
+            continue
+        yield line_number, line
+    if fence:
+        raise ValueError('unclosed fenced code block in documentation')
+
+
+def anchor_locations(text: str) -> dict[str, list[int]]:
+    """Map fragment to all observed 1-based lines (ambiguity is preserved)."""
+    found: dict[str, list[int]] = collections.defaultdict(list)
+    counts: collections.Counter = collections.Counter()
+    for line_number, line in markdown_visible_lines(text):
         h = re.match(r'^ {0,3}(#{1,6})[ \t]+(.+?)\s*$', line)
         if h:
             title = re.sub(r'[ \t]+#+[ \t]*$', '', h[2])
@@ -61,15 +73,13 @@ def anchor_locations(text: str) -> dict[str, list[int]]:
         without_code = re.sub(r'(`+).*?\1', '', line)
         for m in re.finditer(r'<[A-Za-z][^>]*?\bid\s*=\s*([\"\x27])([^\"\x27]+)\1[^>]*>', without_code):
             found[html.unescape(m[2])].append(line_number)
-    if fence:
-        raise ValueError('unclosed fenced code block in documentation')
     return dict(found)
 
 
 EXCLUDED = EXCLUDED_FROM_SOURCE_HASH
 def canonical(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
-def checked_identity_registry(value, source_paths):
+def checked_identity_registry(value, source_paths, audited_namespaces):
     if (not isinstance(value, dict) or set(value) != {'schema', 'scope', 'documents'}
             or value['schema'] != 'sec.documentation-identity/1'
             or not isinstance(value['scope'], str) or not value['scope']
@@ -88,6 +98,11 @@ def checked_identity_registry(value, source_paths):
         if identity in ids or logical in paths:
             raise ValueError('duplicate document identity/path')
         ids.add(identity); paths.add(logical)
+    required = {name for name in source_paths if name.endswith('.md') and any(
+        name == namespace or name.startswith(namespace + '/') for namespace in audited_namespaces)}
+    missing = required - {item['path'] for item in value['documents']}
+    if missing:
+        raise ValueError('source Markdown in audited documentation namespace lacks identity: ' + ', '.join(sorted(missing)))
     return value['documents']
 
 
@@ -124,7 +139,8 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
     files = source_files(root)
     current = manifest['source_set_sha256']
     source_paths = {x['path'] for x in entries}
-    docs = checked_identity_registry(load(local('.documentation/documents.json')), source_paths)
+    docs = checked_identity_registry(load(local('.documentation/documents.json')), source_paths,
+                                     baseline(root)['audited_namespaces'])
     ids = [x['document_id'] for x in docs]; paths = [x['path'] for x in docs]
     if len(set(ids)) != len(ids) or len(set(paths)) != len(paths): errors.append('duplicate document identity or path')
     for x in docs:

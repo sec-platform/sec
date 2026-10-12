@@ -1,5 +1,6 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { SecError as CompilerError, fail } from '../../contracts/failure.ts';
+import { assertSemanticContractIdentityComponents, assertSemanticIdentityComponent, compareSemanticTuple, semanticReferenceParts, semanticTargetParts } from './identity-components.ts';
 import type { LoadedSemanticContract, SemanticContract, SemanticContractEntity, SemanticContractImport, SemanticContractResponsibilityBinding } from './types.ts';
 
 type SymbolKind =
@@ -19,13 +20,13 @@ interface ContractRegistryEntry {
   symbols: Readonly<Record<SymbolKind, ReadonlySet<string>>>;
 }
 
-function contractOrderKey(entry: LoadedSemanticContract): string {
+function contractOrderKey(entry: LoadedSemanticContract): string[] {
   return [
     entry.contract.namespace,
     entry.contract.id,
     entry.blockId,
     entry.contractPath
-  ].join('\u0000');
+  ];
 }
 
 function contractIdentity(entry: LoadedSemanticContract): string {
@@ -94,10 +95,7 @@ function importedRegistry(
 }
 
 function referenceParts(reference: string): { qualifier?: string; id: string } {
-  const parts = reference.split('::');
-  return parts.length === 2
-    ? { qualifier: parts[0]!, id: parts[1]! }
-    : { id: reference };
+  return semanticReferenceParts(reference);
 }
 
 function targetEntry(
@@ -175,9 +173,9 @@ function resolveEntityTarget(
   context: string
 ): string {
   const { target, id } = targetEntry(owner, imports, reference, context);
-  const [entityId, fieldId, ...rest] = id.split('.');
-  const entity = target.entities.get(entityId ?? '');
-  if (!entity || rest.length > 0 || (fieldId && !entityFieldIds(target, entity).has(fieldId))) {
+  const { entityId, fieldId } = semanticTargetParts(id);
+  const entity = target.entities.get(entityId);
+  if (!entity || (fieldId && !entityFieldIds(target, entity).has(fieldId))) {
     fail(
       'SEMANTIC-LINK-004',
       `${context} cannot resolve entity target "${reference}"`,
@@ -235,7 +233,7 @@ function linkState(
     `State "${state.id}" field`
   );
   const { id: targetId, ...targetReference } = referenceParts(linkedTarget);
-  const [entityId, fieldId] = targetId.split('.');
+  const { entityId, fieldId } = semanticTargetParts(targetId);
   return {
     ...state,
     entity: `${targetReference.qualifier}::${entityId}`,
@@ -316,9 +314,14 @@ export function linkWorkspaceSemanticContracts(
   contracts: readonly LoadedSemanticContract[],
   verificationPolicyIds: readonly string[]
 ): LoadedSemanticContract[] {
+  for (const loaded of contracts) {
+    assertSemanticIdentityComponent(loaded.blockId, 'Semantic contract block id');
+    assertSemanticContractIdentityComponents(loaded.contract);
+  }
+  for (const id of verificationPolicyIds) assertSemanticIdentityComponent(id, 'Verification policy id');
   const registryByNamespace = new Map<string, ContractRegistryEntry>();
   const registryByIdentity = new Map<string, ContractRegistryEntry>();
-  const ordered = [...contracts].sort((left, right) => compareCodeUnits(contractOrderKey(left), contractOrderKey(right)));
+  const ordered = [...contracts].sort((left, right) => compareSemanticTuple(contractOrderKey(left), contractOrderKey(right)));
 
   for (const loaded of ordered) {
     const existing = registryByNamespace.get(loaded.contract.namespace);
@@ -343,13 +346,13 @@ export function linkWorkspaceSemanticContracts(
 
   const policyIds = new Set(verificationPolicyIds);
   return [...registryByNamespace.values()]
-    .sort((left, right) => compareCodeUnits(contractOrderKey(left.loaded), contractOrderKey(right.loaded)))
+    .sort((left, right) => compareSemanticTuple(contractOrderKey(left.loaded), contractOrderKey(right.loaded)))
     .map((owner) => linkContract(owner, importedRegistry(owner, registryByIdentity), policyIds));
 }
 
 export function splitLinkedSemanticReference(reference: string): { namespace: string; id: string } {
-  const [namespace, id, ...rest] = reference.split('::');
-  if (!namespace || !id || rest.length > 0) {
+  const { qualifier: namespace, id } = semanticReferenceParts(reference);
+  if (!namespace) {
     throw new CompilerError(
       'SEMANTIC-LINK-007',
       `Linked semantic reference "${reference}" is not canonical`

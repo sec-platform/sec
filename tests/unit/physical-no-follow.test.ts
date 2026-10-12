@@ -1458,6 +1458,8 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('coope
         await assertWorkspaceWriteLease(repository, repositoryLease);
         const parent = inspectNoFollowDirectoryChain(parentPath, 'cooperative byte preimage').target;
         const original = statSync(target, { bigint: true });
+        const nativeOriginal = inspectNoFollowOrdinaryFileEntry(parent, 'journal.json');
+        if (nativeOriginal === null) throw new Error('Native byte-preimage fixture is absent.');
         const originalBytes = readFileSync(target);
         const writer = openSync(target, 'r+');
         try { writeSync(writer, Buffer.from('bad\n'), 0, 4, 0); }
@@ -1465,7 +1467,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('coope
         expect(statSync(target, { bigint: true }).ino).toBe(original.ino);
         const input = {
           parent, name: 'journal.json', bytes: Buffer.from('next\n'),
-          expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+          expectedExisting: { device: nativeOriginal.device, inode: nativeOriginal.inode },
           validate: () => undefined
         };
         expectPhysicalCode(() => replaceDurableCanonicalFile({ ...input, expectedExistingBytes: originalBytes }),

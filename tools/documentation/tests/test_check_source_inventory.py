@@ -26,6 +26,7 @@ class SourceBoundary(unittest.TestCase):
     def declare(self, roots, exemptions=()):
         (self.root / '.documentation/baseline.json').write_text(
             json.dumps({**declaration(roots),
+                'entry': '../docs/规则.md',
                 'non_documentation_roots': list(exemptions)}), encoding='utf-8')
 
     def names(self):
@@ -55,6 +56,20 @@ class SourceBoundary(unittest.TestCase):
         for name in ('../outside', '/absolute', 'docs//bad', 'C:/outside', 'docs\\bad', ''):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 local_path(self.root, name)
+
+    def test_entry_requires_an_actual_source_member(self):
+        metadata=self.root/'.documentation/baseline.json'
+        value=load(metadata)
+        (self.root/'outside.md').write_text('outside declared source')
+        for entry in ('../missing.md','../outside.md','../.documentation/source-manifest.json'):
+            with self.subTest(entry=entry):
+                value['entry']=entry
+                metadata.write_text(json.dumps(value),encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,'entry must belong'):
+                    self.names()
+        value['entry']='../docs/规则.md'
+        metadata.write_text(json.dumps(value),encoding='utf-8')
+        self.assertIn('docs/规则.md',self.names())
 
     def test_duplicate_metadata_keys_reject(self):
         metadata = self.root / '.documentation/baseline.json'

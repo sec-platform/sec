@@ -73,6 +73,10 @@ class ProjectionModes(TestCase):
         sample = self.root / 'examples/sample'
         (sample / 'contracts').mkdir(parents=True)
         (self.root / 'docs/产品/规则.md').write_text('## Behavior\n\nActual rule.\n', encoding='utf-8')
+        registry=s.load(self.root/'.documentation/documents.json')
+        registry['documents'].append({'document_id':'urn:uuid:00000000-0000-4000-8000-000000000002',
+                                      'path':'docs/产品/规则.md'})
+        self.write('.documentation/documents.json',registry)
         self.write('examples/sample/gift.project.json', {'schema': 'gift.project/1', 'modules': {'rules': 'contracts/rules.json'}})
         self.write('examples/sample/contracts/rules.json', {'schema': 'gift.author-module/1', 'moduleId': 'rules',
             'dialects': {'custom': {'languageId': 'gift.requirement-structure'}}, 'definitions': {
@@ -115,5 +119,8 @@ class ProjectionModes(TestCase):
         with self.assertRaisesRegex(ValueError, 'example rule section missing:'):
             check_docs.verify(self.root)
         owner.unlink()
+        registry=s.load(self.root/'.documentation/documents.json')
+        registry['documents']=[item for item in registry['documents'] if item['path']!='docs/产品/规则.md']
+        self.write('.documentation/documents.json',registry)
         with self.assertRaisesRegex(ValueError, 'example rule source missing/outside:'):
             check_docs.verify(self.root)

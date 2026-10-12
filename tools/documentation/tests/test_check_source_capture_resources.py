@@ -31,7 +31,7 @@ class CaptureResources(unittest.TestCase):
 
     def declare(self, roots):
         (self.root / '.documentation/baseline.json').write_text(
-            json.dumps(declaration(roots)), encoding='utf-8')
+            json.dumps({**declaration(roots),'entry':'../docs/main.md'}), encoding='utf-8')
 
     def test_ordinary_and_empty_files_keep_their_bytes(self):
         for data in (b'captured', b''):
