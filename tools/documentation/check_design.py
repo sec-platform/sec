@@ -76,8 +76,8 @@ def deliverable_model(root: Path):
     project=load_json(sample/'gift.project.json')
     dts=(sample/'公开边界.d.ts').read_text(encoding='utf-8')
     names=list(defs.get('exports',{}))
-    if len(names)!=36 or len(set(names))!=36:
-        raise DesignError('Concrete deliverable export set must contain 36 unique roots')
+    if not names:
+        raise DesignError('Concrete deliverable export set is empty')
     module_paths=set(project.get('modules',{}).values())
     checked=[]
     for name in names:
@@ -95,7 +95,7 @@ def deliverable_model(root: Path):
             if use and use.get('import')=='forms': uses.append(use.get('export'))
         if name not in uses: raise DesignError(name+' root does not use its complete form definition')
         rule=spec.get('definitions',{}).get('r:'+name)
-        if not rule or rule.get('kind')!='req:rule': raise DesignError(name+' missing derived rule contract')
+        if not rule or rule.get('kind')!='req:rule': raise DesignError(name+' missing rule contract')
         composite_ref=defs['exports'][name]
         comp=defs.get('definitions',{}).get(composite_ref.get('definitionId'))
         if not comp or comp.get('kind')!='req:composite': raise DesignError(name+' export does not resolve to a composite')
@@ -154,7 +154,19 @@ def decision_model(root: Path):
                 pattern=r'\*\*(?:'+'|'.join(map(re.escape,alternatives))+r')：\*\*\s*(?!\*\*|#{1,6}\s|<a\b)\S'
                 if not re.search(pattern,section):raise DesignError(m.group(1)+' missing substantive field '+field)
             rows.append({'id':m.group(1),'path':p.relative_to(root).as_posix(),'line':t[:m.start()].count('\n')+1})
-    if len(rows)!=66 or {x['id']for x in rows}!={f'U{n:03d}'for n in range(1,67)}:raise DesignError('U identifiers are not exactly 66 independent entries')
+    owners={}
+    for row in rows:
+        if row['id'] in owners:raise DesignError('Duplicate independent U identity: '+row['id'])
+        owners[row['id']]=row['path']
+    if not owners:raise DesignError('No independent U entries')
+    # Actual navigation consumes the original owner; no second numeric inventory.
+    for p in sorted((root/'docs/状态').glob('*.md')):
+        for location,fragment in re.findall(r'\]\(([^)#]+)#(u\d{3})\)',p.read_text(encoding='utf-8')):
+            identity=fragment.upper()
+            target=(p.parent/location).resolve()
+            owner=owners.get(identity)
+            if not owner or target!=(root/owner).resolve():
+                raise DesignError('U reference lacks its independent owner: '+identity)
     return rows
 
 def review(root: Path):

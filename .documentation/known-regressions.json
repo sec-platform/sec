@@ -65,7 +65,7 @@
       "id": "baseline-load",
       "path": "docs/维护/设计任务规则.md",
       "mode": "must_contain",
-      "text": "先比源清单摘要"
+      "text": "恢复时先核实际源版本、范围与内容"
     },
     {
       "id": "two-json-roles",

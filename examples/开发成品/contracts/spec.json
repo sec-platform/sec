@@ -54,7 +54,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/规格与静态资产.md",
           "section": "Definitions：可复用要求与策略包",
-          "sha256": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -100,7 +99,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/规格与静态资产.md",
           "section": "StaticValue：一个确定配置值，而非配置程序",
-          "sha256": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -126,7 +124,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/规格与静态资产.md",
           "section": "Resources：有真实成员的资源包",
-          "sha256": "54a44379966dda4a0f2d37851ab3d015fd1ca39c3168ed3de01be5d55509b01b",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -162,7 +159,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/片段与已有工程变化.md",
           "section": "Expression：精确计算片段",
-          "sha256": "7fa625ff4b57f17b52d043ef8fedd4c6311b4799905e2a296c2b310586df9a29",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -208,7 +204,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/片段与已有工程变化.md",
           "section": "ContextPatch：在一份准确基础上更改公开名称",
-          "sha256": "7fa625ff4b57f17b52d043ef8fedd4c6311b4799905e2a296c2b310586df9a29",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -244,7 +239,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/库与协议客户端.md",
           "section": "Library：没有运行容器的同步库",
-          "sha256": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -290,7 +284,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/库与协议客户端.md",
           "section": "SDK：同一行为的显式资源会话",
-          "sha256": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -336,7 +329,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/库与协议客户端.md",
           "section": "ProtocolClient：公开网络语义不能藏在SDK实现里",
-          "sha256": "3c25db9a92a70578210885604b447985100bbb233b74342d8570a96496ff2c1a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -372,7 +364,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/命令与批处理程序.md",
           "section": "Command：一个输入，一个完整结果",
-          "sha256": "4108a450cc5daf72da23605455be02f16aaf6e098fabc126c35ed9b32c5828a3",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -418,7 +409,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/命令与批处理程序.md",
           "section": "BatchCommand：确定作业顺序与分项结果",
-          "sha256": "4108a450cc5daf72da23605455be02f16aaf6e098fabc126c35ed9b32c5828a3",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -454,7 +444,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/请求处理器与服务.md",
           "section": "HttpHandler：固定路由，不默认联网",
-          "sha256": "2859bf6e45218043321fa2eec8eb4e930aacc160550b6b371d157c27e25cd209",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -510,7 +499,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/请求处理器与服务.md",
           "section": "Service：本地独立计算服务",
-          "sha256": "2859bf6e45218043321fa2eec8eb4e930aacc160550b6b371d157c27e25cd209",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -556,7 +544,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/工作器组件与插件.md",
           "section": "Worker：消息会话与结算",
-          "sha256": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -592,7 +579,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/工作器组件与插件.md",
           "section": "Component：可嵌入的固定进口集合",
-          "sha256": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -628,7 +614,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/工作器组件与插件.md",
           "section": "Plugin：加载、注册与卸载分开",
-          "sha256": "454b0dc081b6d2d4f0491ce47c175baa7ef526fb2c07711a291fc7d38cc93752",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -674,7 +659,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/交互应用.md",
           "section": "WebPanel：纯离线页面",
-          "sha256": "7656a8440f7d2b52d33c27fa0318d5eacc721c59f7560a0001e85737fa1b226a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -720,7 +704,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/交互应用.md",
           "section": "Desktop：有文件打开与保存的独立应用",
-          "sha256": "7656a8440f7d2b52d33c27fa0318d5eacc721c59f7560a0001e85737fa1b226a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -766,7 +749,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/交互应用.md",
           "section": "Mobile：后台与现场状态不能照抄桌面",
-          "sha256": "7656a8440f7d2b52d33c27fa0318d5eacc721c59f7560a0001e85737fa1b226a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -832,7 +814,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/产品族与共同发行.md",
           "section": "作者的确切选择",
-          "sha256": "e41efc5de67456e1fdf7bf749f4287f7a527961f89dc945f5fb8f92a587715ad",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -868,7 +849,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/查询批数据与持续流.md",
           "section": "Query：固定快照上的按键最新值",
-          "sha256": "2ef54c6b1806155c01b237eb61c68120aa4b0b7e6d5b9e46f54a0bcffa1d26ea",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -904,7 +884,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/查询批数据与持续流.md",
           "section": "BatchData：有清单的有限数据转换",
-          "sha256": "2ef54c6b1806155c01b237eb61c68120aa4b0b7e6d5b9e46f54a0bcffa1d26ea",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -940,7 +919,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/查询批数据与持续流.md",
           "section": "WindowStream：持续、可背压的精确事件时间聚合",
-          "sha256": "2ef54c6b1806155c01b237eb61c68120aa4b0b7e6d5b9e46f54a0bcffa1d26ea",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -976,7 +954,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/数据与配置迁移.md",
           "section": "作者意图、输入与后像",
-          "sha256": "e8f5db43265953245e3ebc1008d756bc296315823bec41c2863e92b088e7455a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1002,7 +979,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/编译分析与生成工具.md",
           "section": "Compiler：从规则到可调用程序",
-          "sha256": "5ae5f803d89f95243d22645066d4069653c49f4f8e679ca793e033e7ea2207fe",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1028,7 +1004,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/编译分析与生成工具.md",
           "section": "Analyzer：观察不偷改输入",
-          "sha256": "5ae5f803d89f95243d22645066d4069653c49f4f8e679ca793e033e7ea2207fe",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1054,7 +1029,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/编译分析与生成工具.md",
           "section": "Generator：从同一规则生成文档和数据",
-          "sha256": "5ae5f803d89f95243d22645066d4069653c49f4f8e679ca793e033e7ea2207fe",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1102,7 +1076,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/模型概率与优化.md",
           "section": "Inference：精确线性评分组件",
-          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1138,7 +1111,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/模型概率与优化.md",
           "section": "Trainer：可复现的有限岭回归",
-          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1184,7 +1156,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/模型概率与优化.md",
           "section": "Sampler：概率目标与随机源分别固定",
-          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1210,7 +1181,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/模型概率与优化.md",
           "section": "Optimizer：有限候选域内真正的最佳值",
-          "sha256": "8d1dfa77a3a44bdc0285aaff5574511053bcb8e25de4600316608f6ddf2ee8e5",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1236,7 +1206,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/计算核固件与实时程序.md",
           "section": "GpuKernel：有检查边界的整数批计算",
-          "sha256": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1282,7 +1251,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/计算核固件与实时程序.md",
           "section": "Firmware：有启动与失效状态的设备控制",
-          "sha256": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1348,7 +1316,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/计算核固件与实时程序.md",
           "section": "RealTime：可调度边界是交付条件",
-          "sha256": "542d087dd8c6c2b41c13b5adef051c05295161b997111146f7e5f5872c19678a",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1384,7 +1351,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/安装与部署.md",
           "section": "Installer：有归属的版本目录安装",
-          "sha256": "749be5545d24a859ba229d4e6ddf6f2d14dd0dea9b3fa5b80266279abede5434",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1420,7 +1386,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/安装与部署.md",
           "section": "Deployment：一份实际服务及其运行环境",
-          "sha256": "749be5545d24a859ba229d4e6ddf6f2d14dd0dea9b3fa5b80266279abede5434",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1466,7 +1431,6 @@
         "semantics": {
           "source": "../../../docs/作者/成品/片段与已有工程变化.md",
           "section": "NativeChange：交付一个原生工程的准确修改集",
-          "sha256": "7fa625ff4b57f17b52d043ef8fedd4c6311b4799905e2a296c2b310586df9a29",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"
@@ -1491,8 +1455,7 @@
         },
         "semantics": {
           "source": "../../成品形态/规则合同.md",
-          "section": "2. Canonical：不是一段隐藏的实现步骤；本复用定义固定MergeTouching",
-          "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
+          "section": "2. Canonical：不是一段隐藏的实现步骤",
           "scope": "本规则字段、全部相交共用条款及该成品的正常/失败/资源/方法与验收合同；不是实现或运行证据"
         },
         "implementation": "unbound"

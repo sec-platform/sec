@@ -1,5 +1,4 @@
 """Source checks and explicit sealed-package checks have different input obligations."""
-import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,7 +21,7 @@ class ProjectionModes(TestCase):
         (self.root / 'examples').mkdir()
         self.authority = self.root / 'docs/产品/产品要求与工作约束.md'
         self.authority.write_text('### REQ001｜Requirement\n\nOriginal body.\n', encoding='utf-8')
-        self.write(s.BASELINE_PATH, declaration())
+        self.write(s.BASELINE_PATH, declaration(['.documentation', 'docs', 'examples']))
         self.write('.documentation/documents.json', {
             'schema': 'sec.documentation-identity/1', 'scope': 'fixture', 'documents': [{
                 'document_id': 'urn:uuid:00000000-0000-4000-8000-000000000001',
@@ -70,84 +69,51 @@ class ProjectionModes(TestCase):
         with self.assertRaisesRegex(ValueError, 'sealed source projection'):
             check_docs.verify(self.root, sealed=True)
 
-    def test_gift_material_lock_is_checked_against_actual_bytes(self):
+    def example(self):
         sample = self.root / 'examples/sample'
-        sample.mkdir()
-        (sample / 'value.txt').write_bytes(b'actual')
-        (sample / 'gift.project.json').write_text('{"modules":{}}')
-        inputs = b'{"project":{"modules":{}},"requests":[]}'
-        (sample / 'gift.lock.json').write_text(json.dumps({'resolutionInputs': {
-            'algorithm': 'sha256', 'digest': hashlib.sha256(inputs).hexdigest()}, 'nodes': {'value': {
-            'locations': ['value.txt'], 'content': {'digest': '0' * 64, 'byteLength': 6}}}}))
-        with self.assertRaisesRegex(ValueError, r'stale material: .*gift\.lock\.json:value'):
+        (sample / 'contracts').mkdir(parents=True)
+        (self.root / 'docs/产品/规则.md').write_text('## Behavior\n\nActual rule.\n', encoding='utf-8')
+        self.write('examples/sample/gift.project.json', {'schema': 'gift.project/1', 'modules': {'rules': 'contracts/rules.json'}})
+        self.write('examples/sample/contracts/rules.json', {'schema': 'gift.author-module/1', 'moduleId': 'rules',
+            'dialects': {'custom': {'languageId': 'gift.requirement-structure'}}, 'definitions': {
+            'r:Check': {'kind': 'custom:rule', 'body': {'semantics': {
+                'source': '../../../docs/产品/规则.md', 'section': 'Behavior'}}}}})
+        return sample
+
+    def test_source_edit_needs_no_example_snapshot_or_lock(self):
+        self.example()
+        before = check_docs.verify(self.root)
+        self.assertEqual(before['example_projects'], 1)
+        self.authority.write_text('### REQ001｜Requirement\n\nChanged prose and formatting.\n', encoding='utf-8')
+        after = check_docs.verify(self.root)
+        self.assertNotEqual(before['source_set_sha256'], after['source_set_sha256'])
+        self.assertFalse(list((self.root / 'examples').rglob('gift.lock.json')))
+
+    def test_example_member_must_exist_and_have_its_actual_identity(self):
+        sample = self.example()
+        module = sample / 'contracts/rules.json'
+        module.write_text('{"moduleId":"other"}', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'example module identity mismatch:'):
+            check_docs.verify(self.root)
+        module.write_text('{"moduleId":"rules"}', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'example module schema unsupported:'):
+            check_docs.verify(self.root)
+        module.unlink()
+        with self.assertRaisesRegex(ValueError, 'example module missing/outside:'):
+            check_docs.verify(self.root)
+        self.write('examples/sample/gift.project.json', {'schema': 'gift.project/1', 'modules': {'escape': '../../../outside.json'}})
+        with self.assertRaisesRegex(ValueError, 'example module missing/outside:'):
             check_docs.verify(self.root)
 
-    def material_example(self):
-        sample = self.root / 'examples/requests'
-        sample.mkdir()
-        # Reverse insertion order deliberately differs from request module-ID order.
-        project = {'modules': {'z': 'z.json', 'a': 'a.json'}}
-        (sample / 'gift.project.json').write_text(json.dumps(project))
-        (sample / 'z.json').write_text('{"moduleId":"z","body":{"text":"original"}}')
-        (sample / 'a.json').write_text('{"moduleId":"a","dialects":{"req":{"languageId":"gift.structure"}},"imports":{}}')
-        # Independent, literal oracle for the documented canonical {project,requests}.
-        inputs = (b'{"project":{"modules":{"a":"a.json","z":"z.json"}},"requests":'
-                  b'[{"dialects":{"req":{"languageId":"gift.structure"}},"imports":{},"moduleId":"a"},'
-                  b'{"dialects":{},"imports":{},"moduleId":"z"}]}')
-        lock = {'resolutionInputs': {'algorithm': 'sha256',
-                'digest': hashlib.sha256(inputs).hexdigest(), 'byteLength': len(inputs)}, 'nodes': {}}
-        self.write_material_nodes(sample, lock)
-        return sample, lock
-
-    def write_material_nodes(self, sample, lock):
-        for name in ('a', 'z'):
-            data = (sample / (name + '.json')).read_bytes()
-            lock['nodes'][name] = {'locations': [name + '.json'], 'content': {
-                'digest': hashlib.sha256(data).hexdigest(), 'byteLength': len(data)}}
-        (sample / 'gift.lock.json').write_text(json.dumps(lock))
-
-    def test_example_requests_match_independent_canonical_oracle(self):
-        sample, lock = self.material_example()
-        self.assertEqual(check_docs.verify(self.root)['example_material_projects'], 1)
-        del lock['resolutionInputs']['byteLength']
-        (sample / 'gift.lock.json').write_text(json.dumps(lock))
-        self.assertEqual(check_docs.verify(self.root)['example_material_projects'], 1)
-
-    def test_changed_dialect_or_import_cannot_hide_behind_updated_material_node(self):
-        for field, value in (('dialects', {'req': {'languageId': 'gift.changed'}}),
-                             ('imports', {'peer': {'mode': 'workspace', 'moduleId': 'z'}})):
-            with self.subTest(field=field):
-                sample, lock = self.material_example()
-                module = json.loads((sample / 'a.json').read_text())
-                module[field] = value
-                (sample / 'a.json').write_text(json.dumps(module))
-                self.write_material_nodes(sample, lock)
-                with self.assertRaisesRegex(ValueError, 'stale resolution inputs:'):
-                    check_docs.verify(self.root)
-                for p in sample.iterdir():
-                    p.unlink()
-                sample.rmdir()
-
-    def test_body_or_formatting_preserves_resolution_but_material_bytes_still_matter(self):
-        sample, lock = self.material_example()
-        (sample / 'z.json').write_text('{\n "body": {"text": "changed"},\n "moduleId": "z"\n}\n')
-        with self.assertRaisesRegex(ValueError, 'stale material:') as caught:
+    def test_example_rule_keeps_a_real_semantic_owner(self):
+        sample = self.example()
+        # A standalone author module needs neither a project nor a material lock.
+        (sample / 'gift.project.json').unlink()
+        self.assertEqual(check_docs.verify(self.root)['example_projects'], 0)
+        owner = self.root / 'docs/产品/规则.md'
+        owner.write_text('### Renamed section\n\nOriginal body.\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'example rule section missing:'):
             check_docs.verify(self.root)
-        self.assertNotIn('stale resolution inputs:', str(caught.exception))
-        resolution = dict(lock['resolutionInputs'])
-        self.write_material_nodes(sample, lock)
-        check_docs.verify(self.root)
-        self.assertEqual(lock['resolutionInputs'], resolution)
-
-    def test_resolution_length_and_module_identity_are_observed(self):
-        sample, lock = self.material_example()
-        lock['resolutionInputs']['byteLength'] += 1
-        (sample / 'gift.lock.json').write_text(json.dumps(lock))
-        with self.assertRaisesRegex(ValueError, 'stale resolution inputs:'):
-            check_docs.verify(self.root)
-        module = json.loads((sample / 'a.json').read_text())
-        module['moduleId'] = 'other'
-        (sample / 'a.json').write_text(json.dumps(module))
-        self.write_material_nodes(sample, lock)
-        with self.assertRaisesRegex(ValueError, 'resolution module identity mismatch:'):
+        owner.unlink()
+        with self.assertRaisesRegex(ValueError, 'example rule source missing/outside:'):
             check_docs.verify(self.root)

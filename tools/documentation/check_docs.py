@@ -6,7 +6,7 @@ This detects drift and a finite known-regression list, not signatures or all sem
 """
 from __future__ import annotations
 from pathlib import Path, PurePosixPath
-import argparse, hashlib, json, re, sys
+import argparse, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
 from source_inventory import (EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files,
@@ -67,8 +67,6 @@ def anchor_locations(text: str) -> dict[str, list[int]]:
 
 
 EXCLUDED = EXCLUDED_FROM_SOURCE_HASH
-def digest(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 def canonical(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
 def checked_identity_registry(value, source_paths):
@@ -141,52 +139,49 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
         exists = x['text'] in local(x['path']).read_text(encoding='utf-8')
         if (x['mode'] == 'must_contain' and not exists) or (x['mode'] == 'must_not_contain' and exists):
             errors.append('known route regression: ' + x['id'])
-    # Example material locks are design inputs, never executable plugins.
-    # Resolve every actual example lock independently; no automatic install or network.
+    # Check actual authored module membership and semantic source locations.
+    # Examples are finite design inputs; byte snapshots belong to sealed packages.
     def inside(p: Path) -> bool:
         return p.is_relative_to(root) and p.is_file()
-    material_projects = 0
-    for lock_path in sorted(local('examples').rglob('gift.lock.json')):
-        sample = lock_path.parent
-        material_projects += 1
-        lock = load(lock_path)
-        project = load(sample / 'gift.project.json')
-        requests = []
+    example_projects = 0
+    for project_path in (p for p in files if p.name == 'gift.project.json' and p.relative_to(root).parts[0] == 'examples'):
+        sample = project_path.parent
+        example_projects += 1
+        project = load(project_path)
+        if project.get('schema') != 'gift.project/1':
+            errors.append('example project schema unsupported: ' + str(project_path.relative_to(root)))
+            continue
         for module_id, location in sorted(project['modules'].items()):
             p = (sample / location).resolve()
             if not inside(p):
-                errors.append('resolution module missing/outside: ' + str(lock_path.relative_to(root)) + ':' + module_id)
-                break
+                errors.append('example module missing/outside: ' + str(project_path.relative_to(root)) + ':' + module_id)
+                continue
             module = load(p)
             if module.get('moduleId') != module_id:
-                errors.append('resolution module identity mismatch: ' + str(lock_path.relative_to(root)) + ':' + module_id)
-                break
-            requests.append({'moduleId': module_id, 'dialects': module.get('dialects', {}),
-                             'imports': module.get('imports', {})})
-        else:
-            # The example contract hashes requests, not module bodies or formatting.
-            # Actual material bytes remain independently checked against nodes below.
-            inputs = canonical({'project': project, 'requests': requests})
-            resolution = lock['resolutionInputs']
-            if (resolution['algorithm'] != 'sha256' or resolution['digest'] != digest(inputs)
-                    or ('byteLength' in resolution and resolution['byteLength'] != len(inputs))):
-                errors.append('stale resolution inputs: ' + str(lock_path.relative_to(root)))
-        for key, node in lock['nodes'].items():
-            p = (sample / node['locations'][0]).resolve()
-            if not inside(p): errors.append('material missing/outside: ' + str(lock_path.relative_to(root)) + ':' + key)
-            elif digest(p.read_bytes()) != node['content']['digest'] or p.stat().st_size != node['content']['byteLength']:
-                errors.append('stale material: ' + str(lock_path.relative_to(root)) + ':' + key)
-        for p in sorted((sample/'contracts').glob('*.json')):
-            def walk(value):
-                if isinstance(value, dict):
-                    if 'source' in value and 'sha256' in value:
-                        q = (p.parent/value['source']).resolve()
-                        if not inside(q) or digest(q.read_bytes()) != value['sha256']:
-                            errors.append('stale catalog source: ' + str(p.relative_to(root)))
-                    for v in value.values(): walk(v)
-                elif isinstance(value, list):
-                    for v in value: walk(v)
-            walk(load(p))
+                errors.append('example module identity mismatch: ' + str(project_path.relative_to(root)) + ':' + module_id)
+            if module.get('schema') != 'gift.author-module/1':
+                errors.append('example module schema unsupported: ' + str(project_path.relative_to(root)) + ':' + module_id)
+    # Complete author modules also work without a project. Interpret the module's
+    # actual requirement dialect alias, rather than assuming the spelling "req".
+    for p in (p for p in files if p.suffix == '.json' and p.relative_to(root).parts[0] == 'examples'):
+        module = load(p)
+        if not isinstance(module, dict) or module.get('schema') != 'gift.author-module/1':
+            continue
+        kinds = {alias + ':rule' for alias, dialect in module.get('dialects', {}).items()
+                 if dialect.get('languageId') == 'gift.requirement-structure'}
+        for definition in module.get('definitions', {}).values():
+            if definition.get('kind') not in kinds:
+                continue
+            semantics = definition.get('body', {}).get('semantics', {})
+            source, section = semantics.get('source'), semantics.get('section')
+            if not isinstance(source, str) or not isinstance(section, str) or not source or not section:
+                errors.append('example rule source/section missing: ' + str(p.relative_to(root)))
+                continue
+            q = (p.parent / source).resolve()
+            if not inside(q):
+                errors.append('example rule source missing/outside: ' + str(p.relative_to(root)))
+            elif not re.search(r'^#{1,6}\s+' + re.escape(section) + r'\s*$', q.read_text(encoding='utf-8'), re.M):
+                errors.append('example rule section missing: ' + str(p.relative_to(root)) + ':' + section)
     # Check only the current text. There is no historical path resolver.
     anchors = {}
     for p in (p for p in files if p.suffix == '.md'):
@@ -215,8 +210,8 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
     if manifest != capture_source_manifest(root): errors.append('source changed during verification')
     if errors: raise ValueError('\n'.join(errors))
     return {**design, 'source_set_sha256':current,'verified_source_members':len(entries),'document_ids':len(docs),'requirements':len(requirements),
-            'current_markdown_files':len(anchors),'example_material_projects':material_projects,
-            'scope':'Current frozen bytes, exact materials, identities, requirement references, anchors and finite known regressions. No historical navigation. Not a signature or product/semantic validation.'}
+            'current_markdown_files':len(anchors),'example_projects':example_projects,
+            'scope':'Current frozen source bytes, module membership, semantic source locations, identities, requirement references, anchors and finite known regressions. Not a signature, production lock check or product/semantic validation.'}
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

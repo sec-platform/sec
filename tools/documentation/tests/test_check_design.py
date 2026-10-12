@@ -6,7 +6,7 @@ import check_design as d
 
 class Architecture(unittest.TestCase):
  def source(self):return(Path(d.__file__).resolve().parents[2]/d.TABLE_PATH).read_bytes()
- def test_current_table(self):m=d.dependency_model(self.source());self.assertEqual(len(m['dependencies']),10);self.assertEqual(sum(map(len,m['dependencies'].values())),33)
+ def test_current_table(self):m=d.dependency_model(self.source());self.assertEqual(set(m['dependencies']),d.MODULES)
  def test_missing_module(self):
   s=self.source();s=b'\n'.join(l for l in s.splitlines()if not l.startswith(b'| contracts |'))
   with self.assertRaises(d.DesignError):d.dependency_model(s)
@@ -31,8 +31,8 @@ class Architecture(unittest.TestCase):
  def test_owner_joins_do_not_require_duplicate_status_fields(self):
   root=Path(d.__file__).resolve().parents[2]
   rows=d.decision_model(root)
-  self.assertEqual(len(rows),66)
-  self.assertEqual({row['id']for row in rows},{f'U{n:03d}'for n in range(1,67)})
+  self.assertTrue(rows)
+  self.assertEqual(len({row['id']for row in rows}),len(rows))
   text=(root/'docs/状态/编译与目标.md').read_text(encoding='utf-8')
   u013=text.split('### U013｜',1)[1].split('### U014｜',1)[0]
   self.assertIn('**采用与责任位置：**',u013)
@@ -67,14 +67,28 @@ class Architecture(unittest.TestCase):
    p=r/'docs/状态/编译与目标.md';text=p.read_text(encoding='utf-8')
    start=text.index('### U013｜');end=text.index('### U014｜',start)
    p.write_text(text[:start]+text[end:],encoding='utf-8')
-   with self.assertRaisesRegex(d.DesignError,'exactly 66 independent entries'):d.decision_model(r)
+   with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: U013'):d.decision_model(r)
  def test_all_decisions_and_graphs(self):
   root=Path(d.__file__).resolve().parents[2]
-  v=d.review(root);self.assertEqual(len(v['decisions']),66)
+  v=d.review(root);self.assertEqual(v['decisions'],d.decision_model(root))
   graph_keys=[(g['path'],g['line']) for g in v['mermaid_sources']]
   self.assertTrue(graph_keys);self.assertEqual(len(set(graph_keys)),len(graph_keys))
   for graph in v['mermaid_sources']:
    self.assertTrue(graph['heading']);self.assertEqual(len(graph['sha256']),64)
+
+ def test_new_u_needs_no_numeric_inventory_but_identity_remains_unique(self):
+  import shutil
+  root=Path(d.__file__).resolve().parents[2]
+  with tempfile.TemporaryDirectory()as temp:
+   r=Path(temp);shutil.copytree(root/'docs/状态',r/'docs/状态')
+   p=r/'docs/状态/编译与目标.md';text=p.read_text(encoding='utf-8')
+   start=text.index('### U013｜');end=text.index('### U014｜',start)
+   # Reuse a complete owner body; the new identity is outside the old range.
+   section=text[start:end].replace('### U013｜','### U900｜',1)
+   p.write_text(text+'\n'+section,encoding='utf-8')
+   self.assertIn('U900',{row['id']for row in d.decision_model(r)})
+   p.write_text(text+'\n'+section+'\n'+section,encoding='utf-8')
+   with self.assertRaisesRegex(d.DesignError,'Duplicate independent U identity: U900'):d.decision_model(r)
 
 
 if __name__ == "__main__": unittest.main()

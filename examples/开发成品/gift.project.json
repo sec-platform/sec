@@ -23,7 +23,7 @@
       "root": "contracts",
       "kind": "design",
       "editSource": {
-        "mode": "derived"
+        "mode": "file"
       }
     },
     {

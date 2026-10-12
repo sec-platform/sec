@@ -184,7 +184,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "search.Text",
-          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -281,7 +280,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "search.Replace",
-          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -347,7 +345,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "search.Presentation",
-          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -402,14 +399,6 @@
     },
     "Presentation": {
       "definitionId": "r:Presentation"
-    }
-  },
-  "extensions": {
-    "gift.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }
   }
 }

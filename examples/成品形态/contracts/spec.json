@@ -134,8 +134,7 @@
         },
         "semantics": {
           "source": "../规则合同.md",
-          "section": "Canonical",
-          "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
+          "section": "2. Canonical：不是一段隐藏的实现步骤",
           "scope": "该规则完整的字段、正常行为、失败、资源及方法合同"
         },
         "implementation": "unbound"
@@ -185,8 +184,7 @@
         },
         "semantics": {
           "source": "../规则合同.md",
-          "section": "Emit",
-          "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
+          "section": "3. Emit：同一行为，六个真实公共边界",
           "scope": "该规则完整的字段、正常行为、失败、资源及方法合同"
         },
         "implementation": "unbound"
@@ -235,14 +233,6 @@
     },
     "Emit": {
       "definitionId": "r:Emit"
-    }
-  },
-  "extensions": {
-    "gift.documentation-derived/1": {
-      "source": "../规则合同.md",
-      "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
-      "editable": false,
-      "note": "有限设计字段目录，不是已运行供给或已发布语义包"
     }
   }
 }
