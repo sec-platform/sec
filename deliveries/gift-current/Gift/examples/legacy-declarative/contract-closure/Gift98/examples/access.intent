@@ -1,0 +1,14 @@
+# Developer supplies complete finite behavior; Gift synthesizes a smaller decision tree.
+module example.access
+target typescript-esm
+storage volatile
+module-format esm
+
+decide Allowed(role: Enum[admin, member, guest], verified: Bool) -> Bool {
+  case admin, false => true
+  case admin, true => true
+  case member, false => false
+  case member, true => true
+  case guest, false => false
+  case guest, true => false
+}

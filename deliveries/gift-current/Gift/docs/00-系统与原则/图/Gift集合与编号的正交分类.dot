@@ -1,0 +1,15 @@
+digraph GiftTaxonomy {
+ graph [rankdir=TB, bgcolor="white", fontname="Noto Sans CJK SC", label="Gift所有编号和集合：按计数对象归属，而不是相加或串成一条流水线", labelloc=t, fontsize=22, pad=0.3, nodesep=0.42, ranksep=0.63];
+ node [shape=box, style="rounded,filled", color="#ccd5dd", fontname="Noto Sans CJK SC", fontsize=13, margin="0.20,0.14"];
+ edge [arrowhead=none, color="#93a1ad", penwidth=1.1];
+ root [label="同一个Gift工程事实\n唯一作者/语义/实现/证据身份", fillcolor="#e8eff9", fontsize=17];
+ source [label="A 作者源码与构造\nProject → Module → Definition\n当前/2候选27Kind（业务24，可选计算3）\n旧/1只读兼容\n内嵌6模态、8Term、5基数", fillcolor="#eaf2fd"];
+ semantics [label="B 意义和抽象高度\nK1–K9：9组60语义/工程职责\nV1–V5业务视图；V0正交供应\n领域Meaning与业务Requirement", fillcolor="#e6f4ec"];
+ compiler [label="C 编译内部与工程责任\nL0–L6：7类因果职责\nCAP0–7、COMP0–7、stage:S0–8\nimplementation:S0–9为施工切片", fillcolor="#fff3dc"];
+ guarantee [label="D 保证和管理\nD0–D7：8类证据资格\nG0–G7 / ASMRVE / R01–R12\n代码Owner与文档Owner各10类", fillcolor="#f8eaf4"];
+ coverage [label="E 覆盖与历史：非语言指令\n45家族、135侧面、36条件领域\n75历史组件、102历史任务\n局部编号、表格、研究、fixtures", fillcolor="#eeeeee"];
+ root -> {source semantics compiler guarantee coverage};
+ {rank=same;source;semantics;compiler;guarantee;coverage}
+ legend [shape=note, label="重要：/1、/2是单个协议族的修订；不同轴成员有多对多关系。\n只有经Owner确认的有类型语义/依赖边才能进入产品图。", fontsize=12, fillcolor="#f8fafc"];
+ {source semantics compiler guarantee coverage} -> legend [style=dotted];
+}

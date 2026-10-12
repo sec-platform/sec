@@ -1,0 +1,100 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "example.recursive-int",
+  "definitions": {
+    "SumTo": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "n",
+            "type": {
+              "tag": "scalar",
+              "name": "int"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "int"
+        },
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:IntEq"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "n"
+              },
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                },
+                "value": 0
+              }
+            ]
+          },
+          "then": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "int"
+            },
+            "value": 0
+          },
+          "otherwise": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:IntAdd"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "n"
+              },
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:SumTo"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "std:IntSub"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "n"
+                      },
+                      {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "int"
+                        },
+                        "value": 1
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "termination": "partial"
+      }
+    }
+  }
+}

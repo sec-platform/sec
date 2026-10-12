@@ -1,0 +1,17 @@
+# Experimental text frontend equivalent to inventory.intent.json
+module example.inventory
+target typescript-esm
+storage volatile
+module-format esm
+
+record Stock key sku {
+  sku: Text[1..48]
+  quantity: SafeInt[0..1000000]
+  active: Bool
+  warehouse: Enum[north, south, central]
+}
+
+policy StockAvailable on Stock {
+  quantity >= 1
+  active == true
+}

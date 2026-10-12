@@ -1,0 +1,83 @@
+schema = "gift.knowledge-workspace/1"
+default_scope = "canonical"
+
+[[root]]
+path = "docs"
+scope = "canonical"
+profile = "canonical-markdown"
+
+[[root]]
+path = "research/sources"
+scope = "research"
+profile = "source-evidence-markdown"
+
+[[root]]
+path = "research/comparisons"
+scope = "research"
+profile = "comparison-markdown"
+
+[[root]]
+path = "research/domains"
+scope = "research"
+profile = "domain-scenario-markdown"
+
+[[root]]
+path = "research/theory"
+scope = "research"
+profile = "theory-markdown"
+
+[[root]]
+path = "fixtures/compositions"
+scope = "research"
+profile = "composition-fixture-markdown"
+
+[[root]]
+path = "witnesses/counterexamples"
+scope = "research"
+profile = "counterexample-markdown"
+
+[[root]]
+path = "witnesses/challenges"
+scope = "research"
+profile = "challenge-markdown"
+
+# Historical case descriptions are research-scoped Markdown.
+# This file declares discovery scope; it does not supply a query implementation.
+
+[[root]]
+path = "fixtures/intent-language"
+scope = "research"
+profile = "reference-fixture-markdown"
+
+[[root]]
+path = "fixtures/prebootstrap"
+scope = "research"
+profile = "reference-fixture-markdown"
+
+[[root]]
+path = "fixtures/contract-closure"
+scope = "research"
+profile = "reference-fixture-markdown"
+
+[[root]]
+path = "fixtures/author-workspace"
+scope = "research"
+profile = "reference-fixture-markdown"
+
+[[root]]
+path = "fixtures/semantic-universe"
+scope = "research"
+profile = "reference-fixture-markdown"
+
+# Pattern/intent semantic-abstraction reference witnesses are explicitly research,
+# not canonical source and not production product capabilities.
+[[root]]
+path = "fixtures/semantic-abstraction"
+scope = "research"
+profile = "reference-fixture-markdown"
+
+# Developer-foundation case descriptions are research-scoped, not product qualifications.
+[[root]]
+path = "fixtures/developer-foundation"
+scope = "research"
+profile = "reference-fixture-markdown"

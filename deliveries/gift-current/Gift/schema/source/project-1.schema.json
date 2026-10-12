@@ -1,0 +1,444 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "sourceScopes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.project/1"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "sourceScopes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SourceScope"
+      }
+    },
+    "targets": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Target"
+      }
+    },
+    "defaultTarget": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "annotations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Json"
+      }
+    },
+    "library": {
+      "$ref": "#/$defs/Library",
+      "description": "Optional strictly typed publication decisions. No module-path table, sourceScopes copy, arbitrary Project extension or authority to publish."
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:project-1",
+  "title": "gift.project/1 project format candidate (design-only)",
+  "$comment": "This design schema describes only the local serialized shape. It does not by itself define or execute filesystem confinement, root semantics, dependency binding, target supply, authorization or runtime behavior.",
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "SourceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "kind",
+        "editSource"
+      ],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "kind": {
+          "enum": [
+            "semantic",
+            "native",
+            "asset",
+            "design",
+            "generated"
+          ]
+        },
+        "editSource": {
+          "$ref": "#/$defs/EditSource"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        }
+      }
+    },
+    "EditSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "file",
+            "projection",
+            "derived"
+          ]
+        },
+        "producerRef": {
+          "$ref": "#/$defs/Json",
+          "description": "Producer reference interpreted by the qualified SourceProfile; projection requires an actually resolved producer and frozen inputs. JSON shape alone does not qualify the producer."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "projection"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "producerRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileRef",
+        "outputRoots"
+      ],
+      "properties": {
+        "profileRef": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            {
+              "$ref": "#/$defs/TargetProfileRequest"
+            }
+          ]
+        },
+        "outputRoots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputRoot"
+          },
+          "description": "Explicit output root selections. An empty list may be preserved in a non-generating draft, but cannot qualify a generate request. For multi-root product targets every output root needs a stable rootId; a single legacy root without it is canonically main. No global root registry or implied cross-root grant."
+        },
+        "parameters": {
+          "$ref": "#/$defs/Json"
+        }
+      }
+    },
+    "TargetProfileRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "OutputRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId"
+      ],
+      "properties": {
+        "moduleId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "export": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "description": "Omission selects the frozen public export set, not an implicit main export. Membership and rebinding are dependencies. contextBindings requires exactly one selected export whose Definition is product:system; Control applicability instead follows its Descriptor subject kinds, cardinality and propagation."
+        },
+        "contextBindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessRoleActual"
+          },
+          "description": "Explicit product-root occurrence bindings chosen by this target. The complete selected export set must have cardinality exactly one, and its sole export must resolve to a /2 product:system Definition; adding any other export invalidates that qualification. No implicit environment object, cross-instance inheritance or Grant."
+        },
+        "rootId": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "maxLength": 128,
+          "description": "Stable target-local output-root occurrence identity, at most 128 ASCII characters, allowing hyphens. Distinct from Definition IDs. Product-root Control resolves (target,rootId) to the same frozen BoundRoot; multi-root selections require unique rootId and a single legacy root may normalize to main. No registry, Grant, or implied shared instance."
+        }
+      }
+    },
+    "Library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "package",
+        "version",
+        "exports"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gift.library/1"
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "exports": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^(?:\\.|\\./[^/]+(?:/[^/]+)*)$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/LibraryExport"
+          }
+        },
+        "requests": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/LibraryRequest"
+          }
+        },
+        "variants": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/LibraryVariant"
+          }
+        }
+      },
+      "description": "Library owner defines publication semantics and path normalization; export visibility, package version schemes, request alias bindings, resolved parameter schemas, locks, permissions and migration remain semantic checks. This is not a second project."
+    },
+    "LibraryExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId"
+      ],
+      "properties": {
+        "moduleId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "export": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "LibraryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package",
+        "role"
+      ],
+      "properties": {
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "role": {
+          "enum": [
+            "author",
+            "generator",
+            "check"
+          ]
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "constraint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scheme",
+            "expression"
+          ],
+          "properties": {
+            "scheme": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "expression": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "revision"
+          ],
+          "not": {
+            "required": [
+              "constraint"
+            ]
+          }
+        },
+        {
+          "required": [
+            "constraint"
+          ],
+          "not": {
+            "required": [
+              "revision"
+            ]
+          }
+        }
+      ]
+    },
+    "LibraryVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaRef",
+            "value"
+          ],
+          "properties": {
+            "schemaRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "value": {
+              "$ref": "#/$defs/Json"
+            }
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "targetRef"
+          ]
+        },
+        {
+          "required": [
+            "parameters"
+          ]
+        }
+      ]
+    }
+  },
+  "description": "One project selection/configuration design shape. Arbitrary extensions cannot silently modify program semantics: use an explicitly declared qualified dialect/consumer or non-semantic annotations. Local author modules are discovered by the explicit sourceScopes include/exclude, parsed for unique moduleId. No second project-side manual ModuleId->path map."
+}

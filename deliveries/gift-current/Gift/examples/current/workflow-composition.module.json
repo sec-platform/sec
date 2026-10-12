@@ -1,0 +1,270 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:workflow-composition",
+  "definitions": {
+    "Subject": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "text"
+        }
+      }
+    },
+    "Return-value": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {
+          "tag": "record",
+          "fields": {
+            "value": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            }
+          }
+        },
+        "output": {
+          "tag": "scalar",
+          "name": "int"
+        },
+        "errors": {
+          "tag": "scalar",
+          "name": "never"
+        },
+        "contextRoles": {
+          "subject": {
+            "typeRef": "local:Subject",
+            "cardinality": "one"
+          }
+        },
+        "entry": "done",
+        "steps": [
+          {
+            "id": "done",
+            "kind": "terminal",
+            "outcome": "succeeded",
+            "result": {
+              "source": "input",
+              "path": "/value"
+            }
+          }
+        ],
+        "completion": [
+          "done"
+        ],
+        "recovery": "fail"
+      }
+    },
+    "Pair-values": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {
+          "tag": "record",
+          "fields": {
+            "left": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            },
+            "right": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            }
+          }
+        },
+        "output": {
+          "tag": "record",
+          "fields": {
+            "left": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            },
+            "right": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            }
+          }
+        },
+        "errors": {
+          "tag": "scalar",
+          "name": "never"
+        },
+        "contextRoles": {
+          "subject": {
+            "typeRef": "local:Subject",
+            "cardinality": "one"
+          }
+        },
+        "entry": "pair",
+        "steps": [
+          {
+            "id": "pair",
+            "kind": "parallel",
+            "branches": [
+              {
+                "id": "left",
+                "subflowUse": {
+                  "ref": "local:Return-value",
+                  "bindings": {
+                    "subject": {
+                      "source": "context",
+                      "role": "subject"
+                    }
+                  }
+                },
+                "inputs": {
+                  "value": {
+                    "source": "input",
+                    "path": "/left"
+                  }
+                }
+              },
+              {
+                "id": "right",
+                "subflowUse": {
+                  "ref": "local:Return-value",
+                  "bindings": {
+                    "subject": {
+                      "source": "context",
+                      "role": "subject"
+                    }
+                  }
+                },
+                "inputs": {
+                  "value": {
+                    "source": "input",
+                    "path": "/right"
+                  }
+                }
+              }
+            ],
+            "join": "all",
+            "maxConcurrency": 2,
+            "onSuccessStep": "done"
+          },
+          {
+            "id": "done",
+            "kind": "terminal",
+            "outcome": "succeeded",
+            "result": {
+              "source": "result",
+              "stepId": "pair",
+              "path": ""
+            }
+          }
+        ],
+        "completion": [
+          "done"
+        ],
+        "recovery": "fail"
+      }
+    },
+    "Reject-value": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "output": {
+          "tag": "scalar",
+          "name": "never"
+        },
+        "errors": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "entry": "rejected",
+        "steps": [
+          {
+            "id": "rejected",
+            "kind": "terminal",
+            "outcome": "failed",
+            "error": {
+              "source": "input",
+              "path": ""
+            }
+          }
+        ],
+        "completion": [
+          "rejected"
+        ],
+        "recovery": "fail"
+      }
+    },
+    "Forward-error": {
+      "kind": "workflow:plan",
+      "body": {
+        "input": {
+          "tag": "record",
+          "fields": {
+            "message": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            }
+          }
+        },
+        "output": {
+          "tag": "scalar",
+          "name": "never"
+        },
+        "errors": {
+          "tag": "scalar",
+          "name": "text"
+        },
+        "entry": "child",
+        "steps": [
+          {
+            "id": "child",
+            "kind": "subflow",
+            "subflowUse": {
+              "ref": "local:Reject-value",
+              "bindings": {}
+            },
+            "inputs": {
+              "value": {
+                "source": "input",
+                "path": "/message"
+              }
+            },
+            "onErrorStep": "failed"
+          },
+          {
+            "id": "failed",
+            "kind": "terminal",
+            "outcome": "failed",
+            "error": {
+              "source": "step-outcome",
+              "stepId": "child",
+              "outcome": "failed",
+              "path": ""
+            }
+          }
+        ],
+        "completion": [
+          "failed"
+        ],
+        "recovery": "fail"
+      }
+    }
+  },
+  "exports": {
+    "Pair-values": {
+      "definitionId": "Pair-values"
+    },
+    "Forward-error": {
+      "definitionId": "Forward-error"
+    }
+  }
+}

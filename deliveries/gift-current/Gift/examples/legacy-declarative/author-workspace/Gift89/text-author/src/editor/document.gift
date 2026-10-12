@@ -1,0 +1,26 @@
+// Author-owned IDE document model. This defines ONE pure state change,
+// not a disk-write protocol or an entire editor application.
+export type Document = {
+  content: Text,
+  revision: Int
+};
+
+export type ChangeFailure = StaleRevision();
+
+export fn replaceAll(
+  current: Document,
+  expectedRevision: Int,
+  nextContent: Text
+) -> Result<Document, ChangeFailure> !{}
+  require expectedRevision >= 0
+  require current.revision >= 0
+  ensure match result {
+    case Result.Ok(updated) => updated.revision > current.revision;
+    case Result.Err(_) => true;
+  }
+= if current.revision != expectedRevision
+  then Result.Err(ChangeFailure.StaleRevision())
+  else Result.Ok(current with {
+    content: nextContent,
+    revision: expectedRevision + 1
+  });

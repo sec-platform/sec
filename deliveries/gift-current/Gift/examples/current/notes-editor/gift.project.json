@@ -1,0 +1,38 @@
+{
+  "schema": "gift.project/1",
+  "projectId": "example:notes-editor",
+  "sourceScopes": [
+    {
+      "root": "design",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      },
+      "include": [
+        "**/*.module.json"
+      ]
+    }
+  ],
+  "targets": {
+    "typescript-desktop": {
+      "profileRef": "urn:gift:proposal:target:typescript-electron/1",
+      "outputRoots": [
+        {
+          "moduleId": "module:ide-system",
+          "export": "IDEProduct",
+          "contextBindings": {
+            "workspace": {
+              "source": "object",
+              "objectRef": "example-document-A",
+              "typeRef": "foundation:Document",
+              "issuerRef": "ext:WorkspaceIssuer",
+              "scopeRef": "ext:WorkspaceScope"
+            }
+          },
+          "rootId": "notes-editor-root"
+        }
+      ]
+    }
+  },
+  "defaultTarget": "typescript-desktop"
+}

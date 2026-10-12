@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:target-profile-1",
+  "title": "Target profile manifest design, not actual support",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile",
+    "publisher",
+    "accepts",
+    "representation",
+    "loweringRefs",
+    "toolchainRequirements",
+    "members",
+    "host",
+    "compatibility",
+    "evidenceObligations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.target-profile-manifest/1"
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "publisher": {
+      "type": "string",
+      "minLength": 1
+    },
+    "accepts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "representation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "textIndexUnit",
+        "integerMode",
+        "exceptionModel",
+        "moduleMode"
+      ],
+      "properties": {
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "textIndexUnit": {
+          "enum": [
+            "utf8-byte",
+            "utf16-code-unit",
+            "unicode-scalar",
+            "grapheme",
+            "not-applicable"
+          ]
+        },
+        "integerMode": {
+          "enum": [
+            "checked-int",
+            "bounded-int",
+            "native-number",
+            "other-qualified"
+          ]
+        },
+        "exceptionModel": {
+          "enum": [
+            "result",
+            "throw",
+            "panic",
+            "other-qualified"
+          ]
+        },
+        "moduleMode": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "loweringRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId",
+          "export"
+        ],
+        "properties": {
+          "moduleId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "export": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "toolchainRequirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "required",
+          "pathPattern"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "pathPattern": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "pattern": "(^/|\\.\\.)"
+            }
+          }
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effects",
+        "runtimeRequirements"
+      ],
+      "properties": {
+        "effects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "runtimeRequirements": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "migrationRequired"
+      ],
+      "properties": {
+        "policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "migrationRequired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "evidenceObligations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$comment": "Adopted design shape. Old Gift95 proposal is historical; explicit decoding/migration and exact content locks are required. Publisher claims, string refs and manifests are not implementation, trusted authority or evidence."
+}

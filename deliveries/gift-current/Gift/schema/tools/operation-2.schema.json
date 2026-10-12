@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:ai-tools-2-operation",
+  "title": "gift.ai-tools/2 operation base params",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operationRef",
+    "action"
+  ],
+  "properties": {
+    "operationRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "action": {
+      "enum": [
+        "status",
+        "cancel",
+        "resume",
+        "rollback"
+      ],
+      "description": "Base control is bound once per (operationRef, action) to a stable accepted control intent. Replays join/read that intent; recurring resume/control requires negotiated identity and generation semantics. Status remains read-only."
+    }
+  }
+}

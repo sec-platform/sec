@@ -1,0 +1,46 @@
+digraph GiftAuthorArchitecture {
+  graph [rankdir=TB, bgcolor="white", fontname="Noto Sans CJK SC", label="Gift开发者源码、语义解释与内部IR（不同层次，不是同一套语法）", labelloc=t, fontsize=22, nodesep=0.35, ranksep=0.72, pad=0.28];
+  node [shape=box, style="rounded,filled", color="#ccd5dd", fillcolor="#f7f9fb", fontname="Noto Sans CJK SC", fontsize=12, margin="0.18,0.12"];
+  edge [color="#738292", arrowsize=0.72, penwidth=1.3, fontname="Noto Sans CJK SC", fontsize=10];
+
+  subgraph cluster_author {
+    label="作者唯一源码 / 3级嵌套（真实可写）"; labeljust=l; color="#cbdaf0"; style="rounded"; bgcolor="#f6f9fe";
+    project [label="Project工程清单\ngift.project/1", fillcolor="#e6eefb"];
+    module [label="Module版本化容器\n当前写源：author-module/2\n旧/1只读兼容", fillcolor="#e6eefb"];
+    definition [label="Definition定义\nkind + name + body\n及其局部构造", fillcolor="#d9e9fa"];
+    project -> module [label="登记模块"];
+    module -> definition [label="定义/导入/导出"];
+  }
+  subgraph cluster_semantic {
+    label="Meaning与业务语义（不是JSON关键字）"; labeljust=l; color="#b9ddc8"; style="rounded"; bgcolor="#f7fcf8";
+    binding [label="Profile精确读取\n绑定类型/身份/角色", fillcolor="#e8f5ec"];
+    meaning [label="V1公共语义 K职责\n+ V2领域Meaning/来源", fillcolor="#d9eedf"];
+    intent [label="V3意图/Requirement\n+ V4能力 / V5产品", fillcolor="#d9eedf"];
+    binding -> meaning; meaning -> intent;
+  }
+  subgraph cluster_ir {
+    label="Gift内部派生表示（开发者不手写）"; labeljust=l; color="#e8d6af"; style="rounded"; bgcolor="#fffdf7";
+    derived [label="DerivedObligationSet\n实例化具体义务", fillcolor="#fff3d8"];
+    joint [label="JointObligationSet\n全体根与硬约束", fillcolor="#fff0cc"];
+    plan [label="QualifiedRealizationPlan\nMethod精化与资格", fillcolor="#fff3d8"];
+    targetir [label="TargetProgramIR\n有类型目标结构", fillcolor="#fff0cc"];
+    derived -> joint -> plan -> targetir;
+  }
+  subgraph cluster_target {
+    label="实际生成目标与可选现实作用"; labeljust=l; color="#dec9d9"; style="rounded"; bgcolor="#fdf9fc";
+    files [label="ArtifactSet\nTS/Rust源码、依赖、配置", fillcolor="#f3e5f2"];
+    effect [label="按需Grant / Operation\nSettlement / Readback", fillcolor="#f3e5f2"];
+    files -> effect [style=dashed, label="授权后可选"];
+  }
+  definition -> binding [label="锁定、严格解码"];
+  intent -> derived [label="QualifiedMeaning"];
+  targetir -> files [label="合法Lowering与装配"];
+  supply [label="V0：方法/领域/目标供应\n现成TS/Rust库和专业引擎", fillcolor="#eeeeee"];
+  supply -> meaning [style=dashed, label="解释/观察"];
+  supply -> plan [style=dashed, label="资格输入"];
+  evidence [label="Claim / Evidence / Revision\n跨层保证与失效，不是作者AST", fillcolor="#eeeeee"];
+  joint -> evidence [style=dotted, constraint=false];
+  plan -> evidence [style=dotted, constraint=false];
+  files -> evidence [style=dotted, constraint=false];
+  effect -> evidence [style=dotted, constraint=false];
+}

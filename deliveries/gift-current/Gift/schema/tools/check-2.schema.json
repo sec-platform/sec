@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:ai-tools-2-check",
+  "title": "gift.ai-tools/2 check base params",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "candidateRef"
+  ],
+  "properties": {
+    "candidateRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "artifactRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "methods": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "types",
+          "cases"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "casesRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "methods"
+        ],
+        "properties": {
+          "methods": {
+            "contains": {
+              "const": "cases"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "artifactRef",
+          "casesRef"
+        ]
+      }
+    }
+  ]
+}

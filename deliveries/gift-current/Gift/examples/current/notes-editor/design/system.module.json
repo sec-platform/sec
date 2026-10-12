@@ -1,0 +1,439 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:ide-system",
+  "namespace": "demo.ide.system",
+  "imports": {
+    "foundation": {
+      "mode": "workspace",
+      "moduleId": "module:ide-foundation"
+    },
+    "platform": {
+      "mode": "workspace",
+      "moduleId": "module:ide-platform"
+    },
+    "interaction": {
+      "mode": "workspace",
+      "moduleId": "module:ide-interaction"
+    },
+    "ext": {
+      "mode": "locked",
+      "moduleId": "urn:gift:proposal:ide-target-supply",
+      "constraint": "1"
+    },
+    "goals": {
+      "mode": "workspace",
+      "moduleId": "module:ide-goals"
+    }
+  },
+  "definitions": {
+    "EditorComponent": {
+      "kind": "product:component",
+      "body": {
+        "provides": [
+          "foundation:EditorCommands"
+        ],
+        "requires": [
+          "platform:FilePort"
+        ],
+        "requirements": [],
+        "parameters": [
+          {
+            "name": "capacity",
+            "contractRef": "foundation:EditorCapacity",
+            "cardinality": "one",
+            "mode": "resource",
+            "required": true
+          },
+          {
+            "name": "mode",
+            "contractRef": "foundation:EditorMode",
+            "cardinality": "one",
+            "mode": "value",
+            "required": true
+          }
+        ],
+        "contextRoles": {
+          "document": {
+            "typeRef": "foundation:Document",
+            "cardinality": "one"
+          }
+        },
+        "stateParticipations": [
+          {
+            "use": {
+              "ref": "foundation:DocumentLifecycle",
+              "bindings": {}
+            },
+            "role": "host"
+          }
+        ],
+        "dataAccesses": [
+          {
+            "use": {
+              "ref": "foundation:DocumentStore",
+              "bindings": {}
+            },
+            "role": "read"
+          },
+          {
+            "use": {
+              "ref": "foundation:DocumentStore",
+              "bindings": {}
+            },
+            "role": "write"
+          }
+        ],
+        "eventParticipations": [
+          {
+            "use": {
+              "ref": "foundation:DocumentChanges",
+              "bindings": {}
+            },
+            "role": "publish"
+          }
+        ],
+        "protocolParticipations": [
+          {
+            "use": {
+              "ref": "platform:DesktopProtocol",
+              "bindings": {}
+            },
+            "role": "client"
+          }
+        ],
+        "resourceParticipations": [
+          {
+            "use": {
+              "ref": "foundation:EditorCapacity",
+              "bindings": {}
+            },
+            "role": "consume"
+          }
+        ],
+        "uiParticipations": [
+          {
+            "use": {
+              "ref": "interaction:EditorView",
+              "bindings": {},
+              "useId": "saveActionView"
+            },
+            "roles": [
+              "render",
+              "control"
+            ]
+          }
+        ],
+        "observationParticipations": [
+          {
+            "use": {
+              "ref": "platform:SaveObservation",
+              "bindings": {}
+            },
+            "role": "consume"
+          }
+        ],
+        "concurrencyUses": [
+          {
+            "ref": "platform:SaveConcurrency",
+            "bindings": {}
+          }
+        ],
+        "workflowUses": [
+          {
+            "ref": "interaction:SaveWorkflow",
+            "bindings": {
+              "document": {
+                "source": "context",
+                "role": "document"
+              }
+            },
+            "useId": "saveWorkflow"
+          }
+        ],
+        "policyUses": [
+          {
+            "ref": "platform:SaveAuditObligation",
+            "bindings": {
+              "document": {
+                "source": "context",
+                "role": "document"
+              }
+            }
+          }
+        ],
+        "qualityUses": [
+          {
+            "ref": "interaction:EditingQuality",
+            "bindings": {}
+          }
+        ],
+        "activationRoutes": [
+          {
+            "id": "saveClick",
+            "cause": {
+              "kind": "ui-action",
+              "uiUseId": "saveActionView",
+              "nodeId": "SaveButton"
+            },
+            "workflowUseId": "saveWorkflow",
+            "inputBindings": {
+              "uri": {
+                "source": "context",
+                "role": "document",
+                "path": "/uri"
+              },
+              "expectedRevision": {
+                "source": "context",
+                "role": "document",
+                "path": "/revision"
+              },
+              "newText": {
+                "source": "ui-input",
+                "uiUseId": "saveActionView",
+                "nodeId": "DocumentText",
+                "path": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    "DesktopDeployment": {
+      "kind": "product:deployment",
+      "body": {
+        "nodes": [
+          {
+            "id": "EditorAProcess",
+            "instance": "EditorA",
+            "placementRef": "desktop-main-process",
+            "replicas": 1
+          },
+          {
+            "id": "EditorBProcess",
+            "instance": "EditorB",
+            "placementRef": "desktop-main-process",
+            "replicas": 1
+          },
+          {
+            "id": "StorageProcess",
+            "instance": "Storage",
+            "placementRef": "desktop-file-worker",
+            "replicas": 1
+          }
+        ],
+        "environmentRef": "ext:ElectronTarget",
+        "secretRefs": [],
+        "dataMigrationRefs": []
+      }
+    },
+    "IDEProduct": {
+      "kind": "product:system",
+      "body": {
+        "components": [
+          {
+            "instance": "EditorA",
+            "componentRef": "local:EditorComponent",
+            "argumentBindings": {
+              "capacity": "foundation:EditorCapacity",
+              "mode": {
+                "source": "literal",
+                "typeRef": "foundation:EditorMode",
+                "value": "edit"
+              }
+            },
+            "contextBindings": {
+              "document": {
+                "source": "object",
+                "objectRef": "urn:example:document:EditorA",
+                "typeRef": "foundation:Document",
+                "issuerRef": "ext:DocumentRegistry",
+                "scopeRef": "ext:WorkspaceScope"
+              }
+            }
+          },
+          {
+            "instance": "EditorB",
+            "componentRef": "local:EditorComponent",
+            "argumentBindings": {
+              "capacity": "foundation:EditorCapacity",
+              "mode": {
+                "source": "literal",
+                "typeRef": "foundation:EditorMode",
+                "value": "review"
+              }
+            },
+            "contextBindings": {
+              "document": {
+                "source": "object",
+                "objectRef": "urn:example:document:EditorB",
+                "typeRef": "foundation:Document",
+                "issuerRef": "ext:DocumentRegistry",
+                "scopeRef": "ext:WorkspaceScope"
+              }
+            }
+          },
+          {
+            "instance": "Storage",
+            "componentRef": "local:StorageComponent"
+          }
+        ],
+        "requirements": [
+          {
+            "ref": "goals:IDEGoal",
+            "strength": "hard"
+          }
+        ],
+        "deploymentRef": "local:DesktopDeployment",
+        "connections": [
+          {
+            "source": {
+              "instance": "Storage",
+              "portRef": "platform:FilePort"
+            },
+            "target": {
+              "instance": "EditorA",
+              "portRef": "platform:FilePort"
+            },
+            "contractRefs": [
+              "platform:SaveObservation"
+            ]
+          },
+          {
+            "source": {
+              "instance": "Storage",
+              "portRef": "platform:FilePort"
+            },
+            "target": {
+              "instance": "EditorB",
+              "portRef": "platform:FilePort"
+            },
+            "contractRefs": [
+              "platform:SaveObservation"
+            ]
+          }
+        ],
+        "workflowUses": [
+          {
+            "ref": "interaction:SaveWorkflow",
+            "bindings": {
+              "document": {
+                "source": "context",
+                "role": "workspace"
+              }
+            }
+          }
+        ],
+        "policyUses": [
+          {
+            "ref": "platform:SaveAuditObligation",
+            "bindings": {
+              "document": {
+                "source": "context",
+                "role": "workspace"
+              }
+            }
+          }
+        ],
+        "qualityUses": [
+          {
+            "ref": "interaction:EditingQuality",
+            "bindings": {}
+          }
+        ],
+        "publicEndpoints": [
+          {
+            "name": "EditorACommands",
+            "source": {
+              "instance": "EditorA",
+              "portRef": "foundation:EditorCommands"
+            },
+            "interfaceRef": "foundation:EditorCommands"
+          },
+          {
+            "name": "EditorBCommands",
+            "source": {
+              "instance": "EditorB",
+              "portRef": "foundation:EditorCommands"
+            },
+            "interfaceRef": "foundation:EditorCommands"
+          }
+        ],
+        "externalRequirements": [],
+        "contextRoles": {
+          "workspace": {
+            "typeRef": "foundation:Document",
+            "cardinality": "one"
+          }
+        }
+      },
+      "qualifiers": {
+        "scopeRefs": [
+          "ext:WorkspaceScope"
+        ],
+        "evidenceDemandRefs": [
+          "platform:SaveObservation"
+        ]
+      }
+    },
+    "StorageComponent": {
+      "kind": "product:component",
+      "body": {
+        "provides": [
+          "platform:FilePort"
+        ],
+        "requires": [],
+        "requirements": [],
+        "dataAccesses": [
+          {
+            "use": {
+              "ref": "foundation:DocumentStore",
+              "bindings": {}
+            },
+            "role": "owner"
+          }
+        ],
+        "eventParticipations": [
+          {
+            "use": {
+              "ref": "foundation:DocumentChanges",
+              "bindings": {}
+            },
+            "role": "subscribe"
+          }
+        ],
+        "protocolParticipations": [
+          {
+            "use": {
+              "ref": "platform:DesktopProtocol",
+              "bindings": {}
+            },
+            "role": "server"
+          }
+        ],
+        "observationParticipations": [
+          {
+            "use": {
+              "ref": "platform:SaveObservation",
+              "bindings": {}
+            },
+            "role": "produce"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "EditorComponent": {
+      "definitionId": "EditorComponent"
+    },
+    "DesktopDeployment": {
+      "definitionId": "DesktopDeployment"
+    },
+    "IDEProduct": {
+      "definitionId": "IDEProduct"
+    },
+    "StorageComponent": {
+      "definitionId": "StorageComponent"
+    }
+  }
+}

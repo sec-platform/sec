@@ -1,0 +1,273 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:ide-interaction",
+  "namespace": "demo.ide.ui",
+  "imports": {
+    "foundation": {
+      "mode": "workspace",
+      "moduleId": "module:ide-foundation"
+    },
+    "platform": {
+      "mode": "workspace",
+      "moduleId": "module:ide-platform"
+    },
+    "ext": {
+      "mode": "locked",
+      "moduleId": "urn:gift:proposal:ide-ui-supply",
+      "constraint": "1"
+    }
+  },
+  "definitions": {
+    "EditorView": {
+      "kind": "ui:view",
+      "body": {
+        "root": {
+          "id": "EditorRoot",
+          "role": "container",
+          "children": [
+            {
+              "id": "DocumentText",
+              "role": "editor",
+              "label": "Document editor",
+              "a11yRef": "ext:KeyboardAccess",
+              "dataBinding": {
+                "source": {
+                  "source": "context",
+                  "role": "document",
+                  "path": "/text"
+                },
+                "mode": "edit",
+                "editActionRef": "platform:SaveAction"
+              }
+            },
+            {
+              "id": "SaveButton",
+              "role": "button",
+              "label": "Save",
+              "actionRef": "platform:SaveAction",
+              "a11yRef": "ext:KeyboardAccess"
+            }
+          ]
+        },
+        "accessibilityRef": "ext:KeyboardAccess",
+        "stateRef": "foundation:DocumentLifecycle"
+      }
+    },
+    "SaveWorkflow": {
+      "kind": "workflow:plan",
+      "body": {
+        "steps": [
+          {
+            "id": "persist",
+            "kind": "effect",
+            "needs": [],
+            "compensationRef": "ext:RecoveryPolicy",
+            "operationUse": {
+              "portRef": "platform:FilePort",
+              "operation": "write",
+              "inputs": {
+                "uri": {
+                  "source": "input",
+                  "path": "/uri"
+                },
+                "expectedRevision": {
+                  "source": "input",
+                  "path": "/expectedRevision"
+                },
+                "newText": {
+                  "source": "input",
+                  "path": "/newText"
+                }
+              }
+            },
+            "onSuccessStep": "verify",
+            "onErrorStep": "manualReview",
+            "onUnresolvedStep": "manualReview"
+          },
+          {
+            "id": "verify",
+            "kind": "wait",
+            "needs": [
+              "persist"
+            ],
+            "resumeKey": "saveCorrelation",
+            "conditionUse": {
+              "meaningRef": "platform:SaveMeaning",
+              "bindings": {
+                "document": {
+                  "source": "context",
+                  "role": "document"
+                }
+              },
+              "observationRef": "platform:SaveObservation"
+            },
+            "onSuccessStep": "chooseOutcome",
+            "onTimeoutStep": "manualReview"
+          },
+          {
+            "id": "chooseOutcome",
+            "kind": "decision",
+            "needs": [
+              "verify"
+            ],
+            "routes": [
+              {
+                "whenUse": {
+                  "meaningRef": "platform:SaveMeaning",
+                  "bindings": {
+                    "document": {
+                      "source": "context",
+                      "role": "document"
+                    }
+                  }
+                },
+                "nextStep": "complete",
+                "priority": 20
+              },
+              {
+                "whenUse": {
+                  "meaningRef": "platform:SaveNeedsReview",
+                  "bindings": {
+                    "document": {
+                      "source": "context",
+                      "role": "document"
+                    }
+                  }
+                },
+                "nextStep": "manualReview",
+                "priority": 10
+              }
+            ],
+            "otherwise": "manualReview",
+            "selectionPolicy": "explicit-priority",
+            "evidenceOutcomes": {
+              "neither": {
+                "action": "manual",
+                "humanStep": "manualReview"
+              },
+              "both": {
+                "action": "reject"
+              }
+            }
+          },
+          {
+            "id": "complete",
+            "kind": "terminal",
+            "needs": [
+              "chooseOutcome"
+            ],
+            "outcome": "succeeded",
+            "result": {
+              "source": "result",
+              "stepId": "persist",
+              "path": ""
+            }
+          },
+          {
+            "id": "manualReview",
+            "kind": "human",
+            "actorRoleRef": "ext:WorkspaceUser",
+            "approvalRef": "ext:SaveOutcomeReview",
+            "onSuccessStep": "manualReviewed"
+          },
+          {
+            "id": "manualReviewed",
+            "kind": "terminal",
+            "needs": [
+              "manualReview"
+            ],
+            "outcome": "unresolved",
+            "reason": {
+              "source": "literal",
+              "typeRef": "local:ReviewReason",
+              "value": {
+                "code": "ReviewDidNotSettleSave",
+                "detail": "Human review completed; save observation or outstanding operation still needs authoritative settlement."
+              }
+            }
+          }
+        ],
+        "entry": "persist",
+        "completion": [
+          "complete",
+          "manualReviewed"
+        ],
+        "recovery": "manual",
+        "contextRoles": {
+          "document": {
+            "typeRef": "foundation:Document",
+            "cardinality": "one"
+          }
+        },
+        "input": {
+          "tag": "nominal",
+          "ref": "foundation:SaveRequest"
+        },
+        "output": {
+          "tag": "nominal",
+          "ref": "foundation:SaveResult"
+        },
+        "errors": {
+          "tag": "scalar",
+          "name": "text"
+        }
+      },
+      "qualifiers": {
+        "evidenceDemandRefs": [
+          "platform:SaveObservation"
+        ]
+      }
+    },
+    "EditingQuality": {
+      "kind": "quality:contract",
+      "body": {
+        "terms": [
+          {
+            "metricRef": "ext:SaveLatency",
+            "relation": "<=",
+            "strength": "soft",
+            "thresholdLiteral": {
+              "magnitude": "1000",
+              "unitRef": "millisecond"
+            }
+          }
+        ],
+        "measurementAuthorityRef": "ext:MeasurementAuthority",
+        "comparisonPolicy": "feasibility-only"
+      }
+    },
+    "ReviewReason": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "code": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            },
+            "detail": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "EditorView": {
+      "definitionId": "EditorView"
+    },
+    "SaveWorkflow": {
+      "definitionId": "SaveWorkflow"
+    },
+    "EditingQuality": {
+      "definitionId": "EditingQuality"
+    }
+  }
+}

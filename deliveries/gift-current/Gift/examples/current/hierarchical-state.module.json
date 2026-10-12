@@ -1,0 +1,139 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:status-states",
+  "definitions": {
+    "StatusChart": {
+      "kind": "state:machine",
+      "body": {
+        "states": [
+          {
+            "id": "Root",
+            "kind": "compound",
+            "initial": "Active"
+          },
+          {
+            "id": "Active",
+            "kind": "parallel",
+            "parent": "Root"
+          },
+          {
+            "id": "EditingRegion",
+            "kind": "region",
+            "parent": "Active",
+            "initial": "Editing"
+          },
+          {
+            "id": "Editing",
+            "kind": "atomic",
+            "parent": "EditingRegion"
+          },
+          {
+            "id": "Readonly",
+            "kind": "atomic",
+            "parent": "EditingRegion"
+          },
+          {
+            "id": "SyncRegion",
+            "kind": "region",
+            "parent": "Active",
+            "initial": "SyncIdle"
+          },
+          {
+            "id": "SyncIdle",
+            "kind": "atomic",
+            "parent": "SyncRegion"
+          },
+          {
+            "id": "SyncBusy",
+            "kind": "atomic",
+            "parent": "SyncRegion"
+          },
+          {
+            "id": "Suspended",
+            "kind": "atomic",
+            "parent": "Root"
+          },
+          {
+            "id": "Previous",
+            "kind": "history-deep",
+            "parent": "Root",
+            "fallback": "Active"
+          }
+        ],
+        "initial": "Root",
+        "events": [
+          {
+            "name": "Submit",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Ack",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Pause",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Resume",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          },
+          {
+            "name": "Reset",
+            "payload": {
+              "tag": "scalar",
+              "name": "unit"
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "from": "SyncIdle",
+            "event": "Submit",
+            "to": "SyncBusy"
+          },
+          {
+            "from": "SyncBusy",
+            "event": "Ack",
+            "to": "SyncIdle"
+          },
+          {
+            "from": "Active",
+            "event": "Pause",
+            "to": "Suspended"
+          },
+          {
+            "from": "Suspended",
+            "event": "Resume",
+            "to": "Previous"
+          },
+          {
+            "from": "Active",
+            "event": "Reset",
+            "targets": [
+              "Editing",
+              "SyncIdle"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Status": {
+      "definitionId": "StatusChart"
+    }
+  }
+}

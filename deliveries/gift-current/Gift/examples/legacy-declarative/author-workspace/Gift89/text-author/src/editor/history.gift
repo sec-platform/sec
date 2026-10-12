@@ -1,0 +1,16 @@
+import "./document.gift" as document;
+
+// A deliberately limited pure history function: it does not save snapshots
+// or allocate runtime storage on behalf of a host application.
+export fn newest(
+  snapshots: List<document.Document>
+) -> Option<document.Document> !{} =
+  match snapshots {
+    case [] => Option.None();
+    case [head, ..tail] => Option.Some(head);
+  };
+
+export fn revisionIncreased(
+  old: document.Document,
+  next: document.Document
+) -> Bool !{} = next.revision > old.revision;

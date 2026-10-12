@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:intent-module-1",
+  "title": "Intent author-module design extension",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "moduleId",
+    "namespace",
+    "dialects",
+    "definitions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.author-module/1"
+    },
+    "moduleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "namespace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dialects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent"
+      ],
+      "properties": {
+        "intent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "languageId",
+            "constraint"
+          ],
+          "properties": {
+            "languageId": {
+              "const": "gift.intent"
+            },
+            "constraint": {
+              "const": "1"
+            }
+          }
+        }
+      }
+    },
+    "definitions": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^definition:[A-Za-z0-9_-]+$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "intent:goal"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "body": {
+              "$ref": "urn:gift:design-schema:intent-body-1"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

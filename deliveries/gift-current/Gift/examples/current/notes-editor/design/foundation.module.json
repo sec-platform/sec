@@ -1,0 +1,259 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:ide-foundation",
+  "namespace": "demo.ide.foundation",
+  "imports": {},
+  "definitions": {
+    "Document": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "uri": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            },
+            "text": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            },
+            "revision": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            }
+          }
+        }
+      }
+    },
+    "SaveRequest": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "uri": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            },
+            "expectedRevision": {
+              "type": {
+                "tag": "scalar",
+                "name": "int"
+              }
+            },
+            "newText": {
+              "type": {
+                "tag": "scalar",
+                "name": "text"
+              }
+            }
+          }
+        }
+      }
+    },
+    "SaveResult": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "Saved": {
+              "tag": "scalar",
+              "name": "int"
+            },
+            "Conflict": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "Failed": {
+              "tag": "scalar",
+              "name": "text"
+            }
+          }
+        }
+      }
+    },
+    "EditorCommands": {
+      "kind": "core:interface",
+      "body": {
+        "operations": [
+          {
+            "name": "save",
+            "input": {
+              "tag": "nominal",
+              "ref": "local:SaveRequest"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "local:SaveResult"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "effects": []
+          }
+        ]
+      }
+    },
+    "DocumentLifecycle": {
+      "kind": "state:machine",
+      "body": {
+        "states": [
+          "Clean",
+          "Dirty",
+          "Saving",
+          "Failed"
+        ],
+        "initial": "Clean",
+        "events": [
+          {
+            "name": "Edit",
+            "payload": {
+              "tag": "scalar",
+              "name": "text"
+            }
+          },
+          {
+            "name": "SaveRequested",
+            "payload": {
+              "tag": "nominal",
+              "ref": "local:SaveRequest"
+            }
+          },
+          {
+            "name": "SaveSucceeded",
+            "payload": {
+              "tag": "nominal",
+              "ref": "local:SaveResult"
+            }
+          },
+          {
+            "name": "SaveFailed",
+            "payload": {
+              "tag": "scalar",
+              "name": "text"
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "from": "Clean",
+            "event": "Edit",
+            "to": "Dirty"
+          },
+          {
+            "from": "Dirty",
+            "event": "SaveRequested",
+            "to": "Saving"
+          },
+          {
+            "from": "Saving",
+            "event": "SaveSucceeded",
+            "to": "Clean"
+          },
+          {
+            "from": "Saving",
+            "event": "SaveFailed",
+            "to": "Failed"
+          },
+          {
+            "from": "Failed",
+            "event": "Edit",
+            "to": "Dirty"
+          }
+        ],
+        "missingTransition": "reject",
+        "invariants": []
+      }
+    },
+    "DocumentChanges": {
+      "kind": "event:stream",
+      "body": {
+        "eventType": {
+          "tag": "nominal",
+          "ref": "local:Document"
+        },
+        "order": "per-key",
+        "delivery": "at-least-once",
+        "replay": "durable",
+        "latePolicy": "reconcile"
+      }
+    },
+    "DocumentStore": {
+      "kind": "data:model",
+      "body": {
+        "entities": [
+          {
+            "name": "documents",
+            "typeRef": "local:Document",
+            "keyFields": [
+              "uri"
+            ],
+            "constraints": []
+          }
+        ],
+        "consistency": "snapshot"
+      }
+    },
+    "EditorCapacity": {
+      "kind": "resource:model",
+      "body": {
+        "unitRef": "editor-slot",
+        "allocation": "exclusive",
+        "conservationRefs": [],
+        "capacityLiteral": {
+          "magnitude": "32",
+          "unitRef": "editor-slot"
+        }
+      }
+    },
+    "EditorMode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "text"
+        }
+      }
+    }
+  },
+  "exports": {
+    "Document": {
+      "definitionId": "Document"
+    },
+    "SaveRequest": {
+      "definitionId": "SaveRequest"
+    },
+    "SaveResult": {
+      "definitionId": "SaveResult"
+    },
+    "EditorCommands": {
+      "definitionId": "EditorCommands"
+    },
+    "DocumentLifecycle": {
+      "definitionId": "DocumentLifecycle"
+    },
+    "DocumentChanges": {
+      "definitionId": "DocumentChanges"
+    },
+    "DocumentStore": {
+      "definitionId": "DocumentStore"
+    },
+    "EditorCapacity": {
+      "definitionId": "EditorCapacity"
+    },
+    "EditorMode": {
+      "definitionId": "EditorMode"
+    }
+  }
+}

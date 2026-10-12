@@ -1,0 +1,55 @@
+// DESIGN-ONLY OPT-IN FILE under gift.author-text/1.
+// 'gift/author' and its typed static constructors are a NEW DESIGN CONTRACT
+// in Gift 89, not a shipped library. Do not claim this is already compilable.
+import "gift/author" as author;
+import "../editor/document.gift" as editor;
+import "../editor/history.gift" as history;
+import "../extensions/host.gift" as host;
+import "../remote/session.gift" as remote;
+
+// This predicate has an independent source, rather than being a paraphrase
+// of the actual implementation body's observed behavior.
+// A call-property predicate binds the ENTIRE call's ordered input tuple plus
+// its normally returned Result. An Err constructor is still a normal return.
+export fn revisionMonotonicity(
+  before: editor.Document,
+  expectedRevision: Int,
+  nextContent: Text,
+  outcome: Result<editor.Document, editor.ChangeFailure>
+) -> Bool !{} =
+  match outcome {
+    case Result.Ok(after) => after.revision == before.revision + 1;
+    case Result.Err(_) => true;
+  };
+
+// A declared requirement does not prove or implement the feature.
+let revisionRule = author.requirement({
+  name: "revision-increases-on-accepted-change",
+  scope: author.exportOf(editor.replaceAll),
+  predicate: author.exportOf(revisionMonotonicity),
+  observation: author.normalReturnWithInputs(),
+  quantifier: author.allValidInputs()
+});
+
+let editingContract = author.definition({
+  name: "document-edit-contract",
+  parameters: [],
+  subjects: [],
+  exposes: [],
+  terms: [author.hard(revisionRule, [])]
+});
+
+export let Studio = author.compose({
+  name: "IDE-Studio",
+  parameters: [],
+  subjects: [],
+  exposes: [],
+  terms: [
+    author.use(editingContract, [])
+  ]
+});
+
+// Need: real Gift Core/author static evaluator, library binding, realized
+// feature implementations, actual Target Profile and environment.
+// References to history/host/remote do NOT automatically include them in
+// runnable output; real output roots and realizations remain separate.

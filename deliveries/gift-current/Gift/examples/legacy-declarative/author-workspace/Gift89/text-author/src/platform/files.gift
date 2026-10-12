@@ -1,0 +1,6 @@
+// The file host is external. Merely declaring this port cannot read a file.
+export type FileError = NotFound() | AccessDenied() | IoFailure(Text);
+
+// Effect symbols must be provided by a real locked effect definition/profile.
+export port readText: (Text) -> Result<Text, FileError> !{host.fs.read};
+export port writeText: (Text, Text) -> Result<Unit, FileError> !{host.fs.write};

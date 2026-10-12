@@ -1,0 +1,223 @@
+{
+  "schema": "gift.design-schema-catalog/1",
+  "scope": "exact local design schema content; no remote fetch or product registry",
+  "schemas": [
+    {
+      "path": "schema/author/author-dialect-supply-1.schema.json",
+      "schemaId": "urn:gift:design-schema:author-dialect-supply-1",
+      "sha256": "ce494d650bb8a2afb6d36f7b53fbbf91accaf8c8f8ac5cd6d3ec3026b5c5424d",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/author/universal-author-module-2.schema.json",
+      "schemaId": "urn:gift:design-schema:universal-author-module-2",
+      "sha256": "b7637b055be4891dc474939330b4a7c2d0bd1aa963b2d338f6754ee085bff0cd",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/controls/control-file-1.schema.json",
+      "schemaId": "urn:gift:design-schema:control-file-1",
+      "sha256": "f3f5e355eb74b1cd41b48dab61674a3bd1850efe4e5d8b03d04bc3e5f6df68de",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/controls/control-files-1.schema.json",
+      "schemaId": "urn:gift:design-schema:control-files-1",
+      "sha256": "d6d6eb18b985e5d2260821c2b48659d39f5b9a287f5cb35d4a4219633c4b2b29",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/requirements/requirement-structure-1.schema.json",
+      "schemaId": "urn:gift:design-schema:requirement-structure-1",
+      "sha256": "2ac904dcae91269492dda4b6e2eabb2c9f5c0529e06d1784220c379e60e9c6cf",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/design-compiler-closure-witness-1.schema.json",
+      "schemaId": "urn:gift:design-schema:design-compiler-closure-witness-1",
+      "sha256": "da823b080399a9e9a195b88a5f633f4ecffb35d7963fc1672cc1d31acf277346",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-body-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-body-1",
+      "sha256": "9e9252fb9143f1dfcdd92d28741f5c450ecbe20fb0d22cd1f3ff01b27b03b10a",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-finite-model-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-finite-model-1",
+      "sha256": "a65afcd2880831278237c1cc39b1f9b83c6565e03e6666b17031fee8e0709fb9",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-local-replanning-contract-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-local-replanning-contract-1",
+      "sha256": "85521ee1c8828d00335b485987f6706f8a82350ea1ea25ddd1c0c190464e9f94",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-meaning-library-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-meaning-library-1",
+      "sha256": "641f3ce675737f5e751d27331346995072b354ced39c10e222d839e5761a3255",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-model-supply-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-model-supply-1",
+      "sha256": "56afa711768cab1264e7b8eb2c217963562615484ba84ae86cd3ce5fdb81dd57",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-module-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-module-1",
+      "sha256": "d383c915a02f56d38c17e82e54482926a439db80d555e7c5f6a6b3d2fc85ed51",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/intent-module-mixed-1.schema.json",
+      "schemaId": "urn:gift:design-schema:intent-module-mixed-1",
+      "sha256": "9b0b903d4dc05eb0fcc0be898a67f1abf7cedc303e20d0a5923f061b35296908",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/rule-call-observation-2.schema.json",
+      "schemaId": "urn:gift:design-schema:rule-call-observation-2",
+      "sha256": "d3bbf793746bf8e57a31a93d1b465c88a69a8223005cea64b4b3a7390ce52bb5",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/semantic-pattern-1.schema.json",
+      "schemaId": "urn:gift:design-schema:semantic-pattern-1",
+      "sha256": "7c21fb4469322385b54f3249f488f55da97f54f49855ad07fc662324916c6a98",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/semantic-pattern-use-1.schema.json",
+      "schemaId": "urn:gift:design-schema:semantic-pattern-use-1",
+      "sha256": "7d27796deace6dd665d46a5ae6cf0122d41b5bc62f23c77e922d510368178737",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/semantics/semantic-pattern-use-2.schema.json",
+      "schemaId": "urn:gift:design-schema:semantic-pattern-use-2",
+      "sha256": "81e0bbc23a920ada90176927e17e04109afe30587461dcc31be5807ab8257c4e",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/source/binding-lock-1.schema.json",
+      "schemaId": "urn:gift:design-schema:binding-lock-1",
+      "sha256": "3f79142fafe6c082ee715a36f6ad4be7a540912678406531a9f71a598616e789",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/source/native-binding-selection-1.schema.json",
+      "schemaId": "urn:gift:design-schema:native-binding-selection-1",
+      "sha256": "be9160bfa56d12780303b92eb353323ca8234f916682f25bc3a8e003032204a0",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/source/project-1.schema.json",
+      "schemaId": "urn:gift:design-schema:project-1",
+      "sha256": "986da6ceb2dd6c31c1b19006eca8d3359733267316b69fb0bcd7c82a2786a952",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/supply/method-supply-1.schema.json",
+      "schemaId": "urn:gift:design-schema:method-supply-1",
+      "sha256": "e99a40afe29c58e12ed37fbaee11619870e01c03bfc6e72f31d0daa315625a14",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/supply/target-profile-1.schema.json",
+      "schemaId": "urn:gift:design-schema:target-profile-1",
+      "sha256": "f832f225a654885ce204039ab677fac6a15df9d52dfd7faa1582ce2f1d1608d8",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/apply-2.schema.json",
+      "schemaId": "urn:gift:design-schema:ai-tools-2-apply",
+      "sha256": "b92c3b93a7f87d8d27aa8f98936c6d521afd7dc5dc4581e8d0e18bbda5afc38d",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/check-2.schema.json",
+      "schemaId": "urn:gift:design-schema:ai-tools-2-check",
+      "sha256": "a4250b76163b60bc5cd2ddd1b77f94d6ae3d0a6e866761195c54c27624ca666c",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/generated-edit-1.schema.json",
+      "schemaId": "urn:gift:design-schema:generated-edit-1",
+      "sha256": "3832f1986df4576bb8f0d3529e71d4fd8a8b6de91f95b5bb0bb2cdf8cb7dd195",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/operation-2.schema.json",
+      "schemaId": "urn:gift:design-schema:ai-tools-2-operation",
+      "sha256": "067dedc412f2982a1efd6310b3de9ac3a61b00e22c54b8449ce53e79af89d0f5",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/preview-2.schema.json",
+      "schemaId": "urn:gift:design-schema:ai-tools-2-preview",
+      "sha256": "15dc8c0c3ffb818bea1698e0a40e28e897ed1726597812b51e09045ba995441b",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/propose-2.schema.json",
+      "schemaId": "urn:gift:design-schema:ai-tools-2-propose",
+      "sha256": "7abe7f014ce84f2304066363a9c5ee85e61e41b6ea59a2ca46ee049bde5536c3",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/query-2.schema.json",
+      "schemaId": "urn:gift:design-schema:ai-tools-2-query",
+      "sha256": "acb1cc444e2ad01b852cf3a6bc108513b60b45b6fe9794ec09b21132b5349639",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/result-view-2.schema.json",
+      "schemaId": "urn:gift:design-schema:tool-result-view-2",
+      "sha256": "ecaa998675b61237d2c96d07cc6abe8299b0b270300e31cd275a321b51bf3525",
+      "role": "design-shape",
+      "productionQualification": false
+    },
+    {
+      "path": "schema/tools/structured-files-1.schema.json",
+      "schemaId": "urn:gift:design-schema:structured-files-1",
+      "sha256": "492e79089a2290bc2979e669c02fc10b612c1627b233dec68728ab27937982fc",
+      "role": "design-shape",
+      "productionQualification": false
+    }
+  ]
+}

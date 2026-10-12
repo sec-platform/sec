@@ -1,0 +1,32 @@
+export type LinkState =
+    Offline()
+  | Connecting()
+  | Online(Int)
+  | Failed(Text);
+
+export type LinkEvent =
+    Dial()
+  | Connected(Int)
+  | Lost(Text)
+  | Close();
+
+export type LinkFailure = InvalidLinkTransition();
+
+export fn next(
+  state: LinkState,
+  event: LinkEvent
+) -> Result<LinkState, LinkFailure> !{} =
+  match event {
+    case LinkEvent.Dial() =>
+      match state {
+        case LinkState.Offline() => Result.Ok(LinkState.Connecting());
+        case _ => Result.Err(LinkFailure.InvalidLinkTransition());
+      };
+    case LinkEvent.Connected(sessionId) =>
+      match state {
+        case LinkState.Connecting() => Result.Ok(LinkState.Online(sessionId));
+        case _ => Result.Err(LinkFailure.InvalidLinkTransition());
+      };
+    case LinkEvent.Lost(reason) => Result.Ok(LinkState.Failed(reason));
+    case LinkEvent.Close() => Result.Ok(LinkState.Offline());
+  };

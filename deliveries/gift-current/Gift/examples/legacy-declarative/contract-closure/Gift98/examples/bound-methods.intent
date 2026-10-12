@@ -1,0 +1,8 @@
+# Optional human text projection; one writable source in an actual project.
+module demo.external
+target typescript-esm
+storage volatile
+module-format esm
+
+bind ClampValue = demo.math/ClampSafeInt@1
+bind TagCanonical = demo.text/NormalizeAsciiTag@1

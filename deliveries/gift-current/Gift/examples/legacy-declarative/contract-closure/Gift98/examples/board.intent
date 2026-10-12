@@ -1,0 +1,22 @@
+# Experimental text frontend: the same intent as board.intent.json
+module example.board
+target typescript-esm
+storage volatile
+module-format esm
+
+record Task key id {
+  id: Text[1..64]
+  title: Text[1..120]
+  done: Bool
+  stage: Enum[todo, doing, done, cancelled]
+}
+
+flow TaskFlow initial todo {
+  states: todo, doing, done, cancelled
+  todo + start -> doing
+  todo + cancel -> cancelled
+  doing + complete -> done
+  doing + cancel -> cancelled
+}
+
+compose TaskActions = Task.stage via TaskFlow

@@ -1,0 +1,26 @@
+// Optional object profile, not required for immutable Document values.
+import "gift/object" as obj;
+
+export interface RevisionView {
+  fn value() -> Int !{obj.Read};
+}
+
+export class RevisionCounter : RevisionView {
+  var current: Int;
+
+  export init(start: Int)
+    require start >= 0
+  {
+    set this.current = start;
+    ()
+  }
+
+  export fn value() -> Int !{obj.Read} = this.current;
+
+  export fn advance() -> Int !{obj.Read, obj.Write}
+    ensure result >= 1
+  = {
+    set this.current = this.current + 1;
+    this.current
+  };
+}

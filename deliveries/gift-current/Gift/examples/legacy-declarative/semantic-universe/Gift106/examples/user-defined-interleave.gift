@@ -1,0 +1,12 @@
+// Gift106 illustrative user-authored computation, according to the *draft*
+// gift.semantic/1 grammar. NOT verified against a released Gift compiler.
+// This is a deliberately new recursive algorithm; other applications may use
+// its public Definition without copying the implementation body.
+export fn interleave(a: List<Int>, b: List<Int>) -> List<Int> =
+  match a {
+    case [] => b;
+    case [head, ..tail] => match b {
+      case [] => a;
+      case [other, ..rest] => [head, other, ..interleave(tail, rest)];
+    };
+  };

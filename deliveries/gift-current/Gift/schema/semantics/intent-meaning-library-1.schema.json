@@ -1,0 +1,13 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:gift:design-schema:intent-meaning-library-1",
+  "type":"object","additionalProperties":false,
+  "required":["schema","libraryId","revision","types","predicates"],
+  "properties":{
+    "schema":{"const":"gift.intent-meaning-library/1"},
+    "libraryId":{"type":"string","minLength":1},
+    "revision":{"type":"string","minLength":1},
+    "types":{"type":"object","additionalProperties":{"type":"object","additionalProperties":false,"required":["properties"],"properties":{"properties":{"type":"object","additionalProperties":{"enum":["IntString","Bool","Text"]}}}}},
+    "predicates":{"type":"object","additionalProperties":{"type":"object","additionalProperties":false,"required":["parameters","interpretation","observation"],"properties":{"parameters":{"type":"object","additionalProperties":{"type":"string","minLength":1}},"interpretation":{"type":"object","additionalProperties":true,"required":["kind"],"properties":{"kind":{"enum":["finite-model-expression","external-observer"]},"expression":{"type":"object"},"providerRef":{"type":"string"}}},"observation":{"type":"object","additionalProperties":false,"required":["scope","authority"],"properties":{"scope":{"type":"string","minLength":1},"authority":{"type":"string","minLength":1}}}}}}
+  }
+}

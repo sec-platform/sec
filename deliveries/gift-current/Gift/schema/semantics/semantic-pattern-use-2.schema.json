@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:semantic-pattern-use-2",
+  "title": "Gift semantic pattern-use /2 – typed multiplicity-aware abstract use, design stage",
+  "description": "Structural gate only. Production eligibility requires locked Definition/Meaning/Requirement resolution, role refinement, evidence, and observable effect qualifications. V1 remains historical; migration is explicit. Within gift.author-module/2 the owning Definition.kind chooses this body schema; authors do not repeat an inner representation/version discriminator. Independently serialized legacy bodies require their own qualified envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "patternRef",
+    "roleBindings",
+    "variationSelections",
+    "observationSelection"
+  ],
+  "properties": {
+    "patternRef": {
+      "$ref": "#/$defs/definitionRef"
+    },
+    "roleBindings": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/roleBinding"
+      }
+    },
+    "variationSelections": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definitionRef",
+          "selectionSourceRef"
+        ],
+        "properties": {
+          "definitionRef": {
+            "$ref": "#/$defs/definitionRef"
+          },
+          "selectionSourceRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "observationSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeRef",
+        "observationRef"
+      ],
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observationRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "completenessEvidenceRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "authorNotes": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "definitionRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definitionId"
+          ],
+          "properties": {
+            "definitionId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "import",
+            "export"
+          ],
+          "properties": {
+            "import": {
+              "type": "string",
+              "minLength": 1
+            },
+            "export": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "objectBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objectRef"
+      ],
+      "properties": {
+        "objectRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "typeRefinementRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identityEvidenceRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "roleBinding": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "object"
+          ],
+          "properties": {
+            "kind": {
+              "const": "one"
+            },
+            "object": {
+              "$ref": "#/$defs/objectBinding"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "object"
+          ],
+          "properties": {
+            "kind": {
+              "const": "optional"
+            },
+            "object": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/objectBinding"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "members"
+          ],
+          "properties": {
+            "kind": {
+              "const": "set"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/objectBinding"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "members"
+          ],
+          "properties": {
+            "kind": {
+              "const": "sequence"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/objectBinding"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "members"
+          ],
+          "properties": {
+            "kind": {
+              "const": "bag"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "object",
+                  "count"
+                ],
+                "properties": {
+                  "object": {
+                    "$ref": "#/$defs/objectBinding"
+                  },
+                  "count": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

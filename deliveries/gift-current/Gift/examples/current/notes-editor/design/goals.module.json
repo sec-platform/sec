@@ -1,0 +1,125 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:ide-goals",
+  "namespace": "demo.ide.intent",
+  "definitions": {
+    "IDEGoal": {
+      "kind": "intent:goal",
+      "body": {
+        "roles": {
+          "document": {
+            "typeRef": "foundation:Document"
+          },
+          "operator": {
+            "typeRef": "urn:gift:proposal:ide:Operator"
+          }
+        },
+        "clauses": [
+          {
+            "id": "save-eventually",
+            "modality": "achieve",
+            "formula": {
+              "op": "call",
+              "meaningRef": "platform:SaveMeaning",
+              "bindings": {
+                "document": "document"
+              }
+            },
+            "horizon": {
+              "kind": "model-steps",
+              "ref": "example:save-trace"
+            }
+          },
+          {
+            "id": "no-data-loss",
+            "modality": "maintain",
+            "formula": {
+              "op": "call",
+              "meaningRef": "platform:SaveNoDataLoss",
+              "bindings": {
+                "document": "document"
+              }
+            },
+            "horizon": {
+              "kind": "model-steps",
+              "ref": "example:save-trace"
+            }
+          },
+          {
+            "id": "avoid-overwrite",
+            "modality": "avoid",
+            "formula": {
+              "op": "call",
+              "meaningRef": "platform:SaveNoSilentOverwrite",
+              "bindings": {
+                "document": "document"
+              }
+            },
+            "horizon": {
+              "kind": "model-steps",
+              "ref": "example:save-trace"
+            }
+          },
+          {
+            "id": "notify-on-save",
+            "modality": "oblige",
+            "actorRole": "operator",
+            "trigger": {
+              "op": "call",
+              "meaningRef": "platform:SaveRequested",
+              "bindings": {
+                "document": "document"
+              }
+            },
+            "fulfilment": {
+              "op": "call",
+              "meaningRef": "platform:UserNotified",
+              "bindings": {
+                "document": "document"
+              }
+            },
+            "deadlineRef": "urn:gift:proposal:policy:save-feedback-time"
+          },
+          {
+            "id": "permit-user-save",
+            "modality": "permit",
+            "actorRole": "operator",
+            "actionRef": "platform:SaveAction",
+            "scopeRef": "urn:gift:proposal:policy:trusted-workspace"
+          },
+          {
+            "id": "prefer-fast-save",
+            "modality": "prefer",
+            "qualityRef": "interaction:EditingQuality",
+            "direction": "minimize"
+          }
+        ],
+        "observations": [
+          {
+            "meaningRef": "platform:SaveMeaning",
+            "sourceRef": "urn:gift:proposal:observer:file-readback"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "IDEGoal": {
+      "definitionId": "IDEGoal"
+    }
+  },
+  "imports": {
+    "platform": {
+      "mode": "workspace",
+      "moduleId": "module:ide-platform"
+    },
+    "foundation": {
+      "mode": "workspace",
+      "moduleId": "module:ide-foundation"
+    },
+    "interaction": {
+      "mode": "workspace",
+      "moduleId": "module:ide-interaction"
+    }
+  }
+}

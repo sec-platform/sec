@@ -1,0 +1,33 @@
+// ExtensionHost is an application-defined concept, not a Gift Core keyword.
+export type HostState =
+    Stopped()
+  | Starting()
+  | Running(Int)
+  | Crashed(Text);
+
+export type HostEvent =
+    Start()
+  | Ready(Int)
+  | Crash(Text)
+  | Stop();
+
+export type HostFailure = IllegalTransition();
+
+export fn transition(
+  state: HostState,
+  event: HostEvent
+) -> Result<HostState, HostFailure> !{} =
+  match event {
+    case HostEvent.Start() =>
+      match state {
+        case HostState.Stopped() => Result.Ok(HostState.Starting());
+        case _ => Result.Err(HostFailure.IllegalTransition());
+      };
+    case HostEvent.Ready(session) =>
+      match state {
+        case HostState.Starting() => Result.Ok(HostState.Running(session));
+        case _ => Result.Err(HostFailure.IllegalTransition());
+      };
+    case HostEvent.Crash(reason) => Result.Ok(HostState.Crashed(reason));
+    case HostEvent.Stop() => Result.Ok(HostState.Stopped());
+  };

@@ -1,0 +1,16 @@
+# Entirely unrelated domain, same generic compiler core and runtime.
+module example.sensor
+target typescript-esm
+storage volatile
+module-format esm
+
+shape Reading {
+  value: SafeInt[-10000..10000]
+  trusted: Bool
+  source: Text[1..20]
+}
+
+derive TrustedCount(readings: List[Reading;128]) -> SafeInt = count(readings, trusted)
+derive AnyCritical(readings: List[Reading;128], threshold: SafeInt) -> Bool = any(readings, trusted and value >= threshold)
+derive NetValue(readings: List[Reading;128]) -> SafeInt = sum(readings, value if trusted else 0)
+derive Alert(readings: List[Reading;128], threshold: SafeInt) -> Bool = AnyCritical(readings, threshold) or TrustedCount(readings) == 0

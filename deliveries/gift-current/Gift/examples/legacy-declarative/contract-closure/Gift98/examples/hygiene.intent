@@ -1,0 +1,11 @@
+module example.hygiene
+target typescript-esm
+storage volatile
+module-format esm
+compute-method inline
+
+derive Subtotal(xs: List[SafeInt;32]) -> SafeInt = sum(xs, lambda safeAdd: safeAdd)
+derive Reuse(computeSubtotal: SafeInt, xs: List[SafeInt;32]) -> SafeInt = Subtotal(xs) + computeSubtotal
+derive Min(Math: SafeInt, safeMin: SafeInt) -> SafeInt = min(Math, safeMin)
+derive FoldCollision(xs: List[SafeInt;32]) -> SafeInt = fold(xs, 0, lambda safeAdd, safeMin: safeAdd + safeMin)
+derive Plus(safeAdd: SafeInt, Math: SafeInt) -> SafeInt = safeAdd + Math

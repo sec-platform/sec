@@ -1,0 +1,18 @@
+# New domain: declarative commerce calculation, no template or prewritten business method.
+module example.cart
+target typescript-esm
+storage volatile
+module-format esm
+
+shape CartLine {
+  sku: Text[1..64]
+  price: SafeInt[0..100000]
+  quantity: SafeInt[0..100]
+  active: Bool
+}
+
+derive Subtotal(lines: List[CartLine;128]) -> SafeInt = sum(lines, price * quantity)
+derive EligibleCount(lines: List[CartLine;128]) -> SafeInt = count(lines, active)
+derive Shippable(lines: List[CartLine;128]) -> Bool = all(lines, active)
+derive ActiveSKUs(lines: List[CartLine;128]) -> List[Text;128] = map(filter(lines, active), sku)
+derive FinalPrice(lines: List[CartLine;128], discount: SafeInt, express: Bool) -> SafeInt = max(0, Subtotal(lines) - discount) + (30 if express else 0)

@@ -1,0 +1,23 @@
+// EXTRACT ONLY from Gift 88 design. Not a standalone grammar accepted by a compiler.
+// Source path: docs/20-语义与组合/基础语义/对象与控制/对象构造与分派.md
+
+// Original EBNF block 1
+ObjectDecl    = ClassDecl | InterfaceDecl ;
+MethodContractClauses = { Pre } { Post } ;
+LocalBinding  = "let" Ident [ ":" Type ] "=" Expr ";" ;
+ClassDecl     = [ "export" ] [ "final" ] "class" Identifier [ TypeParams ]
+                [ ":" Type { "," Type } ] "{" { ClassMember } "}" ;
+InterfaceDecl = [ "export" ] "interface" Identifier [ TypeParams ]
+                [ ":" Type { "," Type } ] "{" { MethodSignature } "}" ;
+ClassMember   = FieldDecl | Initializer | MethodDecl ;
+FieldDecl     = [ "export" ] ( "let" | "var" ) Identifier ":" Type ";" ;
+Initializer   = [ "export" ] "init" "(" [ Params ] ")" [ Effects ] MethodContractClauses ObjectBlock ;
+MethodDecl    = [ "export" ] [ "static" ] [ "override" ] [ "final" ]
+                "fn" Identifier "(" [ Params ] ")" "->" Type
+                [ Effects ] MethodContractClauses "=" Expr ";" ;
+MethodSignature = "fn" Identifier "(" [ Params ] ")" "->" Type
+                  Effects MethodContractClauses ";" ;
+ObjectBlock   = ExecutionBlock ;
+FieldWrite    = "set" ( "this" | Expr ) "." Identifier "=" Expr ";" ;
+SuperInit     = "super" "(" [ Arguments ] ")" ";" ;
+NewExpr       = "new" Type "(" [ Arguments ] ")" ;

@@ -1,0 +1,15 @@
+// EXTRACT ONLY from Gift 88 design. Not a standalone grammar accepted by a compiler.
+// Source path: docs/20-语义与组合/基础语义/对象与控制/控制流与存储寿命.md
+
+// Original EBNF block 1
+LocalVariable = "var" Ident [ ":" Type ] "=" Expr ";" ;
+LocalWrite    = "set" Ident "=" Expr ";" ;
+WhileStmt     = "while" Expr ExecutionBlock ;
+BreakStmt     = "break" ";" ;
+ContinueStmt  = "continue" ";" ;
+ReturnStmt    = "return" [ Expr ] ";" ;
+ExprStatement = Expr ";" ;
+Statement     = LocalBinding | LocalVariable | LocalWrite | FieldWrite
+              | SuperInit | WhileStmt | BreakStmt | ContinueStmt
+              | ReturnStmt | ExprStatement ;
+ExecutionBlock = "{" { Statement } [ Expr ] "}" ;

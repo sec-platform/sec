@@ -1,0 +1,15 @@
+# New business domain without a custom backend: a bounded, ordered ledger.
+module example.ledger
+target typescript-esm
+storage volatile
+module-format esm
+
+shape Posting {
+  change: SafeInt[-10000..10000]
+  accepted: Bool
+  memo: Text[1..40]
+}
+
+derive EndBalance(postings: List[Posting;256], opening: SafeInt) -> SafeInt = fold(postings, opening, lambda balance, posting: balance + (posting.change if posting.accepted else 0))
+derive ApprovedTotal(postings: List[Posting;256]) -> SafeInt = fold(postings, 0, lambda total, entry: total + (entry.change if entry.accepted else 0))
+derive AnyRejected(postings: List[Posting;256]) -> Bool = any(postings, not accepted)

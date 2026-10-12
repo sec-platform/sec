@@ -1,0 +1,10 @@
+module example.arithmetic
+target typescript-esm
+storage volatile
+module-format esm
+
+derive ExactSum(a: SafeInt, b: SafeInt) -> SafeInt = a + b
+derive ExactProduct(a: SafeInt, b: SafeInt) -> SafeInt = a * b
+derive Quotient(a: SafeInt, b: SafeInt) -> SafeInt = div(a, b)
+derive PositiveClamp(a: SafeInt) -> SafeInt = max(0, a)
+derive Tagged(label: Text, suffix: Text) -> Text = concat(label, suffix)

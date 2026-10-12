@@ -1,0 +1,30 @@
+digraph G { graph [rankdir=TB, bgcolor="white", pad="0.35", nodesep="0.35", ranksep="0.55", splines=polyline, fontname="Noto Sans CJK SC"]; node [shape=box, style="rounded", fontname="Noto Sans CJK SC", fontsize=12, margin="0.18,0.12"]; edge [fontname="Noto Sans CJK SC", fontsize=10, arrowsize=0.7];
+label="新设计、旧运行与证据可以同时有效"; labelloc=t; fontsize=20;
+r1 [label="作者 / 要求 R1"];
+r2 [label="候选 / 已采用要求 R2"];
+a1 [label="Binding B1 / Artifact A1"];
+a2 [label="Binding B2 / Artifact A2"];
+d1 [label="旧运行 D1
+仍使用 A1"];
+d2 [label="新运行 D2
+获准采用 A2 后才存在"];
+o1 [label="观察 O1
+绑定 D1 与观察时间"];
+o2 [label="观察 O2
+绑定 D2 与观察时间"];
+e1 [label="证据 E1
+只支持自己的 Claim / A1 / 环境"];
+e2 [label="证据 E2
+需真实方法评价 A2 的相交Claim"];
+r1 -> r2 [label="修订 / 采纳，不热改运行"];
+r1 -> a1 [label="固定解释与生成"];
+r2 -> a2 [label="新解释与生成"];
+a1 -> d1 [label="实际运行采用"];
+a2 -> d2 [label="独立准入 / 部署 / 读回"];
+d1 -> o1;d2 -> o2;
+o1 -> e1;o2 -> e2;
+a1 -> e1 [style=dashed,label="准确对象"];
+a2 -> e2 [style=dashed,label="准确对象"];
+e1 -> e2 [style=dashed,label="仅未失效证据可复用"];
+{rank=same;r1;r2;}{rank=same;a1;a2;}{rank=same;d1;d2;}{rank=same;o1;o2;}{rank=same;e1;e2;}
+}

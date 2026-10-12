@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:control-file-1",
+  "title": "gift.control-file/1",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "fileId",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.control-file/1"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "fileId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scopeRef",
+          "controlRef",
+          "mode",
+          "value"
+        ],
+        "properties": {
+          "scopeRef": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "project"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "rootId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "product-root"
+                  },
+                  "rootId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+                    "maxLength": 128,
+                    "description": "Target-local output-root occurrence identity; distinct from Definition and file identity."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "moduleId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "module"
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "moduleId",
+                  "definitionId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "definition"
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "definitionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "moduleId",
+                  "definitionId",
+                  "occurrenceId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "occurrence"
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "definitionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "occurrenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                }
+              }
+            ]
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "controlRef": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "mode": {
+            "enum": [
+              "require",
+              "prefer"
+            ]
+          },
+          "value": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "scopeRef": {
+                  "properties": {
+                    "kind": {
+                      "const": "product-root"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "scopeRef"
+              ]
+            },
+            "then": {
+              "required": [
+                "target"
+              ]
+            }
+          }
+        ]
+      },
+      "minItems": 0,
+      "description": "Sparse author controls; records:[] is a valid CAS-preserving result of resetting the last local control. No implicit file deletion."
+    }
+  },
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    }
+  },
+  "description": "The only current persistent author Control carrier. Discovered in controlled Project sourceScopes. Logical key is (scopeRef,target?,controlRef) across all project ControlFiles; product-root requires target and rootId. Cross-file uniqueness and fixed BoundRoot lookup are semantic checks. A product-root scope refers to the complete frozen BoundRoot member set. Descriptor subject kinds, cardinality and propagation determine applicability; single-symbol controls are not implicitly broadcast to a collection. Member changes invalidate the intersecting applicability judgment."
+}

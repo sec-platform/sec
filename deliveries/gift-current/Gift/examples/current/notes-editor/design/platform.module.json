@@ -1,0 +1,353 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:ide-platform",
+  "namespace": "demo.ide.platform",
+  "imports": {
+    "foundation": {
+      "mode": "workspace",
+      "moduleId": "module:ide-foundation"
+    },
+    "ext": {
+      "mode": "locked",
+      "moduleId": "urn:gift:proposal:ide-platform-supply",
+      "constraint": "1"
+    }
+  },
+  "definitions": {
+    "SaveMeaning": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "ext:SaveMeaningInterpreter",
+        "observationRef": "ext:SaveObserver"
+      }
+    },
+    "FilePort": {
+      "kind": "effect:port",
+      "body": {
+        "operations": [
+          {
+            "name": "write",
+            "input": {
+              "tag": "nominal",
+              "ref": "foundation:SaveRequest"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "foundation:SaveResult"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "effects": [
+              {
+                "class": "external",
+                "scopeRef": "file-system"
+              }
+            ],
+            "idempotency": "keyed",
+            "readbackRef": "ext:FileReadback"
+          }
+        ],
+        "grantScopeRef": "ext:FileGrant",
+        "recoveryRef": "ext:FileRecovery"
+      }
+    },
+    "DesktopProtocol": {
+      "kind": "api:protocol",
+      "body": {
+        "transportRef": "ext:DesktopIpc",
+        "endpoints": [
+          {
+            "name": "save",
+            "request": {
+              "tag": "nominal",
+              "ref": "foundation:SaveRequest"
+            },
+            "response": {
+              "tag": "nominal",
+              "ref": "foundation:SaveResult"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "text"
+            },
+            "effectRef": "local:FilePort",
+            "streaming": "none"
+          }
+        ],
+        "serializationRef": "ext:BinaryCodec"
+      }
+    },
+    "SaveConcurrency": {
+      "kind": "concurrency:contract",
+      "body": {
+        "scopeRef": "foundation:DocumentStore",
+        "consistency": "serializable",
+        "ordering": "per-key",
+        "atomicity": "transaction",
+        "progressRef": "ext:SaveProgress",
+        "conflictRef": "ext:SaveConflict"
+      }
+    },
+    "EditorPermission": {
+      "kind": "security:policy",
+      "body": {
+        "authorityRef": "ext:ProjectPolicyAuthority",
+        "rules": [
+          {
+            "id": "SaveAllowed",
+            "effect": "permit",
+            "subjectRef": "ext:TrustedUser",
+            "actionRef": "local:FilePort",
+            "resourceRef": "foundation:DocumentStore",
+            "authorityRef": "ext:ProjectPolicyAuthority"
+          }
+        ],
+        "combining": "deny-overrides",
+        "revocationRef": "ext:PolicyRevocation"
+      },
+      "qualifiers": {
+        "authorityRef": "ext:ProjectPolicyAuthority",
+        "scopeRefs": [
+          "ext:WorkspaceScope"
+        ]
+      }
+    },
+    "SaveObservation": {
+      "kind": "observation:contract",
+      "body": {
+        "subjectRef": "local:FilePort",
+        "observerRef": "ext:FileReadback",
+        "scopeRef": "workspace-local-file",
+        "completeness": "bounded",
+        "freshnessRef": "ext:ReadbackFreshness"
+      }
+    },
+    "SaveNeedsReview": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "ext:SaveNeedsReviewInterpreter",
+        "observationRef": "ext:SaveObserver"
+      }
+    },
+    "SaveAuditObligation": {
+      "kind": "security:policy",
+      "body": {
+        "authorityRef": "ext:ProjectPolicyAuthority",
+        "rules": [
+          {
+            "id": "AuditSave",
+            "effect": "oblige",
+            "subjectRef": "ext:TrustedUser",
+            "actionRef": "local:FilePort",
+            "resourceRef": "foundation:DocumentStore",
+            "obligationRef": "ext:SaveAuditNorm",
+            "authorityRef": "ext:ProjectPolicyAuthority",
+            "conditionUse": {
+              "meaningRef": "local:SaveMeaning",
+              "bindings": {
+                "document": {
+                  "source": "context",
+                  "role": "document"
+                }
+              }
+            }
+          }
+        ],
+        "combining": "first-applicable",
+        "auditRef": "ext:SaveObserver",
+        "contextRoles": {
+          "document": {
+            "typeRef": "foundation:Document",
+            "cardinality": "one"
+          }
+        }
+      },
+      "qualifiers": {
+        "authorityRef": "ext:ProjectPolicyAuthority"
+      }
+    },
+    "SaveAction": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "operation",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "interpretationRef": "ext:SaveActionInterpreter",
+        "authorityRef": "ext:WorkspaceIssuer"
+      }
+    },
+    "SaveNoDataLoss": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "ext:SaveNoDataLossInterpreter",
+        "observationRef": "ext:SaveNoDataLossObservation"
+      }
+    },
+    "SaveNoSilentOverwrite": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "ext:SaveNoSilentOverwriteInterpreter",
+        "observationRef": "ext:SaveNoSilentOverwriteObservation"
+      }
+    },
+    "SaveRequested": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "ext:SaveRequestedInterpreter",
+        "observationRef": "ext:SaveRequestedObservation"
+      }
+    },
+    "UserNotified": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "document",
+            "type": {
+              "tag": "nominal",
+              "ref": "foundation:Document"
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "ext:UserNotifiedInterpreter",
+        "observationRef": "ext:UserNotifiedObservation"
+      }
+    }
+  },
+  "exports": {
+    "SaveMeaning": {
+      "definitionId": "SaveMeaning"
+    },
+    "FilePort": {
+      "definitionId": "FilePort"
+    },
+    "DesktopProtocol": {
+      "definitionId": "DesktopProtocol"
+    },
+    "SaveConcurrency": {
+      "definitionId": "SaveConcurrency"
+    },
+    "EditorPermission": {
+      "definitionId": "EditorPermission"
+    },
+    "SaveObservation": {
+      "definitionId": "SaveObservation"
+    },
+    "SaveNeedsReview": {
+      "definitionId": "SaveNeedsReview"
+    },
+    "SaveAuditObligation": {
+      "definitionId": "SaveAuditObligation"
+    },
+    "SaveAction": {
+      "definitionId": "SaveAction"
+    },
+    "SaveNoDataLoss": {
+      "definitionId": "SaveNoDataLoss"
+    },
+    "SaveNoSilentOverwrite": {
+      "definitionId": "SaveNoSilentOverwrite"
+    },
+    "SaveRequested": {
+      "definitionId": "SaveRequested"
+    },
+    "UserNotified": {
+      "definitionId": "UserNotified"
+    }
+  }
+}

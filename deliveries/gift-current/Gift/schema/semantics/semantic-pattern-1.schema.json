@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:semantic-pattern-1",
+  "title": "Gift semantic:pattern Definition body /1 — design contract, not a shipped production decoder",
+  "description": "Typed reusable Definition abstraction. A pattern can include local predicate claims or references to existing Requirement definitions; this is a design contract, not a product decoder, a competing Requirement grammar, an external fact, or a Provider. Within gift.author-module/2 the owning Definition.kind chooses this body schema; authors do not repeat an inner representation/version discriminator. Independently serialized legacy bodies require their own qualified envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "roles",
+    "meaningImports",
+    "sharedClaims",
+    "variationPoints",
+    "observationBoundary"
+  ],
+  "properties": {
+    "roles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/role"
+      }
+    },
+    "meaningImports": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/import"
+      }
+    },
+    "sharedClaims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/predicateClaim"
+          },
+          {
+            "$ref": "#/$defs/requirementUse"
+          }
+        ]
+      }
+    },
+    "variationPoints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/variation"
+      }
+    },
+    "observationBoundary": {
+      "$ref": "#/$defs/observation"
+    },
+    "counterexampleRefs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "authorNotes": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typeRef",
+        "multiplicity"
+      ],
+      "properties": {
+        "typeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "multiplicity": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        },
+        "unitRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identityDomainRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "libraryId",
+        "revision",
+        "contentDigest"
+      ],
+      "properties": {
+        "libraryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "variation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "required",
+        "typeRef"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9_]*$"
+        },
+        "kind": {
+          "enum": [
+            "domain-rule",
+            "authority",
+            "observation",
+            "time",
+            "resource-policy",
+            "failure-policy",
+            "quality"
+          ]
+        },
+        "required": {
+          "const": true
+        },
+        "typeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "valueConstraintRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "explanation": {
+          "type": "string"
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "worldOrModel",
+        "authority"
+      ],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worldOrModel": {
+          "enum": [
+            "explicit-model-only",
+            "external-observer-required",
+            "abstract-contract-only"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "knownLimitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "predicateClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "modality",
+        "meaningRef",
+        "bindings",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "modality": {
+          "enum": [
+            "achieve",
+            "maintain",
+            "avoid"
+          ]
+        },
+        "meaningRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bindings": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "scope": {
+          "enum": [
+            "selected-snapshot",
+            "model-steps",
+            "qualified-trace"
+          ]
+        },
+        "whenVariation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assumptionRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "Subset for pure predicate-shaped claims. Rich time, norms, permissions, optimization, cross-run or external-effect semantics MUST be referenced through an independently owned Requirement definition; do not flatten them into a boolean."
+    },
+    "requirementUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Structural reference to an existing qualified Requirement definition, retaining its native normative/temporal/effect/quality semantics rather than recreating its grammar in pattern body.",
+      "required": [
+        "id",
+        "requirementRef",
+        "roleBindings",
+        "scopeRef"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requirementRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "roleBindings": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assumptionRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "whenVariation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

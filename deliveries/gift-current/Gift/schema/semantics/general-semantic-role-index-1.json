@@ -1,0 +1,422 @@
+{
+  "schema": "gift.design-semantic-role-index/1",
+  "role": "non-authoritative-index-of-unique-canonical-owner",
+  "normativeOwner": "docs/20-语义与组合/共同语义/工程通用语义全域与闭合合同.md#stable-finite-general-semantic-core",
+  "qualifications": "DESIGN_ONLY",
+  "groups": [
+    {
+      "id": "K1",
+      "name": "K1 身份与类型",
+      "roles": [
+        {
+          "id": "DefinitionRef",
+          "input": "锁定模块/导出/修订/内容身份",
+          "contract": "解析到唯一可读定义；同名不同修订不合一",
+          "missing": "引用不存在/歧义/锁不符"
+        },
+        {
+          "id": "ObjectIdentity",
+          "input": "对象发行域+稳定标识+可观察存在域",
+          "contract": "身份相等须经相同发行域或资格化映射；不以值等价代替",
+          "missing": "未物化/不可信映射"
+        },
+        {
+          "id": "NominalType",
+          "input": "精确TypeRef及版本、成员契约",
+          "contract": "名义区分，结构相似不得自动替代",
+          "missing": "类型解释或精化缺失"
+        },
+        {
+          "id": "Role",
+          "input": "局部符号、类型与生命周期/观察用途",
+          "contract": "作用域内唯一解析；不同角色可绑定同物但不能靠同名推断",
+          "missing": "未绑定/捕获/别名违规"
+        },
+        {
+          "id": "Binding",
+          "input": "角色到对象/参数的类型化映射",
+          "contract": "从可信快照获取对象身份与类型；不可由作者自证",
+          "missing": "缺对象/类型/权限"
+        },
+        {
+          "id": "Cardinality",
+          "input": "one/optional/set/bag/sequence",
+          "contract": "保持缺席、去重、多重数与序；仅根据真实身份比较",
+          "missing": "形状不匹配或不完整枚举"
+        },
+        {
+          "id": "Refinement",
+          "input": "源Type、目标Type、使用场景、证据",
+          "contract": "仅证明本次被消费操作的前提及可观察差异保持",
+          "missing": "无见证/方向不匹配/单位不符"
+        }
+      ]
+    },
+    {
+      "id": "K2",
+      "name": "K2 值、谓词与逻辑",
+      "roles": [
+        {
+          "id": "Value",
+          "input": "类型+无损编码+局部来源",
+          "contract": "缺省/null/unknown/absent各有不同语义",
+          "missing": "不能解码/精度损失"
+        },
+        {
+          "id": "Relation",
+          "input": "已声明端点类型、基数、范围",
+          "contract": "关系取值不等于物理连线/调用顺序",
+          "missing": "端点或闭包不合格"
+        },
+        {
+          "id": "PredicateCall",
+          "input": "锁定Meaning签名与全部实参",
+          "contract": "按有资格解释者在指定scope计算判断证据",
+          "missing": "NeedsMeaning/不完整参数"
+        },
+        {
+          "id": "All",
+          "input": "非空公式列表",
+          "contract": "支持取所有支持的合取；反证有一个即可",
+          "missing": "子项未知不得改真"
+        },
+        {
+          "id": "Any",
+          "input": "非空公式列表",
+          "contract": "支持有一个即成立；反证需全部成立",
+          "missing": "子项未知不得改假"
+        },
+        {
+          "id": "Not",
+          "input": "一个公式",
+          "contract": "交换支持与反证，不用缺失作为否定",
+          "missing": "不能把空观察当False"
+        },
+        {
+          "id": "Implies",
+          "input": "前件和后件",
+          "contract": "本限定Profile定义为Not(A) Or B；不创造法定义务",
+          "missing": "不能将未知前件当False"
+        },
+        {
+          "id": "ForEach",
+          "input": "受限集合及有型词法绑定",
+          "contract": "在完整域对所有实例联立；空完整域为真",
+          "missing": "不完整/无限域不得穷尽"
+        },
+        {
+          "id": "Exists",
+          "input": "受限集合及见证作用域",
+          "contract": "有合格见证则成立；空完整域为假",
+          "missing": "未找到不等于无解"
+        }
+      ]
+    },
+    {
+      "id": "K3",
+      "name": "K3 状态与变化",
+      "roles": [
+        {
+          "id": "State",
+          "input": "有身份的模型/世界状态与修订",
+          "contract": "静态状态是一个时点的观察，不等于轨迹",
+          "missing": "快照来源不完整"
+        },
+        {
+          "id": "Transition",
+          "input": "前像+守卫+后像+修改帧",
+          "contract": "只有在Frame范围内才能证明不变量保持",
+          "missing": "副作用/并发帧不覆盖"
+        },
+        {
+          "id": "Event",
+          "input": "发生身份、事件时间和来源",
+          "contract": "事件是有发生证据的变化记录，非命令期望",
+          "missing": "重复/迟到/伪证据"
+        },
+        {
+          "id": "Frame",
+          "input": "可改与不可改的状态/效果范围",
+          "contract": "未声明的共享状态默认不可任意破坏",
+          "missing": "无法证明无干扰"
+        }
+      ]
+    },
+    {
+      "id": "K4",
+      "name": "K4 时间与进展",
+      "roles": [
+        {
+          "id": "Clock",
+          "input": "时钟种类、单调性、精度、漂移界",
+          "contract": "逻辑/事件/处理/墙钟不得凭数值混合",
+          "missing": "无转换或错误基准"
+        },
+        {
+          "id": "Interval",
+          "input": "端点及开闭/时区/边界",
+          "contract": "区间包含/交集按同一时间域定义",
+          "missing": "不合法/不可比较"
+        },
+        {
+          "id": "Horizon",
+          "input": "model-steps/until-event/wall-clock/unbounded",
+          "contract": "范围限制评价域；缺省不默认为无界",
+          "missing": "无准确解释/不合格时钟"
+        },
+        {
+          "id": "Trace",
+          "input": "初态、转移、可观察事件序列",
+          "contract": "保持模型与真实历史区分",
+          "missing": "部分观察不能当完整轨迹"
+        },
+        {
+          "id": "Safety",
+          "input": "相关前缀禁止被破坏",
+          "contract": "有限模型只能证明对应模型前缀或约束闭包",
+          "missing": "不能由单快照推无限安全"
+        },
+        {
+          "id": "Progress",
+          "input": "终止/最终达到/公平性前提",
+          "contract": "必须给出进展见证或有资格的证明规则",
+          "missing": "无界未来未观察不得判成功"
+        }
+      ]
+    },
+    {
+      "id": "K5",
+      "name": "K5 事实与知识",
+      "roles": [
+        {
+          "id": "Assertion",
+          "input": "正/反主张、主体、时空和来源",
+          "contract": "是断言不是已证明的世界真相",
+          "missing": "来源失效/相互矛盾"
+        },
+        {
+          "id": "Observation",
+          "input": "真实/模型观察器、快照、范围、版本",
+          "contract": "只陈述实际读取的证据与覆盖",
+          "missing": "超时/陈旧/拒绝披露"
+        },
+        {
+          "id": "Completeness",
+          "input": "权威有限域、快照、权限、负查询规则",
+          "contract": "仅完整覆盖支持从缺失推出域内否定",
+          "missing": "开放/分页未完不能闭世界"
+        },
+        {
+          "id": "Assumption",
+          "input": "显式环境与领域前提、来源",
+          "contract": "条件性资格；不得当外部事实或Grant",
+          "missing": "前提不能取得或被反证"
+        },
+        {
+          "id": "TruthEvidence",
+          "input": "支持集与反证集、独立scope",
+          "contract": "四状态(真支持/假支持/两者/均无)按证据组合",
+          "missing": "冲突和未知不得布尔折叠"
+        }
+      ]
+    },
+    {
+      "id": "K6",
+      "name": "K6 意图与规范",
+      "roles": [
+        {
+          "id": "Achieve",
+          "input": "谓词、成功观察点、时限或锁定默认",
+          "contract": "目标在要求的完成点成立，带正常功能与进展责任",
+          "missing": "只在中间态成立或期限未知"
+        },
+        {
+          "id": "Maintain",
+          "input": "谓词及受限历史范围",
+          "contract": "约束该范围相关状态和变化",
+          "missing": "单次读回不足以签未来"
+        },
+        {
+          "id": "Avoid",
+          "input": "禁止状态/事件/效果及适用域",
+          "contract": "约束每个相关发生、不是UI不可见",
+          "missing": "未覆盖事件历史"
+        },
+        {
+          "id": "Oblige",
+          "input": "责任者/触发/履行/期限/有权规则",
+          "contract": "生成规范义务实例及免除/违约判定接口",
+          "missing": "缺合法权威或触发记录"
+        },
+        {
+          "id": "Permit",
+          "input": "主体/行动/许可来源/例外/范围",
+          "contract": "规范许可陈述，绝不等于Host Grant",
+          "missing": "无权限来源/规范冲突"
+        },
+        {
+          "id": "Prefer",
+          "input": "质量度量、方向、比较域、优先级",
+          "contract": "硬合格候选内比较，不覆盖任何硬要求",
+          "missing": "不可比/缺测不产生最优"
+        }
+      ]
+    },
+    {
+      "id": "K7",
+      "name": "K7 资源与约束",
+      "roles": [
+        {
+          "id": "Quantity",
+          "input": "类型化值和量纲",
+          "contract": "维度相同并有合格转换时方可算术",
+          "missing": "精度/单位无依据"
+        },
+        {
+          "id": "Unit",
+          "input": "单位定义/转换与误差",
+          "contract": "保持精确性及舍入规则",
+          "missing": "不相容量纲"
+        },
+        {
+          "id": "Resource",
+          "input": "拥有者/生命周期/竞争域",
+          "contract": "静态容量与实际可调度资源不等价",
+          "missing": "失效/占用未读取"
+        },
+        {
+          "id": "Ownership",
+          "input": "独占/共享/借用/转移规则",
+          "contract": "资源权属守恒；借用不扩展权限",
+          "missing": "双重拥有/释放失责"
+        },
+        {
+          "id": "Capacity",
+          "input": "时间交叠、使用量与可用量",
+          "contract": "共同冲突域联合判断；不能逐目标PASS后拼接",
+          "missing": "非原子更新/未知峰值"
+        },
+        {
+          "id": "Constraint",
+          "input": "有作用域的硬限制和禁止",
+          "contract": "所有生效硬条件合取；软偏好不覆盖",
+          "missing": "真实冲突/不完整求解"
+        },
+        {
+          "id": "Quality",
+          "input": "可比较维度及数据来源",
+          "contract": "目标无量纲不能无依据相加",
+          "missing": "没有量纲/测量/可比规则"
+        }
+      ]
+    },
+    {
+      "id": "K8",
+      "name": "K8 外部作用与恢复",
+      "roles": [
+        {
+          "id": "EffectIntent",
+          "input": "希望产生的外部变化与限制",
+          "contract": "描述/计划并不发起执行",
+          "missing": "缺真实Method/授权"
+        },
+        {
+          "id": "Grant",
+          "input": "当前主体、资源、作用、有效期及撤销代际",
+          "contract": "执行许可由有权宿主动态检查",
+          "missing": "政策允许不等于持有Grant"
+        },
+        {
+          "id": "Operation",
+          "input": "逻辑操作身份、幂等域、前置/效果",
+          "contract": "跨尝试稳定，避免改名重复效果",
+          "missing": "未分配或错误身份"
+        },
+        {
+          "id": "Attempt",
+          "input": "一次派发及其物理回执",
+          "contract": "超时/取消只改变观察，不证实无效果",
+          "missing": "发出后未知结果"
+        },
+        {
+          "id": "Settlement",
+          "input": "确认发生/未发生/部分/未知并有范围",
+          "contract": "不得仅按API/进程返回值结算",
+          "missing": "迟到效果/双重结算"
+        },
+        {
+          "id": "Readback",
+          "input": "权威观察通道、覆盖、时点",
+          "contract": "观察结果只支持实际覆盖的操作/主体",
+          "missing": "负查询不完整"
+        },
+        {
+          "id": "Compensation",
+          "input": "针对原操作的恢复/抵销意图",
+          "contract": "补偿是新效果，不抹去旧操作事实",
+          "missing": "可能双退款/不可逆"
+        }
+      ]
+    },
+    {
+      "id": "K9",
+      "name": "K9 实现、证据与演进",
+      "roles": [
+        {
+          "id": "RequirementUse",
+          "input": "DefinitionRef、实例角色及来源",
+          "contract": "只读导出既有Requirement的已解释义务",
+          "missing": "引用/资格不完整"
+        },
+        {
+          "id": "MethodSpec",
+          "input": "前提/保证/效果/帧/错误/成本/平台",
+          "contract": "供应只是候选，资格由联合精化取得",
+          "missing": "缺实现/不支持/证据无效"
+        },
+        {
+          "id": "QualifiedBinding",
+          "input": "真实Method、用途、锁及证据",
+          "contract": "在准确域内满足当前全部合取要求",
+          "missing": "联合不变量未证"
+        },
+        {
+          "id": "TargetArtifact",
+          "input": "生成源码/配置/依赖/映射/构建闭包",
+          "contract": "完整交付需所有必要组件合格",
+          "missing": "stub/缺成员/无法构建"
+        },
+        {
+          "id": "Claim",
+          "input": "主张的主体、范围、量词及证据门槛",
+          "contract": "不能超出声明的证据覆盖",
+          "missing": "越界推断"
+        },
+        {
+          "id": "Evidence",
+          "input": "方法/观察/来源/独立性/时效",
+          "contract": "支持具体Claim，生成器自测不自动独立",
+          "missing": "不新鲜/利益冲突"
+        },
+        {
+          "id": "Revision",
+          "input": "源/解释/供应/目标各自修订",
+          "contract": "按相交读取集使缓存与资格失效",
+          "missing": "仅改名称而漏变更"
+        },
+        {
+          "id": "Compatibility",
+          "input": "旧新语义和在途实例的迁移关系",
+          "contract": "兼容必须考虑旧读者、状态和恢复",
+          "missing": "版本号并非证明"
+        },
+        {
+          "id": "SourceMap",
+          "input": "作者位置到义务/方法/目标的可追踪关系",
+          "contract": "派生只读；编辑回原拥有者",
+          "missing": "双写或定位漂移"
+        }
+      ]
+    }
+  ]
+}

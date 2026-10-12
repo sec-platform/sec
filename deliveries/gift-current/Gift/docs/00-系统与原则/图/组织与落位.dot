@@ -1,0 +1,40 @@
+digraph G { graph [rankdir=TB, bgcolor="white", pad="0.35", nodesep="0.35", ranksep="0.55", splines=polyline, fontname="Noto Sans CJK SC"]; node [shape=box, style="rounded", fontname="Noto Sans CJK SC", fontsize=12, margin="0.18,0.12"]; edge [fontname="Noto Sans CJK SC", fontsize=10, arrowsize=0.7];
+label="同一工程：组成、合同、表示与真实变化"; labelloc=t; fontsize=20;
+input [label="准确来源 / 作者 / 观察
+身份 · 配置 · 规则 · 覆盖"];
+semantic [label="语义与要求
+接口 / 不变量 / 资源 / 错误"];
+realize [label="原 RealizationPlan
+选择组件、包、事务与隔离"];
+layout [label="原 SourceLayoutPlan / 文档组织
+成员 · 有类型约束 · 名称 · 映射"];
+code [label="源码 / 模块 / 配置"];
+doc [label="规范正文 / 文档目录"];
+pack [label="制品 / 包成员"];
+view [label="导航 / Workbench树"];
+residual [label="跨边引用与来源
+依赖 · 权限 · 证据 · 谱系",shape=note];
+action [label="原 workspace / execution
+候选 + 当前前像 + 合法准入"];
+world [label="真实写入 / 构建 / 运行
+回执 · 不确定完成 · 恢复"];
+observe [label="观察 / 读回"];
+assure [label="原 Assurance
+准确 Claim / Evidence / 覆盖"];
+input -> semantic [label="解释，不覆盖来源"];
+semantic -> realize [label="硬义务与合法自由"];
+realize -> layout [label="已选择的架构"];
+layout -> realize [label="真实冲突反馈",style=dashed];
+layout -> code; layout -> doc; layout -> pack; layout -> view;
+{rank=same;code;doc;pack;view;}
+layout -> residual [label="保留非父子关系",style=dashed];
+code -> action [label="请求真实改写时"];
+doc -> action;pack -> action;
+view -> action [style=dashed,label="仅显式编辑路由"];
+action -> world [label="不是布局自带权限"];
+world -> observe;
+observe -> assure;
+semantic -> assure [style=dashed,label="独立要求"];
+layout -> assure [style=dashed,label="也可先做静态检查"];
+assure -> realize [style=dashed,label="相交失效 / 重算"];
+}

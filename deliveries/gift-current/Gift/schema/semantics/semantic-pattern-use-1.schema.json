@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:semantic-pattern-use-1",
+  "title": "Gift semantic:pattern-use Definition body /1 — proposed versioned source placement (design only)",
+  "description": "Uses exactly one accepted pattern by locked DefinitionRef; records only instance-specific role and variation selection. Not a product decoder, not an Intent/body modification, not a second Requirement writer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "representation",
+    "patternRef",
+    "roleBindings",
+    "variationSelections",
+    "observationSelection"
+  ],
+  "properties": {
+    "representation": {
+      "const": "gift.semantic-pattern-use/1"
+    },
+    "patternRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definitionId"
+          ],
+          "properties": {
+            "definitionId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "import",
+            "export"
+          ],
+          "properties": {
+            "import": {
+              "type": "string",
+              "minLength": 1
+            },
+            "export": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "roleBindings": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "objectRef"
+        ],
+        "properties": {
+          "objectRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "identityEvidenceRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "variationSelections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definitionRef",
+          "selectionSourceRef"
+        ],
+        "properties": {
+          "definitionRef": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "definitionId"
+                ],
+                "properties": {
+                  "definitionId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "import",
+                  "export"
+                ],
+                "properties": {
+                  "import": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "export": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          },
+          "selectionSourceRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "observationSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeRef",
+        "observationRef"
+      ],
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observationRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "completenessEvidenceRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "authorNotes": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+digraph G { graph [rankdir=TB, bgcolor="white", pad="0.35", nodesep="0.35", ranksep="0.55", splines=polyline, fontname="Noto Sans CJK SC"]; node [shape=box, style="rounded", fontname="Noto Sans CJK SC", fontsize=12, margin="0.18,0.12"]; edge [fontname="Noto Sans CJK SC", fontsize=10, arrowsize=0.7];
+label="生成结果与用户编辑：三方合并、前像和恢复"; labelloc=t; fontsize=20;
+b [label="B：上次准确生成"];
+w [label="W：当前真实内容"];
+n [label="N：本次新候选"];
+{rank=same;b;w;n;}
+merge [label="按领域合同比较
+内容 + 身份 + 路径 + 消费者"];
+noedit [label="W = B
+可提出更新为N"];
+onlyuser [label="N = B 且 W ≠ B
+保留用户变化"];
+both [label="双方变化 / 删除 / 新建
+合格合并或明确冲突"];
+plan [label="统一作用计划
+旧/新路径 · 必要引用更新 · 前像"];
+admit [label="执行时重核权限与前像"];
+conflict [label="前像改变
+保全内容，重基或冲突"];
+effect [label="按真实原子域写入
+必要时先记恢复意图"];
+read [label="回执与读回
+逐对象结算"];
+unknown [label="部分失败 / 结果未知
+原尝试继续恢复，不盲重放"];
+done [label="仅在实际范围内完成
+旧消费者保留责任单独结束"];
+b -> merge;w -> merge;n -> merge;
+merge -> noedit;merge -> onlyuser;merge -> both;
+noedit -> plan;both -> plan [label="仅合格候选"];
+plan -> admit;
+admit -> conflict [label="不相容"];
+admit -> effect [label="前提仍成立"];
+effect -> read;
+effect -> unknown [style=dashed];
+unknown -> read [label="原owner恢复"];
+read -> done [label="真实完成"];
+read -> unknown [label="未决",style=dashed];
+}

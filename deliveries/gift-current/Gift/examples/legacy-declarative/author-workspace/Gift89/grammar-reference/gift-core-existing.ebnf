@@ -1,0 +1,55 @@
+// EXTRACT ONLY from Gift 88 design. Not a standalone grammar accepted by a compiler.
+// Source path: docs/20-语义与组合/基础语义/计算基础/文法类型与求值.md
+
+// Original EBNF block 1
+Module       = { Import | TypeDecl | Function | PortDecl | BindDecl | ConstDecl } ;
+Import       = "import" String ["as" Ident] ";" ;
+TypeDecl     = ["export"] ["opaque"] "type" Ident [TypeParams] "=" DeclType ";" ;
+DeclType     = SumType | Type ;
+Function     = ["export"] "fn" Ident [TypeParams] "(" [Params] ")"
+               (["->" ReturnType] [Effects] {Pre} {Post} "=" Expr ";"
+               | "->" ReturnType [Effects] {Pre} {Post} ";") ;
+Pre          = "require" Expr ;
+Post         = "ensure" Expr ;
+PortDecl     = ["export"] "port" Ident ":" "(" [TypeList] ")" "->" ReturnType Effects ";" ;
+BindDecl     = "bind" QualifiedName "=" BindingExpr ";" ;
+ConstDecl    = ["export"] "let" Ident [":" Type] "=" StaticExpr ";" ;
+TypeParams   = "<" Ident {"," Ident} ">" ;
+Params       = Ident ":" Type {"," Ident ":" Type} ;
+Effects      = "!" "{" [QualifiedName {"," QualifiedName}] "}" ;
+TypeList     = Type {"," Type} ;
+QualifiedName = Ident {"." Ident} ;
+Type         = FunctionType | RecordType | NamedType | GroupedType ;
+ReturnType   = RecordType | NamedType | GroupedType ;
+GroupedType  = "(" Type ")" ;
+NamedType    = QualifiedName ["<" TypeList ">"] ;
+RecordType   = "{" [Ident ":" Type {"," Ident ":" Type}] "}" ;
+FunctionType = "(" [TypeList] ")" "->" ReturnType [Effects] ;
+SumType      = Variant {"|" Variant} ;
+Variant      = Ident "(" [TypeList] ")" ;
+Expr         = Lambda | LetExpr | IfExpr | MatchExpr | UpdateExpr ;
+UpdateExpr   = OrExpr ["with" "{" Ident ":" Expr {"," Ident ":" Expr} "}"] ;
+Lambda       = (Ident | "(" [Params] ")") "=>" Expr ;
+LetExpr      = "let" Ident [":" Type] "=" Expr ";" Expr ;
+IfExpr       = "if" Expr "then" Expr "else" Expr ;
+MatchExpr    = "match" Expr "{" CaseArm {CaseArm} "}" ;
+CaseArm      = "case" Pattern "=>" Expr ";" ;
+Pattern      = "_" | "()" | ["-"] Integer | String | "true" | "false"
+             | "[" "]" | "[" Ident "," ".." Ident "]"
+             | QualifiedName "(" [Pattern {"," Pattern}] ")" | Ident ;
+OrExpr       = AndExpr {"||" AndExpr} ;
+AndExpr      = CompareExpr {"&&" CompareExpr} ;
+CompareExpr  = AddExpr [("==" | "!=" | "<" | "<=" | ">" | ">=") AddExpr] ;
+AddExpr      = MulExpr {("+" | "-") MulExpr} ;
+MulExpr      = PrefixExpr {("*" | "/" | "%") PrefixExpr} ;
+PrefixExpr   = {"!" | "+" | "-"} PostfixExpr ;
+PostfixExpr  = Primary {"." Ident | "(" [Arguments] ")"} ;
+Arguments    = Argument {"," Argument} ;
+Argument     = [Ident ":"] Expr ;
+Primary      = Integer | String | "true" | "false" | "result" | Ident
+             | "(" [Expr] ")" | RecordValue | ListValue | BlockExpr ;
+RecordValue  = "{" [Ident ":" Expr {"," Ident ":" Expr}] "}" ;
+ListValue    = "[" [Expr {"," Expr} ["," ".." Expr] | ".." Expr] "]" ;
+BlockExpr    = "{" {"let" Ident [":" Type] "=" Expr ";"} Expr "}" ;
+StaticExpr   = Expr ;
+BindingExpr  = Expr ;
