@@ -30,7 +30,7 @@ class ProjectionModes(TestCase):
         # This fixture isolates projection admission; architecture closure is tested by its owner.
         review = patch.object(check_design, 'review', return_value={
             'modules': 0, 'static_edges': 0, 'decisions': [], 'mermaid_sources': [],
-            'deliverables': {'count': 0}})
+            'deliverables': {'count': 0, 'target_semantic_validation': 'not-performed'}})
         review.start()
         self.addCleanup(review.stop)
 

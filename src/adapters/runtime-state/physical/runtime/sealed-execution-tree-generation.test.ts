@@ -436,7 +436,7 @@ test('canonical path trie rejects ancestor, case and reserved equivalents with z
   }
 }, 60_000);
 
-test('protected roots reject forged, overlapping and replaced capabilities before publication', async () => {
+test('protected roots reject forged, overlapping, released and live replacement before publication', async () => {
   const fixture = await createFixture('sealed-execution-tree-protected-root');
   const subject = await createMutableProtectedSubject(fixture, 'protected-root');
   const protectedRoot = subject.capability;
@@ -471,14 +471,35 @@ test('protected roots reject forged, overlapping and replaced capabilities befor
   const replacementSubject = await createMutableProtectedSubject(replacement, 'replacement');
   const replacementProtectedRoot = replacementSubject.capability;
   try {
+    const originalPath = `${replacementSubject.subjectPath}-retained-original`;
+    if (process.platform === 'win32') {
+      await expect(rename(replacementSubject.subjectPath, originalPath))
+        .rejects.toMatchObject({ code: expect.stringMatching(/^(?:EPERM|EACCES|EBUSY)$/u) });
+      await replacementProtectedRoot.assertCurrent();
+      expect(inspectNoFollowDirectoryChain(replacementSubject.subjectPath, 'retained protected root').target)
+        .toEqual(replacementSubject.root);
+    } else {
+      await rename(replacementSubject.subjectPath, originalPath);
+      await mkdir(replacementSubject.subjectPath);
+      try {
+        await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
+          ...base,
+          generationParent: replacement.generationParent,
+          protectedRoots: [replacementProtectedRoot]
+        })).rejects.toThrow();
+        expect(await readdir(replacement.generationParent.path)).toEqual([]);
+      } finally {
+        await rm(replacementSubject.subjectPath, { recursive: true, force: true });
+        await rename(originalPath, replacementSubject.subjectPath);
+      }
+      await replacementProtectedRoot.assertCurrent();
+    }
     replacementProtectedRoot.release();
-    await rm(replacementSubject.subjectPath, { recursive: true, force: true });
-    await mkdir(replacementSubject.subjectPath);
     await expect(materializeRetainedSealedPhysicalExecutionTreeGeneration({
       ...base,
       generationParent: replacement.generationParent,
       protectedRoots: [replacementProtectedRoot]
-    })).rejects.toThrow();
+    })).rejects.toThrow('protected root is released');
     expect(await readdir(replacement.generationParent.path)).toEqual([]);
   } finally {
     replacementProtectedRoot.release();

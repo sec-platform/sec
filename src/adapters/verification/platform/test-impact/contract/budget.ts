@@ -136,6 +136,41 @@ function slowFileSuite(
 // Slow e2e suites are file-granular by default so CI can shard them with the
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze([
+  slowPathSuite(
+    'unit-content-hash-provider-boundary',
+    'tests/unit/content-hash-provider-boundary.test.ts',
+    'content-hash-capability-boundary',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'git-bundle-native-scale',
+    'src/adapters/providers/git-bundle/runtime-scale.test.ts',
+    'git-candidate-bundle',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'git-ref-effect-native-scale',
+    'src/adapters/providers/git/ref-effect-scale.test.ts',
+    'git-ref-effect',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'integration-typescript-native-package-layout',
+    'tests/integration/typescript-native-package-layout.test.ts',
+    'typescript-native-package-layout',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'contract-typecheck-provider-native',
+    'tests/contract/typecheck-provider-native.test.ts',
+    'typescript-native-checker',
+    180_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
   // These suites acquire the full repository semantic graph. Keep them out of
   // fast batches and serialize their resource-heavy execution through this owner.
   slowPathSuite('contract-ci-lanes', 'tests/contract/ci-lanes.test.ts', 'ci-plan-and-selection', 180_000, {
@@ -308,16 +343,10 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     300_000
   ),
   slowFileSuite('e2e-upgrade', 'upgrade', 'compiler-upgrade-e2e', 180_000, { parallelSafe: true }),
-  {
-    ...slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 900_000, {
-      parallelSafe: true,
-      prRiskBaseline: true
-    }),
-    files: [
-      e2eTestFile('verification'),
-      e2eTestFile('verification-session-closeout-cli')
-    ]
-  },
+  slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 900_000, {
+    parallelSafe: true,
+    prRiskBaseline: true
+  }),
   slowFileSuite('e2e-windows-appcontainer-executor', 'windows-appcontainer-executor', 'windows-appcontainer-native-e2e', 180_000, {
     resourceClass: 'runtime-heavy'
   }),

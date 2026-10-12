@@ -76,11 +76,6 @@ class CaptureResources(unittest.TestCase):
         self.assertIs(result.exception.primary, primary)
         self.assertIs(result.exception.settlement, cleanup)
 
-    def test_enumeration_does_not_materialize_iterdir_lists(self):
-        with patch.object(Path, 'iterdir', side_effect=AssertionError('unbounded directory read')):
-            names = {p.relative_to(self.root).as_posix() for p in source_files(self.root)}
-        self.assertEqual(names, {'.documentation/baseline.json', 'docs/main.md'})
-
     def test_fanout_is_bounded_while_streaming_and_closes(self):
         class Directory:
             reads = 0

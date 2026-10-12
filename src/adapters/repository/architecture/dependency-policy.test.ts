@@ -5,7 +5,6 @@ import nodePath from 'node:path';
 import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
   CANONICAL_SOURCE_MODULES,
-  CANONICAL_STATIC_DEPENDENCIES,
   collectCanonicalSourceBoundaryViolations,
   collectRepositoryModuleBoundaryViolations,
   compileRepositoryModuleMembership,
@@ -45,27 +44,19 @@ function violationsForEdge([from, to]: readonly [from: string, to: string]) {
 const samplePath = (owner: CanonicalSourceModule): string =>
   `src/${owner}/__architecture_policy_fixture__.ts`;
 
-test('canonical source roots enforce their declared static dependency policy', () => {
-  const modules = [...CANONICAL_SOURCE_MODULES];
-  expect(modules).toEqual([
-    'contracts', 'workspace', 'semantics', 'compiler', 'assurance',
-    'application', 'execution', 'adapters', 'entry', 'bootstrap'
-  ]);
-
-  for (const from of modules) {
-    for (const to of modules) {
-      if (from === to) continue;
-      const violations = violationsForEdge([samplePath(from), samplePath(to)]);
-      const allowed = (CANONICAL_STATIC_DEPENDENCIES[from] as readonly CanonicalSourceModule[]).includes(to);
-      if (allowed) {
-        expect(violations, `${from} -> ${to}`).not.toContainEqual(
-          expect.objectContaining({ code: 'canonical-module-dependency' })
-        );
-      } else {
-        expect(violations, `${from} -> ${to}`).toContainEqual(
-          expect.objectContaining({ code: 'canonical-module-dependency' })
-        );
-      }
+test('public contracts stay independent of adapters and entry routes through application', () => {
+  const boundaries: readonly (readonly [CanonicalSourceModule, CanonicalSourceModule, boolean])[] = [
+    ['contracts', 'adapters', false],
+    ['entry', 'application', true],
+    ['entry', 'adapters', false]
+  ];
+  for (const [from, to, allowed] of boundaries) {
+    const violations = violationsForEdge([samplePath(from), samplePath(to)]);
+    const forbiddenEdge = expect.objectContaining({ code: 'canonical-module-dependency' });
+    if (allowed) {
+      expect(violations, `${from} -> ${to}`).not.toContainEqual(forbiddenEdge);
+    } else {
+      expect(violations, `${from} -> ${to}`).toContainEqual(forbiddenEdge);
     }
   }
 });

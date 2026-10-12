@@ -232,7 +232,8 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
         d = check_design.review(root)
         design = {'declared_modules': d['modules'], 'declared_static_edges': d['static_edges'],
                   'decisions_with_adoption_and_enforcement': len(d['decisions']), 'diagram_sources': len(d['mermaid_sources']),
-                  'concrete_deliverables_with_author_semantics_and_target_contract': d['deliverables']['count']}
+                  'concrete_deliverables_with_author_and_semantic_references': d['deliverables']['count'],
+                  'target_semantic_validation': d['deliverables']['target_semantic_validation']}
     except (OSError, ValueError) as exc:
         errors.append('design joins: ' + str(exc))
     if manifest != capture_source_manifest(root): errors.append('source changed during verification')

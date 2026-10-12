@@ -1,5 +1,6 @@
 """Standard-library boundary checks for the canonical documentation gate."""
 from pathlib import Path
+import hashlib
 import json
 import tempfile
 import unittest
@@ -9,7 +10,6 @@ from source_inventory import (
     local_path,
     refresh_source_manifest,
     source_files,
-    source_set_digest,
 )
 
 
@@ -112,13 +112,23 @@ class SourceBoundary(unittest.TestCase):
         authority = self.root / 'docs/产品/产品要求与工作约束.md'
         authority.parent.mkdir()
         authority.write_text('\n\n'.join(f'### REQ{i:03d}｜R {i}\ntext' for i in range(1,52)))
+        expected_names = ['.documentation/baseline.json', 'docs/产品/产品要求与工作约束.md', 'docs/规则.md']
+        expected_members = []
+        for name in expected_names:
+            payload = (self.root / name).read_bytes()
+            expected_members.append({'path': name, 'bytes': len(payload),
+                                     'sha256': hashlib.sha256(payload).hexdigest()})
+        encoded_members = json.dumps(expected_members, ensure_ascii=False, sort_keys=True,
+                                     separators=(',', ':'), allow_nan=False).encode('utf-8')
+        expected_digest = hashlib.sha256(encoded_members).hexdigest()
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
         names = [member['path'] for member in manifest['members']]
         self.assertEqual(names, sorted(names))
-        self.assertEqual(names, ['.documentation/baseline.json', 'docs/产品/产品要求与工作约束.md', 'docs/规则.md'])
-        self.assertEqual(manifest['source_set_sha256'], source_set_digest(manifest['members']))
+        self.assertEqual(names, expected_names)
+        self.assertEqual(manifest['members'], expected_members)
+        self.assertEqual(manifest['source_set_sha256'], expected_digest)
         self.assertNotIn('source_set_sha256', baseline)
         self.assertEqual(result['source_members'], 3)
 

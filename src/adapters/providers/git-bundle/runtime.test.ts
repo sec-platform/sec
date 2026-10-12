@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ResourceCompositeSettlementError } from '../../../execution/resource-settlement.ts';
 import { isGitCandidateBundleByteLength } from '../../runtime-state/physical/contract/git-bundle.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { createGitBundleTestFixture } from './test/runtime-fixture.ts';
 
 import {
   assertGitCandidateBundleCurrent,
@@ -21,48 +20,7 @@ import {
   type GitCandidateCheckout
 } from './runtime.ts';
 
-const roots: string[] = [];
-
-function temporaryRoot(label: string): string {
-  const root = mkdtempSync(path.join(tmpdir(), `sec-git-bundle-${label}-`));
-  roots.push(root);
-  return root;
-}
-
-function git(cwd: string, args: readonly string[]): string {
-  const result = Bun.spawnSync(['git', ...args], {
-    cwd,
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_TERMINAL_PROMPT: '0'
-    },
-    stdout: 'pipe',
-    stderr: 'pipe'
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(new TextDecoder().decode(result.stderr));
-  }
-  return new TextDecoder().decode(result.stdout).trim();
-}
-
-function repositoryFixture(): Readonly<{
-  root: string;
-  baseSha: string;
-  headSha: string;
-}> {
-  const root = temporaryRoot('repository');
-  git(root, ['init', '--quiet']);
-  git(root, ['config', 'user.name', 'SEC Test']);
-  git(root, ['config', 'user.email', 'sec-test@example.invalid']);
-  writeFileSync(path.join(root, 'value.txt'), 'base\n');
-  git(root, ['add', '--', 'value.txt']);
-  git(root, ['commit', '--quiet', '-m', 'base']);
-  const baseSha = git(root, ['rev-parse', 'HEAD']);
-  writeFileSync(path.join(root, 'value.txt'), 'head\n');
-  git(root, ['commit', '--quiet', '-am', 'head']);
-  return Object.freeze({ root, baseSha, headSha: git(root, ['rev-parse', 'HEAD']) });
-}
+const { roots, temporaryRoot, git, repositoryFixture } = createGitBundleTestFixture();
 
 afterEach(() => {
   for (const root of roots.splice(0).reverse()) {
@@ -77,45 +35,6 @@ describe('Git candidate bundle effect', () => {
     for (const invalid of [0, -1, 0.5, 16 * 1024 * 1024 + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(isGitCandidateBundleByteLength(invalid)).toBe(false);
     }
-  });
-
-  test('retains complete history larger than eight MiB even when the current tree is small', async () => {
-    const repository = repositoryFixture();
-    const oldFile = path.join(repository.root, 'historical.bin');
-    writeFileSync(oldFile, randomBytes(9 * 1024 * 1024));
-    git(repository.root, ['add', '--', 'historical.bin']);
-    git(repository.root, ['commit', '--quiet', '-m', 'historical content']);
-    const historySha = git(repository.root, ['rev-parse', 'HEAD']);
-    rmSync(oldFile);
-    git(repository.root, ['commit', '--quiet', '-am', 'remove current content']);
-    const headSha = git(repository.root, ['rev-parse', 'HEAD']);
-    const outputRoot = temporaryRoot('complete-history');
-    const bundle = await createGitCandidateBundle({ sourceRoot: repository.root,
-      temporaryRoot: outputRoot, baseSha: headSha, headSha });
-    try {
-      expect(bundle.bundleSize).toBeGreaterThan(8 * 1024 * 1024);
-      const restored = temporaryRoot('restored-history');
-      git(restored, ['init', '--quiet']);
-      git(restored, ['fetch', '--quiet', bundle.bundlePath, 'refs/sec/head']);
-      expect(git(restored, ['rev-parse', 'FETCH_HEAD'])).toBe(headSha);
-      expect(git(restored, ['cat-file', '-s', `${historySha}:historical.bin`])).toBe(String(9 * 1024 * 1024));
-      expect(git(restored, ['ls-tree', '--name-only', 'FETCH_HEAD'])).not.toContain('historical.bin');
-    } finally {
-      assertGitCandidateBundleReceipt(closeGitCandidateBundle(bundle), bundle);
-    }
-  });
-
-  test('rejects history exceeding sixteen MiB without publishing a partial bundle', async () => {
-    const repository = repositoryFixture();
-    writeFileSync(path.join(repository.root, 'large.bin'), randomBytes(17 * 1024 * 1024));
-    git(repository.root, ['add', '--', 'large.bin']);
-    git(repository.root, ['commit', '--quiet', '-m', 'oversized history']);
-    const headSha = git(repository.root, ['rev-parse', 'HEAD']);
-    const outputRoot = temporaryRoot('oversized-history');
-    await expect(createGitCandidateBundle({ sourceRoot: repository.root,
-      temporaryRoot: outputRoot, baseSha: headSha, headSha })).rejects.toThrow('stdout exceeded 16777216 bytes');
-    expect(existsSync(path.join(outputRoot, 'candidate.bundle'))).toBe(false);
-    expect(git(repository.root, ['cat-file', '-s', `${headSha}:large.bin`])).toBe(String(17 * 1024 * 1024));
   });
 
   test('publishes one verified retained bundle for the exact base and head', async () => {

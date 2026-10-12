@@ -42,6 +42,11 @@ test('identity parsing copies and freezes exact metadata for its consumer', () =
   assert.notEqual(captured, input);
   const nullPrototype = Object.assign(Object.create(null), record());
   assert.deepEqual(parseIdentity(nullPrototype, 'evidence', 'record/v2'), record());
+  // @ts-expect-error same 32 bytes cannot erase the semantic domain
+  const revision: Identity<'revision', 'record/v2'> = captured;
+  // @ts-expect-error schema version remains part of the identity type
+  const older: Identity<'evidence', 'record/v1'> = captured;
+  void revision; void older;
 });
 
 test('mixed algorithms, profiles, domains and schemas fail before digest use', () => {
@@ -80,13 +85,4 @@ test('identity parser does not interrogate proxy traps', () => {
     getOwnPropertyDescriptor() { throw new Error('trap invoked'); }
   });
   assert.throws(() => parseIdentity(input, 'evidence', 'record/v2'), TypeError);
-});
-
-test('identity brands preserve semantic domain and schema separation', () => {
-  const evidence = parseIdentity(record(), 'evidence', 'record/v2');
-  // @ts-expect-error same 32 bytes cannot erase the semantic domain
-  const revision: Identity<'revision', 'record/v2'> = evidence;
-  // @ts-expect-error schema version remains part of the identity type
-  const older: Identity<'evidence', 'record/v1'> = evidence;
-  void revision; void older;
 });

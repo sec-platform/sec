@@ -24,6 +24,11 @@ test('digest grammar requires an explicit supported algorithm and exact lowercas
   assert.equal(isDigestHex(abc), true);
   assert.equal(isDigestHex(`${'a'.repeat(63)}\n`), false);
   assert.equal(isDigestHex(`sha256:${abc}`), false);
+  const value = parseDigest(`sha256:${abc}`, 'sha256');
+  const sha: Digest<'sha256'> = value;
+  // @ts-expect-error algorithm is part of the type, not just a shared 32-byte payload
+  const b3: Digest<'blake3'> = value;
+  void sha; void b3;
 });
 
 test('legacy raw SHA-256 still hashes bytes, not JSON strings', () => {
@@ -105,12 +110,4 @@ test('canonical hashing remains stack-safe and preserves shared acyclic values',
   let deep: unknown = null;
   for (let index = 0; index < 20_000; index += 1) deep = [deep];
   assert.equal(sha256(deep), rawSha256(`${'['.repeat(20_000)}null${']'.repeat(20_000)}`));
-});
-
-test('algorithm brands are not interchangeable', () => {
-  const value = parseDigest(`sha256:${abc}`, 'sha256');
-  const sha: Digest<'sha256'> = value;
-  // @ts-expect-error algorithm is part of the type, not just a shared 32-byte payload
-  const b3: Digest<'blake3'> = value;
-  void sha; void b3;
 });

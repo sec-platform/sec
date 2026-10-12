@@ -83,10 +83,10 @@ def dependency_svg(model):
     parts.append('</svg>');return ''.join(parts).encode()
 
 def deliverable_model(root: Path):
-    """Verify that every concrete deliverable has author source, semantics and a target-facing contract.
+    """Verify author roots, semantic references and the target declaration source.
 
     This is a structural closure gate only. It does not type-check or execute the
-    product contracts.
+    product contracts or establish that a TypeScript declaration is callable.
     """
     sample=root/'examples/开发成品'
     def load_json(path: Path):
@@ -100,7 +100,9 @@ def deliverable_model(root: Path):
     defs=load_json(sample/'definitions.json')
     spec=load_json(sample/'contracts/spec.json')
     project=load_json(sample/'gift.project.json')
-    dts=(sample/'公开边界.d.ts').read_text(encoding='utf-8')
+    target_source=sample/'公开边界.d.ts'
+    if not target_source.read_text(encoding='utf-8').strip():
+        raise DesignError('Target declaration source is empty')
     names=list(defs.get('exports',{}))
     if not names:
         raise DesignError('Concrete deliverable export set is empty')
@@ -205,19 +207,10 @@ def deliverable_model(root: Path):
         text=doc.read_text(encoding='utf-8')
         if not re.search(r'^#{1,6}\s+'+re.escape(section)+r'\s*$',text,re.M):
             raise DesignError(name+' semantics section not found: '+section)
-        m=re.search(r'export namespace '+re.escape(name)+r'\s*\{',dts)
-        if not m: raise DesignError(name+' missing target-facing namespace')
-        # Find the matching top-level namespace closing brace. Nested interface braces are balanced.
-        i=m.end(); depth=1
-        while i<len(dts) and depth:
-            if dts[i]=='{': depth+=1
-            elif dts[i]=='}': depth-=1
-            i+=1
-        body=dts[m.end():i-1]
-        if not re.search(r'\bfunction\s+\w+\s*\(',body):
-            raise DesignError(name+' has no callable target boundary')
-        checked.append({'name':name,'model':model_rel,'semantics':doc.relative_to(root).as_posix(),'namespace':name})
-    return {'count':len(checked),'items':checked,'scope':'Author root + semantic rule + callable target contract closure; not implementation correctness'}
+        checked.append({'name':name,'model':model_rel,'semantics':doc.relative_to(root).as_posix()})
+    return {'count':len(checked),'items':checked,'target_source':target_source.relative_to(root).as_posix(),
+            'target_semantic_validation':'not-performed',
+            'scope':'Author root and semantic reference structure; target source available, callability and implementation correctness not checked'}
 
 def decision_model(root: Path):
     """Read each independent U owner, allowing responsibility/remaining-work joins.

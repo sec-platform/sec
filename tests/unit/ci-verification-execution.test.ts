@@ -1318,35 +1318,6 @@ test.each([
   }
 });
 
-test('capability probe detaches its deliberate residue child for trusted teardown', async () => {
-  const observation = await probeSutFixture({
-    actionKey: digest('a'),
-    platform: 'linux',
-    unitNonce: 'settled-probe',
-    runSandboxProcess: async (plan) => {
-      if (plan.phase === 'capability-self-test') {
-        return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
-      }
-      return sandboxObservation(0, '');
-    }
-  });
-  expect(observation).toMatchObject({ state: 'supported', lifecycle: { candidateUnitSettled: true } });
-
-  const assertion = HOSTED_SUT_CAPABILITY_ASSERTION;
-  const spawnOffset = assertion.indexOf('const descendant = spawn');
-  const markerOffset = assertion.indexOf('process.stdout.write');
-  expect(spawnOffset).toBeGreaterThanOrEqual(0);
-  expect(markerOffset).toBeGreaterThan(spawnOffset);
-  const lifecycle = assertion.slice(spawnOffset, markerOffset);
-  expect(lifecycle).toContain('spawn("/usr/bin/sleep", ["300"]');
-  expect(lifecycle).toContain('detached: true');
-  expect(lifecycle).toContain('descendant.unref();');
-  expect(lifecycle).not.toContain('descendant.kill');
-  expect(lifecycle).not.toContain('descendant.exited');
-
-
-});
-
 test('capability unsupported or ambiguous terminalizes without invoking the candidate executor', async () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-capability-'));

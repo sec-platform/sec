@@ -78,9 +78,7 @@ const DURATION_BUDGET_MS = 120_000;
 function bindReadinessOperation(input: Readonly<{
   mode: LocalContainerEngineReadinessMode;
   providerIdentityDigest: OperationDigest;
-  authorityGrantDigest?: OperationDigest;
   operationEpochDigest?: OperationDigest;
-  resumeEpochDigest?: OperationDigest | null;
   runIdDigest?: OperationDigest | null;
 }>) {
   const contractDigest = sha256({
@@ -97,11 +95,8 @@ function bindReadinessOperation(input: Readonly<{
       { resource: 'processes', maximum: 8 }
     ],
     attempt: issueSemanticOperationAttemptContext({
-      authorityGrantDigest: input.authorityGrantDigest ?? contractDigest,
-      ...(input.runIdDigest === undefined ? {} : { runIdDigest: input.runIdDigest }),
-      ...(input.resumeEpochDigest === undefined
-        ? {}
-        : { resumeEpochDigest: input.resumeEpochDigest })
+      authorityGrantDigest: contractDigest,
+      ...(input.runIdDigest === undefined ? {} : { runIdDigest: input.runIdDigest })
     }),
     deadlineAtUnixMs: Date.now() + DURATION_BUDGET_MS,
     decisionDigest: sha256({
@@ -158,6 +153,47 @@ function unavailable(input: Readonly<{
         : String(input.detail)
     }) as OperationDigest
   });
+}
+
+function bindPostTerminalReadinessOperation(input: Readonly<{
+  mode: LocalContainerEngineReadinessMode;
+  providerIdentityDigest: OperationDigest;
+  terminalJoinReceiptDigest: OperationDigest;
+}>) {
+  return bindReadinessOperation({
+    mode: input.mode,
+    providerIdentityDigest: input.providerIdentityDigest,
+    operationEpochDigest: input.terminalJoinReceiptDigest,
+    runIdDigest: sha256({
+      domain: 'sec.docker.readiness.post-terminal-run',
+      terminalJoinReceiptDigest: input.terminalJoinReceiptDigest
+    }) as OperationDigest
+  });
+}
+
+function bindReadinessAttempt(input: Readonly<{
+  operation: BoundSemanticOperation;
+  authorityGrantDigest: OperationDigest;
+  resumeEpochDigest: OperationDigest | null;
+  runIdDigest: OperationDigest;
+}>) {
+  const { identity, execution } = input.operation.plan;
+  const plan = compileSemanticOperationPlan({
+    operation: identity.operation,
+    intentDigest: identity.intentDigest,
+    decisionDigest: identity.decisionDigest,
+    aggregateBudgets: execution.aggregateBudgets,
+    requirements: execution.requirements,
+    deadlineAtUnixMs: Date.now() + DURATION_BUDGET_MS,
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: input.authorityGrantDigest,
+      resumeEpochDigest: input.resumeEpochDigest,
+      runIdDigest: input.runIdDigest
+    })
+  });
+  // Recovery and retry replace only the attempt. The current journal's
+  // identity, execution contract and provider bindings remain authoritative.
+  return bindSemanticOperation(plan, input.operation.bindings);
 }
 
 type InstalledDockerProvider = Awaited<ReturnType<typeof openDockerCommandProvider>>;
@@ -320,7 +356,19 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
     if (mode === 'ensure-started' && process.platform === 'win32') {
       journalAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: cwd });
       writer = durableWriter({ authority: journalAuthority, repositoryRoot: cwd });
-      const prior = writer.read(durableExecutionJournalIdentity(operation));
+      let prior = writer.read(durableExecutionJournalIdentity(operation));
+      // A terminal predecessor can have an already-created successor. Follow
+      // that original lineage before observing or considering a new start;
+      // an unresolved successor must keep its own recovery responsibility.
+      while (prior?.state === 'settled' && prior.latestResolution?.resolutionKind === 'owner-terminal-reference') {
+        const successor = bindPostTerminalReadinessOperation({ mode,
+          providerIdentityDigest: provider.providerIdentityDigest,
+          terminalJoinReceiptDigest: prior.latestResolution.resolutionReferenceDigest as OperationDigest });
+        const successorPrior = writer.read(durableExecutionJournalIdentity(successor));
+        if (successorPrior === null) break;
+        operation = successor;
+        prior = successorPrior;
+      }
       if (prior?.activeAttempt !== null && prior?.activeAttempt !== undefined) {
         const predecessor = durableExecutionPredecessorAttemptReference(prior);
         const recoveryEpoch = sha256({
@@ -328,9 +376,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           durableObservationDigest: prior.journalDigest,
           providerIdentityDigest: provider.providerIdentityDigest
         }) as OperationDigest;
-        const recovery = bindReadinessOperation({
-          mode,
-          providerIdentityDigest: provider.providerIdentityDigest,
+        const recovery = bindReadinessAttempt({
+          operation,
           authorityGrantDigest: operation.plan.attempt.authorityGrantDigest,
           resumeEpochDigest: recoveryEpoch,
           runIdDigest: sha256({
@@ -405,14 +452,10 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               );
             }
             provider = successorProvider;
-            operation = bindReadinessOperation({
+            operation = bindPostTerminalReadinessOperation({
               mode,
               providerIdentityDigest: provider.providerIdentityDigest,
-              operationEpochDigest: terminal.joinReceiptDigest,
-              runIdDigest: sha256({
-                domain: 'sec.docker.readiness.post-terminal-run',
-                terminalJoinReceiptDigest: terminal.joinReceiptDigest
-              }) as OperationDigest
+              terminalJoinReceiptDigest: terminal.joinReceiptDigest
             });
             // The expired predecessor is terminal and never retried. The
             // explicit ensure-started invocation continues once as a new
@@ -429,9 +472,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               );
             }
             provider = successorProvider;
-            operation = bindReadinessOperation({
-              mode,
-              providerIdentityDigest: provider.providerIdentityDigest,
+            operation = bindReadinessAttempt({
+              operation: recovery,
               authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
               resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest,
               runIdDigest: sha256({
@@ -450,22 +492,39 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           }
         }
       } else if (prior !== null) {
-        const currentReady = await observeWithOwnedProvider({
-          provider,
-          operation,
-          cwd,
-          availability: 'observe'
-        });
-        return Object.freeze({
-          schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
-          status: 'ready',
-          mode,
-          claim: 'daemon-observation',
-          supportedOperations: currentReady.supportedOperations,
-          endpoint: currentReady.endpoint,
-          loginStart,
-          providerIdentityDigest: currentReady.providerIdentityDigest
-        });
+        try {
+          const currentReady = await observeWithOwnedProvider({
+            provider,
+            operation,
+            cwd,
+            availability: 'observe'
+          });
+          return Object.freeze({
+            schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
+            status: 'ready',
+            mode,
+            claim: 'daemon-observation',
+            supportedOperations: currentReady.supportedOperations,
+            endpoint: currentReady.endpoint,
+            loginStart,
+            providerIdentityDigest: currentReady.providerIdentityDigest
+          });
+        } catch (error) {
+          if (!(error instanceof DockerDaemonAvailabilityFailure) || error.reason !== 'endpoint-unavailable' ||
+              error.phase !== 'endpoint-observe' || prior.state !== 'settled' ||
+              prior.latestResolution?.resolutionKind !== 'owner-terminal-reference') throw error;
+          const successorProvider = await openDockerCommandProvider({ workingDirectory: cwd });
+          if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
+            disposeUnclaimedDockerCommandProviderCapability(successorProvider);
+            throw new DockerCommandProviderUnavailableError(
+              'Docker command provider identity changed after terminal readiness observation.'
+            );
+          }
+          provider = successorProvider;
+          operation = bindPostTerminalReadinessOperation({ mode,
+            providerIdentityDigest: provider.providerIdentityDigest,
+            terminalJoinReceiptDigest: prior.latestResolution.resolutionReferenceDigest as OperationDigest });
+        }
       }
     }
 

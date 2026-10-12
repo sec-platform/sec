@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { copyInstalledNativeCheckerFixture, currentNativePackageName, selectNativeChecker, withCheckerExecutionBoundary, writeNativeCheckerFixture } from './typecheck-provider-fixture.ts';
 
 import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
@@ -10,21 +11,6 @@ import {
   compileWorkspaceTypeScriptProjectInput,
   projectWorkspaceTypeScriptProjectFactIdentity
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
-import {
-  inspectNoFollowDirectoryChain,
-  materializeRetainedNoFollowProvenDirectoryGeneration,
-  retainNoFollowDirectoryForChildProcess,
-  retainNoFollowSealedDirectoryGeneration,
-  scanNoFollowDirectoryTreeInventory,
-  type RetainedNoFollowChildProcessDirectory,
-  type RetainedNoFollowProvenDirectoryGeneration,
-  type RetainedNoFollowSealedDirectoryGeneration
-} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import {
-  assertProcessResourceSessionReceipt,
-  openProcessResourceSession
-} from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
-import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
 import {
@@ -36,7 +22,7 @@ import {
   runTypecheckWithProjectGenerationEvidence,
   runTypecheckWithProvider
 } from '../../src/adapters/self-hosting/development/runner/typecheck-runner.ts';
-import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, issueTypeScriptCheckerProcessExecutionAdmission, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments, type InstalledTypeScriptNativeChecker, type TypeScriptCheckerProcessExecutionAdmission } from '../../src/adapters/toolchain/typescript/checker.ts';
+import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/adapters/toolchain/typescript/checker.ts';
 import {
   createVerificationActionKey,
   issueProcessVerificationActionTerminalSettlement,
@@ -44,7 +30,6 @@ import {
   projectVerificationActionTerminal
 } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
-import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
   bindSemanticOperation,
   compileCapabilityBinding,
@@ -55,12 +40,10 @@ import {
   issueProviderSettlementReceipt,
   issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
-import { settleResourcesAsync, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const DEPENDENCY_GENERATION_DIGEST = `sha256:${'7'.repeat(64)}` as const;
 const PROJECT_CONFIG_DIGEST = `sha256:${'b'.repeat(64)}` as const;
-const FIXTURE_PROVIDER_VERSION = '1.0.0';
 
 function testDigest(value: unknown): `sha256:${string}` {
   return sha256(value) as `sha256:${string}`;
@@ -188,139 +171,6 @@ function projectExecutedTypecheckOutcomeFixture(
   });
 }
 
-async function withCheckerExecutionBoundary<T>(
-  workingRoot: string,
-  dependencyRoot: string,
-  checker: InstalledTypeScriptNativeChecker,
-  expectedProcessCount: 0 | 1,
-  callback: (boundary: Readonly<{
-    auxiliaryDirectory: RetainedNoFollowChildProcessDirectory;
-    buildInfoFileName: 'tsconfig.tsbuildinfo';
-    dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
-    processExecutionAdmission: TypeScriptCheckerProcessExecutionAdmission;
-    workingDirectory: RetainedNoFollowSealedDirectoryGeneration;
-  }>) => Promise<T>
-): Promise<T> {
-  const root = inspectNoFollowDirectoryChain(workingRoot, 'test immutable checker root').target;
-  const inventory = scanNoFollowDirectoryTreeInventory(root, {
-    deadlineAtMs: performance.now() + 30_000,
-    maximumBytes: 16 * 1024 * 1024,
-    maximumEntries: 256
-  });
-  const cleanup: Array<Parameters<typeof settleResourcesAsync>[0]['cleanup'][number]> = [];
-  let primary: ResourceSettlementFailure | undefined;
-  try {
-    const authority = await sealExistingWindowsReadOnlyTreeAuthority(
-      root.path,
-      inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
-        path.join(root.path, ...relativePath.split('/'))
-      )),
-      {
-        deadlineAtMs: Date.now() + 30_000,
-        ownerRootPath: path.dirname(root.path),
-        repositoryRootPath: process.cwd()
-      }
-    );
-    cleanup.push({ label: 'checker working-directory ACL authority', settle: () => authority.release() });
-    const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
-    cleanup[cleanup.length - 1] = { label: 'checker working directory', settle: () => workingDirectory.retire() };
-    const dependencyIdentity = inspectNoFollowDirectoryChain(
-      dependencyRoot,
-      'test checker dependency root'
-    ).target;
-    const dependencyInventory = scanNoFollowDirectoryTreeInventory(dependencyIdentity, {
-      deadlineAtMs: performance.now() + 30_000,
-      maximumBytes: 256 * 1024 * 1024,
-      maximumEntries: 20_000
-    });
-    const dependencyTreeDigest = testDigest(dependencyInventory);
-    const dependencyDirectory = (await materializeRetainedNoFollowProvenDirectoryGeneration({
-      binding: {
-        generationDigest: testDigest({ dependencyRoot, dependencyTreeDigest }),
-        treeDigest: dependencyTreeDigest,
-        treeEntryCount: dependencyInventory.length
-      },
-      deadlineAtUnixMs: Date.now() + 30_000,
-      inventory: dependencyInventory,
-      proofText: null,
-      releaseMode: 'restore-owner-write',
-      root: dependencyIdentity
-    })).generation;
-    cleanup.push({ label: 'checker dependency directory', settle: async () => { await dependencyDirectory.retire(); } });
-    const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
-    await fs.mkdir(auxiliaryRoot);
-    const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
-      inspectNoFollowDirectoryChain(auxiliaryRoot, 'test checker action-private auxiliary root'),
-      4,
-      'test checker action-private auxiliary root'
-    );
-    cleanup.push({ label: 'checker auxiliary directory', settle: () => auxiliaryDirectory.dispose() });
-    const operation = compileTypecheckSemanticOperation({
-      checker,
-      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-      diagnosticArguments: [],
-      projectConfigPath: checker.provider.projectConfig
-    });
-    const processSession = openProcessResourceSession({
-      operation,
-      requirementBindingContext: issueOperationRequirementBindingContext({
-        operation,
-        requirementId: 'typescript.project-check',
-        resourceCeilings: [
-          {
-            resource: 'duration-ms',
-            maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
-          },
-          { resource: 'input-bytes', maximum: 0 },
-          {
-            resource: 'output-bytes',
-            maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
-              + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
-          },
-          { resource: 'processes', maximum: 1 }
-        ]
-      })
-    });
-    cleanup.push({
-      label: 'checker process session',
-      settle: () => {
-        const receipt = processSession.close();
-        assertProcessResourceSessionReceipt(receipt, {
-          operationIdentityDigest: operation.plan.identity.identityDigest,
-          boundAttemptDigest: operation.boundAttemptDigest,
-          requirementId: 'typescript.project-check'
-        });
-        expect(receipt).toMatchObject({
-          failedProcessCount: 0,
-          processCount: expectedProcessCount,
-          settledProcessCount: expectedProcessCount,
-          successfulProcessRecordCount: expectedProcessCount
-        });
-      }
-    });
-    const processExecutionAdmission = issueTypeScriptCheckerProcessExecutionAdmission({
-      checker,
-      operation,
-      processSession
-    });
-    return await callback(Object.freeze({
-      auxiliaryDirectory,
-      buildInfoFileName: 'tsconfig.tsbuildinfo',
-      dependencyDirectory,
-      processExecutionAdmission,
-      workingDirectory
-    }));
-  } catch (error) {
-    primary = { label: 'checker boundary', error };
-    throw error;
-  } finally {
-    await settleResourcesAsync({
-      ...(primary === undefined ? {} : { primary }),
-      cleanup: [...cleanup].reverse()
-    });
-  }
-}
-
 function workspaceSnapshotFixture(
   configSource = '{"compilerOptions":{"strict":false}}',
   programSource = 'export const checked = true;\n',
@@ -370,80 +220,6 @@ function projectInputFixture(
   return compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshotFixture(configSource, programSource, unrelatedSource),
     'tsconfig.json'
-  );
-}
-
-function currentNativePackageName(): `@typescript/typescript-${string}` {
-  const suffix = `${process.platform}-${process.arch}`;
-  if (!/^[a-z0-9]+-[a-z0-9]+$/u.test(suffix)) {
-    throw new Error(`Test host has no admitted native TypeScript package: ${suffix}`);
-  }
-  return `@typescript/typescript-${suffix}`;
-}
-
-async function writeNativeCheckerFixture(
-  root: string,
-  input: Readonly<{
-    version?: string;
-    nativeVersion?: string;
-    wrapperBytes?: string;
-    executableBytes?: string;
-  }> = {}
-): Promise<string> {
-  const version = input.version ?? FIXTURE_PROVIDER_VERSION;
-  const nativeVersion = input.nativeVersion ?? version;
-  const nativePackageName = currentNativePackageName();
-  const nodeModulesPath = path.join(root, 'node_modules');
-  const aliasRoot = path.join(nodeModulesPath, '@typescript', 'native');
-  const nativeRoot = path.join(nodeModulesPath, ...nativePackageName.split('/'));
-  const executable = process.platform === 'win32' ? 'tsc.exe' : 'tsc';
-  await Promise.all([
-    fs.mkdir(path.join(aliasRoot, 'bin'), { recursive: true }),
-    fs.mkdir(path.join(nativeRoot, 'lib'), { recursive: true })
-  ]);
-  await Promise.all([
-    fs.writeFile(path.join(aliasRoot, 'package.json'), JSON.stringify({
-      name: 'typescript',
-      version,
-      bin: { tsc: './bin/tsc' },
-      optionalDependencies: { [nativePackageName]: version }
-    })),
-    fs.writeFile(path.join(aliasRoot, 'bin', 'tsc'), input.wrapperBytes ?? 'native-wrapper'),
-    fs.writeFile(path.join(nativeRoot, 'package.json'), JSON.stringify({
-      name: nativePackageName,
-      version: nativeVersion
-    })),
-    fs.writeFile(path.join(nativeRoot, 'lib', executable), input.executableBytes ?? 'native-executable')
-  ]);
-  return nodeModulesPath;
-}
-
-async function copyInstalledNativeCheckerFixture(root: string): Promise<string> {
-  const sourceNodeModulesPath = path.join(process.cwd(), 'node_modules');
-  const targetNodeModulesPath = path.join(root, 'node_modules');
-  const nativePackageName = currentNativePackageName();
-  const relativeFiles = [
-    path.join('@typescript', 'native', 'package.json'),
-    path.join('@typescript', 'native', 'bin', 'tsc'),
-    path.join(...nativePackageName.split('/'), 'package.json')
-  ];
-  for (const relativeFile of relativeFiles) {
-    const target = path.join(targetNodeModulesPath, relativeFile);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.copyFile(path.join(sourceNodeModulesPath, relativeFile), target);
-  }
-  const nativeLibraryRelativePath = path.join(...nativePackageName.split('/'), 'lib');
-  await fs.cp(
-    path.join(sourceNodeModulesPath, nativeLibraryRelativePath),
-    path.join(targetNodeModulesPath, nativeLibraryRelativePath),
-    { recursive: true }
-  );
-  return targetNodeModulesPath;
-}
-
-async function selectNativeChecker(nodeModulesPath: string) {
-  return requireSelectedTypeScriptNativeChecker(
-    await selectInstalledTypeScriptNativeChecker(nodeModulesPath)
   );
 }
 
@@ -1032,84 +808,6 @@ test('typecheck runner rejects caller-constructed Source Program generation evid
       generationDigest: sha256('forged-generation'),
       projectInput: projectInputFixture()
     } as never)).rejects.toThrow('was not issued by the Source Program owner');
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(process.platform !== 'win32')('provider-issued native checker writes incremental state only inside its action-private auxiliary capability', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-effect-'));
-  try {
-    const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
-    const projectRoot = path.join(root, 'project');
-    await fs.mkdir(projectRoot);
-    await Promise.all([
-      fs.writeFile(path.join(projectRoot, 'input.ts'), 'export const answer: number = 42;\n'),
-      fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({
-        compilerOptions: {
-          incremental: true,
-          noEmit: true,
-          strict: true,
-          types: []
-        },
-        files: ['input.ts']
-      }))
-    ]);
-    const checker = await selectNativeChecker(nodeModulesPath);
-    const result = await withCheckerExecutionBoundary(
-      projectRoot,
-      nodeModulesPath,
-      checker,
-      1,
-      (boundary) => executeTypeScriptNativeChecker(checker, {
-        ...boundary,
-        deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
-      })
-    );
-    expect(result).toMatchObject({ status: 'exited', code: 0 });
-    expect((await fs.stat(path.join(
-      root,
-      'action-private-auxiliary',
-      'tsconfig.tsbuildinfo'
-    ))).isFile()).toBe(true);
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(process.platform !== 'win32')('expired or cancelled native checker operation creates no incremental state', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-deadline-'));
-  try {
-    const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
-    const projectRoot = path.join(root, 'project');
-    await fs.mkdir(projectRoot);
-    await fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({ files: [] }));
-    const checker = await selectNativeChecker(nodeModulesPath);
-    await withCheckerExecutionBoundary(
-      projectRoot,
-      nodeModulesPath,
-      checker,
-      0,
-      async (boundary) => {
-        expect(await executeTypeScriptNativeChecker(checker, {
-          ...boundary,
-          deadlineAtUnixMs: Date.now() - 1
-        })).toMatchObject({ status: 'unverified', reason: 'deadline-exhausted' });
-        const buildInfoFile = path.join(
-          boundary.auxiliaryDirectory.childPath,
-          boundary.buildInfoFileName
-        );
-        expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
-        const controller = new AbortController();
-        controller.abort();
-        expect(await executeTypeScriptNativeChecker(checker, {
-          ...boundary,
-          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-          signal: controller.signal
-        })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
-        expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
-      }
-    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
