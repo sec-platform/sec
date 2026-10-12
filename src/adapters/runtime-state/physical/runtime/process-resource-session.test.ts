@@ -5,19 +5,19 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  issueSecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingContext,
-  type SecOperationResourceCeiling
+  issueOperationRequirementBindingContext,
+  type OperationRequirementBindingContext,
+  type OperationResourceCeiling
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationBudget,
-  type SecOperationDigest,
-  type SecOperationEffectKind
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationBudget,
+  type OperationDigest,
+  type OperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
 import {
   issueIndependentProviderProcessCapability
@@ -36,7 +36,11 @@ import {
   assertProcessResourceRunResult,
   assertProcessResourceSession,
   assertProcessResourceSessionReceipt,
+  bindProcessResourceCommandIssuer,
+  createProcessResourceCommandIssuer,
   openProcessResourceSession,
+  releasePreparedProcessResourceCommands,
+  runBoundProcessResourceCommand,
   type ProcessResourceRunResult,
   type ProcessResourceSessionReceipt
 } from './process-resource-session.ts';
@@ -48,19 +52,19 @@ import {
 } from './process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
-const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 const compilerRoot = path.resolve(import.meta.dir, '../../../..');
 
 function boundOperation(input: Readonly<{
   authorityGrantLabel?: string;
-  budgets?: readonly SecOperationBudget[];
+  budgets?: readonly OperationBudget[];
   deadlineAtUnixMs?: number;
-  effectKinds?: readonly SecOperationEffectKind[];
+  effectKinds?: readonly OperationEffectKind[];
   label?: string;
   providerLabel?: string;
-}> = {}): SecBoundSemanticOperation {
+}> = {}): BoundSemanticOperation {
   const label = input.label ?? 'process-resource-test';
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.process-resource-test',
     intentDigest: digest(`${label}-intent`),
     decisionDigest: digest(`${label}-decision`),
@@ -77,14 +81,14 @@ function boundOperation(input: Readonly<{
       effectKinds: input.effectKinds ?? ['process'],
       failureKinds: ['process.failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       // A distinct grant changes only the bound attempt, not the operation plan.
       authorityGrantDigest: digest(
         input.authorityGrantLabel ?? 'process-native-test-authority-grant'
       )
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: plan.execution.requirements[0]!.id,
     contractDigest: plan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest(input.providerLabel ?? 'process-native-test-provider')
@@ -92,13 +96,13 @@ function boundOperation(input: Readonly<{
 }
 
 function requirementBindingContext(
-  operation: SecBoundSemanticOperation,
-  ceilings?: readonly SecOperationResourceCeiling[]
-): SecOperationRequirementBindingContext {
+  operation: BoundSemanticOperation,
+  ceilings?: readonly OperationResourceCeiling[]
+): OperationRequirementBindingContext {
   const inputBudget = operation.plan.execution.aggregateBudgets.find(
     ({ resource }) => resource === 'input-bytes'
   );
-  return issueSecOperationRequirementBindingContext({
+  return issueOperationRequirementBindingContext({
     operation,
     requirementId: operation.plan.execution.requirements[0]!.id,
     resourceCeilings: ceilings ?? [
@@ -178,7 +182,7 @@ test('independent provider identity binds retained auxiliary provider inputs', a
 
 test('process sessions reject structural operation and session clones', async () => {
   const operation = boundOperation();
-  const operationClone = structuredClone(operation) as SecBoundSemanticOperation;
+  const operationClone = structuredClone(operation) as BoundSemanticOperation;
   expect(() => openProcessResourceSession({
     operation: operationClone,
     requirementBindingContext: requirementBindingContext(operation)
@@ -844,3 +848,126 @@ test.skipIf(process.platform !== 'linux')(
     }
   }
 );
+
+// New implementation proposal. These exercise the real process owner when
+// admitted by the existing test runner; source presence is not runtime evidence.
+test('bound archive commands preserve original issuer, captured data and single-use settlement', async () => {
+  const operation = boundOperation({ label: 'new-bound-recipe-identity', budgets: [
+    { resource: 'duration-ms', maximum: 10_000 }, { resource: 'input-bytes', maximum: 0 },
+    { resource: 'output-bytes', maximum: 32 }, { resource: 'processes', maximum: 2 }
+  ] });
+  const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
+  const issuer = createProcessResourceCommandIssuer();
+  const foreign = createProcessResourceCommandIssuer();
+  const binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+  const retained = retainTestBoundary();
+  const argv = ['--no-env-file', '--eval', 'process.stdout.write(process.env.RECIPE_VALUE ?? "missing")'];
+  const env = { RECIPE_VALUE: 'original' };
+  const input = { boundary: retained.boundary, args: argv,
+    options: { env, envMode: 'replace' as const, maxStdoutBytes: 16, maxStderrBytes: 0 } };
+  expect(() => foreign.issue(binding, input)).toThrow('original live issuer');
+  expect(() => issuer.issue({ ...binding }, input)).toThrow('original live issuer');
+  const command = issuer.issue(binding, input);
+  argv[2] = 'process.stdout.write("changed")';
+  env.RECIPE_VALUE = 'changed';
+  expect(() => session.close()).toThrow('outstanding bound-command');
+  await expect(runBoundProcessResourceCommand(session, binding, { ...command })).rejects.toThrow('original member');
+  const result = await runBoundProcessResourceCommand(session, binding, command);
+  expect(Buffer.from(result.result.stdout).toString('utf8')).toBe('original');
+  expect(session.processCount).toBe(1);
+  await expect(runBoundProcessResourceCommand(session, binding, command)).rejects.toThrow('already used');
+  expect(() => retained.boundary.workingDirectory.assertCurrent()).toThrow();
+  const receipt = session.close();
+  assertProcessResourceSessionReceipt(receipt);
+  expect(receipt.processCount).toBe(1);
+});
+
+test('unstarted archive commands release only their binding and never renew the process ceiling', () => {
+  const operation = boundOperation({ label: 'new-bound-preparation', budgets: [
+    { resource: 'duration-ms', maximum: 10_000 }, { resource: 'input-bytes', maximum: 0 },
+    { resource: 'output-bytes', maximum: 8 }, { resource: 'processes', maximum: 1 }
+  ] });
+  const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
+  const issuer = createProcessResourceCommandIssuer(), foreign = createProcessResourceCommandIssuer();
+  const binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+  const other = bindProcessResourceCommandIssuer(session, foreign.identity);
+  const retained = retainTestBoundary();
+  issuer.issue(binding, { boundary: retained.boundary, args: ['--version'],
+    options: { env: {}, envMode: 'replace', maxStdoutBytes: 8, maxStderrBytes: 0 } });
+  releasePreparedProcessResourceCommands(session, other);
+  expect(() => session.close()).toThrow('outstanding bound-command');
+  expect(() => retained.boundary.workingDirectory.assertCurrent()).not.toThrow();
+  expect(() => issuer.issue(binding, { boundary: retained.boundary, args: ['--version'],
+    options: { env: {}, envMode: 'replace', maxStdoutBytes: 8, maxStderrBytes: 0 } })).toThrow('process ceiling');
+  releasePreparedProcessResourceCommands(session, binding);
+  expect(() => retained.boundary.workingDirectory.assertCurrent()).toThrow();
+  expect(session.processCount).toBe(0);
+  assertProcessResourceSessionReceipt(session.close());
+});
+
+test('cancelled bound archive commands consume no later child and still release retained resources', async () => {
+  const controller = new AbortController();
+  const operation = boundOperation({ label: 'new-bound-cancellation' });
+  const session = openProcessResourceSession({ operation, signal: controller.signal,
+    requirementBindingContext: requirementBindingContext(operation) });
+  const issuer = createProcessResourceCommandIssuer(), binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+  const retained = retainTestBoundary();
+  const command = issuer.issue(binding, { boundary: retained.boundary,
+    args: ['--no-env-file', '--eval', 'process.stdout.write("must-not-run")'],
+    options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
+  controller.abort(new Error('original operation cancelled'));
+  await expect(runBoundProcessResourceCommand(session, binding, command)).rejects.toThrow('cancelled');
+  expect(session.processCount).toBe(0);
+  expect(() => retained.boundary.workingDirectory.assertCurrent()).toThrow();
+  assertProcessResourceSessionReceipt(session.close());
+});
+
+test('bound command admission rejects reentrant close before registering retained resources', () => {
+  const operation = boundOperation({ label: 'new-bound-reentrant-close' });
+  const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
+  const issuer = createProcessResourceCommandIssuer(), binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+  const retained = retainTestBoundary();
+  let closed: ProcessResourceSessionReceipt | undefined;
+  const env = new Proxy({}, { ownKeys() { closed = session.close(); return []; } });
+  try {
+    expect(() => issuer.issue(binding, { boundary: retained.boundary, args: ['--version'],
+      options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } }))
+      .toThrow('original live issuer');
+    expect(closed).toBeDefined();
+    if (closed === undefined) throw new Error('Reentrant close did not return its original receipt.');
+    expect(session.close()).toBe(closed);
+    expect(session.processCount).toBe(0);
+    // Failed preparation never transfers this retained input to a command.
+    expect(() => retained.boundary.workingDirectory.assertCurrent()).not.toThrow();
+  } finally { retained.dispose(); }
+});
+
+test('bound command admission rechecks preparation capacity after reentrant issue', () => {
+  const operation = boundOperation({ label: 'new-bound-reentrant-issue', budgets: [
+    { resource: 'duration-ms', maximum: 10_000 }, { resource: 'input-bytes', maximum: 0 },
+    { resource: 'output-bytes', maximum: 16 }, { resource: 'processes', maximum: 1 }
+  ] });
+  const session = openProcessResourceSession({ operation, requirementBindingContext: requirementBindingContext(operation) });
+  const issuer = createProcessResourceCommandIssuer(), binding = bindProcessResourceCommandIssuer(session, issuer.identity);
+  const outer = retainTestBoundary(), inner = retainTestBoundary();
+  let innerIssued = false;
+  const env = new Proxy({}, { ownKeys() {
+    issuer.issue(binding, { boundary: inner.boundary, args: ['--version'],
+      options: { env: {}, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } });
+    innerIssued = true;
+    return [];
+  } });
+  try {
+    expect(() => issuer.issue(binding, { boundary: outer.boundary, args: ['--version'],
+      options: { env, envMode: 'replace', maxStdoutBytes: 16, maxStderrBytes: 0 } })).toThrow('process ceiling');
+    expect(innerIssued).toBe(true);
+    expect(() => session.close()).toThrow('outstanding bound-command');
+    releasePreparedProcessResourceCommands(session, binding);
+    expect(() => inner.boundary.workingDirectory.assertCurrent()).toThrow();
+    expect(session.processCount).toBe(0);
+    assertProcessResourceSessionReceipt(session.close());
+  } finally {
+    outer.dispose();
+    if (!innerIssued) inner.dispose();
+  }
+});

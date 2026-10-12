@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 import {
   createAuthorityGitScratchIndexTreeSession,
   type GitCommitIdentity,
@@ -43,8 +43,8 @@ export type DevelopmentCommitCandidate = Readonly<{
   readonly preimage: string;
   readonly tree: string;
   readonly target: string;
-  readonly requestDigest: SecOperationDigest;
-  readonly candidateDigest: SecOperationDigest;
+  readonly requestDigest: OperationDigest;
+  readonly candidateDigest: OperationDigest;
 }>;
 
 export type DevelopmentCommitCandidateDetails = Readonly<{
@@ -59,13 +59,13 @@ export type DevelopmentCommitCandidateDetails = Readonly<{
     size: number;
     byteDigest: `sha256:${string}`;
   }>;
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly preflightReceiptDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly preflightReceiptDigest: OperationDigest;
 }>;
 
 const ISSUED_DEVELOPMENT_COMMIT_CANDIDATES = new WeakMap<object, DevelopmentCommitCandidateDetails>();
 
-function requestDigest(request: DevelopmentCommitRequest): SecOperationDigest {
+function requestDigest(request: DevelopmentCommitRequest): OperationDigest {
   const repositoryRoot = path.resolve(request.repositoryRoot);
   if (!path.isAbsolute(request.repositoryRoot) || repositoryRoot !== request.repositoryRoot
       || request.message.length === 0) {
@@ -79,7 +79,7 @@ function requestDigest(request: DevelopmentCommitRequest): SecOperationDigest {
     ...(request.sourceCheckpoint === undefined ? {} : {
       sourceCheckpoint: requireDevelopmentSourceCheckpointBinding(request.sourceCheckpoint, repositoryRoot).digest
     })
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 async function commandText(
@@ -249,7 +249,7 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
         );
       }
       const afterIndex = observeIndex(indexPath);
-      const providerIdentityDigest = sha256(session.providerIdentity) as SecOperationDigest;
+      const providerIdentityDigest = sha256(session.providerIdentity) as OperationDigest;
       const candidateUnsigned = Object.freeze({
         schema: 'sec-development-commit-candidate' as const,
         repositoryRoot,
@@ -271,7 +271,7 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
             size: beforeIndex.entry.size,
             byteDigest: beforeIndex.entry.byteDigest
           }
-        }) as SecOperationDigest
+        }) as OperationDigest
       });
       const details = Object.freeze({
         candidate,
@@ -291,7 +291,7 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
           commonDirectory,
           worktreeGitDirectory,
           indexPath
-        }) as SecOperationDigest
+        }) as OperationDigest
       });
       if (!sameIndexObservation(afterIndex, details)) {
         throw new Error('Development commit index drifted after exact candidate freeze.');

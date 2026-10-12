@@ -5,12 +5,12 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationEffectKind
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationEffectKind
 } from '../../../execution/operation/semantic.ts';
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../physical/runtime/physical-no-follow.ts';
@@ -19,7 +19,7 @@ import {
   assertExternalProviderCoordinationLease,
   externalProviderCoordinationLeaseName,
   issueExternalProviderCoordinationLeaseTestIssuerForTests,
-  secUserExternalProviderCoordinationPath,
+  userExternalProviderCoordinationPath,
   withExternalProviderCoordinationLeaseAtOwnerIssuedRoot
 } from './external-provider-coordination-lease.ts';
 import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
@@ -30,13 +30,13 @@ const testIssuer = issueExternalProviderCoordinationLeaseTestIssuerForTests();
 
 function providerOperation(input: Readonly<{
   deadlineAtUnixMs?: number;
-  effectKinds?: readonly SecOperationEffectKind[];
+  effectKinds?: readonly OperationEffectKind[];
   providerEpochDigest?: `sha256:${string}`;
-}> = {}): SecBoundSemanticOperation {
+}> = {}): BoundSemanticOperation {
   const contractDigest = sha256({ contract: requirementId }) as `sha256:${string}`;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     aggregateBudgets: [{ resource: 'duration-ms', maximum: 600_000 }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     deadlineAtUnixMs: input.deadlineAtUnixMs ?? Date.now() + 600_000,
     decisionDigest: sha256({ decision: requirementId }) as `sha256:${string}`,
     intentDigest: sha256({ intent: requirementId }) as `sha256:${string}`,
@@ -48,7 +48,7 @@ function providerOperation(input: Readonly<{
       id: requirementId
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     contractDigest,
     providerIdentityDigest: input.providerEpochDigest ?? digest('a'),
     requirementId
@@ -73,7 +73,7 @@ test.skipIf(process.platform !== 'win32')(
     process.env.LOCALAPPDATA = '';
     try {
       const root = inspectNoFollowDirectoryChain(rootPath, 'test provider coordination owner');
-      const expectedDirectory = secUserExternalProviderCoordinationPath({
+      const expectedDirectory = userExternalProviderCoordinationPath({
         localAppData: root.target.path,
         repositoryRoot: process.cwd()
       });
@@ -199,7 +199,7 @@ test.skipIf(process.platform !== 'win32')(
         operation: async () => 'initialize'
       });
       const coordinationDirectory = inspectNoFollowDirectoryChain(
-        secUserExternalProviderCoordinationPath({
+        userExternalProviderCoordinationPath({
           localAppData: rootPath,
           repositoryRoot: process.cwd()
         }),
@@ -242,7 +242,7 @@ test.skipIf(process.platform !== 'win32')(
       const root = inspectNoFollowDirectoryChain(rootPath, 'test projection coordination owner');
       const projectedOperation = {
         ...providerOperation()
-      } as SecBoundSemanticOperation;
+      } as BoundSemanticOperation;
       await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
         coordination: coordination(projectedOperation),
         issuer: testIssuer,
@@ -279,7 +279,7 @@ test.skipIf(process.platform !== 'win32')(
       const structurallyForgedOperation = {
         ...providerOperationForForgery,
         plan: { ...providerOperationForForgery.plan }
-      } as SecBoundSemanticOperation;
+      } as BoundSemanticOperation;
       await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
         coordination: coordination(structurallyForgedOperation),
         issuer: testIssuer,
@@ -298,7 +298,7 @@ test.skipIf(process.platform !== 'win32')(
         root,
         operation: async () => 'unreachable'
       })).rejects.toMatchObject({ reason: 'invalid-input' });
-      expect(existsSync(secUserExternalProviderCoordinationPath({
+      expect(existsSync(userExternalProviderCoordinationPath({
         localAppData: rootPath,
         repositoryRoot: process.cwd()
       }))).toBe(false);

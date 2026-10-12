@@ -6,10 +6,8 @@ import { expect, test } from 'bun:test';
 import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { writeProjectBaseline } from '../../src/adapters/workspace/project-baseline.ts';
-import {
-  checkProjectBeforeCompile,
-  checkProjectBeforeVerify
-} from '../../src/adapters/workspace/project-integrity.ts';
+import { checkProjectBeforeVerify } from '../../src/adapters/workspace/project-integrity.ts';
+import { checkProjectWriteBoundary } from '../../src/adapters/workspace/project-write-boundary.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -52,7 +50,7 @@ test('current baseline accepts compiler output changes and detects later project
     await writeText(absolutePath, previousContent);
     await writeJson(provenancePath, provenanceFor(artifactPath, previousContent));
 
-    await checkProjectBeforeCompile(workspaceRoot);
+    await checkProjectWriteBoundary(workspaceRoot);
 
     await writeText(absolutePath, currentContent);
     await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));

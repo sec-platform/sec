@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
-import { SecError } from '../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
@@ -204,7 +204,7 @@ export function linkedWorktreeDependencyOwnerRoot(
     try {
       disposeRetainedGitControlFiles(retained);
     } catch (disposalError) {
-      throw new SecError(
+      throw new CodedFailure(
         'IMPORT-AUTHORITY-004',
         'Linked worktree registry authority cleanup failed',
         {
@@ -213,7 +213,7 @@ export function linkedWorktreeDependencyOwnerRoot(
         }
       );
     }
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-004',
       'Linked worktree registry authority is invalid',
       { cause: error instanceof Error ? error.message : String(error), markerPath }

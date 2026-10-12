@@ -1,5 +1,5 @@
-import { SecError } from '../../../../../contracts/failure.ts';
-import type { GeneratedStatePhysicalIdentity } from '../../../../runtime-state/generated-state/contract.ts';
+import { CodedFailure } from '../../../../../contracts/failure.ts';
+import type { GeneratedStatePhysicalIdentity } from '../../../../../execution/generated-state/contract.ts';
 import type { DependencyTransitionJournal } from './contract.ts';
 import { sameGeneratedStateIdentity } from './contract.ts';
 
@@ -83,7 +83,7 @@ export function assertRolloverPhaseAdvance(
   previous: DependencyTransitionRolloverIntent,
   next: DependencyTransitionRolloverIntent
 ): void {
-  const fail = (): never => { throw new SecError('RUNTIME-DEPS-004', 'Dependency transition rollover phase continuity is invalid'); };
+  const fail = (): never => { throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency transition rollover phase continuity is invalid'); };
   if (!matchesRolloverPhaseState(previous) || !matchesRolloverPhaseState(next) ||
       rolloverPhaseIndex(next.phase) !== rolloverPhaseIndex(previous.phase) + 1 ||
       next.intentDigest !== previous.intentDigest || next.sequence !== previous.sequence ||

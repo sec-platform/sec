@@ -14,7 +14,7 @@ import {
   type GitHubRepositoryCommentObservation
 } from '../../providers/github-api/repository-comment.ts';
 import { normalizeGitHubRepositoryPermission } from '../../providers/github-api/repository-permission.ts';
-import type { SourceProgramSupersessionEvidence } from './reduction.ts';
+import type { SourceProgramSupersessionEvidence } from './supersession-evidence-contract.ts';
 import type {
   SourceProgramTestBaselineEvidence,
   SourceProgramTestValueCompilation

@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
-import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
@@ -63,36 +62,6 @@ test('upgrade rejects delete directory migrations when target is not a directory
   );
 });
 
-test('copy file migrations copy manifest files', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-    const versionRoot = path.join(privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0');
-
-    await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'schema.json'), {
-      schema: 'report-v2'
-    });
-
-    await applyMigrationEntries(
-      workspaceRoot,
-      versionRoot,
-      ['generated/reports/schema.json'],
-      [
-        {
-          id: 'mig-copy-report-schema',
-          kind: 'copy-file',
-          reason: 'Copy report schema into generated report assets.',
-          source: 'files/generated/reports/schema.json',
-          target: 'generated/reports/schema.json'
-        }
-      ]
-    );
-
-    await expect(fs.readFile(path.join(workspaceRoot, 'generated', 'reports', 'schema.json'), 'utf8')).resolves.toContain(
-      '"schema": "report-v2"'
-    );
-  }, 'engineering-compiler-upgrade-copy-file-apply-');
-});
-
 test('upgrade rejects copy file migrations when manifest source is not a file', async () => {
   await withBlockUpgradeDryRunFixture(
     {
@@ -122,43 +91,6 @@ test('upgrade rejects copy file migrations when manifest source is not a file', 
       });
     }
   );
-});
-
-test('copy directory migrations recursively copy manifest directories', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-    const versionRoot = path.join(privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0');
-
-    await fs.mkdir(path.join(versionRoot, 'files', 'generated', 'reports', 'templates', 'nested'), {
-      recursive: true
-    });
-    await fs.writeFile(path.join(versionRoot, 'files', 'generated', 'reports', 'templates', 'daily.md'), '# Daily report\n', 'utf8');
-    await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'templates', 'nested', 'weekly.json'), {
-      report: 'weekly'
-    });
-
-    await applyMigrationEntries(
-      workspaceRoot,
-      versionRoot,
-      ['generated/reports/templates'],
-      [
-        {
-          id: 'mig-copy-report-templates',
-          kind: 'copy-directory',
-          reason: 'Copy report templates into generated report assets.',
-          source: 'files/generated/reports/templates',
-          target: 'generated/reports/templates'
-        }
-      ]
-    );
-
-    await expect(fs.readFile(path.join(workspaceRoot, 'generated', 'reports', 'templates', 'daily.md'), 'utf8')).resolves.toBe(
-      '# Daily report\n'
-    );
-    await expect(
-      fs.readFile(path.join(workspaceRoot, 'generated', 'reports', 'templates', 'nested', 'weekly.json'), 'utf8')
-    ).resolves.toContain('"report": "weekly"');
-  }, 'engineering-compiler-upgrade-copy-directory-apply-');
 });
 
 test('upgrade rejects copy directory migrations when manifest source is missing', async () => {

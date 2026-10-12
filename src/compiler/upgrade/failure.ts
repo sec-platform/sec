@@ -1,5 +1,5 @@
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { UpgradeMigration } from '../contract.ts';
-import { CompilerError } from '../errors.ts';
 
 export function upgradeFailureWithSecondaryFailures(
   primary: Error,
@@ -60,34 +60,34 @@ export function migrationManifestDetails(migration: UpgradeMigration): Record<st
   };
 }
 
-export function withMigrationManifestDetails(migration: UpgradeMigration, error: CompilerError): CompilerError {
+export function withMigrationManifestDetails(migration: UpgradeMigration, error: CodedFailure): CodedFailure {
   if (isEmptyDiagnosticsDetails(error.details)) {
-    return new CompilerError(error.code, error.message, migrationManifestDetails(migration));
+    return new CodedFailure(error.code, error.message, migrationManifestDetails(migration));
   }
   if (isPlainObjectDetails(error.details)) {
-    return new CompilerError(error.code, error.message, {
+    return new CodedFailure(error.code, error.message, {
       ...migrationManifestDetails(migration),
       ...error.details
     });
   }
-  return new CompilerError(error.code, error.message, {
+  return new CodedFailure(error.code, error.message, {
     ...migrationManifestDetails(migration),
     causeDetails: normalizeCauseDetails(error.details)
   });
 }
 
-export function withRollbackDiagnostics(error: CompilerError): CompilerError {
+export function withRollbackDiagnostics(error: CodedFailure): CodedFailure {
   const rollbackDetails = { rollbackStatus: 'restored' };
   if (isEmptyDiagnosticsDetails(error.details)) {
-    return new CompilerError(error.code, error.message, rollbackDetails, { cause: error });
+    return new CodedFailure(error.code, error.message, rollbackDetails, { cause: error });
   }
   if (isPlainObjectDetails(error.details)) {
-    return new CompilerError(error.code, error.message, {
+    return new CodedFailure(error.code, error.message, {
       ...error.details,
       ...rollbackDetails
     }, { cause: error });
   }
-  return new CompilerError(error.code, error.message, {
+  return new CodedFailure(error.code, error.message, {
     ...rollbackDetails,
     causeDetails: normalizeCauseDetails(error.details)
   }, { cause: error });

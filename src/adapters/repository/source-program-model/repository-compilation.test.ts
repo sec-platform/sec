@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import {
   createSourceProgramCompilationOperation,
   SourceProgramCompilationInterruptedError
@@ -55,7 +55,7 @@ function fixture(value: number) {
       source,
       contentDigest: rawSha256(source)
     }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{
       descriptorPath,
@@ -373,7 +373,7 @@ function incrementalFixture(sources: Readonly<Record<string, string>>, label: st
   modes: Readonly<Record<string, '100644' | '100755'>> = {}) {
   const inputFiles = Object.entries(sources).sort(([a], [b]) => a.localeCompare(b, 'en-US'))
     .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source), mode: modes[path] ?? '100644' }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: inputFiles.map(({ path }) => path),
     descriptorSources: inputFiles.filter(({ path }) => path.endsWith('/module.json'))
       .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }))

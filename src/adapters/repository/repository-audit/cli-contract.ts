@@ -1,12 +1,12 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { parseSecModuleDescriptor } from '../architecture/contract.ts';
+import { parseRepositoryModuleDescriptor } from '../architecture/contract.ts';
 import descriptorSource from './module.json' with { type: 'json' };
 
 // Current and baseline derivation share one aggregate audit budget. Its
 // capacity belongs to the existing operation descriptor, rather than a second
 // hardcoded copy of the physical worker's separate ceiling.
-const auditDescriptor = parseSecModuleDescriptor(
+const auditDescriptor = parseRepositoryModuleDescriptor(
   descriptorSource, 'src/adapters/repository/repository-audit/module.json'
 );
 const auditDuration = auditDescriptor.operationObligations.find(({ operation }) => (

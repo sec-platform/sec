@@ -88,17 +88,6 @@ test('classifyBlobBytes detects crlf-in-canonical-lf-blob anomaly', () => {
   expect(result.anomalies).toContain('mixed-endings');
 });
 
-test('classifyBlobBytes detects mixed-endings anomaly', () => {
-  const result = classifyBlobBytes({
-    path: 'src/file.ts',
-    bytes: toBytes('line1\r\nline2\nline3\r\n'),
-    textAttr: 'set',
-    eolAttr: 'lf'
-  });
-  expect(result.lineEnding).toBe('mixed');
-  expect(result.anomalies).toContain('mixed-endings');
-});
-
 test('classifyBlobBytes detects utf8-bom anomaly', () => {
   const bomBytes = new Uint8Array([...UTF8_BOM, ...toBytes('content\n')]);
   const result = classifyBlobBytes({

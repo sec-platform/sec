@@ -10,12 +10,19 @@ import {
   assertWorkspaceSourceSnapshot,
   type WorkspaceSourceSnapshot
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
-import { platformCommand } from '../../sec-command.ts';
+import { platformCommand } from '../../platform-command.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
   command: string;
 };
+
+/** Necessary host selectors only; the fixture owner still admits physical resources. */
+export type TestFileHostRequirement = Readonly<{
+  file: string;
+  os: string;
+  arch: string;
+}>;
 
 export type SlowTestResourceClass = 'standard' | 'runtime-heavy';
 
@@ -48,6 +55,7 @@ export type TestBudgetProjection = Readonly<{
   generationKey: `sha256:${string}`;
   testFiles: readonly string[];
   fastTestFiles: readonly string[];
+  fastTestHostRequirements: readonly TestFileHostRequirement[];
   slowTestFiles: readonly string[];
   slowSuites: readonly SlowTestSuite[];
   projectionDigest: `sha256:${string}`;
@@ -60,6 +68,7 @@ export type TestBudgetContract = {
   laneCount: number;
   slowLaneCount: number;
   slowLaneIds: TestBudgetLane['id'][];
+  fastTestHostRequirements: readonly TestFileHostRequirement[];
   slowTestFileCount: number;
   slowTestFiles: readonly string[];
   slowSuiteCount: number;
@@ -229,7 +238,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     resourceClass: 'runtime-heavy',
     prRiskBaseline: true
   }),
-  slowFileSuite('e2e-compiler-smoke', 'compiler-smoke', 'compiler-smoke-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true }),
   slowFileSuite('e2e-demo-doctor', 'demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
@@ -287,11 +295,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowFileSuite('e2e-policy', 'policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-prisma-merge', 'prisma-merge', 'compiler-prisma-merge-e2e'),
   slowFileSuite('e2e-private-registry', 'private-registry', 'compiler-private-registry-e2e'),
-  slowFileSuite('e2e-provenance', 'provenance', 'compiler-provenance-e2e', 120_000, {
-    parallelSafe: true,
-    resourceClass: 'runtime-heavy',
-    prRiskBaseline: true
-  }),
   slowFileSuite('e2e-registry', 'registry', 'compiler-registry-e2e'),
   slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000, {
@@ -340,6 +343,13 @@ const slowTestSuiteIndex = (() => {
   return { ids, knownIds: new Set(ids), idsByFile };
 })();
 const NO_SLOW_TEST_SUITES: readonly string[] = Object.freeze([]);
+
+// The genuine issuer retains the loaded clean source and pinned Linux Bun.
+// A host match does not issue an origin or replace any of those checks.
+const fastTestHostRequirementDefinitions: readonly TestFileHostRequirement[] = deepFreeze([
+  { file: 'tests/unit/verification-action-github-provider.test.ts', os: 'linux', arch: 'x64' }
+]);
+
 
 function buildSlowTestSuites(slowFiles: readonly string[]): readonly SlowTestSuite[] {
     const slowFileSet = new Set(slowFiles);
@@ -469,11 +479,18 @@ function compileExactTestBudgetProjection(
   const fastTestFiles = testFiles.filter(isFastTestFile);
   const slowTestFiles = testFiles.filter(isSlowTestFile);
   const slowSuites = buildSlowTestSuites(slowTestFiles);
+  const fastTestHostRequirements = fastTestHostRequirementDefinitions.filter(({ file }) => {
+    if (testFiles.includes(file) && !fastTestFiles.includes(file)) {
+      throw new Error(`Fast test host requirement must migrate with its execution owner: ${file}`);
+    }
+    return fastTestFiles.includes(file);
+  });
   const unsigned = deepFreeze({
     generation,
     generationKey,
     testFiles,
     fastTestFiles,
+    fastTestHostRequirements,
     slowTestFiles,
     slowSuites
   });
@@ -515,10 +532,6 @@ export function assertTestBudgetExecutionProvenance(
       || projection.generation.testInventoryDigest !== generation.testInventoryDigest) {
     throw new Error('Test budget generation differs from its issued test inventory projection.');
   }
-}
-
-export function getTestFilesSync(projection: TestBudgetProjection): readonly string[] {
-  return projection.testFiles;
 }
 
 export function getSlowTestFilesSync(projection: TestBudgetProjection): readonly string[] {
@@ -586,6 +599,7 @@ export function buildTestBudgetContract(
     laneCount: lanes.length,
     slowLaneCount: slowLaneIds.length,
     slowLaneIds,
+    fastTestHostRequirements: projection.fastTestHostRequirements,
     slowTestFileCount: slowFiles.length,
     slowTestFiles: slowFiles,
     slowSuiteCount: slowSuites.length,

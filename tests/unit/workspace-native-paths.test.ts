@@ -1,13 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { requireCanonicalCiArtifactPath } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_ROOT_RELATIVE_PATH } from '../../src/contracts/artifact-paths.ts';
 
 import { getWorkspacePaths, isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath, resolveWorkspaceProvenancePath } from "../../src/adapters/workspace-context.ts";
-import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_ROOT_RELATIVE_PATH,
-  isCiArtifactPath
-} from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, isCiArtifactPath } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 
 // Use a native absolute root; a Windows drive spelling is relative on POSIX.
 const WORKSPACE_ROOT = path.resolve(path.parse(process.cwd()).root, 'fixtures', 'native-target');

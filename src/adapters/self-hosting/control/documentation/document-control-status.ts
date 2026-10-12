@@ -6,7 +6,7 @@ import {
   issueActiveWorkPackageOwnerObservation
 } from '../task/contract/active-work-observation.ts';
 import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../task/contract/work-package.ts';
-import { projectSecWorkRollingExactManifestBinding } from '../work-selection/live-contract.ts';
+import { projectWorkRollingExactManifestBinding } from '../work-selection/live-contract.ts';
 import {
   captureControlIndexSnapshot,
   captureRepositoryIndexTreeThroughExternalScratch,
@@ -14,9 +14,9 @@ import {
 } from './document-control-index.ts';
 import { CurrentStatePath, decodeUtf8, type FreezeJournal, shaValue } from './document-control-journal-codec.ts';
 import {
-  CodexDevelopmentDocumentControlCliAdmissionError,
   createReadOnlyResolverGit,
   DOCUMENT_CONTROL_STATUS_GIT_READ_BUDGET,
+  DocumentControlCliAdmissionError,
   documentControlCliFailure,
   ExternalCommandTimeoutMs,
   isDocumentControlHostCliTestSession,
@@ -30,18 +30,18 @@ import {
   withDocumentControlGitReadSession
 } from './document-control-observation.ts';
 import {
-  type CodexDevelopmentActiveWorkPackageResolution,
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentAssertRollingMachineBaseBinding,
-  type CodexDevelopmentDefaultRefState,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan,
-  CodexDevelopmentProjectStatusContinuation,
-  CodexDevelopmentResolveActiveWorkPackage,
-  CodexDevelopmentResolveWorkSelectionProjectionMode,
-  type CodexDevelopmentStatusContinuationInput
+  type ActiveWorkPackageResolution,
+  assertControlPlaneBinding,
+  assertRollingMachineBaseBinding,
+  type DefaultRefState,
+  parseActivePointer,
+  parseCurrentStateSpec,
+  parseRollingMachineProjection,
+  parseRollingPlan,
+  projectStatusContinuation,
+  resolveActiveWorkPackage,
+  resolveWorkSelectionProjectionMode,
+  type StatusContinuationInput
 } from './document-control-plane-contract.ts';
 import {
   effectiveFreezeJournal,
@@ -57,11 +57,11 @@ import {
  */
 
 function projectObservedStatusContinuation(
-  input: Omit<CodexDevelopmentStatusContinuationInput, 'journal'> & Readonly<{
+  input: Omit<StatusContinuationInput, 'journal'> & Readonly<{
     journal: FreezeJournal | null;
   }>
 ) {
-  return CodexDevelopmentProjectStatusContinuation({
+  return projectStatusContinuation({
     ...input,
     journal: input.journal === null ? null : Object.freeze({
       operationId: input.journal.operationId,
@@ -84,7 +84,7 @@ async function resolveActivationBlockedStatus(input: {
   liveDefaultFailure?: string;
 }): Promise<Record<string, unknown>> {
   const stateSource = await readFile(path.join(input.repositoryRoot, CurrentStatePath), 'utf8');
-  const spec = CodexDevelopmentParseCurrentStateSpec(stateSource);
+  const spec = parseCurrentStateSpec(stateSource);
   const localDefaultShaResult = await input.resolverGit.run(
     ['rev-parse', '--verify', spec.resolver.defaultRef],
     input.repositoryRoot
@@ -98,7 +98,7 @@ async function resolveActivationBlockedStatus(input: {
     resolverGit: input.resolverGit
   });
   const liveDefaultSha = liveDefaultRef.status === 'observed' ? liveDefaultRef.sha : undefined;
-  const defaultRefState: CodexDevelopmentDefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
+  const defaultRefState: DefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
     ? 'unavailable'
     : localDefaultSha === liveDefaultSha ? 'fresh' : 'stale';
   const headSha = requireCommand(
@@ -218,7 +218,7 @@ export async function resolveLiveControlPlane(
       () => resolveLiveControlPlaneWithGitReadSession(cwd, options)
     ));
   } catch (error) {
-    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
+    if (error instanceof DocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
       throw documentControlCliFailure(
         'git',
@@ -361,18 +361,18 @@ async function resolveLiveControlPlaneWithGitReadSession(
     throw error;
   }
   await options.afterIndexSnapshot?.();
-  const spec = CodexDevelopmentParseCurrentStateSpec(snapshot.stateSource);
-  const pointer = CodexDevelopmentParseActivePointer(snapshot.pointerSource);
-  const rollingPlan = CodexDevelopmentParseRollingPlan(snapshot.rollingPlanSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(snapshot.rollingPlanSource);
+  const spec = parseCurrentStateSpec(snapshot.stateSource);
+  const pointer = parseActivePointer(snapshot.pointerSource);
+  const rollingPlan = parseRollingPlan(snapshot.rollingPlanSource);
+  const rollingMachine = parseRollingMachineProjection(snapshot.rollingPlanSource);
   const rollingManifestBinding = rollingMachine === null
     ? null
-    : projectSecWorkRollingExactManifestBinding(rollingMachine);
-  CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
+    : projectWorkRollingExactManifestBinding(rollingMachine);
+  assertControlPlaneBinding({ spec, pointer });
   if (rollingPlan.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
     throw new Error('Immutable index pointer and rolling plan select different Work Packages.');
   }
-  if (CodexDevelopmentResolveWorkSelectionProjectionMode(spec) === 'required-v1'
+  if (resolveWorkSelectionProjectionMode(spec) === 'required-v1'
       && rollingMachine === null) {
     throw new Error('Required rolling projection is absent.');
   }
@@ -395,7 +395,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
     resolverGit
   });
   const liveDefaultSha = liveDefaultRef.status === 'observed' ? liveDefaultRef.sha : undefined;
-  const defaultRefState: CodexDevelopmentDefaultRefState = (
+  const defaultRefState: DefaultRefState = (
     localDefaultSha === undefined || liveDefaultSha === undefined
       ? 'unavailable'
       : localDefaultSha === liveDefaultSha
@@ -407,8 +407,8 @@ async function resolveLiveControlPlaneWithGitReadSession(
   const defaultManifestBlob = defaultRefState === 'fresh'
     ? await resolverGit.readBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null
     : null;
-  const activeWorkPackage: CodexDevelopmentActiveWorkPackageResolution =
-    CodexDevelopmentResolveActiveWorkPackage({
+  const activeWorkPackage: ActiveWorkPackageResolution =
+    resolveActiveWorkPackage({
       pointer,
       candidateManifestBlob,
       defaultManifestBlob,
@@ -444,7 +444,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
       && rollingMachine !== null
       && localDefaultSha !== undefined
       && mainTree !== undefined) {
-    CodexDevelopmentAssertRollingMachineBaseBinding({
+    assertRollingMachineBaseBinding({
       projection: rollingMachine,
       exactMain: localDefaultSha,
       exactMainTree: mainTree
@@ -481,7 +481,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
       resolverGit
     }));
   } catch (error) {
-    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError
+    if (error instanceof DocumentControlCliAdmissionError
         || error instanceof GitReadAuthorityError) throw error;
     indexTreeReadback = null;
   }

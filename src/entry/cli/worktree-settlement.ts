@@ -1,4 +1,20 @@
-import type { WorktreeSettlementView } from '../../application/worktree-settlement.ts';
+type WorktreeSettlementDriftView = Readonly<{
+  path: string;
+  declared: 'lf' | 'crlf' | 'binary' | 'unspecified';
+  blobLineEnding: 'lf' | 'crlf' | 'mixed' | 'none';
+  worktreeLineEnding: 'lf' | 'crlf' | 'mixed' | 'none';
+}>;
+
+type WorktreeSettlementView = Readonly<{
+  status: string;
+  totalFiles: number;
+  dirtyCount: number;
+  untrackedCount: number;
+  driftEntries: readonly WorktreeSettlementDriftView[];
+  coreAutocrlf: string;
+  coreEol: string;
+  summary: string;
+}>;
 
 export function formatWorktreeSettlement(view: WorktreeSettlementView): string {
   const lines: string[] = [];

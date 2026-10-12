@@ -1,8 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { PASS_SEQUENCE, PASS_STATUS_PENDING } from '../../src/adapters/compilation/pipeline/defaults.ts';
-import { LOCK_PASS_STATES, PASS_INITIAL_STATES, type PassStatus } from '../../src/compiler/contract/pass-status.ts';
-import { PASS_DEFINITIONS, PIPELINE_STAGE_DEFINITIONS, compilePipelineStageDefinitions } from '../../src/compiler/pipeline/stage-definitions.ts';
+import { LOCK_PASS_STATES, PASS_INITIAL_STATES } from '../../src/compiler/contract/pass-status.ts';
+import { PASS_DEFINITIONS, compilePipelineStageDefinitions } from '../../src/compiler/pipeline/stage-definitions.ts';
 import { PIPELINE_STAGE_OWNERSHIP } from '../../src/compiler/pipeline/stages.ts';
 
 const inputs = () => ({ passes: structuredClone(PASS_DEFINITIONS), ownership: structuredClone(PIPELINE_STAGE_OWNERSHIP) });
@@ -16,18 +16,10 @@ test('pass initialization, sequence and identity have a single immutable source'
   assert.equal(Reflect.set(PASS_SEQUENCE, 0, 'forged'), false);
 });
 
-test('retained locks may omit build-ir but all other existing passes stay required', () => {
-  const { 'build-ir': _, ...oldStatus } = PASS_STATUS_PENDING;
-  const compatible: PassStatus = oldStatus;
-  assert.equal(compatible['build-ir'], undefined);
-  assert.equal(compatible.repair, 'skipped');
-});
-
-test('registry compiler produces the exact current relation table without mutating inputs', () => {
+test('registry compiler leaves inputs unchanged and returns immutable snapshots', () => {
   const { passes, ownership } = inputs(); const before = structuredClone({ passes, ownership });
-  assert.deepEqual(compilePipelineStageDefinitions(passes, ownership), PIPELINE_STAGE_DEFINITIONS);
-  assert.deepEqual({ passes, ownership }, before);
   const compiled = compilePipelineStageDefinitions(passes, ownership);
+  assert.deepEqual({ passes, ownership }, before);
   (passes.compose.requires as string[])[0] = 'emit';
   assert.deepEqual(compiled.compose.requires, ['build-ir']);
   assert.ok(Object.isFrozen(compiled.compose.requires));
@@ -62,13 +54,6 @@ test('a composite stage cannot claim success while its last pass invalidated an 
   Object.assign(passes.resolve, { invalidates: [...passes.resolve.invalidates, 'parse'] });
   assert.throws(() => compilePipelineStageDefinitions(passes, ownership), /leaves an owned pass invalidated/);
 });
-
-test('repair invalidation cycles do not become fabricated prerequisite cycles', () => {
-  assert.ok(PASS_DEFINITIONS.verify.invalidates.includes('repair'));
-  assert.ok(PASS_DEFINITIONS.repair.invalidates.includes('verify'));
-  assert.deepEqual(compilePipelineStageDefinitions(PASS_DEFINITIONS, PIPELINE_STAGE_OWNERSHIP), PIPELINE_STAGE_DEFINITIONS);
-});
-
 
 test('a compiled Record cannot silently omit declared stages or invent pass identities', () => {
   const { emit: _stage, ...partialStages } = PIPELINE_STAGE_OWNERSHIP;

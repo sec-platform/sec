@@ -13,23 +13,35 @@ for (const operation of ['verify', 'compose'] as const) for (const inherited of 
     const script = path.join(root, 'case.ts');
     const module = operation === 'verify'
       ? 'src/application/product-verification.ts'
-      : 'src/adapters/compilation/compose/compose-project.ts';
+      : 'src/application/project-composition.ts';
     try {
       await Bun.write(script, `
         import { mock } from 'bun:test';
         const operation = ${JSON.stringify(operation)};
         const primary = Object.freeze({ reason: 'engine stopped' });
-        let observed, calls = 0;
+        let observed, calls = 0, compositionRoot, compositionOperations;
         const engine = async (...args) => {
           calls++;
           observed = operation === 'verify'
             ? { laneOrContext: args[1], options: args[2] }
-            : { root: args[0], laneOrContext: args[2], options: args[3] };
+            : { root: compositionRoot, laneOrContext: args[1], options: args[2], operations: args[3] };
           throw primary;
         };
         mock.module(${JSON.stringify(path.join(repo, module))}, () => operation === 'verify'
           ? { executeProductVerification: engine }
-          : { composeProject: engine });
+          : { executeProjectComposition: engine });
+        if (operation === 'compose') {
+          const bindingPath = ${JSON.stringify(path.join(repo, 'src/bootstrap/engineering/project-composition.ts'))};
+          const binding = await import(bindingPath);
+          const createOperations = binding.createProjectCompositionOperations;
+          mock.module(bindingPath, () => ({ ...binding,
+            createProjectCompositionOperations(root) {
+              compositionRoot = root;
+              compositionOperations = createOperations(root);
+              return compositionOperations;
+            }
+          }));
+        }
         const { initWorkspace } = await import(${JSON.stringify(path.join(repo, 'src/bootstrap/engineering/workspace-orchestrator.ts'))});
         const { readLockFile, saveLock } = await import(${JSON.stringify(path.join(repo, 'src/adapters/workspace/lock.ts'))});
         const domain = await import(${JSON.stringify(path.join(repo, `src/bootstrap/engineering/${operation}-orchestrator.ts`))});
@@ -51,6 +63,8 @@ for (const operation of ['verify', 'compose'] as const) for (const inherited of 
         catch (error) { if (error !== primary) throw new Error('request mutation changed the selected action: ' + error); }
         if (calls !== 1 || (operation !== 'verify' && observed.root !== workspace))
           throw new Error('engine invocation changed');
+        if (operation === 'compose' && observed.operations !== compositionOperations)
+          throw new Error('composition lost its root-bound physical operations');
         if (observed.options.signal !== controller.signal) throw new Error('signal identity changed');
         if (operation === 'verify' && (observed.laneOrContext !== 'fast' || observed.options.emitTiming !== true || observed.options.isolated !== false))
           throw new Error('verification decisions changed');

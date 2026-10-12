@@ -5,7 +5,7 @@ import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../contracts/registry-sou
 // capability selection and authority remain decisions of their existing owners.
 export const PackageManagerSchema = z.enum(['pnpm', 'npm', 'yarn']);
 export const AppModeSchema = z.enum(['single-tenant', 'multi-tenant']);
-export const PlanAppSchema = z.object({
+const PlanAppSchema = z.object({
   id: z.string(), name: z.string(), stack: z.string(),
   packageManager: PackageManagerSchema, mode: AppModeSchema
 });

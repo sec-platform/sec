@@ -73,7 +73,7 @@ test('an applicable policy target must be a retained readable ordinary file', as
   await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Applicable policy target is missing/);
 }, 180000);
 
-test('project policy declarations override the official definition without changing assurance', async () => {
+test('equal project policy declarations retain project attribution without changing assurance', async () => {
   const workspaceRoot = await prepareComposedWorkspace({
     prefix: 'engineering-compiler-policy-project-precedence-'
   });
@@ -82,8 +82,8 @@ test('project policy declarations override the official definition without chang
   await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
     policies: [{
       id: 'tenant-scope-required',
-      severity: 'blocker',
-      appliesTo: ['entity/customer-basic'],
+      severity: 'error',
+      appliesTo: ['entity/customer-basic', 'ticket/basic', 'worklog/basic'],
       rule: TENANT_FLOW_RULE
     }]
   });
@@ -97,6 +97,16 @@ test('project policy declarations override the official definition without chang
   });
   expect(report.evaluation?.assurance).toBe('semantic');
 }, 180000);
+
+test('project declarations cannot remove the official tenant policy obligations', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-project-conflict-');
+  const { policiesRoot } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(policiesRoot, { recursive: true });
+  await writeYaml(path.join(policiesRoot, 'tenant.yaml'), { policies: [{
+    id: 'tenant-scope-required', severity: 'blocker', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE
+  }] });
+  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Conflicting policy declarations/);
+});
 
 test('unknown policy rules fail at the declaration schema boundary', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-unknown-rule-');

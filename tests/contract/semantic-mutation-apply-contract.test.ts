@@ -236,25 +236,6 @@ test('Verification adapter emits the exact frozen report and execution binding, 
   });
 });
 
-test('SM-3 digest domains remain independently reproducible', () => {
-  const requirements = [{ kind: 'pass', passId: 'verify' }] as const;
-  expect(sha256({
-    domain: 'semantic-mutation-required-verification-v1',
-    requirements
-  })).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(sha256({
-    domain: 'semantic-mutation-request-identity-v1',
-    graphId: 'graph:1',
-    appId: 'app:1',
-    requestId: 'request:1'
-  })).not.toBe(sha256({
-    domain: 'semantic-mutation-verification-report-v1',
-    graphId: 'graph:1',
-    appId: 'app:1',
-    requestId: 'request:1'
-  }));
-});
-
 test('isolated Verification evidence digest is deterministic and distinguishes failure state', () => {
   const passed = {
     status: 'passed',

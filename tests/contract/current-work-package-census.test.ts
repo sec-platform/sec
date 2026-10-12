@@ -3,9 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
-  CodexDevelopmentClassifyWorkPackageCensus,
-  CodexDevelopmentParseActivePointer
+  classifyWorkPackageCensus,
+  parseActivePointer
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
@@ -14,6 +15,7 @@ const PACKAGE_DIR = path.join(ROOT, 'config/repository/work-packages');
 function defaultBytes(repositoryPath: string): Uint8Array | null {
   const result = spawnSync('git', ['show', `refs/remotes/origin/main:${repositoryPath}`], {
     cwd: ROOT,
+    env: canonicalGitChildEnvironment(),
     windowsHide: true,
     encoding: null,
     maxBuffer: 2 * 1024 * 1024
@@ -27,7 +29,7 @@ test('current Work Package tree contains no stale or unauthorized transport mani
     path.join(ROOT, 'config/repository/active-work-package.md'),
     'utf8'
   );
-  const selectedManifestPath = CodexDevelopmentParseActivePointer(pointerSource).manifest;
+  const selectedManifestPath = parseActivePointer(pointerSource).manifest;
   const paths = readdirSync(PACKAGE_DIR, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
     .map((entry) => `config/repository/work-packages/${entry.name}`)
@@ -44,7 +46,7 @@ test('current Work Package tree contains no stale or unauthorized transport mani
         : defaultBytes(repositoryPath)
     };
   });
-  const census = CodexDevelopmentClassifyWorkPackageCensus({
+  const census = classifyWorkPackageCensus({
     selectedManifestPath,
     entries,
     ...(paths.length > 1 ? {

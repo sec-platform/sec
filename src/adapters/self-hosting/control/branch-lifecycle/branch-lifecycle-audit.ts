@@ -1,20 +1,9 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import type { BranchLifecycleClassification, BranchLifecycleInventory, BranchPullRequestObservation, BranchRecoveryAuthority, BranchRefObservation, BranchWorktreeObservation } from '../../../../execution/verification/branch-closeout.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
-import type {
-  BranchAuditSeverity,
-  BranchLifecycleAuditFinding,
-  BranchLifecycleAuditReport,
-  BranchLifecycleClassification,
-  BranchLifecycleDispositionRecord,
-  BranchLifecycleInventory,
-  BranchPullRequestObservation,
-  BranchRecoveryAuthority,
-  BranchRefObservation,
-  BranchWorktreeObservation,
-  ClassifiedBranchLifecycle
-} from './branch-lifecycle-types.ts';
+import type { BranchAuditSeverity, BranchLifecycleAuditFinding, BranchLifecycleAuditReport, BranchLifecycleDispositionRecord, ClassifiedBranchLifecycle } from './branch-lifecycle-types.ts';
 
 export { assertGitBranchName };
 
@@ -191,7 +180,7 @@ function normalizeSelectionPullRequests(
 }
 
 /**
- * Bounded #313 projection for Work Selection. The caller observes only the
+ * Bounded branch-lifecycle projection for Work Selection. The caller observes only the
  * complete non-default ref/worktree namespace, one selected OPEN pull request,
  * and every unselected OPEN pull request. This owner validates the exact active,
  * preserved, and prospective transports and decides whether any remaining

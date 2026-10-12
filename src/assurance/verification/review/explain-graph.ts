@@ -1,6 +1,6 @@
 import type { LockFile } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import type { PolicyReport } from '../../../semantics/policies/types.ts';
 import type {
   ExplainEdgeType,
@@ -47,7 +47,7 @@ class GraphBuilder {
     if (existing === undefined) {
       this.nodes.set(id, { id, type, label });
     } else if (existing.type !== type || existing.label !== label) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'EXPLAIN-GRAPH-001',
         `Explain graph node identity "${id}" has conflicting definitions`,
         {
@@ -90,7 +90,7 @@ class GraphBuilder {
         ...(this.nodes.has(edge.to) ? [] : ['to'])
       ];
       if (missingEndpoints.length > 0) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'EXPLAIN-GRAPH-002',
           'Explain graph contains an edge with an unregistered endpoint',
           { edge, missingEndpoints }

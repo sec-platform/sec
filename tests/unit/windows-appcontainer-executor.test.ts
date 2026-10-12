@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 
 import {
   acquireWindowsAppContainerNativeHelperCapability,
@@ -336,59 +337,60 @@ test('Windows AppContainer detailed probe evidence redacts to exact status-only 
 
 test('Windows AppContainer probe conformance owner settles servers and validates exact reports', async () => {
   const servers = await acquireWindowsAppContainerProbeConformanceServersForTests();
-  expect(servers.httpPort).toBeGreaterThan(0);
-  expect(servers.rawPort).toBeGreaterThan(0);
-  expect(servers.connectionAttempts()).toEqual({ http: 0, raw: 0 });
-  const environment = buildWindowsAppContainerProbeEnvironmentForTests(
-    { BUN_INSTALL_CACHE_DIR: 'ambient-cache', EXTRA: 'preserved' },
-    'C:\\probe',
-    servers.httpPort,
-    servers.rawPort
-  );
-  expect(environment).toMatchObject({
-    PATH: '',
-    EXTRA: 'preserved',
-    SEC_APPCONTAINER_PROBE_HTTP_PORT: String(servers.httpPort),
-    SEC_APPCONTAINER_PROBE_RAW_PORT: String(servers.rawPort)
-  });
-  const isolatedVector = Object.freeze({
-    fetchConnect: false,
-    insideWrite: true,
-    outerRead: false,
-    outsideWrite: false,
-    parentRead: false,
-    rawConnect: false
-  });
-  const emptyDiagnosticDigest = `sha256:${'0'.repeat(64)}` as const;
-  const isolatedReport = {
-    direct: isolatedVector,
-    spawned: isolatedVector,
-    spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
-    spawnedExitCode: 0
-  };
-  expect(windowsAppContainerProbeReportIsIsolatedForTests(isolatedReport)).toBe(true);
-  expect(observeWindowsAppContainerProbeReportForTests(isolatedReport)).toEqual({
-    isolated: true,
-    spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
-    spawnedExitCode: 0,
-    spawnedResultPresent: true
-  });
-  expect(windowsAppContainerProbeReportIsIsolatedForTests({
-    direct: isolatedVector,
-    spawned: { ...isolatedVector, rawConnect: true },
-    spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
-    spawnedExitCode: 0
-  })).toBe(false);
-  expect(observeWindowsAppContainerProbeReportForTests({
-    ...isolatedReport,
-    extra: true
-  })).toBeUndefined();
-  expect(observeWindowsAppContainerProbeReportForTests({
-    ...isolatedReport,
-    spawnedDiagnostic: { classification: 'runtime', digest: emptyDiagnosticDigest }
-  })).toBeUndefined();
-  await servers.close();
-  await servers.close();
+  await settleWorkspaceCallback(async () => {
+    expect(servers.httpPort).toBeGreaterThan(0);
+    expect(servers.rawPort).toBeGreaterThan(0);
+    expect(servers.connectionAttempts()).toEqual({ http: 0, raw: 0 });
+    const environment = buildWindowsAppContainerProbeEnvironmentForTests(
+      { BUN_INSTALL_CACHE_DIR: 'ambient-cache', EXTRA: 'preserved' },
+      'C:\\probe',
+      servers.httpPort,
+      servers.rawPort
+    );
+    expect(environment).toMatchObject({
+      PATH: '',
+      EXTRA: 'preserved',
+      SEC_APPCONTAINER_PROBE_HTTP_PORT: String(servers.httpPort),
+      SEC_APPCONTAINER_PROBE_RAW_PORT: String(servers.rawPort)
+    });
+    const isolatedVector = Object.freeze({
+      fetchConnect: false,
+      insideWrite: true,
+      outerRead: false,
+      outsideWrite: false,
+      parentRead: false,
+      rawConnect: false
+    });
+    const emptyDiagnosticDigest = `sha256:${'0'.repeat(64)}` as const;
+    const isolatedReport = {
+      direct: isolatedVector,
+      spawned: isolatedVector,
+      spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
+      spawnedExitCode: 0
+    };
+    expect(windowsAppContainerProbeReportIsIsolatedForTests(isolatedReport)).toBe(true);
+    expect(observeWindowsAppContainerProbeReportForTests(isolatedReport)).toEqual({
+      isolated: true,
+      spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
+      spawnedExitCode: 0,
+      spawnedResultPresent: true
+    });
+    expect(windowsAppContainerProbeReportIsIsolatedForTests({
+      direct: isolatedVector,
+      spawned: { ...isolatedVector, rawConnect: true },
+      spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
+      spawnedExitCode: 0
+    })).toBe(false);
+    expect(observeWindowsAppContainerProbeReportForTests({
+      ...isolatedReport,
+      extra: true
+    })).toBeUndefined();
+    expect(observeWindowsAppContainerProbeReportForTests({
+      ...isolatedReport,
+      spawnedDiagnostic: { classification: 'runtime', digest: emptyDiagnosticDigest }
+    })).toBeUndefined();
+    await servers.close();
+  }, () => servers.close());
 });
 
 test('Windows AppContainer native-helper bundle retries one transient rejected build', async () => {

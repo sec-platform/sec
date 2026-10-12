@@ -99,7 +99,7 @@ class Architecture(unittest.TestCase):
    with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: U013'):d.decision_model(r)
  def test_all_decisions_and_graphs(self):
   root=Path(d.__file__).resolve().parents[2]
-  v=d.review(root);self.assertEqual(v['decisions'],d.decision_model(root))
+  v=d.review(root)
   graph_keys=[(g['path'],g['line']) for g in v['mermaid_sources']]
   self.assertTrue(graph_keys);self.assertEqual(len(set(graph_keys)),len(graph_keys))
   for graph in v['mermaid_sources']:

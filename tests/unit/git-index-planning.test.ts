@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { resolveGitIndexPlanningBudget } from '../../src/adapters/providers/git-read/runtime/budget.ts';
 import {
   applyGitIndexObjectDelta, assertGitIndexObjectInfoBatch, assertGitIndexTreeGeneration, decodeGitIndexGeneration,
-  encodeGitIndexGeneration, GitIndexPlanningBudgetError, type GitIndexObjectFormat
+  encodeGitIndexGeneration, GitIndexPlanningBudgetError, GitIndexUnmergedError, type GitIndexObjectFormat
 } from '../../src/adapters/providers/git-read/runtime/scratch-index-generation.ts';
 import { captureGitScratchIndexDelta } from '../../src/adapters/providers/git-read/runtime/scratch-input.ts';
 
@@ -102,7 +102,10 @@ test('unsupported index and native object domains fail closed', () => {
   for (const extension of ['link', 'sdir', 'TEST', 'R\u00c5UC']) {
     assert.throws(() => decodeGitIndexGeneration(indexBytes({ entries: [], extension }), 'sha1'), /unsupported|semantics/);
   }
-  assert.throws(() => decodeGitIndexGeneration(indexBytes({ entries: [{ path: 'a', flags: 0x1001 }] }), 'sha1'), /unmerged/);
+  for (const stage of [1, 2, 3]) {
+    assert.throws(() => decodeGitIndexGeneration(indexBytes({ entries: [{ path: 'a', flags: (stage << 12) | 1 }] }), 'sha1'),
+      (error: unknown) => error instanceof GitIndexUnmergedError && error.code === 'git-index-unmerged');
+  }
   for (const entry of [{ path: 'a', oid: '00'.repeat(20) }, { path: 'a', extended: 0x2000 }]) {
     const generation = decodeGitIndexGeneration(indexBytes({ version: 3, entries: [entry] }), 'sha1');
     assert.throws(() => assertGitIndexTreeGeneration(generation), /intent-to-add/);

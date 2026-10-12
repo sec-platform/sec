@@ -6,11 +6,11 @@ import { expect, test } from 'bun:test';
 import { stringify as stringifyYaml } from 'yaml';
 
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
-import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
+import { WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, WINDOWS_CONTROL_CLI_PROFILE_ID, WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 import { scanMachineLedgers, type CapabilityLedgerIssue } from '../../src/adapters/verification/platform/provider/capability-ledger-validation.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
+const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
 
 async function scan(root: string): Promise<CapabilityLedgerIssue[]> {
   const issues: CapabilityLedgerIssue[] = [];
@@ -33,46 +33,10 @@ function windowsControlCliProvider(): Record<string, unknown> {
     capability: 'host-command-execution',
     decision: 'integrate-provider',
     lifecycle: 'revalidation-required',
-    activeRoutingProfile: SEC_WINDOWS_CONTROL_CLI_PROFILE_ID,
-    surfaces: { cli: [SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE], standingMcp: [] },
+    activeRoutingProfile: WINDOWS_CONTROL_CLI_PROFILE_ID,
+    surfaces: { cli: [WINDOWS_CONTROL_CLI_SESSION_SURFACE], standingMcp: [] },
     forbiddenAuthority: [...FORBIDDEN_AUTHORITY],
-    unresolved: [SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON]
-  };
-}
-
-function executionTopology(): Record<string, unknown> {
-  return {
-    schema: 'sec-verification-execution-topology-v1',
-    semanticControlPlane: 'platform-neutral',
-    selection: 'required-closure-intersect-missing-or-stale',
-    environments: [
-      {
-        id: 'windows-native-control',
-        availability: 'available',
-        capabilities: ['semantic-control', 'windows-native'],
-        evidenceRole: 'owning-environment-only'
-      },
-      {
-        id: 'docker-linux-x64',
-        availability: 'available',
-        capabilities: ['linux-native-runtime'],
-        substrate: { wsl2: 'implementation-only-not-independent-evidence' },
-        localRemoteSwitch: 'same-profile-conformance-no-workflow-change'
-      },
-      {
-        id: 'darwin-native',
-        availability: 'unavailable',
-        capabilities: ['darwin-native'],
-        unrelatedDelta: 'not-applicable',
-        requiredDelta: 'typed-provider-unavailable'
-      }
-    ],
-    invariants: {
-      noPlatformSubstitution: true,
-      noSubstrateDoubleCounting: true,
-      noUnavailableProviderPass: true,
-      noWorkflowEditForLocalRemoteSwitch: true
-    }
+    unresolved: [WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON]
   };
 }
 
@@ -100,7 +64,6 @@ function externalLedger(): Record<string, unknown> {
       repository: 'sec-platform/sec'
     },
     policy: { owner: 'docs/架构/实现供给与替换.md' },
-    executionTopology: executionTopology(),
     providers: [
       {
         id: 'codegraph',
@@ -235,7 +198,7 @@ test('external provider state transitions are ledger-only and graph standing cou
   });
 });
 
-test('the canonical EnvironmentSpec route remains valid while unrelated ledger revalidation stays negative', async () => {
+test('the canonical EnvironmentSpec route remains valid during unrelated ledger revalidation', async () => {
   await withLedgerFixture(async (root) => {
     const state = fixtureState();
     (state.external.providers as Array<Record<string, unknown>>).push(
@@ -244,10 +207,6 @@ test('the canonical EnvironmentSpec route remains valid while unrelated ledger r
     await expectZeroErrors(root, state);
     expect(state.external.status).toBe('revalidation-required');
 
-    const unrelatedRevalidation = structuredClone(state);
-    const architectureGraph = provider(unrelatedRevalidation.external, 'package-graph');
-    architectureGraph.lifecycle = 'revalidation-required';
-    await expectZeroErrors(root, unrelatedRevalidation);
   });
 });
 
@@ -338,7 +297,7 @@ test('host-command-execution has one exhaustive provider closure with no null or
       ['missing closure reason', (entry) => {
         entry.unresolved = [];
       }, `External capability provider windows-native-control-cli.unresolved must contain exactly ${
-        SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
+        WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
       }.`]
     ];
     for (const [, mutate, message] of cases) {
@@ -404,14 +363,13 @@ test('external provider schema and cross-field negatives report the exact failin
       'External capability provider package-graph.capability security-analysis requires category security.'
     );
 
-    const platformSubstitution = structuredClone(base);
-    fixtureRecord(fixtureRecord(platformSubstitution.external.executionTopology).invariants)
-      .noPlatformSubstitution = false;
+    const staleTopology = structuredClone(base);
+    staleTopology.external.executionTopology = { availability: 'available' };
     await expectOneError(
       root,
-      platformSubstitution,
+      staleTopology,
       file,
-      'External capability ledger.executionTopology.invariants must all be true.'
+      'External capability ledger.executionTopology is not allowed.'
     );
 
     const weakAuthority = structuredClone(base);
@@ -681,8 +639,8 @@ test('workflow runtime catalog binds canonical Linux environment authority witho
       root,
       wrongProfile,
       'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.capability workflow-execution '
-        + 'does not permit routing profile sec-linux-verification-other.'
+      'External capability provider github-actions-local-runner '
+        + 'workflow-execution provider closure is invalid.'
     );
 
     const wrongSurface = structuredClone(state);

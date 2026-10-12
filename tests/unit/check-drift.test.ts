@@ -5,7 +5,7 @@ import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/f
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { checkReferenceDrift } from '../../src/adapters/workspace/project-integrity.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -92,7 +92,7 @@ describe('checkReferenceDrift', () => {
         error = e;
       }
 
-      expect(error).toBeInstanceOf(CompilerError);
+      expect(error).toBeInstanceOf(CodedFailure);
       expect(error.code).toBe('ERROR-DRIFT-001');
       expect(error.message).toContain('Read-only project file modified');
     });
@@ -129,7 +129,7 @@ describe('checkReferenceDrift', () => {
         error = e;
       }
 
-      expect(error).toBeInstanceOf(CompilerError);
+      expect(error).toBeInstanceOf(CodedFailure);
       expect(error.code).toBe('ERROR-DRIFT-001');
       expect(error.message).toContain('Read-only project file is missing');
     });

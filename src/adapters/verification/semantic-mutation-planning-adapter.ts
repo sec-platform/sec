@@ -3,9 +3,6 @@ import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/de
 import type { VerificationRequirement } from '../../semantics/mutation/types.ts';
 import type { WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
 import {
-  probeSemanticMutationIsolatedRuntimeCapability
-} from './run-semantic-mutation-isolated-child.ts';
-import {
   planSemanticMutationVerificationCapabilities
 } from './semantic-mutation-verification-adapter.ts';
 
@@ -18,16 +15,6 @@ interface SemanticMutationIsolationCapabilityProbeRequest {
 export type SemanticMutationIsolationCapabilityProbeFactory = (
   request: SemanticMutationIsolationCapabilityProbeRequest
 ) => unknown | Promise<unknown>;
-
-export const DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE:
-  SemanticMutationIsolationCapabilityProbeFactory = async request => {
-    const runtime = await probeSemanticMutationIsolatedRuntimeCapability(
-      request.stagingWorkspaceRoot
-    );
-    return runtime.status === 'available'
-      ? runtime
-      : Object.freeze({ status: 'unavailable' as const });
-  };
 
 export interface SemanticMutationVerificationPlanningAdapter {
   readonly adapterId: string;
@@ -44,10 +31,9 @@ export function createSemanticMutationVerificationPlanningAdapter(input: Readonl
   adapterRevision: string;
   workspaceRoot: string;
   workspaceWriteLease: WorkspaceWriteLeaseToken;
-  isolationCapabilityProbe?: SemanticMutationIsolationCapabilityProbeFactory;
+  isolationCapabilityProbe: SemanticMutationIsolationCapabilityProbeFactory;
 }>): SemanticMutationVerificationPlanningAdapter {
-  const probe = input.isolationCapabilityProbe ??
-    DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE;
+  const probe = input.isolationCapabilityProbe;
   return Object.freeze({
     adapterId: input.adapterId,
     adapterRevision: input.adapterRevision,

@@ -56,8 +56,7 @@ test('hook installer requires the tracked managed hook before configuring author
   });
 });
 
-test('hook installer requires executable managed sources on POSIX', async () => {
-  if (process.platform === 'win32') return;
+test.skipIf(process.platform === 'win32')('hook installer requires executable managed sources on POSIX', async () => {
   await withRepository(async (repoRoot) => {
     await chmod(path.join(repoRoot, '.githooks', 'pre-commit'), 0o644);
     expect(await installGitHooks({ repoRoot, lifecycle: true }))

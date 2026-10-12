@@ -4,11 +4,9 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { generatedStateDigest } from './contract.ts';
-import {
-  runGeneratedStateOperation,
-  type GeneratedStateDomainOwnerOperation
-} from './operation.ts';
+import { runGeneratedStateOperation } from '../../../bootstrap/runtime-state/generated-state-operation.ts';
+import { generatedStateDigest } from '../../../execution/generated-state/contract.ts';
+import type { GeneratedStateDomainOwnerOperation } from '../../../execution/generated-state/operation-port.ts';
 
 async function withWorkspace(
   callback: (workspaceRoot: string) => Promise<void>

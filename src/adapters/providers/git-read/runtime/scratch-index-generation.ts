@@ -8,6 +8,14 @@ export { GitIndexPlanningBudgetError } from './budget.ts';
 
 export type GitIndexObjectFormat = 'sha1' | 'sha256';
 
+export class GitIndexUnmergedError extends Error {
+  readonly code = 'git-index-unmerged' as const;
+  constructor() {
+    super('Git scratch tree generation rejects an unmerged index.');
+    this.name = 'GitIndexUnmergedError';
+  }
+}
+
 type GitIndexGenerationEntry = Readonly<{
   readonly statHex: string;
   readonly mode: number;
@@ -260,7 +268,7 @@ export function decodeGitIndexGeneration(
       offset += 2;
       if ((extendedFlags & ~0x6000) !== 0) throw new Error('Git index extended flags use reserved bits.');
     }
-    if (stage !== 0) throw new Error('Git scratch tree generation rejects an unmerged index.');
+    if (stage !== 0) throw new GitIndexUnmergedError();
 
     let pathBytes: Buffer;
     if (version === 4) {

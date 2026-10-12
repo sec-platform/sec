@@ -1,6 +1,6 @@
-# Engineering Workspace Compiler — Project Status
+# Project status
 
-This project is in an **active development preview**. The repository retains the historical name `sec`; that name is not the current project definition or acronym. This page describes the public maturity boundary and does not replace exact verification evidence or the canonical design corpus.
+Gift is a **development preview**. This page describes available source entry points and their limits. The design specifications cover a broader target than the current implementation.
 
 ## What exists today
 
@@ -10,8 +10,6 @@ The repository contains:
 - a TypeScript implementation organized around explicit contracts, workspace state, semantic interpretation, compilation, assurance, application coordination, execution, adapters, entry points, and composition;
 - tests, repository audits, documentation checks, development-control machinery, and GitHub workflows;
 - authoring examples and reference/demo entry points.
-
-These are repository facts, not a claim that every documented capability has reached the same maturity.
 
 ## Maturity boundary
 
@@ -27,14 +25,12 @@ Assess maturity for a specific capability, revision, environment, and requested 
 | Adoption | Where the result was actually installed, published, or used, when requested |
 | Retirement | Which replaced paths and residual responsibilities were settled, when replacement occurred |
 
-These are related evidence dimensions rather than a mandatory sequence for every task. A design task can finish with a complete specification; a pure query can finish with its returned result. Deployment, user-effect validation, and retirement apply when the accepted task includes those obligations. Evidence for one dimension does not establish the others. In particular, do not assume that:
+These are related evidence dimensions rather than a mandatory sequence for every task. A design task can finish with a complete specification; a pure query can finish with its returned result. Deployment, user-effect validation, and retirement apply when the accepted task includes those obligations. Evidence for one dimension does not establish the others. Keep these limitations explicit:
 
-- every documented design is implemented;
-- every target language or environment is supported;
-- the current CLI, package layout, TypeScript types, or internal protocols are stable public APIs;
-- a local passing test proves production readiness;
-- generated source proves that the requested engineering outcome was adopted;
-- compatibility will be preserved throughout the current development phase.
+- documented designs, target languages, and environments may remain unimplemented;
+- the CLI, package layout, TypeScript types, and internal protocols may change without compatibility guarantees;
+- local test results cover their tested inputs and environment; production readiness requires separate evidence;
+- generating source is separate from adopting and verifying it in a target project.
 
 Known gaps and intentionally unresolved design scope are maintained in [`docs/状态/README.md`](docs/状态/README.md). Concrete claims should be checked against the exact implementation revision and the evidence that actually covers them.
 
@@ -64,13 +60,13 @@ The JSON contains `engineeringIRInput`, the existing captured IR-build profile, 
 
 The current generator emits state-transition maps. The returned set is explicitly scoped to `semantic-tasks`; required native types/imports still belong to the supplied target implementation. This is not a complete native package, a build result, or proof of passed verification. Change the transition in the same input JSON and generate again to obtain a new semantic revision; previous query results remain detached from later author edits.
 
-A runtime defaults to one in-flight query. The host may select a positive finite `maximumPendingQueries` when constructing it; excess requests fail with `RUNTIME-BUSY-001` before copying their inputs, rather than entering an unbounded queue. `close()` stops admission and drains accepted calls. Native cancellation stays live, but these boundaries are not heap hard limits or preemption of synchronous compiler work. The API remains a revision-pinned development preview.
+A runtime defaults to one in-flight query. The host may select a positive safe integer `maximumPendingQueries` when constructing it; excess requests fail with `RUNTIME-BUSY-001` before copying their inputs, rather than entering an unbounded queue. `close()` stops admission and drains accepted calls. Native cancellation stays live, but these boundaries are not heap hard limits or preemption of synchronous compiler work. The API remains a revision-pinned development preview.
 
 The supported repository checks are listed in `package.json`; contribution work should follow the current development entry in [`AGENTS.md`](AGENTS.md) rather than treating one fixed command as sufficient for every change.
 
 ## Release and compatibility policy
 
-Public repository visibility means that the project can be inspected and contributed to. It does not declare a stable API, production readiness, long-term support, or a versioned product release.
+The public repository is open for inspection and contributions. It has no declared stable API, production-readiness guarantee, long-term support policy, or versioned product release.
 
 A future release must state its supported capabilities, targets, compatibility boundary, verification coverage, installation path, and known limitations. Until then, consumers should pin an exact revision and expect architecture and implementation interfaces to change.
 

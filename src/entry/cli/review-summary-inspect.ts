@@ -61,7 +61,7 @@ export function formatReviewSummary(view: ReviewSummaryInspectView): string {
           upgrade.diagnostics.failedCheck,
           upgrade.diagnostics.errorCode,
           upgrade.diagnostics.message,
-          `attribution=${formatList([...upgrade.diagnostics.attribution])}`
+          `attribution=${formatList(upgrade.diagnostics.attribution)}`
         ])
       );
     }

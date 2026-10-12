@@ -1,8 +1,8 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import {
   assertRetainedCommandBoundaryCurrent,
@@ -11,14 +11,14 @@ import {
 } from './retained-command-boundary.ts';
 
 export interface IndependentProviderProcessCapability {
-  readonly providerPhysicalIdentityDigest: SecOperationDigest;
+  readonly providerPhysicalIdentityDigest: OperationDigest;
 }
 
 type IndependentProviderProcessRecord = Readonly<{
   boundary: RetainedCommandBoundary;
-  boundAttemptDigest: SecOperationDigest;
-  operationIdentityDigest: SecOperationDigest;
-  providerPhysicalIdentityDigest: SecOperationDigest;
+  boundAttemptDigest: OperationDigest;
+  operationIdentityDigest: OperationDigest;
+  providerPhysicalIdentityDigest: OperationDigest;
 }>;
 
 const ISSUED_INDEPENDENT_PROVIDER_PROCESS_CAPABILITIES = new WeakMap<
@@ -34,11 +34,11 @@ const ISSUED_INDEPENDENT_PROVIDER_PROCESS_CAPABILITIES = new WeakMap<
 export function issueIndependentProviderProcessCapability(
   input: Readonly<{
     boundary: RetainedCommandBoundary;
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
   }>
 ): IndependentProviderProcessCapability {
   const operation = input.operation;
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
   assertRetainedCommandBoundaryCurrent(input.boundary);
   const requirement = operation.plan.execution.requirements.find(({ effectKinds }) => (
     effectKinds.includes('provider') && effectKinds.includes('process')
@@ -73,7 +73,7 @@ export function issueIndependentProviderProcessCapability(
       childPath: input.boundary.workingDirectory.childPath
     },
     auxiliaryInputs
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const capability: IndependentProviderProcessCapability = Object.freeze({
     providerPhysicalIdentityDigest
   });
@@ -89,8 +89,8 @@ export function issueIndependentProviderProcessCapability(
 export function assertIndependentProviderProcessCapabilityForSession(
   capability: IndependentProviderProcessCapability,
   expected: Readonly<{
-    operationIdentityDigest: SecOperationDigest;
-    boundAttemptDigest: SecOperationDigest;
+    operationIdentityDigest: OperationDigest;
+    boundAttemptDigest: OperationDigest;
     boundary: RetainedCommandBoundary;
   }>
 ): void {

@@ -78,7 +78,7 @@ MainHealth authority/ruleset owner 闭环；未完成 ruleset 与 `bypass_actors
 | 分支、工作树、provider及物理残留 | 各自branch-lifecycle、worktree、generated-state和resource owner | 只引用生命周期回执；报告者无删除权 |
 | 人机进度显示 | 在既有WorkSelection/continuation输出中派生的完成投影 | CLI、JSON、报告和Issue更新引用同一裁决；不手工维护done百分比 |
 
-`SecWorkCurrentSpecObservation.providerState`是平台状态，不是任务满足证明。`scopeClosure`表示选择输入中的范围判断，不是完成证据。`reproductionOrEvidenceFreshness`必须追溯其观察，不能靠一个`fresh`字符串自证。上述区别必须进入真实解码和消费路径，而非只写注释。
+`WorkCurrentSpecObservation.providerState`是平台状态，不是任务满足证明。`scopeClosure`表示选择输入中的范围判断，不是完成证据。`reproductionOrEvidenceFreshness`必须追溯其观察，不能靠一个`fresh`字符串自证。上述区别必须进入真实解码和消费路径，而非只写注释。
 
 ### 3. 身份、地址、版本与角色
 

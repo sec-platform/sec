@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { validateAuthoringSemanticContractIndex } from '../../../compiler/contract/authoring-semantic-index.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { getErrorCode } from '../../../contracts/failure-inspection.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
 import { mapTaskGroup } from '../../../execution/task-group.ts';
 import { normalizeSemanticContract } from '../../../semantics/definitions/normalize.ts';
@@ -39,7 +39,7 @@ export async function loadAuthoringSemanticContractSources(
   return mapTaskGroup(index, async (entry) => {
     const absolutePath = resolvePathInside(workspaceRoot, entry.path);
     if (!absolutePath) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-021',
         `Authoring semantic contract path "${entry.path}" escapes the workspace`
       );

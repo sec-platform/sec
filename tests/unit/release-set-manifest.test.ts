@@ -120,12 +120,12 @@ test('release-set manifest binds exactly one runtime and one documentation manif
   });
   expect(parseReleaseSetManifestBytes(encode(material)).members.map(({ name }) => name))
     .toEqual(['documentation', 'runtime']);
-  const wrongPath = JSON.parse(encode(material).toString('utf8'));
+  const wrongPath = JSON.parse(JSON.stringify(material));
   wrongPath.members[1].manifestPath = 'runtime/not-the-runtime-manifest.json';
-  expect(() => parseReleaseSetManifestBytes(Buffer.from(JSON.stringify(wrongPath)))).toThrow();
-  const wrong = JSON.parse(encode(material).toString('utf8'));
-  wrong.members[1].name = 'documentation';
-  expect(() => parseReleaseSetManifestBytes(Buffer.from(JSON.stringify(wrong)))).toThrow();
+  expect(() => parseReleaseSetManifestBytes(encode(wrongPath))).toThrow('member is invalid');
+  const wrong = JSON.parse(JSON.stringify(material));
+  wrong.members[1] = { ...wrong.members[0] };
+  expect(() => parseReleaseSetManifestBytes(encode(wrong))).toThrow('member is invalid');
 });
 
 async function writePackageFile(root: string, relative: string, content: string, executable = false) {

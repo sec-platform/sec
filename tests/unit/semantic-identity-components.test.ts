@@ -4,7 +4,8 @@ import * as ids from '../../src/compiler/ir/ir-identity.ts';
 import { normalizeEvidence, normalizeProvenance } from '../../src/compiler/ir/ir-normalization.ts';
 import { digest, inputRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
-import { assertSemanticIdentityComponent, semanticReferenceParts, semanticTargetParts } from '../../src/semantics/definitions/identity-components.ts';
+import { CanonicalKeyConflictError } from '../../src/contracts/canonical.ts';
+import { assertSemanticIdentityComponent, semanticReferenceParts, semanticTargetParts, uniqueSortedSemanticTuples } from '../../src/semantics/definitions/identity-components.ts';
 import { linkWorkspaceSemanticContracts, splitLinkedSemanticReference } from '../../src/semantics/definitions/link.ts';
 import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import type { SemanticContract } from '../../src/semantics/definitions/types.ts';
@@ -155,4 +156,17 @@ test('source and evidence business text retain distinct tuples, including a seco
   provenance[1]!.sourcePath = 'edited';
   expect(normalizeProvenance(provenance)).toEqual([provenance[1]!, provenance[0]!]);
   expect(normalizeProvenance([provenance[0]!, provenance[0]!])).toHaveLength(1);
+});
+
+test('exact tuple dedup retains the successor canonical and metadata wire-conflict boundaries', () => {
+  expect(() => uniqueSortedSemanticTuples([{ id: 'same', value: 1 }, { id: 'same', value: 2 }], (value) => [value.id])).toThrow(CanonicalKeyConflictError);
+  expect(uniqueSortedSemanticTuples([{ id: 'same', value: 1 }, { value: 1, id: 'same' }], (value) => [value.id])).toHaveLength(1);
+  const first = { kind: 'contract' as const, sourceId: 'source', sourcePath: 'src/file.ts' };
+  const reordered = { sourceId: 'source', kind: 'contract' as const, sourcePath: 'src/file.ts' };
+  expect(() => normalizeProvenance([first, reordered])).toThrow(CanonicalKeyConflictError);
+  expect(() => normalizeEvidence([{ kind: 'test', ref: 'same', digest: 'digest' }, { ref: 'same', kind: 'test', digest: 'digest' }])).toThrow(CanonicalKeyConflictError);
+  let getterCalls = 0;
+  const accessor = Object.defineProperty({ ...first }, 'extra', { enumerable: true, get: () => { getterCalls++; return 'unsafe'; } });
+  expect(() => normalizeProvenance([first, accessor])).toThrow(TypeError);
+  expect(getterCalls).toBe(0);
 });

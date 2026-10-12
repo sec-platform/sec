@@ -14,7 +14,6 @@ import {
 const retainedTypeScriptExecutionGenerationBrand: unique symbol = Symbol(
   'retained-typescript-execution-generation'
 );
-const issuedRetainedTypeScriptExecutionGenerations = new WeakSet<object>();
 
 type TypeScriptExecutionGenerationFile = Readonly<{
   bytes: Uint8Array;
@@ -57,14 +56,6 @@ export type MaterializeRetainedTypeScriptExecutionGenerationInput = Readonly<{
   generationParent: PhysicalDirectoryIdentity;
   signal?: AbortSignal;
 }>;
-
-export function assertRetainedTypeScriptExecutionGeneration(
-  generation: RetainedTypeScriptExecutionGeneration
-): void {
-  if (!issuedRetainedTypeScriptExecutionGenerations.has(generation)) {
-    throw new Error('TypeScript execution generation was not issued by Runtime Physical');
-  }
-}
 
 /**
  * Materializes and retains one immutable TypeScript process input. Runtime
@@ -126,7 +117,6 @@ export async function materializeRetainedTypeScriptExecutionGeneration(
         return inFlightRetirement;
       }
     });
-    issuedRetainedTypeScriptExecutionGenerations.add(generation);
     await generation.assertCurrent();
     return generation;
   } catch (error) {

@@ -1,11 +1,11 @@
 import { isSecRepositoryTestModulePath, SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
-  SecModuleCausalRelation,
-  SecModuleOperationObligation,
-  SecModuleOperationRole,
-  SecRepositoryModuleGraph,
-  SecRepositoryModuleMembership
+  RepositoryModuleCausalRelation,
+  RepositoryModuleGraph,
+  RepositoryModuleMembership,
+  RepositoryModuleOperationObligation,
+  RepositoryModuleOperationRole
 } from '../architecture/contract.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/adapters/repository/repository-audit/cli.ts' as const;
@@ -28,7 +28,14 @@ const SOURCE_PROGRAM_RESOURCE_EXTENSION =
 const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
   /^catalog\/registry\/[^/]+\/.+\/files\//iu;
 const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
+// Exact opaque executable bytes consumed by the protected TCB compiler.
+// This is source-census membership, not Python parsing or execution authority.
+const SOURCE_PROGRAM_EXECUTABLE_RESOURCES = new Set([
+  'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+  'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py'
+]);
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
+  ...SOURCE_PROGRAM_EXECUTABLE_RESOURCES,
   ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS,
   '.documentation/documents.json',
   '.documentation/baseline.json',
@@ -58,6 +65,7 @@ export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string):
 }
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
+  if (SOURCE_PROGRAM_EXECUTABLE_RESOURCES.has(repositoryPath)) return 'resource';
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
   if (SOURCE_PROGRAM_TEST_DIRECTORY_PATH.test(repositoryPath)
       || isSecRepositoryTestModulePath(repositoryPath)) return 'test';
@@ -91,13 +99,13 @@ export type SourceProgramCompilationMatchInput = Readonly<{
   sourceRevision?: string;
   productionModel?: SourceProgramModel;
   files: readonly SourceProgramFileInput[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 export interface SourceProgramCompilation {
   readonly identityDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
-  readonly moduleGraph: SecRepositoryModuleGraph;
+  readonly moduleGraph: RepositoryModuleGraph;
   file(repositoryPath: string): SourceProgramFileInput | null;
   assertMatches(input: SourceProgramCompilationMatchInput): void;
 }
@@ -395,7 +403,7 @@ export interface SourceProgramOperationRoleProvenance {
   readonly moduleId: string;
   readonly capability: string;
   readonly operation: string;
-  readonly role: SecModuleOperationRole;
+  readonly role: RepositoryModuleOperationRole;
   readonly semanticOperation: string;
   readonly requirementId: string | null;
 }
@@ -461,7 +469,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
 
 export interface SourceProgramCausalRelationEvidence {
   readonly owner: string;
-  readonly intent: SecModuleCausalRelation;
+  readonly intent: RepositoryModuleCausalRelation;
   readonly declaration: Readonly<{
     readonly observationId: string | null;
     readonly declarationDigest: string | null;
@@ -620,7 +628,7 @@ export interface SourceProgramOwnerIntentEvidence {
 }
 
 export interface SourceProgramOperationObligationEvidence {
-  readonly obligation: SecModuleOperationObligation;
+  readonly obligation: RepositoryModuleOperationObligation;
   readonly observation: Readonly<{
     readonly status: 'unknown' | 'verified';
     readonly reason: 'consumer-closure-unresolved' | 'effect-closure-unresolved' | 'identity-unresolved' | 'verified';

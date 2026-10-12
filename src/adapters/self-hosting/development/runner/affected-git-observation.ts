@@ -1,5 +1,5 @@
 import { rawSha256 } from '../../../../contracts/canonical.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { createAuthorityGitReadSession, type GitReadSession, type GitReadSessionCommand } from '../../../providers/git-read/runtime/session.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { AffectedGitSelectionObservation } from '../../../verification/platform/test-impact/runtime/affected-git-source.ts';
@@ -80,7 +80,7 @@ export async function observeGitSelectionState(
 }
 
 type AffectedGitRevalidationLedger = {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly processSession?: ProcessResourceSession;
   /** Absolute parent wall deadline shared by every revalidation session. */
   readonly deadlineAt: number;

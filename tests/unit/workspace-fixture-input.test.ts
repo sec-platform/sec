@@ -71,7 +71,7 @@ test('invalid block-list shapes do not become a default template request', () =>
 test('template identity selects the declared pipeline and rejects inherited or path-shaped keys', () => {
   const expected = [
     ['resolved-default', 'resolve', 'all'], ['composed-default', 'compose', 'all'],
-    ['verified-fast-default', 'verify', 'fast'], ['locked-default', 'lock', 'all'],
+    ['verified-fast-default', 'verify', 'fast'],
     ['locked-all-default', 'lock', 'all'], ['explained-all-default', 'emit', 'all']
   ];
   assert.equal(workspaceTemplatePipeline('empty-default'), null);

@@ -5,7 +5,7 @@ import { compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
 import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type { SemanticEntity } from '../../../semantics/engineering-ir/entity-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../../semantics/engineering-ir/validated-types.ts';
-import type { SecRepositoryModuleMembership } from '../architecture/contract.ts';
+import type { RepositoryModuleMembership } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint,
@@ -43,6 +43,7 @@ import {
 } from './embedded-programs.ts';
 import { indexOwnerIntentInputs } from './owner-intent-index.ts';
 import { indexResponsibilityEvidenceInputs } from './responsibility-evidence-index.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import {
   compileSourceProgramTestObservations,
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
@@ -50,20 +51,21 @@ import {
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import {
-  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,
+  observeSourceProgramDescriptorOperationExports,
   observeSourceProgramDurableWorkerInput,
   sourceProgramCurrentExactReturnProvenances,
-  workspaceSourceSnapshotIdentityForTypeScriptModel
+  workspaceSourceSnapshotIdentityForTypeScriptModel,
+  type SourceProgramDescriptorOperationExportObservation
 } from './typescript.ts';
 import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 export interface CompileRepositorySourceProgramModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly unknowns?: readonly SourceProgramUnknown[];
   /** Exact process dispatcher inventory observed by the current TCB compiler; never Effect authority. */
   readonly reviewedProcessDispatchers?: readonly string[];
@@ -81,6 +83,21 @@ type CompileRepositorySourceProgramModelInternalInput = CompileRepositorySourceP
 }>;
 
 const compiledRepositorySourceProgramModels = new WeakSet<object>();
+const typeScriptOriginByRepositoryModel = new WeakMap<
+  object,
+  Readonly<{ model: SourceProgramModel; membership: RepositoryModuleMembership }>
+>();
+
+/** The repository owner retains its validated original compiler model, not a caller projection. */
+export function observeRepositorySourceProgramDescriptorOperationExports(
+  model: SourceProgramModel
+): readonly SourceProgramDescriptorOperationExportObservation[] | null {
+  if (!compiledRepositorySourceProgramModels.has(model)) return null;
+  const origin = typeScriptOriginByRepositoryModel.get(model);
+  return origin === undefined
+    ? null
+    : observeSourceProgramDescriptorOperationExports(origin.model, origin.membership);
+}
 
 function unreachableModuleOperationIdentity(operation: never): never {
   throw new Error(`Unsupported module operation identity: ${JSON.stringify(operation)}`);
@@ -186,7 +203,7 @@ export function compileSourceProgramResponsibilityEvidence(
  */
 export function compileSourceProgramOwnerIntentEvidence(
   model: SourceProgramModel<SourceProgramCandidateAnalysis>,
-  membership: SecRepositoryModuleMembership,
+  membership: RepositoryModuleMembership,
   requestedOperation?: SourceProgramCompilationOperation
 ): readonly SourceProgramOwnerIntentEvidence[] {
   const operation = resolveSourceProgramCompilationOperation(requestedOperation);
@@ -417,7 +434,7 @@ function executableSourceLiteralPaths(
 
 function compileSourceProgramCausalRelationEvidence(
   model: SourceProgramModel,
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): readonly SourceProgramCausalRelationEvidence[] {
   const evidence = membership.descriptors.flatMap((descriptor) => (
     descriptor.causalRelations.map((intent) => {
@@ -1078,10 +1095,10 @@ function compileRepositorySourceProgramModelInternal(
     || compareCodeUnits(left.detail, right.detail)
   );
   const sourceByPath = new Map(input.files.map((file) => [file.path, file.source] as const));
-  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSourceProgramRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null,
-    readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
+    readEmbeddedLanguageImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
   });
   const entrypointByAddress = new Map(entrypoints.map((entrypoint) => [
     entrypointAddress(entrypoint.kind, entrypoint.path, entrypoint.name),
@@ -1199,6 +1216,10 @@ function compileRepositorySourceProgramModelInternal(
       modelDigest: sha256(canonicalModel)
     });
     compiledRepositorySourceProgramModels.add(model);
+    typeScriptOriginByRepositoryModel.set(model, Object.freeze({
+      model: typescriptModel,
+      membership: input.moduleMembership
+    }));
     return model;
   };
   if (authorityScope === 'test-obligations') {

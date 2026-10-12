@@ -1,6 +1,6 @@
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH, requireCanonicalCiArtifactPath } from '../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../assurance/verification/ci-artifacts/contract/types.ts';
-import { uniqueSorted } from '../contracts/canonical.ts';
+import { compareCodeUnits } from '../contracts/canonical.ts';
 
 type ArtifactPathUploadGroup = CiArtifactUploadGroup;
 
@@ -49,7 +49,7 @@ function artifactUploadPathSummary(
     }))
   ];
   const kindByPath = new Map(entries.map((entry) => [entry.path, entry.kind]));
-  const paths = uniqueSorted([...kindByPath.keys()]);
+  const paths = [...kindByPath.keys()].sort(compareCodeUnits);
   const uploadEntries = paths.flatMap((path) => {
     const pathKind = kindByPath.get(path);
     return pathKind ? [{ path, kind: pathKind }] : [];

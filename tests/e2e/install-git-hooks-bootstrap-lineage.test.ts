@@ -8,7 +8,7 @@ test('primary bootstrap rejects staged managed-hook bytes that are not the remot
   await withCanonicalRemoteRepository(async (repoRoot) => {
     await writeFile(
       path.join(repoRoot, '.githooks', 'pre-commit'),
-      '#!/usr/bin/env sh\nset -ux\n\n bun ./src/adapters/self-hosting/development/runner/cli.ts imports:freeze\n',
+      "#!/usr/bin/env sh\nset -ux\n\n bun ./src/bootstrap/development/runner-cli.ts imports:freeze\n",
       'utf8'
     );
     await chmod(path.join(repoRoot, '.githooks', 'pre-commit'), 0o755);

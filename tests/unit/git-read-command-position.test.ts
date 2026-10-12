@@ -53,3 +53,35 @@ test('ordinary read forms retain their previous independent protocol vectors', (
     ['for-each-ref', '--format=%(refname)', 'refs/heads/']
   ]) assert.equal(allowed(args), true, JSON.stringify(args));
 });
+
+test('local-ref retirement can observe its exact bounded native ref fields', () => {
+  // This is the actual observeExactLocalRefForJournalRetirement argv shape.
+  // Its consumer still checks both field count and full ref identity.
+  const observation = [
+    'for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)', 'refs/heads/fix/example'
+  ];
+  assert.equal(allowed(observation), true);
+  assert.equal(allowed(['--no-pager', ...observation]), true);
+  assert.equal(allowed(['-c', 'core.fsmonitor=false', ...observation]), true);
+});
+
+test('bounded ref observation rejects unsupported count syntax and extra capabilities', () => {
+  const format = '--format=%(refname)%00%(objectname)';
+  const ref = 'refs/heads/fix/example';
+  for (const count of ['', '0', '-1', '1', '3', '02', '+2', '2.0', '2 ', 'NaN', 'Infinity', '9007199254740992']) {
+    assert.equal(allowed(['for-each-ref', `--count=${count}`, format, ref]), false, count);
+  }
+  for (const args of [
+    ['for-each-ref', '--count', '2', format, ref],
+    ['for-each-ref', '--count=2', '--count=2', format, ref],
+    ['for-each-ref', format, '--count=2', ref],
+    ['for-each-ref', '--count=2', ref],
+    ['for-each-ref', '--count=2', format],
+    ['for-each-ref', '--count=2', format, '--sort=refname'],
+    ['for-each-ref', '--count=2', format, ref, 'refs/heads/other'],
+    ['for-each-ref', '--count=2', '--shell', format, ref],
+    ['for-each-ref', '--count=2', '--exec', format, ref],
+    ['--git-dir', 'for-each-ref', 'update-ref', ref, '1'.repeat(40)],
+    ['-c', 'core.hooksPath=/other', 'for-each-ref', '--count=2', format, ref]
+  ]) assert.equal(allowed(args), false, JSON.stringify(args));
+});

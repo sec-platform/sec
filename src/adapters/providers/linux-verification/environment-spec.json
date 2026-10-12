@@ -2,6 +2,17 @@
   "schema": "sec-linux-verification-environment-authority-v1",
   "environmentId": "sec-linux-verification-v1",
   "platform": "linux/amd64",
+  "nativeRuntime": {
+    "schema": "sec-linux-verification-native-profile-v1",
+    "profileId": "sec-linux-native-verification-unit-v1",
+    "platform": "linux/amd64",
+    "providerRequirement": "linux-systemd-cgroup2-native-unit-v1",
+    "resources": { "cpus": 2, "memoryGiB": 4, "pids": 256 },
+    "acceptedContent": {
+      "status": "unresolved",
+      "reason": "Exact native Ubuntu package closure and extracted runtime manifest have not been acquired and independently accepted."
+    }
+  },
   "image": {
     "name": "sec-actions-runner",
     "buildRevision": "trust-domains-node24-python312-gh297-buildkit-v10",

@@ -1,3 +1,4 @@
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import { posixPath } from '../../contracts/relative-path.ts';
 import { isCanonicalAcceptanceId } from '../../semantics/acceptance/identity.ts';
@@ -5,7 +6,6 @@ import {
   isCanonicalBlockId,
   isCanonicalRegistryVersion
 } from '../../semantics/identity/block.ts';
-import { CompilerError } from '../errors.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from './plan-manifest.ts';
 import {
   AppModeSchema,
@@ -55,7 +55,7 @@ function parsePlanInput(value: unknown) {
     : root === 'app' && field === 'packageManager' ? 'PLAN-VALIDATION-015'
     : root === 'app' && field === 'mode' ? 'PLAN-VALIDATION-016'
     : 'PLAN-VALIDATION-022';
-  throw new CompilerError(
+  throw new CodedFailure(
     code,
     `Plan structure is invalid at ${issue.path.join('.') || '<root>'}: ${issue.message}`,
     {},
@@ -116,42 +116,42 @@ export function normalizePlan(
 /** Validate one normalized Plan against compiler-level identities and invariants. */
 export function validatePlan(plan: PlanFile): void {
   if (typeof plan?.app?.id !== 'string' || !plan.app.id.trim()) {
-    throw new CompilerError('PLAN-VALIDATION-014', 'Missing app.id');
+    throw new CodedFailure('PLAN-VALIDATION-014', 'Missing app.id');
   }
   if (typeof plan?.app?.name !== 'string' || !plan.app.name) {
-    throw new CompilerError('PLAN-VALIDATION-001', 'Missing app.name');
+    throw new CodedFailure('PLAN-VALIDATION-001', 'Missing app.name');
   }
   if (typeof plan?.app?.stack !== 'string' || !plan.app.stack) {
-    throw new CompilerError('PLAN-VALIDATION-002', 'Missing app.stack');
+    throw new CodedFailure('PLAN-VALIDATION-002', 'Missing app.stack');
   }
   if (plan.app.stack !== SUPPORTED_STACK) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PLAN-VALIDATION-003',
       `Unsupported stack "${plan.app.stack}", expected "${SUPPORTED_STACK}"`
     );
   }
   if (!PackageManagerSchema.safeParse(plan.app.packageManager).success) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PLAN-VALIDATION-015',
       `Unsupported packageManager "${String(plan.app.packageManager)}"`
     );
   }
   if (!AppModeSchema.safeParse(plan.app.mode).success) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'PLAN-VALIDATION-016',
       `Unsupported app mode "${String(plan.app.mode)}"`
     );
   }
 
   if (!Array.isArray(plan.registry?.sources)) {
-    throw new CompilerError('PLAN-VALIDATION-009', 'registry.sources must be an array');
+    throw new CodedFailure('PLAN-VALIDATION-009', 'registry.sources must be an array');
   }
   const registryIds = new Set<string>();
   for (const candidate of plan.registry.sources) {
     const decoded = PlanRegistrySourceSchema.safeParse(candidate);
     if (!decoded.success) {
       const field = decoded.error.issues[0]?.path[0];
-      throw new CompilerError(
+      throw new CodedFailure(
         field === 'kind' ? 'PLAN-VALIDATION-017'
           : field === 'location' ? 'PLAN-VALIDATION-018' : 'PLAN-VALIDATION-009',
         'Registry source requires string id/path and a supported kind/location',
@@ -161,25 +161,25 @@ export function validatePlan(plan: PlanFile): void {
     }
     const source = decoded.data;
     if (!source.id || !source.path) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-009',
         'Every registry source requires id/kind/location/path'
       );
     }
     if (registryIds.has(source.id)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-010',
         `Duplicate registry source id "${source.id}"`
       );
     }
     if (source.location === 'compiler' && source.kind !== 'official') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-011',
         `Registry source "${source.id}" cannot use compiler location unless it is official`
       );
     }
     if (!isCanonicalPortableLogicalPath(source.path)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-012',
         `Registry source "${source.id}" must use one canonical portable relative path`
       );
@@ -188,24 +188,24 @@ export function validatePlan(plan: PlanFile): void {
   }
 
   if (!Array.isArray(plan.blocks)) {
-    throw new CompilerError('PLAN-VALIDATION-004', 'blocks must be an array');
+    throw new CodedFailure('PLAN-VALIDATION-004', 'blocks must be an array');
   }
   const blockIds = new Set<string>();
   for (const block of plan.blocks) {
     if (!block || typeof block !== 'object' || !isCanonicalBlockId(block.id)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-004',
         `Every block entry requires one canonical lowercase namespace/name id; received "${String(block?.id)}"`
       );
     }
     if (block.version !== undefined && !isCanonicalRegistryVersion(block.version)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-019',
         `Block "${block.id}" has non-canonical version "${String(block.version)}"`
       );
     }
     if (blockIds.has(block.id)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-005',
         `Duplicate block id "${block.id}"`
       );
@@ -214,19 +214,19 @@ export function validatePlan(plan: PlanFile): void {
   }
 
   if (!Array.isArray(plan.acceptance)) {
-    throw new CompilerError('PLAN-VALIDATION-021', 'acceptance must be an array');
+    throw new CodedFailure('PLAN-VALIDATION-021', 'acceptance must be an array');
   }
   const acceptanceIds = new Set<string>();
   for (const acceptance of plan.acceptance) {
     if (!acceptance || typeof acceptance !== 'object' ||
         !isCanonicalAcceptanceId(acceptance.id)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-025',
         `Acceptance id "${String(acceptance?.id)}" is not one canonical lowercase logical identity`
       );
     }
     if (acceptanceIds.has(acceptance.id)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PLAN-VALIDATION-026',
         `Duplicate Acceptance id "${acceptance.id}"`
       );

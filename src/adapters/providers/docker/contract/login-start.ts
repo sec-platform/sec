@@ -1,4 +1,4 @@
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 
 export const DOCKER_DESKTOP_LOGIN_START_SCHEMA =
   'sec-docker-desktop-login-start-v1' as const;
@@ -34,10 +34,10 @@ export type DockerDesktopLoginStart =
     observationSource: typeof DOCKER_DESKTOP_LOGIN_START_OBSERVATION_SOURCE;
     automatedReconciliation: 'unsupported-by-admitted-provider';
     reconciliation: 'schema-unsupported';
-    providerIdentityDigest: SecOperationDigest;
-    providerVersionDigest: SecOperationDigest;
-    physicalObservationReceiptDigest: SecOperationDigest;
-    semanticValueDigest: SecOperationDigest;
+    providerIdentityDigest: OperationDigest;
+    providerVersionDigest: OperationDigest;
+    physicalObservationReceiptDigest: OperationDigest;
+    semanticValueDigest: OperationDigest;
   }>
   | Readonly<{
     schema: typeof DOCKER_DESKTOP_LOGIN_START_SCHEMA;
@@ -47,5 +47,5 @@ export type DockerDesktopLoginStart =
     automatedReconciliation: 'unsupported-by-admitted-provider';
     reconciliation: 'observation-unavailable';
     reason: DockerDesktopLoginStartUnavailableReason;
-    detailDigest: SecOperationDigest;
+    detailDigest: OperationDigest;
   }>;

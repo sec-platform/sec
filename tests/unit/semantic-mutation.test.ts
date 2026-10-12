@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/assurance/verification/contract/types.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
@@ -32,6 +31,7 @@ import {
   buildSemanticMutationVerificationPlanningContext, evaluateSemanticMutationVerificationPlanning,
   semanticMutationRequiredVerificationDigest
 } from '../../src/compiler/semantic-mutation/verification-policy.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantics/mutation/types.ts';
@@ -535,14 +535,14 @@ test('planner stops later producers at every frozen failure boundary', () => {
       buildFactDelta(...args) {
         calls.factDelta += 1;
         if (failAt === 'fact-delta') {
-          throw new CompilerError('FACT-DELTA-001', 'Injected trusted Fact Delta failure');
+          throw new CodedFailure('FACT-DELTA-001', 'Injected trusted Fact Delta failure');
         }
         return buildFactDelta(...args);
       },
       buildImpactPropagation(...args) {
         calls.impact += 1;
         if (failAt === 'impact') {
-          throw new CompilerError('IMPACT-001', 'Injected trusted Impact failure');
+          throw new CodedFailure('IMPACT-001', 'Injected trusted Impact failure');
         }
         return buildImpactPropagation(...args);
       },
@@ -681,7 +681,7 @@ test('nested producer diagnostics preserve only trusted FACT/Impact failures and
   const absolutePath = String.raw`C:\private\workspace\source.yaml`;
   const secret = 'token=do-not-publish';
   const trusted = nestedDiagnostic(
-    new CompilerError('FACT-DELTA-001', `${absolutePath} ${secret}`, { absolutePath, secret }),
+    new CodedFailure('FACT-DELTA-001', `${absolutePath} ${secret}`, { absolutePath, secret }),
     'fact-delta',
     'fact-delta'
   );
@@ -698,7 +698,7 @@ test('nested producer diagnostics preserve only trusted FACT/Impact failures and
   const diagnostics = [
     nestedDiagnostic(new Error(`${absolutePath} ${secret}`), 'fact-delta', 'fact-delta'),
     nestedDiagnostic(
-      new CompilerError('VERIFY-BUILD-001', `${absolutePath} ${secret}`, { absolutePath, secret }),
+      new CodedFailure('VERIFY-BUILD-001', `${absolutePath} ${secret}`, { absolutePath, secret }),
       'impact',
       'impact'
     )

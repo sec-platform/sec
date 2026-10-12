@@ -1,7 +1,7 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { SEMANTIC_PREDICATES, type SemanticPredicate } from '../../semantics/engineering-ir/fact-types.ts';
 import { PREDICATE_SIGNATURE_REGISTRY } from '../../semantics/engineering-ir/predicate-signatures.ts';
-import { CompilerError } from '../errors.ts';
 
 export type ImpactPropagationRule =
   | {
@@ -99,7 +99,7 @@ const EXPECTED_EDGE_RULES = {
 } as const;
 
 function fail(message: string, details: Record<string, unknown>): never {
-  throw new CompilerError('IMPACT-003', message, details);
+  throw new CodedFailure('IMPACT-003', message, details);
 }
 
 export function assertImpactPropagationRuleRegistry(

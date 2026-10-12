@@ -1,14 +1,12 @@
-# Engineering Workspace Compiler
-
-> Engineering intent, maintainable authoring, and available implementations compiled into controlled changes to real software workspaces.
+# Gift — Engineering Workspace Compiler
 
 [中文说明](README.zh-CN.md)
 
 This repository retains the historical name `sec`; that name is not the current project definition or acronym. Gift is a local-first **Engineering Workspace Compiler** for connecting product goals, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints.
 
-The long-term direction is for people and AI to work primarily with intent, semantics, constraints, responsibilities, effects, and evidence, while conventional source code increasingly serves as a lower-level realization target. Existing languages and ecosystems remain essential implementation targets and interoperability layers.
+The project is a **development preview**. Start with [PROJECT_STATUS.md](PROJECT_STATUS.md) for the available source examples and their limitations.
 
-## What the system does
+The design aims to let people and AI express goals, behavior, and constraints while reusing existing languages, libraries, and tools to produce conventional source code. Its scope includes creating software and maintaining existing workspaces.
 
 Gift supports two input paths: it can reconstruct relevant engineering facts from an existing workspace, or consume deliberately authored goals and constraints. Both paths feed the same responsibility chain:
 
@@ -32,7 +30,7 @@ This diagram shows responsibility handoffs rather than a mandatory execution seq
 
 Gift is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. Files, generated output, test results, tool responses, and AI statements do not become authoritative merely because they exist. Their identity, source, scope, effects, and evidence must remain explicit at the boundary where they are consumed.
 
-The system keeps author content, semantic interpretation, compilation, verification, external effects, recovery, and publication as separate responsibilities. A plan does not grant write authority; generated code does not prove adoption; a process exit does not prove that an external effect settled; and a documented target design does not claim that its implementation is complete.
+Author content, semantic interpretation, compilation, assurance, external effects, recovery, and publication remain separate responsibilities. Plans do not authorize writes, generated source does not prove adoption, and a process exit does not prove that an external effect settled. The specifications describe the target design; implementation and verification status must be checked separately. External operations require readback of their actual effects.
 
 ## Read the design
 
@@ -51,7 +49,7 @@ The summaries in this root directory are reader-facing projections. Canonical de
 
 ## Project status
 
-The project is under active research and development. It contains substantial implementation, tests, documentation, examples, and verification infrastructure, but documented capabilities can be at different stages of specification, implementation, verification, adoption, and retirement.
+The repository contains a TypeScript implementation, tests, design specifications, examples, and verification infrastructure. Capabilities are at different stages of implementation and validation.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a reproducible starting path.
 

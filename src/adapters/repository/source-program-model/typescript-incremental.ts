@@ -4,12 +4,15 @@ import {
   rawSha256,
   sha256
 } from '../../../contracts/canonical.ts';
-import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
+import type { RepositoryModuleGraph } from '../architecture/contract.ts';
 import { sourceProgramCompilationCheckpoint } from './compilation-operation.ts';
 import type {
   SourceProgramCompilation,
   SourceProgramModel
 } from './contract.ts';
+import {
+  compileSourceProgramRepositoryModuleGraph
+} from './source-program-module-graph.ts';
 import {
   bindCurrentExactReturnProvenances
 } from './typescript-exact-facts.ts';
@@ -34,9 +37,6 @@ import {
   readTypeScriptFactShards,
   workspaceSnapshotIdentityForTypeScriptModel
 } from './typescript-model-assembly.ts';
-import {
-  compileSecRepositoryModuleGraph
-} from './typescript-module-graph.ts';
 import {
   recordTypeScriptPerformance
 } from './typescript-performance.ts';
@@ -78,7 +78,7 @@ const typeScriptIncrementalStateBrand: unique symbol = Symbol('typescript-source
 
 const issuedTypeScriptIncrementalStates = new WeakSet<object>();
 const structuralReuseContexts = new WeakMap<object, Readonly<{
-  graph: SecRepositoryModuleGraph;
+  graph: RepositoryModuleGraph;
   hasGlobalInputs: boolean;
 }>>();
 
@@ -92,7 +92,7 @@ function hasTypeScriptReferenceDirectives(source: string): boolean {
 function rememberStructuralReuseContext(
   state: TypeScriptIncrementalState,
   input: PreparedTypeScriptModelInput,
-  graph: SecRepositoryModuleGraph
+  graph: RepositoryModuleGraph
 ): TypeScriptIncrementalState {
   let hasGlobalInputs = state.factShards.some(({ semanticDependencyScope }) =>
     semanticDependencyScope !== 'module-scoped');
@@ -112,7 +112,7 @@ function rememberStructuralReuseContext(
 function canReuseAddedModules(
   state: TypeScriptIncrementalState,
   input: PreparedTypeScriptModelInput,
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   currentPaths: readonly string[]
 ): boolean {
   const previous = structuralReuseContexts.get(state);
@@ -331,7 +331,7 @@ function compileTypeScriptModelIncrementalInternal(
   }
   const currentSources = new Map(currentFiles.map(({ path: repositoryPathValue, source }) =>
     [repositoryPathValue, source] as const));
-  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileSourceProgramRepositoryModuleGraph({
     files: currentPaths,
     readSource: (repositoryPathValue) => currentSources.get(repositoryPathValue) ?? null
   });

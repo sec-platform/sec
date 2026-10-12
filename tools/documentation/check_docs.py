@@ -5,11 +5,11 @@ Ordinary edits consume source only; explicitly sealed packages also verify proje
 This detects drift and a finite known-regression list, not signatures or all semantics.
 """
 from __future__ import annotations
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import argparse, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
-from source_inventory import (EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files,
+from source_inventory import (load, local_path, source_files,
     capture_source_manifest, requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH, baseline)
 
 def plain_heading(text: str) -> str:
@@ -56,27 +56,41 @@ def markdown_visible_lines(text: str):
         raise ValueError('unclosed fenced code block in documentation')
 
 
-def anchor_locations(text: str) -> dict[str, list[int]]:
-    """Map fragment to all observed 1-based lines (ambiguity is preserved)."""
+def heading_anchor_locations(headings) -> dict[str, list[int]]:
     found: dict[str, list[int]] = collections.defaultdict(list)
     counts: collections.Counter = collections.Counter()
+    for line_number,title in headings:
+        slug = re.sub(r'[^\w\s-]', '', plain_heading(title).lower())
+        slug = re.sub(r'\s', '-', slug)
+        n = counts[slug]; counts[slug] += 1
+        fragment = slug + (f'-{n}' if n else '')
+        found[fragment].append(line_number)
+    return dict(found)
+
+
+def anchor_locations(text: str, *, headings=None) -> dict[str, list[int]]:
+    """Map fragments to lines; a renderer may supply its parsed (line, title) headings.
+
+    The standalone standard-library check keeps its finite ATX source profile.
+    Parser-backed readers supply actual CommonMark heading boundaries/content,
+    including setext and empty headings, but share slug and duplicate rules here.
+    """
+    found: dict[str, list[int]] = collections.defaultdict(list)
+    parsed_headings=[] if headings is None else list(headings)
     for line_number, line in markdown_visible_lines(text):
         h = re.match(r'^ {0,3}(#{1,6})[ \t]+(.+?)\s*$', line)
-        if h:
+        if h and headings is None:
             title = re.sub(r'[ \t]+#+[ \t]*$', '', h[2])
-            slug = re.sub(r'[^\w\s-]', '', plain_heading(title).lower())
-            slug = re.sub(r'\s', '-', slug)
-            n = counts[slug]; counts[slug] += 1
-            fragment = slug + (f'-{n}' if n else '')
-            found[fragment].append(line_number)
+            parsed_headings.append((line_number,title))
         # Code examples are not real HTML anchors.
         without_code = re.sub(r'(`+).*?\1', '', line)
         for m in re.finditer(r'<[A-Za-z][^>]*?\bid\s*=\s*([\"\x27])([^\"\x27]+)\1[^>]*>', without_code):
             found[html.unescape(m[2])].append(line_number)
-    return dict(found)
+    for fragment,locations in heading_anchor_locations(parsed_headings).items():
+        found[fragment].extend(locations)
+    return {fragment:sorted(locations) for fragment,locations in found.items()}
 
 
-EXCLUDED = EXCLUDED_FROM_SOURCE_HASH
 def canonical(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
 def checked_identity_registry(value, source_paths, audited_namespaces):
@@ -141,8 +155,6 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
     source_paths = {x['path'] for x in entries}
     docs = checked_identity_registry(load(local('.documentation/documents.json')), source_paths,
                                      baseline(root)['audited_namespaces'])
-    ids = [x['document_id'] for x in docs]; paths = [x['path'] for x in docs]
-    if len(set(ids)) != len(ids) or len(set(paths)) != len(paths): errors.append('duplicate document identity or path')
     for x in docs:
         if not local(x['path']).is_file(): errors.append('document missing: ' + x['path'])
     projection = requirement_projection(root)

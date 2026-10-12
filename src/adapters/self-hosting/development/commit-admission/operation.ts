@@ -2,16 +2,16 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  createSecOperationEffectGrantAuthority,
-  type SecConsumedOperationEffectGrantBinding,
-  type SecOperationEffectGrant
+  createOperationEffectGrantAuthority,
+  type ConsumedOperationEffectGrantBinding,
+  type OperationEffectGrant
 } from '../../../../execution/operation/effect-grant.ts';
 import {
-  compileSecSemanticOperationIntent,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecSemanticOperationIntent
+  compileSemanticOperationIntent,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type SemanticOperationIntent
 } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadOperation, type AuthorityGitReadOperation } from '../../../providers/git-read/authority.ts';
 import {
@@ -51,17 +51,17 @@ import {
 const OPERATION = 'development.commit';
 const REQUIREMENT = 'repository.commit';
 // Provider admission, exact-candidate reads, common-directory read,
-// object/CAS, five readback commands, and the Windows commit-tree stdin worker.
-const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 13;
+// object/CAS, six readback commands, and the Windows commit-tree stdin worker.
+const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 14;
 const ADMISSION_DEADLINE_MS = 30_000;
 
-const effectGrantAuthority = createSecOperationEffectGrantAuthority({
+const effectGrantAuthority = createOperationEffectGrantAuthority({
   semanticOperation: OPERATION,
   issuerIdentityDigest: sha256({
     domain: 'development.commit-admission',
     candidateSchema: 'sec-development-commit-candidate',
     normalizationOperation: IMPORT_NORMALIZATION_OPERATION
-  }) as SecOperationDigest
+  }) as OperationDigest
 });
 
 declare const DEVELOPMENT_COMMIT_ADMISSION_BRAND: unique symbol;
@@ -76,8 +76,8 @@ export type ConsumedDevelopmentCommitAdmission = Readonly<{
   readonly candidateDetails: DevelopmentCommitCandidateDetails;
   readonly normalization: CandidateNormalizationAdmissionReceipt;
   readonly contract: GitDevelopmentCommitContract;
-  readonly operation: SecBoundSemanticOperation;
-  readonly effectGrantBinding: SecConsumedOperationEffectGrantBinding;
+  readonly operation: BoundSemanticOperation;
+  readonly effectGrantBinding: ConsumedOperationEffectGrantBinding;
 }>;
 
 export type PreparedDevelopmentCommitAdmission = Readonly<{
@@ -91,10 +91,10 @@ type DevelopmentCommitAdmissionRecord = Readonly<{
   readonly candidateDetails: DevelopmentCommitCandidateDetails;
   readonly normalization: CandidateNormalizationAdmissionReceipt;
   readonly contract: GitDevelopmentCommitContract;
-  readonly intent: SecSemanticOperationIntent;
-  readonly operation: SecBoundSemanticOperation;
-  readonly currentEpochDigest: SecOperationDigest;
-  readonly grant: SecOperationEffectGrant;
+  readonly intent: SemanticOperationIntent;
+  readonly operation: BoundSemanticOperation;
+  readonly currentEpochDigest: OperationDigest;
+  readonly grant: OperationEffectGrant;
 }>;
 
 const issuedAdmissions = new WeakMap<object, DevelopmentCommitAdmissionRecord>();
@@ -128,9 +128,9 @@ function compileCommitIntent(input: Readonly<{
   candidate: DevelopmentCommitCandidate;
   normalization: CandidateNormalizationAdmissionReceipt;
   sourceCheckpoint: boolean;
-}>): SecSemanticOperationIntent {
+}>): SemanticOperationIntent {
   const contractDigest = compileGitDevelopmentCommitContractDigest(input.contract);
-  return compileSecSemanticOperationIntent({
+  return compileSemanticOperationIntent({
     operation: OPERATION,
     intentDigest: sha256({
       repositoryRoot: input.contract.repositoryRoot,
@@ -139,7 +139,7 @@ function compileCommitIntent(input: Readonly<{
       target: input.contract.target,
       tree: input.contract.tree,
       candidateDigest: input.candidate.candidateDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: sha256({
       message: input.contract.message,
       author: input.contract.author,
@@ -149,7 +149,7 @@ function compileCommitIntent(input: Readonly<{
       normalizationSubjectDigest: input.normalization.subjectDigest,
       normalizationActionKey: input.normalization.actionKey,
       normalizationTerminalResultDigest: input.normalization.terminalResultDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: ADMISSION_DEADLINE_MS },
       { resource: 'input-bytes', maximum: 64 * 1024 },
@@ -227,7 +227,7 @@ async function issueWithOperation(input: Readonly<{
     providerIdentityDigest: candidateDetails.providerIdentityDigest,
     normalizationSubjectDigest: normalization.subjectDigest,
     normalizationTerminalResultDigest: normalization.terminalResultDigest
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const deadlineAtUnixMs = Date.now() + ADMISSION_DEADLINE_MS;
   const issued = effectGrantAuthority.issuer.issue({
     operation: intent,
@@ -236,7 +236,7 @@ async function issueWithOperation(input: Readonly<{
   });
   const operation = bindGitDevelopmentCommitOperation({
     intent,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: issued.authorityGrantDigest
     }),
     providerIdentityDigest: candidateDetails.providerIdentityDigest,

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -7,20 +7,20 @@ import {
   withGitHubApiTestReadOperationBudget,
   withGitHubApiTestSession
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
-import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
-import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   createTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
-  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS
+  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  type TrustedRuntimeMainHealthReceipt
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
-import { GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import {
   attachRegisteredMainHealthWorkflowProvenance,
   observeCanonicalMainHealthForDocumentControlTestingV2,
   resolveWorkSelectionMainHealthProviders
 } from '../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -159,9 +159,9 @@ test('WorkSelection prefers exact valid local evidence over hosted absence/unava
     producer: {
       identity: 'src/adapters/self-hosting/control/main-health/main-health-observation.ts',
       trustRevision: base.mainSha,
-      sourceTransport: 'trusted-runtime-durable-readback',
+      sourceTransport: 'trusted-runtime-live-readback',
       sourceRunId: 'trusted-main-health-run',
-      sourceRef: `runtime-state:trusted-main-health/v1/main-${MAIN}.json`,
+      sourceRef: `live-receipt:trusted-main-health/v2/${MAIN}/${'7'.repeat(64)}`,
       sourceDigest: `sha256:${'7'.repeat(64)}`
     }
   });
@@ -400,7 +400,7 @@ test('nested MainHealth sessions still reuse a live outer budget without replaci
 });
 
 
-test('provider observation consumes only the exact trusted-runtime receipt path', async () => {
+test('historical files and constructed receipts cannot replace live production qualification', async () => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return;
   const repositoryRoot = process.cwd();
   const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-state-'));
@@ -416,11 +416,6 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
       repository: 'sec-platform/sec',
       repositoryRoot
     });
-    const locator = trustedRuntimeMainHealthReceiptLocator({
-      repositoryStateRoot: layout.repositoryStateRoot,
-      mainSha: MAIN
-    });
-    mkdirSync(locator.directory, { recursive: true });
     const receipt = createTrustedRuntimeMainHealthReceipt({
       repository: 'sec-platform/sec',
       mainSha: MAIN,
@@ -436,20 +431,27 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
         osType: 'linux',
         architecture: 'x86_64'
       },
-      dependencyCacheKey: `sha256:${'3'.repeat(64)}`,
+      dependencyCacheKey: null,
       actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
         command,
         resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`
       })),
-      observedAt: '2026-09-29T00:00:00.000Z'
+      observedAt: new Date().toISOString()
     });
-    writeFileSync(
-      path.join(locator.directory, locator.fileName),
-      `${encodeVerificationActionData(receipt)}\n`,
-      'utf8'
-    );
+    const historicalBytes = `${encodeVerificationActionData(receipt)}\n`;
+    // These are legacy storage addresses, intentionally independent of the
+    // current live reference compiler. Neither file grants qualification.
+    const historicalPaths = [
+      path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1', `main-${MAIN}.json`),
+      path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v2',
+        `main-${MAIN}-${receipt.receiptDigest.slice(7)}.json`)
+    ];
+    for (const filePath of historicalPaths) {
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      writeFileSync(filePath, historicalBytes, 'utf8');
+    }
 
-    const observe = async () => await withGitHubApiTestEnrollmentSession({
+    const observe = async (qualifiedLocalReceipt?: TrustedRuntimeMainHealthReceipt) => await withGitHubApiTestEnrollmentSession({
       repository: 'sec-platform/sec',
       effect: 'read',
       readToken: async () => TEST_TOKEN,
@@ -472,26 +474,25 @@ test('provider observation consumes only the exact trusted-runtime receipt path'
         defaultBranch: 'main',
         mainSha: MAIN,
         mainTreeSha: TREE,
+        qualifiedLocalReceipt,
         capability
       })
     });
 
-    const healthy = await observe();
-    expect(healthy.projection.state).toBe('healthy');
-    expect(healthy.repairDecision).toMatchObject({
-      status: 'blocked',
-      routingState: 'ordinary-only',
-      reasonCode: 'repair-lane-ineligible'
+    const historical = await observe();
+    expect(historical.projection.state).toBe('unresolved');
+    expect(historical.repairDecision).toMatchObject({
+      status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-missing'
     });
-
-    unlinkSync(path.join(locator.directory, locator.fileName));
-    const missing = await observe();
-    expect(missing.projection.state).toBe('unresolved');
-    expect(missing.repairDecision).toMatchObject({
-      status: 'blocked',
-      routingState: 'locked',
-      reasonCode: 'repair-provider-missing'
-    });
+    // Equal content does not merge object lifetimes or mint either live proof.
+    for (const unqualified of [receipt, JSON.parse(JSON.stringify(receipt)) as TrustedRuntimeMainHealthReceipt]) {
+      const constructed = await observe(unqualified);
+      expect(constructed.projection.state).toBe('unresolved');
+      expect(constructed.repairDecision.routingState).toBe('locked');
+    }
+    for (const filePath of historicalPaths) {
+      expect(readFileSync(filePath, 'utf8')).toBe(historicalBytes);
+    }
   } finally {
     if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
     else process.env.SEC_STATE_HOME = previous.stateHome;

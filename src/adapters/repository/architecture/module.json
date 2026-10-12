@@ -5,8 +5,8 @@
     {
       "capability": "repository-module-graph",
       "operations": [
-        "assertSecRepositoryModuleImportBoundaries",
-        "compileSecRepositoryModuleMembershipSnapshot"
+        "assertRepositoryModuleImportBoundaries",
+        "compileRepositoryModuleMembershipSnapshot"
       ]
     }
   ],
@@ -16,7 +16,7 @@
       "relation": "projects",
       "symbol": {
         "path": "src/adapters/repository/architecture/placement.ts",
-        "name": "compileSecRepositoryModulePlacementAdmission"
+        "name": "compileRepositoryModulePlacementAdmission"
       },
       "operation": null
     }

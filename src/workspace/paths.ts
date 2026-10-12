@@ -3,7 +3,7 @@ import { POLICY_SOURCE_PATHS } from './contract/policy-source-paths.ts';
 import { modelRelativePath } from './contract/types.ts';
 
 /** Canonical author-workspace logical path identities. These are values, not host resolution. */
-export const workspaceConfigRelativePath = 'sec.yaml' as const;
+
 export const srcRelativePath = 'src' as const;
 export const testsRelativePath = 'tests' as const;
 export const packageJsonRelativePath = 'package.json' as const;

@@ -1,14 +1,14 @@
 import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/native-abort.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
@@ -46,11 +46,11 @@ const WORKSPACE_TRANSITION_PROCESS_CONTRACT = sha256({
   owner: 'development.workspace-transition',
   operation: 'runWorkspaceTransitionOperation',
   processBoundary: 'one-parent-process-resource-session-v1'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const WORKSPACE_TRANSITION_PROCESS_PROVIDER = sha256({
   owner: 'runtime-state.physical',
   provider: 'process-resource-session'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const WORKSPACE_TRANSITION_INPUT_BYTES = WORKSPACE_TRANSITION_REWRITE_MAXIMUM_BYTES;
 const WORKSPACE_TRANSITION_OUTPUT_BYTES = 512 * 1024;
 const WORKSPACE_TRANSITION_PROCESSES = 32;
@@ -121,18 +121,18 @@ function compileWorkspaceTransitionOperation(input: Readonly<{
   standardInput?: Uint8Array;
   repositoryRoot: string;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: 'development.workspace-transition',
     intentDigest: sha256({
       event: input.event,
       arguments: input.arguments,
       standardInputDigest: rawSha256(input.standardInput ?? new Uint8Array()),
       repositoryRoot: input.repositoryRoot
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: WORKSPACE_TRANSITION_PROCESS_CONTRACT,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: WORKSPACE_TRANSITION_PROCESS_CONTRACT
     }),
     aggregateBudgets: [
@@ -153,7 +153,7 @@ function compileWorkspaceTransitionOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: WORKSPACE_TRANSITION_PROCESS_REQUIREMENT,
     contractDigest: WORKSPACE_TRANSITION_PROCESS_CONTRACT,
     providerIdentityDigest: WORKSPACE_TRANSITION_PROCESS_PROVIDER
@@ -163,7 +163,7 @@ function compileWorkspaceTransitionOperation(input: Readonly<{
 async function withWorkspaceGitSession<T>(
   repositoryRoot: string,
   deadlineAtUnixMs: number,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   processSession: ProcessResourceSession,
   callback: (session: GitReadSession) => Promise<T>
 ): Promise<T> {
@@ -254,7 +254,7 @@ export type WorkspaceTransitionHandoff = (
   dependencies: CompilerDepsReadyState,
   standardInput: Uint8Array | undefined,
   deadlineAtUnixMs: number,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   processSession: ProcessResourceSession
 ) => Promise<number | null>;
 
@@ -419,7 +419,7 @@ export async function runWorkspaceTransitionOperation(input: Readonly<{
     resourceLabel: 'workspace-transition-process-session',
     acquire: () => openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: WORKSPACE_TRANSITION_PROCESS_REQUIREMENT,
         resourceCeilings: operation.plan.execution.aggregateBudgets

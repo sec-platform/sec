@@ -25,9 +25,6 @@ import {
   semanticMutationIsolatedStagedLoaderBytes
 } from './isolation/isolated-verification-child-progress.ts';
 import {
-  withSemanticMutationIsolatedPhaseTelemetry
-} from './isolation/isolated-verification-phase-telemetry.ts';
-import {
   registerSemanticMutationIsolatedRuntimePlanBinding,
   resolveSemanticMutationIsolatedRuntimePlanBinding
 } from './semantic-mutation-isolated-runtime-binding.ts';
@@ -870,11 +867,7 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
       runnerBundle: input.runnerBundle.slice(),
       sources: input.sources
     });
-    const snapshot = await getRuntimeSourceSnapshot(
-      snapshotInput,
-      inspector,
-      input.stagingWorkspaceRoot
-    );
+    const snapshot = await getRuntimeSourceSnapshot(snapshotInput, inspector);
     for (const file of snapshot.files) {
       if (file.sourceAbsolutePath !== null &&
         isPathInside(staging.absolutePath, path.resolve(file.sourceAbsolutePath))) {
@@ -1423,8 +1416,7 @@ function trimRuntimeSourceSnapshots(
 
 async function getRuntimeSourceSnapshot(
   input: RuntimeSourceSnapshotInput,
-  inspector: ReparsePointInspector,
-  stagingWorkspaceRoot: string
+  inspector: ReparsePointInspector
 ): Promise<RuntimeSourceSnapshot> {
   const key = runtimeSourceSnapshotLookupKey(input);
   const authorityKey = runtimeSourceAuthorityKey(input.sources);
@@ -1442,11 +1434,7 @@ async function getRuntimeSourceSnapshot(
   trimRuntimeSourceSnapshots(key);
   const sharedFlight = entry.flight;
   if (sharedFlight) {
-    return await withSemanticMutationIsolatedPhaseTelemetry(
-      stagingWorkspaceRoot,
-      'source-snapshot-single-flight-wait',
-      async () => await sharedFlight
-    );
+    return await sharedFlight;
   }
   const activeEntry = entry;
   const flight = (async () => {
@@ -1456,20 +1444,12 @@ async function getRuntimeSourceSnapshot(
         throw new Error('Semantic Mutation runtime snapshot cache key is inconsistent');
       }
       activeEntry.revalidations += 1;
-      if (await withSemanticMutationIsolatedPhaseTelemetry(
-        stagingWorkspaceRoot,
-        'source-snapshot-revalidate',
-        async () => await revalidateRuntimeSourceSnapshot(currentSnapshot, inspector)
-      )) {
+      if (await revalidateRuntimeSourceSnapshot(currentSnapshot, inspector)) {
         return currentSnapshot;
       }
     }
     activeEntry.captures += 1;
-    const captured = await withSemanticMutationIsolatedPhaseTelemetry(
-      stagingWorkspaceRoot,
-      'source-snapshot-capture',
-      async () => await captureRuntimeSourceSnapshot(input, inspector)
-    );
+    const captured = await captureRuntimeSourceSnapshot(input, inspector);
     activeEntry.cacheKey = runtimeSourceSnapshotCacheKey(input, captured);
     activeEntry.snapshot = captured;
     return captured;

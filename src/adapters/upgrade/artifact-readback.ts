@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
-import { CompilerError } from '../../compiler/errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import {
   parseUpgradeDiagnosticsJson,
   parseUpgradeExecutionTerminalJson,
@@ -76,11 +76,11 @@ function requireCanonicalUpgradeJson<T>(
 ): T {
   const parent = retainOptionalDirectory(path.dirname(absolutePath), `${label} parent`);
   if (parent === null) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', missingMessage);
+    throw new CodedFailure('UPGRADE-BLOCKED-005', missingMessage);
   }
   const bytes = readOptionalRetainedOrdinaryLeaf(parent, path.basename(absolutePath));
   if (bytes === null) {
-    throw new CompilerError('UPGRADE-BLOCKED-005', missingMessage);
+    throw new CodedFailure('UPGRADE-BLOCKED-005', missingMessage);
   }
   return parse(decodeExactUtf8(bytes, label));
 }

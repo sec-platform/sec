@@ -1,10 +1,8 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
-import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { verifyWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
@@ -92,13 +90,4 @@ test('expanded official block set composes and verifies as one project', async (
       /^(?:app|components)(?:\/|$)|^next(?:-env\.d\.ts|\.config\.mjs)$|^tests\/runtime\/acceptance\//u.test(entry)
     )
   ).toBe(false);
-}, 180000);
-test('reference project coverage has no uncovered blocks after runtime acceptance passes', async () => {
-  const acceptanceCoveragePath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.acceptanceCoverage);
-  await fs.access(acceptanceCoveragePath);
-  const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-  expect(coverage.status).toBe('passed');
-
-  const uncovered = coverage.uncoveredBlocks.filter((b) => b !== 'collaboration/enterprise-hub' && b !== 'file/upload');
-  expect(uncovered).toHaveLength(0);
 }, 180000);

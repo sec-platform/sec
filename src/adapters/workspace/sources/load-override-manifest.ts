@@ -4,7 +4,7 @@ import { validateOverrideManifest } from '../../../compiler/contract/override-va
 import { failureMessage } from '../../../contracts/failure-inspection.ts';
 import { parseYamlValue } from '../../formats/yaml.ts';
 
-import { CompilerError } from '../../../compiler/errors.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import type { OverrideManifest } from '../../../semantics/provenance/types.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { getWorkspacePaths } from "../../workspace-context.ts";
@@ -23,7 +23,7 @@ function parseOverrideManifest(source: string, filePath: string): OverrideManife
       maximumInputBytes: OVERRIDE_YAML_MAX_INPUT_BYTES,
       stringKeys: true, maximumAliasCount: OVERRIDE_YAML_MAX_ALIAS_COUNT });
   } catch (error) {
-    throw new CompilerError('OVERRIDE-SCHEMA-001', `Override manifest is not valid YAML: ${filePath}`,
+    throw new CodedFailure('OVERRIDE-SCHEMA-001', `Override manifest is not valid YAML: ${filePath}`,
       { cause: failureMessage(error) }, { cause: error });
   }
   // Preserve empty YAML's existing empty-manifest interpretation. Runtime

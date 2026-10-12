@@ -2,9 +2,10 @@ import { expect, spyOn, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
-import type { VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
+
 import { SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, buildCiVerificationActionPlanClosure, ciVerificationGateStep, createCiVerificationLocalExecutionEnvironment, sourceProgramTransitionGate, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_VERIFICATION_SESSION_CONTRACT_REVISION } from '../../src/adapters/verification/platform/ci/contract/revision.ts';

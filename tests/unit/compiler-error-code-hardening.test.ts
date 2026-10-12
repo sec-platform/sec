@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { CompilerError, getErrorCode } from '../../src/compiler/errors.ts';
+import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 for (const [label, input] of [
   ['undefined', undefined], ['null', null], ['boolean', true], ['number', 3],
@@ -16,7 +17,7 @@ for (const [label, input] of [
 test('preserves native and domain error codes', () => {
   const native = Object.assign(new Error('missing'), { code: 'ENOENT' });
   assert.equal(getErrorCode(native), 'ENOENT');
-  assert.equal(getErrorCode(new CompilerError('DOMAIN-001', 'failure')), 'DOMAIN-001');
+  assert.equal(getErrorCode(new CodedFailure('DOMAIN-001', 'failure')), 'DOMAIN-001');
   assert.equal(getErrorCode({ code: '' }), '');
 });
 

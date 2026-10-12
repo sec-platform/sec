@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalEquals, compareCodeUnits, digest, uniqueSorted } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import { isPathInside } from '../../../../contracts/relative-path.ts';
 import { isFileNotFoundError, readJson } from '../../../filesystem/files.ts';
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
@@ -87,7 +87,7 @@ function compilerDependencyManifestExpectation(
   if (!request.startsWith('npm:')) return Object.freeze({ name: packageName, version: request });
   const alias = /^npm:(@[^/\s]+\/[^@\s]+|[^@\s]+)@(.+)$/u.exec(request);
   if (alias === null || alias[1] === undefined || alias[2] === undefined || !isExactPackageVersion(alias[2])) {
-    throw new SecError('IMPORT-AUTHORITY-002', `Compiler dependency npm alias is invalid: ${packageName}`);
+    throw new CodedFailure('IMPORT-AUTHORITY-002', `Compiler dependency npm alias is invalid: ${packageName}`);
   }
   return Object.freeze({ name: alias[1], version: alias[2] });
 }
@@ -107,10 +107,10 @@ async function compilerDependencyPackageBinding(
     version?: unknown;
   };
   if (manifest.name !== expected.name || typeof manifest.version !== 'string' || manifest.version.length === 0) {
-    throw new SecError('IMPORT-AUTHORITY-002', `Compiler dependency manifest is invalid: ${packageName}`);
+    throw new CodedFailure('IMPORT-AUTHORITY-002', `Compiler dependency manifest is invalid: ${packageName}`);
   }
   if (isExactPackageVersion(expected.version) && manifest.version !== expected.version) {
-    throw new SecError(
+    throw new CodedFailure(
       'IMPORT-AUTHORITY-002',
       `Compiler dependency version mismatch: ${packageName}@${manifest.version} != ${expected.version}`
     );
@@ -119,13 +119,13 @@ async function compilerDependencyPackageBinding(
   let entry: CompilerDependencyPackageBinding['entry'];
   if (criticalCompilerDependencyEntries.has(packageName)) {
     if (typeof manifest.main !== 'string' || manifest.main.length === 0) {
-      throw new SecError('IMPORT-AUTHORITY-002', `Critical compiler dependency has no main entry: ${packageName}`);
+      throw new CodedFailure('IMPORT-AUTHORITY-002', `Critical compiler dependency has no main entry: ${packageName}`);
     }
     const entryPath = manifest.main.replace(/^\.\//u, '').replace(/\\/gu, '/');
     const absoluteEntry = path.resolve(packageRoot, ...entryPath.split('/'));
     const relativeEntry = path.relative(packageRoot, absoluteEntry);
     if (relativeEntry.startsWith('..') || path.isAbsolute(relativeEntry)) {
-      throw new SecError('IMPORT-AUTHORITY-002', `Critical compiler dependency entry escapes its package: ${packageName}`);
+      throw new CodedFailure('IMPORT-AUTHORITY-002', `Critical compiler dependency entry escapes its package: ${packageName}`);
     }
     entry = {
       path: entryPath,
@@ -158,7 +158,7 @@ export function compilerDependencyDirectRootResolution(
 ): DependencyFreshnessLockObservation {
   const packageByDeclaredName = new Map(binding.packages.map((entry) => [entry.name, entry]));
   if (packageByDeclaredName.size !== identity.packageNames.length) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-DEPS-004',
       'Compiler dependency generation has no exact direct-root resolution'
     );
@@ -167,14 +167,14 @@ export function compilerDependencyDirectRootResolution(
     const packageBinding = packageByDeclaredName.get(declaredName);
     const declaredReference = identity.packageVersions[declaredName];
     if (packageBinding === undefined || declaredReference === undefined) {
-      throw new SecError(
+      throw new CodedFailure(
         'RUNTIME-DEPS-004',
         `Compiler dependency direct root is absent from its binding: ${declaredName}`
       );
     }
     const expected = compilerDependencyManifestExpectation(declaredName, declaredReference);
     if (!isExactPackageVersion(packageBinding.version)) {
-      throw new SecError(
+      throw new CodedFailure(
         'RUNTIME-DEPS-004',
         `Compiler dependency direct root has no exact resolved version: ${declaredName}`
       );
@@ -271,7 +271,7 @@ export async function compilerDependencyGenerationBinding(
     packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
   } catch (error) {
     if (isFileNotFoundError(error) || error instanceof SyntaxError ||
-      (error instanceof SecError && error.code === 'IMPORT-AUTHORITY-002')) return null;
+      (error instanceof CodedFailure && error.code === 'IMPORT-AUTHORITY-002')) return null;
     throw error;
   }
   if (packages === null || !canonicalEquals(binding.packages, packages)) return null;
@@ -384,13 +384,13 @@ type RuntimePackageClosureState = {
 function dependencyRecord(value: unknown, label: string): Readonly<Record<string, string>> {
   if (value === undefined) return Object.freeze({});
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} must be one dependency record`);
+    throw new CodedFailure('RUNTIME-DEPS-002', `${label} must be one dependency record`);
   }
   const entries = Object.entries(value as Record<string, unknown>)
     .sort(([left], [right]) => compareCodeUnits(left, right));
   if (entries.some(([name, version]) => !isRuntimeDependencyPackageName(name) ||
     typeof version !== 'string' || !version)) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} contains an invalid dependency`);
+    throw new CodedFailure('RUNTIME-DEPS-002', `${label} contains an invalid dependency`);
   }
   return Object.freeze(Object.fromEntries(entries) as Record<string, string>);
 }
@@ -398,12 +398,12 @@ function dependencyRecord(value: unknown, label: string): Readonly<Record<string
 function optionalPeerNames(value: unknown): ReadonlySet<string> {
   if (value === undefined) return new Set<string>();
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
+    throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
   }
   const optional = new Set<string>();
   for (const [name, metadata] of Object.entries(value as Record<string, unknown>)) {
     if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
+      throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
     }
     const record = metadata as Record<string, unknown>;
     if (record.optional === true) optional.add(name);
@@ -424,7 +424,7 @@ async function observeRuntimePackageManifest(
       || opened.dev !== metadata.dev || opened.ino !== metadata.ino
       || opened.mode !== metadata.mode
       || !sameHostPath(physicalPath, packageJsonPath)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is not one stable physical file');
+      throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency package manifest is not one stable physical file');
     }
     const bytes = await handle.readFile();
     const [afterHandle, afterPath] = await Promise.all([
@@ -437,13 +437,13 @@ async function observeRuntimePackageManifest(
       || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
       || afterPath.mode !== opened.mode || afterPath.size !== opened.size
       || afterPath.mtimeNs !== opened.mtimeNs) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest changed during observation');
+      throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency package manifest changed during observation');
     }
     const parsed = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
       !isRuntimeDependencyPackageName(parsed.name) ||
       typeof parsed.version !== 'string' || !parsed.version) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is invalid');
+      throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency package manifest is invalid');
     }
     return Object.freeze({
       dependencies: dependencyRecord(parsed.dependencies, 'Runtime dependency dependencies'),
@@ -468,7 +468,7 @@ async function observeRuntimePackageManifest(
 function runtimePackageRelativePath(nodeModulesPath: string, packageRoot: string): string {
   const relative = path.relative(path.resolve(nodeModulesPath), path.resolve(packageRoot));
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package escapes node_modules');
+    throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency package escapes node_modules');
   }
   return relative.replaceAll('\\', '/');
 }
@@ -482,11 +482,11 @@ async function physicalRuntimePackageRoot(
     if (!isPathInside(nodeModulesPath, absolute)) return null;
     const metadata = await fs.lstat(absolute);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency closure contains a reparse entry');
+      throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency closure contains a reparse entry');
     }
     const physical = await fs.realpath(absolute);
     if (!sameHostPath(physical, absolute) || !isPathInside(nodeModulesPath, physical)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package is not physically contained');
+      throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency package is not physically contained');
     }
     return absolute;
   } catch (error) {
@@ -563,7 +563,7 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
     canonicalBunVersion !== input.toolchain.declaredBunVersion ||
     process.arch !== input.toolchain.architecture ||
     process.platform !== input.toolchain.platform) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency authority changed during observation');
+    throw new CodedFailure('RUNTIME-DEPS-002', 'Runtime dependency authority changed during observation');
   }
   const packages = new Map<string, RuntimePackageClosureState>();
 
@@ -601,7 +601,7 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
         (kind === 'peer' && manifest.optionalPeers.has(dependencyName));
       if (targetRoot === null) {
         if (optional) continue;
-        throw new SecError(
+        throw new CodedFailure(
           'RUNTIME-DEPS-002',
           `Runtime dependency closure is missing ${dependencyName} required by ${resolutionName}`
         );
@@ -620,7 +620,7 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
   for (const packageName of [...RUNTIME_DEPENDENCY_PACKAGE_NAMES].sort(compareCodeUnits)) {
     const packageRoot = await resolveRuntimePackageRoot(input.nodeModulesPath, null, packageName);
     if (packageRoot === null) {
-      throw new SecError('RUNTIME-DEPS-002', `Runtime dependency root package is absent: ${packageName}`);
+      throw new CodedFailure('RUNTIME-DEPS-002', `Runtime dependency root package is absent: ${packageName}`);
     }
     const target = await visit(packageRoot, packageName);
     const observed = packages.get(target)!;
@@ -629,7 +629,7 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
       exactVersions[packageName]!
     );
     if (expected === null || observed.name !== expected.packageName || observed.version !== expected.version) {
-      throw new SecError('RUNTIME-DEPS-002', `Runtime dependency root package drifted: ${packageName}`);
+      throw new CodedFailure('RUNTIME-DEPS-002', `Runtime dependency root package drifted: ${packageName}`);
     }
     rootPackages.push(Object.freeze({
       name: packageName,

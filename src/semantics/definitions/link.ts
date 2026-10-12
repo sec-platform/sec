@@ -1,5 +1,5 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
-import { SecError as CompilerError, fail } from '../../contracts/failure.ts';
+import { CodedFailure, fail } from '../../contracts/failure.ts';
 import { assertSemanticContractIdentityComponents, assertSemanticIdentityComponent, compareSemanticTuple, semanticReferenceParts, semanticTargetParts } from './identity-components.ts';
 import type { LoadedSemanticContract, SemanticContract, SemanticContractEntity, SemanticContractImport, SemanticContractResponsibilityBinding } from './types.ts';
 
@@ -353,7 +353,7 @@ export function linkWorkspaceSemanticContracts(
 export function splitLinkedSemanticReference(reference: string): { namespace: string; id: string } {
   const { qualifier: namespace, id } = semanticReferenceParts(reference);
   if (!namespace) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'SEMANTIC-LINK-007',
       `Linked semantic reference "${reference}" is not canonical`
     );

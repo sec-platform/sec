@@ -1,19 +1,19 @@
 import { expect, test } from 'bun:test';
 
 import {
-  evaluateSecSkillApplicability,
-  isSecAgentRole,
-  isSecOperationKind,
-  SEC_AGENT_SKILL_IDS,
-  SEC_AGENT_SKILL_METADATA,
-  selectSecOperationAuthoritySourceRevision,
-  type SecSkillApplicabilityEnvelope
+  AGENT_SKILL_IDS,
+  AGENT_SKILL_METADATA,
+  evaluateSkillApplicability,
+  isAgentRole,
+  isTaskCapsuleOperationKind,
+  selectOperationAuthoritySourceRevision,
+  type SkillApplicabilityEnvelope
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
-import { SEC_TASK_CAPSULE_REVISION } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
+import { TASK_CAPSULE_REVISION } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const TRUSTED_REVISION = '7543d37ad733432cbc2ddddd205c98f574e882c4';
 
-function envelope(overrides: Partial<SecSkillApplicabilityEnvelope> = {}): SecSkillApplicabilityEnvelope {
+function envelope(overrides: Partial<SkillApplicabilityEnvelope> = {}): SkillApplicabilityEnvelope {
   return {
     role: 'worker',
     operationKind: 'implement',
@@ -25,19 +25,19 @@ function envelope(overrides: Partial<SecSkillApplicabilityEnvelope> = {}): SecSk
 }
 
 test('metadata table covers every registered Skill exactly once with valid vocabularies', () => {
-  for (const skillId of SEC_AGENT_SKILL_IDS) {
-    const metadata = SEC_AGENT_SKILL_METADATA[skillId];
+  for (const skillId of AGENT_SKILL_IDS) {
+    const metadata = AGENT_SKILL_METADATA[skillId];
     expect(metadata.id).toBe(skillId);
     expect(metadata.roles.length).toBeGreaterThan(0);
-    for (const role of metadata.roles) expect(isSecAgentRole(role)).toBe(true);
+    for (const role of metadata.roles) expect(isAgentRole(role)).toBe(true);
     expect(metadata.operationKinds.length).toBeGreaterThan(0);
-    for (const kind of metadata.operationKinds) expect(isSecOperationKind(kind)).toBe(true);
+    for (const kind of metadata.operationKinds) expect(isTaskCapsuleOperationKind(kind)).toBe(true);
     expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
   }
 });
 
 test('zero candidates resolves none-required without synthesizing a catch-all Skill', () => {
-  const decision = evaluateSecSkillApplicability(envelope({ candidates: [] }));
+  const decision = evaluateSkillApplicability(envelope({ candidates: [] }));
   expect(decision.status).toBe('none-required');
   expect(decision.selectedSkillId).toBeNull();
   expect(decision.reasonCodes).toContain('none-required');
@@ -45,7 +45,7 @@ test('zero candidates resolves none-required without synthesizing a catch-all Sk
 });
 
 test('candidates filtered by metadata leaving none resolves none-required with exclusion evidence', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     candidates: ['repository-audit']
   }));
   expect(decision.status).toBe('none-required');
@@ -55,7 +55,7 @@ test('candidates filtered by metadata leaving none resolves none-required with e
 });
 
 test('exactly one surviving candidate resolves applicable and selects it', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development', 'repository-audit']
   }));
   expect(decision.status).toBe('applicable');
@@ -68,7 +68,7 @@ test('exactly one surviving candidate resolves applicable and selects it', () =>
 });
 
 test('multiple surviving candidates without unique operation evidence resolve ambiguous', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     role: 'a0',
     operationKind: 'design',
     candidates: ['architecture-evolution', 'heuristic-governance']
@@ -79,10 +79,10 @@ test('multiple surviving candidates without unique operation evidence resolve am
 });
 
 test('Skill selection carries no resource, Gate, write-scope or replacement authority', () => {
-  const metadata = SEC_AGENT_SKILL_METADATA['worker-development'];
+  const metadata = AGENT_SKILL_METADATA['worker-development'];
   expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
 
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development']
   }));
   expect(decision.status).toBe('applicable');
@@ -91,14 +91,14 @@ test('Skill selection carries no resource, Gate, write-scope or replacement auth
 });
 
 test('goal, role, operation, capsule binding or trusted-revision change invalidates the prior decision as stale', () => {
-  const prior = evaluateSecSkillApplicability(envelope({
+  const prior = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
+    taskCapsuleRevision: TASK_CAPSULE_REVISION
   }));
   expect(prior.status).toBe('applicable');
-  const stale = evaluateSecSkillApplicability(envelope({
+  const stale = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     goalDigest: 'changed-goal',
     priorDecision: prior
@@ -108,7 +108,7 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
   expect(stale.invalidationConditions).toContain('goal-digest');
   expect(stale.reasonCodes).toEqual(['stale']);
 
-  const roleStale = evaluateSecSkillApplicability(envelope({
+  const roleStale = evaluateSkillApplicability(envelope({
     role: 'a0',
     operationKind: 'design',
     candidates: ['architecture-evolution'],
@@ -119,11 +119,11 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
     expect.arrayContaining(['role', 'operation-kind', 'candidate-set'])
   );
 
-  const capsuleStale = evaluateSecSkillApplicability(envelope({
+  const capsuleStale = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'b'.repeat(64)}`,
-    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION,
+    taskCapsuleRevision: TASK_CAPSULE_REVISION,
     priorDecision: prior
   }));
   expect(capsuleStale.status).toBe('stale');
@@ -131,7 +131,7 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
 });
 
 test('candidate touching a quarantine path binds trusted guidance and never self-authorizes', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     changedPaths: ['AGENTS.md', 'platform/shared/ci-contract.ts'],
     trustedSkillRevisions: { 'AGENTS.md': 'trusted-blob-a' },
@@ -148,7 +148,7 @@ test('candidate touching a quarantine path binds trusted guidance and never self
 });
 
 test('operation outside the Skill space resolves not-applicable', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     operationKind: 'no-change',
     candidates: ['worker-development']
   }));
@@ -158,25 +158,25 @@ test('operation outside the Skill space resolves not-applicable', () => {
 });
 
 test('malformed envelopes resolve unresolved with reason codes', () => {
-  const invalidRole = evaluateSecSkillApplicability(envelope({ role: 'root' }));
+  const invalidRole = evaluateSkillApplicability(envelope({ role: 'root' }));
   expect(invalidRole.status).toBe('unresolved');
   expect(invalidRole.reasonCodes).toEqual(['unresolved-invalid-role']);
 
-  const invalidKind = evaluateSecSkillApplicability(envelope({ operationKind: 'ship' }));
+  const invalidKind = evaluateSkillApplicability(envelope({ operationKind: 'ship' }));
   expect(invalidKind.status).toBe('unresolved');
   expect(invalidKind.reasonCodes).toEqual(['unresolved-invalid-operation-kind']);
 
-  const missingBinding = evaluateSecSkillApplicability(envelope({ trustedRevision: '' }));
+  const missingBinding = evaluateSkillApplicability(envelope({ trustedRevision: '' }));
   expect(missingBinding.status).toBe('unresolved');
   expect(missingBinding.reasonCodes).toEqual(['unresolved-missing-binding']);
 });
 
 test('Skill prose bytes never influence the machine decision', () => {
-  const baseline = evaluateSecSkillApplicability(envelope({
+  const baseline = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     changedPaths: ['platform/shared/ci-contract.ts']
   }));
-  const withSkillProse = evaluateSecSkillApplicability(envelope({
+  const withSkillProse = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     changedPaths: ['.agents/skills/worker-development/SKILL.md'],
     trustedSkillRevisions: { '.agents/skills/worker-development/SKILL.md': 'prose-blob' },
@@ -193,12 +193,12 @@ test('Skill prose bytes never influence the machine decision', () => {
 });
 
 test('decision binds the operation and trusted guidance identity', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     workPackageProposalRef: 'config/repository/work-packages/skill-applicability-gate-v1.md',
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
+    taskCapsuleRevision: TASK_CAPSULE_REVISION
   }));
   expect(decision.goalDigest).toBe('test-goal');
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
@@ -208,12 +208,12 @@ test('decision binds the operation and trusted guidance identity', () => {
   );
   expect(decision.taskCapsuleRef).toBe('capsule-1');
   expect(decision.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
-  expect(decision.taskCapsuleRevision).toBe(SEC_TASK_CAPSULE_REVISION);
+  expect(decision.taskCapsuleRevision).toBe(TASK_CAPSULE_REVISION);
   expect(decision.candidateSkillIds).toEqual(['worker-development']);
 });
 
 test('unknown candidate IDs are ignored without breaking the decision', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
+  const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development', 'sec-not-a-real-skill']
   }));
   expect(decision.status).toBe('applicable');
@@ -225,7 +225,7 @@ test('unknown candidate IDs are ignored without breaking the decision', () => {
 test('provider instruction candidates are quarantined without selecting a broader Skill', () => {
   for (const instruction of ['.codex/config.toml', '.codex/agents/implementation-worker.toml',
     '.codex/agents/custom-reviewer.toml', '.codex/custom-role.toml', '.codex/notes.txt']) {
-    const decision = evaluateSecSkillApplicability(envelope({
+    const decision = evaluateSkillApplicability(envelope({
       changedPaths: [instruction], candidates: ['worker-development'],
       trustedSkillRevisions: { [instruction]: 'trusted-role-blob' },
       candidateSkillRevisions: { [instruction]: 'candidate-role-blob' }
@@ -235,7 +235,7 @@ test('provider instruction candidates are quarantined without selecting a broade
     expect(decision.selectedSkillId).toBe('worker-development');
   }
   for (const unrelated of ['config/application.toml', '.codex-other/config.toml']) {
-    expect(evaluateSecSkillApplicability(envelope({ changedPaths: [unrelated] })).quarantinePaths).toEqual([]);
+    expect(evaluateSkillApplicability(envelope({ changedPaths: [unrelated] })).quarantinePaths).toEqual([]);
   }
 });
 
@@ -250,7 +250,7 @@ test('operation authority source selection keeps changed guidance trusted withou
     ['docs/运行/权限与资源管理.md', targetCandidate],
     ['docs/产品/产品要求与工作约束.md', trustedRevision]
   ] as const) {
-    expect(selectSecOperationAuthoritySourceRevision({
+    expect(selectOperationAuthoritySourceRevision({
       repositoryPath, changedPaths, trustedRevision, targetCandidate
     })).toBe(expectedRevision);
   }

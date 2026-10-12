@@ -22,15 +22,15 @@ import {
   type CompilerPackageEntrypointBinding
 } from '../../adapters/toolchain/runtime.ts';
 import { digest, sha256 } from '../../contracts/canonical.ts';
-import { SecError } from '../../contracts/failure.ts';
-import { issueSecOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
+import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../execution/resource-settlement.ts';
 import {
@@ -61,7 +61,7 @@ export function assertReleaseBunRuntimeRequirement(
   observedVersion: string | null = process.versions.bun ?? null
 ): void {
   if (observedVersion !== requirement.version) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-LAYOUT-001',
       observedVersion === null
         ? 'SEC release artifact requires the canonical Bun host runtime'
@@ -127,8 +127,8 @@ function compileReleaseBuilderOperation(input: Readonly<{
   deadlineAtUnixMs: number;
   environment: Readonly<Record<string, string>>;
   maximumStdoutBytes: number;
-  providerIdentityDigest: SecOperationDigest;
-}>): SecBoundSemanticOperation {
+  providerIdentityDigest: OperationDigest;
+}>): BoundSemanticOperation {
   const remainingDurationMs = input.deadlineAtUnixMs - Date.now();
   if (!Number.isSafeInteger(input.deadlineAtUnixMs)
       || !Number.isSafeInteger(remainingDurationMs)
@@ -147,8 +147,8 @@ function compileReleaseBuilderOperation(input: Readonly<{
     maximumDurationMs: RELEASE_BUILDER_MAX_DURATION_MS,
     maximumStdoutBytes: input.maximumStdoutBytes,
     maximumStderrBytes: RELEASE_BUILDER_MAX_STDERR_BYTES
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: RELEASE_BUILDER_OPERATION,
     intentDigest: sha256({
       args: input.args,
@@ -156,10 +156,10 @@ function compileReleaseBuilderOperation(input: Readonly<{
       cwd: input.cwd,
       environment: input.environment,
       providerIdentityDigest: input.providerIdentityDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -187,7 +187,7 @@ function compileReleaseBuilderOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: RELEASE_BUILDER_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -196,7 +196,7 @@ function compileReleaseBuilderOperation(input: Readonly<{
 
 function assertReleaseBuilderReceipt(
   receipt: ProcessResourceSessionReceipt,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   completed: boolean
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
@@ -232,10 +232,11 @@ async function runReleaseBuilderCommand(
   let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
   let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let session: ProcessResourceSession | undefined;
-  let operation: SecBoundSemanticOperation | undefined;
+  let operation: BoundSemanticOperation | undefined;
   let completed = false;
-  let executionError: unknown | undefined;
+  let executionFailure: { readonly error: unknown } | undefined;
   let result: Awaited<ReturnType<ProcessResourceSession['run']>> | undefined;
+  let stdout: Buffer | undefined;
   try {
     executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'release builder executable');
     const workingDirectoryChain = inspectNoFollowDirectoryChain(
@@ -259,7 +260,7 @@ async function runReleaseBuilderCommand(
         size: executable.size
       },
       workingDirectory: workingDirectoryChain.target
-    }) as SecOperationDigest;
+    }) as OperationDigest;
     const environment = exactReleaseBuilderEnvironment();
     operation = compileReleaseBuilderOperation({
       args,
@@ -272,7 +273,7 @@ async function runReleaseBuilderCommand(
     });
     session = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: RELEASE_BUILDER_REQUIREMENT,
         resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -289,21 +290,32 @@ async function runReleaseBuilderCommand(
       }
     );
     completed = true;
+    if (result.result.code !== 0) {
+      const detail = result.result.stderr.trim();
+      throw new Error(`bun ${args[0] ?? ''} failed${detail ? `: ${detail}` : ''}`);
+    }
+    stdout = Buffer.from(result.result.stdout);
   } catch (error) {
-    executionError = error;
+    executionFailure = { error };
   }
 
   let receipt: ProcessResourceSessionReceipt | undefined;
-  let settlementError: unknown | undefined;
+  let settlementFailure: { readonly error: unknown } | undefined;
   try {
     settlePhysicalResources({
-      ...(executionError === undefined ? {} : {
-        primary: { label: 'release builder execution', error: executionError }
+      ...(executionFailure === undefined ? {} : {
+        primary: { label: 'release builder execution', error: executionFailure.error }
       }),
       cleanup: [
         ...(session === undefined ? [] : [{
           label: 'release builder process session close',
-          settle: () => { receipt = session!.close(); }
+          settle: () => {
+            receipt = session!.close();
+            if (operation === undefined || receipt === undefined) {
+              throw new Error('Release builder did not issue one terminal process receipt.');
+            }
+            assertReleaseBuilderReceipt(receipt, operation, completed);
+          }
         }]),
         ...(workingDirectory === undefined ? [] : [{
           label: 'release builder working directory dispose',
@@ -316,29 +328,16 @@ async function runReleaseBuilderCommand(
       ]
     });
   } catch (error) {
-    settlementError = error;
+    settlementFailure = { error };
   }
-  if (session !== undefined) {
-    if (operation === undefined) {
-      throw new Error('Release builder did not issue one terminal process receipt.');
-    }
-    if (receipt === undefined) {
-      if (settlementError !== undefined) throw settlementError;
-      throw new Error('Release builder did not issue one terminal process receipt.');
-    }
-    assertReleaseBuilderReceipt(receipt, operation, completed);
-  }
-  if (settlementError !== undefined) throw settlementError;
-  if (result === undefined) throw executionError;
-  if (result.result.code !== 0) {
-    const detail = result.result.stderr.trim();
-    throw new Error(`bun ${args[0] ?? ''} failed${detail ? `: ${detail}` : ''}`);
-  }
-  return Buffer.from(result.result.stdout);
+  if (settlementFailure !== undefined) throw settlementFailure.error;
+  if (stdout === undefined) throw new Error('Release builder did not return one process result.');
+  return stdout;
 }
 
 async function observeReleaseBuilderIdentity(): Promise<ReleaseBuilderIdentity> {
   const retained = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Release Bun executable identity');
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
     const observed = retained.digest();
     retained.assertCurrent();
@@ -350,8 +349,14 @@ async function observeReleaseBuilderIdentity(): Promise<ReleaseBuilderIdentity> 
       platform: process.platform,
       architecture: process.arch
     });
+  } catch (error) {
+    primary = { label: 'release builder identity observation', error };
+    throw error;
   } finally {
-    retained.dispose();
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [{ label: 'release builder identity dispose', settle: () => retained.dispose() }]
+    });
   }
 }
 
@@ -399,10 +404,17 @@ function readFrozenControlFile(
   label: string
 ): Buffer {
   const retained = retainFrozenControlFile(sourceRoot, name, label);
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
     return Buffer.from(retained.readBytes());
+  } catch (error) {
+    primary = { label, error };
+    throw error;
   } finally {
-    retained.dispose();
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [{ label: `${label} dispose`, settle: () => retained.dispose() }]
+    });
   }
 }
 
@@ -452,9 +464,12 @@ async function materializeFrozenDependencies(
   sourceRoot: string,
   builder: ReleaseBuilderIdentity
 ): Promise<void> {
-  const packageFile = retainFrozenControlFile(sourceRoot, 'package.json', 'Frozen dependency package.json');
-  const lockFile = retainFrozenControlFile(sourceRoot, 'bun.lock', 'Frozen dependency bun.lock');
+  let packageFile: ReturnType<typeof retainFrozenControlFile> | undefined;
+  let lockFile: ReturnType<typeof retainFrozenControlFile> | undefined;
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
+    packageFile = retainFrozenControlFile(sourceRoot, 'package.json', 'Frozen dependency package.json');
+    lockFile = retainFrozenControlFile(sourceRoot, 'bun.lock', 'Frozen dependency bun.lock');
     const packageBefore = Buffer.from(packageFile.readBytes());
     const lockBefore = Buffer.from(lockFile.readBytes());
 
@@ -495,9 +510,25 @@ async function materializeFrozenDependencies(
     )) {
       throw new Error('Frozen dependency materialization escaped the frozen source root');
     }
+  } catch (error) {
+    primary = { label: 'frozen dependency materialization', error };
   } finally {
-    packageFile.dispose();
-    lockFile.dispose();
+    // Each successful retention immediately belongs to this invocation, even
+    // when acquiring the next control file fails. Attempt both releases in
+    // reverse acquisition order without replacing the original failure.
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [
+        ...(lockFile === undefined ? [] : [{
+          label: 'frozen dependency bun.lock dispose',
+          settle: () => lockFile!.dispose()
+        }]),
+        ...(packageFile === undefined ? [] : [{
+          label: 'frozen dependency package.json dispose',
+          settle: () => packageFile!.dispose()
+        }])
+      ]
+    });
   }
 }
 function isPathInside(root: string, candidate: string): boolean {
@@ -706,6 +737,7 @@ export async function buildFrozenReleaseBundle(
     const markerTransaction = retainNoFollowFileTransaction(
       stagedArtifactRoot, 'Delivered release bundle version marker'
     );
+    let primary: { readonly label: string; readonly error: unknown } | undefined;
     try {
       const published = await markerTransaction.createExclusive(
         '.bun-version', markerBytes, 'Delivered release bundle version marker'
@@ -713,8 +745,14 @@ export async function buildFrozenReleaseBundle(
       if (!Buffer.from(published.bytes).equals(markerBytes)) {
         throw new Error('Delivered release bundle version marker readback differs');
       }
+    } catch (error) {
+      primary = { label: 'release bundle version marker publication', error };
+      throw error;
     } finally {
-      markerTransaction.dispose();
+      settlePhysicalResources({
+        ...(primary === undefined ? {} : { primary }),
+        cleanup: [{ label: 'release bundle version marker dispose', settle: () => markerTransaction.dispose() }]
+      });
     }
   }
   const inputPaths = await assertFrozenBuildInputs(source.root, metafilePath);

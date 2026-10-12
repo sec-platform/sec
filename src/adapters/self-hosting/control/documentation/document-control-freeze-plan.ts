@@ -3,7 +3,7 @@ import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
-import { assertSecRoadmapTerminalCompactionCandidate } from '../work-selection/live-contract.ts';
+import { assertRoadmapTerminalCompactionCandidate } from '../work-selection/live-contract.ts';
 import {
   assertCommittedCandidateReplanAuthority,
   assertNoUnrelatedStagedChanges
@@ -11,13 +11,13 @@ import {
 import { captureControlIndexSnapshot } from './document-control-index.ts';
 import {
   ActivePointerPath,
-  type CodexDevelopmentFreezeResult,
   CurrentStatePath,
   decodeUtf8,
   freezeIndexTransportDigest,
   type FreezeJournal,
   FreezeJournalSchema,
   freezeOperationId,
+  type FreezeResult,
   FreezeResultSchema,
   LegacyFreezeJournalSchema,
   LegacyFreezeResultSchema,
@@ -36,20 +36,20 @@ import {
   run
 } from './document-control-observation.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentAssertPriorFreezeProjection,
-  CodexDevelopmentClassifyPublishedControlBinding,
-  CodexDevelopmentCreateFreezeProjection,
-  type CodexDevelopmentMainHealthRepairProjection,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan,
-  CodexDevelopmentParseRollingPlanHeadings,
-  CodexDevelopmentRequiresCommittedCandidateProjectionRefresh,
-  CodexDevelopmentResolveActiveWorkPackage,
-  CodexDevelopmentResolveWorkSelectionProjectionMode,
-  type CodexDevelopmentWorkSelectionProjection
+  assertControlPlaneBinding,
+  assertPriorFreezeProjection,
+  classifyPublishedControlBinding,
+  createFreezeProjection,
+  type MainHealthRepairProjection,
+  parseActivePointer,
+  parseCurrentStateSpec,
+  parseRollingMachineProjection,
+  parseRollingPlan,
+  parseRollingPlanHeadings,
+  requiresCommittedCandidateProjectionRefresh,
+  resolveActiveWorkPackage,
+  resolveWorkSelectionProjectionMode,
+  type WorkSelectionProjection
 } from './document-control-plane-contract.ts';
 import { assertRegularRepositoryFile, inspectSafePath, readSafeRegularFile } from './document-control-publication.ts';
 
@@ -80,7 +80,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   );
   const headControls = await readControlTreeBlobs(repositoryRoot, headSha, [CurrentStatePath, ActivePointerPath, RollingPlanPath]);
   const headStateBytes = requireControlBlob(headControls, CurrentStatePath, 'Immutable candidate current-state authority');
-  const spec = CodexDevelopmentParseCurrentStateSpec(
+  const spec = parseCurrentStateSpec(
     decodeUtf8(headStateBytes, 'Immutable candidate current-state authority')
   );
   const localDefaultSha = shaValue(
@@ -108,10 +108,10 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
     `${localDefaultSha}:${CurrentStatePath}`,
     'Trusted default current-state authority'
   );
-  const defaultSpec = CodexDevelopmentParseCurrentStateSpec(
+  const defaultSpec = parseCurrentStateSpec(
     decodeUtf8(defaultStateBytes, 'Trusted default current-state authority')
   );
-  const workSelectionProjectionMode = CodexDevelopmentResolveWorkSelectionProjectionMode(
+  const workSelectionProjectionMode = resolveWorkSelectionProjectionMode(
     defaultSpec
   );
 
@@ -120,7 +120,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   // before both it and the sole live-default admission have succeeded.
   const headPointerSource = decodeUtf8(requireControlBlob(headControls, ActivePointerPath,
     'Immutable candidate active pointer preflight'), 'Immutable candidate active pointer preflight');
-  const headPointer = CodexDevelopmentParseActivePointer(headPointerSource);
+  const headPointer = parseActivePointer(headPointerSource);
   const targets = Object.freeze([...new Set([
     input.manifestPath,
     headPointer.manifest,
@@ -137,21 +137,21 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   if (!snapshot.stateBytes.equals(headStateBytes)) {
     throw new Error('Document control freeze rejects staged current-state authority bytes.');
   }
-  const pointer = CodexDevelopmentParseActivePointer(snapshot.pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
-  const rolling = CodexDevelopmentParseRollingPlan(snapshot.rollingPlanSource);
+  const pointer = parseActivePointer(snapshot.pointerSource);
+  assertControlPlaneBinding({ spec, pointer });
+  const rolling = parseRollingPlan(snapshot.rollingPlanSource);
   if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
     throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
   }
   const immutablePointerSource = headPointerSource;
   const immutableRollingPlanSource = decodeUtf8(requireControlBlob(headControls, RollingPlanPath,
     'Immutable candidate rolling plan'), 'Immutable candidate rolling plan');
-  const immutablePointer = CodexDevelopmentParseActivePointer(immutablePointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec, pointer: immutablePointer });
+  const immutablePointer = parseActivePointer(immutablePointerSource);
+  assertControlPlaneBinding({ spec, pointer: immutablePointer });
   const immutableRolling = committedCandidateReplanAuthority !== undefined
       && workSelectionProjectionMode === 'required-v1'
-    ? CodexDevelopmentParseRollingPlanHeadings(immutableRollingPlanSource)
-    : CodexDevelopmentParseRollingPlan(immutableRollingPlanSource);
+    ? parseRollingPlanHeadings(immutableRollingPlanSource)
+    : parseRollingPlan(immutableRollingPlanSource);
   if (immutableRolling.activePackageId !== path.posix.basename(immutablePointer.manifest, '.md')) {
     throw new Error('Immutable HEAD pointer and rolling plan do not bind one selection baseline.');
   }
@@ -164,7 +164,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
     repositoryRoot,
     `${localDefaultSha}:${immutablePointer.manifest}`
   ) ?? null;
-  const immutableCurrentResolution = CodexDevelopmentResolveActiveWorkPackage({
+  const immutableCurrentResolution = resolveActiveWorkPackage({
     pointer: immutablePointer,
     candidateManifestBlob: immutableCurrentManifestBytes,
     defaultManifestBlob: immutableCurrentDefaultManifestBlob,
@@ -180,7 +180,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
     repositoryRoot,
     `${localDefaultSha}:${pointer.manifest}`
   ) ?? null;
-  const currentResolution = CodexDevelopmentResolveActiveWorkPackage({
+  const currentResolution = resolveActiveWorkPackage({
     pointer,
     candidateManifestBlob: currentManifestBlob,
     defaultManifestBlob: currentDefaultManifestBlob,
@@ -225,10 +225,10 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   const defaultTargetManifest = input.manifestPath === pointer.manifest
     ? currentDefaultManifestBlob ?? undefined
     : await readGitBlob(repositoryRoot, `${localDefaultSha}:${input.manifestPath}`);
-  const immutableRollingMachine = CodexDevelopmentParseRollingMachineProjection(
+  const immutableRollingMachine = parseRollingMachineProjection(
     immutableRollingPlanSource
   );
-  const publishedBinding = CodexDevelopmentClassifyPublishedControlBinding({
+  const publishedBinding = classifyPublishedControlBinding({
     authorityProven: committedCandidateReplanAuthority !== undefined,
     historicalBaseIsLiveDefault: immutableRollingMachine?.exactMain === localDefaultSha,
     pointerBindsDefault: defaultTargetManifest !== undefined
@@ -249,7 +249,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   let priorProjectionFailure: unknown;
   if (!indexedControlMatchesImmutableHead && indexedTargetManifest !== undefined) {
     try {
-      CodexDevelopmentAssertPriorFreezeProjection({
+      assertPriorFreezeProjection({
         spec,
         immutableRollingPlanSource,
         pointerSource: snapshot.pointerSource,
@@ -273,7 +273,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
 
   const requestedRollingPlanSource = rollingPlanWorktree.equals(rollingPlanPre)
     ? indexedControlMatchesPriorProjection
-        && CodexDevelopmentParseRollingMachineProjection(snapshot.rollingPlanSource) === null
+        && parseRollingMachineProjection(snapshot.rollingPlanSource) === null
       ? snapshot.rollingPlanSource
       : undefined
     : decodeUtf8(rollingPlanWorktree, 'Requested rolling-plan projection');
@@ -287,8 +287,8 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   const committedCandidateProjectionRefreshRequired = workSelectionProjectionMode === 'required-v1'
     && committedCandidateReplanAuthority !== undefined
     && targetManifest.id === immutableRolling.activePackageId
-    && CodexDevelopmentRequiresCommittedCandidateProjectionRefresh({
-      projection: CodexDevelopmentParseRollingMachineProjection(immutableRollingPlanSource),
+    && requiresCommittedCandidateProjectionRefresh({
+      projection: parseRollingMachineProjection(immutableRollingPlanSource),
       exactMain: localDefaultSha,
       exactMainTree: baseTreeSha,
       active: {
@@ -307,8 +307,8 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
   // This delta is projection-freshness input, not Work Package scope authority.
   // A non-projection path forces a new digest-bound projection; the Work Package
   // Gate independently owns whether that candidate path is permitted at all.
-  let workSelectionProjection: CodexDevelopmentWorkSelectionProjection | undefined;
-  let mainHealthRepairProjection: CodexDevelopmentMainHealthRepairProjection | undefined;
+  let workSelectionProjection: WorkSelectionProjection | undefined;
+  let mainHealthRepairProjection: MainHealthRepairProjection | undefined;
   if (targetManifest.id !== immutableRolling.activePackageId
       && input.proposalOnly !== true
       && workSelectionProjectionMode === 'required-v1') {
@@ -361,7 +361,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
       const decision = selection.receipt.decision;
       if (selection.terminalCompaction !== null) {
         const candidateRoadmap = snapshot.roadmapBlob;
-        assertSecRoadmapTerminalCompactionCandidate({
+        assertRoadmapTerminalCompactionCandidate({
           compaction: selection.terminalCompaction,
           roadmapSource: candidateRoadmap === undefined
             ? ''
@@ -388,7 +388,7 @@ export async function prepareDocumentControlFreezePlan(input: Readonly<{
       workSelectionProjection = Object.freeze({ receipt: selection.receipt });
     }
   }
-  const projection = CodexDevelopmentCreateFreezeProjection({
+  const projection = createFreezeProjection({
     spec,
     currentPointerSource: immutablePointerSource,
     currentRollingPlanSource: immutableRollingPlanSource,
@@ -472,7 +472,7 @@ export function compileDocumentControlFreezeOperation(input: Readonly<{
   candidateTreeSha: string; indexPre: Buffer; indexNext: Buffer;
   manifestBytes: Buffer; pointerPre: Buffer; pointerNext: Buffer;
   rollingPlanWorktree: Buffer; rollingPlanNext: Buffer;
-}>): Readonly<{ journal: FreezeJournal; result: CodexDevelopmentFreezeResult }> {
+}>): Readonly<{ journal: FreezeJournal; result: FreezeResult }> {
   const { localDefaultSha, baseTreeSha, candidateTreeSha, indexPre, indexNext,
     manifestBytes, pointerPre, pointerNext, rollingPlanWorktree, rollingPlanNext } = input;
   const indexTransport = Object.freeze({ pre: toBase64(indexPre), next: toBase64(indexNext) });
@@ -502,7 +502,7 @@ export function compileDocumentControlFreezeOperation(input: Readonly<{
     indexTransportDigest: freezeIndexTransportDigest(indexTransport)
   });
   const operationId = freezeOperationId(semantic);
-  const result: CodexDevelopmentFreezeResult = Object.freeze({
+  const result: FreezeResult = Object.freeze({
     schema: input.authoringDisposition === 'proposal-only'
       ? FreezeResultSchema
       : LegacyFreezeResultSchema,

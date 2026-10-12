@@ -3,9 +3,12 @@
 import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
+import type { GeneratedStateWorktreeRetirement } from '../../../../execution/generated-state/contract.ts';
+import { isGeneratedStateWorktreeRetirementBlocked } from '../../../../execution/generated-state/errors.ts';
+import type { GeneratedStateWorktreeRetirementInput } from '../../../../execution/generated-state/worktree-admission.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
-import { assertGeneratedStateWorktreeRetirementEffectStart, isGeneratedStateWorktreeRetirementBlocked, settleGeneratedStateForWorktreeRetirement } from '../../../runtime-state/generated-state/lifecycle.ts';
+import { assertGeneratedStateWorktreeRetirementEffectStart } from '../../../runtime-state/generated-state/lifecycle-evidence.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
 import {
@@ -30,7 +33,7 @@ import {
   type WorktreePhysicalInventory,
   type WorktreePorcelainRecord
 } from '../../../runtime-state/worktree-closeout-contract.ts';
-import { compilerDependencyLocatorWorktreeRetirementProvider, retireSettledCompilerDependencyStageIntents } from '../../../toolchain/dependencies/runtime.ts';
+import type { retireSettledCompilerDependencyStageIntents } from '../../../toolchain/dependencies/runtime.ts';
 import { createBranchLifecycleGitChildEnvironment } from './branch-lifecycle-command.ts';
 
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -774,8 +777,14 @@ async function retireDocumentationCoordinationAtWorktreeCloseout(input: PrepareW
   });
 }
 
+export interface WorktreePhysicalCloseoutOperations {
+  retireSettledCompilerDependencyStageIntents(root: string): ReturnType<typeof retireSettledCompilerDependencyStageIntents>;
+  settleGeneratedStateForWorktreeRetirement(input: GeneratedStateWorktreeRetirementInput): Promise<GeneratedStateWorktreeRetirement | null>;
+}
+
 export async function prepareWorktreePhysicalCloseout(
-  input: PrepareWorktreePhysicalCloseoutInput
+  input: PrepareWorktreePhysicalCloseoutInput,
+  operations: WorktreePhysicalCloseoutOperations
 ): Promise<WorktreePhysicalCloseoutAuthorization> {
   const repository = await repositoryFacts(input.repositoryRoot);
   return withWorkspaceWriteLease(repository.commonDir, undefined, async (commonLease) => {
@@ -783,30 +792,27 @@ export async function prepareWorktreePhysicalCloseout(
   await assertWorktreeCloseoutAdmissionBeforeGeneratedState(input);
   const stageIntentRoot = path.join(input.targetPath, '.tmp', 'dependency-installs', '.compiler-stage-intents-v1');
   if (physicalPresence(stageIntentRoot, 'Compiler dependency stage intent root') !== null) {
-    const receipt = await retireSettledCompilerDependencyStageIntents(input.targetPath);
+    const receipt = await operations.retireSettledCompilerDependencyStageIntents(input.targetPath);
     if (receipt.terminal !== 'absent' || receipt.ownerRoot !== path.resolve(input.targetPath)) {
       throw new Error('Compiler dependency stage intent retirement receipt differs from target.');
     }
   }
   await retireDocumentationCoordinationAtWorktreeCloseout(input);
-  let generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirement>> = null;
+  let generatedStateRetirement: GeneratedStateWorktreeRetirement | null = null;
   if (!input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
     try {
-      generatedStateRetirement = await settleGeneratedStateForWorktreeRetirement({
+      generatedStateRetirement = await operations.settleGeneratedStateForWorktreeRetirement({
         repositoryRoot: input.repositoryRoot,
         workspaceRoot: input.targetPath,
         expectedBranch: input.expectedBranch,
         expectedHeadSha: input.expectedHeadSha,
         expectedTreeSha: input.expectedTreeSha
-      }, {
-        worktreeRetirementProviders: Object.freeze([
-          compilerDependencyLocatorWorktreeRetirementProvider
-        ])
       });
     } catch (error) {
       if (!isGeneratedStateWorktreeRetirementBlocked(error)) throw error;
-      // The generated-state owner made no Effect.  Preserve its fail-closed
-      // classification and let #186 emit the canonical working-state blocker.
+      // The generated-state owner made no Effect. Preserve its fail-closed
+      // classification and let the worktree-closeout owner emit the canonical
+      // working-state blocker.
     }
   }
   await assertCoordinatedRepository(repository, commonLease);
@@ -852,7 +858,7 @@ async function prepareWorktreePhysicalCloseoutUnderLease(
   repository: Awaited<ReturnType<typeof repositoryFacts>>,
   targetLease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>>,
   working: Awaited<ReturnType<typeof observeWorkingState>>,
-  generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirement>>,
+  generatedStateRetirement: GeneratedStateWorktreeRetirement | null,
   assertRepositoryLeases: () => Promise<void>
 ): Promise<WorktreePhysicalCloseoutAuthorization> {
   const targetPath = normalizedAbsolute(input.targetPath);
@@ -991,12 +997,13 @@ async function prepareWorktreePhysicalCloseoutUnderLease(
  * raw receipt JSON.
  */
 export async function prepareTrustedWorktreePhysicalCloseout(
-  input: PrepareWorktreePhysicalCloseoutInput
+  input: PrepareWorktreePhysicalCloseoutInput,
+  operations: WorktreePhysicalCloseoutOperations
 ): Promise<PreparedWorktreePhysicalCloseout> {
   if (input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
     throw new Error('Detached scratch closeout cannot mint a branch/ref consumption token.');
   }
-  const authorization = await prepareWorktreePhysicalCloseout(input);
+  const authorization = await prepareWorktreePhysicalCloseout(input, operations);
   const token = new WorktreePhysicalCloseoutConsumptionToken();
   trustedConsumptionTokens.set(token, Object.freeze({
     authorization,
@@ -1015,9 +1022,10 @@ export async function prepareTrustedWorktreePhysicalCloseout(
 }
 
 export async function prepareDetachedScratchWorktreePhysicalCloseout(
-  input: PrepareDetachedScratchWorktreePhysicalCloseoutInput
+  input: PrepareDetachedScratchWorktreePhysicalCloseoutInput,
+  operations: WorktreePhysicalCloseoutOperations
 ): Promise<WorktreePhysicalCloseoutAuthorization> {
-  return prepareWorktreePhysicalCloseout({ ...input, expectedBranch: detachedMarker(input.expectedHeadSha) });
+  return prepareWorktreePhysicalCloseout({ ...input, expectedBranch: detachedMarker(input.expectedHeadSha) }, operations);
 }
 
 export async function executeDetachedScratchWorktreePhysicalCloseout(
@@ -2409,12 +2417,12 @@ function option(args: readonly string[], name: string): string {
   return args[index + 1]!;
 }
 
-async function main(): Promise<void> {
+export async function runWorktreePhysicalCloseoutCli(operations: WorktreePhysicalCloseoutOperations): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   const usage =
     'Usage:\n' +
-    '  bun src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts prepare --repository-root <path> --target <path> --expected-branch <name> --expected-head <sha> --expected-tree <sha> --expected-recovery-authority <digest>\n' +
-    '  bun src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts execute --repository-root <path> --target <path> --expected-branch <name> --expected-head <sha> --expected-tree <sha> --expected-recovery-authority <digest> --authorization <path>';
+    "  bun src/bootstrap/development/closeout/worktree-physical-closeout-cli.ts prepare --repository-root <path> --target <path> --expected-branch <name> --expected-head <sha> --expected-tree <sha> --expected-recovery-authority <digest>\n" +
+    "  bun src/bootstrap/development/closeout/worktree-physical-closeout-cli.ts execute --repository-root <path> --target <path> --expected-branch <name> --expected-head <sha> --expected-tree <sha> --expected-recovery-authority <digest> --authorization <path>";
   if (command !== 'prepare' && command !== 'execute') throw new Error(usage);
   const allowed = new Set([
     '--repository-root',
@@ -2442,10 +2450,8 @@ async function main(): Promise<void> {
   };
   const result =
     command === 'prepare'
-      ? await prepareWorktreePhysicalCloseout(input)
+      ? await prepareWorktreePhysicalCloseout(input, operations)
       : await executeWorktreePhysicalCloseout({ ...input, authorizationPath: option(args, '--authorization') });
   process.stdout.write(`${JSON.stringify(canonicalJson(result), null, 2)}\n`);
   if ('terminal' in result && result.terminal !== 'completed') process.exitCode = 2;
 }
-
-if (import.meta.main) await main();

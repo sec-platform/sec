@@ -12,7 +12,7 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/source-program-module-graph.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
@@ -34,7 +34,7 @@ const MAINTENANCE_WORKFLOW_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'issue-comment-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
+  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
   transport: GitHubApiTransport;
   principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
@@ -51,7 +51,7 @@ test('production surface excludes test issuers and the repository graph rejects 
   const production = await import('../../src/adapters/providers/github-api/operation-session.ts');
   expect(Object.keys(production).sort()).not.toContain('issueGitHubApiTestCapability');
   expect(Object.keys(production).sort()).not.toContain('withGitHubApiTestSession');
-  expect(() => compileSecRepositoryModuleGraph({
+  expect(() => compileSourceProgramRepositoryModuleGraph({
     files: [
       'src/adapters/providers/github-api/production-consumer.ts',
       'src/adapters/providers/github-api/test/operation-session.ts'
@@ -811,6 +811,8 @@ test('request grammar rejects coercible identifiers and unsupported status state
     { kind: 'workflow-run', runId: text }, { kind: 'workflow-run', runId: 123 },
     { kind: 'commit-statuses', sha: { toString() { coerced++; return 'a'.repeat(40); } }, page: 1 },
     { kind: 'branch', branch: new String('main') }, { kind: 'unsupported' },
+    { kind: 'update-issue-comment', commentId: 91, body: 'retired' },
+    { kind: 'delete-issue-comment', commentId: 91 },
     { kind: 'create-commit-status', sha: 'a'.repeat(40), status: {
       state: 'failure', context: 'CI', description: 'different meaning', targetUrl: 'https://github.com/sec-platform/sec/actions'
     } }
@@ -827,7 +829,7 @@ test('request grammar rejects coercible identifiers and unsupported status state
 
 
 test('retired maintenance workflow cannot issue any API capability', () => {
-  for (const effect of ['read', 'status-write', 'branch-closeout-write', 'issue-comment-write'] as const) {
+  for (const effect of ['read', 'status-write', 'branch-closeout-write'] as const) {
     expect(() => capability({ effect, principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
       transport: async () => Response.json({}) })).toThrow('capability issuance input is invalid');
   }
@@ -881,29 +883,29 @@ test('branch-closeout open pull census is bounded and page-addressed', async () 
   ]);
 });
 
-test('issue comment update uses the bounded comment write authority', async () => {
+test('branch-closeout publishes the bounded receipt comment to the exact issue', async () => {
   const observed: Array<{ target: string; method: string; body: unknown }> = [];
   const api = capability({
-    effect: 'issue-comment-write',
+    effect: 'branch-closeout-write',
     transport: async (target, init) => {
       observed.push({
         target: String(target),
         method: init?.method ?? 'GET',
         body: init?.body === undefined ? null : JSON.parse(String(init.body))
       });
-      return Response.json({ id: 91, body: 'updated' });
+      return Response.json({ id: 91, body: 'closeout receipt' });
     }
   });
   expect(await withGitHubApiTestSession({
     capability: api,
     operation: () => executeGitHubApiOperation(api, {
-      kind: 'update-issue-comment', commentId: 91, body: 'updated'
+      kind: 'create-issue-comment', issueNumber: 17, body: 'closeout receipt'
     })
-  })).toEqual({ id: 91, body: 'updated' });
+  })).toEqual({ id: 91, body: 'closeout receipt' });
   expect(observed).toEqual([{
-    target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
-    method: 'PATCH',
-    body: { body: 'updated' }
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/17/comments',
+    method: 'POST',
+    body: { body: 'closeout receipt' }
   }]);
 });
 
@@ -920,14 +922,15 @@ function streamedNoContent(bytes: Uint8Array = new Uint8Array()): Response {
   } as unknown as Response;
 }
 
-test('issue comment deletion owns one exact DELETE and settles null or streamed empty 204', async () => {
+test('runner deletion owns one exact DELETE and settles null or streamed empty 204', async () => {
   for (const response of [
     new Response(null, { status: 204 }),
     streamedNoContent()
   ]) {
     const observed: Array<{ target: string; method: string }> = [];
     const api = capability({
-      effect: 'issue-comment-write',
+      effect: 'runner-admin',
+      principal: { ...PRINCIPAL, permission: 'admin' },
       transport: async (target, init) => {
         observed.push({ target: String(target), method: init?.method ?? 'GET' });
         return response;
@@ -936,11 +939,11 @@ test('issue comment deletion owns one exact DELETE and settles null or streamed 
     await expect(withGitHubApiTestSession({
       capability: api,
       operation: () => executeGitHubApiOperation(api, {
-        kind: 'delete-issue-comment', commentId: 91
+        kind: 'delete-repository-runner', runnerId: 91
       })
     })).resolves.toBeNull();
     expect(observed).toEqual([{
-      target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
+      target: 'https://api.github.com/repos/sec-platform/sec/actions/runners/91',
       method: 'DELETE'
     }]);
   }
@@ -948,13 +951,14 @@ test('issue comment deletion owns one exact DELETE and settles null or streamed 
 
 test('terminal delete 204 rejects unexpected response bytes', async () => {
   const api = capability({
-    effect: 'issue-comment-write',
+    effect: 'runner-admin',
+    principal: { ...PRINCIPAL, permission: 'admin' },
     transport: async () => streamedNoContent(new Uint8Array([1]))
   });
   await expect(withGitHubApiTestSession({
     capability: api,
     operation: () => executeGitHubApiOperation(api, {
-      kind: 'delete-issue-comment', commentId: 91
+      kind: 'delete-repository-runner', runnerId: 91
     })
   })).rejects.toThrow('returned bytes with a terminal 204 response');
 });

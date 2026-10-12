@@ -19,7 +19,8 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
     });
     expect(policyReport).toMatchObject({
       status: 'passed',
-      violations: []
+      violations: [],
+      evaluation: { assurance: 'semantic', unsupportedSemanticPredicates: [] }
     });
     expect(policyReport.merged.policies).toHaveLength(1);
     expect(policyReport.merged.policies[0]).toMatchObject({
@@ -31,7 +32,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
       'Policy sources passed',
       'sources=2; policies=1',
       'Source official; path=catalog/policies/official/policy.spec.yaml; policies=tenant-scope-required',
-      'Source project; path=source/model/policies/policy.spec.yaml; policies=none'
+      'Source project; path=model/policies/policy.spec.yaml; policies=none'
     ]);
 
     const sourcesPayload = await expectCliJson(
@@ -53,7 +54,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
         },
         {
           scope: 'project',
-          path: 'source/model/policies/policy.spec.yaml',
+          path: 'model/policies/policy.spec.yaml',
           policyCount: 0,
           policyIds: []
         }
@@ -225,9 +226,19 @@ test('CLI exposes verification report as text and JSON contracts', async () => {
       summary: {
         status: 'passed',
         requestedLane: 'fast',
-        failedLanes: []
+        failedLanes: [],
+        claimSummary: {
+          overall: { overallStatus: 'passed' },
+          gates: expect.arrayContaining([expect.objectContaining({
+            gateId: 'product-policy-gate', applicability: 'required',
+            status: 'passed', reasonCode: 'claim-observed'
+          })])
+        }
       },
-      fast: { status: 'passed', policy: { status: 'passed' } },
+      fast: {
+        status: 'passed', build: { status: 'passed' }, unit: { status: 'passed' },
+        acceptance: { status: 'passed' }, policy: { status: 'passed' }
+      },
       runtime: { status: 'passed', acceptance: { status: 'skipped' } }
     });
   });

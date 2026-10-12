@@ -25,13 +25,13 @@ export {
   physicallyContainsDirectoryChain, retainNoFollowDirectoryForChildProcess
 } from './physical-directory-chain.ts';
 
+export { copyNoFollowDirectoryTreesBulk } from './physical-directory-tree-copy.ts';
 export {
-  copyNoFollowDirectoryTreesBulk,
   scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree,
   scanNoFollowDirectoryTreeInventory,
   scanNoFollowDirectoryTreeMetadata,
   scanNoFollowDirectoryTreeSelectedForest, scanNoFollowVolatileDirectoryDirectMetadata
-} from './physical-directory-tree.ts';
+} from './physical-directory-tree-observation.ts';
 
 export {
   materializeRetainedNoFollowProvenDirectoryGeneration,
@@ -49,13 +49,14 @@ export {
 
 export {
   createExclusiveNoFollowDirectory,
+  createExclusiveNoFollowDirectoryWithReceipt,
   createExclusiveNoFollowRandomDirectory,
   inspectNoFollowDirectoryChild,
   inspectNoFollowDirectoryLeaf
 } from './physical-directory-entry.ts';
 
 export {
-  assertDurableCanonicalFileIdentityReceipt, createRetainedNoFollowFileTransactionTestActorForTests, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, flushNoFollowDirectory, observeDurableCanonicalFileReplacement, publishExclusiveDurableCanonicalFile,
+  appendExistingNoFollowOrdinaryFile, assertDurableCanonicalFileIdentityReceipt, createRetainedNoFollowFileTransactionTestActorForTests, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, flushNoFollowDirectory, observeDurableCanonicalFileReplacement, publishExclusiveDurableCanonicalFile,
   publishExclusiveSealedExecutionFile, recoverDurableCanonicalFileReplacement,
   replaceDurableCanonicalFile,
   retainNoFollowFileTransaction

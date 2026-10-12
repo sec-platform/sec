@@ -15,7 +15,7 @@ export function createCiMainHealthRequestOperationId(mainSha: string): `sha256:$
   })).digest('hex')}`;
 }
 
-/** The only exact-main health producer accepted by the ordinary Session lane. */
+/** Exact-main GitHub Actions producer policy; local admission has its own identity. */
 export const CI_MAIN_HEALTH_POLICY = Object.freeze({
   schema: 'sec-ci-main-health-policy-v6' as const,
   policyRevision: 'sec-ci-main-health-policy-v6' as const,

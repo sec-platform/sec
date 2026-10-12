@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { BranchCloseoutAttempt, BranchCloseoutAuthorization, BranchCloseoutDisposition, BranchCloseoutEffect, BranchCloseoutOperationBinding, BranchCloseoutOperationReceipt, BranchCloseoutPreparation, BranchCloseoutReceipt, BranchCloseoutRecoveryArtifact, BranchCloseoutRequest, BranchCloseoutStatus, BranchLifecycleClassification, BranchLifecycleInventory, BranchPullRequestObservation } from '../../../../execution/verification/branch-closeout.ts';
 
 import {
   assertDurableRecoveryAuthority,
@@ -9,59 +10,22 @@ import {
   classifyBranchLifecycle,
   matchingWorktrees
 } from './branch-lifecycle-audit.ts';
-import {
-  BRANCH_CLOSEOUT_PREPARATION_SCHEMA,
-  BRANCH_CLOSEOUT_RECEIPT_SCHEMA,
-  BRANCH_REF_CLOSEOUT_CAPABILITY,
-  type BranchCloseoutAttempt,
-  type BranchCloseoutAuthorization,
-  type BranchCloseoutDisposition,
-  type BranchCloseoutPreparation,
-  type BranchCloseoutReceipt,
-  type BranchCloseoutRequest,
-  type BranchCloseoutStatus,
-  type BranchLifecycleClassification,
-  type BranchLifecycleInventory,
-  type BranchPullRequestObservation,
-  type ClassifiedBranchLifecycle
-} from './branch-lifecycle-types.ts';
+import { BRANCH_CLOSEOUT_PREPARATION_SCHEMA, BRANCH_CLOSEOUT_RECEIPT_SCHEMA, BRANCH_REF_CLOSEOUT_CAPABILITY, type ClassifiedBranchLifecycle } from './branch-lifecycle-types.ts';
 import {
   assertTrustedCompletedWorktreePhysicalCloseout,
   type WorktreePhysicalCloseoutConsumptionToken
 } from './worktree-physical-closeout.ts';
 
-const BRANCH_CLOSEOUT_OPERATION_SCHEMA =
+const BRANCH_CLOSEOUT_OPERATION_SCHEMA: BranchCloseoutOperationBinding["schema"] =
   'sec-branch-closeout-operation-v1' as const;
 const BRANCH_CLOSEOUT_OPERATION_JOURNAL_SCHEMA =
   'sec-branch-closeout-operation-journal-v1' as const;
-const BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA =
+const BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA: BranchCloseoutOperationReceipt["schema"] =
   'sec-branch-closeout-operation-receipt-v1' as const;
-const BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA =
+const BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA: BranchCloseoutRecoveryArtifact["schema"] =
   'sec-branch-closeout-recovery-artifact-v1' as const;
 export const BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME =
   'branch-closeout-recovery.json' as const;
-
-type BranchCloseoutEffectState =
-  | 'not-started'
-  | 'applied'
-  | 'observed-absent'
-  | 'failed';
-
-export interface BranchCloseoutOperationBinding {
-  schema: typeof BRANCH_CLOSEOUT_OPERATION_SCHEMA;
-  closeoutOperationId: `sha256:${string}`;
-  authorizationId: string;
-  consumptionOperationId: string;
-  integrationAuthorizationReceiptDigest: `sha256:${string}`;
-  repository: string;
-  pullRequestNumber: number;
-  headSha: string;
-  newMainSha: string;
-  newMainTreeSha: string;
-  candidateTreeSha: string;
-  preparationDigest: `sha256:${string}`;
-  recoveryDigest: `sha256:${string}`;
-}
 
 /**
  * The closeout owner consumes only the authorization identity facts it binds
@@ -78,11 +42,6 @@ export interface BranchCloseoutAuthorizationIdentity {
   headSha: string;
 }
 
-export interface BranchCloseoutEffect {
-  state: BranchCloseoutEffectState;
-  detailDigest: `sha256:${string}` | null;
-}
-
 export interface BranchCloseoutOperationJournal {
   schema: typeof BRANCH_CLOSEOUT_OPERATION_JOURNAL_SCHEMA;
   binding: BranchCloseoutOperationBinding;
@@ -92,34 +51,6 @@ export interface BranchCloseoutOperationJournal {
   prune: BranchCloseoutEffect;
   terminalReceiptDigest: `sha256:${string}` | null;
   journalDigest: `sha256:${string}`;
-}
-
-export interface BranchCloseoutOperationReceipt {
-  schema: typeof BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA;
-  binding: BranchCloseoutOperationBinding;
-  writerId: string;
-  generatedAt: string;
-  remote: BranchCloseoutEffect;
-  local: BranchCloseoutEffect;
-  prune: BranchCloseoutEffect;
-  receipt: BranchCloseoutReceipt;
-  operationReceiptDigest: `sha256:${string}`;
-}
-
-export interface BranchCloseoutRecoveryArtifact {
-  schema: typeof BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA;
-  repository: string;
-  pullRequestNumber: number;
-  sessionRevision: `sha256:${string}`;
-  headSha: string;
-  headTreeSha: string;
-  preparedEnvelopeBase64: string;
-  preparedEnvelopeByteLength: number;
-  preparedEnvelopeDigest: `sha256:${string}`;
-  recoveryBundleBase64: string;
-  recoveryBundleByteLength: number;
-  recoveryBundleDigest: `sha256:${string}`;
-  artifactDigest: `sha256:${string}`;
 }
 
 export interface BranchCloseoutOperationStore {
@@ -535,9 +466,10 @@ export function authorizeBranchCloseout(input: {
 
   if (current.pullRequests.some((pullRequest) => (
     pullRequest.state === 'open'
-    && pullRequest.headBranch === preparation.branch
+    && ((!pullRequest.isCrossRepository && pullRequest.headBranch === preparation.branch)
+      || pullRequest.baseBranch === preparation.branch)
   ))) {
-    blockers.push('branch is still the head of an open PR');
+    blockers.push('branch is still consumed by an open PR');
   }
 
   if (before.unknowns.length > 0 || current.unknowns.length > 0) {

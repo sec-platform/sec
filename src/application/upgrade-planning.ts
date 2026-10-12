@@ -7,7 +7,6 @@ import type {
   PlanFile,
   UpgradeMigration
 } from '../compiler/contract.ts';
-import { CompilerError } from '../compiler/errors.ts';
 import {
   assertUpgradeAllowed,
   buildUpgradePreflightChecks,
@@ -20,6 +19,7 @@ import {
 } from '../compiler/upgrade/planning.ts';
 import { compareCodeUnits, uniqueSorted } from '../contracts/canonical.ts';
 import { summarizeCounts } from '../contracts/collections.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { UpgradeMigrationEntry } from '../semantics/upgrade/manifest-types.ts';
 import {
   upgradeArtifactDigest,
@@ -72,7 +72,7 @@ export interface UpgradeApplyPlanningOperations extends UpgradeWorkspacePreviewR
   clearPlan(): Promise<void>;
   clearExecutionTerminal(): Promise<void>;
   publishDiagnostics(
-    failure: CompilerError,
+    failure: CodedFailure,
     context: UpgradeApplyPlanningFailureContext
   ): Promise<void>;
 }
@@ -122,7 +122,7 @@ async function planWorkspaceUpgrade(
 
   const { blockId, currentBlock, lock, plan, targetVersion, workspaceRoot } = input;
   if (!currentBlock?.version) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-BLOCKED-003',
       `Block "${blockId}" is not declared in app.plan.yaml`
     );
@@ -175,7 +175,7 @@ async function planWorkspaceUpgrade(
   });
   const compatibility = targetEntry.manifest.compatibility;
   if (!compatibility) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-BLOCKED-004',
       `Block "${blockId}" target compatibility is unresolved`
     );

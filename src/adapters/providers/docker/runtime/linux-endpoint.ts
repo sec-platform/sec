@@ -2,7 +2,7 @@ import { closeSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
 import {
   linuxOpenLeafAt, linuxRaiseDescriptorFloor, linuxRetainUnixSocketPeer,
@@ -19,19 +19,23 @@ import { DockerCommandProviderUnavailableError } from '../contract/command-provi
 export interface LinuxDockerEndpoint {
   readonly endpointHost: string;
   readonly transportHost: string;
-  readonly identityDigest: SecOperationDigest;
+  readonly identityDigest: OperationDigest;
   assertCurrent(): void;
   close(): void;
 }
 
-const issued = new WeakSet<object>();
+const issued = new WeakMap<object, Readonly<{ endpointHost: string; peerUid: number }>>();
 
 function unavailable(message: string): never {
   throw new DockerCommandProviderUnavailableError(`Linux Docker endpoint: ${message}`);
 }
 
-export function assertLinuxDockerEndpoint(endpoint: LinuxDockerEndpoint): void {
-  if (!issued.has(endpoint)) unavailable('endpoint is not owner-issued.');
+export function assertLinuxDockerEndpoint(endpoint: LinuxDockerEndpoint, expected?: Readonly<{ endpointHost: string; peerUid: number }>): void {
+  const observation = issued.get(endpoint);
+  if (observation === undefined) unavailable('endpoint is not owner-issued.');
+  if (expected !== undefined && (observation.endpointHost !== expected.endpointHost || observation.peerUid !== expected.peerUid)) {
+    unavailable('endpoint differs from the required installation profile.');
+  }
   endpoint.assertCurrent();
 }
 
@@ -107,10 +111,10 @@ export function openLinuxDockerEndpoint(input: Readonly<{
     assertCurrent();
     const endpoint = Object.freeze({
       endpointHost: input.endpointHost, transportHost,
-      identityDigest: sha256({ domain: 'sec.docker.linux-retained-endpoint', endpointHost: input.endpointHost, identity }) as SecOperationDigest,
+      identityDigest: sha256({ domain: 'sec.docker.linux-retained-endpoint', endpointHost: input.endpointHost, identity }) as OperationDigest,
       assertCurrent, close
     });
-    issued.add(endpoint);
+    issued.set(endpoint, Object.freeze({ endpointHost: input.endpointHost, peerUid: peer.uid }));
     return endpoint;
   } catch (error) {
     settleResources({ primary: { label: 'linux-endpoint-admission', error }, cleanup: [{ label: 'linux-endpoint-close', settle: close }] });

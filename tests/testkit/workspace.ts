@@ -226,7 +226,7 @@ export async function prepareComposedWorkspace(options: WorkspacePipelineFixture
 }
 
 export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  return preparePipelineFixture('locked-default', 'engineering-compiler-locked-', options);
+  return preparePipelineFixture('locked-all-default', 'engineering-compiler-locked-', options);
 }
 
 export async function prepareVerifiedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {

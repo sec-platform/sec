@@ -3,10 +3,10 @@ import { createHash } from 'node:crypto';
 import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { FactAssertion, SemanticFact } from '../../src/semantics/engineering-ir/fact-types.ts';
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
@@ -86,15 +86,15 @@ function expectedFactSetDigest(snapshot: ValidatedEngineeringIRSnapshot): string
   }));
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCodedFailure(run: () => unknown, code: string): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test('public Fact Delta v1 schema and deterministic digest contract stay frozen', () => {
@@ -202,7 +202,7 @@ test('stable collision diagnostics remain distinct from ordinary set changes', (
   const revisionCollisionIR = structuredClone(snapshot.ir);
   revisionCollisionIR.entities[0]!.label = 'Forged collision';
   const revisionCollision = forgedSnapshot(revisionCollisionIR);
-  expectCompilerError(
+  expectCodedFailure(
     () => buildFactDelta(endpoint(snapshot), endpoint(revisionCollision)),
     'FACT-DELTA-003'
   );
@@ -211,7 +211,7 @@ test('stable collision diagnostics remain distinct from ordinary set changes', (
   factCollisionIR.semanticRevision = 'sha256:forged-fact-collision';
   factCollisionIR.facts[0]!.object = { kind: 'entity', entityId: factCollisionIR.appId };
   const factCollision = forgedSnapshot(factCollisionIR);
-  expectCompilerError(
+  expectCodedFailure(
     () => buildFactDelta(endpoint(snapshot), endpoint(factCollision)),
     'FACT-DELTA-004'
   );
@@ -220,7 +220,7 @@ test('stable collision diagnostics remain distinct from ordinary set changes', (
   assertionCollisionIR.semanticRevision = 'sha256:forged-assertion-collision';
   assertionCollisionIR.facts[0]!.assertions[0]!.authority = 'observed';
   const assertionCollision = forgedSnapshot(assertionCollisionIR);
-  expectCompilerError(
+  expectCodedFailure(
     () => buildFactDelta(endpoint(snapshot), endpoint(assertionCollision)),
     'FACT-DELTA-005'
   );

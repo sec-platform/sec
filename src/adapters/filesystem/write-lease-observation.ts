@@ -72,8 +72,8 @@ export async function workspaceIdentity(
   }
   if (process.platform === 'darwin') {
     // macOS ordinary writers still need the canonical lease protocol even
-    // though #186 destructive no-follow effects deliberately have no macOS
-    // backend.  Scope this fallback to the non-destructive lease resource:
+    // though the destructive no-follow closeout backend deliberately has no
+    // macOS implementation. Scope this fallback to the non-destructive lease resource:
     // reject links and bind the directory's native dev/inode, leaving physical
     // closeout to fail closed instead of silently reusing this identity.
     const resolved = path.resolve(workspaceRoot);

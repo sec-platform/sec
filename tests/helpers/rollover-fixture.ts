@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   dependencyTransitionDigestWithoutRecord,
@@ -20,6 +19,7 @@ import { dependencyTransitionLedgerDigest, dependencyTransitionNamespacePaths } 
 import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import { canonicalJson } from '../../src/contracts/canonical.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
+import { generatedStateDigest } from "../../src/execution/generated-state/contract.ts";
 
 /** Deliberately constructs persisted protocol inputs, not an authorization or a
  * replacement parser. Recovery revalidates their exact bytes and physical roots.

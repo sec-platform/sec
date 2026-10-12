@@ -1,5 +1,5 @@
-import { rawSha256, compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
-import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { normalizeRepositoryPath } from '../architecture/contract.ts';
 import { type SourceProgramFileInput } from './contract.ts';
 
 export type WorkspaceSourceFileMode = '100644' | '100755';
@@ -12,7 +12,7 @@ export function canonicalFiles(
   files: readonly (SourceProgramFileInput & Readonly<{ mode?: WorkspaceSourceFileMode }>)[]
 ): readonly WorkspaceSourceFile[] {
   const canonical = files.map((file) => {
-    const repositoryPath = normalizeSecRepositoryPath(file.path);
+    const repositoryPath = normalizeRepositoryPath(file.path);
     if (repositoryPath !== file.path || repositoryPath.length === 0) {
       throw new Error(`Workspace source snapshot path is not canonical: ${file.path}`);
     }

@@ -1,9 +1,10 @@
 import path from 'node:path';
-import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_ARTIFACT_ROOT_RELATIVE_PATH, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCanonicalCiArtifactPath, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCanonicalCiArtifactPath, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactEntry, CiArtifactManifest, CiArtifactMissingEntry } from '../../../assurance/verification/ci-artifacts/contract/types.ts';
 import { CI_ARTIFACT_FORMAT_VERSION, CI_ARTIFACT_MISSING_REASON } from '../../../assurance/verification/ci-artifacts/contract/types.ts';
 import { semanticViewArtifactsAreCurrent } from '../../../assurance/verification/review/semantic-view-artifact-contract.ts';
 import type { LockFile } from '../../../compiler/contract.ts';
+import { CI_ARTIFACT_ROOT_RELATIVE_PATH } from '../../../contracts/artifact-paths.ts';
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
 import { countMatching } from '../../../contracts/collections.ts';
 import { type CommitFence } from "../../../contracts/commit-fence.ts";

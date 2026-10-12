@@ -38,7 +38,7 @@ interface ClosedSupersessionReviewBase {
   readonly unknowns: readonly never[];
 }
 
-interface ClosedSupersessionReviewV1 extends ClosedSupersessionReviewBase {
+interface ClosedSupersessionPathReview extends ClosedSupersessionReviewBase {
   readonly paths: readonly Readonly<{
     path: string;
     disposition: 'retained' | 'superseded';
@@ -46,13 +46,13 @@ interface ClosedSupersessionReviewV1 extends ClosedSupersessionReviewBase {
   }>[];
 }
 
-interface ClosedSupersessionReviewV2 extends ClosedSupersessionReviewBase {
+interface ClosedSupersessionPathSetReview extends ClosedSupersessionReviewBase {
   readonly version: 2;
   readonly pathSet: Readonly<{ count: number; digest: `sha256:${string}` }>;
   readonly assessment: string;
 }
 
-interface ReviewedRefSupersessionReviewV3 {
+interface ReviewedRefSupersessionReview {
   readonly kind: 'branch-supersession-review';
   readonly version: 3;
   readonly repository: string;
@@ -71,8 +71,8 @@ interface ReviewedRefSupersessionReviewV3 {
   readonly unknowns: readonly never[];
 }
 
-type ClosedSupersessionReview = ClosedSupersessionReviewV1 | ClosedSupersessionReviewV2;
-type ParsedSupersessionReview = ClosedSupersessionReview | ReviewedRefSupersessionReviewV3;
+type ClosedSupersessionReview = ClosedSupersessionPathReview | ClosedSupersessionPathSetReview;
+type ParsedSupersessionReview = ClosedSupersessionReview | ReviewedRefSupersessionReview;
 
 /** Pure encoding helper; only the observer's complete native Git census issues evidence. */
 export function summarizeClosedSupersessionPaths(paths: readonly string[]): Readonly<{
@@ -100,7 +100,7 @@ export interface ClosedSupersessionEvidence {
 }
 
 export interface ReviewedRefSupersessionEvidence {
-  readonly review: ReviewedRefSupersessionReviewV3;
+  readonly review: ReviewedRefSupersessionReview;
   readonly reference: string;
   readonly author: string;
   readonly commentId: number;
@@ -191,7 +191,7 @@ function parseSupersessionReview(source: string): ParsedSupersessionReview {
       sourcePathSet: pathSet(value.sourcePathSet),
       assessment: boundedText(value.assessment, 8192),
       unknowns: Object.freeze([])
-    }) as ReviewedRefSupersessionReviewV3;
+    }) as ReviewedRefSupersessionReview;
   }
   if (!Number.isSafeInteger(value.pullRequestNumber) || Number(value.pullRequestNumber) < 1) {
     throw new Error('Supersession review pull request identity is invalid.');
@@ -204,7 +204,7 @@ function parseSupersessionReview(source: string): ParsedSupersessionReview {
       pathSet: pathSet(value.pathSet),
       assessment: boundedText(value.assessment, 8192),
       unknowns: Object.freeze([])
-    }) as ClosedSupersessionReviewV2;
+    }) as ClosedSupersessionPathSetReview;
   }
   if (!Array.isArray(value.paths) || value.paths.length > 1_000) {
     throw new Error('Legacy supersession review paths are incomplete or over bound.');

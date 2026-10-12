@@ -7,7 +7,7 @@ import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess
 } from './physical-directory-chain.ts';
-import { scanNoFollowDirectoryTreeInventory } from './physical-directory-tree.ts';
+import { scanNoFollowDirectoryTreeInventory } from './physical-directory-tree-observation.ts';
 import {
   issueRetainedNoFollowCapability,
   registerPhysicalGenerationRetirementReceipt,

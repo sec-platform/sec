@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   createDockerEndpointIdentity,
   type DockerEndpointIdentity
@@ -34,12 +33,12 @@ import {
   LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT,
   parseLocalGitHubActionsRunnerState,
   readValidatedRunnerOciLayoutIdentity,
-  reconcileReclaimedLocalGitHubActionsRunnerOciCandidate,
   retireLocalGitHubActionsRunnerOciCandidate,
   type GitHubEndpointIdentity,
   type LocalGitHubActionsRunnerInstance,
   type LocalGitHubActionsRunnerRole
 } from '../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';
@@ -399,7 +398,7 @@ describe('local GitHub Actions runner contract', () => {
     }
   });
 
-  test('leases candidate generations, protects live owners, and retires abandoned bytes no-follow', () => {
+  test('leases candidate generations, protects live owners, and retires owned bytes no-follow', () => {
     const specDigest = createLocalGitHubActionsRunnerEnvironmentSpec().specDigest;
     const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-candidate-'));
     const generationPath = path.join(root, specDigest.slice(7));
@@ -432,32 +431,9 @@ describe('local GitHub Actions runner contract', () => {
     expect(blocked).toBeNull();
     expect(existsSync(oldCandidatePath)).toBe(true);
 
-    const successor = acquirePhysicalMutationLease(directory, 'materialization-lease.json', {
-      now: () => 3_000,
-      ownerHost: 'candidate-test-host',
-      ownerPid: 41_003,
-      processNonce: randomUUID(),
-      processAlive: (pid) => pid === oldLease!.owner.pid ? 'dead' : 'alive'
-    });
-    expect(successor).not.toBeNull();
-    expect(successor!.reclaimedOwner).toEqual(oldLease!.owner);
-    expect(reconcileReclaimedLocalGitHubActionsRunnerOciCandidate({
-      directory,
-      specDigest,
-      owner: successor!.reclaimedOwner!
-    })).toBe('retired-invalid');
+    retireLocalGitHubActionsRunnerOciCandidate(directory, oldBinding);
     expect(existsSync(oldCandidatePath)).toBe(false);
-
-    successor!.acknowledgeReclaimedRecovery();
-    const currentBinding = createLocalGitHubActionsRunnerOciCandidateBinding(
-      specDigest, successor!.owner
-    );
-    const currentCandidatePath = path.join(generationPath, currentBinding.candidateName);
-    mkdirSync(path.join(currentCandidatePath, 'failed-validation'), { recursive: true });
-    writeFileSync(path.join(currentCandidatePath, 'failed-validation', 'blob'), 'invalid');
-    retireLocalGitHubActionsRunnerOciCandidate(directory, currentBinding);
-    expect(existsSync(currentCandidatePath)).toBe(false);
-    successor!.release();
+    oldLease!.release();
     rmSync(root, { recursive: true, force: true });
   });
 

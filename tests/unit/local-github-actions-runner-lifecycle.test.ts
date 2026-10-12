@@ -14,13 +14,13 @@ import { sha256 } from '../../src/contracts/canonical.ts';
 const semantic = await import('../../src/execution/operation/semantic.ts');
 mock.module('../../src/execution/operation/semantic.ts', () => ({
   ...semantic,
-  bindSecSemanticOperation: () => ({}),
-  compileSecCapabilityBinding: () => ({}),
-  compileSecProviderSettlementSet: () => ({}),
-  compileSecSemanticOperationPlan: () => ({}),
-  issueSecNormalDomainReadbackReceipt: () => ({}),
-  issueSecNormalOwnerTerminalJoinReceipt: () => ({}),
-  issueSecSemanticOperationAttemptContext: () => ({})
+  bindSemanticOperation: () => ({}),
+  compileCapabilityBinding: () => ({}),
+  compileProviderSettlementSet: () => ({}),
+  compileSemanticOperationPlan: () => ({}),
+  issueNormalDomainReadbackReceipt: () => ({}),
+  issueNormalOwnerTerminalJoinReceipt: () => ({}),
+  issueSemanticOperationAttemptContext: () => ({})
 }));
 const physical = await import('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts');
 const replaceDurableFile = physical.replaceDurableCanonicalFile;
@@ -310,7 +310,10 @@ test('committed legacy routing resumes exact IDs without provisioning and can be
   expect(events).toEqual([
     'recover-state', 'listener:control:routing', 'publish:control:routing',
     'listener:trusted:routing', 'publish:trusted:routing',
-    'listener:sut:routing', 'publish:sut:routing', 'durable:active'
+    'listener:sut:routing', 'publish:sut:routing',
+    // Windows CAS checks its prior transaction after the lifecycle lease barrier.
+    ...(process.platform === 'win32' ? ['recover-state'] : []),
+    'durable:active'
   ]);
   expect(durableState().resources).toEqual({ cpus: 3, memory: '768m' });
   await stopLocalGitHubActionsProvider({ cwd: root });

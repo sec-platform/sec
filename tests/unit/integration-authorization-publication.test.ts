@@ -1,17 +1,9 @@
 import { expect, test } from 'bun:test';
+import type { HostedIntegrationPhase } from '../../src/execution/verification/integration.ts';
+import type { GitHubWorkflowRunObservation } from '../../src/execution/verification/session.ts';
 
-import type {
-  GitHubWorkflowJobObservation,
-  GitHubWorkflowJobStepObservation,
-  GitHubWorkflowRunObservation
-} from '../../src/adapters/providers/github-api/contract.ts';
-import {
-  HOSTED_INTEGRATION_PHASE_JOB_NAMES,
-  HOSTED_INTEGRATION_PHASE_STEP_NAMES,
-  assertHostedIntegrationPhaseOwnership,
-  selectCanonicalIntegrationRunOwner,
-  type HostedIntegrationPhase
-} from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
+import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation } from '../../src/adapters/providers/github-api/contract.ts';
+import { HOSTED_INTEGRATION_PHASE_JOB_NAMES, HOSTED_INTEGRATION_PHASE_STEP_NAMES, assertHostedIntegrationPhaseOwnership, selectCanonicalIntegrationRunOwner } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import { parseGitHubWorkflowJobsForAttempt } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 
 const WORKFLOW_SHA = '1111111111111111111111111111111111111111';

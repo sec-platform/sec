@@ -43,7 +43,7 @@ import {
   requireGitBlob,
   run
 } from './document-control-observation.ts';
-import { CodexDevelopmentParseActivePointer } from './document-control-plane-contract.ts';
+import { parseActivePointer } from './document-control-plane-contract.ts';
 import {
   canonicalDirectoryBoundary,
   createSafeRegularFileExclusive,
@@ -362,7 +362,7 @@ export async function captureControlIndexSnapshot(
       const stateSource = decodeUtf8(stateBytes, 'Current-state spec');
       const pointerSource = decodeUtf8(pointerBytes, 'Active pointer');
       const rollingPlanSource = decodeUtf8(rollingPlanBytes, 'Rolling plan');
-      const pointer = CodexDevelopmentParseActivePointer(pointerSource);
+      const pointer = parseActivePointer(pointerSource);
       const manifests = await readBlobs([
         pointer.manifest, ...(options.targetManifestPath === undefined ? [] : [options.targetManifestPath])
       ]);
@@ -1022,12 +1022,12 @@ export async function freezeRetiredManifestPath(
   repositoryRoot: string,
   journal: FreezeJournal
 ): Promise<string | null> {
-  const basePointer = CodexDevelopmentParseActivePointer(decodeUtf8(await requireGitBlob(
+  const basePointer = parseActivePointer(decodeUtf8(await requireGitBlob(
     repositoryRoot,
     `${journal.baseSha}:${ActivePointerPath}`,
     'Freeze base active pointer'
   ), 'Freeze base active pointer'));
-  const nextPointer = CodexDevelopmentParseActivePointer(decodeUtf8(fromBase64(
+  const nextPointer = parseActivePointer(decodeUtf8(fromBase64(
     journal.files.pointer.next,
     'Freeze pointer NEXT retirement binding'
   ), 'Freeze pointer NEXT retirement binding'));

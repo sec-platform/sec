@@ -285,13 +285,6 @@ export function sameToken(left: WorkspaceWriteLeaseToken, right: WorkspaceWriteL
   return canonicalEquals(left, right);
 }
 
-export function sameHeartbeat(
-  left: WorkspaceWriteLeaseHeartbeat,
-  right: WorkspaceWriteLeaseHeartbeat
-): boolean {
-  return canonicalEquals(left, right);
-}
-
 export function systemErrorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
   if (typeof error.code !== 'string') return undefined;

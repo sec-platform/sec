@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation
 } from '../../../execution/operation/semantic.ts';
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
 import type { PhysicalDirectoryChain } from '../physical/runtime/physical-no-follow.ts';
@@ -51,7 +51,7 @@ export interface ExternalProviderCoordinationLease {
 export interface ExternalProviderCoordinationLeaseInput {
   readonly endpointIdentity: string;
   /** Correlation/budget projection only; Runtime State owns lease Effect admission. */
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly providerId: string;
   readonly requirementId: string;
   readonly repositoryRoot: string;
@@ -100,7 +100,7 @@ function validateInput(
 ): Readonly<{
   deadlineAtUnixMs: number;
   endpointIdentity: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   operationIdentityDigest: `sha256:${string}`;
   providerEpochDigest: `sha256:${string}`;
   providerId: string;
@@ -108,7 +108,7 @@ function validateInput(
   repositoryRoot: string;
 }> {
   try {
-    assertSecSemanticOperationProjection(input.operation);
+    assertSemanticOperationProjection(input.operation);
   } catch (error) {
     throw new ExternalProviderCoordinationLeaseError(
       'invalid-input',
@@ -205,7 +205,7 @@ function externalProviderCoordinationSegments(input: Readonly<{
   return Object.freeze([...segments, 'external-providers']);
 }
 
-export function secUserExternalProviderCoordinationPath(input: Readonly<{
+export function userExternalProviderCoordinationPath(input: Readonly<{
   localAppData: string;
   repositoryRoot: string;
 }>): string {
@@ -388,7 +388,7 @@ export async function withExternalProviderCoordinationLeaseAtOwnerIssuedRoot<T>(
  * The current token's Known Folder is read from the OS; ambient LOCALAPPDATA
  * and provider-owned directories never participate in SEC lease placement.
  */
-export async function withSecUserExternalProviderCoordinationLease<T>(input: Readonly<{
+export async function withUserExternalProviderCoordinationLease<T>(input: Readonly<{
   coordination: ExternalProviderCoordinationLeaseInput;
   operation: (lease: ExternalProviderCoordinationLease) => Promise<T>;
 }>): Promise<T | null> {
@@ -406,7 +406,7 @@ export async function withSecUserExternalProviderCoordinationLease<T>(input: Rea
       mode: 'create-or-open',
       segments
     });
-    if (retained.root.path !== localAppData || retained.path !== secUserExternalProviderCoordinationPath({
+    if (retained.root.path !== localAppData || retained.path !== userExternalProviderCoordinationPath({
       localAppData: retained.root.path,
       repositoryRoot: coordination.repositoryRoot
     })) {

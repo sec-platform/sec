@@ -26,14 +26,14 @@ import ts from 'typescript';
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import { enableExecutionProgress, reportExecutionProgress } from '../../../execution/execution-progress.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../execution/resource-settlement.ts';
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
@@ -66,19 +66,19 @@ import {
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import {
-  classifySecRepositorySurface,
-  resolveSecMarkdownSkillCoverage,
-  resolveSecRepositoryHeuristicSkills,
-  SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
-  SEC_REPOSITORY_HEURISTIC_ROUTES,
-  type SecAgentSkillId,
-  type SecRepositorySurfaceKind
+  AGENT_SKILL_IDS,
+  classifyRepositorySurface,
+  REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
+  REPOSITORY_HEURISTIC_ROUTES,
+  resolveMarkdownSkillCoverage,
+  resolveRepositoryHeuristicSkills,
+  type AgentSkillId,
+  type RepositorySurfaceKind
 } from '../../self-hosting/control/agent/skill.ts';
 import {
-  CodexDevelopmentClassifyWorkPackageCensus,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseRollingPlan
+  classifyWorkPackageCensus,
+  parseActivePointer,
+  parseRollingPlan
 } from '../../self-hosting/control/documentation/document-control-plane-contract.ts';
 import type {
   CompilerDependencyReadGenerationRetirementReceipt,
@@ -91,13 +91,13 @@ import {
 } from '../../verification/platform/trust/contract/root.ts';
 import { tsconfigRelativePath } from "../../workspace-context.ts";
 import {
-  compileSecRepositoryModuleArchitectureProjection, compileSecRepositoryModuleTopologyProjection,
-  type SecRepositoryModuleGraph,
-  type SecRepositoryModuleMembership,
-  type SecRepositoryModuleTopologyProjection
+  compileRepositoryModuleArchitectureProjection, compileRepositoryModuleTopologyProjection,
+  type RepositoryModuleGraph,
+  type RepositoryModuleMembership,
+  type RepositoryModuleTopologyProjection
 } from '../architecture/contract.ts';
 import {
-  compileSecRepositoryModulePlacementAdmission
+  compileRepositoryModulePlacementAdmission
 } from '../architecture/placement.ts';
 import {
   createSourceProgramCompilationOperation,
@@ -116,12 +116,12 @@ import {
   compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
-import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
+import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, reconcileSourceProgramTestValueWithSupersession, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
 import { compileRepositorySourceProgramTestObligationsWithCache, compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
 import { compileRepositorySourceProgramCompilation, requireCompleteRepositorySourceProgramCompilation, type RepositorySourceProgramCompilationReceipt } from '../source-program-model/repository-compilation.ts';
-import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTestObligationsTopology, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
+import { compileSourceProgramOwnerIntentEvidence, observeRepositorySourceProgramDescriptorOperationExports, summarizeSourceProgramTestObligationsTopology, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { assessSourceProgramTestAuthorDecision, parseSourceProgramTestAuthorDecisionPayload, type SourceProgramTestAuthorAssessment, type SourceProgramTestAuthorDecisionPayload } from '../source-program-model/test-disposition-decisions.ts';
-import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
+import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import {
   observeSourceProgramTypeScriptSyntax,
   querySourceProgramModel,
@@ -259,8 +259,12 @@ function decodeCacheEnvelope(
   }
 }
 
+const REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA = 'sec-reviewed-process-dispatchers-v2';
+
 type ReviewedProcessDispatcherProjection = Readonly<{
-  inputDigests: Readonly<Record<string, string>>;
+  schema: typeof REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA;
+  compilerInputDigest: string;
+  sourceInputDigests: Readonly<Record<string, string | null>>;
   reviewedProcessDispatchers: readonly string[];
 }>;
 
@@ -269,15 +273,22 @@ function parseReviewedProcessDispatcherProjection(
 ): ReviewedProcessDispatcherProjection | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const projection = value as Partial<ReviewedProcessDispatcherProjection>;
-  if (projection.inputDigests === null || typeof projection.inputDigests !== 'object'
-      || Array.isArray(projection.inputDigests)
+  if (projection.schema !== REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA
+      || typeof projection.compilerInputDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(projection.compilerInputDigest)
+      || projection.sourceInputDigests === null || typeof projection.sourceInputDigests !== 'object'
+      || Array.isArray(projection.sourceInputDigests)
+      || Object.keys(projection.sourceInputDigests).length === 0
       || !Array.isArray(projection.reviewedProcessDispatchers)
       || projection.reviewedProcessDispatchers.some((value) => typeof value !== 'string')) return null;
-  for (const [repositoryPath, digest] of Object.entries(projection.inputDigests)) {
-    if (repositoryPath.length === 0 || !/^sha256:[0-9a-f]{64}$/u.test(digest)) return null;
+  for (const [repositoryPath, digest] of Object.entries(projection.sourceInputDigests)) {
+    if (repositoryPath.length === 0
+        || (digest !== null && (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest)))) return null;
   }
   return Object.freeze({
-    inputDigests: Object.freeze({ ...projection.inputDigests }),
+    schema: projection.schema,
+    compilerInputDigest: projection.compilerInputDigest,
+    sourceInputDigests: Object.freeze({ ...projection.sourceInputDigests }),
     reviewedProcessDispatchers: Object.freeze([...projection.reviewedProcessDispatchers])
   });
 }
@@ -314,74 +325,84 @@ async function writeReviewedProcessDispatcherProjection(
   }
 }
 
-function reviewedProcessDispatchersFromExactProjection(
+export function reviewedProcessDispatchersFromExactProjection(
   files: readonly SourceProgramFileInput[],
-  cached: ReviewedProcessDispatcherProjection | null
+  compilerInputDigest: string,
+  value: unknown
 ): readonly string[] | null {
-  if (cached === null) return null;
+  const cached = parseReviewedProcessDispatcherProjection(value);
+  if (cached === null || cached.compilerInputDigest !== compilerInputDigest) return null;
   const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
     [repositoryPath, contentDigest] as const));
-  return Object.keys(cached.inputDigests).length > 0
-    && cached.inputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH] !== undefined
-    && cached.inputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH] !== undefined
-    && Object.entries(cached.inputDigests).every(([repositoryPath, digest]) =>
-      digestByPath.get(repositoryPath) === digest)
+  return Object.entries(cached.sourceInputDigests).every(([repositoryPath, digest]) =>
+    digest === null ? !digestByPath.has(repositoryPath) : digestByPath.get(repositoryPath) === digest)
     ? cached.reviewedProcessDispatchers
     : null;
 }
 
-async function resolveImmutableRevisionProcessDispatchers(
-  repositoryRoot: string,
-  files: readonly SourceProgramFileInput[]
+export async function resolveImmutableRevisionProcessDispatchers(
+  files: readonly SourceProgramFileInput[],
+  currentProjection: ReviewedProcessDispatcherProjection,
+  adoptedBaselineRoot?: string
 ): Promise<readonly string[]> {
-  const cached = reviewedProcessDispatchersFromExactProjection(
-    files,
-    await readReviewedProcessDispatcherProjection(repositoryRoot)
+  const current = reviewedProcessDispatchersFromExactProjection(
+    files, currentProjection.compilerInputDigest, currentProjection
   );
-  if (cached === null) {
-    throw new Error(
-      'Immutable Git-tree process dispatcher facts require an exact cached trusted-runtime projection'
+  if (current !== null) return current;
+  // The caller supplies this root only when the exact baseline is the observed
+  // adopted compiler tree. Never relabel candidate facts or execute baseline code.
+  if (adoptedBaselineRoot !== undefined) {
+    const baseline = await compileReviewedProcessDispatcherProjection(
+      adoptedBaselineRoot, files, currentProjection.compilerInputDigest
     );
+    return baseline.reviewedProcessDispatchers;
   }
-  return cached;
+  throw new Error(
+    'Immutable Git-tree process dispatcher facts require an exact cached trusted-runtime projection'
+  );
 }
 
-async function resolveReviewedProcessDispatchers(
+/** Interpret candidate bytes as data with the adopted compiler. These facts grant no process authority. */
+export async function compileReviewedProcessDispatcherProjection(
   repositoryRoot: string,
-  files: readonly SourceProgramFileInput[]
-): Promise<readonly string[]> {
-  const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
-    [repositoryPath, contentDigest] as const));
-  const cached = reviewedProcessDispatchersFromExactProjection(
-    files,
-    await readReviewedProcessDispatcherProjection(repositoryRoot)
-  );
-  if (cached !== null) return cached;
-  const { trustedRuntimeClosure } = await import('../../verification/platform/trust/compiler.ts');
-  const closure = trustedRuntimeClosure();
-  const inputPaths = new Set([
-    ...closure.closure,
-    SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
-  ]);
-  const inputDigests = Object.freeze(Object.fromEntries(
-    [...inputPaths]
-      .sort(compareCodeUnits)
-      .map((repositoryPath) => {
-        const digest = digestByPath.get(repositoryPath);
-        if (digest === undefined) {
-          throw new Error(`TCB reviewed process projection input is absent from the exact census: ${repositoryPath}`);
-        }
-        return [repositoryPath, digest];
-      })
-  ));
-  const projection: ReviewedProcessDispatcherProjection = Object.freeze({
-    inputDigests,
+  files: readonly SourceProgramFileInput[],
+  compilerInputDigest: string
+): Promise<ReviewedProcessDispatcherProjection> {
+  const {
+    createTcbClosureCandidateSnapshot, finalizeTcbClosureCandidateSnapshot, trustedRuntimeClosure
+  } = await import('../../verification/platform/trust/compiler.ts');
+  const candidateSnapshot = createTcbClosureCandidateSnapshot({ candidateRoot: repositoryRoot });
+  const closure = trustedRuntimeClosure(undefined, { candidateSnapshot });
+  const projection = Object.freeze({
+    schema: REVIEWED_PROCESS_DISPATCHER_PROJECTION_SCHEMA,
+    compilerInputDigest,
+    // The source owner supplies its actual raw-byte read set, never labels
+    // interpreter-root results with caller-supplied candidate digests.
+    sourceInputDigests: finalizeTcbClosureCandidateSnapshot(candidateSnapshot),
     reviewedProcessDispatchers: Object.freeze(
       [...closure.reviewedProcessDispatchers].sort(compareCodeUnits)
     )
   });
-  await writeReviewedProcessDispatcherProjection(repositoryRoot, projection).catch(() => undefined);
-  return projection.reviewedProcessDispatchers;
+  if (reviewedProcessDispatchersFromExactProjection(files, compilerInputDigest, projection) === null) {
+    throw new Error('TCB reviewed process projection read set does not match the exact candidate census');
+  }
+  return projection;
+}
+
+async function resolveReviewedProcessDispatcherProjection(
+  repositoryRoot: string,
+  files: readonly SourceProgramFileInput[],
+  compilerInputDigest: string,
+  allowPersistentCache: boolean
+): Promise<ReviewedProcessDispatcherProjection> {
+  const cached = allowPersistentCache
+    ? await readReviewedProcessDispatcherProjection(repositoryRoot)
+    : null;
+  if (cached !== null
+      && reviewedProcessDispatchersFromExactProjection(files, compilerInputDigest, cached) !== null) {
+    return cached;
+  }
+  return compileReviewedProcessDispatcherProjection(repositoryRoot, files, compilerInputDigest);
 }
 
 async function readSupersessionEvidenceCache(
@@ -900,12 +921,14 @@ async function compileRevisionSupersessionEvidence(
   operation: SourceProgramCompilationOperation,
   cachedEvidence: SourceProgramSupersessionEvidence | null,
   cacheAccess: 'read-only' | 'read-write',
-  authorityScope: SourceProgramAnalysisScope
+  authorityScope: SourceProgramAnalysisScope,
+  currentDispatcherProjection: ReviewedProcessDispatcherProjection,
+  adoptedBaselineRoot?: string
 ): Promise<Readonly<{
   compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   evidence: SourceProgramSupersessionEvidence;
   tests: SourceProgramTestValueCompilation;
-  membership: SecRepositoryModuleMembership;
+  membership: RepositoryModuleMembership;
   sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
   const files = workspaceSnapshot.files;
@@ -914,8 +937,9 @@ async function compileRevisionSupersessionEvidence(
   let reviewedProcessDispatchers: readonly string[] = Object.freeze([]);
   try {
     reviewedProcessDispatchers = await resolveImmutableRevisionProcessDispatchers(
-      repositoryRoot,
-      files
+      files,
+      currentDispatcherProjection,
+      adoptedBaselineRoot
     );
   } catch (error) {
     revisionUnknowns.push(Object.freeze({
@@ -977,7 +1001,7 @@ type WorkingTreeModuleTopology = Readonly<{
   files: number;
   references: number;
   unresolvedFiles: readonly string[];
-  topology: SecRepositoryModuleTopologyProjection;
+  topology: RepositoryModuleTopologyProjection;
 }>;
 
 async function compileWorkingTreeModuleTopology(
@@ -999,7 +1023,7 @@ async function compileWorkingTreeModuleTopology(
         files: graph.files.length,
         references: graph.references.length,
         unresolvedFiles: graph.unresolvedFiles,
-        topology: compileSecRepositoryModuleTopologyProjection(
+        topology: compileRepositoryModuleTopologyProjection(
           graph,
           workspaceSnapshot.moduleMembership
         )
@@ -1009,8 +1033,8 @@ async function compileWorkingTreeModuleTopology(
 }
 
 function compileRepositoryModuleArchitectureAdmission(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership,
   model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   sourceFiles: readonly WorkspaceSourceFile[]
 ): RepositoryModuleArchitectureWithPlacement {
@@ -1019,17 +1043,18 @@ function compileRepositoryModuleArchitectureAdmission(
   )));
   const facts = Object.freeze({
     ...model,
+    descriptorOperationExports: observeRepositorySourceProgramDescriptorOperationExports(requireCompleteSourceProgramModel(model)) ?? undefined,
     files: Object.freeze(model.files.map((file) => Object.freeze({
       ...file,
       sourceLines: sourceLinesByPath.get(file.path)
     })))
   });
-  const architecture = compileSecRepositoryModuleArchitectureProjection(
+  const architecture = compileRepositoryModuleArchitectureProjection(
     graph,
     membership,
     facts
   );
-  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+  const responsibilityAdmission = compileRepositoryModulePlacementAdmission({
     graph,
     membership,
     facts
@@ -1084,13 +1109,13 @@ async function compileWorkingTreeSourceProgram(
   baselineTreeSha: string;
   currentSha: string;
   currentTreeSha: string;
-  baselineModuleMembership: SecRepositoryModuleMembership;
+  baselineModuleMembership: RepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   baselineSharesCurrentSourceRevision: boolean;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
@@ -1183,13 +1208,13 @@ async function compileWorkingTreeSourceProgramWithSession(
   baselineTreeSha: string;
   currentSha: string;
   currentTreeSha: string;
-  baselineModuleMembership: SecRepositoryModuleMembership;
+  baselineModuleMembership: RepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   baselineSharesCurrentSourceRevision: boolean;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
@@ -1291,10 +1316,29 @@ async function compileWorkingTreeSourceProgramWithSession(
     ])),
     treeDigest: workspaceSnapshot.sourceRevision
   });
-  const reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
-    repositoryRoot,
-    files
+  const foreignCompilerRoot = path.resolve(repositoryRoot) !== path.resolve(DEFAULT_REPOSITORY_ROOT);
+  const readCompilerSnapshot = () => withAuthorityGitReadSession(
+    { cwd: DEFAULT_REPOSITORY_ROOT, budget: repositoryAuditGitBudget(deadlineAtUnixMs) },
+    (git) => acquireWorkingTreeWorkspaceSourceSnapshot({ session: git })
   );
+  const compilerSnapshot = foreignCompilerRoot ? await readCompilerSnapshot() : workspaceSnapshot;
+  for (const required of [SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH]) {
+    if (compilerSnapshot.file(required) === null) {
+      throw new Error(`Trusted dispatcher compiler input is absent: ${required}`);
+    }
+  }
+  // A conservative compiler key binds the adopted root's complete source/config
+  // census and its admitted dependencies, independently of candidate source B.
+  const compilerInputDigest = sha256({
+    sourceRevision: compilerSnapshot.sourceRevision, dependencyGenerationDigest
+  });
+  // Only the exact source-transition caller establishes the adopted-root premise.
+  // Ordinary mutable editing recomputes facts and reuses them only in this invocation.
+  const allowPersistentDispatcherCache = exactHead !== undefined;
+  const dispatcherProjection = await resolveReviewedProcessDispatcherProjection(
+    repositoryRoot, files, compilerInputDigest, allowPersistentDispatcherCache
+  );
+  const reviewedProcessDispatchers = dispatcherProjection.reviewedProcessDispatchers;
   const after = await runGitBytes(session, [
     '-c', 'core.quotepath=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
@@ -1320,9 +1364,23 @@ async function compileWorkingTreeSourceProgramWithSession(
       compilationOperation,
       cachedBaselineSupersessionEvidence,
       cacheAccess,
-      authorityScope
+      authorityScope,
+      dispatcherProjection,
+      allowPersistentDispatcherCache && compilerSnapshot.sourceRevision === baselineSnapshot.sourceRevision
+        ? DEFAULT_REPOSITORY_ROOT : undefined
     )
     : null;
+  if (foreignCompilerRoot) {
+    const finalCompilerSnapshot = await readCompilerSnapshot();
+    compilerSnapshot.assertMatches({
+      sourceRevision: finalCompilerSnapshot.sourceRevision,
+      files: finalCompilerSnapshot.files,
+      moduleMembership: finalCompilerSnapshot.moduleMembership
+    });
+  }
+  if (allowPersistentDispatcherCache) {
+    await writeReviewedProcessDispatcherProjection(repositoryRoot, dispatcherProjection).catch(() => undefined);
+  }
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
@@ -1743,9 +1801,9 @@ function markdownStatus(source: string): string | null {
   return /^status:\s*([^\s#]+)\s*$/mu.exec(frontmatter)?.[1] ?? null;
 }
 
-function behaviorSkills(repositoryPath: string): SecAgentSkillId[] {
-  const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
-  return markdown?.skills ?? resolveSecRepositoryHeuristicSkills(repositoryPath);
+function behaviorSkills(repositoryPath: string): AgentSkillId[] {
+  const markdown = resolveMarkdownSkillCoverage(repositoryPath);
+  return markdown?.skills ?? resolveRepositoryHeuristicSkills(repositoryPath);
 }
 
 function lineStarts(source: string): number[] {
@@ -1905,7 +1963,7 @@ export function extractHeuristicBehaviorCandidates(
       && !isJavaScriptOrTypeScriptTestPath(repositoryPath)
     )
   ) return [];
-  const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
+  const markdown = resolveMarkdownSkillCoverage(repositoryPath);
   if (markdown && (
     markdown.kind === 'historical'
     || markdown.kind === 'evidence'
@@ -1919,7 +1977,7 @@ export function extractHeuristicBehaviorCandidates(
   const skills = behaviorSkills(repositoryPath);
   const pathImpliesAgentBehavior = markdown?.kind === 'skill-definition'
     || markdown?.kind === 'agent-projection'
-    || (markdown === null && resolveSecRepositoryHeuristicSkills(repositoryPath).length > 0);
+    || (markdown === null && resolveRepositoryHeuristicSkills(repositoryPath).length > 0);
   const contextMarker = skills.length > 0
     ? AGENT_CONTEXT_MARKER
     : STRONG_AGENT_CONTEXT_MARKER;
@@ -2284,7 +2342,7 @@ async function auditControlPlane(
   let manifestPath: string;
   let expectedDigest: string;
   try {
-    const parsedPointer = CodexDevelopmentParseActivePointer(pointer);
+    const parsedPointer = parseActivePointer(pointer);
     manifestPath = parsedPointer.manifest;
     expectedDigest = parsedPointer.manifestDigest.slice('sha256:'.length);
   } catch (error) {
@@ -2298,7 +2356,7 @@ async function auditControlPlane(
   }
   let rollingPackage: string;
   try {
-    rollingPackage = CodexDevelopmentParseRollingPlan(rollingPlan).activePackageId;
+    rollingPackage = parseRollingPlan(rollingPlan).activePackageId;
   } catch (error) {
     pushFinding(findings, {
       code: 'control-plane-rolling-invalid',
@@ -2376,7 +2434,7 @@ async function auditControlPlane(
       });
     }
     const roadmapSource = textByPath.get('config/repository/work-selection.md');
-    const census = CodexDevelopmentClassifyWorkPackageCensus({
+    const census = classifyWorkPackageCensus({
       selectedManifestPath: manifestPath,
       entries,
       roadmapSource: liveManifests.length > 1 && roadmapSource !== null
@@ -2516,7 +2574,7 @@ async function auditRepositoryWithSession(
   if (defaultHead === null) {
     unknowns.push(`default ref unavailable: ${defaultRefInput}`);
   }
-  const surfaceCounts: Record<SecRepositorySurfaceKind, number> = {
+  const surfaceCounts: Record<RepositorySurfaceKind, number> = {
     configuration: 0,
     'heuristic-runtime': 0,
     markdown: 0,
@@ -2537,14 +2595,14 @@ async function auditRepositoryWithSession(
       ? { kind: 'verification-test' as const, skills: [] }
       : compiledSurface === 'production'
         ? { kind: 'product-implementation' as const, skills: [] }
-        : classifySecRepositorySurface(repositoryPath);
+        : classifyRepositorySurface(repositoryPath);
     surfaceCounts[surface.kind] += 1;
     if (repositoryPath.endsWith('.md')) markdown += 1;
 
     const source = textByPath.get(repositoryPath) ?? null;
     if (source === null) continue;
 
-    const markdownCoverage = resolveSecMarkdownSkillCoverage(repositoryPath);
+    const markdownCoverage = resolveMarkdownSkillCoverage(repositoryPath);
     if (markdownCoverage?.kind === 'active-authority'
       || markdownCoverage?.kind === 'agent-projection') {
       activeMarkdown += 1;
@@ -2587,9 +2645,9 @@ async function auditRepositoryWithSession(
     }
   }
 
-  for (const skillId of SEC_AGENT_SKILL_IDS) {
-    const routed = SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS.filter(
-      (behavior) => SEC_REPOSITORY_HEURISTIC_ROUTES[behavior].owner === skillId
+  for (const skillId of AGENT_SKILL_IDS) {
+    const routed = REPOSITORY_HEURISTIC_BEHAVIOR_IDS.filter(
+      (behavior) => REPOSITORY_HEURISTIC_ROUTES[behavior].owner === skillId
     );
     if (routed.length === 0) {
       pushFinding(findings, {
@@ -2645,7 +2703,7 @@ async function auditRepositoryWithSession(
     architecture,
     declarationTopology,
     behaviorCandidates: Object.freeze([...candidates]),
-    heuristicRoutes: SEC_REPOSITORY_HEURISTIC_ROUTES,
+    heuristicRoutes: REPOSITORY_HEURISTIC_ROUTES,
     contentCoverage,
     findings: Object.freeze(findings),
     optimizations: Object.freeze([
@@ -2693,7 +2751,7 @@ async function auditRepositoryWithSession(
         references: sourceProgram.references.length,
         unknowns: sourceProgram.unknowns.length
       }),
-      skills: SEC_AGENT_SKILL_IDS.length,
+      skills: AGENT_SKILL_IDS.length,
       trackedPaths: tracked.length,
       unknowns: unknowns.length
     }),
@@ -2908,7 +2966,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
   payloadDigest: `sha256:${string}`;
   sealedGenerationDigest: `sha256:${string}`;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const durationMs = input.deadlineAtUnixMs - Date.now();
   if (!Number.isSafeInteger(durationMs) || durationMs < 1
       || durationMs > SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS) {
@@ -2920,8 +2978,8 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
     cwd: 'one-sealed-source-program-generation',
     childEffects: 'none-pure-operation',
     output: 'one-candidate-stream'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: SOURCE_PROGRAM_AUDIT_OPERATION,
     intentDigest: sha256({
       bunDigest: input.bunDigest,
@@ -2930,10 +2988,10 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       implementationDigest: input.implementationDigest,
       payloadDigest: input.payloadDigest,
       sealedGenerationDigest: input.sealedGenerationDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -2956,7 +3014,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: SOURCE_PROGRAM_AUDIT_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
@@ -2964,7 +3022,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       bunDigest: input.bunDigest,
       implementationDigest: input.implementationDigest,
       sealedGenerationDigest: input.sealedGenerationDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   })]);
 }
 
@@ -3125,7 +3183,7 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
   let session: ProcessResourceSession | null = null;
   let resources: ProcessResourceSessionReceipt | null = null;
   let run: ProcessResourceRunResult | null = null;
-  let operation: SecBoundSemanticOperation | null = null;
+  let operation: BoundSemanticOperation | null = null;
   let boundary: RetainedCommandBoundary | null = null;
   let request: RepositoryAuditWorkerRequest | null = null;
   let requestBytes: Uint8Array | null = null;
@@ -3209,7 +3267,7 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
     }
     session = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: SOURCE_PROGRAM_AUDIT_REQUIREMENT,
         resourceCeilings: [

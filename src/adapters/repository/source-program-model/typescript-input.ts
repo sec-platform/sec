@@ -1,15 +1,13 @@
-import type {
-  SourceProgramCompilation,
-  SourceProgramFileInput
-} from './contract.ts';
+import path from 'node:path';
 import {
-  sourceProgramSurfaceForPath
-} from './contract.ts';
+  rawSha256,
+  sha256
+} from '../../../contracts/canonical.ts';
 import type {
-  SecRepositoryModuleMembership
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
-  normalizeSecRepositoryPath
+  normalizeRepositoryPath
 } from '../architecture/contract.ts';
 import type {
   SourceProgramCompilationOperation
@@ -18,11 +16,13 @@ import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
-import path from 'node:path';
+import type {
+  SourceProgramCompilation,
+  SourceProgramFileInput
+} from './contract.ts';
 import {
-  rawSha256,
-  sha256
-} from '../../../contracts/canonical.ts';
+  sourceProgramSurfaceForPath
+} from './contract.ts';
 import {
   recordTypeScriptPerformance
 } from './typescript-performance.ts';
@@ -31,7 +31,7 @@ import {
 export interface TypeScriptModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly operation?: SourceProgramCompilationOperation;
 }
 
@@ -61,7 +61,7 @@ export type TypeScriptSourceProgramFileIdentity = Readonly<{
 export const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/iu;
 
 function canonicalPath(value: string): string {
-  const normalized = normalizeSecRepositoryPath(value);
+  const normalized = normalizeRepositoryPath(value);
   if (normalized !== value || value.length === 0 || value.startsWith('../') || path.posix.isAbsolute(value)) {
     throw new Error(`Source Program Model path is not canonical: ${value}`);
   }

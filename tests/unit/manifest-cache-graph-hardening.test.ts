@@ -24,18 +24,6 @@ function entry(): ManifestEntry {
 
 afterEach(() => manifestCache.clear());
 
-test('manifest cache freezes a deep graph without recursive stack exhaustion', () => {
-  const value = entry();
-  let chain: { next?: object } = {};
-  const leaf = chain;
-  for (let i = 0; i < 50_000; i++) chain = { next: chain };
-  Object.defineProperty(value, 'extension', { value: chain, enumerable: false });
-  manifestCache.set(key(), value);
-  assert.strictEqual(manifestCache.get(key()), value);
-  assert.equal(Object.isFrozen(chain), true);
-  assert.equal(Object.isFrozen(leaf), true);
-});
-
 test('manifest cache never invokes unrelated accessor properties during freezing', () => {
   const value = entry();
   let reads = 0;

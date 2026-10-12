@@ -1,9 +1,9 @@
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
-import { SecError } from '../../../../../contracts/failure.ts';
+import { CodedFailure } from '../../../../../contracts/failure.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import {
-  normalizeSecRepositoryPath,
-  type SecRepositoryModuleGraph
+  normalizeRepositoryPath,
+  type RepositoryModuleGraph
 } from '../../../../repository/architecture/contract.ts';
 import {
   assertIssuedTestImpactProjection,
@@ -39,7 +39,7 @@ export type CodexDevelopmentTestImpactSourceProvider = Readonly<{
   testInventory: IssuedTestInventoryProjection;
   activeDocumentationPaths: readonly string[];
 }>;
-export type RepositoryModuleGraph = SecRepositoryModuleGraph;
+export type { RepositoryModuleGraph } from '../../../../repository/architecture/contract.ts';
 
 type ReverseImportMap = Readonly<{
   map: ReadonlyMap<string, readonly string[]>;
@@ -65,12 +65,12 @@ type ProviderIndex = Readonly<{
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
 function normalizeRepoPath(value: string): string {
-  return normalizeSecRepositoryPath(value);
+  return normalizeRepositoryPath(value);
 }
 
 function assertIssuedProvider(provider: CodexDevelopmentTestImpactSourceProvider): void {
   if (!issuedTestImpactProviders.has(provider)) {
-    throw new SecError(
+    throw new CodedFailure(
       'TEST-IMPACT-001',
       'Test impact requires an owner-issued provider composition',
       { kind: 'provider-unissued' }
@@ -231,12 +231,12 @@ export function createRepositoryTestImpactSourceProvider(
       || projection.testFiles.some((path) => (
         isSecRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
       ))) {
-    throw new SecError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
+    throw new CodedFailure('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
       kind: 'test-inventory-mismatch'
     });
   }
   if (Object.prototype.hasOwnProperty.call(input, 'transition')) {
-    throw new SecError(
+    throw new CodedFailure(
       'TEST-IMPACT-001',
       'Test impact transition must come from an owner-issued Git/source composition',
       { kind: 'transition-unissued' }
@@ -246,7 +246,7 @@ export function createRepositoryTestImpactSourceProvider(
     ? null
     : readIssuedAffectedTestImpactBinding(affectedSource);
   if (affectedSource !== undefined && affectedSource.projection !== projection) {
-    throw new SecError(
+    throw new CodedFailure(
       'TEST-IMPACT-001',
       'Test impact transition differs from the Source Program projection source',
       { kind: 'transition-source-mismatch' }
@@ -255,7 +255,7 @@ export function createRepositoryTestImpactSourceProvider(
   const moduleFileSet = new Set(projection.moduleGraph.files);
   const missingTestPath = projection.testFiles.find((testFile) => !moduleFileSet.has(testFile));
   if (missingTestPath !== undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'TEST-IMPACT-001',
       `Test impact projection omitted a test module from its graph: ${missingTestPath}.`,
       { kind: 'projection-test-module-missing', testPath: missingTestPath }

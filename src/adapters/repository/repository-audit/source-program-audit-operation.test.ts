@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { syntheticTestFindingComparison } from '../../../../tests/testkit/source-program-test-finding-fixture.ts';
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext } from '../../../execution/operation/semantic.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext } from '../../../execution/operation/semantic.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel } from '../source-program-model/contract.ts';
 import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
 import { querySourceProgramModel } from '../source-program-model/typescript.ts';
@@ -966,16 +966,16 @@ function historicalTransition(facts: CompileSourceProgramAuditOperationInput): P
     facts.testValue.compilationDigest);
   const operation = compileSourceProgramAuditOperationInput(facts);
   const result = compileSourceProgramAuditOperation(operation);
-  const plan = compileSecSemanticOperationPlan({ operation: 'fixture.audit',
+  const plan = compileSemanticOperationPlan({ operation: 'fixture.audit',
     intentDigest: digest('fixture-intent'), decisionDigest: digest('fixture-decision'), deadlineAtUnixMs: 1,
     aggregateBudgets: [{ resource: 'duration-ms', maximum: 1 }, { resource: 'input-bytes', maximum: 1_000_000 },
       { resource: 'output-bytes', maximum: 1_000_000 }, { resource: 'processes', maximum: 1 }],
     requirements: [{ id: 'fixture.worker', contractDigest: digest('fixture-contract'), effectKinds: ['process'], failureKinds: ['unknown'] }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: digest('fixture-only') })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: digest('fixture-only') })
   });
-  const binding = compileSecCapabilityBinding({ requirementId: 'fixture.worker',
+  const binding = compileCapabilityBinding({ requirementId: 'fixture.worker',
     contractDigest: digest('fixture-contract'), providerIdentityDigest: digest('fixture-provider') });
-  const boundOperation = bindSecSemanticOperation(plan, [binding]);
+  const boundOperation = bindSemanticOperation(plan, [binding]);
   const request = compileRepositoryAuditWorkerRequest({
     operationIdentityDigest: plan.identity.identityDigest, boundAttemptDigest: boundOperation.boundAttemptDigest,
     generationDigest: digest('fixture-generation'),
@@ -1206,7 +1206,7 @@ test('test-obligations candidate scope preserves source facts and refuses ordina
     subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
       baseSnapshotDigest: digest('candidate-scope-fixture'), mutationDigest: sourceRevision } },
     files,
-    moduleMembership: compileSecRepositoryModuleMembershipSnapshot({
+    moduleMembership: compileRepositoryModuleMembershipSnapshot({
       repositoryFiles: files.map(({ path }) => path),
       descriptorSources: [{ descriptorPath, source: descriptorSource }]
     })

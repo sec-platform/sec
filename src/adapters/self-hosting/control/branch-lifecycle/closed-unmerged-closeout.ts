@@ -1,3 +1,4 @@
+import type { BranchCloseoutAttempt, BranchCloseoutAuthorization, BranchLifecycleInventory, BranchPublishedCloseoutReceipt, BranchPullRequestObservation, PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
 import {
   authorizeBranchCloseout,
   createBranchCloseoutReceipt
@@ -6,24 +7,14 @@ import {
   createPublishedBranchCloseoutReceipt,
   parsePublishedBranchCloseoutReceipt
 } from './branch-closeout-receipt.ts';
-import {
-  assertPreparedBranchCloseoutEnvelope,
-  type PreparedBranchCloseoutEnvelope
-} from './branch-closeout.ts';
+import { assertPreparedBranchCloseoutEnvelope } from './branch-closeout.ts';
 import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
   assertGitSha,
   branchLifecycleDigest
 } from './branch-lifecycle-audit.ts';
-import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY,
-  type BranchCloseoutAttempt,
-  type BranchCloseoutAuthorization,
-  type BranchLifecycleInventory,
-  type BranchPublishedCloseoutReceipt,
-  type BranchPullRequestObservation
-} from './branch-lifecycle-types.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from './branch-lifecycle-types.ts';
 import { verifyRecoveryAuthorityLive } from './branch-recovery.ts';
 import {
   assertClosedSupersessionEvidence,
@@ -353,6 +344,10 @@ function exactCurrentBlockers(input: {
     blockers.push('active Work Package state is not none');
   }
   if (inventory.unknowns.length > 0) blockers.push('inventory contains unresolved facts');
+  if (inventory.pullRequests.some((pull) => pull.state === 'open'
+      && ((!pull.isCrossRepository && pull.headBranch === evidence.branch) || pull.baseBranch === evidence.branch))) {
+    blockers.push('branch is still consumed by an open pull request');
+  }
   if (!pullRequest) blockers.push('exact pull request is absent');
   else {
     if (!input.allowedPrStates.includes(pullRequest.state)) {
@@ -646,7 +641,6 @@ async function observeExactInventory(
     evidence: operation.evidence, inventory: observation.value, allowedPrStates });
   if (blockers.length > 0) return blocked(operation, stage, blockers);
   const recovery = operation.prepared.preparation.recovery;
-  if (recovery.kind !== 'main-absorption') return observation.value;
   const live = verifyRecoveryAuthorityLive({ inventory: observation.value, recovery });
   return live.status === 'success'
     ? observation.value : blocked(operation, stage, [live.detail]);
@@ -714,6 +708,8 @@ function terminalConvergenceBlockers(input: Readonly<{
   }
   try {
     assertDurableRecoveryAuthority(preparation.recovery, inventory);
+    const live = verifyRecoveryAuthorityLive({ inventory, recovery: preparation.recovery });
+    if (live.status !== 'success') blockers.push(live.detail);
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
@@ -725,6 +721,10 @@ function terminalConvergenceBlockers(input: Readonly<{
   }
   if (inventory.worktrees.some(({ branch }) => branch === evidence.branch)) {
     residue.push('registered worktree still binds the terminal branch');
+  }
+  if (inventory.pullRequests.some((pull) => pull.state === 'open'
+      && ((!pull.isCrossRepository && pull.headBranch === evidence.branch) || pull.baseBranch === evidence.branch))) {
+    residue.push('open pull request still consumes the terminal branch');
   }
   return Object.freeze({
     blockers: Object.freeze([...new Set(blockers)].sort((left, right) => left.localeCompare(right))),

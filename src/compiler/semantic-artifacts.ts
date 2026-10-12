@@ -1,4 +1,5 @@
 import { deepFreeze } from '../contracts/canonical.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { Identity } from '../contracts/identity-profile.ts';
 import {
   assertStructuredIdentityRuntime,
@@ -6,7 +7,6 @@ import {
 } from '../contracts/structured-identity.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir/validated-types.ts';
 import type { SemanticGeneratorPlan, SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
-import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
 import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from './state-transition-plan.ts';
@@ -23,30 +23,30 @@ export interface SemanticLoweringInput {
 export function prepareSemanticLowering(input: SemanticLoweringInput) {
   const { inputRevision, semanticRevision, snapshot, generatorPlan } = input;
   if ([inputRevision, semanticRevision].some(value => typeof value !== 'string' || value.length === 0)) {
-    throw new CompilerError('GENERATOR-LOWER-006', 'Semantic lowering requires non-empty revision identities');
+    throw new CodedFailure('GENERATOR-LOWER-006', 'Semantic lowering requires non-empty revision identities');
   }
   const capturedIr = snapshot.ir;
   const plan = deepFreeze(structuredClone(generatorPlan));
   if (snapshot.ir !== capturedIr || plan.inputRevision !== inputRevision
       || plan.semanticRevision !== semanticRevision || capturedIr.inputRevision !== inputRevision
       || capturedIr.semanticRevision !== semanticRevision) {
-    throw new CompilerError('GENERATOR-LOWER-006', 'Generator Plan does not own the supplied IR revisions');
+    throw new CodedFailure('GENERATOR-LOWER-006', 'Generator Plan does not own the supplied IR revisions');
   }
   const index = indexValidatedEngineeringIR(snapshot);
   for (const task of plan.tasks) {
     if (task.inputRevision !== inputRevision || task.semanticRevision !== semanticRevision) {
-      throw new CompilerError('GENERATOR-LOWER-006', `Generator task "${task.id}" has stale IR revisions`);
+      throw new CodedFailure('GENERATOR-LOWER-006', `Generator task "${task.id}" has stale IR revisions`);
     }
     if (index.entityById.get(task.generatorEntityId)?.kind !== 'generator') {
-      throw new CompilerError('GENERATOR-LOWER-007', `Generator Entity "${task.generatorEntityId}" is unavailable`);
+      throw new CodedFailure('GENERATOR-LOWER-007', `Generator Entity "${task.generatorEntityId}" is unavailable`);
     }
     if (index.entityById.get(task.artifactEntityId)?.kind !== 'artifact') {
-      throw new CompilerError('GENERATOR-LOWER-008', `Artifact Entity "${task.artifactEntityId}" is unavailable`);
+      throw new CodedFailure('GENERATOR-LOWER-008', `Artifact Entity "${task.artifactEntityId}" is unavailable`);
     }
   }
   for (const task of plan.tasks) {
     if (task.kind !== 'generate-state-transition-map') {
-      throw new CompilerError('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
+      throw new CodedFailure('GENERATOR-LOWER-009', 'Unsupported Semantic Generator task kind');
     }
   }
   assertUniqueSemanticOutputPaths(plan.tasks);
@@ -61,7 +61,7 @@ export function assertSemanticLoweringCurrent(prepared: PreparedSemanticLowering
   if (prepared.snapshot.ir !== prepared.capturedIr
       || prepared.capturedIr.inputRevision !== prepared.inputRevision
       || prepared.capturedIr.semanticRevision !== prepared.semanticRevision) {
-    throw new CompilerError('GENERATOR-LOWER-006', 'Semantic lowering IR revision changed during publication');
+    throw new CodedFailure('GENERATOR-LOWER-006', 'Semantic lowering IR revision changed during publication');
   }
 }
 

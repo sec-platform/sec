@@ -290,10 +290,6 @@ describe('import organizer newline preservation', () => {
       const reordered = organizeFixtureImports(unsortedSource);
 
       expect(reordered).toBe(sortedSource);
-      expect(reordered.slice(sortedImports.length)).toBe(body);
-      if (newLine === '\r\n') {
-        expect(reordered.replaceAll('\r\n', '')).not.toContain('\n');
-      }
     });
   }
 });

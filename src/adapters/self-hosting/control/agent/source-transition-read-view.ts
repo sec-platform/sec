@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 import { rawSha256 } from '../../../../contracts/canonical.ts';
-import { parseSecOperationReadPlan, type SecOperationReadPlan } from './read-plan.ts';
+import { parseOperationReadPlan, type OperationReadPlan } from './read-plan.ts';
 
 const applicationPath = 'src/application/source-program-transition.ts';
 const assemblyPath = 'src/bootstrap/engineering/source-program-transition-runtime.ts';
@@ -14,9 +14,9 @@ const budgetPath = 'src/adapters/repository/repository-audit/cli-contract.ts';
  * candidate code, construct a Program, issue a design binding or restore a result. */
 export async function observeSourceTransitionReadView(
   root: string,
-  suppliedPlan?: SecOperationReadPlan
+  suppliedPlan?: OperationReadPlan
 ): Promise<unknown> {
-  const plan = suppliedPlan === undefined ? null : parseSecOperationReadPlan(suppliedPlan);
+  const plan = suppliedPlan === undefined ? null : parseOperationReadPlan(suppliedPlan);
   const observed = await Promise.all([applicationPath, assemblyPath, testPath, descriptorPath, budgetPath].map(async ref => {
     const bytes = await readFile(path.resolve(root, ref));
     if (bytes.byteLength > 131_072) throw new Error(`Source transition read view input exceeds bound: ${ref}`);

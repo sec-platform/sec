@@ -43,7 +43,6 @@
 
 # === Lockfiles (canonical LF) ===
 *.lock      text eol=lf
-/bun.lock   text eol=lf
 
 # === Binary / archive / image / font / database (non-text) ===
 *.png       -text

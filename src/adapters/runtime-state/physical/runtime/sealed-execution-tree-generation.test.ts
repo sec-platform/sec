@@ -28,7 +28,6 @@ import {
   type RetainedSealedPhysicalExecutionTreeGeneration
 } from './sealed-execution-tree-generation.ts';
 import {
-  assertRetainedTypeScriptExecutionGeneration,
   materializeRetainedTypeScriptExecutionGeneration,
   RetainedTypeScriptExecutionGenerationResidueError
 } from './typescript-execution-generation.ts';
@@ -590,10 +589,6 @@ test('TypeScript compatibility wrapper retires its borrowed dependency after tre
       ],
       generationParent: fixture.generationParent
     });
-    assertRetainedTypeScriptExecutionGeneration(generation);
-    expect(() => assertRetainedTypeScriptExecutionGeneration({
-      ...generation
-    } as never)).toThrow('was not issued by Runtime Physical');
     expect(generation.dependencyDirectory).toBe(fixture.dependency);
     const sourcePath = path.join(generation.workingDirectory.root.path, 'src', 'exact.ts');
     expect(await readFile(sourcePath, 'utf8')).toBe('export const exact = true;\n');

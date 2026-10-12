@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { observeOptionalDiagnostic } from '../../../../execution/optional-diagnostic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import {
@@ -13,6 +13,7 @@ import {
   armRepositoryChangeObserver,
   disposePreparedRepositoryChangeObserver,
   prepareRepositoryChangeObserver,
+  repositoryInputZeroWritesProven,
   settlePreparedRepositoryChangeObserver,
   settleRepositoryChangeObserver,
   type PreparedRepositoryChangeObserver,
@@ -33,7 +34,7 @@ export type RepositoryMutationFenceExecutionContext = Readonly<{
 }>;
 
 export interface RepositoryMutationFenceOptions {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly repositoryRoot?: string;
   readonly report?: (message: string) => void;
   /** Narrows the native observer window when an outer owner has one. */
@@ -48,7 +49,7 @@ export interface RepositoryMutationFenceOptions {
 
 export type RepositoryObserverFailureDiagnostic = Readonly<{
   schema: 'sec-repository-observer-failure-diagnostic-v1';
-  status: Exclude<RepositoryChangeObserverSettlement['status'], 'zero-events'>;
+  status: Exclude<RepositoryChangeObserverSettlement['status'], 'zero-events' | 'immutable-input'>;
   rootIdentityDigest: `sha256:${string}`;
   eventCount?: number;
   observationDigest?: `sha256:${string}`;
@@ -62,7 +63,7 @@ export type RepositoryObserverFailureDiagnostic = Readonly<{
 
 /** Bounded diagnostic projection only; it cannot authorize or excuse a write. */
 export function projectRepositoryObserverFailureDiagnostic(
-  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'zero-events' }>,
+  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'zero-events' | 'immutable-input' }>,
   roots: readonly string[]
 ): RepositoryObserverFailureDiagnostic {
   if (settlement.status !== 'events') {
@@ -100,7 +101,7 @@ const PROCESS_RESOURCE_CEILINGS = new Set([
 ]);
 
 function openRepositoryProcessResourceSession(
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): ProcessResourceSession {
   const processRequirements = operation.plan.execution.requirements.filter(({ effectKinds }) => (
     effectKinds.includes('process')
@@ -111,7 +112,7 @@ function openRepositoryProcessResourceSession(
   const requirement = processRequirements[0]!;
   return openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: requirement.id,
       resourceCeilings: operation.plan.execution.aggregateBudgets.filter(({ resource }) => (
@@ -123,7 +124,7 @@ function openRepositoryProcessResourceSession(
 
 function closeRepositoryProcessResourceSession(
   processSession: ProcessResourceSession,
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): void {
   const receipt = processSession.close();
   assertProcessResourceSessionReceipt(receipt, {
@@ -281,7 +282,7 @@ export async function runRepositoryZeroWriteOperation(
       batchObserverResolution = await armPreparedRepositoryChangeObserver({
         prepared: preparedObserver!,
         operation: batchOperation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation: batchOperation,
           requirementId: preparedObserver!.providerBinding.requirementId,
           resourceCeilings: [{ resource: 'duration-ms', maximum: remainingDurationMs }],
@@ -350,7 +351,7 @@ export async function runRepositoryZeroWriteOperation(
         }
         // A failed command does not erase a second loss-of-observation result.
         // Keep the native settlement as cause; display text is not the evidence.
-        if (primary !== undefined && settlement.status !== 'zero-events') {
+        if (primary !== undefined && !repositoryInputZeroWritesProven(settlement)) {
           throw new RepositoryObservationError('physical-unresolved',
             'Repository change observation did not establish zero writes', settlement);
         }
@@ -360,7 +361,7 @@ export async function runRepositoryZeroWriteOperation(
       } }])
     ]
   });
-  if (settlement!.status !== 'zero-events') {
+  if (!repositoryInputZeroWritesProven(settlement!)) {
     const diagnostic = projectRepositoryObserverFailureDiagnostic(settlement!, roots);
     observeOptionalDiagnostic(() => report(
       `${commandId} mutated or lost continuous observation of repository state; `

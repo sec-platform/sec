@@ -9,12 +9,13 @@ Use --diagrams source for an explicitly labelled text-only reading edition.
 from __future__ import annotations
 import argparse, base64, collections, hashlib, html, importlib.metadata, json, os
 from pathlib import Path
-import re, sys, tempfile, time, multiprocessing, signal, subprocess, zlib
+import re, sys, tempfile, multiprocessing, signal, subprocess, zlib
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote, quote
 sys.dont_write_bytecode = True
 import check_docs
-from source_inventory import documentation_files, source_identity_from_capture, EXCLUDED_FROM_SOURCE_HASH
+from source_inventory import (documentation_files, source_identity_from_capture,
+    EXCLUDED_FROM_SOURCE_HASH, baseline, local_path, read_ordinary, MAX_MEMBERS)
 
 TEXT_SUFFIXES = {'.md','.json','.gift','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff'}
 TEXT_BASENAMES = {'LICENSE','NOTICE'}
@@ -156,7 +157,10 @@ class RawMarkup(HTMLParser):
         out=[]
         for k,v in attrs:
             if k=='id':out.append('id="'+esc(fragment_id(self.name,html.unescape(v or '')))+'"')
-            elif tag=='a' and k=='href':out.append('href="'+esc(self.book.href(self.name,html.unescape(v or '')))+'"')
+            elif tag=='a' and k=='href':
+                url=html.unescape(v or '');missing=self.book.missing_reference(self.name,url)
+                if missing:out.append('title="本包未携带仓库引用：'+esc(missing)+'"')
+                else:out.append('href="'+esc(self.book.href(self.name,url))+'"')
             elif k=='title':out.append('title="'+esc(v or '')+'"')
             elif k=='open' and tag=='details':out.append('open')
             elif k in ('colspan','rowspan') and tag in ('td','th') and v and v.isdigit() and 0<int(v)<1000:out.append(k+'="'+v+'"')
@@ -164,6 +168,9 @@ class RawMarkup(HTMLParser):
             else:
                 if k not in ('class',):self.book.markup_warnings.add((self.name,tag+'@'+k))
         self.out.append('<'+tag+(' '+' '.join(out) if out else '')+'>')
+        if tag=='a' and a.get('href') is not None:
+            missing=self.book.missing_reference(self.name,html.unescape(a['href']))
+            if missing:self.out.append('<span class="notice">本包未携带仓库引用：'+esc(missing)+'；目标内容未知。</span>')
     def handle_endtag(self,tag):self.out.append('</'+tag+'>' if tag in self.TAGS else esc('</'+tag+'>'))
     def handle_startendtag(self,tag,attrs):
         self.handle_starttag(tag,attrs)
@@ -174,6 +181,17 @@ class RawMarkup(HTMLParser):
     def handle_comment(self,data):pass  # Exact original remains in the source attachment.
 
 
+def check_svg_elements(root, element_error):
+    for e in root.iter():
+        tag=e.tag.split('}')[-1].lower()
+        if tag in {'script','iframe','object','embed','image','a','use','animate','set'}:raise BuildError(element_error+tag)
+        for k,v in e.attrib.items():
+            k=k.split('}')[-1].lower()
+            if k.startswith('on') or (k in ('href','src') and not v.startswith('#')):raise BuildError('Active SVG attribute: '+k)
+            if k=='style' and (re.search(r'url\(\s*["\x27]?(?!#)',v,re.I) or '@import'in v):raise BuildError('External SVG style')
+        if tag=='style' and ('@import'in(e.text or '') or re.search(r'url\(\s*["\x27]?(?:https?:|data:|//)',e.text or '',re.I)):
+            raise BuildError('External SVG stylesheet')
+
 def checked_svg(data: bytes, name: str) -> bytes:
     """Safe image payload only. A digest is not permission to run SVG scripts."""
     from xml.etree import ElementTree as ET
@@ -181,15 +199,7 @@ def checked_svg(data: bytes, name: str) -> bytes:
     try: r=ET.fromstring(data)
     except ET.ParseError as e: raise BuildError('Invalid SVG: '+name) from e
     if r.tag.split('}')[-1]!='svg': raise BuildError('Non-SVG cache value: '+name)
-    for e in r.iter():
-        tag=e.tag.split('}')[-1].lower()
-        if tag in {'script','iframe','object','embed','image','a','use','animate','set'}:raise BuildError('Active SVG element: '+tag)
-        for k,v in e.attrib.items():
-            k=k.split('}')[-1].lower()
-            if k.startswith('on') or (k in ('href','src') and not v.startswith('#')):raise BuildError('Active SVG attribute: '+k)
-            if k=='style' and (re.search(r'url\(\s*["\x27]?(?!#)',v,re.I) or '@import'in v):raise BuildError('External SVG style')
-        if tag=='style' and ('@import'in(e.text or '') or re.search(r'url\(\s*["\x27]?(?:https?:|data:|//)',e.text or '',re.I)):
-            raise BuildError('External SVG stylesheet')
+    check_svg_elements(r, 'Active SVG element: ')
     return data
 
 def read_diagram_cache(root: Path, captured, args, book):
@@ -229,13 +239,13 @@ def read_diagram_cache(root: Path, captured, args, book):
 
 class MermaidRenderer:
     def __init__(self,args):
-        self.args=args;self.pw=None;self.browser=None;self.page=None;self.blocked=[];self.info={};self.loaded=False
+        self.args=args;self.pw=None;self.browser=None;self.page=None;self.blocked=[];self.info={}
     def __enter__(self):
         from playwright.sync_api import sync_playwright
         engine=Path(self.args.mermaid_js).expanduser().resolve()
         if not engine.is_file():raise BuildError('Mermaid script missing. Supply --mermaid-js; no automatic download.')
         if engine.stat().st_size>30_000_000:raise BuildError('Mermaid script exceeds renderer budget')
-        data=engine.read_bytes();self.engine=data
+        data=engine.read_bytes()
         self.pw=sync_playwright().start()
         try:
             kw={'headless':True,'chromium_sandbox':not self.args.allow_no_sandbox}
@@ -250,7 +260,7 @@ class MermaidRenderer:
             if not self.page.evaluate("!!window.mermaid && typeof mermaid.render==='function' && typeof mermaid.initialize==='function'"):
                 raise BuildError('Supply a standalone Mermaid UMD/IIFE script exposing window.mermaid, not an ESM entry')
             self.info={'engine_sha256':sha(data),'browser':self.browser.version,'playwright':importlib.metadata.version('playwright'),'font_family':self.args.font_family,'browser_sandbox':not self.args.allow_no_sandbox,'engine_label':self.args.engine_label}
-            self.loaded=True;return self
+            return self
         except Exception:
             self.__exit__(None,None,None);raise
     def __exit__(self,*unused):
@@ -269,16 +279,7 @@ class MermaidRenderer:
         try:r=ET.fromstring(value)
         except ET.ParseError as e:raise BuildError('Invalid SVG: '+ident) from e
         if r.tag.split('}')[-1]!='svg':raise BuildError('Renderer returned non-SVG')
-        for e in r.iter():
-            tag=e.tag.split('}')[-1].lower()
-            if tag in {'script','iframe','object','embed','image','a','use','animate','set'}:raise BuildError('Active/external SVG element: '+tag)
-            for k,v in e.attrib.items():
-                k=k.split('}')[-1].lower()
-                if k.startswith('on') or (k in ('href','src') and not v.startswith('#')):raise BuildError('Active SVG attribute: '+k)
-                if k=='style' and (re.search(r'url\(\s*[\"\x27]?(?!#)',v,re.I) or '@import'in v):raise BuildError('External SVG style')
-            if tag=='style':
-                text=e.text or ''
-                if '@import'in text or re.search(r'url\(\s*[\"\x27]?(?:https?:|data:|//)',text,re.I):raise BuildError('External SVG stylesheet')
+        check_svg_elements(r, 'Active/external SVG element: ')
         if self.blocked:raise BuildError('Renderer attempted network access: '+repr(self.blocked[:3]))
         return value.encode('utf-8')
 
@@ -385,33 +386,69 @@ class IsolatedRenderer:
 class Book:
     def __init__(self,root,captured,args):
         from markdown_it import MarkdownIt
-        self.root=root;self.data=captured;self.args=args;self.anchors={};self.tokens={};self.diagrams=[];self.svg={};self.links=0;self.markup_warnings=set();self.images=0
+        self.root=root;self.source_data=dict(captured);self.data=dict(captured);self.args=args;self.anchors={};self.tokens={};self.diagrams=[];self.svg={};self.links=0;self.markup_warnings=set();self.images=0
+        boundary=baseline(root)
+        self.source_roots=boundary['source_roots']+boundary['audited_namespaces'];self.attachments={};self.unavailable=set();self.tracked=None
+        self.reading_bytes=sum(map(len,self.data.values()))
         self.md=MarkdownIt('commonmark',{'html':True}).enable('table').enable('strikethrough')
-        for name,data in captured.items():
+        pending=list(captured)
+        while pending:
+            name=pending.pop();data=self.data[name]
             if name.endswith('.md'):
-                text=data.decode('utf-8');lines=text.splitlines();self.anchors[name]=check_docs.anchor_locations(text)
+                text=data.decode('utf-8');tokens=self.md.parse(text);self.tokens[name]=tokens
+                headings=[(t.map[0]+1,tokens[i+1].content) for i,t in enumerate(tokens) if t.type=='heading_open']
+                heading_anchors=check_docs.heading_anchor_locations(headings)
+                heading_fragments={locations[0]:fragment for fragment,locations in heading_anchors.items() if len(locations)==1}
+                self.anchors[name]=check_docs.anchor_locations(text,headings=headings)
                 dup=[k for k,v in self.anchors[name].items() if len(v)!=1]
                 if dup:raise BuildError('Ambiguous source anchors: '+name+' '+repr(dup))
-                tokens=self.md.parse(text);self.tokens[name]=tokens
-                counts=collections.Counter()
                 for t in tokens:
                     if t.type=='heading_open':
                         line=t.map[0]+1
-                        title=re.sub(r'^ {0,3}#{1,6}[ \t]+','',lines[line-1]);title=re.sub(r'[ \t]+#+[ \t]*$','',title).strip()
-                        slug=re.sub(r'\s','-',re.sub(r'[^\w\s-]','',check_docs.plain_heading(title).lower()))
-                        n=counts[slug];counts[slug]+=1;frag=slug+(f'-{n}'if n else '')
-                        if self.anchors[name].get(frag)!=[line]:raise BuildError('Anchor rule disagreement: '+name+':'+str(line))
+                        if line not in heading_fragments:raise BuildError('Anchor rule disagreement: '+name+':'+str(line))
+                        frag=heading_fragments[line]
                         t.attrSet('id',fragment_id(name,frag))
                     if t.type=='fence' and t.info.strip().split()[0:1]==['mermaid']:
                         did='fig-'+sha((name+'\0'+str(t.map[0])).encode())[:20]
                         record={'id':did,'path':name,'line':t.map[0]+1,'source':t.content,'sha256':sha(t.content.encode())}
                         t.meta['diagram']=record;self.diagrams.append(record)
                         if len(t.content)>100000 or re.search(r'(?m)^\s*(?:%%\{\s*(?:init|config)|click\b|---\s*$)',t.content):raise BuildError('Diagram-local configuration/callback or budget outside safe profile: '+name)
+                for url in self.local_links(tokens):
+                    parts=urlsplit(url)
+                    if parts.scheme or parts.netloc:continue
+                    target,fragment=self.local_reference(name,url)
+                    if target in self.data:continue
+                    if self.in_source(target):raise BuildError('Missing local target: '+name+' -> '+url)
+                    path=local_path(root,target)
+                    if getattr(args,'sealed',False):
+                        candidate=target.rstrip('/')+'/README.md'
+                        if path.is_dir() and local_path(root,candidate).is_file():target=candidate;path=local_path(root,target)
+                        if not path.exists():self.unavailable.add((name,target,fragment));continue
+                    else:
+                        if self.tracked is None:self.tracked=self.repository_members()
+                        if target not in self.tracked and target.rstrip('/')+'/README.md' in self.tracked:target=target.rstrip('/')+'/README.md'
+                        if target not in self.tracked:raise BuildError('Repository reference is not tracked: '+target)
+                    payload=read_ordinary(root,target)
+                    if len(payload)>args.max_file_bytes or self.reading_bytes+len(payload)>args.max_total_bytes or len(self.data)>=MAX_MEMBERS:
+                        raise BuildError('Reading attachment budget exceeded: '+target)
+                    if Path(target).suffix.lower() in TEXT_SUFFIXES or Path(target).name in TEXT_BASENAMES:
+                        try:payload.decode('utf-8')
+                        except UnicodeDecodeError as error:raise BuildError('Expected UTF-8 attachment: '+target) from error
+                    self.data[target]=payload;self.attachments[target]=payload;pending.append(target);self.reading_bytes+=len(payload)
         def link_open(tokens,i,options,env):
-            t=tokens[i]; t.attrSet('href',self.href(env['path'],t.attrGet('href') or ''))
-            return self.md.renderer.renderToken(tokens,i,options,env)
+            t=tokens[i];url=t.attrGet('href') or '';missing=self.missing_reference(env['path'],url)
+            original=dict(t.attrs)
+            try:
+                if missing:
+                    t.attrs.pop('href',None)
+                    return self.md.renderer.renderToken(tokens,i,options,env)+'<span class="notice">本包未携带仓库引用：'+esc(missing)+'；目标内容未知。</span>'
+                t.attrSet('href',self.href(env['path'],url))
+                return self.md.renderer.renderToken(tokens,i,options,env)
+            finally:t.attrs=original
         def image(tokens,i,options,env):
-            t=tokens[i];url=t.attrGet('src') or '';name=self.resolve(env['path'],url)[0]
+            t=tokens[i];url=t.attrGet('src') or '';missing=self.missing_reference(env['path'],url)
+            if missing:return '<span class="notice">本包未携带仓库图片：'+esc(missing)+'；目标内容未知。</span>'
+            name=self.resolve(env['path'],url)[0]
             if name not in self.data or Path(name).suffix.lower() not in BINARY_SUFFIXES:raise BuildError('Missing/nonlocal image: '+env['path']+' -> '+url)
             mime=self.mime(name);self.images+=1
             # SVG authorship is distinct; raw SVG is not trusted as active DOM.
@@ -447,6 +484,11 @@ class Book:
             for k,v in n.attrib.items():
                 if k.lower().startswith('on') or k.split('}')[-1] in ('href','src') and not v.startswith('#'):raise BuildError('External source SVG: '+name)
     def resolve(self,current,url):
+        name,frag=self.local_reference(current,url)
+        if name not in self.data:raise BuildError('Missing local target: '+current+' -> '+url)
+        if frag and (name not in self.anchors or frag not in self.anchors[name]):raise BuildError('Missing local fragment: '+current+' -> '+url)
+        return name,frag
+    def local_reference(self,current,url):
         parts=urlsplit(url)
         if parts.scheme or parts.netloc:raise BuildError('Expected local reference: '+url)
         if parts.query:raise BuildError('Local reference queries need a defined consumer: '+url)
@@ -463,9 +505,36 @@ class Book:
                 else:stack.append(part)
             name='/'.join(stack)
             if name not in self.data and name.rstrip('/')+'/README.md'in self.data:name=name.rstrip('/')+'/README.md'
-        if name not in self.data:raise BuildError('Missing local target: '+current+' -> '+url)
-        if frag and (name not in self.anchors or frag not in self.anchors[name]):raise BuildError('Missing local fragment: '+current+' -> '+url)
         return name,frag
+    def in_source(self,name):
+        return any(name==root or name.startswith(root+'/') for root in self.source_roots)
+    @staticmethod
+    def local_links(tokens):
+        class Links(HTMLParser):
+            def __init__(self):super().__init__();self.urls=[]
+            def handle_starttag(self,tag,attrs):
+                if tag=='a' and dict(attrs).get('href') is not None:self.urls.append(dict(attrs)['href'])
+        for token in tokens:
+            if token.type in ('link_open','image'):yield token.attrGet('href' if token.type=='link_open' else 'src') or ''
+            if token.type in ('html_inline','html_block'):
+                parser=Links();parser.feed(token.content);parser.close();yield from parser.urls
+            if token.children:yield from Book.local_links(token.children)
+    def repository_members(self):
+        try:
+            result=subprocess.run(['git','-C',str(self.root),'rev-parse','--show-toplevel'],capture_output=True,check=True)
+            if Path(os.fsdecode(result.stdout).strip()).resolve()!=self.root.resolve():raise BuildError('Reading repository must be the source root')
+            return set(os.fsdecode(subprocess.check_output(['git','-C',str(self.root),'ls-files','-z'],stderr=subprocess.PIPE)).split('\0'))-{''}
+        except (OSError,subprocess.SubprocessError) as error:
+            raise BuildError('Repository references require the local Git tracking owner; use sealed mode for an independent package') from error
+    def unchanged(self):
+        unchanged(self.root,self.source_data,self.args)
+        if self.attachments and not getattr(self.args,'sealed',False):
+            tracked=self.repository_members()
+            if not set(self.attachments)<=tracked:raise BuildError('Reading attachment tracking changed')
+        for name,data in self.attachments.items():
+            if read_ordinary(self.root,name)!=data:raise BuildError('Reading attachment changed: '+name)
+        for _,name,_ in self.unavailable:
+            if local_path(self.root,name).exists():raise BuildError('Unavailable reading reference changed: '+name)
     def href(self,current,url):
         self.links+=1;p=urlsplit(url)
         if p.scheme.lower() in ('http','https','mailto'):
@@ -474,10 +543,20 @@ class Book:
         if p.scheme or p.netloc:raise BuildError('Unsupported/active URI: '+url)
         name,frag=self.resolve(current,url)
         return '#'+(fragment_id(name,frag)if frag else opaque(name))
+    def missing_reference(self,current,url):
+        parts=urlsplit(url)
+        if parts.scheme or parts.netloc:return None
+        target,fragment=self.local_reference(current,url)
+        return target+('#'+fragment if fragment else '') if (current,target,fragment) in self.unavailable else None
     def build(self,renderer_info):
-        entries=[{'path':n,'bytes':len(b),'sha256':sha(b)} for n,b in sorted(self.data.items())];digest=source_identity_from_capture(self.data)
+        self.links=0;self.images=0;self.markup_warnings.clear()
+        entries=[{'path':n,'bytes':len(b),'sha256':sha(b)} for n,b in sorted(self.data.items())];digest=source_identity_from_capture(self.source_data)
         meta={'schema':VERSION,'source_set_sha256':digest,'source_mode':'sealed'if self.args.sealed else 'working-tree-capture','source_consistency':'captured byte vector; same membership and bytes rechecked before publish, not a filesystem-wide atomic snapshot','builder_sha256':sha(Path(__file__).read_bytes()),'markdown_it_py':importlib.metadata.version('markdown-it-py'),'renderer':renderer_info,'input_set_sha256':sha(canon(entries)),'input_files':entries,'source_files':[e for e in entries if e['path'] not in EXCLUDED_FROM_SOURCE_HASH],'markdown_count':len(self.tokens),'diagram_mode':self.args.diagrams,'diagrams':[ {k:v for k,v in x.items()if k!='source'} for x in self.diagrams]}
         def sortkey(name):return (0 if name=='README.md' else 1 if name.startswith('docs/') else 2 if name.startswith('examples/') else 3 if name.startswith('alternatives/') else 4,name)
+        meta['source_files']=[entry for entry in entries if entry['path'] in self.source_data and entry['path'] not in EXCLUDED_FROM_SOURCE_HASH]
+        meta['reading_attachments']=[entry for entry in entries if entry['path'] in self.attachments]
+        meta['reading_attachments_sha256']=sha(canon(meta['reading_attachments']))
+        meta['unavailable_repository_references']=[{'from':current,'path':name,'fragment':fragment,'status':'not-carried; target content unknown'} for current,name,fragment in sorted(self.unavailable)]
         names=sorted(self.data,key=sortkey);nav=[];articles=[]
         for name in names:
             data=self.data[name];sid=opaque(name)
@@ -512,7 +591,7 @@ class Book:
             csp="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-"+b64(hashlib.sha256(script.encode()).digest())+"'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'none'"
         if re.search(r'</script',script,re.I):raise BuildError('Unsafe script serialization')
 
-        meta['captured_files_sha256']=sha(canon(entries))
+        meta['captured_files_sha256']=meta['input_set_sha256']
         meta['input_set_sha256']=sha(canon({'files':entries,'recipe':{
             'builder_sha256':meta['builder_sha256'],'markdown_it_py':meta['markdown_it_py'],
             'diagram_mode':self.args.diagrams,'renderer':renderer_info,
@@ -581,13 +660,13 @@ def main(argv=None):
                 except BuildError as e:raise BuildError(job['path']+':'+str(job['line'])+' — '+str(e)) from e
             renderer_info=engine.info
     content,meta=book.build(renderer_info)
-    unchanged(root,captured,args)
+    book.unchanged()
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
         check_docs.verify(root, sealed=True)
     out.parent.mkdir(parents=True,exist_ok=True)
-    publish_output(out,content,before,lambda:unchanged(root,captured,args))
-    print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(captured),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else 0,'rendered_this_build':len(book.svg) if args.diagrams=='required' else 0,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
+    publish_output(out,content,before,book.unchanged)
+    print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(book.data),'reading_attachments':len(book.attachments),'unavailable_repository_references':len(book.unavailable),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else 0,'rendered_this_build':len(book.svg) if args.diagrams=='required' else 0,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
     return 0
 
 if __name__=='__main__':

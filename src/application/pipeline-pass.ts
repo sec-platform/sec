@@ -1,17 +1,17 @@
 import { PASS_INITIAL_STATES, type PassId } from '../compiler/contract/pass-status.ts';
-import { CompilerError } from '../compiler/errors.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import { describePipelineFailure } from './pipeline-failure.ts';
 
 const issuedPassFailures = new WeakSet<object>();
 
-export class PipelinePassFailure extends CompilerError {
+export class PipelinePassFailure extends CodedFailure {
   readonly originPass: PassId;
 
   constructor(originPass: PassId, error: unknown) {
     const failure = describePipelineFailure(error);
     let details = {};
     try {
-      if (error instanceof CompilerError) details = error.details ?? {};
+      if (error instanceof CodedFailure) details = error.details ?? {};
     } catch {
       // Keep the original cause when its diagnostic details are unreadable.
     }
@@ -38,7 +38,7 @@ export async function runPipelinePass<T>(
   execute: () => T | Promise<T>
 ): Promise<T> {
   if (!Object.hasOwn(PASS_INITIAL_STATES, originPass)) {
-    throw new CompilerError('PIPELINE-USAGE-001', 'Unknown pipeline pass');
+    throw new CodedFailure('PIPELINE-USAGE-001', 'Unknown pipeline pass');
   }
   try {
     return await execute();

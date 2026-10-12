@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync } from 'node:fs';
+import { closeSync, fstatSync } from 'node:fs';
 import path from 'node:path';
 
 import { assertSameNoFollowDirectoryIdentity } from './physical-directory-chain.ts';
@@ -119,8 +119,26 @@ export function inspectNoFollowDirectoryLeaf(
 export function createExclusiveNoFollowDirectory(
   parentInput: PhysicalDirectoryIdentity,
   name: string,
-  testOnlyRaceActor?: LinuxNoFollowDirectoryCreateRaceActor
+  testOnlyRaceActor?: LinuxNoFollowDirectoryCreateRaceActor,
+  creationMode = 0o700
 ): PhysicalDirectoryIdentity {
+  // POSIX mode applies only to a newly created directory; the kernel retains
+  // its umask/default-ACL inheritance. Windows keeps its inherited ACL;
+  // this parameter never changes an existing object's permissions.
+  return createExclusiveNoFollowDirectoryWithReceipt(parentInput, name, testOnlyRaceActor, creationMode).directory;
+}
+
+/** Native birth observation before the creation handle is released. Consumers
+ * that retain publication intent must not infer this mode from a later scan. */
+export function createExclusiveNoFollowDirectoryWithReceipt(
+  parentInput: PhysicalDirectoryIdentity,
+  name: string,
+  testOnlyRaceActor?: LinuxNoFollowDirectoryCreateRaceActor,
+  creationMode = 0o700
+): Readonly<{ directory: PhysicalDirectoryIdentity; permissionMode: number | null }> {
+  if (!Number.isSafeInteger(creationMode) || creationMode < 0 || creationMode > 0o777) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Exclusive no-follow directory creation mode is invalid.');
+  }
   // Random operation-owned names use the ordinary namespace's dot-bearing
   // prefixes (for example `c.staging-*`).  Keep one component validator for
   // both callers so the exclusive effect does not accidentally reject a
@@ -147,12 +165,12 @@ export function createExclusiveNoFollowDirectory(
         name,
         absolutePath,
         allowExisting: false,
-        creationMode: 0o700,
+        creationMode,
         label: 'Exclusive no-follow directory',
         testOnlyRaceActor
       });
       childFd = opened.fd;
-      return opened.identity;
+      return Object.freeze({ directory: opened.identity, permissionMode: Number(fstatSync(childFd, { bigint: true }).mode & 0o7777n) });
     } finally {
       if (childFd !== null) closeSync(childFd);
       linuxCloseDirectoryCreateTransaction(transaction);
@@ -181,7 +199,7 @@ export function createExclusiveNoFollowDirectory(
       }
       const child = windowsIdentity(childHandle, absolutePath, 'Exclusive no-follow directory');
       windowsFlushRetainedDirectory(parentHandle, parent, 'Exclusive no-follow directory parent');
-      return child;
+      return Object.freeze({ directory: child, permissionMode: null });
     } finally {
       if (childHandle !== null) closeWindowsHandle(childHandle);
       closeWindowsHandle(parentHandle);

@@ -7,11 +7,11 @@ import { expect, test } from 'bun:test';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import {
   inspectNoFollowDirectoryChain,
@@ -31,13 +31,13 @@ import { assertLinuxDockerEndpoint, openLinuxDockerEndpoint, type LinuxDockerEnd
 import { assertLinuxDockerRuntimeState, openLinuxDockerRuntimeState } from './linux-runtime-state.ts';
 
 const linuxTest = test.skipIf(process.platform !== 'linux');
-const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 const endpointHost = 'unix:///run/docker.sock';
 const requirementId = 'fixture.container-engine';
 
-function operation(providerIdentityDigest: SecOperationDigest, deadlineAtUnixMs = Date.now() + 60_000) {
+function operation(providerIdentityDigest: OperationDigest, deadlineAtUnixMs = Date.now() + 60_000) {
   const contractDigest = digest('Linux Docker fixture contract');
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'external.container-engine.linux-fixture',
     intentDigest: digest('Linux Docker fixture intent'),
     decisionDigest: digest('Linux Docker fixture decision'),
@@ -53,9 +53,9 @@ function operation(providerIdentityDigest: SecOperationDigest, deadlineAtUnixMs 
       effectKinds: ['filesystem', 'process', 'provider'],
       failureKinds: ['container-engine.endpoint-unavailable', 'container-engine.process-settlement-failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId, contractDigest, providerIdentityDigest
   })]);
 }

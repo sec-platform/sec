@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
@@ -96,15 +96,15 @@ function contract(): LoadedSemanticContract {
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): void {
+function expectCodedFailure(run: () => unknown, code: string): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test('literal #step in legal namespace, scenario and step components survives build and cached validation', () => {
@@ -245,7 +245,7 @@ test('distinct semantic contracts cannot implicitly merge through a shared names
     scenarios: []
   };
 
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR({ ...baseInput(), semanticContracts: [first, second] }),
     'SEMANTIC-LINK-001'
   );
@@ -268,7 +268,7 @@ test('semantic contract scenario cannot reference undeclared acceptance', () => 
   const semanticContract = contract();
   semanticContract.contract.scenarios[0]!.acceptance = ['missing_acceptance'];
 
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR({ ...input, semanticContracts: [semanticContract] }),
     'IR-FACT-003'
   );

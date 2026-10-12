@@ -1,5 +1,5 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 import {
   inspectNoFollowOrdinaryFileEntry
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -21,11 +21,11 @@ const LOGIN_START_OBSERVATION_PROVIDER_IDENTITY_DIGEST = sha256({
   domain: 'sec.docker.desktop-login-start.observation-provider',
   source: DOCKER_DESKTOP_LOGIN_START_OBSERVATION_SOURCE,
   schemaSupport: 'unsupported'
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 export type DockerDesktopLoginStartObservationEvidence = Readonly<{
-  providerVersionDigest: SecOperationDigest;
-  physicalObservationReceiptDigest: SecOperationDigest;
+  providerVersionDigest: OperationDigest;
+  physicalObservationReceiptDigest: OperationDigest;
 }>;
 
 function unavailable(
@@ -46,7 +46,7 @@ function unavailable(
       detail: detail instanceof Error
         ? { name: detail.name, message: detail.message }
         : String(detail)
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
 }
 
@@ -100,7 +100,7 @@ export function projectDockerDesktopLoginStartSettingsStore(
     semanticValueDigest: sha256({
       domain: 'sec.docker.desktop-login-start.semantic-value',
       value: semanticValue
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
 }
 
@@ -131,7 +131,7 @@ export async function observeWindowsDockerDesktopLoginStart(): Promise<DockerDes
       result = unavailable('settings-store-unavailable', 'Settings store is absent.');
     } else {
       result = projectDockerDesktopLoginStartSettingsStore(entry.bytes, {
-        providerVersionDigest: DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST as SecOperationDigest,
+        providerVersionDigest: DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST as OperationDigest,
         physicalObservationReceiptDigest: sha256({
           domain: 'sec.docker.desktop-login-start.physical-observation',
           directory: settingsDirectory.directory,
@@ -140,7 +140,7 @@ export async function observeWindowsDockerDesktopLoginStart(): Promise<DockerDes
             inode: entry.inode,
             size: entry.size
           }
-        }) as SecOperationDigest
+        }) as OperationDigest
       });
     }
   } catch (error) {

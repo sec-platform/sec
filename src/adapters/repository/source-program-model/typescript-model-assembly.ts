@@ -1,10 +1,12 @@
 import type {
-  TypeScriptSourceProgramFactShard
-} from './typescript-fact-shards.ts';
+  RepositoryModuleMembership
+} from '../architecture/contract.ts';
+import type {
+  SourceProgramCompilationOperation
+} from './compilation-operation.ts';
 import {
-  assembleTypeScriptSourceProgramModel,
-  compileTypeScriptSourceProgramFactShard
-} from './typescript-fact-shards.ts';
+  sourceProgramCompilationCheckpoint
+} from './compilation-operation.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramCompilation,
@@ -19,14 +21,12 @@ import type {
   SourceProgramUnknown
 } from './contract.ts';
 import type {
-  SecRepositoryModuleMembership
-} from '../architecture/contract.ts';
-import type {
-  SourceProgramCompilationOperation
-} from './compilation-operation.ts';
+  TypeScriptSourceProgramFactShard
+} from './typescript-fact-shards.ts';
 import {
-  sourceProgramCompilationCheckpoint
-} from './compilation-operation.ts';
+  assembleTypeScriptSourceProgramModel,
+  compileTypeScriptSourceProgramFactShard
+} from './typescript-fact-shards.ts';
 import type {
   TypeScriptSourceProgramFileIdentity
 } from './typescript-input.ts';
@@ -73,7 +73,7 @@ export function canonicalTypeScriptModel(input: Readonly<{
     string,
     TypeScriptSourceProgramFactShard['semanticDependencyScope']
   >;
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   files: readonly SourceProgramFile[];
   declarations: readonly SourceProgramDeclaration[];
   references: readonly SourceProgramReference[];

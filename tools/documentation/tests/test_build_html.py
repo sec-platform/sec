@@ -151,6 +151,73 @@ class ReadingTests(unittest.TestCase):
         self.run_build();p=Originals();p.feed(self.out.read_text())
         actual={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
         self.assertEqual(p.files,actual)
+    def reference_book(self,sealed=False,**budgets):
+        args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=sealed,
+            max_file_bytes=budgets.get('max_file_bytes',16_000_000),max_total_bytes=budgets.get('max_total_bytes',80_000_000))
+        captured=b.capture(self.root,args)
+        return b.Book(self.root,captured,args),captured
+    def track_references(self,*names):
+        subprocess.run(['git','init','-q',str(self.root)],check=True,capture_output=True)
+        subprocess.run(['git','-C',str(self.root),'add','--',*names],check=True,capture_output=True)
+    def test_repository_reference_closure_builds_real_articles_without_changing_source_identity(self):
+        self.write('README.md','# Fixture\n[contract](config/work.json)\n[skill](.agents/guide.md#use)\n')
+        self.write('config/work.json','{"work":"real"}\n')
+        self.write('.agents/guide.md','# Guide\n## Use\n[source](../src/value.ts)\n[cycle](../README.md)\n')
+        self.write('src/value.ts','export const value = 1;\n')
+        self.track_references('config/work.json','.agents/guide.md','src/value.ts')
+        book,captured=self.reference_book();output,meta=book.build({'state':'not-rendered'})
+        repeated,repeated_meta=book.build({'state':'not-rendered'})
+        self.assertEqual(repeated,output);self.assertEqual(repeated_meta,meta)
+        self.assertEqual(meta['source_set_sha256'],b.source_identity_from_capture(captured))
+        self.assertEqual({x['path'] for x in meta['reading_attachments']},{'config/work.json','.agents/guide.md','src/value.ts'})
+        self.assertEqual({x['path'] for x in meta['source_files']},set(captured))
+        originals=Originals();originals.feed(output.decode())
+        for name in book.attachments:self.assertEqual(originals.files[name],(self.root/name).read_bytes())
+        self.assertIn(b.fragment_id('.agents/guide.md','use').encode(),output)
+        book.unchanged();self.write('src/value.ts','export const value = 2;\n')
+        with self.assertRaisesRegex(b.BuildError,'attachment changed'):book.unchanged()
+        changed,_=self.reference_book();_,changed_meta=changed.build({'state':'not-rendered'})
+        self.assertEqual(changed_meta['source_set_sha256'],meta['source_set_sha256'])
+        self.assertNotEqual(changed_meta['reading_attachments_sha256'],meta['reading_attachments_sha256'])
+        self.assertNotEqual(changed_meta['input_set_sha256'],meta['input_set_sha256'])
+    def test_sealed_missing_repository_reference_is_explicit_and_never_calls_git(self):
+        self.write('README.md','# Fixture\n[contract](config/absent.json)\n<a href="src/absent.ts">source</a>\n')
+        with patch.object(b.subprocess,'run',side_effect=AssertionError('Git forbidden')),patch.object(b.subprocess,'check_output',side_effect=AssertionError('Git forbidden')):
+            book,_=self.reference_book(sealed=True);output,meta=book.build({'state':'not-rendered'});book.unchanged()
+            repeated,repeated_meta=book.build({'state':'not-rendered'})
+            self.assertEqual(repeated,output);self.assertEqual(repeated_meta,meta)
+        self.assertEqual({x['path'] for x in meta['unavailable_repository_references']},{'config/absent.json','src/absent.ts'})
+        self.assertIn('本包未携带仓库引用'.encode(),output)
+        audit=b.AuditHTML();audit.feed(output.decode())
+        self.assertNotIn('#'+b.opaque('config/absent.json'),audit.links)
+    def test_repository_attachment_untracked_fragment_and_budget_reject(self):
+        self.write('README.md','# Fixture\n[skill](.agents/guide.md#missing)\n')
+        self.write('.agents/guide.md','# Guide\n')
+        self.track_references('README.md')
+        with self.assertRaisesRegex(b.BuildError,'not tracked'):self.reference_book()
+        self.track_references('.agents/guide.md')
+        book,_=self.reference_book()
+        for _ in range(2):
+            with self.assertRaisesRegex(b.BuildError,'Missing local fragment'):book.build({'state':'not-rendered'})
+        self.write('README.md','# Fixture\n[data](config/large.json)\n');self.write('config/large.json','x'*20_000)
+        self.track_references('config/large.json')
+        with self.assertRaisesRegex(b.BuildError,'attachment budget'):self.reference_book(max_file_bytes=10_000)
+    def test_sealed_source_missing_still_rejects_and_carried_attachment_is_real(self):
+        self.write('README.md','# Fixture\n[missing](docs/not-present.md)\n')
+        with self.assertRaisesRegex(b.BuildError,'Missing local target'):self.reference_book(sealed=True)
+        self.write('README.md','# Fixture\n[carried](config/work.json)\n');self.write('config/work.json','{}')
+        with patch.object(b.subprocess,'run',side_effect=AssertionError('Git forbidden')):
+            book,_=self.reference_book(sealed=True);output,meta=book.build({'state':'not-rendered'})
+        self.assertEqual([x['path'] for x in meta['reading_attachments']],['config/work.json'])
+        self.assertIn(b.opaque('config/work.json').encode(),output)
+    def test_commonmark_setext_multiline_empty_and_inline_heading_anchors(self):
+        self.write('README.md','# Fixture\n[attachment](config/guide.md#title-next)\n')
+        self.write('config/guide.md','Title\nNext\n----\n\n#\n\n# **Rich** `code`\n\n# <a id="custom"></a> Inline\n')
+        self.track_references('config/guide.md')
+        book,_=self.reference_book();output,meta=book.build({'state':'not-rendered'})
+        for fragment in ('title-next','','rich-code','-inline','custom'):
+            self.assertIn(('id="'+b.fragment_id('config/guide.md',fragment)+'"').encode(),output)
+        self.assertEqual(book.build({'state':'not-rendered'}),(output,meta))
     def test_typescript_raw_sources(self):
         self.write('examples/public.d.ts', 'export declare function normalize(x: bigint): bigint;\n')
         self.write('examples/fixture.ts', 'export const value = "<script>never_execute()</script>";\n')

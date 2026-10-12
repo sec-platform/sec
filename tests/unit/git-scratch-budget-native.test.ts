@@ -14,15 +14,49 @@ import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 // must not pass through a replacement issuer, fake process counter or raw
 // command substituted for the actual public scratch operation. Ordinary Git
 // is used only to establish an independent temporary repository fixture.
+test('native multi-stage index reports unmerged-index and a resolved index remains admissible', () =>
+  inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'conflict'), 'resolved content\n');
+    gitProtocolSuccess(git(['add', '--', 'conflict']));
+    const objectId = gitProtocolSuccess(git(['hash-object', '-w', '--stdin'], undefined, 'conflicting content\n')).trim();
+    gitProtocolSuccess(git(['update-index', '--index-info'], undefined,
+      `0 ${'0'.repeat(objectId.length)}\tconflict\n`
+      + [1, 2, 3].map(stage => `100644 ${objectId} ${stage}\tconflict\n`).join('')));
+    assert.deepEqual(gitProtocolSuccess(git(['ls-files', '--unmerged'])).trim().split('\n')
+      .map(line => line.split('\t')[0]!.split(' ')[2]), ['1', '2', '3']);
+    for (const state of ['unmerged', 'resolved'] as const) {
+      if (state === 'resolved') gitProtocolSuccess(git(['add', '--', 'conflict']));
+      const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-unmerged-index-'));
+      await settleWorkspaceCallback(async () => {
+        copyFileSync(path.join(root, '.git', 'index'), path.join(scratchRoot, 'index'));
+        mkdirSync(path.join(scratchRoot, 'objects'));
+        const beforeIndex = readFileSync(path.join(root, '.git', 'index'));
+        await withAuthorityGitReadSession({ cwd: root, budget: { maxProcesses: 4 } }, async session => {
+          const result = await createAuthorityGitScratchIndexTreeSession({ gitReadSession: session, scratchRoot });
+          if (state === 'unmerged') {
+            assert.deepEqual(result, { status: 'unavailable', reason: 'unmerged-index' });
+          } else {
+            assert.equal(result.status, 'ready');
+            if (result.status !== 'ready') throw new Error('Resolved native index must be admitted.');
+            assert.equal(await result.session.close(), null);
+          }
+        });
+        assert.deepEqual(readFileSync(path.join(root, '.git', 'index')), beforeIndex);
+        assert.deepEqual(readFileSync(path.join(scratchRoot, 'index')), beforeIndex);
+        assert.deepEqual(readdirSync(path.join(scratchRoot, 'objects')), []);
+      }, async () => { rmSync(scratchRoot, { recursive: true, force: true }); });
+    }
+  }));
+
 const scenarios = process.platform === 'win32'
   ? ['empty', 'populated', 'narrow-parent', 'narrow-record-parent', 'stdin-worker'] as const
   : ['empty', 'populated', 'narrow-parent', 'narrow-record-parent'] as const;
-for (const scenario of scenarios) {
-  const populated = scenario !== 'empty';
-  test(`an unaffordable ${scenario} scratch batch performs no partial effect`, () =>
-    inGitProtocolRepository(async (root, git) => {
-      writeFileSync(path.join(root, 'old'), 'retained worktree content');
-      gitProtocolSuccess(git(['add', '--', 'old']));
+test('unaffordable scratch batches perform no partial effect', () =>
+  inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'old'), 'retained worktree content');
+    gitProtocolSuccess(git(['add', '--', 'old']));
+    for (const scenario of scenarios) {
+      const populated = scenario !== 'empty';
       const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-scratch-'));
       await settleWorkspaceCallback(async () => {
         const indexPath = path.join(scratchRoot, 'index');
@@ -54,8 +88,8 @@ for (const scenario of scenarios) {
           }, async () => { await scratch.close(); });
         });
       }, async () => { rmSync(scratchRoot, { recursive: true, force: true }); });
-    }));
-}
+    }
+  }));
 
 test.skipIf(process.platform !== 'linux')(
   'production scratch owner reconstructs an untrusted cache without mutating inputs or invoking index helpers',

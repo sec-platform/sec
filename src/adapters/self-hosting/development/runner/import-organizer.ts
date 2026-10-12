@@ -4,12 +4,13 @@ import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
-import type { GeneratedStateCleanupProfile, GeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/contract.ts';
-import { assertGeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/lifecycle.ts';
+import type { GeneratedStateCleanupProfile, GeneratedStateDisposalReceipt } from '../../../../execution/generated-state/contract.ts';
+import type { GeneratedStateProducerHookSet } from '../../../../execution/generated-state/lifecycle-port.ts';
+import { assertGeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/lifecycle-evidence.ts';
 import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, type RetainedNoFollowChildProcessDirectory } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
-import { CompilerError } from '../../../../compiler/errors.ts';
 import { canonicalEquals, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
 import { relativePosixPath } from '../../../../contracts/relative-path.ts';
 import { ensureDir } from "../../../filesystem/files.ts";
 import { compilerRoot } from "../../../workspace-context.ts";
@@ -455,7 +456,7 @@ function selectStagedEntries(
 ): readonly StagedIndexEntry[] {
   const unresolved = entries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
   if (unresolved) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'IMPORT-PARTIAL-STAGE-CONFLICT',
       `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
       { path: unresolved.path }
@@ -464,7 +465,7 @@ function selectStagedEntries(
   const selected = targetPaths.map((targetPath) => {
     const matches = entries.filter((entry) => entry.path === targetPath);
     if (matches.length !== 1 || matches[0]!.stage !== 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-ENTRY-UNAVAILABLE',
         `TypeScript staged entry is unavailable or ambiguous: ${targetPath}`,
         { path: targetPath }
@@ -472,7 +473,7 @@ function selectStagedEntries(
     }
     const entry = matches[0]!;
     if (entry.mode !== '100644' && entry.mode !== '100755') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-NOT-ORDINARY',
         `TypeScript staged entry is not an ordinary file: ${targetPath}`,
         { path: targetPath, mode: entry.mode }
@@ -495,13 +496,8 @@ function absoluteRepositoryPath(projectRoot: string, gitPath: string): string {
   return absolute;
 }
 
-type ImportSnapshotLifecycleOwner = Readonly<{
-  born(relativePath: string, operationId: string): Promise<void>;
-  disposed(
-    relativePath: string,
-    request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
-  ): Promise<GeneratedStateDisposalReceipt>;
-}>;
+type ImportSnapshotLifecycleOwner = Readonly<Pick<GeneratedStateProducerHookSet, 'born' | 'disposed'>>;
+export interface ImportOrganizerOperationDependencies { readonly generatedStateLifecycle: ImportSnapshotLifecycleOwner; }
 
 type ImportSnapshotLifecycleReceipt = Readonly<{
   dispose(outcome: string): Promise<GeneratedStateDisposalReceipt>;
@@ -509,12 +505,13 @@ type ImportSnapshotLifecycleReceipt = Readonly<{
 
 function issueImportSnapshotLifecycleReceipt(
   owner: ImportSnapshotLifecycleOwner,
-  relativePath: string
+  relativePath: string,
+  workspaceRoot: string
 ): ImportSnapshotLifecycleReceipt {
   return Object.freeze({
     dispose: async (outcome) => {
       const receipt = await owner.disposed(relativePath, { outcome, profile: 'automatic' });
-      assertGeneratedStateDisposalReceipt(receipt);
+      await assertGeneratedStateDisposalReceipt(receipt, { workspaceRoot, relativePath });
       if (receipt.relativePath !== relativePath || receipt.profile !== 'automatic') {
         throw new Error('Import snapshot lifecycle disposal receipt differs from its owner request.');
       }
@@ -531,7 +528,8 @@ type MaterializedCandidateIndex = Readonly<{
 async function materializeCandidateIndex(
   projectRoot: string,
   lifecycleOverride?: StagedImportOrganizerTestHooks['generatedStateLifecycle'],
-  beforeWrite?: StagedImportOrganizerTestHooks['beforeCandidateSnapshotWrite']
+  beforeWrite?: StagedImportOrganizerTestHooks['beforeCandidateSnapshotWrite'],
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<MaterializedCandidateIndex> {
   const snapshotsRoot = path.join(projectRoot, '.tmp', 'import-candidate-snapshots');
   const operationId = randomUUID();
@@ -540,6 +538,10 @@ async function materializeCandidateIndex(
   const snapshotRoot = path.join(snapshotsRoot, snapshotName);
   let lifecycleOwner: ImportSnapshotLifecycleOwner | null = null;
   let lifecycleReceipt: ImportSnapshotLifecycleReceipt | null = null;
+  const resolvedProjectRoot = path.resolve(projectRoot), resolvedCompilerRoot = path.resolve(compilerRoot);
+  const sameCompilerRoot = process.platform === 'win32' ? resolvedProjectRoot.toLowerCase() === resolvedCompilerRoot.toLowerCase() : resolvedProjectRoot === resolvedCompilerRoot;
+  if (sameCompilerRoot && lifecycleOverride !== undefined) throw new Error('Canonical import snapshots cannot replace the generated-state lifecycle owner.');
+  if (sameCompilerRoot && operation === undefined) throw new Error('Canonical import snapshot operation has no bootstrap-bound lifecycle owner.');
   await ensureDir(snapshotRoot);
   const retainedSnapshot = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(snapshotRoot, 'Import candidate snapshot'),
@@ -547,25 +549,14 @@ async function materializeCandidateIndex(
     'Import candidate snapshot'
   );
   try {
-    const resolvedProjectRoot = path.resolve(projectRoot);
-    const resolvedCompilerRoot = path.resolve(compilerRoot);
-    const sameCompilerRoot = process.platform === 'win32'
-      ? resolvedProjectRoot.toLowerCase() === resolvedCompilerRoot.toLowerCase()
-      : resolvedProjectRoot === resolvedCompilerRoot;
-    if (sameCompilerRoot && lifecycleOverride !== undefined) {
-      throw new Error('Canonical import snapshots cannot replace the generated-state lifecycle owner.');
-    }
     if (lifecycleOverride !== undefined) {
       lifecycleOwner = lifecycleOverride;
       await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
-      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
-    } else if (sameCompilerRoot) {
-      const { generatedStateProducerHooks: generatedStateProducerHooksV1 } = await import(
-        '../../../runtime-state/generated-state/lifecycle.ts'
-      );
-      lifecycleOwner = generatedStateProducerHooksV1({ repositoryRoot: projectRoot });
+      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath, projectRoot);
+    } else if (operation !== undefined) {
+      lifecycleOwner = operation.generatedStateLifecycle;
       await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
-      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
+      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath, projectRoot);
     }
     await beforeWrite?.(snapshotRoot);
     const prefix = `${retainedSnapshot.childPath.replace(/\\/gu, '/')}/`;
@@ -638,7 +629,8 @@ async function workingTreeMatchesIndex(projectRoot: string): Promise<boolean> {
 
 async function candidateContext(
   projectRoot: string,
-  testHooks: StagedImportOrganizerTestHooks
+  testHooks: StagedImportOrganizerTestHooks,
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<{
   readonly root: string;
   readonly snapshotRoot: string | null;
@@ -657,7 +649,8 @@ async function candidateContext(
   const snapshot = await materializeCandidateIndex(
     projectRoot,
     testHooks.generatedStateLifecycle,
-    testHooks.beforeCandidateSnapshotWrite
+    testHooks.beforeCandidateSnapshotWrite,
+    operation
   );
   await testHooks.candidateContext?.('snapshot');
   return Object.freeze({
@@ -906,7 +899,8 @@ type StagedImportComputation = Readonly<{
 async function computeStagedImportUpdates(
   projectRoot: string,
   testHooks: StagedImportOrganizerTestHooks,
-  selection: StagedImportSelection
+  selection: StagedImportSelection,
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<StagedImportComputation | null> {
   const candidateBase = resolvedCandidateBase(projectRoot, selection.candidateBase);
   const targetPaths = stagedTypeScriptTargets(projectRoot, candidateBase);
@@ -914,7 +908,7 @@ async function computeStagedImportUpdates(
   if (targetPaths.length === 0) {
     const unresolved = indexEntries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
     if (unresolved) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-PARTIAL-STAGE-CONFLICT',
         `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
         { path: unresolved.path }
@@ -931,7 +925,7 @@ async function computeStagedImportUpdates(
       snapshotLifecycle: null,
       mode: 'working-tree' as const
     })
-    : await candidateContext(projectRoot, testHooks);
+    : await candidateContext(projectRoot, testHooks, operation);
   const contextRoot = context.root;
   try {
     const { config } = loadProjectConfig(contextRoot);
@@ -1023,9 +1017,10 @@ export async function runStagedImportCheck(
 export async function runStagedIndexOnlyImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
-  selection: StagedImportSelection = {}
+  selection: StagedImportSelection = {},
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<number> {
-  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection, operation);
   if (computed === null) {
     console.log('No staged TypeScript import targets selected.');
     return 0;
@@ -1084,7 +1079,7 @@ async function assertSynchronizedWorktreePreimages(
         throw new Error('worktree preimage changed during retained read');
       }
     } catch (error) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-WORKTREE-DIVERGED',
         `Cannot synchronize staged imports because the worktree preimage is unavailable or changed: ${update.entry.path}`,
         { path: update.entry.path, cause: String(error) }
@@ -1122,9 +1117,10 @@ function synchronizedWorktreeWrites(
 export async function runSynchronizedStagedImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
-  selection: StagedImportSelection = {}
+  selection: StagedImportSelection = {},
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<number> {
-  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection, operation);
   if (computed === null) {
     console.log('No staged TypeScript import targets selected.');
     return 0;
@@ -1152,7 +1148,7 @@ export async function runSynchronizedStagedImportOrganizer(
     );
     forwardJournalPath = forward.journalPath;
     if (forward.status !== 'accepted') {
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
         `Synchronized staged import worktree publication did not reach accepted: ${forward.status}`,
         { journalPath: forward.journalPath, reasonCode: forward.reasonCode }
@@ -1163,7 +1159,7 @@ export async function runSynchronizedStagedImportOrganizer(
       await indexPublication.commit();
     } catch (error) {
       if (indexPublication.isPublished()) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
           'Synchronized staged import index publication crossed its atomic rename but exact readback failed.',
           { forwardJournalPath, cause: String(error) }
@@ -1174,7 +1170,7 @@ export async function runSynchronizedStagedImportOrganizer(
         synchronizedWorktreeWrites(computed.updates, 'rollback')
       );
       if (rollback.status !== 'accepted') {
-        throw new CompilerError(
+        throw new CodedFailure(
           'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
           'Synchronized staged import publication and rollback require owner recovery.',
           {
@@ -1186,7 +1182,7 @@ export async function runSynchronizedStagedImportOrganizer(
           }
         );
       }
-      throw new CompilerError(
+      throw new CodedFailure(
         'IMPORT-STAGED-SYNC-ROLLED-BACK',
         'Synchronized staged import publication failed before index commit and was rolled back exactly.',
         { forwardJournalPath, rollbackJournalPath: rollback.journalPath, cause: String(error) }
@@ -1195,7 +1191,7 @@ export async function runSynchronizedStagedImportOrganizer(
     for (const update of computed.updates) {
       const worktreeBytes = await fs.readFile(absoluteRepositoryPath(projectRoot, update.entry.path));
       if (!worktreeBytes.equals(update.normalizedBytes)) {
-        throw new CompilerError(
+        throw new CodedFailure(
           'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
           `Synchronized staged import worktree readback drifted: ${update.entry.path}`,
           { path: update.entry.path, forwardJournalPath }
@@ -1226,10 +1222,11 @@ export async function runSynchronizedStagedImportOrganizer(
 export async function runCandidateImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
-  env: ImportSelectionEnvironment = process.env
+  env: ImportSelectionEnvironment = process.env,
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<number> {
   const candidateBase = resolveCandidateImportBase(projectRoot, undefined, env);
-  return runStagedIndexOnlyImportOrganizer(projectRoot, testHooks, { candidateBase });
+  return runStagedIndexOnlyImportOrganizer(projectRoot, testHooks, { candidateBase }, operation);
 }
 
 export async function runCandidateImportCheck(

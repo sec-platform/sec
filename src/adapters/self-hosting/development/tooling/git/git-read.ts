@@ -494,14 +494,6 @@ export async function withIsolatedTextAttributeReader<Value>(
   }
 }
 
-export async function readTextAttributesBatch(
-  session: GitReadSession,
-  sourceCommit: string,
-  paths: readonly string[]
-): Promise<ReadonlyMap<string, GitTextAttributes>> {
-  return withIsolatedTextAttributeReader(session, sourceCommit, (readBatch) => readBatch(paths));
-}
-
 export async function readOptionalGitConfig(session: GitReadSession, key: string): Promise<string> {
   const result = await runGitRead(session, ['config', '--get', key], { maxBuffer: 1024 * 1024 });
   if (result.error) {

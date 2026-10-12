@@ -2,12 +2,12 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../../execution/operation/semantic.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
 import {
@@ -49,7 +49,7 @@ interface SettlementOptions {
 }
 
 type WorktreeSettlementOperationEnvelope = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   budget: GitReadSessionBudget;
   deadlineAtUnixMs: number;
 }>;
@@ -86,20 +86,20 @@ function compileWorktreeSettlementOperation(
     operation: WORKTREE_SETTLEMENT_OPERATION,
     resultSchema: WORKTREE_SETTLEMENT_SCHEMA,
     observation: 'exact-head-index-worktree-materialization'
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const providerIdentityDigest = sha256({
     provider: 'external-capabilities.git-read',
     capability: 'exact-repository-observation'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: WORKTREE_SETTLEMENT_OPERATION,
     intentDigest: sha256({
       repositoryRoot,
       repairRequested: options.fix === true
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -125,7 +125,7 @@ function compileWorktreeSettlementOperation(
     }]
   });
   return Object.freeze({
-    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: WORKTREE_SETTLEMENT_REQUIREMENT,
       contractDigest,
       providerIdentityDigest

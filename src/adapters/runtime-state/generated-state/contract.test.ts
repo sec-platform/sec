@@ -9,7 +9,7 @@ import {
   generatedStateRuleForPath,
   parseGeneratedStateRegistry,
   type GeneratedStateInventoryEntry
-} from './contract.ts';
+} from '../../../execution/generated-state/contract.ts';
 
 function entry(
   stateClass: GeneratedStateInventoryEntry['stateClass'],

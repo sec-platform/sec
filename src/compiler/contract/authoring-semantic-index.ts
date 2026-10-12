@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
 import {
   AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH,
   AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION
 } from '../../workspace/contract/authoring-index.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
-import { CompilerError } from '../errors.ts';
 
 const indexEntrySchema = z.object({
   blockId: z.string(),
@@ -30,7 +30,7 @@ export function validateAuthoringSemanticContractIndex(
     const issue = decoded.error.issues[0]!;
     const entryFailure = issue.path[0] === 'contracts' &&
       typeof issue.path[1] === 'number';
-    throw new CompilerError(
+    throw new CodedFailure(
       entryFailure ? 'CONTRACT-SEMANTIC-020' : 'CONTRACT-SEMANTIC-019',
       entryFailure
         ? 'Every authoring semantic contract index entry requires only blockId and path'
@@ -44,7 +44,7 @@ export function validateAuthoringSemanticContractIndex(
   return decoded.data.contracts.map(entry => {
     const contractPath = posixPath(entry.path);
     if (!entry.blockId.trim() || !resolvedBlockIds.has(entry.blockId)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-020',
         `Authoring semantic contract block "${entry.blockId}" must be resolved in the workspace`
       );
@@ -54,13 +54,13 @@ export function validateAuthoringSemanticContractIndex(
         !contractPath.startsWith(`${modelRelativePath}/`) ||
         !contractPath.endsWith('.yaml') ||
         contractPath === AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-021',
         `Authoring semantic contract path "${contractPath}" must be a YAML file under ${modelRelativePath}/`
       );
     }
     if (seenPaths.has(contractPath)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'CONTRACT-SEMANTIC-022',
         `Authoring semantic contract index repeats path "${contractPath}"`
       );

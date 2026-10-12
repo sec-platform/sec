@@ -2,15 +2,15 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  consumeSecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingContext
+  consumeOperationRequirementBindingContext,
+  type OperationRequirementBindingContext
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
-  compileSecCapabilityBinding,
-  type SecBoundSemanticOperation,
-  type SecCapabilityBinding,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  compileCapabilityBinding,
+  type BoundSemanticOperation,
+  type CapabilityBinding,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import {
   inspectNoFollowDirectoryChain,
@@ -29,7 +29,7 @@ export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST = sha25
   duration: 'operation-bound-duration',
   maximumRoots: MAXIMUM_ROOTS,
   maximumEvents: MAXIMUM_EVENTS
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 const observerBrand: unique symbol = Symbol('windows-repository-change-observer');
 const preparedObserverBrand: unique symbol = Symbol('prepared-windows-repository-change-observer');
@@ -80,7 +80,7 @@ export interface WindowsRepositoryChangeObserver {
 
 export interface PreparedWindowsRepositoryChangeObserver {
   readonly [preparedObserverBrand]: never;
-  readonly providerBinding: SecCapabilityBinding;
+  readonly providerBinding: CapabilityBinding;
   readonly rootIdentityDigest: `sha256:${string}`;
 }
 
@@ -406,10 +406,10 @@ export function prepareWindowsRepositoryChangeObserver(input: Readonly<{
     const providerIdentityDigest = sha256({
       domain: 'windows-repository-change-observer.physical-provider',
       rootIdentityDigest
-    }) as SecOperationDigest;
+    }) as OperationDigest;
     const prepared = Object.freeze({
       [preparedObserverBrand]: undefined as never,
-      providerBinding: compileSecCapabilityBinding({
+      providerBinding: compileCapabilityBinding({
         requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
         contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
         providerIdentityDigest
@@ -430,13 +430,13 @@ export function prepareWindowsRepositoryChangeObserver(input: Readonly<{
 
 export async function armPreparedWindowsRepositoryChangeObserver(input: Readonly<{
   prepared: PreparedWindowsRepositoryChangeObserver;
-  operation: SecBoundSemanticOperation;
-  requirementBindingContext: SecOperationRequirementBindingContext;
+  operation: BoundSemanticOperation;
+  requirementBindingContext: OperationRequirementBindingContext;
 }>): Promise<WindowsRepositoryChangeObserverResolution> {
   const state = preparedObservers.get(input.prepared);
   if (state === undefined) return unavailable('invalid-input');
-  assertSecSemanticOperationProjection(input.operation);
-  const context = consumeSecOperationRequirementBindingContext(input.requirementBindingContext);
+  assertSemanticOperationProjection(input.operation);
+  const context = consumeOperationRequirementBindingContext(input.requirementBindingContext);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
   );

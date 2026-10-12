@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
+import type { VerificationActionKeyDigest } from '../../../../../execution/verification/action.ts';
 
-import {
-  encodeVerificationActionData,
-  type VerificationActionKeyDigest
-} from './action.ts';
+import { encodeVerificationActionData } from './action.ts';
 
 export const CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA =
   'sec-verification-action-terminal-artifact-v2' as const;

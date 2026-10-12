@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from 'bun:test';
 import * as childProcess from 'node:child_process';
+import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory, BranchPublishedCloseoutReceipt } from '../../src/execution/verification/branch-closeout.ts';
 
 import {
   createBranchCloseoutOperationBinding,
@@ -24,12 +25,7 @@ import {
   renderPublishedBranchCloseoutReceiptComment
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import {
-  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
-  type BranchCloseoutReceiptObservation,
-  type BranchLifecycleInventory,
-  type BranchPublishedCloseoutReceipt
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';

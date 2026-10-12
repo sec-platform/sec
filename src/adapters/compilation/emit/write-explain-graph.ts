@@ -2,8 +2,8 @@ import type { AcceptanceCoverageReport } from '../../../assurance/acceptance/cov
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { buildExplainGraphFromEvidence } from '../../../assurance/verification/review/explain-graph.ts';
 import type { LockFile } from '../../../compiler/contract.ts';
-import { CompilerError } from '../../../compiler/errors.ts';
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../contracts/json-text.ts";
 import type { PolicyReport } from '../../../semantics/policies/types.ts';
 import type { ExplainGraph } from '../../../semantics/projection/explain.ts';
@@ -139,7 +139,7 @@ export async function writeExplainGraph(
         'Explain Acceptance coverage'
       );
       if (coverage === null) {
-        throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
+        throw new CodedFailure('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
       }
       const { policyReport, upgradePlan, upgradeDiagnostics } =
         readReviewGovernanceReports(workspaceRoot);

@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 
 function compileFixture(sources: Readonly<Record<string, string>>) {
   const paths = Object.keys(sources);
-  return compileSecRepositoryModuleGraph({
+  return compileSourceProgramRepositoryModuleGraph({
     files: paths,
     readSource: (repositoryPath) => sources[repositoryPath] ?? null
   });
@@ -90,12 +90,12 @@ test('runtime closure excludes type-only edges while compile impact retains them
 
 test('ordinary TypeScript import facts cannot be replaced by an embedded-language provider', () => {
   let providerCalls = 0;
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: ['src/example/main.ts', 'src/example/value.ts'],
     readSource: (repositoryPath) => repositoryPath === 'src/example/main.ts'
       ? "export { value } from './value.ts';"
       : 'export const value = true;',
-    readImports: () => {
+    readEmbeddedLanguageImports: () => {
       providerCalls += 1;
       return [{ kind: 'static', specifier: './foreign.ts', typeOnly: false }];
     }
@@ -111,7 +111,7 @@ test('canonical frontend joins unresolved and import-type observations into its 
     ['src/a.ts', "type Value = import('./b.ts').Value; void import(target);"],
     ['src/b.ts', 'export type Value = string;']
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (file) => sources.get(file) ?? null
   });

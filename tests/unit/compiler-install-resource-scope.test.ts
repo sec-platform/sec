@@ -4,10 +4,10 @@ import type { RetainedNoFollowChildProcessDirectory, RetainedNoFollowOrdinaryFil
 import { openProcessResourceSession, type ProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import { CompilerInstallSettlementFailure, withCompilerInstallResources } from '../../src/adapters/toolchain/dependencies/runtime/install-resource-scope.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext, type SecOperationDigest
+  bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext, type OperationDigest
 } from '../../src/execution/operation/semantic.ts';
 
 // Mechanical resources here prove order and failure preservation, not physical
@@ -15,21 +15,21 @@ import {
 // plain objects are used only in tests that expect close or receipt rejection.
 const executable = (dispose: () => void) => ({ dispose }) as RetainedNoFollowOrdinaryFile;
 const directory = (dispose: () => void) => ({ dispose }) as RetainedNoFollowChildProcessDirectory;
-const fixtureDigest = sha256({ fixture: 'compiler-install-resource-settlement' }) as SecOperationDigest;
+const fixtureDigest = sha256({ fixture: 'compiler-install-resource-settlement' }) as OperationDigest;
 const expectation = () => ({ operationIdentityDigest: fixtureDigest, boundAttemptDigest: fixtureDigest, requirementId: 'test.install' });
 function ownedSession(absoluteDeadlineAtUnixMs?: number) {
   const budgets = [
     { resource: 'duration-ms' as const, maximum: 5000 }, { resource: 'input-bytes' as const, maximum: 0 },
     { resource: 'output-bytes' as const, maximum: 1 }, { resource: 'processes' as const, maximum: 1 }
   ];
-  const plan = compileSecSemanticOperationPlan({ operation: 'test.compiler-install-settlement', intentDigest: fixtureDigest,
+  const plan = compileSemanticOperationPlan({ operation: 'test.compiler-install-settlement', intentDigest: fixtureDigest,
     decisionDigest: fixtureDigest, deadlineAtUnixMs: Date.now() + 5000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: fixtureDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: fixtureDigest }),
     aggregateBudgets: budgets, requirements: [{ id: 'test.install', contractDigest: fixtureDigest,
       effectKinds: ['process'], failureKinds: ['process.unavailable'] }] });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({ requirementId: 'test.install',
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({ requirementId: 'test.install',
     contractDigest: fixtureDigest, providerIdentityDigest: fixtureDigest })]);
-  const session = openProcessResourceSession({ operation, requirementBindingContext: issueSecOperationRequirementBindingContext({
+  const session = openProcessResourceSession({ operation, requirementBindingContext: issueOperationRequirementBindingContext({
     operation, requirementId: 'test.install', resourceCeilings: budgets,
     ...(absoluteDeadlineAtUnixMs === undefined ? {} : { absoluteDeadlineAtUnixMs }) }) });
   return { session, expected: { operationIdentityDigest: operation.plan.identity.identityDigest,

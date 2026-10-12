@@ -16,12 +16,19 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  inspectExactNoFollowDirectoryPresence,
+  inspectNoFollowDirectoryChain,
+  inspectNoFollowOrdinaryFileEntry,
+  scanNoFollowDirectoryDirectMetadata,
+  scanNoFollowDirectoryTreeInventory
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import type { FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
-  consumeTestProcessTempAssignmentV1,
+  consumeTestProcessTempAssignment,
   createTestInvocationRuntimeRoots,
-  createTestProcessTempRootV1,
+  createTestProcessTempRoot,
   prepareTestInvocationRuntime,
   testInvocationRuntimeIsolationModeForPlatform,
   TestProcessTempLifecycleError
@@ -29,6 +36,33 @@ import {
 
 function generation(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));
+}
+
+function observeUnguardedFixturePreservation(
+  input: Readonly<{ repositoryRoot: string; environment: NodeJS.ProcessEnv }>,
+  directories: readonly string[]
+): () => void {
+  const roots = resolveSecWorkspaceRuntimeRoots(input);
+  const leaseParent = inspectNoFollowDirectoryChain(roots.testProcessTempLeaseRoot, 'Fixture original lease parent').target;
+  const leaseNames = scanNoFollowDirectoryDirectMetadata(leaseParent, {
+    deadlineAtMs: performance.now() + 10_000, maximumEntries: 100
+  }).filter(entry => entry.kind === 'file' && entry.relativePath.endsWith('.lease')).map(entry => entry.relativePath);
+  expect(leaseNames.length).toBeGreaterThan(0);
+  const observe = () => ({
+    directories: directories.map(directory => {
+      const presence = inspectExactNoFollowDirectoryPresence(directory, 'Fixture preserved generation');
+      return presence.state === 'absent' ? { directory, state: 'absent' } : {
+        directory, identity: presence.directory.target,
+        inventory: scanNoFollowDirectoryTreeInventory(presence.directory.target, {
+          deadlineAtMs: performance.now() + 10_000, maximumEntries: 1_000, maximumBytes: 1024 * 1024,
+          includeByteDigest: true, includePermissionMode: true
+        })
+      };
+    }),
+    leases: leaseNames.map(name => ({ name, observation: inspectNoFollowOrdinaryFileEntry(leaseParent, name) }))
+  });
+  const before = observe();
+  return () => expect(observe()).toEqual(before);
 }
 
 test('test invocation runtime advertises only platforms with retained physical authority', () => {
@@ -81,7 +115,7 @@ test('test process temp owns one disjoint generation and removes only that gener
   const cacheRoot = generation('sec-temp-owner-cache-');
   try {
     const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
-    const owned = await createTestProcessTempRootV1({ repositoryRoot, hostTempRoot, environment });
+    const owned = await createTestProcessTempRoot({ repositoryRoot, hostTempRoot, environment });
     expect(environment.TMP).toBe(owned.tempRoot);
     expect(environment.TEMP).toBe(owned.tempRoot);
     expect(environment.TMPDIR).toBe(owned.tempRoot);
@@ -138,7 +172,7 @@ test('test process temp rejects OS temp overlap before creating a generation', a
         .map((entry) => path.join(parent, entry)));
     const before = generations();
     for (const hostTempRoot of candidateParents) {
-      await expect(createTestProcessTempRootV1({ repositoryRoot, hostTempRoot, environment }))
+      await expect(createTestProcessTempRoot({ repositoryRoot, hostTempRoot, environment }))
         .rejects.toThrow('must be disjoint');
     }
     expect(generations()).toEqual(before);
@@ -248,35 +282,6 @@ test('direct test invocation binds and retires one State Cache and TMP generatio
   }
 });
 
-test('direct test invocation settles its complete runtime after a failed test body', async () => {
-  const root = generation('sec-direct-test-runtime-failure-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
-  const environment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
-  let runtime: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | null = null;
-  let failure: unknown;
-  try {
-    runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
-    try {
-      throw new Error('synthetic test body failure');
-    } catch (error) {
-      failure = error;
-    } finally {
-      await runtime.cleanup();
-    }
-    expect(failure).toEqual(new Error('synthetic test body failure'));
-    expect(existsSync(runtime.processRoot)).toBe(false);
-    expect(existsSync(runtime.stateRoot)).toBe(false);
-    expect(existsSync(runtime.cacheRoot)).toBe(false);
-    expect(environment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('two direct invocations in one workspace own independent concurrent lifecycle generations', async () => {
   const root = generation('sec-direct-test-runtime-concurrent-');
   const repositoryRoot = path.join(root, 'repository');
@@ -310,6 +315,7 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
     await right.cleanup();
     rmSync(root, { recursive: true, force: true });
   }
+  expect(rightEnvironment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
 });
 
 test('runner-assigned test invocation adopts parent roots without creating a nested runtime generation', async () => {
@@ -363,7 +369,7 @@ test('parent supervisor owns child temp cleanup and retires a junction leaf with
   try {
     const environment: NodeJS.ProcessEnv = {};
     const generation = runtime.prepareProcessTemp(environment);
-    const adopted = consumeTestProcessTempAssignmentV1({ environment });
+    const adopted = consumeTestProcessTempAssignment({ environment });
     expect(adopted?.processRoot).toBe(generation.processRoot);
     symlinkSync(externalTarget, path.join(generation.tempRoot, 'retained-link'),
       process.platform === 'win32' ? 'junction' : 'dir');
@@ -377,7 +383,7 @@ test('parent supervisor owns child temp cleanup and retires a junction leaf with
   }
 });
 
-test('successor supervisor reclaims a timed-out child generation only after exact dead-owner readback', async () => {
+test('new invocation preserves unguarded predecessor bytes and native identities despite a dead PID claim', async () => {
   const root = generation('sec-process-temp-lost-handle-');
   const repositoryRoot = path.join(root, 'repository');
   const hostTempRoot = path.join(root, 'host-temp');
@@ -411,6 +417,9 @@ test('successor supervisor reclaims a timed-out child generation only after exac
       chmodSync(sealed, 0o555);
     }
   }
+  const preserved = observeUnguardedFixturePreservation({ repositoryRoot,
+    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
+  }, [abandonedStateRoot, abandonedCacheRoot, lostHandle.processRoot]);
   const successor = await createTestInvocationRuntimeRoots({
     repositoryRoot,
     hostTempRoot: successorTempRoot,
@@ -421,19 +430,19 @@ test('successor supervisor reclaims a timed-out child generation only after exac
     testOnlyProcessNonce: '20000000-0000-4000-8000-000000000002'
   });
   try {
-    expect(existsSync(lostHandle.processRoot)).toBe(false);
-    expect(existsSync(path.dirname(lostHandle.processRoot))).toBe(false);
-    expect(existsSync(abandonedStateRoot)).toBe(false);
-    expect(existsSync(abandonedCacheRoot)).toBe(false);
+    preserved();
     expect(existsSync(successor.stateRoot)).toBe(true);
     expect(existsSync(successor.cacheRoot)).toBe(true);
   } finally {
     await successor.cleanup();
+    preserved();
+    // Only the original live capability settles its own fixture, not the PID claim.
+    await abandoned.cleanup();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('failed temp retirement retains the invocation identity for dead-owner recovery', async () => {
+test('failed temp retirement blocks unguarded successor takeover until original-owner settlement', async () => {
   const root = generation('sec-temp-failed-retirement-');
   const repositoryRoot = path.join(root, 'repository');
   const hostTempRoot = path.join(root, 'host-temp');
@@ -459,8 +468,18 @@ test('failed temp retirement retains the invocation identity for dead-owner reco
     mkdirSync(owned.processRoot);
     await expect(abandoned.cleanup()).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_CLEANUP_FAILED' });
     expect(existsSync(displaced)).toBe(true);
+    const preserved = observeUnguardedFixturePreservation(input,
+      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, displaced]);
+    await expect(createTestInvocationRuntimeRoots({
+      ...input,
+      testOnlyOwnerPid: 41_004,
+      testOnlyProcessAlive: pid => pid === 41_003 ? 'dead' : 'alive',
+      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000004'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    preserved();
     rmSync(owned.processRoot, { recursive: true });
     renameSync(displaced, owned.processRoot);
+    await abandoned.cleanup();
     successor = await createTestInvocationRuntimeRoots({
       ...input,
       testOnlyOwnerPid: 41_004,
@@ -484,7 +503,7 @@ test('failed temp retirement retains the invocation identity for dead-owner reco
   }
 });
 
-test('failed successor reclaim restores the original owner for a later successor', async () => {
+test('unguarded successor remains blocked after generation restoration until original-owner settlement', async () => {
   const root = generation('sec-temp-failed-successor-reclaim-');
   const repositoryRoot = path.join(root, 'repository');
   const hostTempRoot = path.join(root, 'host-temp');
@@ -507,22 +526,30 @@ test('failed successor reclaim restores the original owner for a later successor
     const displaced = `${owned.processRoot}.displaced`;
     renameSync(owned.processRoot, displaced);
     mkdirSync(owned.processRoot);
+    const preserved = observeUnguardedFixturePreservation(input,
+      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, displaced]);
 
     await expect(createTestInvocationRuntimeRoots({
       ...input,
       testOnlyOwnerPid: 41_006,
       testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
       testOnlyProcessNonce: '20000000-0000-4000-8000-000000000006'
-    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN' });
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    preserved();
 
     rmSync(owned.processRoot, { recursive: true });
     renameSync(displaced, owned.processRoot);
-    const successor = await createTestInvocationRuntimeRoots({
+    const restored = observeUnguardedFixturePreservation(input,
+      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot]);
+    await expect(createTestInvocationRuntimeRoots({
       ...input,
       testOnlyOwnerPid: 41_007,
       testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
       testOnlyProcessNonce: '20000000-0000-4000-8000-000000000007'
-    });
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    restored();
+    await abandoned.cleanup();
+    const successor = await createTestInvocationRuntimeRoots(input);
     try {
       expect(existsSync(owned.processRoot)).toBe(false);
     } finally {
@@ -534,7 +561,7 @@ test('failed successor reclaim restores the original owner for a later successor
 });
 
 test.each(['missing-state', 'changed-binding'] as const)(
-  'runtime recovery preserves its original owner after %s', async (fault) => {
+  'new invocation preserves unguarded original binding and native identities after %s', async (fault) => {
     const root = generation('sec-runtime-recovery-binding-');
     const repositoryRoot = path.join(root, 'repository');
     const hostTempRoot = path.join(root, 'host-temp');
@@ -571,17 +598,22 @@ test.each(['missing-state', 'changed-binding'] as const)(
         ...input,
         testOnlyProcessAlive: (pid: number) => pid === 41_011 ? 'dead' as const : 'alive' as const
       };
-      await expect(createTestInvocationRuntimeRoots({
+      const preserved = observeUnguardedFixturePreservation(input, [
+        abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, foreignContainer,
+        ...(fault === 'missing-state' ? [path.join(root, 'displaced-state'), path.join(root, 'displaced-cache')] : [])
+      ]);
+      const independent = await createTestInvocationRuntimeRoots({
         ...recovery,
         testOnlyOwnerPid: 41_012,
         testOnlyProcessNonce: '20000000-0000-4000-8000-000000000012'
-      })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN' });
-      expect(existsSync(owned.processRoot)).toBe(true);
-      expect(existsSync(foreignContainer)).toBe(true);
+      });
+      try { preserved(); } finally { await independent.cleanup(); }
+      preserved();
       if (fault === 'missing-state') {
         renameSync(path.join(root, 'displaced-state'), abandoned.stateRoot);
         renameSync(path.join(root, 'displaced-cache'), abandoned.cacheRoot);
       } else writeFileSync(bindingPath, original);
+      await abandoned.cleanup();
       const successor = await createTestInvocationRuntimeRoots({
         ...recovery,
         testOnlyOwnerPid: 41_013,
@@ -635,7 +667,7 @@ test('test process temp lease and generations are isolated by exact workspace id
   }
 });
 
-test('successor preserves a live owner and rejects generation ABA as typed unknown', async () => {
+test('unguarded successor preserves live and PID-dead owners across generation ABA', async () => {
   const root = generation('sec-process-temp-aba-');
   const repositoryRoot = path.join(root, 'repository');
   const hostTempRoot = path.join(root, 'host-temp');
@@ -669,6 +701,9 @@ test('successor preserves a live owner and rejects generation ABA as typed unkno
   const displaced = `${processGeneration.processRoot}.displaced`;
   renameSync(processGeneration.processRoot, displaced);
   mkdirSync(processGeneration.processRoot);
+  const preserved = observeUnguardedFixturePreservation({ repositoryRoot,
+    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
+  }, [owner.stateRoot, owner.cacheRoot, processGeneration.processRoot, displaced]);
   let blocked: unknown;
   try {
     await createTestInvocationRuntimeRoots({
@@ -684,9 +719,13 @@ test('successor preserves a live owner and rejects generation ABA as typed unkno
     blocked = error;
   }
   expect(blocked).toBeInstanceOf(TestProcessTempLifecycleError);
-  expect((blocked as TestProcessTempLifecycleError).code).toBe('TEST_PROCESS_TEMP_RESIDUE_UNKNOWN');
+  expect((blocked as TestProcessTempLifecycleError).code).toBe('TEST_PROCESS_TEMP_OWNED');
+  preserved();
   expect(existsSync(processGeneration.processRoot)).toBe(true);
   expect(existsSync(displaced)).toBe(true);
+  rmSync(processGeneration.processRoot, { recursive: true });
+  renameSync(displaced, processGeneration.processRoot);
+  await owner.cleanup();
   rmSync(root, { recursive: true, force: true });
 });
 

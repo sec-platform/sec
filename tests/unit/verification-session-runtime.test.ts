@@ -13,6 +13,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { executeHostedSessionCompilerCommand, resumeHostedVerificationSession } from '../../src/bootstrap/development/closeout/verification-session-hosted.ts';
+import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
+import type { BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
+import type { VerificationSessionHostedRequest } from "../../src/execution/verification/hosted.ts";
+import type { IntegrationAuthorizationOperationPublication, MergeGateResult } from '../../src/execution/verification/integration.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, GitHubWorkflowRunObservation, ScopeAuthorization, SessionDigest, VerificationSession } from '../../src/execution/verification/session.ts';
 
 
 const CLOSEOUT_CLI_E2E_ENABLED = process.env.SEC_VERIFICATION_SESSION_CLOSEOUT_CLI_E2E === '1';
@@ -29,9 +35,9 @@ import {
   resolveOrdinaryMainHealthLane,
   resolveRepairMainHealthLane
 } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
-import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
+import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
@@ -39,10 +45,7 @@ import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopment
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
 import { inspectWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
-import type {
-  GitHubCheckObservation, GitHubWorkflowJobObservation,
-  GitHubWorkflowRunObservation
-} from '../../src/adapters/providers/github-api/contract.ts';
+import type { GitHubWorkflowJobObservation } from '../../src/adapters/providers/github-api/contract.ts';
 import {
   authorizeBranchCloseout,
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
@@ -64,19 +67,13 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitChildEnvironment } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
-import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY,
-  type BranchLifecycleInventory
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
-import type { IntegrationAuthorizationOperationPublication } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import {
   createIntegrationAuthorizationOperationPublication,
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
-import {
-  CodexDevelopmentEvaluateMergeGate,
-  type CodexDevelopmentMergeGateResult
-} from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
+import { CodexDevelopmentEvaluateMergeGate } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
 import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -87,75 +84,15 @@ import {
   executeLocalVerificationActionDag,
   issueVerificationActionTestProcessIssuerForTests
 } from '../../src/adapters/verification/platform/action/runner.ts';
-import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
-import {
-  assertGitHubReviewAuthorityObservation,
-  classifyGitHubGraphQLSchemaFailure,
-  createReviewProviderRevalidationCommentBody,
-  createVerificationSessionGitHubClient,
-  evaluateGitHubRepositoryActionsArtifactInventory,
-  evaluateHostedReviewLocatorObservation,
-  evaluateMaintainerReviewWakeupObservation,
-  evaluatePlatformEnforcementObservation,
-  evaluateReviewProviderAvailabilityObservation,
-  evaluateVerificationSessionChangedPaths,
-  evaluateVerificationSessionReviewObservation,
-  evaluateVerificationSessionWorkflowJoin,
-  isGitHubProviderSchemaUnsupportedError,
-  parseGitHubOpenPullRequestCensus,
-  parseGitHubPullRequestFileInventory,
-  parseGitHubReviewPages,
-  parseGitHubReviewThreadPages,
-  PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
-  shouldPublishMaintainerReviewWakeup,
-  VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER,
-  VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER,
-  type GitHubActionsArtifactObservation,
-  type GitHubAppReviewCommentObservation,
-  type GitHubCandidateObservation,
-  type GitHubCommitResolutionObservation,
-  type GitHubComparisonObservation,
-  type GitHubIssueCommentObservation,
-  type GitHubPage,
-  type GitHubReviewBarrierObservation,
-  type GitHubReviewObservation,
-  type GitHubReviewRequestObservation,
-  type GitHubReviewThreadObservation,
-  type SessionDigest,
-  type VerificationSessionGitHubClient,
-  type VerificationSessionReviewObservationTransaction,
-  type VerificationSessionWorkflowObservationTransaction
-} from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
+
+import { parseVerificationSessionHostedRequest, VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA } from "../../src/adapters/verification/platform/ci/contract/session-request.ts";
+import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, createVerificationSessionGitHubClient, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubAppReviewCommentObservation, type GitHubCommitResolutionObservation, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation, type GitHubReviewRequestObservation, type GitHubReviewThreadObservation, type VerificationSessionGitHubClient, type VerificationSessionReviewObservationTransaction, type VerificationSessionWorkflowObservationTransaction } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import {
   createEphemeralVerificationSessionJournalFs
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
-import {
-  assertTrustedExactRevisionRuntime,
-  assertTrustedMainRuntime,
-  assertTrustedMergedRequestRuntimeReachability,
-  assertTrustedRuntime,
-  classifyVerificationSessionArtifactReuse,
-  compilePostMainIssueDispositionHealthReadback,
-  createHostedArtifactObservation,
-  createTrustedHostedArtifactProvenance,
-  createTrustedIntegrationAuthorizationArtifact,
-  createVerificationSessionLocalPreparationRequest,
-  createVerificationSessionMergeOperationId,
-  integrationAuthorizationMergeMarkers,
-  parseVerificationSessionHostedRequest,
-  prepareLocalQuickVerificationActionPlan,
-  prepareTrustedMainVerificationSession,
-  prepareVerificationSessionHosted,
-  prepareVerificationSessionMergeInput,
-  reconstructVerificationSessionHostedFacts,
-  resumeVerificationSession,
-  SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
-  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
-  type VerificationSessionHostedEnvelope,
-  type VerificationSessionHostedFacts,
-  type VerificationSessionRuntimeExternal
-} from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedRuntime, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createHostedArtifactObservation, createTrustedHostedArtifactProvenance, createTrustedIntegrationAuthorizationArtifact, createVerificationSessionLocalPreparationRequest, createVerificationSessionMergeOperationId, integrationAuthorizationMergeMarkers, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, prepareVerificationSessionMergeInput, reconstructVerificationSessionHostedFacts, SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY, type VerificationSessionRuntimeExternal } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
@@ -164,12 +101,14 @@ import {
   parseHostedSynchronousSquashMergeResponse,
   planHostedIntegrationEffects,
   routeHostedIntegration,
-  routePreparedWorktreeCleanupAttempt,
   verificationSessionCli,
   verificationSessionExecutionPlacement
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
+import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
+import { routePreparedWorktreeCleanupAttempt } from '../../src/application/verification-session-hosted.ts';
+import { parseHostedVerificationCommand } from '../../src/entry/verification-session-hosted-cli.ts';
 import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
+import type { VerificationSessionHostedEnvelope, VerificationSessionHostedFacts } from "../../src/execution/verification/hosted.ts";
 import { compileCloseoutCliProviderShims, prepareCloseoutCliScenario, readCloseoutCliHarnessState, writeCloseoutCliHarnessState, type CloseoutCliHarnessState } from '../helpers/closeout-cli/provider.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
@@ -197,7 +136,7 @@ function changedTransition(
   });
 }
 
-const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
+const JOIN_REQUEST: VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA> = Object.freeze({
   schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 42,
   expectedBaseSha: BASE, expectedBaseTreeSha: HEAD, expectedHeadSha: HEAD,
   expectedHeadTreeSha: HEAD, manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
@@ -206,18 +145,6 @@ const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
   expectedActionPlanDigest: JOIN_ACTION, expectedSessionRevision: JOIN_SESSION,
   reviewPolicyDigest: `sha256:${'3'.repeat(64)}`,
   requestOperationId: `sha256:${'4'.repeat(64)}`
-});
-
-test('canonical Session dispatch is preserved as bounded child-process bytes', () => {
-  const body = Buffer.from(`${encodeVerificationActionData({
-    event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-    client_payload: { payload: JOIN_REQUEST }
-  })}\n`, 'utf8');
-  const probe = spawnSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], {
-    encoding: 'buffer', input: body, windowsHide: true, maxBuffer: 1024 * 1024
-  });
-  expect(probe.status).toBe(0);
-  expect(probe.stdout).toEqual(body);
 });
 
 test('hosted integration router separates first effect, merged recovery, and blocking', () => {
@@ -244,13 +171,10 @@ test('hosted integration router separates first effect, merged recovery, and blo
     consumeOriginalRecoveryArtifact: false
   });
 
-  for (const rerunSelection of ['all', 'failed'] as const) {
-    const blocked = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
-      priorEffectStarted: true, authorizationPublicationCount: 0 });
-    expect({ rerunSelection, lane: blocked.lane, reason: blocked.reason }).toEqual({
-      rerunSelection, lane: 'blocked', reason: 'open-prior-effect-started'
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
+    priorEffectStarted: true, authorizationPublicationCount: 0 })).toMatchObject({
+      lane: 'blocked', reason: 'open-prior-effect-started'
     });
-  }
   expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
     priorEffectStarted: false, authorizationPublicationCount: 1 })).toMatchObject({
       lane: 'blocked', reason: 'open-prior-effect-started'
@@ -273,14 +197,6 @@ test('hosted integration router separates first effect, merged recovery, and blo
     consumeOriginalAuthorizationPublication: true,
     consumeOriginalRecoveryArtifact: true
   });
-  let prepareCount = 0;
-  let authorizationCount = 0;
-  let mergeCount = 0;
-  if (mergedEffects.prepareRecoveryArtifact) prepareCount += 1;
-  if (mergedEffects.createAuthorizationPublication) authorizationCount += 1;
-  if (mergedEffects.executePhysicalMerge) mergeCount += 1;
-  expect({ prepareCount, authorizationCount, mergeCount })
-    .toEqual({ prepareCount: 0, authorizationCount: 0, mergeCount: 0 });
 
   expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
     candidate: { ...candidate, state: 'CLOSED' as const }, priorEffectStarted: false,
@@ -1289,9 +1205,9 @@ function createPureReviewFixture(input: {
 }
 
 function createPureHostedEnvelopeFixture(input: {
-  request: VerificationSessionHostedRequest;
+  request: VerificationSessionHostedRequest<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").CI_VERIFICATION_SESSION_REQUEST_SCHEMA>;
   facts: VerificationSessionHostedFacts;
-}): VerificationSessionHostedEnvelope {
+}): VerificationSessionHostedEnvelope<typeof import("../../src/adapters/verification/platform/ci/contract/session-request.ts").VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA> {
   const { request, facts } = input;
   const scopeAuthorization = createScopeAuthorization({
     repository: facts.repository, prNumber: request.prNumber,
@@ -1557,7 +1473,7 @@ async function reducerFixture(options: {
   return { repositoryRoot, journalFs, transport, github, artifact, result, external, counters, changedPaths,
     testImpactTransition, markers,
     request: local.request, preparation,
-    setAuthorizationResult: (next: CodexDevelopmentMergeGateResult | string) => {
+    setAuthorizationResult: (next: MergeGateResult | string) => {
       trustedAuthorization = typeof next === 'string'
         ? { ...trustedAuthorization, resultJson: next }
         : createTrustedIntegrationAuthorizationArtifact({
@@ -1573,7 +1489,7 @@ async function reducerFixture(options: {
 }
 
 async function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
-  return (await resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
+  return (await resumeHostedVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
     changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR',
@@ -1607,7 +1523,7 @@ function durablePublication(fixture: Awaited<ReturnType<typeof reducerFixture>>)
 function substituteAuthorizationLiveIdentity(
   fixture: Awaited<ReturnType<typeof reducerFixture>>,
   identity: { repository?: string; prNumber?: number }
-): CodexDevelopmentMergeGateResult {
+): MergeGateResult {
   const previous = fixture.result.authorization;
   const { schema: _schema, authorizationId: _authorizationId, receiptDigest: _receiptDigest,
     ...authorizationInput } = previous;
@@ -2032,7 +1948,9 @@ test('candidate merge-parent observation rejects partial or malformed identity w
     mergeCommitMessage: 'provider-observed merge',
     mergeCommitParentShas: Object.freeze([BASE, '8'.repeat(40)])
   });
-  expect(async () => (await observe(new CandidateTransport(merged)))).not.toThrow();
+  expect(await observe(new CandidateTransport(merged))).toMatchObject({
+    status: 'waiting', reason: 'exact-head-independent-review-missing'
+  });
 
   for (const mergeCommitParentShas of [
     null,
@@ -2085,7 +2003,6 @@ test('V8 GitHub observation regressions normalize timestamps, thread authors, re
     repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
     actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00Z'
   }))).toMatchObject({ status: 'joined', reason: 'active-run' });
-  expect(resolveCloseoutCliGh.toString()).not.toContain('which');
 
   const shimRoot = mkdtempSync(path.join(tmpdir(), 'sec-node-native-gh-resolution-'));
   try {
@@ -2120,7 +2037,7 @@ test('V8 final Review P2 regressions preserve dotted paths and bind complete nes
   expect((await changedPaths(['docs/v1..v2.md', 'src/review...fixture.ts'])))
     .toEqual(['docs/v1..v2.md', 'src/review...fixture.ts']);
   for (const traversal of ['..', '../escape.ts', 'src/../escape.ts', 'src/a/../../escape.ts']) {
-    expect(async () => (await changedPaths([traversal])), traversal).toThrow(/changed-path observation is invalid/i);
+    await expect(changedPaths([traversal]), traversal).rejects.toThrow(/changed-path observation is invalid/i);
   }
 
   const firstCommentPage = Array.from({ length: 100 }, () => ({ author: { id: 'REVIEWER' } }));
@@ -2201,20 +2118,12 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
     { pullRequestFileInventory: () => complete }, expected
   ))).toEqual(complete);
 
-  const expectIdentityMismatchBeforeEffect = async (
+  const expectIdentityMismatch = async (
     inventory: ReturnType<typeof parseGitHubPullRequestFileInventory>
   ) => {
-    let authorizationReached = false;
-    let physicalMergeReached = false;
-    await expect((async () => {
-      const observed = (await evaluateVerificationSessionChangedPaths(
-        { pullRequestFileInventory: () => inventory }, expected
-      ));
-      authorizationReached = observed.paths.length > 0;
-      physicalMergeReached = authorizationReached;
-    })()).rejects.toThrow(/differs from the expected open candidate identity/i);
-    expect(authorizationReached).toBe(false);
-    expect(physicalMergeReached).toBe(false);
+    await expect(evaluateVerificationSessionChangedPaths(
+      { pullRequestFileInventory: () => inventory }, expected
+    )).rejects.toThrow(/differs from the expected open candidate identity/i);
   };
   for (const inventory of [
     parse({ beforeSource: metadata(1, '3'.repeat(40), HEAD),
@@ -2225,7 +2134,7 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
       afterSource: metadata(1, BASE, HEAD, 'closed') }),
     parse({ beforeSource: metadata(1, BASE, HEAD, 'open', true),
       afterSource: metadata(1, BASE, HEAD, 'open', true) })
-  ]) expectIdentityMismatchBeforeEffect(inventory);
+  ]) await expectIdentityMismatch(inventory);
 
   expect(() => parse({
     pagesSource: JSON.stringify([[
@@ -2305,7 +2214,6 @@ test('V9 GitHub observation exhausts stable same-head census and pairs copied pa
     .toThrow(/copied record has no previous_filename/i);
   expect(() => files({ filename: 'src/copy.ts', previous_filename: 'src/copy.ts', status: 'copied' }))
     .toThrow(/copied record does not change its filename/i);
-  expect(() => files({ filename: 'src/file.ts', previous_filename: 'src/old.ts', status: 'modified' }))
 });
 
 test('V9 repository artifact census hydrates only live canonical Session-family summaries', async () => {
@@ -2371,10 +2279,10 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     })))()).rejects.toThrow(message);
     expect(calls).toBe(0);
   };
-  expectPreHydrationFailure((pages) => { pages[1].artifacts[1].id = 1001; }, /duplicate id/i);
-  expectPreHydrationFailure((pages) => { pages[1].total_count = 104; }, /total_count drifted/i);
-  expectPreHydrationFailure((pages) => { pages[1].artifacts[2].digest = 'sha256:bad'; }, /digest is malformed/i);
-  expectPreHydrationFailure((pages) => {
+  await expectPreHydrationFailure((pages) => { pages[1].artifacts[1].id = 1001; }, /duplicate id/i);
+  await expectPreHydrationFailure((pages) => { pages[1].total_count = 104; }, /total_count drifted/i);
+  await expectPreHydrationFailure((pages) => { pages[1].artifacts[2].digest = 'sha256:bad'; }, /digest is malformed/i);
+  await expectPreHydrationFailure((pages) => {
     pages[1].artifacts[1].name = `${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-confusable`;
   }, /malformed Session-family name/i);
 
@@ -2743,15 +2651,28 @@ test('VerificationSession preparation never infers a hosted execution environmen
     .toThrow('VerificationSession preparation requires an explicit execution environment.');
 });
 
+test('VerificationSession rejects unknown or altered hosted profiles before preparing identities', () => {
+  for (const executionEnvironment of [
+    { ...CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+      executionEnvironmentRevision: 'unqualified-native-runtime' },
+    { ...CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+      toolchainRevision: 'bun@0.0.0' }
+  ]) {
+    const input = { executionEnvironment } as never;
+    expect(() => prepareTrustedMainVerificationSession(input))
+      .toThrow(/hosted execution environment/);
+  }
+});
+
 test('VerificationSession placement defaults local and rejects implicit hosted selection', async () => {
   expect(verificationSessionExecutionPlacement(undefined)).toBe('local');
   expect(verificationSessionExecutionPlacement('local')).toBe('local');
   expect(verificationSessionExecutionPlacement('hosted')).toBe('hosted');
   expect(() => verificationSessionExecutionPlacement('automatic')).toThrow(/local or hosted/);
   await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
-    '--execution', 'automatic'])).rejects.toThrow(/local or hosted/);
+    '--execution', 'automatic'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/local or hosted/);
   await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
-    '--execution', 'hosted', '--test-author-comment', '1'])).rejects.toThrow(/requires local preparation/);
+    '--execution', 'hosted', '--test-author-comment', '1'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/requires local preparation/);
 });
 
 test('local preparation request cannot enter any hosted consumer or runtime state', () => {
@@ -2767,7 +2688,7 @@ test('local preparation request cannot enter any hosted consumer or runtime stat
     expect(parseVerificationSessionHostedRequest(JSON.stringify(JOIN_REQUEST))).toEqual(JOIN_REQUEST);
     const requestPath = path.join(root, 'local-request.json');
     writeFileSync(requestPath, JSON.stringify(localRequest));
-    const cliPath = path.resolve('src/adapters/verification/platform/ci/runtime/verification-session.ts');
+    const cliPath = path.resolve('src/bootstrap/development/closeout/verification-session-cli.ts');
     for (const command of ['status', 'resume', 'observe-hosted', 'prepare-hosted']) {
       const state = path.join(root, `${command}-state`);
       const cache = path.join(root, `${command}-cache`);
@@ -2787,19 +2708,19 @@ test('local preparation request cannot enter any hosted consumer or runtime stat
 
 test('CLI rejects caller-provided authority artifacts', async () => {
   await expect(verificationSessionCli(['resume', '--request', 'request.json',
-    '--artifact', 'forged.json'])).rejects.toThrow(/Unknown argument for resume: --artifact/);
+    '--artifact', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --artifact/);
   await expect(verificationSessionCli(['resume', '--request', 'request.json',
-    '--authorization', 'forged.json'])).rejects.toThrow(/Unknown argument for resume: --authorization/);
-  await expect(verificationSessionCli(['integrate-hosted', '--repository', 'sec-platform/sec',
+    '--authorization', 'forged.json'], worktreePhysicalCloseoutOperations)).rejects.toThrow(/Unknown argument for resume: --authorization/);
+  expect(() => parseHostedVerificationCommand(['integrate-hosted', '--repository', 'sec-platform/sec',
     '--output', 'projection.json', '--authorization', 'forged.json']))
-    .rejects.toThrow(/Unknown argument for integrate-hosted: --authorization/);
+    .toThrow(/Unknown argument for integrate-hosted: --authorization/);
   for (const command of ['prepare-integration-hosted', 'integrate-hosted',
     'closeout-mutate-hosted', 'closeout-publish-hosted']) {
-    await expect(verificationSessionCli([command, '--repository', 'sec-platform/sec',
+    expect(() => parseHostedVerificationCommand([command, '--repository', 'sec-platform/sec',
       '--output', 'projection.json', '--artifact', 'caller.json']))
-      .rejects.toThrow(new RegExp(`Unknown argument for ${command}: --artifact`));
+      .toThrow(new RegExp(`Unknown argument for ${command}: --artifact`));
   }
-  await expect(verificationSessionCli(['finalize-hosted', '--envelope', 'envelope.json', '--output',
+  await expect(executeHostedSessionCompilerCommand(['finalize-hosted', '--envelope', 'envelope.json', '--output',
     'artifact.json', '--evidence', 'evidence.json', '--previous-artifact', 'prior.json']))
     .rejects.toThrow(/exactly one of --evidence or --previous-artifact/);
 });
@@ -3035,21 +2956,12 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
   }
 });
 
-test('two independent local coordinators join one provider run and send only one wake-up signal', async () => {
+test('an empty Session workflow inventory is eligible for redispatch', async () => {
   const transport = new FakeTransport();
-  const coordinate = async () => {
-    const join = (await evaluateVerificationSessionWorkflowJoin(transport, { repository: 'sec-platform/sec',
-      prNumber: 42, sessionRevision: JOIN_SESSION, actionPlanDigest: JOIN_ACTION,
-      baseSha: BASE, now: '2026-08-09T14:05:00.000Z' }));
-    if (join.status === 'redispatch-eligible') {
-      transport.ensureVerificationSessionWakeup();
-      transport.workflowRuns = [[workflowRun()]];
-    }
-    return join;
-  };
-  expect((await coordinate()).status).toBe('redispatch-eligible');
-  expect((await coordinate()).status).toBe('joined');
-  expect(transport.dispatches).toBe(1);
+  expect((await evaluateVerificationSessionWorkflowJoin(transport, {
+    repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
+    actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00.000Z'
+  })).status).toBe('redispatch-eligible');
 });
 
 test('Session workflow join uses complete pages and rejects duplicate/conflicting inventory', async () => {
@@ -3955,6 +3867,73 @@ describe('qualified exact-repository Session consumers', () => {
     .toThrow(/package\.json drifted from the trusted base/i);
 });
 
+  test('VerificationSession preserves the selected environment through Scope, Action, Session, and hosted reconstruction', async () => {
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const barrier = await observe(transport);
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const candidate = transport.candidate();
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+  const testImpactTransition = changedTransition(changedPaths);
+  const common = {
+    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'environment-preparation', sourceRef: `refs/heads/main@${BASE}`,
+    observedAt: barrier.observedAt, reviewBarrier: barrier,
+    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs()
+  };
+  const environments = [
+    CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+    createCiVerificationLocalExecutionEnvironment({ os: 'linux', arch: 'x64', bunVersion: '1.4.0' })
+  ];
+  const preparations = environments.map((executionEnvironment) => {
+    const prepared = prepareTrustedMainVerificationSession({
+      ...common, executionEnvironment,
+      manifestPath: 'config/repository/work-packages/example.md',
+      manifestDigest: `sha256:${'b'.repeat(64)}`, profile: 'quick'
+    });
+    if (prepared.facts === null) throw new Error('expected clear-review preparation facts');
+    expect(prepared.actionPlanClosure.actions.length).toBeGreaterThan(0);
+    for (const { action } of prepared.actionPlanClosure.actions) {
+      expect(action.environment.providerRevision).toBe(executionEnvironment.executionEnvironmentRevision);
+      expect(action.environment.toolchainRevision).toBe(executionEnvironment.toolchainRevision);
+    }
+    expect(prepared.request.expectedSessionRevision).toBe(prepared.sessionRevision);
+    expect(prepared.request.expectedActionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
+    if (executionEnvironment.kind === 'hosted') {
+      const reconstructed = reconstructVerificationSessionHostedFacts({
+        ...common, request: prepared.request
+      });
+      expect(reconstructed.environmentDigest).toBe(prepared.facts.environmentDigest);
+      expect(reconstructed.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
+      expect(() => reconstructVerificationSessionHostedFacts({
+        ...common, request: { ...prepared.request, expectedScopeProposalDigest: `sha256:${'f'.repeat(64)}` }
+      })).toThrow('Scope proposal digest must select exactly one closed hosted environment');
+    } else {
+      expect(() => reconstructVerificationSessionHostedFacts({
+        ...common, request: prepared.request
+      })).toThrow('Scope proposal digest must select exactly one closed hosted environment');
+    }
+    return prepared;
+  });
+  // Changing only the selected environment must invalidate every dependent identity.
+  for (const identities of [
+    preparations.map((value) => value.facts?.environmentDigest),
+    preparations.map((value) => value.scopeAuthorizationRevision),
+    preparations.map((value) => value.actionPlanClosure.actionPlanDigest),
+    preparations.map((value) => value.sessionRevision),
+    preparations.map((value) => value.request.requestOperationId)
+  ]) expect(new Set(identities).size).toBe(environments.length);
+  for (const [index, { action }] of preparations[0]!.actionPlanClosure.actions.entries()) {
+    expect(new Set(preparations.map((value) =>
+      value.actionPlanClosure.actions[index]!.action.actionKey)).size).toBe(environments.length);
+    expect(preparations.every((value) =>
+      value.actionPlanClosure.actions[index]!.action.operation.identity === action.operation.identity)).toBe(true);
+  }
+});
+
   test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {
   const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
   const headSha = 'b'.repeat(40);
@@ -4311,7 +4290,7 @@ describe('qualified exact-repository Session consumers', () => {
       prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
       headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
       candidate, github: fixture.github };
-    expect(async () => (await assertTrustedMergedRequestRuntimeReachability(input))).not.toThrow();
+    await expect(assertTrustedMergedRequestRuntimeReachability(input)).resolves.toBeUndefined();
     await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
     await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,

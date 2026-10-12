@@ -1,5 +1,5 @@
-import { compareCodeUnits } from '../../contracts/canonical.ts';
-import { SecError } from '../../contracts/failure.ts';
+import { compareCodeUnits, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticContract } from './types.ts';
 
 /** v1 machine components are literal, never escaped. Labels and business values are not components. */
@@ -10,7 +10,7 @@ export function isSemanticIdentityComponent(value: unknown, fieldTarget = false)
 
 export function assertSemanticIdentityComponent(value: unknown, context: string, fieldTarget = false): asserts value is string {
   if (!isSemanticIdentityComponent(value, fieldTarget)) {
-    throw new SecError('CONTRACT-SEMANTIC-024', `${context} requires a literal non-empty, trimmed identity component without colon, NUL${fieldTarget ? ' or dot' : ''}`);
+    throw new CodedFailure('CONTRACT-SEMANTIC-024', `${context} requires a literal non-empty, trimmed identity component without colon, NUL${fieldTarget ? ' or dot' : ''}`);
   }
 }
 
@@ -20,7 +20,7 @@ export function semanticReferenceParts(reference: string): { qualifier?: string;
     assertSemanticIdentityComponent(reference, 'Semantic reference');
     return { id: reference };
   }
-  if (parts.length !== 2) throw new SecError('CONTRACT-SEMANTIC-018', `Malformed qualified semantic reference "${reference}"`);
+  if (parts.length !== 2) throw new CodedFailure('CONTRACT-SEMANTIC-018', `Malformed qualified semantic reference "${reference}"`);
   assertSemanticIdentityComponent(parts[0], 'Semantic reference qualifier');
   assertSemanticIdentityComponent(parts[1], 'Semantic reference id');
   return { qualifier: parts[0]!, id: parts[1]! };
@@ -28,7 +28,7 @@ export function semanticReferenceParts(reference: string): { qualifier?: string;
 
 export function semanticTargetParts(target: string): { entityId: string; fieldId?: string } {
   const parts = target.split('.');
-  if (parts.length > 2) throw new SecError('CONTRACT-SEMANTIC-024', `Malformed entity/field target "${target}"`);
+  if (parts.length > 2) throw new CodedFailure('CONTRACT-SEMANTIC-024', `Malformed entity/field target "${target}"`);
   assertSemanticIdentityComponent(parts[0], 'Entity target', true);
   if (parts.length === 2) assertSemanticIdentityComponent(parts[1], 'Field target', true);
   return { entityId: parts[0]!, ...(parts.length === 2 ? { fieldId: parts[1]! } : {}) };
@@ -46,12 +46,8 @@ export function compareSemanticTuple(left: readonly (string | undefined)[], righ
 }
 
 export function uniqueSortedSemanticTuples<Value>(values: readonly Value[], tuple: (value: Value) => readonly (string | undefined)[]): Value[] {
-  const byTuple = new Map<string, { value: Value; components: readonly (string | undefined)[] }>();
-  for (const value of values) {
-    const components = tuple(value);
-    byTuple.set(JSON.stringify(components), { value, components });
-  }
-  return [...byTuple.values()].sort((left, right) => compareSemanticTuple(left.components, right.components)).map(({ value }) => value);
+  return uniqueSortedByKey(values, (value) => JSON.stringify(tuple(value)))
+    .sort((left, right) => compareSemanticTuple(tuple(left), tuple(right)));
 }
 
 /** Also used by the linker, whose typed callers can bypass source normalization. */

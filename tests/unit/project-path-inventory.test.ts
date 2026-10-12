@@ -38,6 +38,6 @@ for (const paths of [['Src/a.ts', 'src/a.ts'], ['StraÃŸe/a', 'STRASSE/a'], ['x/Ã
 test('slot accessors and non-string coercions are rejected without execution', () => {
   const paths: string[] = [];
   Object.defineProperty(paths, 0, { get() { assert.fail('slot accessor'); } });
-  assert.throws(() => captureProjectPathInventory(paths, 'reject', 'scope'));
-  assert.throws(() => captureProjectPathInventory([{ toString() { assert.fail('coercion'); } }] as never, 'reject', 'scope'));
+  assert.throws(() => captureProjectPathInventory(paths, 'reject', 'scope'), TypeError);
+  assert.throws(() => captureProjectPathInventory([{ toString() { assert.fail('coercion'); } }] as never, 'reject', 'scope'), TypeError);
 });

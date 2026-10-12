@@ -1,14 +1,14 @@
 ## Problem and resulting behavior
 
-Describe the concrete trigger, the previous behavior, and the resulting behavior.
+<!-- Describe the trigger or need, the previous behavior, and what this change does. -->
 
 ## Scope and ownership
 
-Identify the canonical owner changed by this pull request and any intentionally unresolved scope.
+<!-- Identify the responsible module or document and any scope left open. If this replaces another PR, link it and explain why. -->
 
 ## Validation
 
-List the checks or exact evidence that cover this change. State material limitations instead of inferring broader completion.
+<!-- List the checks, results, and revision covered. State failed, blocked, or unrun checks and link detailed evidence where needed. Remove this guidance when filling in the description. -->
 
 ## Checklist
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import {
   auditRepository,
   extractHeuristicBehaviorCandidates,
@@ -15,14 +16,15 @@ import {
   repositoryAuditSupersessionShouldBlock
 } from '../../src/adapters/repository/repository-audit/cli.ts';
 import {
-  SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
-  SEC_REPOSITORY_HEURISTIC_ROUTES
+  AGENT_SKILL_IDS,
+  REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
+  REPOSITORY_HEURISTIC_ROUTES
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
+    env: canonicalGitChildEnvironment(),
     encoding: 'utf8',
     windowsHide: true
   });
@@ -34,9 +36,9 @@ function git(repositoryRoot: string, args: readonly string[]): string {
 }
 
 test('heuristic registry contains no copied machine capability graph', () => {
-  expect(SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
-  const routes = Object.values(SEC_REPOSITORY_HEURISTIC_ROUTES);
-  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
+  expect(REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(AGENT_SKILL_IDS.length);
+  const routes = Object.values(REPOSITORY_HEURISTIC_ROUTES);
+  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(AGENT_SKILL_IDS));
   for (const route of routes) expect('operation' in route).toBeFalse();
 });
 

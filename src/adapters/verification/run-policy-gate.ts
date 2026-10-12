@@ -4,7 +4,7 @@ import {
   preparePolicyGateEvaluation,
   type PolicyGateObservation
 } from '../../assurance/policies/gate.ts';
-import { CompilerError } from '../../compiler/errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { resolvePathInside } from '../../contracts/relative-path.ts';
 import type { PolicyReport } from '../../semantics/policies/types.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
@@ -19,7 +19,7 @@ import {
 function readPolicyTarget(workspaceRoot: string, targetFile: string): string {
   const absolutePath = resolvePathInside(workspaceRoot, targetFile);
   if (absolutePath === null) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-POLICY-002',
       `Policy target path escapes the workspace root: ${targetFile}`
     );
@@ -29,7 +29,7 @@ function readPolicyTarget(workspaceRoot: string, targetFile: string): string {
     `Policy target ${targetFile}`
   );
   if (bytes === null) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-POLICY-003',
       `Applicable policy target is missing: ${targetFile}`
     );
@@ -37,7 +37,7 @@ function readPolicyTarget(workspaceRoot: string, targetFile: string): string {
   try {
     return decodeExactUtf8(bytes, `Policy target ${targetFile}`);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-POLICY-004',
       `Applicable policy target is not exact UTF-8: ${targetFile}`,
       { cause: error instanceof Error ? error.message : String(error) }
@@ -57,7 +57,7 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
   try {
     workspaceInput = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-POLICY-001',
       'Policy applicability cannot be resolved without one readable canonical Lock',
       { cause: error instanceof Error ? error.message : String(error) }
