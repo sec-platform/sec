@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { CodexDevelopmentParseRollingPlan } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import type { SecCurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
@@ -15,7 +16,6 @@ import {
   renderSecWorkRollingPlan,
   renderSecWorkRollingProposalPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { CodexDevelopmentParseRollingPlan } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
@@ -109,7 +109,6 @@ test('one live work can be selected without manufacturing successor candidates',
 
 test('terminal compaction can retire the last work item to an empty catalog', () => {
   const source = oneItemCatalogSource();
-  const catalog = parseSecRoadmapWorkCatalog(source);
   const closedSpec = createSecWorkCurrentSpecObservation({
     workId: 'issue-1',
     currentSpecRef: 'github:issue/1',

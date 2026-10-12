@@ -274,11 +274,11 @@ def source_files(root: Path) -> tuple[Path, ...]:
     return tuple(sorted(files, key=lambda entry: entry.relative_to(root).as_posix()))
 
 
-def documentation_files(root: Path, include_cache: bool = True) -> tuple[Path, ...]:
+def documentation_files(root: Path, include_cache: bool = True, *, include_projections: bool = True) -> tuple[Path, ...]:
     """Reading/delivery envelope: source plus whichever registered outputs are present."""
     root = _root(root)
     files = set(source_files(root))
-    selected = EXCLUDED_FROM_SOURCE_HASH if include_cache else PROJECTION_PATHS
+    selected = (PROJECTION_PATHS if include_projections else frozenset()) | (CACHE_PATHS if include_cache else frozenset())
     for name in selected:
         path = local_path(root, name)
         parent = local_path(root, path.parent.relative_to(root).as_posix())

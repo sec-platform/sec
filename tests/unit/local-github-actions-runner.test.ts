@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   createDockerEndpointIdentity,
   type DockerEndpointIdentity
@@ -40,6 +39,7 @@ import {
   type LocalGitHubActionsRunnerInstance,
   type LocalGitHubActionsRunnerRole
 } from '../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';

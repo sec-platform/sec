@@ -3,6 +3,9 @@ import { expect, test } from 'bun:test';
 import {
   compileMissingOrStalePlanV1
 } from '../../src/adapters/self-hosting/control/development-critical-path/action-plan.ts';
+import type {
+  CriticalPathDigest
+} from '../../src/adapters/self-hosting/control/development-critical-path/common.ts';
 import {
   compileMainDeltaProposalV1
 } from '../../src/adapters/self-hosting/control/development-critical-path/main-delta.ts';
@@ -13,9 +16,6 @@ import {
   compileProviderEnsurePlanV1,
   type ProviderEnsurePlanV1
 } from '../../src/adapters/self-hosting/control/development-critical-path/provider-ensure.ts';
-import type {
-  CriticalPathDigest
-} from '../../src/adapters/self-hosting/control/development-critical-path/common.ts';
 
 const d = (character: string): CriticalPathDigest => `sha256:${character.repeat(64)}`;
 

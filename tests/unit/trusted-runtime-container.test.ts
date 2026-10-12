@@ -10,6 +10,13 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../src/adapters/providers/linux-verification/contract.ts';
 import {
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+  createTrustedRuntimeMainHealthReceipt,
+  parseTrustedRuntimeMainHealthReceipt,
+  trustedRuntimeMainHealthReceiptLocator
+} from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import {
   TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
   TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
@@ -31,13 +38,6 @@ import {
   parseTrustedRuntimeContainerIdentity,
   renderTrustedRuntimeCommandFailureDetail
 } from '../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
-import {
-  createTrustedRuntimeMainHealthReceipt,
-  parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
-  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
-} from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,

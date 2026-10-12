@@ -10,12 +10,12 @@ import {
   assertGitLocalRefDeleteBatchReceipt,
   deleteExactGitRef,
   deleteExactLocalGitRefs,
-  type GitLocalRefDeleteBatchReceipt,
   GitLocalRefDeleteAtomicityUnavailableError,
   GitLocalRefDeleteBlockedError,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT,
-  measureExactLocalGitRefDeleteBatchAggregateInputBytes
+  measureExactLocalGitRefDeleteBatchAggregateInputBytes,
+  type GitLocalRefDeleteBatchReceipt
 } from '../../../providers/git/ref-effect.ts';
 import {
   executeGitHubApiOperation,
@@ -30,8 +30,8 @@ import {
 import { inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
   acknowledgeDevelopmentCommitJournalsForLocalRefRetirement,
+  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
   prepareDevelopmentCommitJournalsForLocalRefRetirement
 } from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';

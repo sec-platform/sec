@@ -21,8 +21,8 @@ import {
 import {
   type VerificationSessionHostedEnvelope
 } from './runtime/verification-session-runtime.ts';
-import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, ciActionDigest, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedActionStartObservation, CodexDevelopmentHostedActionTerminalAnchorObservation } from './verification-hosted-action-contract.ts';
+import { CI_VERIFICATION_ACTION_COORDINATION_SCHEMA, ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, INVALIDATION_RULES, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import { hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
 
 export function CodexDevelopmentParseHostedActionRawResult(

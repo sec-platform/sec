@@ -10,8 +10,8 @@ last-reviewed: 2026-10-13
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/main-health-hosted-recovery-20261013.md
-manifestDigest: sha256:5b0fddc4c8b38d38ac43bb77b1b36acfb69f9e928a687f41f61516a264e87e85
+manifest: config/repository/work-packages/main-source-health-repair-20261013.md
+manifestDigest: sha256:95315c1c3a0aa361548f76f1237a43fbf8996af1959554aca1ed283bb6e62e7d
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

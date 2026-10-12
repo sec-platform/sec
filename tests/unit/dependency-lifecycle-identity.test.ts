@@ -6,8 +6,8 @@ import {
   bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot, birthAndBindCompilerDependencyGeneration,
   compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  settleRetiredCompilerDependencyGeneration,
-  legacySharedDependencyRetirementExpectation
+  legacySharedDependencyRetirementExpectation,
+  settleRetiredCompilerDependencyGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 

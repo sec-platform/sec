@@ -62,7 +62,8 @@ function decide(value: unknown, overrides: Partial<{
 }
 
 test('degraded exact-main repair decision binds the whole routing identity', () => {
-  const result = decide(ledger());
+  const originalLedger = ledger();
+  const result = decide(originalLedger);
   expect(result.status).toBe('repair-ready');
   expect(result.routingState).toBe('repair-only');
   expect(result.reasonCode).toBe('repair-ready');
@@ -77,6 +78,13 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
   expect(result.binding?.packageId).toBe(result.binding?.manifestPath
     .slice('config/repository/work-packages/'.length, -'.md'.length));
   expect(result.binding?.healthRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(result.binding?.ledgerDigest).toBe(originalLedger.ledgerDigest);
+  const refreshedLedger = ledger({ observedAt: '2026-08-12T00:01:00.000Z' });
+  const refreshed = decide(refreshedLedger, { now: refreshedLedger.observedAt });
+  expect(refreshed.binding?.healthRevision).toBe(result.binding?.healthRevision);
+  expect(refreshed.binding?.ledgerDigest).toBe(refreshedLedger.ledgerDigest);
+  expect(refreshed.binding?.ledgerDigest).not.toBe(result.binding?.ledgerDigest);
+  expect(refreshed.decisionDigest).not.toBe(result.decisionDigest);
   expect(result.decisionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(Object.isFrozen(result)).toBe(true);
   expect(Object.isFrozen(result.binding)).toBe(true);
