@@ -53,11 +53,12 @@ test('current documentation paths and stable identities come from the SEC-086 id
   expect(currentActiveDocumentationPaths()).toEqual([
     '.documentation/baseline.json',
     '.documentation/documents.json',
-    '.documentation/source-manifest.json',
     ...registry.documents.map(({ path }) => path)
   ].sort());
   expect(isActiveDocumentationPath('docs/维护/文档身份与重组协议.md')).toBe(true);
   expect(isActiveDocumentationPath('docs/authority.json')).toBe(false);
+  expect(isActiveDocumentationPath('.documentation/source-manifest.json')).toBe(false);
+  expect(isActiveDocumentationPath('.documentation/requirements.json')).toBe(false);
   expect(activeDocumentationRecord('AGENTS.md')).toEqual({
     documentId: 'urn:uuid:d4f25365-130a-5c38-bba7-ea1d5b89c8af',
     path: 'AGENTS.md'

@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
+  "schema": "gift.author-module/1",
   "moduleId": "example:deliverable:gpukernel",
   "namespace": "example:deliverable:gpukernel",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },

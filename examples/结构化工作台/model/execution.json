@@ -1,25 +1,25 @@
 {
-  "schema": "sec.author-module/1",
+  "schema": "gift.author-module/1",
   "moduleId": "studio:execution",
   "namespace": "studio.execution",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
   "imports": {
     "ide": {
       "mode": "workspace",
-      "moduleId": "sec/spec/ide"
+      "moduleId": "gift/spec/ide"
     },
     "execution": {
       "mode": "workspace",
-      "moduleId": "sec/spec/execution"
+      "moduleId": "gift/spec/execution"
     },
     "vcs": {
       "mode": "workspace",
-      "moduleId": "sec/spec/vcs"
+      "moduleId": "gift/spec/vcs"
     }
   },
   "definitions": {

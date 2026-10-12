@@ -1,6 +1,6 @@
 {
-  "schema": "sec.project/1",
-  "projectId": "sec-example:complete-deliverables",
+  "schema": "gift.project/1",
+  "projectId": "gift-example:complete-deliverables",
   "sourceScopes": [
     {
       "root": ".",

@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
+  "schema": "gift.author-module/1",
   "moduleId": "example:deliverable:windowstream",
   "namespace": "example:deliverable:windowstream",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },

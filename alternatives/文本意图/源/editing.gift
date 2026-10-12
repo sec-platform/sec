@@ -1,6 +1,6 @@
 // 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
-import "sec/spec/ide" as ide;
-import "sec/spec/editing" as editing;
+import "gift/spec/ide" as ide;
+import "gift/spec/editing" as editing;
 
 export design Editing(s: ide.Workbench) {
   require editing.Documents {

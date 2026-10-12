@@ -1,6 +1,6 @@
 # Rust目标画像与降低
 
-> **范围**：Rust 已进入当前通用目标语言计划；TypeScript 仍先行。本篇闭合 Rust 目标的设计边界，不表示后端、工具链、Cargo、ABI、调试或运行符合性已经实现，也不授权迁写 SEC 核心。
+> **范围**：Rust 已进入当前通用目标语言计划；TypeScript 仍先行。本篇闭合 Rust 目标的设计边界，不表示后端、工具链、Cargo、ABI、调试或运行符合性已经实现，也不授权迁写 Gift 核心。
 
 本篇是 [目标组织](README.md)、[原生能力映射](../原生映射/README.md) 和 [原生与跨语言编译](../内核/原生与跨语言编译.md) 在 Rust 输出上的具体消费。作者语义、对象/资源/数值/原子规则仍由其原 owner 拥有；这里固定怎样选择实际 Rust 工具链、怎样降低已绑定语义、怎样组成 crate/产物以及怎样保留诊断与再次修改。Rust 的缺失或额外能力不能反向修改原 Requirement，目标能够表达某种写法也不证明本次 MethodSpec、依赖或运行环境已经合格。
 
@@ -14,7 +14,7 @@
 4. 用实际 rustc/Cargo/链接器取得所请求级别的证据；
 5. 保存目标源码及来源映射；若允许目标编辑，再沿既有 EditCorrespondence 回源。
 
-Rust 是目标语言，不是新的 SEC 语义真源。已有 Rust 原生作者区域继续保持其 own source 与真实语言解释；如果它已经满足本次根，可直接绑定/重导出，不生成同义 Rust 副本。外部 C/C++、Wasm、GPU 或系统库仍只是明确依赖或原生边界，不因为 Rust 目标存在就变成“纯 Rust 实现”。
+Rust 是目标语言，不是新的 Gift 语义真源。已有 Rust 原生作者区域继续保持其 own source 与真实语言解释；如果它已经满足本次根，可直接绑定/重导出，不生成同义 Rust 副本。外部 C/C++、Wasm、GPU 或系统库仍只是明确依赖或原生边界，不因为 Rust 目标存在就变成“纯 Rust 实现”。
 
 ## 2. 请求画像与解析后的精确绑定
 
@@ -85,7 +85,7 @@ workspace 只在多根真实共享代码、配置或依赖时建立；单库不�
 | F32/F64 | `f32/f64` | 动态舍入、扩展精度、代数优化见数值画像 |
 | Text | `String`、`&str` 或其他已选编码边界 | 拥有/借用、UTF 合法性、FFI/bytes |
 | Bytes | `Vec<u8>`、`&[u8]`、固定数组或实际 buffer 类型 | 地址稳定、零拷贝、共享内存 |
-| 固定数组 | `[T; N]`（当目标可表达） | 复杂 const 表达式可先由 SEC 具体化；不能冒领开放原生泛型 |
+| 固定数组 | `[T; N]`（当目标可表达） | 复杂 const 表达式可先由 Gift 具体化；不能冒领开放原生泛型 |
 | List/Sequence | `Vec<T>` 或明确容器 | allocator、no_std、稳定地址及外部接口 |
 | Record | `struct` | field visibility、layout、repr、非字节字段 |
 | Sum/Variant | `enum` | wire tag、FFI representation、unknown variant |
@@ -100,7 +100,7 @@ workspace 只在多根真实共享代码、配置或依赖时建立；单库不�
 
 ## 5. 所有权、借用、初始化与清理
 
-Rust lowering 只在 SEC 已有所有权/寿命事实足以证明时生成安全引用。无法证明全局别名不存在时选择拥有复制、受管句柄、锁/guard、raw/unsafe 适配或准确 Unsupported，不能先造 `&mut T` 再运行检查。
+Rust lowering 只在 Gift 已有所有权/寿命事实足以证明时生成安全引用。无法证明全局别名不存在时选择拥有复制、受管句柄、锁/guard、raw/unsafe 适配或准确 Unsupported，不能先造 `&mut T` 再运行检查。
 
 - **Own**：移动后旧绑定不再可用；若源语义要求 moved-from 对象继续存在，使用已选 transfer/adapter，不把 Rust move 冒充 C++ move constructor；
 - **Borrow**：生命周期来源于真实 owner/调用边界，不能跨越异步挂起、线程迁移或模块卸载而失去前提；
@@ -129,22 +129,22 @@ Rust lowering 只在 SEC 已有所有权/寿命事实足以证明时生成安全
 
 Rust 原生泛型只在它真实表达所需接口时保留。目标选择按[四种导出边界](../原生映射/采用与导出边界.md)区分：
 
-1. **可继续实例化的 SEC 定义**：交付定义与工具依赖，下游仍由 SEC 处理；
+1. **可继续实例化的 Gift 定义**：交付定义与工具依赖，下游仍由 Gift 处理；
 2. **Rust 原生泛型**：生成可由 rustc 对未来参数继续实例化的合法泛型；
-3. **有限实例集合**：SEC 已经单态化为具体 Rust 成员；
+3. **有限实例集合**：Gift 已经单态化为具体 Rust 成员；
 4. **动态字典/对象接口**：运行时选择，承担实际间接调用、元数据与资源成本。
 
-参数包、复杂 const 表达式、specialization 和静态反射可在 SEC 编译期消去，再输出普通 Rust。消去后仍可观察的布局、地址、错误、分配、原子与公开 API 差异必须保留。不能因为若干已知 T 成功生成就声称任意下游 T 获得同形 Rust 泛型 API。
+参数包、复杂 const 表达式、specialization 和静态反射可在 Gift 编译期消去，再输出普通 Rust。消去后仍可观察的布局、地址、错误、分配、原子与公开 API 差异必须保留。不能因为若干已知 T 成功生成就声称任意下游 T 获得同形 Rust 泛型 API。
 
-Rust `const fn`/const generic 的实际可用范围由固定 toolchain 能力确定；需要 SEC compile-only 的元方法不必强迫 rustc 也支持同一元程序。运行时不需要的反射元数据不进入产物。
+Rust `const fn`/const generic 的实际可用范围由固定 toolchain 能力确定；需要 Gift compile-only 的元方法不必强迫 rustc 也支持同一元程序。运行时不需要的反射元数据不进入产物。
 
 ## 8. 模块、可见性、名字与源码结构
 
 默认一个语义 module 对应稳定、可维护的 Rust module 区域；生成器可为循环声明、公开 API、私有 helper 与目标布局选择更合适的文件边界，但不能改变公共路径而无迁移说明。
 
 - public boundary 使用 `pub` / `pub(crate)` / private 等实际 Rust 可见性；
-- SEC 的现实授权、秘密和运行 permission 不由 Rust visibility 代替；
-- 保留作者明确公共名字；机械 helper 采用确定性且冲突安全的名字，不向用户 API 强加 `sec_` 前缀；
+- Gift 的现实授权、秘密和运行 permission 不由 Rust visibility 代替；
+- 保留作者明确公共名字；机械 helper 采用确定性且冲突安全的名字，不向用户 API 强加 `gift_` 前缀；
 - 关键字、Unicode 与 filesystem portability 由目标命名规则解决；
 - module re-export 只有在无语义差额时直接使用；需要适配才生成 wrapper；
 - 原生 Rust hand-written 区域不因同名被生成器接管。
@@ -231,11 +231,11 @@ Rust 根的成员按[完整产物](成员布局与完整产物.md)组织，典�
 - 可执行/库产物（当任务要求构建）；
 - 调试信息、测试、benchmark 仅在相应任务需要时加入。
 
-SEC 内部控制数据库、全部证据图和未请求测试不自动进入用户发行。反之，应用实际需要的 runtime/native 资源不能因为“不是 Rust 源码”被漏掉。
+Gift 内部控制数据库、全部证据图和未请求测试不自动进入用户发行。反之，应用实际需要的 runtime/native 资源不能因为“不是 Rust 源码”被漏掉。
 
 ## 15. 受管目标编辑与再次修改
 
-生成 Rust 是可读、可调试的目标，不等于所有 Rust 修改都可逆回 SEC 作者源。
+生成 Rust 是可读、可调试的目标，不等于所有 Rust 修改都可逆回 Gift 作者源。
 
 - 无语义差额的字面量/局部表达式/明确参数修改可由 EditCorrespondence 转回原作者位置；
 - helper 展开、多处共享定义、特化、所有权/借用重构、ABI/unsafe 区域等只有存在唯一/受管逆映射时自动回源；

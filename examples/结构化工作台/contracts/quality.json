@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/quality",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/quality",
   "namespace": "spec.quality",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -14,42 +14,42 @@
       "kind": "req:enum-value",
       "name": "ResidentMemory",
       "body": {
-        "nominalIdentity": "sec/spec/quality#ResidentMemory"
+        "nominalIdentity": "gift/spec/quality#ResidentMemory"
       }
     },
     "v:Explicit": {
       "kind": "req:enum-value",
       "name": "Explicit",
       "body": {
-        "nominalIdentity": "sec/spec/quality#Explicit"
+        "nominalIdentity": "gift/spec/quality#Explicit"
       }
     },
     "v:InteractiveLatency": {
       "kind": "req:enum-value",
       "name": "InteractiveLatency",
       "body": {
-        "nominalIdentity": "sec/spec/quality#InteractiveLatency"
+        "nominalIdentity": "gift/spec/quality#InteractiveLatency"
       }
     },
     "v:BoundedQueueOrReject": {
       "kind": "req:enum-value",
       "name": "BoundedQueueOrReject",
       "body": {
-        "nominalIdentity": "sec/spec/quality#BoundedQueueOrReject"
+        "nominalIdentity": "gift/spec/quality#BoundedQueueOrReject"
       }
     },
     "v:DeclaredWorkload": {
       "kind": "req:enum-value",
       "name": "DeclaredWorkload",
       "body": {
-        "nominalIdentity": "sec/spec/quality#DeclaredWorkload"
+        "nominalIdentity": "gift/spec/quality#DeclaredWorkload"
       }
     },
     "v:LimitsFromRuntimeProfile": {
       "kind": "req:enum-value",
       "name": "LimitsFromRuntimeProfile",
       "body": {
-        "nominalIdentity": "sec/spec/quality#LimitsFromRuntimeProfile"
+        "nominalIdentity": "gift/spec/quality#LimitsFromRuntimeProfile"
       }
     },
     "r:Admission": {
@@ -73,7 +73,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/quality#LimitsFromRuntimeProfile"
+                "gift/spec/quality#LimitsFromRuntimeProfile"
               ]
             },
             "meaning": "使用被绑定部署配置中的容量，不伪造未测性能数值"
@@ -83,7 +83,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/quality#BoundedQueueOrReject"
+                "gift/spec/quality#BoundedQueueOrReject"
               ]
             },
             "meaning": "内存/并发/待办有实际界限，超限暂停或拒绝"
@@ -93,7 +93,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/quality#Explicit"
+                "gift/spec/quality#Explicit"
               ]
             },
             "meaning": "截断、丢弃、取消和未完成可观察"
@@ -102,7 +102,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "quality.Admission",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -129,8 +129,8 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/quality#ResidentMemory",
-                "sec/spec/quality#InteractiveLatency"
+                "gift/spec/quality#ResidentMemory",
+                "gift/spec/quality#InteractiveLatency"
               ]
             },
             "meaning": "驻留内存；第二条可以用InteractiveLatency"
@@ -147,7 +147,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/quality#DeclaredWorkload"
+                "gift/spec/quality#DeclaredWorkload"
               ]
             },
             "meaning": "比较按目标相同且明确的工作负载；未测为未知"
@@ -156,7 +156,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "quality.Cost",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -190,9 +190,9 @@
     }
   },
   "extensions": {
-    "sec.documentation-derived/1": {
+    "gift.documentation-derived/1": {
       "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
       "editable": false,
       "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }

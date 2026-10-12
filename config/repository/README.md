@@ -11,7 +11,7 @@ last-reviewed: 2026-09-20
 - `rolling-plan.md` 只保存一个当前包和至多五个条件候选；候选可以为空，且不是授权。
 - `active-work-package.md` 只保存 frozen manifest path 与 raw Git blob digest。
 
-Work Package 的版本、准确候选绑定与读者先行迁移见[清单格式与候选绑定](../../docs/开发/AI协作/规则装载与任务恢复.md#repository-work-package-format-and-binding)。
+Work Package 的版本、准确候选绑定与读者先行迁移见[清单格式与候选绑定](../../docs/开发/仓库维护/工作身份与续接.md#repository-work-package-format-and-binding)。
 
 持久工作身份/current spec归既有Issue或canonical machine owner，长期依赖归work-selection catalog；
 `src/adapters/self-hosting/control/work-selection/contract.ts`拥有`WorkDecision` eligibility/priority与冲突裁决，`live-contract.ts`拥有catalog/current-spec绑定和rolling projection，rolling plan只投影结果。

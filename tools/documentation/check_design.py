@@ -73,7 +73,7 @@ def deliverable_model(root: Path):
         return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique)
     defs=load_json(sample/'definitions.json')
     spec=load_json(sample/'contracts/spec.json')
-    project=load_json(sample/'sec.project.json')
+    project=load_json(sample/'gift.project.json')
     dts=(sample/'公开边界.d.ts').read_text(encoding='utf-8')
     names=list(defs.get('exports',{}))
     if len(names)!=36 or len(set(names))!=36:
@@ -84,7 +84,7 @@ def deliverable_model(root: Path):
         model_rel='model/'+name.lower()+'.json'
         model_path=sample/model_rel
         if not model_path.is_file(): raise DesignError(name+' missing author root '+model_rel)
-        if model_rel not in module_paths: raise DesignError(name+' author root is absent from sec.project.json')
+        if model_rel not in module_paths: raise DesignError(name+' author root is absent from gift.project.json')
         model=load_json(model_path)
         app=model.get('definitions',{}).get('d:App')
         if not app or app.get('kind')!='req:composite': raise DesignError(name+' root must be req:composite d:App')
@@ -131,17 +131,34 @@ def deliverable_model(root: Path):
         checked.append({'name':name,'model':model_rel,'semantics':doc.relative_to(root).as_posix(),'namespace':name})
     return {'count':len(checked),'items':checked,'scope':'Author root + semantic rule + callable target contract closure; not implementation correctness'}
 
-def review(root: Path):
-    model=dependency_model((root/TABLE_PATH).read_bytes());rows=[];graphs=[]
+def decision_model(root: Path):
+    """Read each independent U owner, allowing responsibility/remaining-work joins.
+
+    The status index does not own a duplicate adoption or implementation plan.
+    A U may retain separate fields or combine adoption with its responsibility
+    reference and implementation/verification work with its remaining obligations.
+    """
+    rows=[]
     for p in sorted((root/'docs/状态').glob('*.md')):
         t=p.read_text(encoding='utf-8');matches=list(re.finditer(r'^### (U\d{3})｜[^\n]*\n',t,re.M))
         for i,m in enumerate(matches):
             section=t[m.end():matches[i+1].start()if i+1<len(matches)else len(t)]
-            for field in ('采用决定','结构与执行落点','实施与验证工作','还需要什么','关闭条件','重开或调整条件'):
-                pattern=r'\*\*'+('(?:重开或调整条件|重开条件)' if field=='重开或调整条件' else field)+r'：\*\*\s*\S'
+            for field, alternatives in (
+                ('采用决定', ('采用决定','采用与责任位置')),
+                ('结构与执行落点', ('结构与执行落点','采用与责任位置')),
+                ('实施与验证工作', ('实施与验证工作','剩余义务')),
+                ('还需要什么', ('还需要什么','剩余义务')),
+                ('关闭条件', ('关闭条件',)),
+                ('重开或调整条件', ('重开或调整条件','重开条件')),
+            ):
+                pattern=r'\*\*(?:'+'|'.join(map(re.escape,alternatives))+r')：\*\*\s*(?!\*\*|#{1,6}\s|<a\b)\S'
                 if not re.search(pattern,section):raise DesignError(m.group(1)+' missing substantive field '+field)
             rows.append({'id':m.group(1),'path':p.relative_to(root).as_posix(),'line':t[:m.start()].count('\n')+1})
     if len(rows)!=66 or {x['id']for x in rows}!={f'U{n:03d}'for n in range(1,67)}:raise DesignError('U identifiers are not exactly 66 independent entries')
+    return rows
+
+def review(root: Path):
+    model=dependency_model((root/TABLE_PATH).read_bytes());rows=decision_model(root);graphs=[]
     from source_inventory import source_files
     for p in (p for p in source_files(root) if p.suffix == '.md'):
         text=p.read_text(encoding='utf-8');heading=None;fence=None;start=None;buffer=[]

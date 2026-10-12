@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Verify this frozen documentation package using the Python standard library.
+"""Verify current documentation source using the Python standard library.
 Read-only: no network, subprocess, writes, SEC execution or permission changes.
-An edited working tree is allowed to exist; it correctly fails the old snapshot.
+Ordinary edits consume source only; explicitly sealed packages also verify projections.
 This detects drift and a finite known-regression list, not signatures or all semantics.
 """
 from __future__ import annotations
@@ -112,15 +112,16 @@ def checked_regressions(value, source_paths):
     return value['checks']
 
 
-def verify(root: Path) -> dict:
+def verify(root: Path, *, sealed: bool = False) -> dict:
     root = root.resolve()
     errors = []
     def local(name: str) -> Path:
         return local_path(root, name)
     manifest = capture_source_manifest(root)
-    stored_manifest = local(MANIFEST_PATH)
-    if stored_manifest.is_file() and canonical(load(stored_manifest)) != canonical(manifest):
-        errors.append('source projection is stale or has an unsupported identity domain; run docs:refresh')
+    if sealed:
+        stored_manifest = local(MANIFEST_PATH)
+        if not stored_manifest.is_file() or canonical(load(stored_manifest)) != canonical(manifest):
+            errors.append('sealed source projection is missing, stale or has an unsupported identity domain')
     entries = manifest['members']
     files = source_files(root)
     current = manifest['source_set_sha256']
@@ -131,9 +132,10 @@ def verify(root: Path) -> dict:
     for x in docs:
         if not local(x['path']).is_file(): errors.append('document missing: ' + x['path'])
     projection = requirement_projection(root)
-    stored_requirements = local(REQUIREMENTS_PATH)
-    if stored_requirements.is_file() and canonical(load(stored_requirements)) != canonical(projection):
-        errors.append('requirement projection is stale; run docs:refresh')
+    if sealed:
+        stored_requirements = local(REQUIREMENTS_PATH)
+        if not stored_requirements.is_file() or canonical(load(stored_requirements)) != canonical(projection):
+            errors.append('sealed requirement projection is missing or stale')
     requirements = projection['items']
     for x in checked_regressions(load(local('.documentation/known-regressions.json')), source_paths):
         exists = x['text'] in local(x['path']).read_text(encoding='utf-8')
@@ -144,10 +146,31 @@ def verify(root: Path) -> dict:
     def inside(p: Path) -> bool:
         return p.is_relative_to(root) and p.is_file()
     material_projects = 0
-    for lock_path in sorted(local('examples').rglob('sec.lock.json')):
+    for lock_path in sorted(local('examples').rglob('gift.lock.json')):
         sample = lock_path.parent
         material_projects += 1
         lock = load(lock_path)
+        project = load(sample / 'gift.project.json')
+        requests = []
+        for module_id, location in sorted(project['modules'].items()):
+            p = (sample / location).resolve()
+            if not inside(p):
+                errors.append('resolution module missing/outside: ' + str(lock_path.relative_to(root)) + ':' + module_id)
+                break
+            module = load(p)
+            if module.get('moduleId') != module_id:
+                errors.append('resolution module identity mismatch: ' + str(lock_path.relative_to(root)) + ':' + module_id)
+                break
+            requests.append({'moduleId': module_id, 'dialects': module.get('dialects', {}),
+                             'imports': module.get('imports', {})})
+        else:
+            # The example contract hashes requests, not module bodies or formatting.
+            # Actual material bytes remain independently checked against nodes below.
+            inputs = canonical({'project': project, 'requests': requests})
+            resolution = lock['resolutionInputs']
+            if (resolution['algorithm'] != 'sha256' or resolution['digest'] != digest(inputs)
+                    or ('byteLength' in resolution and resolution['byteLength'] != len(inputs))):
+                errors.append('stale resolution inputs: ' + str(lock_path.relative_to(root)))
         for key, node in lock['nodes'].items():
             p = (sample / node['locations'][0]).resolve()
             if not inside(p): errors.append('material missing/outside: ' + str(lock_path.relative_to(root)) + ':' + key)
@@ -198,9 +221,10 @@ def verify(root: Path) -> dict:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', nargs='?', type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument('--sealed', action='store_true', help='Require exact source and requirement projections in an explicitly sealed package')
     args = parser.parse_args()
     try:
-        print(json.dumps(verify(args.root), ensure_ascii=False, indent=2))
+        print(json.dumps(verify(args.root, sealed=args.sealed), ensure_ascii=False, indent=2))
     except (OSError, ValueError, KeyError, TypeError, IndexError, RecursionError) as exc:
         print('FAIL: '+str(exc), file=sys.stderr)
         sys.exit(1)

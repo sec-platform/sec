@@ -1,7 +1,7 @@
 // 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
-import "sec/spec/ide" as ide;
-import "sec/spec/execution" as execution;
-import "sec/spec/vcs" as vcs;
+import "gift/spec/ide" as ide;
+import "gift/spec/execution" as execution;
+import "gift/spec/vcs" as vcs;
 
 export design Execution(s: ide.Workbench) {
   require execution.Tasks {

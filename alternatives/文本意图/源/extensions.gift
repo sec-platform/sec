@@ -1,8 +1,8 @@
 // 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
-import "sec/spec/ide" as ide;
-import "sec/spec/extension" as extension;
-import "sec/spec/policy" as policy;
-import "sec/spec/settings" as settings;
+import "gift/spec/ide" as ide;
+import "gift/spec/extension" as extension;
+import "gift/spec/policy" as policy;
+import "gift/spec/settings" as settings;
 
 export design Extensions(s: ide.Workbench) {
   require extension.Execution {

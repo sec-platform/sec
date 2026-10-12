@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/policy",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/policy",
   "namespace": "spec.policy",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -14,28 +14,28 @@
       "kind": "req:enum-value",
       "name": "OnlyEffectiveIdempotencyOrFinality",
       "body": {
-        "nominalIdentity": "sec/spec/policy#OnlyEffectiveIdempotencyOrFinality"
+        "nominalIdentity": "gift/spec/policy#OnlyEffectiveIdempotencyOrFinality"
       }
     },
     "v:OriginAndPurposeGrant": {
       "kind": "req:enum-value",
       "name": "OriginAndPurposeGrant",
       "body": {
-        "nominalIdentity": "sec/spec/policy#OriginAndPurposeGrant"
+        "nominalIdentity": "gift/spec/policy#OriginAndPurposeGrant"
       }
     },
     "v:DeniedUnlessGranted": {
       "kind": "req:enum-value",
       "name": "DeniedUnlessGranted",
       "body": {
-        "nominalIdentity": "sec/spec/policy#DeniedUnlessGranted"
+        "nominalIdentity": "gift/spec/policy#DeniedUnlessGranted"
       }
     },
     "v:ScopeAndRevisionGrant": {
       "kind": "req:enum-value",
       "name": "ScopeAndRevisionGrant",
       "body": {
-        "nominalIdentity": "sec/spec/policy#ScopeAndRevisionGrant"
+        "nominalIdentity": "gift/spec/policy#ScopeAndRevisionGrant"
       }
     },
     "r:Network": {
@@ -59,7 +59,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/policy#OriginAndPurposeGrant"
+                "gift/spec/policy#OriginAndPurposeGrant"
               ]
             },
             "meaning": "按主体/来源/目的/时间授权"
@@ -69,7 +69,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/policy#DeniedUnlessGranted"
+                "gift/spec/policy#DeniedUnlessGranted"
               ]
             },
             "meaning": "后台联网默认拒绝，用户可明示授予目的"
@@ -78,7 +78,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "policy.Network",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -105,7 +105,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/policy#ScopeAndRevisionGrant"
+                "gift/spec/policy#ScopeAndRevisionGrant"
               ]
             },
             "meaning": "许可绑定实际对象范围和有效前置"
@@ -115,7 +115,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/policy#OnlyEffectiveIdempotencyOrFinality"
+                "gift/spec/policy#OnlyEffectiveIdempotencyOrFinality"
               ]
             },
             "meaning": "仅有效同意图去重或旧尝试终结后确认无效果可重试"
@@ -124,7 +124,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "policy.Destruction",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -152,9 +152,9 @@
     }
   },
   "extensions": {
-    "sec.documentation-derived/1": {
+    "gift.documentation-derived/1": {
       "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
       "editable": false,
       "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }

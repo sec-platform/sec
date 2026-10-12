@@ -1,9 +1,9 @@
 {
-  "schema": "sec.binding-lock/1",
-  "projectId": "sec-example:deliverable-forms",
+  "schema": "gift.binding-lock/1",
+  "projectId": "gift-example:deliverable-forms",
   "resolutionInputs": {
     "algorithm": "sha256",
-    "digest": "f0a81243d0447685fcc032490ca33ca1f3e6fa400c4143c41c7fad3f96cda0e7"
+    "digest": "a4bfaaab5c4c3c0fd6a73cdf7f1fbc3b61cef49c5aa70b4f56b3106ae3ce6ed5"
   },
   "bindings": {
     "example:normalization/dialects/req": "structure",
@@ -19,12 +19,12 @@
   "nodes": {
     "structure": {
       "kind": "language",
-      "subjectId": "sec.requirement-structure",
-      "revision": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
+      "subjectId": "gift.requirement-structure",
+      "revision": "0f624c14441e4f41b49a4306c2c8f6abb2cce077458c6a8e18b21bb233f8c550",
       "content": {
         "algorithm": "sha256",
-        "digest": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
-        "byteLength": 39570,
+        "digest": "0f624c14441e4f41b49a4306c2c8f6abb2cce077458c6a8e18b21bb233f8c550",
+        "byteLength": 39582,
         "format": "markdown"
       },
       "locations": [
@@ -35,11 +35,11 @@
     "contract": {
       "kind": "definition",
       "subjectId": "example/spec/normalization-contract",
-      "revision": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+      "revision": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
       "content": {
         "algorithm": "sha256",
-        "digest": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
-        "byteLength": 17502,
+        "digest": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
+        "byteLength": 17757,
         "format": "markdown"
       },
       "locations": [
@@ -52,11 +52,11 @@
     "catalog": {
       "kind": "module",
       "subjectId": "example/spec/normalization",
-      "revision": "914b0596feb48241305924ae2dee4f586267458eeb4cc9bab5f4f0b4a300d024",
+      "revision": "6a710df65d955f82711a9c07eb37adddefb5910a729c6dd3e9d09a20964eb132",
       "content": {
         "algorithm": "sha256",
-        "digest": "914b0596feb48241305924ae2dee4f586267458eeb4cc9bab5f4f0b4a300d024",
-        "byteLength": 6412,
+        "digest": "6a710df65d955f82711a9c07eb37adddefb5910a729c6dd3e9d09a20964eb132",
+        "byteLength": 6415,
         "format": "json"
       },
       "locations": [

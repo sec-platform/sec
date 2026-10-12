@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
+  "schema": "gift.author-module/1",
   "moduleId": "example/spec/normalization",
   "namespace": "example/spec/normalization",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -135,7 +135,7 @@
         "semantics": {
           "source": "../规则合同.md",
           "section": "Canonical",
-          "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+          "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
           "scope": "该规则完整的字段、正常行为、失败、资源及方法合同"
         },
         "implementation": "unbound"
@@ -186,7 +186,7 @@
         "semantics": {
           "source": "../规则合同.md",
           "section": "Emit",
-          "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+          "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
           "scope": "该规则完整的字段、正常行为、失败、资源及方法合同"
         },
         "implementation": "unbound"
@@ -238,9 +238,9 @@
     }
   },
   "extensions": {
-    "sec.documentation-derived/1": {
+    "gift.documentation-derived/1": {
       "source": "../规则合同.md",
-      "sha256": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+      "sha256": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
       "editable": false,
       "note": "有限设计字段目录，不是已运行供给或已发布语义包"
     }

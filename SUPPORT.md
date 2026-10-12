@@ -1,6 +1,6 @@
 # Support
 
-SEC is an active development preview without a stable support or compatibility commitment.
+Gift is an active development preview without a stable support or compatibility commitment.
 
 - Use a GitHub issue for a reproducible defect in the current `main` branch.
 - Use a feature request for a concrete product need or a bounded design proposal.

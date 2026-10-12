@@ -1,6 +1,6 @@
 // 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
-import "sec/spec/ide" as ide;
-import "sec/spec/language" as language;
+import "gift/spec/ide" as ide;
+import "gift/spec/language" as language;
 
 export design Languages(s: ide.Workbench) {
   require language.Providers {

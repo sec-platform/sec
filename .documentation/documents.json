@@ -1189,6 +1189,30 @@
     {
       "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
       "path": "examples/领域组合/领域应用与算法.md"
+    },
+    {
+      "document_id": "urn:uuid:6a020f4d-e1ea-4467-8e23-660783c824dc",
+      "path": "docs/开发/仓库维护/工作身份与续接.md"
+    },
+    {
+      "document_id": "urn:uuid:3c1c584b-c9bd-47f5-b40a-3f50d2731610",
+      "path": "docs/开发/仓库维护/验证与传输边界.md"
+    },
+    {
+      "document_id": "urn:uuid:8d71f6a8-c1f4-4a36-b4f1-290a74dbf038",
+      "path": "docs/开发/仓库维护/Git冻结与资源退役.md"
+    },
+    {
+      "document_id": "urn:uuid:92f74e9c-7595-4dfd-a554-a4cb589433b4",
+      "path": "docs/开发/工作区观察与捕获.md"
+    },
+    {
+      "document_id": "urn:uuid:72078132-a663-4f91-9967-1a1311bc889f",
+      "path": "docs/开发/版本控制与集成.md"
+    },
+    {
+      "document_id": "urn:uuid:093feac0-d41a-4acb-9229-595f878c16c8",
+      "path": "docs/架构/装配/请求准备与续接.md"
     }
   ]
 }

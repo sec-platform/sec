@@ -1,6 +1,6 @@
 {
-  "schema": "sec.project/1",
-  "projectId": "sec-example:studio-structured",
+  "schema": "gift.project/1",
+  "projectId": "gift-example:studio-structured",
   "sourceScopes": [
     {
       "root": "model",
@@ -28,19 +28,19 @@
     "studio:standard": "model/standard.json",
     "studio:studio": "model/studio.json",
     "studio:workspaces": "model/workspaces.json",
-    "sec/spec/experience": "contracts/experience.json",
-    "sec/spec/policy": "contracts/policy.json",
-    "sec/spec/execution": "contracts/execution.json",
-    "sec/spec/settings": "contracts/settings.json",
-    "sec/spec/search": "contracts/search.json",
-    "sec/spec/vcs": "contracts/vcs.json",
-    "sec/spec/delivery": "contracts/delivery.json",
-    "sec/spec/extension": "contracts/extension.json",
-    "sec/spec/ide": "contracts/ide.json",
-    "sec/spec/workspace": "contracts/workspace.json",
-    "sec/spec/quality": "contracts/quality.json",
-    "sec/spec/language": "contracts/language.json",
-    "sec/spec/editing": "contracts/editing.json"
+    "gift/spec/experience": "contracts/experience.json",
+    "gift/spec/policy": "contracts/policy.json",
+    "gift/spec/execution": "contracts/execution.json",
+    "gift/spec/settings": "contracts/settings.json",
+    "gift/spec/search": "contracts/search.json",
+    "gift/spec/vcs": "contracts/vcs.json",
+    "gift/spec/delivery": "contracts/delivery.json",
+    "gift/spec/extension": "contracts/extension.json",
+    "gift/spec/ide": "contracts/ide.json",
+    "gift/spec/workspace": "contracts/workspace.json",
+    "gift/spec/quality": "contracts/quality.json",
+    "gift/spec/language": "contracts/language.json",
+    "gift/spec/editing": "contracts/editing.json"
   },
   "targets": {}
 }

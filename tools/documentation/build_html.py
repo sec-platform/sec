@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a self-contained, source-backed SEC reading edition. Never edits its input.
+"""Build a self-contained, source-backed Gift reading edition. Never edits its input.
 
 Default: current working tree, exact current diagram cache, no headless browser.
 Use --diagrams browser to refresh in a normal local browser; --diagrams required
@@ -16,7 +16,7 @@ sys.dont_write_bytecode = True
 import check_docs
 from source_inventory import documentation_files, source_identity_from_capture, EXCLUDED_FROM_SOURCE_HASH
 
-TEXT_SUFFIXES = {'.md','.json','.sec','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff'}
+TEXT_SUFFIXES = {'.md','.json','.gift','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff'}
 TEXT_BASENAMES = {'LICENSE','NOTICE'}
 BINARY_SUFFIXES = {'.png','.jpg','.jpeg','.webp','.gif','.svg','.pdf','.zip'}
 VERSION = 'sec-reading/3'
@@ -35,8 +35,8 @@ def fragment_id(name,fragment): return opaque(name)+'--'+quote(fragment,safe='-_
 def esc(value): return html.escape(str(value),quote=True)
 
 def safe_files(root: Path, args=None) -> list[Path]:
-    if not (root/'README.md').is_file() or not (root/'docs').is_dir(): raise BuildError('Expected SEC root with README.md and docs/')
-    return list(documentation_files(root, include_cache=args is None or (args.diagrams in ('cached', 'browser') and not args.diagram_cache)))
+    if not (root/'README.md').is_file() or not (root/'docs').is_dir(): raise BuildError('Expected Gift root with README.md and docs/')
+    return list(documentation_files(root, include_cache=args is None or (args.diagrams in ('cached', 'browser') and not args.diagram_cache), include_projections=args is not None and getattr(args, 'sealed', False)))
 
 def capture(root,args):
     paths=safe_files(root,args); captured={}; total=0
@@ -447,7 +447,7 @@ class Book:
             'script_sha256':sha(script.encode()),'style_sha256':sha(CSS.encode()),
             'browser_engine_sha256':sha(engine) if engine else None}}))
 
-        title='SEC 工程设计'
+        title='Gift 工程设计'
         note={'required':'完整当前源阅读版；图已按本次固定工具渲染。','cached':'完整当前源阅读版；图由逐源核对的渲染缓存取得，不要求无头浏览器。','browser':'完整正文与原件；未命中准确缓存的图等待本地浏览器渲染，页面明确显示完成数。','source':'完整正文与原件；本版明确只显示图源，未渲染图。'}[self.args.diagrams]
         output='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="'+esc(csp)+'"><meta name="referrer" content="no-referrer"><title>'+title+'</title><style>'+CSS+'</style></head><body><header><h1>'+title+'</h1><p>'+note+' 作者源、实现范本与可选方案按原位置保留，不是同等采用状态。</p><details><summary>本版来源与范围</summary><p>输入摘要：'+digest+' · '+str(len(self.tokens))+'份Markdown · '+str(len(self.diagrams))+'幅图源。原文件不会因阅读构建而改写。</p></details><p><a href="#'+opaque('README.md')+'">进入正文</a></p></header><div class="layout"><aside id="sec-contents"><details open><summary>当前源导航</summary><p><label for="sec-nav-filter">按文件名筛选</label><input id="sec-nav-filter" type="search" placeholder="浏览器 Ctrl+F 可查全文"></p><ul>'+''.join(nav)+'</ul></details></aside><main>'+extra+''.join(articles)+'<section class="doc" id="sec-build-info"><h1>本阅读版的实际输入与生成范围</h1><p>内容可核对、格式可读取和画面可读，与设计正确、软件已实现及跨平台完全一致分别判断。外部引用保留链接，生成过程不访问它们。</p><details><summary>构建清单</summary><pre id="sec-build-manifest">'+esc(json.dumps(meta,ensure_ascii=False,indent=2))+'</pre></details></section></main></div><script'+(' nonce="'+nonce+'"'if self.args.diagrams=='browser' else '')+'>'+script+'</script></body></html>'
         audit=AuditHTML();audit.feed(output)
@@ -482,7 +482,7 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if args.root.is_symlink() or any(p.is_symlink() for p in args.root.absolute().parents):
         raise BuildError('Source root symlink is not supported')
-    root=args.root.resolve();out=(args.output or root.parent/'SEC.html').absolute()
+    root=args.root.resolve();out=(args.output or root.parent/'Gift.html').absolute()
     if out.is_symlink() or any(p.is_symlink()for p in out.parents):raise BuildError('Output symlink is not supported')
     out=out.resolve()
     if out==root or root in out.parents:raise BuildError('Output must be outside the source tree')
@@ -492,7 +492,7 @@ def main(argv=None):
     if args.diagrams=='required' and not args.mermaid_js:raise BuildError('All diagrams are required. Set --mermaid-js to local mermaid.min.js; or explicitly choose --diagrams source')
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
-        check_docs.verify(root)
+        check_docs.verify(root, sealed=True)
     before=out.read_bytes()if out.is_file()else None
     captured=capture(root,args);book=Book(root,captured,args)
     renderer_info={'state':'not-rendered'}
@@ -512,7 +512,7 @@ def main(argv=None):
     unchanged(root,captured,args)
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
-        check_docs.verify(root)
+        check_docs.verify(root, sealed=True)
     out.parent.mkdir(parents=True,exist_ok=True)
     lock=out.with_name(out.name+'.lock');temp=None;fd=None
     try:

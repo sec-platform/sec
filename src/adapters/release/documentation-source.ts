@@ -11,7 +11,8 @@ import {
   DOCUMENTATION_SOURCE_MANIFEST,
   compareDocumentationPaths, decodeDocumentationJson, documentationIsNonSource,
   documentationPath, documentationPathWithin,
-  parseDocumentationSourceContract, type DocumentationBoundary, type DocumentationSourceContract
+  documentationSourceDigest,
+  parseDocumentationBoundary, parseDocumentationSourceContract, type DocumentationBoundary, type DocumentationSourceContract
 } from '../../contracts/documentation-source.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import { settleResourcesAsync, withAcquiredResource } from '../../execution/resource-settlement.ts';
@@ -163,6 +164,39 @@ async function enumerateSource(root: string, boundary: DocumentationBoundary): P
   }
   return Object.freeze(files.sort(compareDocumentationPaths));
 }
+
+/** Capture source authority only. Local derived outputs never select or veto these bytes. */
+async function captureDocumentationSource(root: string): Promise<DocumentationSourceContract> {
+  const baselineBytes = await readOrdinary(root, DOCUMENTATION_BASELINE);
+  const boundary = parseDocumentationBoundary(baselineBytes);
+  const names = await enumerateSource(root, boundary);
+  const members = [];
+  let totalBytes = 0;
+  for (const relative of names) {
+    const bytes = await readOrdinary(root, relative);
+    totalBytes += bytes.byteLength;
+    if (totalBytes > DOCUMENTATION_LIMITS.totalBytes) throw new Error('Documentation source byte budget exceeded');
+    members.push({ path: relative, bytes: bytes.byteLength, sha256: digest(bytes) });
+  }
+  const manifestBytes = Buffer.from(JSON.stringify({
+    schema: 'sec.documentation-source-manifest/2',
+    source_set_sha256: documentationSourceDigest(members), members
+  }));
+  const contract = parseDocumentationSourceContract(baselineBytes, manifestBytes);
+  for (const member of contract.members) {
+    const bytes = await readOrdinary(root, member.path);
+    if (bytes.byteLength !== member.bytes || digest(bytes) !== member.sha256) {
+      throw new Error(`Documentation source changed across capture: ${member.path}`);
+    }
+  }
+  if (!baselineBytes.equals(await readOrdinary(root, DOCUMENTATION_BASELINE))
+      || JSON.stringify(names) !== JSON.stringify(await enumerateSource(root, boundary))) {
+    throw new Error('Documentation source changed across capture');
+  }
+  return contract;
+}
+
+/** Verify an already sealed package; missing or stale manifests never fall back to capture. */
 export async function readDocumentationSource(root: string): Promise<DocumentationSourceContract> {
   root = await checkedRoot(root);
   const baselineBytes = await readOrdinary(root, DOCUMENTATION_BASELINE);
@@ -245,14 +279,17 @@ function projectDocumentationRequirements(bytes: Uint8Array): unknown {
         body_sha256: digest(strip(source.slice(heading.offset, headings[index + 1]?.offset))) };
     }) };
 }
-async function validateRequirementProjection(root: string, contract: DocumentationSourceContract): Promise<Buffer | null> {
-  const existing = await optionalBytes(root, DOCUMENTATION_REQUIREMENTS);
+async function requirementProjection(root: string, contract: DocumentationSourceContract, sealed: boolean): Promise<Buffer | null> {
+  const existing = sealed ? await optionalBytes(root, DOCUMENTATION_REQUIREMENTS) : null;
   if (!contract.members.some(member => member.path === REQUIREMENT_SOURCE)) {
     if (existing !== null) throw new Error('Requirement projection has no source authority in this documentation package');
     return null;
   }
-  const expected = projectDocumentationRequirements(await readOrdinary(root, REQUIREMENT_SOURCE));
-  if (existing !== null && sha256(decodeDocumentationJson(existing, 'Requirement projection')) !== sha256(expected)) {
+  const source = await readOrdinary(root, REQUIREMENT_SOURCE);
+  const member = contract.members.find(member => member.path === REQUIREMENT_SOURCE)!;
+  if (source.byteLength !== member.bytes || digest(source) !== member.sha256) throw new Error('Requirement source drift');
+  const expected = projectDocumentationRequirements(source);
+  if (sealed && (existing === null || sha256(decodeDocumentationJson(existing, 'Requirement projection')) !== sha256(expected))) {
     throw new Error('Requirement projection is stale or malformed');
   }
   return Buffer.from(`${JSON.stringify(expected, null, 2)}\n`, 'utf8');
@@ -271,10 +308,12 @@ export async function materializeDocumentationPackage(sourceRoot: string, target
   }).length !== 0) {
     throw new Error('Documentation staging root must be empty');
   }
-  const contract = await readDocumentationSource(sourceRoot);
+  const contract = await captureDocumentationSource(sourceRoot);
   const outputs = new Map<string, Buffer>();
-  outputs.set(DOCUMENTATION_SOURCE_MANIFEST, await readOrdinary(sourceRoot, DOCUMENTATION_SOURCE_MANIFEST));
-  const requirements = await validateRequirementProjection(sourceRoot, contract);
+  outputs.set(DOCUMENTATION_SOURCE_MANIFEST, Buffer.from(`${JSON.stringify({
+    schema: 'sec.documentation-source-manifest/2', source_set_sha256: contract.sourceSetSha256, members: contract.members
+  }, null, 2)}\n`, 'utf8'));
+  const requirements = await requirementProjection(sourceRoot, contract, false);
   if (requirements !== null) outputs.set(DOCUMENTATION_REQUIREMENTS, requirements);
   const figures = await optionalBytes(sourceRoot, DOCUMENTATION_FIGURES);
   if (figures !== null) outputs.set(DOCUMENTATION_FIGURES, figures);
@@ -328,7 +367,8 @@ export async function materializeDocumentationPackage(sourceRoot: string, target
   }
   for (const [name, bytes] of outputs) await write(name, bytes);
   const target = await readDocumentationSource(targetRoot);
-  const finalSource = await readDocumentationSource(sourceRoot);
+  await requirementProjection(targetRoot, target, true);
+  const finalSource = await captureDocumentationSource(sourceRoot);
   if (target.sourceSetSha256 !== contract.sourceSetSha256 || finalSource.sourceSetSha256 !== contract.sourceSetSha256) {
     throw new Error('Documentation source identity changed across materialization');
   }
@@ -340,7 +380,7 @@ export async function assertDocumentationSourceReadback(
 ): Promise<void> {
   const contract = await readDocumentationSource(root);
   if (`sha256:${contract.sourceSetSha256}` !== expectedSourceDigest) throw new Error('Documentation package has a different source identity');
-  await validateRequirementProjection(root, contract);
+  await requirementProjection(root, contract, true);
   const allowed = new Set([...contract.members.map(member => member.path), ...DOCUMENTATION_NON_SOURCE]);
   for (const file of packageFiles) if (!allowed.has(file.path)) throw new Error(`Undeclared delivery member: ${file.path}`);
   // Cache is an opaque, byte-bound attachment here; renderer trust and SVG validation belong to reading.

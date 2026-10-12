@@ -1,10 +1,10 @@
 {
-  "schema": "sec.binding-lock/1",
-  "projectId": "sec-example:studio-structured",
+  "schema": "gift.binding-lock/1",
+  "projectId": "gift-example:studio-structured",
   "resolutionInputs": {
     "algorithm": "sha256",
-    "digest": "4a1425e10f1c6c59aa58f022f03eb1d9a9f9d66a7443b99fca57165700c038b9",
-    "byteLength": 6099,
+    "digest": "ec3e86ee1190ae0cb2b62d91f47f1d578c2d846da003850d309f27e753e679aa",
+    "byteLength": 6321,
     "format": "application/json; canonical=sorted-keys-compact-utf8"
   },
   "bindings": {
@@ -18,19 +18,19 @@
     "module:studio:standard/dialects/req": "structure",
     "module:studio:studio/dialects/req": "structure",
     "module:studio:workspaces/dialects/req": "structure",
-    "module:sec/spec/experience/dialects/req": "structure",
-    "module:sec/spec/policy/dialects/req": "structure",
-    "module:sec/spec/execution/dialects/req": "structure",
-    "module:sec/spec/settings/dialects/req": "structure",
-    "module:sec/spec/search/dialects/req": "structure",
-    "module:sec/spec/vcs/dialects/req": "structure",
-    "module:sec/spec/delivery/dialects/req": "structure",
-    "module:sec/spec/extension/dialects/req": "structure",
-    "module:sec/spec/ide/dialects/req": "structure",
-    "module:sec/spec/workspace/dialects/req": "structure",
-    "module:sec/spec/quality/dialects/req": "structure",
-    "module:sec/spec/language/dialects/req": "structure",
-    "module:sec/spec/editing/dialects/req": "structure",
+    "module:gift/spec/experience/dialects/req": "structure",
+    "module:gift/spec/policy/dialects/req": "structure",
+    "module:gift/spec/execution/dialects/req": "structure",
+    "module:gift/spec/settings/dialects/req": "structure",
+    "module:gift/spec/search/dialects/req": "structure",
+    "module:gift/spec/vcs/dialects/req": "structure",
+    "module:gift/spec/delivery/dialects/req": "structure",
+    "module:gift/spec/extension/dialects/req": "structure",
+    "module:gift/spec/ide/dialects/req": "structure",
+    "module:gift/spec/workspace/dialects/req": "structure",
+    "module:gift/spec/quality/dialects/req": "structure",
+    "module:gift/spec/language/dialects/req": "structure",
+    "module:gift/spec/editing/dialects/req": "structure",
     "module:studio:delivery/imports/ide": "catalog:ide",
     "module:studio:delivery/imports/delivery": "catalog:delivery",
     "module:studio:delivery/imports/quality": "catalog:quality",
@@ -62,12 +62,12 @@
   "nodes": {
     "structure": {
       "kind": "language",
-      "subjectId": "sec.requirement-structure",
-      "revision": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
+      "subjectId": "gift.requirement-structure",
+      "revision": "0f624c14441e4f41b49a4306c2c8f6abb2cce077458c6a8e18b21bb233f8c550",
       "content": {
         "algorithm": "sha256",
-        "digest": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
-        "byteLength": 39570,
+        "digest": "0f624c14441e4f41b49a4306c2c8f6abb2cce077458c6a8e18b21bb233f8c550",
+        "byteLength": 39582,
         "format": "text/markdown"
       },
       "dependencies": [
@@ -79,12 +79,12 @@
     },
     "module-envelope": {
       "kind": "library",
-      "subjectId": "sec:design-document:module-envelope",
-      "revision": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663",
+      "subjectId": "gift:design-document:module-envelope",
+      "revision": "bb91b057fa868b0ab7e85376c69b06f65ac003ff00574e54f3ce553da0c4ecbf",
       "content": {
         "algorithm": "sha256",
-        "digest": "d1abd41e1203c43bca065a16b70b6a3db1fab1b771e4da38f211e0b547865663",
-        "byteLength": 97103,
+        "digest": "bb91b057fa868b0ab7e85376c69b06f65ac003ff00574e54f3ce553da0c4ecbf",
+        "byteLength": 97546,
         "format": "text/markdown"
       },
       "dependencies": [],
@@ -94,12 +94,12 @@
     },
     "rule-semantics": {
       "kind": "library",
-      "subjectId": "sec:design-document:rule-semantics",
-      "revision": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "subjectId": "gift:design-document:rule-semantics",
+      "revision": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
       "content": {
         "algorithm": "sha256",
-        "digest": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-        "byteLength": 46659,
+        "digest": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
+        "byteLength": 46964,
         "format": "text/markdown"
       },
       "dependencies": [],
@@ -109,12 +109,12 @@
     },
     "catalog:delivery": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:delivery",
-      "revision": "013f458216cf61b9d8a4c45def27652563bb1c02b8a9b38454481f4e0193c14e",
+      "subjectId": "gift:design-document:catalog:delivery",
+      "revision": "2967559325dc915a5ca56be4b240809550d113973ed9eb74dcb092ed44f53efd",
       "content": {
         "algorithm": "sha256",
-        "digest": "013f458216cf61b9d8a4c45def27652563bb1c02b8a9b38454481f4e0193c14e",
-        "byteLength": 10986,
+        "digest": "2967559325dc915a5ca56be4b240809550d113973ed9eb74dcb092ed44f53efd",
+        "byteLength": 11020,
         "format": "application/json"
       },
       "dependencies": [
@@ -127,12 +127,12 @@
     },
     "catalog:editing": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:editing",
-      "revision": "51a33f620f2e9dbd3cb5a069712823b5752f1deeb57db64f9f3958356c808632",
+      "subjectId": "gift:design-document:catalog:editing",
+      "revision": "0de90ccbbfa6182dd175187753d06ec0314248f171292dc1f54b5001aeddcc57",
       "content": {
         "algorithm": "sha256",
-        "digest": "51a33f620f2e9dbd3cb5a069712823b5752f1deeb57db64f9f3958356c808632",
-        "byteLength": 11394,
+        "digest": "0de90ccbbfa6182dd175187753d06ec0314248f171292dc1f54b5001aeddcc57",
+        "byteLength": 11420,
         "format": "application/json"
       },
       "dependencies": [
@@ -145,12 +145,12 @@
     },
     "catalog:execution": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:execution",
-      "revision": "dd2d0e87896e071399148326ab6d7b4f89cae58c7fd06b32cefb1c236e333a76",
+      "subjectId": "gift:design-document:catalog:execution",
+      "revision": "a3c504ac9390c0e46d68c39c15ca789d711ca01868f2db2fb74a5f5f776e821f",
       "content": {
         "algorithm": "sha256",
-        "digest": "dd2d0e87896e071399148326ab6d7b4f89cae58c7fd06b32cefb1c236e333a76",
-        "byteLength": 13736,
+        "digest": "a3c504ac9390c0e46d68c39c15ca789d711ca01868f2db2fb74a5f5f776e821f",
+        "byteLength": 13768,
         "format": "application/json"
       },
       "dependencies": [
@@ -163,12 +163,12 @@
     },
     "catalog:experience": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:experience",
-      "revision": "ead7d3f5ce1f17f0e54bec66082479f484027c03644fa01e01edd2331e8c3eec",
+      "subjectId": "gift:design-document:catalog:experience",
+      "revision": "3b552a59b6e42e9f8211f4d86302a1d61ebc87482cc729afd1e651fcf4a1d91d",
       "content": {
         "algorithm": "sha256",
-        "digest": "ead7d3f5ce1f17f0e54bec66082479f484027c03644fa01e01edd2331e8c3eec",
-        "byteLength": 13420,
+        "digest": "3b552a59b6e42e9f8211f4d86302a1d61ebc87482cc729afd1e651fcf4a1d91d",
+        "byteLength": 13450,
         "format": "application/json"
       },
       "dependencies": [
@@ -181,12 +181,12 @@
     },
     "catalog:extension": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:extension",
-      "revision": "3dacc8a28377b8cb86bb1a013b12d59a304eedb5936476548487598291deb7cd",
+      "subjectId": "gift:design-document:catalog:extension",
+      "revision": "c6f8660c90a0978cfea6bd0db266c01984a92c1ecfd81d456f3ee530cc35444c",
       "content": {
         "algorithm": "sha256",
-        "digest": "3dacc8a28377b8cb86bb1a013b12d59a304eedb5936476548487598291deb7cd",
-        "byteLength": 6638,
+        "digest": "c6f8660c90a0978cfea6bd0db266c01984a92c1ecfd81d456f3ee530cc35444c",
+        "byteLength": 6656,
         "format": "application/json"
       },
       "dependencies": [
@@ -199,12 +199,12 @@
     },
     "catalog:ide": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:ide",
-      "revision": "9d4e236364ac6fe2df84762695a6a8867a21cc16098f196c80138bbd64eacac8",
+      "subjectId": "gift:design-document:catalog:ide",
+      "revision": "f8e8b01b95cb6a2bac716c7dac82c48f235fe241e4812e9805ee94ac1073889c",
       "content": {
         "algorithm": "sha256",
-        "digest": "9d4e236364ac6fe2df84762695a6a8867a21cc16098f196c80138bbd64eacac8",
-        "byteLength": 4777,
+        "digest": "f8e8b01b95cb6a2bac716c7dac82c48f235fe241e4812e9805ee94ac1073889c",
+        "byteLength": 4787,
         "format": "application/json"
       },
       "dependencies": [
@@ -217,12 +217,12 @@
     },
     "catalog:language": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:language",
-      "revision": "9994f382dbcbc1e36eb5ab57d80aeb85e241ee528921f19ad651682a44a4c64f",
+      "subjectId": "gift:design-document:catalog:language",
+      "revision": "04ec771fc8635815f90dcbe79ce5039f09a51d5a5a1c99063aa02856891f2ad3",
       "content": {
         "algorithm": "sha256",
-        "digest": "9994f382dbcbc1e36eb5ab57d80aeb85e241ee528921f19ad651682a44a4c64f",
-        "byteLength": 11155,
+        "digest": "04ec771fc8635815f90dcbe79ce5039f09a51d5a5a1c99063aa02856891f2ad3",
+        "byteLength": 11181,
         "format": "application/json"
       },
       "dependencies": [
@@ -235,12 +235,12 @@
     },
     "catalog:policy": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:policy",
-      "revision": "5cc32637489f463026f4fd2c65a8ef88fcc37a835395d04ed081555c18127636",
+      "subjectId": "gift:design-document:catalog:policy",
+      "revision": "735b4317d5cdde93b50c1c80bb43b139c730111235b37e6c1f21900e6b648792",
       "content": {
         "algorithm": "sha256",
-        "digest": "5cc32637489f463026f4fd2c65a8ef88fcc37a835395d04ed081555c18127636",
-        "byteLength": 4979,
+        "digest": "735b4317d5cdde93b50c1c80bb43b139c730111235b37e6c1f21900e6b648792",
+        "byteLength": 4991,
         "format": "application/json"
       },
       "dependencies": [
@@ -253,12 +253,12 @@
     },
     "catalog:quality": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:quality",
-      "revision": "a5f4a9463c748e8be353aa89127fa822e034bfac62357801cb7b659a64647bce",
+      "subjectId": "gift:design-document:catalog:quality",
+      "revision": "c1328f57f8c13fa62f5fe548003822355bd608cec3c0bede655a4fea52297264",
       "content": {
         "algorithm": "sha256",
-        "digest": "a5f4a9463c748e8be353aa89127fa822e034bfac62357801cb7b659a64647bce",
-        "byteLength": 5916,
+        "digest": "c1328f57f8c13fa62f5fe548003822355bd608cec3c0bede655a4fea52297264",
+        "byteLength": 5932,
         "format": "application/json"
       },
       "dependencies": [
@@ -271,12 +271,12 @@
     },
     "catalog:search": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:search",
-      "revision": "ba2c833c3019298c0a48cb0c5f454dbe760d71e2bce0c13903d8aaaa7750b819",
+      "subjectId": "gift:design-document:catalog:search",
+      "revision": "1805912911e3e10d9b1ddfdb6c12cee3ef293f78e92af2b7029c629078502776",
       "content": {
         "algorithm": "sha256",
-        "digest": "ba2c833c3019298c0a48cb0c5f454dbe760d71e2bce0c13903d8aaaa7750b819",
-        "byteLength": 11966,
+        "digest": "1805912911e3e10d9b1ddfdb6c12cee3ef293f78e92af2b7029c629078502776",
+        "byteLength": 11996,
         "format": "application/json"
       },
       "dependencies": [
@@ -289,12 +289,12 @@
     },
     "catalog:settings": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:settings",
-      "revision": "7cb5c4e41434f4d0737ad49c8d70cf84255eeac18f21346a0fe3ad29b78a6e8a",
+      "subjectId": "gift:design-document:catalog:settings",
+      "revision": "2b15a3fc8d73c1ad5acc7a9c0c934b5bcb6c52cae692d1aabde86749a8fdbb1e",
       "content": {
         "algorithm": "sha256",
-        "digest": "7cb5c4e41434f4d0737ad49c8d70cf84255eeac18f21346a0fe3ad29b78a6e8a",
-        "byteLength": 4371,
+        "digest": "2b15a3fc8d73c1ad5acc7a9c0c934b5bcb6c52cae692d1aabde86749a8fdbb1e",
+        "byteLength": 4387,
         "format": "application/json"
       },
       "dependencies": [
@@ -307,12 +307,12 @@
     },
     "catalog:vcs": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:vcs",
-      "revision": "667673b7d01018de29973af12e93ccf30ea71410c376ba4f857b385ac3ae1961",
+      "subjectId": "gift:design-document:catalog:vcs",
+      "revision": "9a57c707e35b32eebe352c4eb480f34dc068102fe28141bd6f84cc3418256caa",
       "content": {
         "algorithm": "sha256",
-        "digest": "667673b7d01018de29973af12e93ccf30ea71410c376ba4f857b385ac3ae1961",
-        "byteLength": 3534,
+        "digest": "9a57c707e35b32eebe352c4eb480f34dc068102fe28141bd6f84cc3418256caa",
+        "byteLength": 3544,
         "format": "application/json"
       },
       "dependencies": [
@@ -325,12 +325,12 @@
     },
     "catalog:workspace": {
       "kind": "library",
-      "subjectId": "sec:design-document:catalog:workspace",
-      "revision": "cb9257ee0ce8d8a485a63b2567a347efa9233e52343474931bd7f3cfdeb774b0",
+      "subjectId": "gift:design-document:catalog:workspace",
+      "revision": "657a041423ab197572f6c527e1458b441844d2d3401f0b1903a2a69d258ef468",
       "content": {
         "algorithm": "sha256",
-        "digest": "cb9257ee0ce8d8a485a63b2567a347efa9233e52343474931bd7f3cfdeb774b0",
-        "byteLength": 10794,
+        "digest": "657a041423ab197572f6c527e1458b441844d2d3401f0b1903a2a69d258ef468",
+        "byteLength": 10822,
         "format": "application/json"
       },
       "dependencies": [
@@ -343,7 +343,7 @@
     }
   },
   "extensions": {
-    "sec.example-design": {
+    "gift.example-design": {
       "scope": "准确设计资料与字段目录绑定，不是运行实现、目标画像、安装或权限证明；这是有限材料锁，不声称已经封闭全部被引用语义、真实工具链或可信计算基",
       "missing": [
         "结构读取器的生产实现",

@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/workspace",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/workspace",
   "namespace": "spec.workspace",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -14,84 +14,84 @@
       "kind": "req:enum-value",
       "name": "RecoverDraftNotReplayEffects",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#RecoverDraftNotReplayEffects"
+        "nominalIdentity": "gift/spec/workspace#RecoverDraftNotReplayEffects"
       }
     },
     "v:OpenEmptySuppressesDisk": {
       "kind": "req:enum-value",
       "name": "OpenEmptySuppressesDisk",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#OpenEmptySuppressesDisk"
+        "nominalIdentity": "gift/spec/workspace#OpenEmptySuppressesDisk"
       }
     },
     "v:RuntimeGrant": {
       "kind": "req:enum-value",
       "name": "RuntimeGrant",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#RuntimeGrant"
+        "nominalIdentity": "gift/spec/workspace#RuntimeGrant"
       }
     },
     "v:PreserveDrafts": {
       "kind": "req:enum-value",
       "name": "PreserveDrafts",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#PreserveDrafts"
+        "nominalIdentity": "gift/spec/workspace#PreserveDrafts"
       }
     },
     "v:Move": {
       "kind": "req:enum-value",
       "name": "Move",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#Move"
+        "nominalIdentity": "gift/spec/workspace#Move"
       }
     },
     "v:Read": {
       "kind": "req:enum-value",
       "name": "Read",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#Read"
+        "nominalIdentity": "gift/spec/workspace#Read"
       }
     },
     "v:ProviderIdentity": {
       "kind": "req:enum-value",
       "name": "ProviderIdentity",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#ProviderIdentity"
+        "nominalIdentity": "gift/spec/workspace#ProviderIdentity"
       }
     },
     "v:Many": {
       "kind": "req:enum-value",
       "name": "Many",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#Many"
+        "nominalIdentity": "gift/spec/workspace#Many"
       }
     },
     "v:ExplicitMembership": {
       "kind": "req:enum-value",
       "name": "ExplicitMembership",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#ExplicitMembership"
+        "nominalIdentity": "gift/spec/workspace#ExplicitMembership"
       }
     },
     "v:Delete": {
       "kind": "req:enum-value",
       "name": "Delete",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#Delete"
+        "nominalIdentity": "gift/spec/workspace#Delete"
       }
     },
     "v:Create": {
       "kind": "req:enum-value",
       "name": "Create",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#Create"
+        "nominalIdentity": "gift/spec/workspace#Create"
       }
     },
     "v:OpenModelWins": {
       "kind": "req:enum-value",
       "name": "OpenModelWins",
       "body": {
-        "nominalIdentity": "sec/spec/workspace#OpenModelWins"
+        "nominalIdentity": "gift/spec/workspace#OpenModelWins"
       }
     },
     "r:Roots": {
@@ -115,7 +115,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#Many"
+                "gift/spec/workspace#Many"
               ]
             },
             "meaning": "允许零个或多个根；未打开根不算失败"
@@ -125,7 +125,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#ProviderIdentity"
+                "gift/spec/workspace#ProviderIdentity"
               ]
             },
             "meaning": "按提供者的规范资源身份，显示路径不定义相等"
@@ -135,7 +135,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#ExplicitMembership"
+                "gift/spec/workspace#ExplicitMembership"
               ]
             },
             "meaning": "嵌套根的归属选择显式，不按扫描先后隐式抢占"
@@ -144,7 +144,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Roots",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -173,10 +173,10 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "sec/spec/workspace#Read",
-                  "sec/spec/workspace#Create",
-                  "sec/spec/workspace#Move",
-                  "sec/spec/workspace#Delete"
+                  "gift/spec/workspace#Read",
+                  "gift/spec/workspace#Create",
+                  "gift/spec/workspace#Move",
+                  "gift/spec/workspace#Delete"
                 ]
               }
             },
@@ -187,7 +187,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#PreserveDrafts"
+                "gift/spec/workspace#PreserveDrafts"
               ]
             },
             "meaning": "相交未保存内容必须保留或明确冲突"
@@ -197,7 +197,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#RuntimeGrant"
+                "gift/spec/workspace#RuntimeGrant"
               ]
             },
             "meaning": "产品在每次作用处检查实际许可，不是此声明给予许可"
@@ -206,7 +206,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Files",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -243,7 +243,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#OpenModelWins"
+                "gift/spec/workspace#OpenModelWins"
               ]
             },
             "meaning": "已打开模型对该资源权威于旧磁盘内容"
@@ -253,7 +253,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#OpenEmptySuppressesDisk"
+                "gift/spec/workspace#OpenEmptySuppressesDisk"
               ]
             },
             "meaning": "打开模型零命中或空内容也抑制旧磁盘结果"
@@ -262,7 +262,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Snapshot",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -299,7 +299,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#RecoverDraftNotReplayEffects"
+                "gift/spec/workspace#RecoverDraftNotReplayEffects"
               ]
             },
             "meaning": "恢复内容与历史不重放外部执行"
@@ -308,7 +308,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Recovery",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -366,9 +366,9 @@
     }
   },
   "extensions": {
-    "sec.documentation-derived/1": {
+    "gift.documentation-derived/1": {
       "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
       "editable": false,
       "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }

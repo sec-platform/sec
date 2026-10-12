@@ -15,20 +15,19 @@ These are repository facts, not a claim that every documented capability has rea
 
 ## Maturity boundary
 
-The project deliberately distinguishes stages that early systems often collapse:
+Assess maturity for a specific capability, revision, environment, and requested result. The following dimensions require their own evidence:
 
-```text
-proposed
-→ accepted
-→ specified
-→ implemented
-→ verified
-→ enforced
-→ adopted
-→ superseded path retired
-```
+| Dimension | What must be established |
+|---|---|
+| Proposal and acceptance | What was proposed, what was accepted, and by whose authority |
+| Specification | The accepted behavior, interfaces, assumptions, and failure boundaries |
+| Implementation | The code and actual consumers that provide that behavior |
+| Verification | The claims checked, methods used, and exact inputs and environments covered |
+| Enforcement | Where a required constraint is applied at the real boundary |
+| Adoption | Where the result was actually installed, published, or used, when requested |
+| Retirement | Which replaced paths and residual responsibilities were settled, when replacement occurred |
 
-A document, type, command, test, or implementation path can establish one of these stages without establishing the stages after it. In particular, do not assume that:
+These are related evidence dimensions rather than a mandatory sequence for every task. A design task can finish with a complete specification; a pure query can finish with its returned result. Deployment, user-effect validation, and retirement apply when the accepted task includes those obligations. Evidence for one dimension does not establish the others. In particular, do not assume that:
 
 - every documented design is implemented;
 - every target language or environment is supported;

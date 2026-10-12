@@ -1,10 +1,10 @@
-// 此文件是产品特有的作者源；standard.sec及其片段是可复用需求定义。
-// sec/spec/* 的精确合同在随附规范中；本包未发布这些库的实现。
-import "./standard.sec" as standard;
-import "sec/spec/ide" as ide;
-import "sec/spec/search" as search;
-import "sec/spec/delivery" as delivery;
-import "sec/spec/quality" as quality;
+// 此文件是产品特有的作者源；standard.gift及其片段是可复用需求定义。
+// gift/spec/* 的精确合同在随附规范中；本包未发布这些库的实现。
+import "./standard.gift" as standard;
+import "gift/spec/ide" as ide;
+import "gift/spec/search" as search;
+import "gift/spec/delivery" as delivery;
+import "gift/spec/quality" as quality;
 
 export design Studio(s: ide.Workbench) {
   use standard.LocalWorkbench(

@@ -1,15 +1,15 @@
 // 可复用需求复合定义，不含工作台实现代码。
-import "sec/spec/ide" as ide;
-import "sec/spec/search" as search;
-import "sec/spec/delivery" as delivery;
-import "./workspaces.sec" as workspaces;
-import "./editing.sec" as editing;
-import "./searching.sec" as searching;
-import "./languages.sec" as languages;
-import "./execution.sec" as execution;
-import "./extensions.sec" as extensions;
-import "./experience.sec" as experience;
-import "./delivery.sec" as packaging;
+import "gift/spec/ide" as ide;
+import "gift/spec/search" as search;
+import "gift/spec/delivery" as delivery;
+import "./workspaces.gift" as workspaces;
+import "./editing.gift" as editing;
+import "./searching.gift" as searching;
+import "./languages.gift" as languages;
+import "./execution.gift" as execution;
+import "./extensions.gift" as extensions;
+import "./experience.gift" as experience;
+import "./delivery.gift" as packaging;
 
 export design LocalWorkbench(s: ide.Workbench, stalePolicy: search.StalePolicy, platforms: List<delivery.Platform>) {
   use workspaces.Workspaces(s);

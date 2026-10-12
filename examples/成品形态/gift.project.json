@@ -1,6 +1,6 @@
 {
-  "schema": "sec.project/1",
-  "projectId": "sec-example:deliverable-forms",
+  "schema": "gift.project/1",
+  "projectId": "gift-example:deliverable-forms",
   "sourceScopes": [
     {
       "root": "model",

@@ -1,9 +1,9 @@
 {
-  "schema": "sec.binding-lock/1",
-  "projectId": "sec-example:complete-deliverables",
+  "schema": "gift.binding-lock/1",
+  "projectId": "gift-example:complete-deliverables",
   "resolutionInputs": {
     "algorithm": "sha256",
-    "digest": "d9f32ae93d27c405b716157808f2dd3755d9330ad8caceb537cdf4daff73a872"
+    "digest": "6d37b63c801378f0fbc671327d269464e8a44a3e37ca009d4205e431bde11434"
   },
   "bindings": {
     "example:deliverable-definitions/dialects/req": "structure",
@@ -85,12 +85,12 @@
   "nodes": {
     "structure": {
       "kind": "language",
-      "subjectId": "sec.requirement-structure",
-      "revision": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
+      "subjectId": "gift.requirement-structure",
+      "revision": "0f624c14441e4f41b49a4306c2c8f6abb2cce077458c6a8e18b21bb233f8c550",
       "content": {
         "algorithm": "sha256",
-        "digest": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225",
-        "byteLength": 39570,
+        "digest": "0f624c14441e4f41b49a4306c2c8f6abb2cce077458c6a8e18b21bb233f8c550",
+        "byteLength": 39582,
         "format": "markdown"
       },
       "locations": [
@@ -118,11 +118,11 @@
     "contract:1": {
       "kind": "definition",
       "subjectId": "example:deliverable-contract:1",
-      "revision": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
+      "revision": "7fa625ff4b57f17b52d043ef8fedd4c6311b4799905e2a296c2b310586df9a29",
       "content": {
         "algorithm": "sha256",
-        "digest": "ff2cfed55b8fbadbab08c249985def9d5b2ddf410ae4a98669416c94b4779341",
-        "byteLength": 5806,
+        "digest": "7fa625ff4b57f17b52d043ef8fedd4c6311b4799905e2a296c2b310586df9a29",
+        "byteLength": 5807,
         "format": "markdown"
       },
       "locations": [
@@ -169,11 +169,11 @@
     "contract:4": {
       "kind": "definition",
       "subjectId": "example:deliverable-contract:4",
-      "revision": "cab36d1468e8e2493119e93a6b97da27313cfdf63654960566d72e90b8439e2e",
+      "revision": "2859bf6e45218043321fa2eec8eb4e930aacc160550b6b371d157c27e25cd209",
       "content": {
         "algorithm": "sha256",
-        "digest": "cab36d1468e8e2493119e93a6b97da27313cfdf63654960566d72e90b8439e2e",
-        "byteLength": 6972,
+        "digest": "2859bf6e45218043321fa2eec8eb4e930aacc160550b6b371d157c27e25cd209",
+        "byteLength": 7160,
         "format": "markdown"
       },
       "locations": [
@@ -203,11 +203,11 @@
     "contract:6": {
       "kind": "definition",
       "subjectId": "example:deliverable-contract:6",
-      "revision": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
+      "revision": "7656a8440f7d2b52d33c27fa0318d5eacc721c59f7560a0001e85737fa1b226a",
       "content": {
         "algorithm": "sha256",
-        "digest": "eabf81d6c099abbc71dcb91e1ed07a0865e73d61ea97322ae9fff0b11c6dceb6",
-        "byteLength": 9065,
+        "digest": "7656a8440f7d2b52d33c27fa0318d5eacc721c59f7560a0001e85737fa1b226a",
+        "byteLength": 9067,
         "format": "markdown"
       },
       "locations": [
@@ -237,11 +237,11 @@
     "contract:8": {
       "kind": "definition",
       "subjectId": "example:deliverable-contract:8",
-      "revision": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
+      "revision": "2ef54c6b1806155c01b237eb61c68120aa4b0b7e6d5b9e46f54a0bcffa1d26ea",
       "content": {
         "algorithm": "sha256",
-        "digest": "fee3549a2c4ba78b009fe13ab904e2c517deb584e37e7a7aa0df0e0f13749186",
-        "byteLength": 9194,
+        "digest": "2ef54c6b1806155c01b237eb61c68120aa4b0b7e6d5b9e46f54a0bcffa1d26ea",
+        "byteLength": 9226,
         "format": "markdown"
       },
       "locations": [
@@ -271,11 +271,11 @@
     "contract:10": {
       "kind": "definition",
       "subjectId": "example:deliverable-contract:10",
-      "revision": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
+      "revision": "5ae5f803d89f95243d22645066d4069653c49f4f8e679ca793e033e7ea2207fe",
       "content": {
         "algorithm": "sha256",
-        "digest": "fe649eb99ce3cc678efee3b0756bf2ca122ad389f18111788d7e7547cf139ea6",
-        "byteLength": 5854,
+        "digest": "5ae5f803d89f95243d22645066d4069653c49f4f8e679ca793e033e7ea2207fe",
+        "byteLength": 5857,
         "format": "markdown"
       },
       "locations": [
@@ -339,11 +339,11 @@
     "normalization": {
       "kind": "definition",
       "subjectId": "example:normalization-contract",
-      "revision": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
+      "revision": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
       "content": {
         "algorithm": "sha256",
-        "digest": "bd881707aa9a7b45158e53317a8faee84da50c3c4eb5282fd66eae83f20472b1",
-        "byteLength": 17502,
+        "digest": "a6aa546b0a7aaf62f482820319c3b33d33be22ceff9f660fe4989f969788aaae",
+        "byteLength": 17757,
         "format": "markdown"
       },
       "locations": [
@@ -356,11 +356,11 @@
     "common": {
       "kind": "definition",
       "subjectId": "example:deliverable-common",
-      "revision": "786181b6679d768bfb9f803257fb17424d7f693a5062db98cbd0663b55dab507",
+      "revision": "13967a61789d71bb8de33e22658235e73c22d12aa28110776003384a21d0cbe8",
       "content": {
         "algorithm": "sha256",
-        "digest": "786181b6679d768bfb9f803257fb17424d7f693a5062db98cbd0663b55dab507",
-        "byteLength": 8344,
+        "digest": "13967a61789d71bb8de33e22658235e73c22d12aa28110776003384a21d0cbe8",
+        "byteLength": 8345,
         "format": "markdown"
       },
       "locations": [
@@ -373,11 +373,11 @@
     "catalog": {
       "kind": "module",
       "subjectId": "example/spec/deliverable-details",
-      "revision": "2dab75acde6b54cdcc7a8c4a759a60a018192d6afa0b58bc4094a3d22cf55afa",
+      "revision": "0f539752d0ae51358da0796589b3d3d31b7b56510d84f94756ff674bb2212c42",
       "content": {
         "algorithm": "sha256",
-        "digest": "2dab75acde6b54cdcc7a8c4a759a60a018192d6afa0b58bc4094a3d22cf55afa",
-        "byteLength": 54278,
+        "digest": "0f539752d0ae51358da0796589b3d3d31b7b56510d84f94756ff674bb2212c42",
+        "byteLength": 54280,
         "format": "json"
       },
       "locations": [
@@ -390,11 +390,11 @@
     "definitions": {
       "kind": "module",
       "subjectId": "example:deliverable-definitions",
-      "revision": "fdca0fd43cd93956932ce7589a7ff13aecc35021dccc975875c2402db70da1b5",
+      "revision": "0e73e6e5f3ea1dea8ccb155aea8e7bf2d45e0851445069b978018b1a34178bd0",
       "content": {
         "algorithm": "sha256",
-        "digest": "fdca0fd43cd93956932ce7589a7ff13aecc35021dccc975875c2402db70da1b5",
-        "byteLength": 45801,
+        "digest": "0e73e6e5f3ea1dea8ccb155aea8e7bf2d45e0851445069b978018b1a34178bd0",
+        "byteLength": 45803,
         "format": "json"
       },
       "locations": [

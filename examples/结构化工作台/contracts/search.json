@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/search",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/search",
   "namespace": "spec.search",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -14,84 +14,84 @@
       "kind": "req:enum-value",
       "name": "SelectedOrCompleteScope",
       "body": {
-        "nominalIdentity": "sec/spec/search#SelectedOrCompleteScope"
+        "nominalIdentity": "gift/spec/search#SelectedOrCompleteScope"
       }
     },
     "v:ExactSourceMatch": {
       "kind": "req:enum-value",
       "name": "ExactSourceMatch",
       "body": {
-        "nominalIdentity": "sec/spec/search#ExactSourceMatch"
+        "nominalIdentity": "gift/spec/search#ExactSourceMatch"
       }
     },
     "v:RebuildThenConfirm": {
       "kind": "req:enum-value",
       "name": "RebuildThenConfirm",
       "body": {
-        "nominalIdentity": "sec/spec/search#RebuildThenConfirm"
+        "nominalIdentity": "gift/spec/search#RebuildThenConfirm"
       }
     },
     "v:Reject": {
       "kind": "req:enum-value",
       "name": "Reject",
       "body": {
-        "nominalIdentity": "sec/spec/search#Reject"
+        "nominalIdentity": "gift/spec/search#Reject"
       }
     },
     "v:InspectableNotWritable": {
       "kind": "req:enum-value",
       "name": "InspectableNotWritable",
       "body": {
-        "nominalIdentity": "sec/spec/search#InspectableNotWritable"
+        "nominalIdentity": "gift/spec/search#InspectableNotWritable"
       }
     },
     "v:DisplayedPlan": {
       "kind": "req:enum-value",
       "name": "DisplayedPlan",
       "body": {
-        "nominalIdentity": "sec/spec/search#DisplayedPlan"
+        "nominalIdentity": "gift/spec/search#DisplayedPlan"
       }
     },
     "v:MatchWithSourceVersion": {
       "kind": "req:enum-value",
       "name": "MatchWithSourceVersion",
       "body": {
-        "nominalIdentity": "sec/spec/search#MatchWithSourceVersion"
+        "nominalIdentity": "gift/spec/search#MatchWithSourceVersion"
       }
     },
     "v:SupersededCannotPublish": {
       "kind": "req:enum-value",
       "name": "SupersededCannotPublish",
       "body": {
-        "nominalIdentity": "sec/spec/search#SupersededCannotPublish"
+        "nominalIdentity": "gift/spec/search#SupersededCannotPublish"
       }
     },
     "v:DisplayedEditsOnly": {
       "kind": "req:enum-value",
       "name": "DisplayedEditsOnly",
       "body": {
-        "nominalIdentity": "sec/spec/search#DisplayedEditsOnly"
+        "nominalIdentity": "gift/spec/search#DisplayedEditsOnly"
       }
     },
     "v:Explicit": {
       "kind": "req:enum-value",
       "name": "Explicit",
       "body": {
-        "nominalIdentity": "sec/spec/search#Explicit"
+        "nominalIdentity": "gift/spec/search#Explicit"
       }
     },
     "v:ReconcileNoBlindReplay": {
       "kind": "req:enum-value",
       "name": "ReconcileNoBlindReplay",
       "body": {
-        "nominalIdentity": "sec/spec/search#ReconcileNoBlindReplay"
+        "nominalIdentity": "gift/spec/search#ReconcileNoBlindReplay"
       }
     },
     "v:LiteralAndDeclaredRegexDialect": {
       "kind": "req:enum-value",
       "name": "LiteralAndDeclaredRegexDialect",
       "body": {
-        "nominalIdentity": "sec/spec/search#LiteralAndDeclaredRegexDialect"
+        "nominalIdentity": "gift/spec/search#LiteralAndDeclaredRegexDialect"
       }
     },
     "t:StalePolicy": {
@@ -99,8 +99,8 @@
       "name": "StalePolicy",
       "body": {
         "enumMembers": [
-          "sec/spec/search#Reject",
-          "sec/spec/search#RebuildThenConfirm"
+          "gift/spec/search#Reject",
+          "gift/spec/search#RebuildThenConfirm"
         ]
       }
     },
@@ -145,7 +145,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#LiteralAndDeclaredRegexDialect"
+                "gift/spec/search#LiteralAndDeclaredRegexDialect"
               ]
             },
             "meaning": "字面量及绑定的正则方言；不是所有引擎等价"
@@ -155,7 +155,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#MatchWithSourceVersion"
+                "gift/spec/search#MatchWithSourceVersion"
               ]
             },
             "meaning": "完整命中含模型/源版本与坐标"
@@ -165,7 +165,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#Explicit"
+                "gift/spec/search#Explicit"
               ]
             },
             "meaning": "完整、截断、未读、失败、取消不同"
@@ -175,7 +175,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#SupersededCannotPublish"
+                "gift/spec/search#SupersededCannotPublish"
               ]
             },
             "meaning": "旧查询可在途但不能发布为当前"
@@ -184,7 +184,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "search.Text",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -231,7 +231,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#DisplayedEditsOnly"
+                "gift/spec/search#DisplayedEditsOnly"
               ]
             },
             "meaning": "预览固定选择、替换表达式、源和精确编辑"
@@ -241,7 +241,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#DisplayedPlan"
+                "gift/spec/search#DisplayedPlan"
               ]
             },
             "meaning": "应用接受的是显示计划而非当前输入框重算值"
@@ -251,8 +251,8 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#Reject",
-                "sec/spec/search#RebuildThenConfirm"
+                "gift/spec/search#Reject",
+                "gift/spec/search#RebuildThenConfirm"
               ]
             },
             "meaning": "源/模型/策略过期时本计划拒绝应用"
@@ -262,7 +262,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#SelectedOrCompleteScope"
+                "gift/spec/search#SelectedOrCompleteScope"
               ]
             },
             "meaning": "允许明确选择；未明确选择的全量要求必须完整"
@@ -272,7 +272,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#ReconcileNoBlindReplay"
+                "gift/spec/search#ReconcileNoBlindReplay"
               ]
             },
             "meaning": "分项查回，不重放已发生编辑"
@@ -281,7 +281,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "search.Replace",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -328,7 +328,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#ExactSourceMatch"
+                "gift/spec/search#ExactSourceMatch"
               ]
             },
             "meaning": "定位到准确结果来源，陈旧项显示失效"
@@ -338,7 +338,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/search#InspectableNotWritable"
+                "gift/spec/search#InspectableNotWritable"
               ]
             },
             "meaning": "只读项可看可导航但不可写"
@@ -347,7 +347,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "search.Presentation",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -405,9 +405,9 @@
     }
   },
   "extensions": {
-    "sec.documentation-derived/1": {
+    "gift.documentation-derived/1": {
       "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
       "editable": false,
       "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }

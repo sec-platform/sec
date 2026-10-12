@@ -12,7 +12,7 @@ Read these entry points first:
 4. [`AGENTS.md`](AGENTS.md) — repository development and authority rules.
 5. [`docs/README.md`](docs/README.md) — canonical design-document index.
 
-The public summaries are not a second architecture authority. When they conflict with the canonical owners under `docs/**`, the canonical owner wins and the public projection must be corrected.
+The public summaries project the canonical design. If a summary conflicts with its owning specification, check the specification's scope and accepted revision, then correct the summary and any affected consumers. If the specification itself is contradicted by evidence or another applicable rule, resolve that conflict at the owning document before changing the design.
 
 ## Development environment
 
@@ -30,7 +30,7 @@ Before making a change, use the repository's canonical development entry point d
 
 A contribution should preserve the project's core engineering boundaries:
 
-- one canonical owner for each piece of engineering truth;
+- one active writer and interpretation authority for the same object, operation, revision, and scope, while preserving independent observations and explicit conflicts;
 - explicit identity, revision, authority, effect, failure, recovery, and evidence boundaries where they matter;
 - AI output is proposal or bounded execution input, not self-authenticating engineering truth;
 - unknown or unsupported states fail honestly rather than being converted into success;
@@ -46,7 +46,7 @@ Do not introduce a second parser, resolver, state store, verification truth, sou
 
 ## Issue lifecycle and comments
 
-GitHub Issues are the active executable backlog, not the repository's architecture database or status journal.
+GitHub Issues track bounded defects and proposed work. Repository execution is bound to the selected Work Package or operation and its actual admission rules; an Issue, branch, or pull request does not create that authority. Long-term design belongs in the canonical specifications, and transient state belongs to its owning control or runtime record.
 
 An open Issue should represent one current-main residual with a real owner or consumer, current evidence, bounded scope, and an observable exit condition. Long-lived architecture and product truth belongs in the canonical documents under `docs/**`; current machine state belongs to its owning repository/runtime projection. Do not create Program indexes, speculative capability parking lots, research corpora, execution handoffs, or recurring progress threads as open Issues.
 
@@ -68,7 +68,7 @@ A green test, command exit code, generated file, or AI review does not by itself
 
 ## Documentation
 
-When a change alters a canonical product or architecture decision, update the owning canonical document rather than creating duplicate prose elsewhere. Public documentation should project that decision for readers and link back to its canonical owner.
+Use the [documentation write-admission rules](docs/维护/规格写作与完整性.md#documentation-write-admission) to select the documentation change. A lasting change to behavior, public contracts, architecture, guarantees, or rationale belongs in its owning specification and affected consumers. Existing documentation errors, omissions, ambiguities, and necessary wording or navigation fixes can also be corrected without first changing code. A private implementation change with no such difference leaves the specification unchanged. Public summaries project the resulting design and link to its owner.
 
 Stable documentation should avoid embedding transient branch names, pull-request numbers, current commit SHAs, or temporary provider state unless the document is explicitly an historical record.
 

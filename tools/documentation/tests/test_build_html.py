@@ -55,7 +55,7 @@ class ReadingTests(unittest.TestCase):
         self.assertFalse(self.out.with_name(self.out.name+'.lock').exists())
     def test_original_bytes_all_members(self):
         self.write('examples/value.json','{ "名字": "😀", "n": "9007199254740993" }\n')
-        self.write('examples/value.sec','export fn identity(x: Int) = x;\n')
+        self.write('examples/value.gift','export fn identity(x: Int) = x;\n')
         self.run_build();p=Originals();p.feed(self.out.read_text())
         actual={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
         self.assertEqual(p.files,actual)
@@ -73,6 +73,25 @@ class ReadingTests(unittest.TestCase):
         before={str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()}
         self.run_build()
         self.assertEqual(before,{str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()})
+    def test_ordinary_reading_does_not_open_or_embed_local_projections(self):
+        first=self.run_build()
+        for name in ('.documentation/source-manifest.json','.documentation/requirements.json'):
+            (self.root/name).write_bytes(b'\xffstale local output')
+        second=self.run_build('--replace')
+        self.assertEqual(first['source_set_sha256'],second['source_set_sha256'])
+        self.assertEqual(first['input_set_sha256'],second['input_set_sha256'])
+        self.assertNotIn('stale local output',self.out.read_text())
+    def test_sealed_reading_calls_strict_verification_before_and_after_capture(self):
+        self.write('.documentation/source-manifest.json','{}')
+        with patch.object(b.check_docs,'verify',return_value={})as verify:
+            self.run_build('--sealed')
+        self.assertEqual(verify.call_args_list,[unittest.mock.call(self.root,sealed=True)]*2)
+    def test_sealed_reading_without_snapshot_does_not_publish(self):
+        self.fail('--sealed')
+    def test_default_output_and_title_use_the_design_name(self):
+        with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+            b.main(['--root',str(self.root),'--diagrams','source'])
+        self.assertIn('<title>Gift 工程设计</title>',(self.home/'Gift.html').read_text())
     def test_source_mode_explicitly_unrendered(self):
         self.write('docs/graph.md','# Graph\n\n```mermaid\nflowchart LR\n A-->B\n```\n')
         data=self.run_build();self.assertEqual(data['diagrams'],1);self.assertEqual(data['rendered'],0)

@@ -1,6 +1,6 @@
 // 需求作者源；定义允许的产品行为，不执行安装或构造运行对象。
-import "sec/spec/ide" as ide;
-import "sec/spec/search" as search;
+import "gift/spec/ide" as ide;
+import "gift/spec/search" as search;
 
 export design Searching(s: ide.Workbench, stalePolicy: search.StalePolicy) {
   require search.Text {

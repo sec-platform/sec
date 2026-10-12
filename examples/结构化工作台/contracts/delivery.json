@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/delivery",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/delivery",
   "namespace": "spec.delivery",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -14,91 +14,91 @@
       "kind": "req:enum-value",
       "name": "Linux",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#Linux"
+        "nominalIdentity": "gift/spec/delivery#Linux"
       }
     },
     "v:TypeScript": {
       "kind": "req:enum-value",
       "name": "TypeScript",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#TypeScript"
+        "nominalIdentity": "gift/spec/delivery#TypeScript"
       }
     },
     "v:Locked": {
       "kind": "req:enum-value",
       "name": "Locked",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#Locked"
+        "nominalIdentity": "gift/spec/delivery#Locked"
       }
     },
     "v:ExplicitNoArtifact": {
       "kind": "req:enum-value",
       "name": "ExplicitNoArtifact",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#ExplicitNoArtifact"
+        "nominalIdentity": "gift/spec/delivery#ExplicitNoArtifact"
       }
     },
     "v:DesktopHostContract": {
       "kind": "req:enum-value",
       "name": "DesktopHostContract",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#DesktopHostContract"
+        "nominalIdentity": "gift/spec/delivery#DesktopHostContract"
       }
     },
     "v:Windows": {
       "kind": "req:enum-value",
       "name": "Windows",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#Windows"
+        "nominalIdentity": "gift/spec/delivery#Windows"
       }
     },
     "v:MacOS": {
       "kind": "req:enum-value",
       "name": "MacOS",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#MacOS"
+        "nominalIdentity": "gift/spec/delivery#MacOS"
       }
     },
     "v:GeneratedFromIntent": {
       "kind": "req:enum-value",
       "name": "GeneratedFromIntent",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#GeneratedFromIntent"
+        "nominalIdentity": "gift/spec/delivery#GeneratedFromIntent"
       }
     },
     "v:ExactIntentAndBinding": {
       "kind": "req:enum-value",
       "name": "ExactIntentAndBinding",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#ExactIntentAndBinding"
+        "nominalIdentity": "gift/spec/delivery#ExactIntentAndBinding"
       }
     },
     "v:CompatibleDistribution": {
       "kind": "req:enum-value",
       "name": "CompatibleDistribution",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#CompatibleDistribution"
+        "nominalIdentity": "gift/spec/delivery#CompatibleDistribution"
       }
     },
     "v:NoFreshNaturalLanguageInterpretation": {
       "kind": "req:enum-value",
       "name": "NoFreshNaturalLanguageInterpretation",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#NoFreshNaturalLanguageInterpretation"
+        "nominalIdentity": "gift/spec/delivery#NoFreshNaturalLanguageInterpretation"
       }
     },
     "v:RequirementToArtifact": {
       "kind": "req:enum-value",
       "name": "RequirementToArtifact",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#RequirementToArtifact"
+        "nominalIdentity": "gift/spec/delivery#RequirementToArtifact"
       }
     },
     "v:CompleteSelectedRoots": {
       "kind": "req:enum-value",
       "name": "CompleteSelectedRoots",
       "body": {
-        "nominalIdentity": "sec/spec/delivery#CompleteSelectedRoots"
+        "nominalIdentity": "gift/spec/delivery#CompleteSelectedRoots"
       }
     },
     "t:Platform": {
@@ -106,9 +106,9 @@
       "name": "Platform",
       "body": {
         "enumMembers": [
-          "sec/spec/delivery#Windows",
-          "sec/spec/delivery#Linux",
-          "sec/spec/delivery#MacOS"
+          "gift/spec/delivery#Windows",
+          "gift/spec/delivery#Linux",
+          "gift/spec/delivery#MacOS"
         ]
       }
     },
@@ -133,10 +133,10 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#TypeScript"
+                "gift/spec/delivery#TypeScript"
               ]
             },
-            "meaning": "要求TS源输出，不指定SEC实现语言"
+            "meaning": "要求TS源输出，不指定Gift实现语言"
           },
           "target": {
             "required": true,
@@ -153,7 +153,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#DesktopHostContract"
+                "gift/spec/delivery#DesktopHostContract"
               ]
             },
             "meaning": "桌面宿主能力合同；具体实现由合格Binding决定"
@@ -163,7 +163,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#CompleteSelectedRoots"
+                "gift/spec/delivery#CompleteSelectedRoots"
               ]
             },
             "meaning": "源/配置/资源/必要运行库和许可齐全"
@@ -173,7 +173,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#GeneratedFromIntent"
+                "gift/spec/delivery#GeneratedFromIntent"
               ]
             },
             "meaning": "派生工程不反过来成为必须双写的作者源"
@@ -182,7 +182,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "delivery.Source",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -211,9 +211,9 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "sec/spec/delivery#Windows",
-                  "sec/spec/delivery#Linux",
-                  "sec/spec/delivery#MacOS"
+                  "gift/spec/delivery#Windows",
+                  "gift/spec/delivery#Linux",
+                  "gift/spec/delivery#MacOS"
                 ]
               }
             },
@@ -224,7 +224,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#ExplicitNoArtifact"
+                "gift/spec/delivery#ExplicitNoArtifact"
               ]
             },
             "meaning": "某平台不合格时该输出明确失败，不冒称三平台完成"
@@ -234,7 +234,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#Locked"
+                "gift/spec/delivery#Locked"
               ]
             },
             "meaning": "依赖与方法解释固定到实际内容"
@@ -244,7 +244,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#CompatibleDistribution"
+                "gift/spec/delivery#CompatibleDistribution"
               ]
             },
             "meaning": "选定源码、库、资源和商标使用满足实际分发条件"
@@ -253,7 +253,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "delivery.Compatibility",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -280,7 +280,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#ExactIntentAndBinding"
+                "gift/spec/delivery#ExactIntentAndBinding"
               ]
             },
             "meaning": "意图、采用的定义、方法/参数和实际输入共同固定"
@@ -290,7 +290,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#RequirementToArtifact"
+                "gift/spec/delivery#RequirementToArtifact"
               ]
             },
             "meaning": "从需求出现到生成模块/约束/说明的来源关系"
@@ -300,7 +300,7 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/delivery#NoFreshNaturalLanguageInterpretation"
+                "gift/spec/delivery#NoFreshNaturalLanguageInterpretation"
               ]
             },
             "meaning": "固定构建不再次请求AI猜需求"
@@ -309,7 +309,7 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "delivery.Identity",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+          "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -370,9 +370,9 @@
     }
   },
   "extensions": {
-    "sec.documentation-derived/1": {
+    "gift.documentation-derived/1": {
       "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
+      "sha256": "2a6fa276b26457cc30c07dc559270f9f1d718ea1f38a870e92661e4121460110",
       "editable": false,
       "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }

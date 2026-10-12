@@ -149,7 +149,6 @@ export function activeDocumentationPaths(registry: DocumentationIdentityRegistry
   return [
     DOCUMENTATION_BASELINE_PATH,
     DOCUMENTATION_IDENTITY_PATH,
-    DOCUMENTATION_SOURCE_MANIFEST_PATH,
     ...registry.documents.map((record) => record.path)
   ]
     .sort(compareCodeUnits);
