@@ -8,49 +8,42 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:ResidentMemory": {
       "kind": "req:enum-value",
       "name": "ResidentMemory",
-      "body": {
-        "nominalIdentity": "gift/spec/quality#ResidentMemory"
-      }
+      "body": {}
     },
     "v:Explicit": {
       "kind": "req:enum-value",
       "name": "Explicit",
-      "body": {
-        "nominalIdentity": "gift/spec/quality#Explicit"
-      }
+      "body": {}
     },
     "v:InteractiveLatency": {
       "kind": "req:enum-value",
       "name": "InteractiveLatency",
-      "body": {
-        "nominalIdentity": "gift/spec/quality#InteractiveLatency"
-      }
+      "body": {}
     },
     "v:BoundedQueueOrReject": {
       "kind": "req:enum-value",
       "name": "BoundedQueueOrReject",
-      "body": {
-        "nominalIdentity": "gift/spec/quality#BoundedQueueOrReject"
-      }
+      "body": {}
     },
     "v:DeclaredWorkload": {
       "kind": "req:enum-value",
       "name": "DeclaredWorkload",
-      "body": {
-        "nominalIdentity": "gift/spec/quality#DeclaredWorkload"
-      }
+      "body": {}
     },
     "v:LimitsFromRuntimeProfile": {
       "kind": "req:enum-value",
       "name": "LimitsFromRuntimeProfile",
-      "body": {
-        "nominalIdentity": "gift/spec/quality#LimitsFromRuntimeProfile"
-      }
+      "body": {}
     },
     "r:Admission": {
       "kind": "req:rule",
@@ -63,7 +56,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workbench"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workbench"
+                  }
+                }
               ]
             },
             "meaning": "全部受管运行/查询"
@@ -73,7 +71,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/quality#LimitsFromRuntimeProfile"
+                {
+                  "definitionId": "v:LimitsFromRuntimeProfile"
+                }
               ]
             },
             "meaning": "使用被绑定部署配置中的容量，不伪造未测性能数值"
@@ -83,7 +83,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/quality#BoundedQueueOrReject"
+                {
+                  "definitionId": "v:BoundedQueueOrReject"
+                }
               ]
             },
             "meaning": "内存/并发/待办有实际界限，超限暂停或拒绝"
@@ -93,7 +95,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/quality#Explicit"
+                {
+                  "definitionId": "v:Explicit"
+                }
               ]
             },
             "meaning": "截断、丢弃、取消和未完成可观察"
@@ -118,7 +122,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workbench"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workbench"
+                  }
+                }
               ]
             },
             "meaning": "选择的产品实例"
@@ -128,8 +137,12 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/quality#ResidentMemory",
-                "gift/spec/quality#InteractiveLatency"
+                {
+                  "definitionId": "v:ResidentMemory"
+                },
+                {
+                  "definitionId": "v:InteractiveLatency"
+                }
               ]
             },
             "meaning": "驻留内存；第二条可以用InteractiveLatency"
@@ -146,7 +159,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/quality#DeclaredWorkload"
+                {
+                  "definitionId": "v:DeclaredWorkload"
+                }
               ]
             },
             "meaning": "比较按目标相同且明确的工作负载；未测为未知"

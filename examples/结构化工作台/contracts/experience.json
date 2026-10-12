@@ -8,98 +8,77 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:MessageCatalog": {
       "kind": "req:enum-value",
       "name": "MessageCatalog",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#MessageCatalog"
-      }
+      "body": {}
     },
     "v:AccessibleNames": {
       "kind": "req:enum-value",
       "name": "AccessibleNames",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#AccessibleNames"
-      }
+      "body": {}
     },
     "v:Menu": {
       "kind": "req:enum-value",
       "name": "Menu",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#Menu"
-      }
+      "body": {}
     },
     "v:Keyboard": {
       "kind": "req:enum-value",
       "name": "Keyboard",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#Keyboard"
-      }
+      "body": {}
     },
     "v:DeterministicKeyboardRoute": {
       "kind": "req:enum-value",
       "name": "DeterministicKeyboardRoute",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#DeterministicKeyboardRoute"
-      }
+      "body": {}
     },
     "v:SemanticTokens": {
       "kind": "req:enum-value",
       "name": "SemanticTokens",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#SemanticTokens"
-      }
+      "body": {}
     },
     "v:Palette": {
       "kind": "req:enum-value",
       "name": "Palette",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#Palette"
-      }
+      "body": {}
     },
     "v:VisibleFallback": {
       "kind": "req:enum-value",
       "name": "VisibleFallback",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#VisibleFallback"
-      }
+      "body": {}
     },
     "v:WorkbenchLayout": {
       "kind": "req:enum-value",
       "name": "WorkbenchLayout",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#WorkbenchLayout"
-      }
+      "body": {}
     },
     "v:TypedCommandSchema": {
       "kind": "req:enum-value",
       "name": "TypedCommandSchema",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#TypedCommandSchema"
-      }
+      "body": {}
     },
     "v:TextAndAssistiveNotification": {
       "kind": "req:enum-value",
       "name": "TextAndAssistiveNotification",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#TextAndAssistiveNotification"
-      }
+      "body": {}
     },
     "v:TaskContext": {
       "kind": "req:enum-value",
       "name": "TaskContext",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#TaskContext"
-      }
+      "body": {}
     },
     "v:CurrentContext": {
       "kind": "req:enum-value",
       "name": "CurrentContext",
-      "body": {
-        "nominalIdentity": "gift/spec/experience#CurrentContext"
-      }
+      "body": {}
     },
     "r:Layout": {
       "kind": "req:rule",
@@ -112,7 +91,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "WorkbenchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "WorkbenchSurface"
+                  }
+                }
               ]
             },
             "meaning": "工作台交互表面"
@@ -122,7 +106,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EditorSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EditorSurface"
+                  }
+                }
               ]
             },
             "meaning": "主编辑区"
@@ -132,7 +121,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "文件树"
@@ -142,7 +136,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "SearchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "SearchSurface"
+                  }
+                }
               ]
             },
             "meaning": "搜索表面"
@@ -152,7 +151,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DiagnosticSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DiagnosticSet"
+                  }
+                }
               ]
             },
             "meaning": "问题表面"
@@ -162,7 +166,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TerminalSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TerminalSet"
+                  }
+                }
               ]
             },
             "meaning": "底部交互终端"
@@ -172,7 +181,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#WorkbenchLayout"
+                {
+                  "definitionId": "v:WorkbenchLayout"
+                }
               ]
             },
             "meaning": "左侧文件/搜索，中央编辑，底部问题/终端，可隐藏、分屏和调整"
@@ -182,7 +193,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#TaskContext"
+                {
+                  "definitionId": "v:TaskContext"
+                }
               ]
             },
             "meaning": "显示状态按任务上下文而非改变实际需求"
@@ -207,7 +220,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "WorkbenchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "WorkbenchSurface"
+                  }
+                }
               ]
             },
             "meaning": "命令入口表面"
@@ -219,18 +237,78 @@
               "element": {
                 "kind": "subject",
                 "subjectKinds": [
-                  "Configuration",
-                  "DebugSessionSet",
-                  "EditorSurface",
-                  "ExtensionSet",
-                  "LanguageServiceSet",
-                  "ReplacementSurface",
-                  "SearchSurface",
-                  "TaskSet",
-                  "TerminalSet",
-                  "TestSet",
-                  "VersionIntegration",
-                  "Workspace"
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "Configuration"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "DebugSessionSet"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "EditorSurface"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "ExtensionSet"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "LanguageServiceSet"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "ReplacementSurface"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "SearchSurface"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "TaskSet"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "TerminalSet"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "TestSet"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "VersionIntegration"
+                    }
+                  },
+                  {
+                    "decl": {
+                      "import": "subjects",
+                      "export": "Workspace"
+                    }
+                  }
                 ]
               }
             },
@@ -243,9 +321,15 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "gift/spec/experience#Menu",
-                  "gift/spec/experience#Palette",
-                  "gift/spec/experience#Keyboard"
+                  {
+                    "definitionId": "v:Menu"
+                  },
+                  {
+                    "definitionId": "v:Palette"
+                  },
+                  {
+                    "definitionId": "v:Keyboard"
+                  }
                 ]
               }
             },
@@ -256,7 +340,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#TypedCommandSchema"
+                {
+                  "definitionId": "v:TypedCommandSchema"
+                }
               ]
             },
             "meaning": "从供给公开动作签名派生命令/参数/消息，不手抄三份处理器"
@@ -266,7 +352,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#CurrentContext"
+                {
+                  "definitionId": "v:CurrentContext"
+                }
               ]
             },
             "meaning": "是否可用以当前主体能力/选择/权限决定"
@@ -291,7 +379,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "WorkbenchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "WorkbenchSurface"
+                  }
+                }
               ]
             },
             "meaning": "整个交互表面"
@@ -301,7 +394,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#DeterministicKeyboardRoute"
+                {
+                  "definitionId": "v:DeterministicKeyboardRoute"
+                }
               ]
             },
             "meaning": "固定焦点次序、模态约束和返回位置"
@@ -311,7 +406,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#AccessibleNames"
+                {
+                  "definitionId": "v:AccessibleNames"
+                }
               ]
             },
             "meaning": "核心控件具有角色/名称/状态"
@@ -321,7 +418,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#TextAndAssistiveNotification"
+                {
+                  "definitionId": "v:TextAndAssistiveNotification"
+                }
               ]
             },
             "meaning": "错误、运行和保存结果文字可见并对辅助技术可得"
@@ -346,7 +445,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "WorkbenchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "WorkbenchSurface"
+                  }
+                }
               ]
             },
             "meaning": "界面表面"
@@ -356,7 +460,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#SemanticTokens"
+                {
+                  "definitionId": "v:SemanticTokens"
+                }
               ]
             },
             "meaning": "颜色字体空间用语义token，默认取绑定DesktopBaseline1主题"
@@ -366,7 +472,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#MessageCatalog"
+                {
+                  "definitionId": "v:MessageCatalog"
+                }
               ]
             },
             "meaning": "消息键及参数签名从所用能力目录生成/合并；此例默认zh-CN，en为回退"
@@ -376,7 +484,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/experience#VisibleFallback"
+                {
+                  "definitionId": "v:VisibleFallback"
+                }
               ]
             },
             "meaning": "缺文案有可见回退和构建诊断，不显示空按钮"

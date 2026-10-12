@@ -8,56 +8,47 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:IsolatedExecutable": {
       "kind": "req:enum-value",
       "name": "IsolatedExecutable",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#IsolatedExecutable"
-      }
+      "body": {}
     },
     "v:DeclarativeContribution": {
       "kind": "req:enum-value",
       "name": "DeclarativeContribution",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#DeclarativeContribution"
-      }
+      "body": {}
     },
     "v:DeclaredAndGranted": {
       "kind": "req:enum-value",
       "name": "DeclaredAndGranted",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#DeclaredAndGranted"
-      }
+      "body": {}
     },
     "v:ContainAndDisable": {
       "kind": "req:enum-value",
       "name": "ContainAndDisable",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#ContainAndDisable"
-      }
+      "body": {}
     },
     "v:RejectUnsupportedRequirement": {
       "kind": "req:enum-value",
       "name": "RejectUnsupportedRequirement",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#RejectUnsupportedRequirement"
-      }
+      "body": {}
     },
     "v:VersionedCapability": {
       "kind": "req:enum-value",
       "name": "VersionedCapability",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#VersionedCapability"
-      }
+      "body": {}
     },
     "v:ExactContent": {
       "kind": "req:enum-value",
       "name": "ExactContent",
-      "body": {
-        "nominalIdentity": "gift/spec/extension#ExactContent"
-      }
+      "body": {}
     },
     "r:Execution": {
       "kind": "req:rule",
@@ -70,7 +61,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "ExtensionSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "ExtensionSet"
+                  }
+                }
               ]
             },
             "meaning": "扩展集合"
@@ -80,7 +76,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EffectBoundary"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EffectBoundary"
+                  }
+                }
               ]
             },
             "meaning": "所有外部作用的边界"
@@ -92,8 +93,12 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "gift/spec/extension#DeclarativeContribution",
-                  "gift/spec/extension#IsolatedExecutable"
+                  {
+                    "definitionId": "v:DeclarativeContribution"
+                  },
+                  {
+                    "definitionId": "v:IsolatedExecutable"
+                  }
                 ]
               }
             },
@@ -104,7 +109,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/extension#DeclaredAndGranted"
+                {
+                  "definitionId": "v:DeclaredAndGranted"
+                }
               ]
             },
             "meaning": "声明需求与取得许可分别检查"
@@ -114,7 +121,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/extension#ContainAndDisable"
+                {
+                  "definitionId": "v:ContainAndDisable"
+                }
               ]
             },
             "meaning": "故障隔离并可禁用"
@@ -139,7 +148,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "ExtensionSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "ExtensionSet"
+                  }
+                }
               ]
             },
             "meaning": "相同扩展集合"
@@ -149,7 +163,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/extension#VersionedCapability"
+                {
+                  "definitionId": "v:VersionedCapability"
+                }
               ]
             },
             "meaning": "接口按语义能力版本匹配"
@@ -159,7 +175,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/extension#ExactContent"
+                {
+                  "definitionId": "v:ExactContent"
+                }
               ]
             },
             "meaning": "安装内容与声明及来源绑定"
@@ -169,7 +187,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/extension#RejectUnsupportedRequirement"
+                {
+                  "definitionId": "v:RejectUnsupportedRequirement"
+                }
               ]
             },
             "meaning": "未知必需能力拒绝启用"

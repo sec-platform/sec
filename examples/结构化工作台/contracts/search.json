@@ -8,99 +8,84 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:SelectedOrCompleteScope": {
       "kind": "req:enum-value",
       "name": "SelectedOrCompleteScope",
-      "body": {
-        "nominalIdentity": "gift/spec/search#SelectedOrCompleteScope"
-      }
+      "body": {}
     },
     "v:ExactSourceMatch": {
       "kind": "req:enum-value",
       "name": "ExactSourceMatch",
-      "body": {
-        "nominalIdentity": "gift/spec/search#ExactSourceMatch"
-      }
+      "body": {}
     },
     "v:RebuildThenConfirm": {
       "kind": "req:enum-value",
       "name": "RebuildThenConfirm",
-      "body": {
-        "nominalIdentity": "gift/spec/search#RebuildThenConfirm"
-      }
+      "body": {}
     },
     "v:Reject": {
       "kind": "req:enum-value",
       "name": "Reject",
-      "body": {
-        "nominalIdentity": "gift/spec/search#Reject"
-      }
+      "body": {}
     },
     "v:InspectableNotWritable": {
       "kind": "req:enum-value",
       "name": "InspectableNotWritable",
-      "body": {
-        "nominalIdentity": "gift/spec/search#InspectableNotWritable"
-      }
+      "body": {}
     },
     "v:DisplayedPlan": {
       "kind": "req:enum-value",
       "name": "DisplayedPlan",
-      "body": {
-        "nominalIdentity": "gift/spec/search#DisplayedPlan"
-      }
+      "body": {}
     },
     "v:MatchWithSourceVersion": {
       "kind": "req:enum-value",
       "name": "MatchWithSourceVersion",
-      "body": {
-        "nominalIdentity": "gift/spec/search#MatchWithSourceVersion"
-      }
+      "body": {}
     },
     "v:SupersededCannotPublish": {
       "kind": "req:enum-value",
       "name": "SupersededCannotPublish",
-      "body": {
-        "nominalIdentity": "gift/spec/search#SupersededCannotPublish"
-      }
+      "body": {}
     },
     "v:DisplayedEditsOnly": {
       "kind": "req:enum-value",
       "name": "DisplayedEditsOnly",
-      "body": {
-        "nominalIdentity": "gift/spec/search#DisplayedEditsOnly"
-      }
+      "body": {}
     },
     "v:Explicit": {
       "kind": "req:enum-value",
       "name": "Explicit",
-      "body": {
-        "nominalIdentity": "gift/spec/search#Explicit"
-      }
+      "body": {}
     },
     "v:ReconcileNoBlindReplay": {
       "kind": "req:enum-value",
       "name": "ReconcileNoBlindReplay",
-      "body": {
-        "nominalIdentity": "gift/spec/search#ReconcileNoBlindReplay"
-      }
+      "body": {}
     },
     "v:LiteralAndDeclaredRegexDialect": {
       "kind": "req:enum-value",
       "name": "LiteralAndDeclaredRegexDialect",
-      "body": {
-        "nominalIdentity": "gift/spec/search#LiteralAndDeclaredRegexDialect"
-      }
+      "body": {}
     },
     "t:StalePolicy": {
       "kind": "req:value-type",
       "name": "StalePolicy",
       "body": {
         "enumMembers": [
-          "gift/spec/search#Reject",
-          "gift/spec/search#RebuildThenConfirm"
+          {
+            "definitionId": "v:Reject"
+          },
+          {
+            "definitionId": "v:RebuildThenConfirm"
+          }
         ]
       }
     },
@@ -115,7 +100,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "SearchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "SearchSurface"
+                  }
+                }
               ]
             },
             "meaning": "查询、结果与覆盖主体"
@@ -125,7 +115,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "检索范围"
@@ -135,7 +130,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "同一编辑内容集合"
@@ -145,7 +145,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#LiteralAndDeclaredRegexDialect"
+                {
+                  "definitionId": "v:LiteralAndDeclaredRegexDialect"
+                }
               ]
             },
             "meaning": "字面量及绑定的正则方言；不是所有引擎等价"
@@ -155,7 +157,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#MatchWithSourceVersion"
+                {
+                  "definitionId": "v:MatchWithSourceVersion"
+                }
               ]
             },
             "meaning": "完整命中含模型/源版本与坐标"
@@ -165,7 +169,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#Explicit"
+                {
+                  "definitionId": "v:Explicit"
+                }
               ]
             },
             "meaning": "完整、截断、未读、失败、取消不同"
@@ -175,7 +181,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#SupersededCannotPublish"
+                {
+                  "definitionId": "v:SupersededCannotPublish"
+                }
               ]
             },
             "meaning": "旧查询可在途但不能发布为当前"
@@ -200,7 +208,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "ReplacementSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "ReplacementSurface"
+                  }
+                }
               ]
             },
             "meaning": "替换计划主体"
@@ -210,7 +223,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "SearchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "SearchSurface"
+                  }
+                }
               ]
             },
             "meaning": "来源为同一搜索结果"
@@ -220,7 +238,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "写入同一组模型"
@@ -230,7 +253,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#DisplayedEditsOnly"
+                {
+                  "definitionId": "v:DisplayedEditsOnly"
+                }
               ]
             },
             "meaning": "预览固定选择、替换表达式、源和精确编辑"
@@ -240,7 +265,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#DisplayedPlan"
+                {
+                  "definitionId": "v:DisplayedPlan"
+                }
               ]
             },
             "meaning": "应用接受的是显示计划而非当前输入框重算值"
@@ -250,9 +277,18 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#Reject",
-                "gift/spec/search#RebuildThenConfirm"
-              ]
+                {
+                  "definitionId": "v:Reject"
+                },
+                {
+                  "definitionId": "v:RebuildThenConfirm"
+                }
+              ],
+              "valueType": {
+                "decl": {
+                  "definitionId": "t:StalePolicy"
+                }
+              }
             },
             "meaning": "源/模型/策略过期时本计划拒绝应用"
           },
@@ -261,7 +297,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#SelectedOrCompleteScope"
+                {
+                  "definitionId": "v:SelectedOrCompleteScope"
+                }
               ]
             },
             "meaning": "允许明确选择；未明确选择的全量要求必须完整"
@@ -271,7 +309,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#ReconcileNoBlindReplay"
+                {
+                  "definitionId": "v:ReconcileNoBlindReplay"
+                }
               ]
             },
             "meaning": "分项查回，不重放已发生编辑"
@@ -296,7 +336,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "SearchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "SearchSurface"
+                  }
+                }
               ]
             },
             "meaning": "结果模型"
@@ -306,7 +351,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "ReplacementSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "ReplacementSurface"
+                  }
+                }
               ]
             },
             "meaning": "替换计划"
@@ -316,7 +366,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "WorkbenchSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "WorkbenchSurface"
+                  }
+                }
               ]
             },
             "meaning": "交互展示主体"
@@ -326,7 +381,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#ExactSourceMatch"
+                {
+                  "definitionId": "v:ExactSourceMatch"
+                }
               ]
             },
             "meaning": "定位到准确结果来源，陈旧项显示失效"
@@ -336,7 +393,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/search#InspectableNotWritable"
+                {
+                  "definitionId": "v:InspectableNotWritable"
+                }
               ]
             },
             "meaning": "只读项可看可导航但不可写"

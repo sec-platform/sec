@@ -29,80 +29,80 @@
       "name": "Adjacency",
       "body": {
         "enumMembers": [
-          "example/spec/normalization#MergeTouching",
-          "example/spec/normalization#KeepTouching"
+          {
+            "definitionId": "v:MergeTouching"
+          },
+          {
+            "definitionId": "v:KeepTouching"
+          }
         ]
       }
     },
     "v:MergeTouching": {
       "kind": "req:enum-value",
       "name": "MergeTouching",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#MergeTouching"
-      }
+      "body": {}
     },
     "v:KeepTouching": {
       "kind": "req:enum-value",
       "name": "KeepTouching",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#KeepTouching"
-      }
+      "body": {}
     },
     "t:Form": {
       "kind": "req:value-type",
       "name": "Form",
       "body": {
         "enumMembers": [
-          "example/spec/normalization#Library",
-          "example/spec/normalization#Command",
-          "example/spec/normalization#Worker",
-          "example/spec/normalization#HttpHandler",
-          "example/spec/normalization#Plugin",
-          "example/spec/normalization#Panel"
+          {
+            "definitionId": "v:Library"
+          },
+          {
+            "definitionId": "v:Command"
+          },
+          {
+            "definitionId": "v:Worker"
+          },
+          {
+            "definitionId": "v:HttpHandler"
+          },
+          {
+            "definitionId": "v:Plugin"
+          },
+          {
+            "definitionId": "v:Panel"
+          }
         ]
       }
     },
     "v:Library": {
       "kind": "req:enum-value",
       "name": "Library",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#Library"
-      }
+      "body": {}
     },
     "v:Command": {
       "kind": "req:enum-value",
       "name": "Command",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#Command"
-      }
+      "body": {}
     },
     "v:Worker": {
       "kind": "req:enum-value",
       "name": "Worker",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#Worker"
-      }
+      "body": {}
     },
     "v:HttpHandler": {
       "kind": "req:enum-value",
       "name": "HttpHandler",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#HttpHandler"
-      }
+      "body": {}
     },
     "v:Plugin": {
       "kind": "req:enum-value",
       "name": "Plugin",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#Plugin"
-      }
+      "body": {}
     },
     "v:Panel": {
       "kind": "req:enum-value",
       "name": "Panel",
-      "body": {
-        "nominalIdentity": "example/spec/normalization#Panel"
-      }
+      "body": {}
     },
     "r:Canonical": {
       "kind": "req:rule",
@@ -115,7 +115,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Transform"
+                {
+                  "decl": {
+                    "definitionId": "t:Transform"
+                  }
+                }
               ]
             },
             "meaning": "准确变换主体"
@@ -125,9 +129,18 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "example/spec/normalization#MergeTouching",
-                "example/spec/normalization#KeepTouching"
-              ]
+                {
+                  "definitionId": "v:MergeTouching"
+                },
+                {
+                  "definitionId": "v:KeepTouching"
+                }
+              ],
+              "valueType": {
+                "decl": {
+                  "definitionId": "t:Adjacency"
+                }
+              }
             },
             "meaning": "相接区间的公开结果语义"
           }
@@ -151,7 +164,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Delivery"
+                {
+                  "decl": {
+                    "definitionId": "t:Delivery"
+                  }
+                }
               ]
             },
             "meaning": "准确成品主体"
@@ -161,7 +178,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Transform"
+                {
+                  "decl": {
+                    "definitionId": "t:Transform"
+                  }
+                }
               ]
             },
             "meaning": "同一规范化行为"
@@ -171,13 +192,30 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "example/spec/normalization#Library",
-                "example/spec/normalization#Command",
-                "example/spec/normalization#Worker",
-                "example/spec/normalization#HttpHandler",
-                "example/spec/normalization#Plugin",
-                "example/spec/normalization#Panel"
-              ]
+                {
+                  "definitionId": "v:Library"
+                },
+                {
+                  "definitionId": "v:Command"
+                },
+                {
+                  "definitionId": "v:Worker"
+                },
+                {
+                  "definitionId": "v:HttpHandler"
+                },
+                {
+                  "definitionId": "v:Plugin"
+                },
+                {
+                  "definitionId": "v:Panel"
+                }
+              ],
+              "valueType": {
+                "decl": {
+                  "definitionId": "t:Form"
+                }
+              }
             },
             "meaning": "本合同逐项定义的消费形式"
           }

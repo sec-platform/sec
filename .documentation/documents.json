@@ -303,10 +303,6 @@
       "path": "docs/依据/理论/控制组织与利益约束.md"
     },
     {
-      "document_id": "urn:uuid:0b840cea-5df8-4e2b-a981-bb16fc11524f",
-      "path": "docs/依据/理论/理论边界与反例.md"
-    },
-    {
       "document_id": "urn:uuid:7c7e8cd0-0678-4285-a4c6-ed4b4af030bb",
       "path": "docs/依据/理论/表达证明与搜索边界.md"
     },
@@ -375,16 +371,28 @@
       "path": "docs/开发/AI协作/规则装载与任务恢复.md"
     },
     {
-      "document_id": "urn:uuid:7014125c-820b-400f-8908-613b0cd3ab25",
-      "path": "docs/开发/AI协作/需求与作者上下文.md"
-    },
-    {
       "document_id": "urn:uuid:a150b388-fffd-5ad0-ab72-224574c7e0f0",
       "path": "docs/开发/README.md"
     },
     {
+      "document_id": "urn:uuid:8d71f6a8-c1f4-4a36-b4f1-290a74dbf038",
+      "path": "docs/开发/仓库维护/Git冻结与资源退役.md"
+    },
+    {
+      "document_id": "urn:uuid:6a020f4d-e1ea-4467-8e23-660783c824dc",
+      "path": "docs/开发/仓库维护/工作身份与续接.md"
+    },
+    {
+      "document_id": "urn:uuid:3c1c584b-c9bd-47f5-b40a-3f50d2731610",
+      "path": "docs/开发/仓库维护/验证与传输边界.md"
+    },
+    {
       "document_id": "urn:uuid:180c14c7-a8f9-40fa-b88b-f9112b1f8a53",
       "path": "docs/开发/原生维护/导入观察与原生资产.md"
+    },
+    {
+      "document_id": "urn:uuid:92f74e9c-7595-4dfd-a554-a4cb589433b4",
+      "path": "docs/开发/工作区观察与捕获.md"
     },
     {
       "document_id": "urn:uuid:d4431ed4-32e1-502d-b37e-5ac12083e7dc",
@@ -421,6 +429,10 @@
     {
       "document_id": "urn:uuid:0fb740cb-972c-55c9-b2a7-7b561f96b2bd",
       "path": "docs/开发/测试发现与执行.md"
+    },
+    {
+      "document_id": "urn:uuid:72078132-a663-4f91-9967-1a1311bc889f",
+      "path": "docs/开发/版本控制与集成.md"
     },
     {
       "document_id": "urn:uuid:eceab9fe-1df2-4046-80e3-347ad5f88748",
@@ -481,6 +493,10 @@
     {
       "document_id": "urn:uuid:660e79c7-f66d-5d9e-98b1-92ffb0423701",
       "path": "docs/架构/装配/能力接合与文件责任.md"
+    },
+    {
+      "document_id": "urn:uuid:093feac0-d41a-4acb-9229-595f878c16c8",
+      "path": "docs/架构/装配/请求准备与续接.md"
     },
     {
       "document_id": "urn:uuid:e21369d4-fc58-5f3c-9ee5-47cc5edb7056",
@@ -615,10 +631,6 @@
       "path": "docs/状态/编译与目标.md"
     },
     {
-      "document_id": "urn:uuid:87c3e816-90c7-5197-b092-32f11d53254d",
-      "path": "docs/状态/设计剩余全量清单.md"
-    },
-    {
       "document_id": "urn:uuid:9492dfdf-b431-5777-a750-d28ebf897462",
       "path": "docs/状态/语义与领域.md"
     },
@@ -631,16 +643,8 @@
       "path": "docs/维护/交付材料与归档.md"
     },
     {
-      "document_id": "urn:uuid:290454ca-e8a4-523d-8cd1-dbb61b3427f9",
-      "path": "docs/维护/原则问题与交付边界.md"
-    },
-    {
       "document_id": "urn:uuid:5506e719-8d83-5124-8f71-4e1d2e620d4f",
       "path": "docs/维护/图表与阅读派生.md"
-    },
-    {
-      "document_id": "urn:uuid:356f9f54-8113-4186-bd62-1fba4cbace95",
-      "path": "docs/维护/基线与采用.md"
     },
     {
       "document_id": "urn:uuid:05ac254f-60ce-5350-9ef7-f4374172600c",
@@ -911,20 +915,8 @@
       "path": "docs/运行/验收/信息与完成边界案例.md"
     },
     {
-      "document_id": "urn:uuid:df991765-a6c3-580e-974f-f81b23fc37e2",
-      "path": "docs/运行/验收/全域挑战/仿真数值与现实.md"
-    },
-    {
-      "document_id": "urn:uuid:d1660d59-68fc-5572-a199-7b2c5207fd4f",
-      "path": "docs/运行/验收/全域挑战/作用隔离与恢复.md"
-    },
-    {
-      "document_id": "urn:uuid:4a5ed5f9-0c18-514c-863e-4017d0abfe1e",
-      "path": "docs/运行/验收/全域挑战/解释绑定与生成.md"
-    },
-    {
-      "document_id": "urn:uuid:afd6a83d-af88-5750-a78f-2c4f4479deef",
-      "path": "docs/运行/验收/全域挑战/证据发行与演进.md"
+      "document_id": "urn:uuid:dfff3d00-ddb6-4177-a9e9-2d2702bce699",
+      "path": "docs/运行/验收/全域挑战.md"
     },
     {
       "document_id": "urn:uuid:be183061-508f-56eb-9ed8-ee2ae649d4c9",
@@ -1131,10 +1123,6 @@
       "path": "examples/开发成品/README.md"
     },
     {
-      "document_id": "urn:uuid:7571ba26-dcc6-5402-8fb8-f6b40c643fa1",
-      "path": "examples/开发成品/fixture/README.md"
-    },
-    {
       "document_id": "urn:uuid:0628816d-bcd3-5eb5-8546-2b5e81a844fc",
       "path": "examples/成品形态/README.md"
     },
@@ -1149,10 +1137,6 @@
     {
       "document_id": "urn:uuid:044fe416-f19d-53da-8ef1-5be1ce5c5c9e",
       "path": "examples/结构化工作台/说明.md"
-    },
-    {
-      "document_id": "urn:uuid:084cc9d6-dd6f-4dde-88cb-a9178404a3d6",
-      "path": "examples/范本角色与原导览.md"
     },
     {
       "document_id": "urn:uuid:0a48c118-7a45-4d7a-9d84-8fae758faee9",
@@ -1189,30 +1173,6 @@
     {
       "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
       "path": "examples/领域组合/领域应用与算法.md"
-    },
-    {
-      "document_id": "urn:uuid:6a020f4d-e1ea-4467-8e23-660783c824dc",
-      "path": "docs/开发/仓库维护/工作身份与续接.md"
-    },
-    {
-      "document_id": "urn:uuid:3c1c584b-c9bd-47f5-b40a-3f50d2731610",
-      "path": "docs/开发/仓库维护/验证与传输边界.md"
-    },
-    {
-      "document_id": "urn:uuid:8d71f6a8-c1f4-4a36-b4f1-290a74dbf038",
-      "path": "docs/开发/仓库维护/Git冻结与资源退役.md"
-    },
-    {
-      "document_id": "urn:uuid:92f74e9c-7595-4dfd-a554-a4cb589433b4",
-      "path": "docs/开发/工作区观察与捕获.md"
-    },
-    {
-      "document_id": "urn:uuid:72078132-a663-4f91-9967-1a1311bc889f",
-      "path": "docs/开发/版本控制与集成.md"
-    },
-    {
-      "document_id": "urn:uuid:093feac0-d41a-4acb-9229-595f878c16c8",
-      "path": "docs/架构/装配/请求准备与续接.md"
     }
   ]
 }

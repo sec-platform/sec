@@ -35,7 +35,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -70,7 +74,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -115,7 +123,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -140,7 +152,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -175,7 +191,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -220,7 +240,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -230,7 +254,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -255,7 +283,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -265,7 +297,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -300,7 +336,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -310,7 +350,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -345,7 +389,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -355,7 +403,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -380,7 +432,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -390,7 +446,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -425,7 +485,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -435,7 +499,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -460,7 +528,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -470,7 +542,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -515,7 +591,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -525,7 +605,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -560,7 +644,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -570,7 +658,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -595,7 +687,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -605,7 +701,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -630,7 +730,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -640,7 +744,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -675,7 +783,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -685,7 +797,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -720,7 +836,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -730,7 +850,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "与Canonical约束的是同一准确行为主体"
@@ -765,7 +889,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -775,7 +903,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "被共同发行的独立成品主体，不与family本身合并"
@@ -785,7 +917,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "被共同发行的独立成品主体，不与family本身合并"
@@ -795,7 +931,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "被共同发行的独立成品主体，不与family本身合并"
@@ -830,7 +970,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -865,7 +1009,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -900,7 +1048,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -935,7 +1087,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -970,7 +1126,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -995,7 +1155,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1020,7 +1184,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1045,7 +1213,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1092,7 +1264,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1127,7 +1303,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1172,7 +1352,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1197,7 +1381,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1222,7 +1410,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1267,7 +1459,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1332,7 +1528,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1367,7 +1567,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1402,7 +1606,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Product"
+                {
+                  "decl": {
+                    "definitionId": "t:Product"
+                  }
+                }
               ]
             },
             "meaning": "当前所约束的准确成品主体；不分配运行实例"
@@ -1447,7 +1655,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Operation"
+                {
+                  "decl": {
+                    "definitionId": "t:Operation"
+                  }
+                }
               ]
             },
             "meaning": "精确整数、合并相接的纯区间规范化主体"

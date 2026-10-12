@@ -8,35 +8,32 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:OnlyEffectiveIdempotencyOrFinality": {
       "kind": "req:enum-value",
       "name": "OnlyEffectiveIdempotencyOrFinality",
-      "body": {
-        "nominalIdentity": "gift/spec/policy#OnlyEffectiveIdempotencyOrFinality"
-      }
+      "body": {}
     },
     "v:OriginAndPurposeGrant": {
       "kind": "req:enum-value",
       "name": "OriginAndPurposeGrant",
-      "body": {
-        "nominalIdentity": "gift/spec/policy#OriginAndPurposeGrant"
-      }
+      "body": {}
     },
     "v:DeniedUnlessGranted": {
       "kind": "req:enum-value",
       "name": "DeniedUnlessGranted",
-      "body": {
-        "nominalIdentity": "gift/spec/policy#DeniedUnlessGranted"
-      }
+      "body": {}
     },
     "v:ScopeAndRevisionGrant": {
       "kind": "req:enum-value",
       "name": "ScopeAndRevisionGrant",
-      "body": {
-        "nominalIdentity": "gift/spec/policy#ScopeAndRevisionGrant"
-      }
+      "body": {}
     },
     "r:Network": {
       "kind": "req:rule",
@@ -49,7 +46,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EffectBoundary"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EffectBoundary"
+                  }
+                }
               ]
             },
             "meaning": "产品根内全部网络作用，含生成依赖和扩展"
@@ -59,7 +61,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/policy#OriginAndPurposeGrant"
+                {
+                  "definitionId": "v:OriginAndPurposeGrant"
+                }
               ]
             },
             "meaning": "按主体/来源/目的/时间授权"
@@ -69,7 +73,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/policy#DeniedUnlessGranted"
+                {
+                  "definitionId": "v:DeniedUnlessGranted"
+                }
               ]
             },
             "meaning": "后台联网默认拒绝，用户可明示授予目的"
@@ -94,7 +100,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EffectBoundary"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EffectBoundary"
+                  }
+                }
               ]
             },
             "meaning": "破坏性/不可逆作用主体"
@@ -104,7 +115,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/policy#ScopeAndRevisionGrant"
+                {
+                  "definitionId": "v:ScopeAndRevisionGrant"
+                }
               ]
             },
             "meaning": "许可绑定实际对象范围和有效前置"
@@ -114,7 +127,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/policy#OnlyEffectiveIdempotencyOrFinality"
+                {
+                  "definitionId": "v:OnlyEffectiveIdempotencyOrFinality"
+                }
               ]
             },
             "meaning": "仅有效同意图去重或旧尝试终结后确认无效果可重试"

@@ -8,28 +8,27 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:CandidateAndPreconditions": {
       "kind": "req:enum-value",
       "name": "CandidateAndPreconditions",
-      "body": {
-        "nominalIdentity": "gift/spec/vcs#CandidateAndPreconditions"
-      }
+      "body": {}
     },
     "v:Explicit": {
       "kind": "req:enum-value",
       "name": "Explicit",
-      "body": {
-        "nominalIdentity": "gift/spec/vcs#Explicit"
-      }
+      "body": {}
     },
     "v:WorktreeIndexCommitSeparate": {
       "kind": "req:enum-value",
       "name": "WorktreeIndexCommitSeparate",
-      "body": {
-        "nominalIdentity": "gift/spec/vcs#WorktreeIndexCommitSeparate"
-      }
+      "body": {}
     },
     "r:Integration": {
       "kind": "req:rule",
@@ -42,7 +41,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "VersionIntegration"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "VersionIntegration"
+                  }
+                }
               ]
             },
             "meaning": "版本集成主体"
@@ -52,7 +56,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "工作区真实内容"
@@ -62,7 +71,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/vcs#WorktreeIndexCommitSeparate"
+                {
+                  "definitionId": "v:WorktreeIndexCommitSeparate"
+                }
               ]
             },
             "meaning": "工作树/暂存/提交分开"
@@ -72,7 +83,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/vcs#Explicit"
+                {
+                  "definitionId": "v:Explicit"
+                }
               ]
             },
             "meaning": "本次选定完整差异，不自动全暂存"
@@ -82,7 +95,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/vcs#CandidateAndPreconditions"
+                {
+                  "definitionId": "v:CandidateAndPreconditions"
+                }
               ]
             },
             "meaning": "合并候选及预期头固定"

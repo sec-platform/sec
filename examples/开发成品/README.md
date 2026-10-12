@@ -2,50 +2,50 @@
 
 本目录给出当前设计中的36个具体作者入口、一个可复用定义库及它们的准确消费合同。它们用于检验不同交付边界，不是可表达意图的全集。新需求按[开放定义与抽象](../../docs/作者/组合/抽象与开放定义.md)建立局部主体、参数与关系，再沿[结构化作者合同](../../docs/作者/结构化源码.md)复用或组合；不要求先选中本目录的一个成品名称。JSON仍使用原req:composite/use/require/exposes，不把产品算法改写成嵌套AST。
 
-先打开你需要的`model/*.json`：通常只使用一条真实定义及必要的主体连接。需要改默认或独特需求时，沿definitions.json看它固定了什么，再到对应规范确认接口和边界。不能以这个目录中存在文件，推定已有生产编译器可以运行。
+先打开[applications.json](model/applications.json)，按下表名称选择同名公开导出；每个导出保持独立的Product及必要的Operation主体，未选导出不自动加入交付。需要改默认或独特需求时，沿definitions.json看它固定了什么，再到对应规范确认接口和边界。不能以这个目录中存在文件，推定已有生产编译器可以运行。
 
 ## 作者入口与独立选择
 
 | 完整源 | 复用定义的公开参数（省略时的已定值） | 完整规则 |
 |---|---|---|
-| [Definitions](model/definitions.json) | `packageName:Text` = `"interval-policy"` | [Definitions：可复用要求与策略包](../../docs/作者/成品/规格与静态资产.md) |
-| [StaticValue](model/staticvalue.json) | `title:Text` = `"Workspace"`；`historyLimit:Int` = `200` | [StaticValue：一个确定配置值，而非配置程序](../../docs/作者/成品/规格与静态资产.md) |
-| [Resources](model/resources.json) | 无产品特有值参数；使用准确主体 | [Resources：有真实成员的资源包](../../docs/作者/成品/规格与静态资产.md) |
-| [Expression](model/expression.json) | `factor:Int` = `2` | [Expression：精确计算片段](../../docs/作者/成品/片段与已有工程变化.md) |
-| [ContextPatch](model/contextpatch.json) | `oldName:Text` = `"normalize"`；`newName:Text` = `"canonicalize"` | [ContextPatch：在一份准确基础上更改公开名称](../../docs/作者/成品/片段与已有工程变化.md) |
-| [Library](model/library.json) | 无产品特有值参数；使用准确主体 | [Library：没有运行容器的同步库](../../docs/作者/成品/库与协议客户端.md) |
-| [SDK](model/sdk.json) | `maxInFlight:Int` = `4` | [SDK：同一行为的显式资源会话](../../docs/作者/成品/库与协议客户端.md) |
-| [ProtocolClient](model/protocolclient.json) | `requestTimeoutMs:Int` = `30000` | [ProtocolClient：公开网络语义不能藏在SDK实现里](../../docs/作者/成品/库与协议客户端.md) |
-| [Command](model/command.json) | 无产品特有值参数；使用准确主体 | [Command：一个输入，一个完整结果](../../docs/作者/成品/命令与批处理程序.md) |
-| [BatchCommand](model/batchcommand.json) | `maxInFlight:Int` = `4` | [BatchCommand：确定作业顺序与分项结果](../../docs/作者/成品/命令与批处理程序.md) |
-| [HttpHandler](model/httphandler.json) | 无产品特有值参数；使用准确主体 | [HttpHandler：固定路由，不默认联网](../../docs/作者/成品/请求处理器与服务.md) |
-| [Service](model/service.json) | `port:Int` = `0`；`maxInFlight:Int` = `4` | [Service：本地独立计算服务](../../docs/作者/成品/请求处理器与服务.md) |
-| [Worker](model/worker.json) | `maxInFlight:Int` = `4` | [Worker：消息会话与结算](../../docs/作者/成品/工作器组件与插件.md) |
-| [Component](model/component.json) | 无产品特有值参数；使用准确主体 | [Component：可嵌入的固定进口集合](../../docs/作者/成品/工作器组件与插件.md) |
-| [Plugin](model/plugin.json) | 无产品特有值参数；使用准确主体 | [Plugin：加载、注册与卸载分开](../../docs/作者/成品/工作器组件与插件.md) |
-| [WebPanel](model/webpanel.json) | `title:Text` = `"Interval Workbench"` | [WebPanel：纯离线页面](../../docs/作者/成品/交互应用.md) |
-| [Desktop](model/desktop.json) | `title:Text` = `"Interval Workbench"` | [Desktop：有文件打开与保存的独立应用](../../docs/作者/成品/交互应用.md) |
-| [Mobile](model/mobile.json) | `title:Text` = `"Interval Workbench"` | [Mobile：后台与现场状态不能照抄桌面](../../docs/作者/成品/交互应用.md) |
-| [Family](model/family.json) | `title:Text` = `"Interval Suite"` | [作者的确切选择](../../docs/作者/成品/产品族与共同发行.md) |
-| [Query](model/query.json) | `pageSize:Int` = `128` | [Query：固定快照上的按键最新值](../../docs/作者/成品/查询批数据与持续流.md) |
-| [BatchData](model/batchdata.json) | `partitionCount:Int` = `1` | [BatchData：有清单的有限数据转换](../../docs/作者/成品/查询批数据与持续流.md) |
-| [WindowStream](model/windowstream.json) | `windowMs:Int` = `1000` | [WindowStream：持续、可背压的精确事件时间聚合](../../docs/作者/成品/查询批数据与持续流.md) |
-| [Migration](model/migration.json) | `batchSize:Int` = `256` | [作者意图、输入与后像](../../docs/作者/成品/数据与配置迁移.md) |
-| [Compiler](model/compiler.json) | 无产品特有值参数；使用准确主体 | [Compiler：从规则到可调用程序](../../docs/作者/成品/编译分析与生成工具.md) |
-| [Analyzer](model/analyzer.json) | 无产品特有值参数；使用准确主体 | [Analyzer：观察不偷改输入](../../docs/作者/成品/编译分析与生成工具.md) |
-| [Generator](model/generator.json) | 无产品特有值参数；使用准确主体 | [Generator：从同一规则生成文档和数据](../../docs/作者/成品/编译分析与生成工具.md) |
-| [Inference](model/inference.json) | `weights:ListInt` = `[2, -1]`；`bias:Int` = `0` | [Inference：精确线性评分组件](../../docs/作者/成品/模型概率与优化.md) |
-| [Trainer](model/trainer.json) | `regularization:Int` = `1` | [Trainer：可复现的有限岭回归](../../docs/作者/成品/模型概率与优化.md) |
-| [Sampler](model/sampler.json) | `numerator:Int` = `1`；`denominator:Int` = `2` | [Sampler：概率目标与随机源分别固定](../../docs/作者/成品/模型概率与优化.md) |
-| [Optimizer](model/optimizer.json) | 无产品特有值参数；使用准确主体 | [Optimizer：有限候选域内真正的最佳值](../../docs/作者/成品/模型概率与优化.md) |
-| [GpuKernel](model/gpukernel.json) | 无产品特有值参数；使用准确主体 | [GpuKernel：有检查边界的整数批计算](../../docs/作者/成品/计算核固件与实时程序.md) |
-| [Firmware](model/firmware.json) | `lowMv:Int` = `1000`；`highMv:Int` = `1200` | [Firmware：有启动与失效状态的设备控制](../../docs/作者/成品/计算核固件与实时程序.md) |
-| [RealTime](model/realtime.json) | `periodUs:Int` = `10000`；`deadlineUs:Int` = `10000`；`lowMv:Int` = `1000`；`highMv:Int` = `1200` | [RealTime：可调度边界是交付条件](../../docs/作者/成品/计算核固件与实时程序.md) |
-| [Installer](model/installer.json) | `retainPrevious:Int` = `1` | [Installer：有归属的版本目录安装](../../docs/作者/成品/安装与部署.md) |
-| [Deployment](model/deployment.json) | `replicas:Int` = `1` | [Deployment：一份实际服务及其运行环境](../../docs/作者/成品/安装与部署.md) |
-| [NativeChange](model/nativechange.json) | `oldName:Text` = `"normalize"`；`newName:Text` = `"canonicalize"` | [NativeChange：交付一个原生工程的准确修改集](../../docs/作者/成品/片段与已有工程变化.md) |
+| [Definitions](model/applications.json) | `packageName:Text` = `"interval-policy"` | [Definitions：可复用要求与策略包](../../docs/作者/成品/规格与静态资产.md) |
+| [StaticValue](model/applications.json) | `title:Text` = `"Workspace"`；`historyLimit:Int` = `200` | [StaticValue：一个确定配置值，而非配置程序](../../docs/作者/成品/规格与静态资产.md) |
+| [Resources](model/applications.json) | 无产品特有值参数；使用准确主体 | [Resources：有真实成员的资源包](../../docs/作者/成品/规格与静态资产.md) |
+| [Expression](model/applications.json) | `factor:Int` = `2` | [Expression：精确计算片段](../../docs/作者/成品/片段与已有工程变化.md) |
+| [ContextPatch](model/applications.json) | `oldName:Text` = `"normalize"`；`newName:Text` = `"canonicalize"` | [ContextPatch：在一份准确基础上更改公开名称](../../docs/作者/成品/片段与已有工程变化.md) |
+| [Library](model/applications.json) | 无产品特有值参数；使用准确主体 | [Library：没有运行容器的同步库](../../docs/作者/成品/库与协议客户端.md) |
+| [SDK](model/applications.json) | `maxInFlight:Int` = `4` | [SDK：同一行为的显式资源会话](../../docs/作者/成品/库与协议客户端.md) |
+| [ProtocolClient](model/applications.json) | `requestTimeoutMs:Int` = `30000` | [ProtocolClient：公开网络语义不能藏在SDK实现里](../../docs/作者/成品/库与协议客户端.md) |
+| [Command](model/applications.json) | 无产品特有值参数；使用准确主体 | [Command：一个输入，一个完整结果](../../docs/作者/成品/命令与批处理程序.md) |
+| [BatchCommand](model/applications.json) | `maxInFlight:Int` = `4` | [BatchCommand：确定作业顺序与分项结果](../../docs/作者/成品/命令与批处理程序.md) |
+| [HttpHandler](model/applications.json) | 无产品特有值参数；使用准确主体 | [HttpHandler：固定路由，不默认联网](../../docs/作者/成品/请求处理器与服务.md) |
+| [Service](model/applications.json) | `port:Int` = `0`；`maxInFlight:Int` = `4` | [Service：本地独立计算服务](../../docs/作者/成品/请求处理器与服务.md) |
+| [Worker](model/applications.json) | `maxInFlight:Int` = `4` | [Worker：消息会话与结算](../../docs/作者/成品/工作器组件与插件.md) |
+| [Component](model/applications.json) | 无产品特有值参数；使用准确主体 | [Component：可嵌入的固定进口集合](../../docs/作者/成品/工作器组件与插件.md) |
+| [Plugin](model/applications.json) | 无产品特有值参数；使用准确主体 | [Plugin：加载、注册与卸载分开](../../docs/作者/成品/工作器组件与插件.md) |
+| [WebPanel](model/applications.json) | `title:Text` = `"Interval Workbench"` | [WebPanel：纯离线页面](../../docs/作者/成品/交互应用.md) |
+| [Desktop](model/applications.json) | `title:Text` = `"Interval Workbench"` | [Desktop：有文件打开与保存的独立应用](../../docs/作者/成品/交互应用.md) |
+| [Mobile](model/applications.json) | `title:Text` = `"Interval Workbench"` | [Mobile：后台与现场状态不能照抄桌面](../../docs/作者/成品/交互应用.md) |
+| [Family](model/applications.json) | `title:Text` = `"Interval Suite"` | [作者的确切选择](../../docs/作者/成品/产品族与共同发行.md) |
+| [Query](model/applications.json) | `pageSize:Int` = `128` | [Query：固定快照上的按键最新值](../../docs/作者/成品/查询批数据与持续流.md) |
+| [BatchData](model/applications.json) | `partitionCount:Int` = `1` | [BatchData：有清单的有限数据转换](../../docs/作者/成品/查询批数据与持续流.md) |
+| [WindowStream](model/applications.json) | `windowMs:Int` = `1000` | [WindowStream：持续、可背压的精确事件时间聚合](../../docs/作者/成品/查询批数据与持续流.md) |
+| [Migration](model/applications.json) | `batchSize:Int` = `256` | [作者意图、输入与后像](../../docs/作者/成品/数据与配置迁移.md) |
+| [Compiler](model/applications.json) | 无产品特有值参数；使用准确主体 | [Compiler：从规则到可调用程序](../../docs/作者/成品/编译分析与生成工具.md) |
+| [Analyzer](model/applications.json) | 无产品特有值参数；使用准确主体 | [Analyzer：观察不偷改输入](../../docs/作者/成品/编译分析与生成工具.md) |
+| [Generator](model/applications.json) | 无产品特有值参数；使用准确主体 | [Generator：从同一规则生成文档和数据](../../docs/作者/成品/编译分析与生成工具.md) |
+| [Inference](model/applications.json) | `weights:ListInt` = `[2, -1]`；`bias:Int` = `0` | [Inference：精确线性评分组件](../../docs/作者/成品/模型概率与优化.md) |
+| [Trainer](model/applications.json) | `regularization:Int` = `1` | [Trainer：可复现的有限岭回归](../../docs/作者/成品/模型概率与优化.md) |
+| [Sampler](model/applications.json) | `numerator:Int` = `1`；`denominator:Int` = `2` | [Sampler：概率目标与随机源分别固定](../../docs/作者/成品/模型概率与优化.md) |
+| [Optimizer](model/applications.json) | 无产品特有值参数；使用准确主体 | [Optimizer：有限候选域内真正的最佳值](../../docs/作者/成品/模型概率与优化.md) |
+| [GpuKernel](model/applications.json) | 无产品特有值参数；使用准确主体 | [GpuKernel：有检查边界的整数批计算](../../docs/作者/成品/计算核固件与实时程序.md) |
+| [Firmware](model/applications.json) | `lowMv:Int` = `1000`；`highMv:Int` = `1200` | [Firmware：有启动与失效状态的设备控制](../../docs/作者/成品/计算核固件与实时程序.md) |
+| [RealTime](model/applications.json) | `periodUs:Int` = `10000`；`deadlineUs:Int` = `10000`；`lowMv:Int` = `1000`；`highMv:Int` = `1200` | [RealTime：可调度边界是交付条件](../../docs/作者/成品/计算核固件与实时程序.md) |
+| [Installer](model/applications.json) | `retainPrevious:Int` = `1` | [Installer：有归属的版本目录安装](../../docs/作者/成品/安装与部署.md) |
+| [Deployment](model/applications.json) | `replicas:Int` = `1` | [Deployment：一份实际服务及其运行环境](../../docs/作者/成品/安装与部署.md) |
+| [NativeChange](model/applications.json) | `oldName:Text` = `"normalize"`；`newName:Text` = `"canonicalize"` | [NativeChange：交付一个原生工程的准确修改集](../../docs/作者/成品/片段与已有工程变化.md) |
 
-每个根公开App，当前默认均可完成**作者字段绑定**。需要库级复用时引用definitions.json中同名定义并传入准确Product主体；其中规范化形式还传入同一Operation主体。Product是本例逻辑成品，不是一个通用Host或状态容器。Family对库、CLI和Web共享一个Operation，三者的Product不同。
+36个根由同一模块的36个同名导出定位，当前默认均可完成**作者字段绑定**。旧未发布范本的`example:deliverable:<小写名称>/App`定位已改为`example:deliverable:applications/<表中名称>`；这次整理不保留兼容别名。公共目标名称空间、复用定义参数和各根的主体作用域保持原合同。需要库级复用时引用definitions.json中同名定义并传入准确Product主体；其中规范化形式还传入同一Operation主体。Product是本例逻辑成品，不是一个通用Host或状态容器。Family对库、CLI和Web共享一个Operation，三者的Product不同。
 
 ## 字段、含义和真实实现
 
@@ -53,15 +53,21 @@
 
 [公开边界.d.ts](公开边界.d.ts)是目标消费者类型说明，名称空间仅分组不同产品，未实现任何产品。部分外部事实（实际设备、授权文件、依赖、目标工具）由调用或部署环境提供，不能在意图源中伪造。完整机制与实际生成位置见[发射合同](../../docs/编译/目标/成品消费合同与发射.md)。
 
-[gift.project.json](gift.project.json)定位38模块和真实资源。设计材料由文档封存自动捕获，不另维护资料锁。targets仍为空，因为本例没有已取得的生产目标画像、后端或宿主；这不是取消产品要求，也不是声称源字段不完整。取得真实供给后才可以构造可生成绑定，不能填写一个不存在的profileRef假装可运行。
+[gift.project.json](gift.project.json)定位3模块和真实资源。设计材料由文档封存自动捕获，不另维护资料锁。targets仍为空，因为本例没有已取得的生产目标画像、后端或宿主；这不是取消产品要求，也不是声称源字段不完整。取得真实供给后才可以构造可生成绑定，不能填写一个不存在的profileRef假装可运行。
 
-## 已经给出的第二次修改
+## 第二次修改仍改同一作者模块
 
-[desktop.title.json](后继示例/desktop.title.json)只给当前桌面应用显式title；[windowstream.five-seconds.json](后继示例/windowstream.five-seconds.json)把窗口改为5000ms，影响窗口/检查点解释而不是网络权限；[family.title.json](后继示例/family.title.json)只把标题传给Web子成品，库/CLI接口和共同算法不变。后继不在当前modules和源范围中，不能把同ID的两个版本同时载入。
+以下修改直接作用于[applications.json](model/applications.json)中选定导出的定义体，不建立第二份当前模块，也不复制其余35个根。编辑时保留同一模块和定义身份，采用新修订后才形成新的准确绑定。
+
+- Desktop：在`definitions["d:Desktop"].body.terms`中唯一的`use forms.Desktop`项的`arguments`增加`title: {"literal":"My Offline Workbench"}`。只改变桌面标题；Canonical、Operation和文件作用边界不变。
+- WindowStream：在`definitions["d:WindowStream"].body.terms`中唯一的`use forms.WindowStream`项的`arguments`增加`windowMs: {"literal":5000}`。窗口归属及检查点解释改变，网络权限不变。
+- Family：在`definitions["d:Family"].body.terms`中唯一的`use forms.Family`项的`arguments`增加`title: {"literal":"Analysis Tools"}`。标题只传给Web子成品，库/CLI接口及共享算法不变。
+
+未修改的其他根及复用定义保持原内容；这些是准确的作者修改和预期影响，没有宣称已经生成或运行目标产品。
 
 ## 真实输入资产
 
-[消息](assets/messages.json)、[样式](assets/theme.css)、[原生编辑fixture](fixture/README.md)、[规则输入](fixture/thresholds.json)、[测量输入](fixture/samples.json)均实际存在。fixture中的恒等函数不冒充规范化算法；它仅使NativeChange有准确的被改源。默认不会执行这些文件。
+[消息](assets/messages.json)、[样式](assets/theme.css)、[原生编辑fixture](fixture/normalize.ts)、[规则输入](fixture/thresholds.json)、[测量输入](fixture/samples.json)均实际存在。fixture中的normalize是恒等函数，不冒充规范化算法；它仅使NativeChange有准确的被改源，更名变化保留其恒等行为。默认不会执行这些文件。
 
 ## 需要分别通过的接受判断
 

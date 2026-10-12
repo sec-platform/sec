@@ -8,91 +8,72 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:RecoverDraftNotReplayEffects": {
       "kind": "req:enum-value",
       "name": "RecoverDraftNotReplayEffects",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#RecoverDraftNotReplayEffects"
-      }
+      "body": {}
     },
     "v:OpenEmptySuppressesDisk": {
       "kind": "req:enum-value",
       "name": "OpenEmptySuppressesDisk",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#OpenEmptySuppressesDisk"
-      }
+      "body": {}
     },
     "v:RuntimeGrant": {
       "kind": "req:enum-value",
       "name": "RuntimeGrant",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#RuntimeGrant"
-      }
+      "body": {}
     },
     "v:PreserveDrafts": {
       "kind": "req:enum-value",
       "name": "PreserveDrafts",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#PreserveDrafts"
-      }
+      "body": {}
     },
     "v:Move": {
       "kind": "req:enum-value",
       "name": "Move",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#Move"
-      }
+      "body": {}
     },
     "v:Read": {
       "kind": "req:enum-value",
       "name": "Read",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#Read"
-      }
+      "body": {}
     },
     "v:ProviderIdentity": {
       "kind": "req:enum-value",
       "name": "ProviderIdentity",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#ProviderIdentity"
-      }
+      "body": {}
     },
     "v:Many": {
       "kind": "req:enum-value",
       "name": "Many",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#Many"
-      }
+      "body": {}
     },
     "v:ExplicitMembership": {
       "kind": "req:enum-value",
       "name": "ExplicitMembership",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#ExplicitMembership"
-      }
+      "body": {}
     },
     "v:Delete": {
       "kind": "req:enum-value",
       "name": "Delete",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#Delete"
-      }
+      "body": {}
     },
     "v:Create": {
       "kind": "req:enum-value",
       "name": "Create",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#Create"
-      }
+      "body": {}
     },
     "v:OpenModelWins": {
       "kind": "req:enum-value",
       "name": "OpenModelWins",
-      "body": {
-        "nominalIdentity": "gift/spec/workspace#OpenModelWins"
-      }
+      "body": {}
     },
     "r:Roots": {
       "kind": "req:rule",
@@ -105,7 +86,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "根集合的主体身份"
@@ -115,7 +101,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#Many"
+                {
+                  "definitionId": "v:Many"
+                }
               ]
             },
             "meaning": "允许零个或多个根；未打开根不算失败"
@@ -125,7 +113,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#ProviderIdentity"
+                {
+                  "definitionId": "v:ProviderIdentity"
+                }
               ]
             },
             "meaning": "按提供者的规范资源身份，显示路径不定义相等"
@@ -135,7 +125,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#ExplicitMembership"
+                {
+                  "definitionId": "v:ExplicitMembership"
+                }
               ]
             },
             "meaning": "嵌套根的归属选择显式，不按扫描先后隐式抢占"
@@ -160,7 +152,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "同一工作区主体"
@@ -172,10 +169,18 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "gift/spec/workspace#Read",
-                  "gift/spec/workspace#Create",
-                  "gift/spec/workspace#Move",
-                  "gift/spec/workspace#Delete"
+                  {
+                    "definitionId": "v:Read"
+                  },
+                  {
+                    "definitionId": "v:Create"
+                  },
+                  {
+                    "definitionId": "v:Move"
+                  },
+                  {
+                    "definitionId": "v:Delete"
+                  }
                 ]
               }
             },
@@ -186,7 +191,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#PreserveDrafts"
+                {
+                  "definitionId": "v:PreserveDrafts"
+                }
               ]
             },
             "meaning": "相交未保存内容必须保留或明确冲突"
@@ -196,7 +203,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#RuntimeGrant"
+                {
+                  "definitionId": "v:RuntimeGrant"
+                }
               ]
             },
             "meaning": "产品在每次作用处检查实际许可，不是此声明给予许可"
@@ -221,7 +230,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "捕获的工作区主体"
@@ -231,7 +245,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "此工作区采用的开放文档集合"
@@ -241,7 +260,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#OpenModelWins"
+                {
+                  "definitionId": "v:OpenModelWins"
+                }
               ]
             },
             "meaning": "已打开模型对该资源权威于旧磁盘内容"
@@ -251,7 +272,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#OpenEmptySuppressesDisk"
+                {
+                  "definitionId": "v:OpenEmptySuppressesDisk"
+                }
               ]
             },
             "meaning": "打开模型零命中或空内容也抑制旧磁盘结果"
@@ -276,7 +299,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "可恢复草稿主体"
@@ -286,7 +314,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EditHistory"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EditHistory"
+                  }
+                }
               ]
             },
             "meaning": "与草稿绑定的编辑历史"
@@ -296,7 +329,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/workspace#RecoverDraftNotReplayEffects"
+                {
+                  "definitionId": "v:RecoverDraftNotReplayEffects"
+                }
               ]
             },
             "meaning": "恢复内容与历史不重放外部执行"

@@ -8,84 +8,67 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:ExplicitUnavailable": {
       "kind": "req:enum-value",
       "name": "ExplicitUnavailable",
-      "body": {
-        "nominalIdentity": "gift/spec/language#ExplicitUnavailable"
-      }
+      "body": {}
     },
     "v:References": {
       "kind": "req:enum-value",
       "name": "References",
-      "body": {
-        "nominalIdentity": "gift/spec/language#References"
-      }
+      "body": {}
     },
     "v:CandidateNotEstablishedFact": {
       "kind": "req:enum-value",
       "name": "CandidateNotEstablishedFact",
-      "body": {
-        "nominalIdentity": "gift/spec/language#CandidateNotEstablishedFact"
-      }
+      "body": {}
     },
     "v:Hover": {
       "kind": "req:enum-value",
       "name": "Hover",
-      "body": {
-        "nominalIdentity": "gift/spec/language#Hover"
-      }
+      "body": {}
     },
     "v:Completion": {
       "kind": "req:enum-value",
       "name": "Completion",
-      "body": {
-        "nominalIdentity": "gift/spec/language#Completion"
-      }
+      "body": {}
     },
     "v:Definition": {
       "kind": "req:enum-value",
       "name": "Definition",
-      "body": {
-        "nominalIdentity": "gift/spec/language#Definition"
-      }
+      "body": {}
     },
     "v:Signature": {
       "kind": "req:enum-value",
       "name": "Signature",
-      "body": {
-        "nominalIdentity": "gift/spec/language#Signature"
-      }
+      "body": {}
     },
     "v:ByProducerScopeAndRevision": {
       "kind": "req:enum-value",
       "name": "ByProducerScopeAndRevision",
-      "body": {
-        "nominalIdentity": "gift/spec/language#ByProducerScopeAndRevision"
-      }
+      "body": {}
     },
     "v:NegotiateExact": {
       "kind": "req:enum-value",
       "name": "NegotiateExact",
-      "body": {
-        "nominalIdentity": "gift/spec/language#NegotiateExact"
-      }
+      "body": {}
     },
     "v:VersionedGroup": {
       "kind": "req:enum-value",
       "name": "VersionedGroup",
-      "body": {
-        "nominalIdentity": "gift/spec/language#VersionedGroup"
-      }
+      "body": {}
     },
     "v:EffectsAndEvaluationOrder": {
       "kind": "req:enum-value",
       "name": "EffectsAndEvaluationOrder",
-      "body": {
-        "nominalIdentity": "gift/spec/language#EffectsAndEvaluationOrder"
-      }
+      "body": {}
     },
     "r:Providers": {
       "kind": "req:rule",
@@ -98,7 +81,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "语言服务集合"
@@ -108,7 +96,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "输入的文档"
@@ -118,7 +111,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Configuration"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Configuration"
+                  }
+                }
               ]
             },
             "meaning": "语言配置来源"
@@ -128,7 +126,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/language#NegotiateExact"
+                {
+                  "definitionId": "v:NegotiateExact"
+                }
               ]
             },
             "meaning": "逐方法、编码和版本协商"
@@ -138,7 +138,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/language#ExplicitUnavailable"
+                {
+                  "definitionId": "v:ExplicitUnavailable"
+                }
               ]
             },
             "meaning": "未支持与零结果区分"
@@ -163,7 +165,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DiagnosticSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DiagnosticSet"
+                  }
+                }
               ]
             },
             "meaning": "诊断集合"
@@ -173,7 +180,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "生产者范围"
@@ -183,7 +195,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "输入源"
@@ -193,7 +210,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/language#ByProducerScopeAndRevision"
+                {
+                  "definitionId": "v:ByProducerScopeAndRevision"
+                }
               ]
             },
             "meaning": "发布及清除绑定生产者、范围、版本和请求代"
@@ -218,7 +237,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "重构服务"
@@ -228,7 +252,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "目标模型"
@@ -238,7 +267,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "文件和资源变更范围"
@@ -248,7 +282,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/language#VersionedGroup"
+                {
+                  "definitionId": "v:VersionedGroup"
+                }
               ]
             },
             "meaning": "整组编辑的前像与外部范围语义固定"
@@ -258,7 +294,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/language#EffectsAndEvaluationOrder"
+                {
+                  "definitionId": "v:EffectsAndEvaluationOrder"
+                }
               ]
             },
             "meaning": "声称保持的改签名/更名需保留实参次序和效果"
@@ -283,7 +321,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "辅助服务"
@@ -295,11 +338,21 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "gift/spec/language#Completion",
-                  "gift/spec/language#Definition",
-                  "gift/spec/language#References",
-                  "gift/spec/language#Hover",
-                  "gift/spec/language#Signature"
+                  {
+                    "definitionId": "v:Completion"
+                  },
+                  {
+                    "definitionId": "v:Definition"
+                  },
+                  {
+                    "definitionId": "v:References"
+                  },
+                  {
+                    "definitionId": "v:Hover"
+                  },
+                  {
+                    "definitionId": "v:Signature"
+                  }
                 ]
               }
             },
@@ -310,7 +363,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/language#CandidateNotEstablishedFact"
+                {
+                  "definitionId": "v:CandidateNotEstablishedFact"
+                }
               ]
             },
             "meaning": "推测建议与真实已绑定位置分开"

@@ -43,8 +43,8 @@
 - [严格零写观察与测试进程的反例、采用边界和待验证方案](开发/仓库维护/验证与传输边界.md#repository-observation-runtime-decisions)
 - [受信原生检查复用的暂缓理由与较小接合条件](开发/仓库维护/验证与传输边界.md#repository-native-typecheck-reuse-decision)
 - [文档冻结的原生 Git 采用与手工树框架退出](开发/仓库维护/Git冻结与资源退役.md#repository-freeze-native-index-decision)
-- [基线事实缓存的消费者、权威与成本裁决](开发/测试发现与执行.md#source-transition-baseline-cache-decision)
-- [已保存测试条件评估的查询边界与待资格接合](开发/测试发现与执行.md#source-transition-artifact-query-decision)
+- [基线事实缓存的消费者、权威与成本裁决](开发/仓库维护/验证与传输边界.md#source-transition-baseline-cache-decision)
+- [已保存测试条件评估的查询边界与待资格接合](开发/仓库维护/验证与传输边界.md#source-transition-artifact-query-decision)
 - [仓库设计查看的入口选择、暂缓与关系缺口](开发/AI协作/上下文取得与任务投影.md#repository-design-view-decision)
 
 “采用”是设计决定，“候选／待验证”不是已具备能力；运行证据与发布状态按准确对象另查。

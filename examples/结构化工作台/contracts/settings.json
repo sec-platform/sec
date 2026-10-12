@@ -8,49 +8,42 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:Versioned": {
       "kind": "req:enum-value",
       "name": "Versioned",
-      "body": {
-        "nominalIdentity": "gift/spec/settings#Versioned"
-      }
+      "body": {}
     },
     "v:User": {
       "kind": "req:enum-value",
       "name": "User",
-      "body": {
-        "nominalIdentity": "gift/spec/settings#User"
-      }
+      "body": {}
     },
     "v:Product": {
       "kind": "req:enum-value",
       "name": "Product",
-      "body": {
-        "nominalIdentity": "gift/spec/settings#Product"
-      }
+      "body": {}
     },
     "v:Workspace": {
       "kind": "req:enum-value",
       "name": "Workspace",
-      "body": {
-        "nominalIdentity": "gift/spec/settings#Workspace"
-      }
+      "body": {}
     },
     "v:ExplicitSchemaOrder": {
       "kind": "req:enum-value",
       "name": "ExplicitSchemaOrder",
-      "body": {
-        "nominalIdentity": "gift/spec/settings#ExplicitSchemaOrder"
-      }
+      "body": {}
     },
     "v:ReferenceOnly": {
       "kind": "req:enum-value",
       "name": "ReferenceOnly",
-      "body": {
-        "nominalIdentity": "gift/spec/settings#ReferenceOnly"
-      }
+      "body": {}
     },
     "r:Configuration": {
       "kind": "req:rule",
@@ -63,7 +56,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Configuration"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Configuration"
+                  }
+                }
               ]
             },
             "meaning": "配置主体"
@@ -75,9 +73,15 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "gift/spec/settings#Product",
-                  "gift/spec/settings#Workspace",
-                  "gift/spec/settings#User"
+                  {
+                    "definitionId": "v:Product"
+                  },
+                  {
+                    "definitionId": "v:Workspace"
+                  },
+                  {
+                    "definitionId": "v:User"
+                  }
                 ]
               }
             },
@@ -88,7 +92,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/settings#ExplicitSchemaOrder"
+                {
+                  "definitionId": "v:ExplicitSchemaOrder"
+                }
               ]
             },
             "meaning": "每个键公开固定层次：产品默认→用户→工程；策略硬约束单独合取"
@@ -98,7 +104,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/settings#ReferenceOnly"
+                {
+                  "definitionId": "v:ReferenceOnly"
+                }
               ]
             },
             "meaning": "秘密仅引用，值走秘密提供者"
@@ -108,7 +116,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/settings#Versioned"
+                {
+                  "definitionId": "v:Versioned"
+                }
               ]
             },
             "meaning": "变更固定输入与受影响实例"

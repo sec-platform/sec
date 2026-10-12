@@ -8,84 +8,67 @@
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:PreserveOrExplicitConvert": {
       "kind": "req:enum-value",
       "name": "PreserveOrExplicitConvert",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#PreserveOrExplicitConvert"
-      }
+      "body": {}
     },
     "v:PreserveBoth": {
       "kind": "req:enum-value",
       "name": "PreserveBoth",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#PreserveBoth"
-      }
+      "body": {}
     },
     "v:PerResource": {
       "kind": "req:enum-value",
       "name": "PerResource",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#PerResource"
-      }
+      "body": {}
     },
     "v:Multiple": {
       "kind": "req:enum-value",
       "name": "Multiple",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#Multiple"
-      }
+      "body": {}
     },
     "v:ByUserAction": {
       "kind": "req:enum-value",
       "name": "ByUserAction",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#ByUserAction"
-      }
+      "body": {}
     },
     "v:ExplicitChanges": {
       "kind": "req:enum-value",
       "name": "ExplicitChanges",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#ExplicitChanges"
-      }
+      "body": {}
     },
     "v:IfCurrentCompatible": {
       "kind": "req:enum-value",
       "name": "IfCurrentCompatible",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#IfCurrentCompatible"
-      }
+      "body": {}
     },
     "v:FromWorkspace": {
       "kind": "req:enum-value",
       "name": "FromWorkspace",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#FromWorkspace"
-      }
+      "body": {}
     },
     "v:UnambiguousSourcePositions": {
       "kind": "req:enum-value",
       "name": "UnambiguousSourcePositions",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#UnambiguousSourcePositions"
-      }
+      "body": {}
     },
     "v:PreserveOriginal": {
       "kind": "req:enum-value",
       "name": "PreserveOriginal",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#PreserveOriginal"
-      }
+      "body": {}
     },
     "v:ManyViewsOneModel": {
       "kind": "req:enum-value",
       "name": "ManyViewsOneModel",
-      "body": {
-        "nominalIdentity": "gift/spec/editing#ManyViewsOneModel"
-      }
+      "body": {}
     },
     "r:Documents": {
       "kind": "req:rule",
@@ -98,7 +81,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "文档集合主体"
@@ -108,7 +96,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#FromWorkspace"
+                {
+                  "definitionId": "v:FromWorkspace"
+                }
               ]
             },
             "meaning": "与根/文件操作共用资源身份"
@@ -118,7 +108,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#UnambiguousSourcePositions"
+                {
+                  "definitionId": "v:UnambiguousSourcePositions"
+                }
               ]
             },
             "meaning": "位置绑定准确文本及可核对的坐标含义；字节、标量、字素及UTF-16等内部/外部单位由适配转换，不强制一种内部缓冲"
@@ -128,7 +120,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#PreserveOrExplicitConvert"
+                {
+                  "definitionId": "v:PreserveOrExplicitConvert"
+                }
               ]
             },
             "meaning": "保存保留可复现原编码，改变必须是明确转换"
@@ -138,7 +132,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#PreserveOriginal"
+                {
+                  "definitionId": "v:PreserveOriginal"
+                }
               ]
             },
             "meaning": "保留原换行；显式规范化是独立行为"
@@ -163,7 +159,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EditorSurface"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EditorSurface"
+                  }
+                }
               ]
             },
             "meaning": "编辑交互主体"
@@ -173,7 +174,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "实际被编辑的模型集合"
@@ -183,7 +189,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#Multiple"
+                {
+                  "definitionId": "v:Multiple"
+                }
               ]
             },
             "meaning": "多个选区与光标及确定合并/冲突规则"
@@ -193,7 +201,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#ManyViewsOneModel"
+                {
+                  "definitionId": "v:ManyViewsOneModel"
+                }
               ]
             },
             "meaning": "多个视图绑定同一模型而不是各复制一份内容"
@@ -218,7 +228,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EditHistory"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EditHistory"
+                  }
+                }
               ]
             },
             "meaning": "历史主体"
@@ -228,7 +243,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "同一模型集合"
@@ -238,7 +258,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#ByUserAction"
+                {
+                  "definitionId": "v:ByUserAction"
+                }
               ]
             },
             "meaning": "一组实际用户动作形成一个逻辑撤销组"
@@ -248,7 +270,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#IfCurrentCompatible"
+                {
+                  "definitionId": "v:IfCurrentCompatible"
+                }
               ]
             },
             "meaning": "只有现场/历史允许才执行逆编辑"
@@ -273,7 +297,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "编辑完成的模型"
@@ -283,7 +312,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "真正持久化目的地"
@@ -293,7 +327,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#PerResource"
+                {
+                  "definitionId": "v:PerResource"
+                }
               ]
             },
             "meaning": "模型编辑与各资源保存分别结算"
@@ -303,7 +339,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#ExplicitChanges"
+                {
+                  "definitionId": "v:ExplicitChanges"
+                }
               ]
             },
             "meaning": "格式化等保存参与者产生的字节变化可见"
@@ -313,7 +351,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "gift/spec/editing#PreserveBoth"
+                {
+                  "definitionId": "v:PreserveBoth"
+                }
               ]
             },
             "meaning": "外部写冲突保留双方内容/依据"

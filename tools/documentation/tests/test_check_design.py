@@ -91,4 +91,139 @@ class Architecture(unittest.TestCase):
    with self.assertRaisesRegex(d.DesignError,'Duplicate independent U identity: U900'):d.decision_model(r)
 
 
+
+
+class DeliverableRoots(unittest.TestCase):
+ def test_scope_patterns_use_declared_path_and_scalar_rules(self):
+  vectors=[('model/a.json','a.json',False),('model/a.json','MODEL/**',False),
+           ('a.json','**/a.json',True),('m/a.json','[ma]/a.json',False),
+           ('[ma]/a.json','[ma]/a.json',True),('m/n/a.json','m/**',True),
+           ('m/a.json','m/*',True),('m/n/a.json','m/*',False),
+           ('m/😀.json','m/?.json',True),('m/ab.json','m/?.json',False)]
+  for path,pattern,expected in vectors:
+   with self.subTest(path=path,pattern=pattern):
+    self.assertEqual(d._scope_pattern_matches(path,pattern),expected)
+
+ @staticmethod
+ def load(path):
+  import json
+  return json.loads(path.read_text(encoding='utf-8'))
+
+ @staticmethod
+ def save(path,value):
+  import json
+  path.parent.mkdir(parents=True,exist_ok=True)
+  path.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+
+ def fixture(self,temp):
+  import shutil
+  source=Path(d.__file__).resolve().parents[2]
+  root=Path(temp)
+  shutil.copytree(source/'examples/开发成品',root/'examples/开发成品')
+  spec=self.load(source/'examples/开发成品/contracts/spec.json')
+  # Copy exactly the semantic source consumers, preserving relative locations.
+  for definition in spec['definitions'].values():
+   semantics=definition.get('body',{}).get('semantics')
+   if not semantics:continue
+   original=(source/'examples/开发成品/contracts'/semantics['source']).resolve()
+   target=root/original.relative_to(source)
+   target.parent.mkdir(parents=True,exist_ok=True)
+   shutil.copyfile(original,target)
+  return root
+
+ def library_root(self,root):
+  sample=root/'examples/开发成品'
+  project=self.load(sample/'gift.project.json')
+  definitions=self.load(sample/'definitions.json')
+  matches=[]
+  for module_id,relative in project['modules'].items():
+   if module_id==definitions['moduleId']:continue
+   module=self.load(sample/relative)
+   ref=module.get('exports',{}).get('Library',{})
+   if module.get('definitions',{}).get(ref.get('definitionId'),{}).get('kind')=='req:composite':
+    matches.append((relative,module))
+  self.assertEqual(len(matches),1)
+  return sample,project,*matches[0]
+
+ def test_missing_registered_public_root(self):
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp)
+   sample,project,relative,module=self.library_root(root)
+   del module['exports']['Library']
+   self.save(sample/relative,module)
+   with self.assertRaisesRegex(d.DesignError,'Library missing registered public author root'):
+    d.deliverable_model(root)
+
+ def test_root_must_match_declared_scope_without_host_normalization(self):
+  for scope in ({'root':'.','include':['applications.json']},
+                {'root':'model','include':['APPLICATIONS.json']},
+                {'root':'model/../model'}, {'root':'model//'},
+                {'root':'model','include':None}):
+   with self.subTest(scope=scope),tempfile.TemporaryDirectory()as temp:
+    root=self.fixture(temp);sample=root/'examples/开发成品'
+    project=self.load(sample/'gift.project.json')
+    project['sourceScopes']=[dict(scope,kind='semantic',editSource={'mode':'file'})]
+    self.save(sample/'gift.project.json',project)
+    with self.assertRaises(d.DesignError):d.deliverable_model(root)
+
+ def test_ambiguous_public_root_cannot_choose_first_module(self):
+  import copy
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp)
+   sample,project,relative,module=self.library_root(root)
+   duplicate=copy.deepcopy(module)
+   duplicate['moduleId']='example:duplicate-library-root'
+   duplicate['namespace']='example.duplicate-library-root'
+   duplicate['exports']={'Library':duplicate['exports']['Library']}
+   self.save(sample/'extra-roots/duplicate.json',duplicate)
+   project['modules'][duplicate['moduleId']]='extra-roots/duplicate.json'
+   project['sourceScopes'].append({'root':'extra-roots','kind':'semantic','editSource':{'mode':'file'}})
+   self.save(sample/'gift.project.json',project)
+   with self.assertRaisesRegex(d.DesignError,'Repeated author root export: Library'):
+    d.deliverable_model(root)
+
+ def test_malformed_form_import_keeps_design_diagnostic(self):
+  for binding in (None,'forms'):
+   with self.subTest(binding=binding),tempfile.TemporaryDirectory()as temp:
+    root=self.fixture(temp)
+    sample,project,relative,module=self.library_root(root)
+    module['imports']['forms']=binding
+    self.save(sample/relative,module)
+    with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
+     d.deliverable_model(root)
+
+ def test_public_root_survives_repartition_and_definition_rename(self):
+  import copy
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp)
+   before=d.deliverable_model(root)
+   spec=self.load(root/'examples/开发成品/contracts/spec.json')
+   rule_id=spec['exports']['Library']['definitionId']
+   spec['definitions']['rule:public-library']=spec['definitions'].pop(rule_id)
+   spec['exports']['Library']['definitionId']='rule:public-library'
+   self.save(root/'examples/开发成品/contracts/spec.json',spec)
+   sample,project,relative,module=self.library_root(root)
+   identity=module['exports'].pop('Library')['definitionId']
+   definition=module['definitions'].pop(identity)
+   relocated={key:copy.deepcopy(value)for key,value in module.items()if key not in ('definitions','exports')}
+   relocated['moduleId']='example:repartitioned-library'
+   relocated['namespace']='example.repartitioned-library'
+   relocated['definitions']={'local:chosen':definition}
+   relocated['exports']={'Library':{'definitionId':'local:chosen'}}
+   # Import aliases are presentation names; the actual imported module owns identity.
+   relocated['imports']['libraryForms']=relocated['imports'].pop('forms')
+   for term in definition['body']['terms']:
+    if term.get('use',{}).get('import')=='forms':term['use']['import']='libraryForms'
+   self.save(sample/relative,module)
+   self.save(sample/'roots/library-entry.json',relocated)
+   project['modules'][relocated['moduleId']]='roots/library-entry.json'
+   project['sourceScopes'].append({'root':'roots','kind':'semantic','include':['library-entry.json'],'editSource':{'mode':'file'}})
+   self.save(sample/'gift.project.json',project)
+   result=d.deliverable_model(root)
+   self.assertEqual(result['count'],before['count'])
+   self.assertEqual({item['name']for item in result['items']},{item['name']for item in before['items']})
+   item=next(item for item in result['items']if item['name']=='Library')
+   self.assertEqual(item['model'],'roots/library-entry.json')
+
+
 if __name__ == "__main__": unittest.main()

@@ -6,22 +6,22 @@
 
 | 原家族 | 完整规则 | 可直接取得的作者根 |
 |---|---|---|
-| 规格、策略与模型包 | [规格与静态资产](规格与静态资产.md) | [Definitions](../../../examples/开发成品/model/definitions.json) |
-| 纯值、配置与资源 | [规格与静态资产](规格与静态资产.md) | [StaticValue](../../../examples/开发成品/model/staticvalue.json)、[Resources](../../../examples/开发成品/model/resources.json) |
-| 表达式、函数与上下文补丁 | [片段与已有工程变化](片段与已有工程变化.md) | [Expression](../../../examples/开发成品/model/expression.json)、[ContextPatch](../../../examples/开发成品/model/contextpatch.json) |
-| 库、SDK与客户端 | [库与协议客户端](库与协议客户端.md) | [Library](../../../examples/开发成品/model/library.json)、[SDK](../../../examples/开发成品/model/sdk.json)、[ProtocolClient](../../../examples/开发成品/model/protocolclient.json) |
-| 命令与一次性批程序 | [命令与批处理程序](命令与批处理程序.md) | [Command](../../../examples/开发成品/model/command.json)、[BatchCommand](../../../examples/开发成品/model/batchcommand.json) |
-| 请求处理器与长时服务 | [请求处理器与服务](请求处理器与服务.md) | [HttpHandler](../../../examples/开发成品/model/httphandler.json)、[Service](../../../examples/开发成品/model/service.json) |
-| 工作器、组件与插件 | [工作器组件与插件](工作器组件与插件.md) | [Worker](../../../examples/开发成品/model/worker.json)、[Component](../../../examples/开发成品/model/component.json)、[Plugin](../../../examples/开发成品/model/plugin.json) |
-| Web、桌面与移动应用 | [交互应用](交互应用.md) | [WebPanel](../../../examples/开发成品/model/webpanel.json)、[Desktop](../../../examples/开发成品/model/desktop.json)、[Mobile](../../../examples/开发成品/model/mobile.json) |
-| 多应用与产品族 | [产品族与共同发行](产品族与共同发行.md) | [Family](../../../examples/开发成品/model/family.json) |
-| 查询、批数据与持续流 | [查询批数据与持续流](查询批数据与持续流.md) | [Query](../../../examples/开发成品/model/query.json)、[BatchData](../../../examples/开发成品/model/batchdata.json)、[WindowStream](../../../examples/开发成品/model/windowstream.json) |
-| 数据与配置迁移 | [数据与配置迁移](数据与配置迁移.md) | [Migration](../../../examples/开发成品/model/migration.json) |
-| 编译、分析与生成工具 | [编译分析与生成工具](编译分析与生成工具.md) | [Compiler](../../../examples/开发成品/model/compiler.json)、[Analyzer](../../../examples/开发成品/model/analyzer.json)、[Generator](../../../examples/开发成品/model/generator.json) |
-| 模型、概率与优化 | [模型概率与优化](模型概率与优化.md) | [Inference](../../../examples/开发成品/model/inference.json)、[Trainer](../../../examples/开发成品/model/trainer.json)、[Sampler](../../../examples/开发成品/model/sampler.json)、[Optimizer](../../../examples/开发成品/model/optimizer.json) |
-| GPU、固件与实时目标 | [计算核固件与实时程序](计算核固件与实时程序.md) | [GpuKernel](../../../examples/开发成品/model/gpukernel.json)、[Firmware](../../../examples/开发成品/model/firmware.json)、[RealTime](../../../examples/开发成品/model/realtime.json) |
-| 安装、发布与部署 | [安装与部署](安装与部署.md) | [Installer](../../../examples/开发成品/model/installer.json)、[Deployment](../../../examples/开发成品/model/deployment.json) |
-| 现有工程的准确变化 | [片段与已有工程变化](片段与已有工程变化.md) | [NativeChange](../../../examples/开发成品/model/nativechange.json) |
+| 规格、策略与模型包 | [规格与静态资产](规格与静态资产.md) | [Definitions](../../../examples/开发成品/model/applications.json) |
+| 纯值、配置与资源 | [规格与静态资产](规格与静态资产.md) | [StaticValue](../../../examples/开发成品/model/applications.json)、[Resources](../../../examples/开发成品/model/applications.json) |
+| 表达式、函数与上下文补丁 | [片段与已有工程变化](片段与已有工程变化.md) | [Expression](../../../examples/开发成品/model/applications.json)、[ContextPatch](../../../examples/开发成品/model/applications.json) |
+| 库、SDK与客户端 | [库与协议客户端](库与协议客户端.md) | [Library](../../../examples/开发成品/model/applications.json)、[SDK](../../../examples/开发成品/model/applications.json)、[ProtocolClient](../../../examples/开发成品/model/applications.json) |
+| 命令与一次性批程序 | [命令与批处理程序](命令与批处理程序.md) | [Command](../../../examples/开发成品/model/applications.json)、[BatchCommand](../../../examples/开发成品/model/applications.json) |
+| 请求处理器与长时服务 | [请求处理器与服务](请求处理器与服务.md) | [HttpHandler](../../../examples/开发成品/model/applications.json)、[Service](../../../examples/开发成品/model/applications.json) |
+| 工作器、组件与插件 | [工作器组件与插件](工作器组件与插件.md) | [Worker](../../../examples/开发成品/model/applications.json)、[Component](../../../examples/开发成品/model/applications.json)、[Plugin](../../../examples/开发成品/model/applications.json) |
+| Web、桌面与移动应用 | [交互应用](交互应用.md) | [WebPanel](../../../examples/开发成品/model/applications.json)、[Desktop](../../../examples/开发成品/model/applications.json)、[Mobile](../../../examples/开发成品/model/applications.json) |
+| 多应用与产品族 | [产品族与共同发行](产品族与共同发行.md) | [Family](../../../examples/开发成品/model/applications.json) |
+| 查询、批数据与持续流 | [查询批数据与持续流](查询批数据与持续流.md) | [Query](../../../examples/开发成品/model/applications.json)、[BatchData](../../../examples/开发成品/model/applications.json)、[WindowStream](../../../examples/开发成品/model/applications.json) |
+| 数据与配置迁移 | [数据与配置迁移](数据与配置迁移.md) | [Migration](../../../examples/开发成品/model/applications.json) |
+| 编译、分析与生成工具 | [编译分析与生成工具](编译分析与生成工具.md) | [Compiler](../../../examples/开发成品/model/applications.json)、[Analyzer](../../../examples/开发成品/model/applications.json)、[Generator](../../../examples/开发成品/model/applications.json) |
+| 模型、概率与优化 | [模型概率与优化](模型概率与优化.md) | [Inference](../../../examples/开发成品/model/applications.json)、[Trainer](../../../examples/开发成品/model/applications.json)、[Sampler](../../../examples/开发成品/model/applications.json)、[Optimizer](../../../examples/开发成品/model/applications.json) |
+| GPU、固件与实时目标 | [计算核固件与实时程序](计算核固件与实时程序.md) | [GpuKernel](../../../examples/开发成品/model/applications.json)、[Firmware](../../../examples/开发成品/model/applications.json)、[RealTime](../../../examples/开发成品/model/applications.json) |
+| 安装、发布与部署 | [安装与部署](安装与部署.md) | [Installer](../../../examples/开发成品/model/applications.json)、[Deployment](../../../examples/开发成品/model/applications.json) |
+| 现有工程的准确变化 | [片段与已有工程变化](片段与已有工程变化.md) | [NativeChange](../../../examples/开发成品/model/applications.json) |
 
 [成品设计完整性合同](完整性合同.md)规定一个形态在设计层必须闭合的公共边界、状态、失败、资源、成员与验收；它不是作者必填表。
 
