@@ -5753,6 +5753,7 @@ async function stageCompilerDependencyGeneration(
         maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
         excludeRelativePaths: [COMPILER_DEPS_BINDING_FILE],
         preserveFilePermissionMode: true,
+        preserveContainedRelativeSymbolicLinks: true,
         signal: operationContext.signal
       });
       await assertCompilerDependencyRetainedContent(materializationSource.generation, root, options);
@@ -5827,7 +5828,8 @@ async function stageCompilerDependencyGeneration(
       throw new CodedFailure(
         'IMPORT-AUTHORITY-004',
         `Compiler dependency generation staging residue is preserved for recovery; materialization=${materializationCode}; cleanup=${cleanupCode}`,
-        { materializationCode, cleanupCode, recoveryRequired: true }
+        { materializationCode, cleanupCode, recoveryRequired: true },
+        { cause: new AggregateError([error, disposeError], 'Compiler dependency materialization and stage retirement failed') }
       );
     }
     if (error instanceof CodedFailure && error.code.startsWith('IMPORT-AUTHORITY-')) throw error;
@@ -5843,7 +5845,8 @@ async function stageCompilerDependencyGeneration(
         details: error.details,
         message: error.message
       } : error instanceof Error ? error.message : String(error)
-      }
+      },
+      { cause: error }
     );
   }
 }
