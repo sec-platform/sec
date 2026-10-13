@@ -61,11 +61,11 @@ export function linuxRuntimeToolCopyScript(directoryLinks: 'preserved' | 'indepe
     ...LINUX_RUNTIME_TOOLS.binaries.map(runtimePath => `copy_runtime ${runtimePath} ${runtimePath}`),
     ...LINUX_RUNTIME_TOOLS.directories.flatMap(runtimePath => [
       `mkdir -p "$root${path.posix.dirname(runtimePath)}"`,
-      `/usr/bin/cp ${directoryLinks === 'preserved' ? '-a' : '-R --preserve=mode,timestamps --no-dereference'} -- ${JSON.stringify(runtimePath)} "$root${runtimePath}"`
+      `/usr/bin/cp ${directoryLinks === 'preserved' ? '-a' : '-R -L --preserve=mode,timestamps'} -- ${JSON.stringify(runtimePath)} "$root${runtimePath}"`
     ]),
     'python_extension_inventory="$root/tmp/python-extension-inventory"',
     'python_extension_inventory_sorted="$root/tmp/python-extension-inventory.sorted"',
-    `/usr/bin/find ${JSON.stringify(LINUX_RUNTIME_TOOLS.python.stdlibDirectory)} -type f -name '*.so' -print0 > "$python_extension_inventory"`,
+    `/usr/bin/find ${directoryLinks === 'independent-files' ? '-L ' : ''}${JSON.stringify(LINUX_RUNTIME_TOOLS.python.stdlibDirectory)} -type f -name '*.so' -print0 > "$python_extension_inventory"`,
     '/usr/bin/sort -z "$python_extension_inventory" > "$python_extension_inventory_sorted"',
     'while IFS= read -r -d \u0027\u0027 extension; do copy_required_dynamic_dependencies "$extension"; done < "$python_extension_inventory_sorted"',
     '/usr/bin/rm -- "$python_extension_inventory" "$python_extension_inventory_sorted"',
