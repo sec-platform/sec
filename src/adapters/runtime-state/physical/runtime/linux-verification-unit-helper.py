@@ -1138,6 +1138,16 @@ def read_request():
         raise Unavailable('invocation-identity')
     if not isinstance(invocation['argv'], list) or len(invocation['argv']) > 256 or any(not isinstance(value, str) or '\0' in value or len(value) > 16384 for value in invocation['argv']):
         raise Unavailable('argv-shape')
+    if request['runtime']['manifest']['schema'] == 'sec-main-health-host-runtime-manifest-v1':
+        if (invocation['kind'] != 'main-health' or invocation['cwd'] != 'candidate'
+                or invocation['argv'] != ['run', 'test', '--', '--scope', 'fast']
+                or invocation['stdin'] is not None or invocation['outputFiles']
+                or request['bundle']['baseSha'] != request['bundle']['headSha']
+                or request['bundle']['baseTreeSha'] != request['bundle']['headTreeSha']
+                or request['sutArchive'] is not None):
+            raise Unavailable('main-health-fixed-host-input')
+    elif request['runtime']['manifest']['schema'] != 'sec-linux-verification-native-runtime-manifest-v1':
+        raise Unavailable('runtime-input-kind')
     if not isinstance(invocation['environment'], dict) or any(not re.fullmatch(r'(?:CI|HOME|LANG|LC_ALL|TZ|TMPDIR|SEC_[A-Z0-9_]+)', key) or not isinstance(value, str) or '\0' in value for key, value in invocation['environment'].items()):
         raise Unavailable('environment-shape')
     if invocation['cwd'] not in ('trusted', 'candidate', 'scratch'):

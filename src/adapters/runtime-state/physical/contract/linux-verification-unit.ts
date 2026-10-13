@@ -66,7 +66,7 @@ export const LINUX_VERIFICATION_UNIT_REQUIREMENT_ID = 'verification.linux-native
 export const LINUX_VERIFICATION_RUNTIME_RESERVED_ROOTS: readonly string[] = Object.freeze([
   'sec-runtime', 'authenticated-input', 'tmp', 'proc', 'dev', 'sys'
 ]);
-export const LINUX_VERIFICATION_UNIT_PROFILE = deepFreeze({
+const ORIGINAL_NATIVE_ONLY_UNIT_PROFILE = deepFreeze({
   revision: LINUX_VERIFICATION_UNIT_PROFILE_REVISION,
   cpuQuotaMicros: 200_000, cpuPeriodMicros: 100_000,
   memoryMaxBytes: 4_294_967_296, tasksMax: 256,
@@ -81,8 +81,14 @@ export const LINUX_VERIFICATION_UNIT_PROFILE = deepFreeze({
   dependencyInput: 'original-owner-content-import-before-readonly-seal',
   cleanup: 'private-mount-namespace-and-transient-unit-retired'
 });
+export const LINUX_VERIFICATION_UNIT_PROFILE = deepFreeze({
+  ...ORIGINAL_NATIVE_ONLY_UNIT_PROFILE,
+  runtimeInputs: Object.freeze({ native: 'original-accepted-manifest-only',
+    mainHealthHost: 'owner-issued-actual-host-manifest-fixed-fast-command-same-head-tree-only' })
+});
 export const LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST = sha256(LINUX_VERIFICATION_UNIT_PROFILE) as OperationDigest;
 export const LINUX_VERIFICATION_UNIT_PROFILE_DIGEST = LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST;
+const ORIGINAL_NATIVE_ONLY_UNIT_PROFILE_DIGEST = sha256(ORIGINAL_NATIVE_ONLY_UNIT_PROFILE);
 /** Original operation pools may narrow these ceilings, never renew them per unit. */
 export const LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS = Object.freeze([
   Object.freeze({ resource: 'duration-ms' as const, maximum: 14_400_000 }),
@@ -135,7 +141,10 @@ function parseGitIdentity(value: unknown): LinuxVerificationUnitGitIdentity {
 /** Strict historical codec. It deliberately cannot restore the live result map. */
 export function parseLinuxVerificationUnitReceipt(value: unknown): LinuxVerificationUnitReceipt {
   const record = exact(value, ['schema', 'profileRevision', 'profileDigest', 'operationIdentityDigest', 'boundAttemptDigest', 'providerIdentityDigest', 'inputDigest', 'invocationDigest', 'deadlineAtUnixMs', 'unit', 'inputs', 'gitBefore', 'gitAfter', 'execution', 'outputFiles', 'settlement', 'receiptDigest'], 'native unit receipt');
-  if (record.schema !== 'sec-linux-native-verification-unit-receipt-v1' || record.profileRevision !== LINUX_VERIFICATION_UNIT_PROFILE_REVISION || record.profileDigest !== LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST) invalid('Native unit receipt profile differs.');
+  if (record.schema !== 'sec-linux-native-verification-unit-receipt-v1'
+      || record.profileRevision !== LINUX_VERIFICATION_UNIT_PROFILE_REVISION
+      || (record.profileDigest !== LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST
+        && record.profileDigest !== ORIGINAL_NATIVE_ONLY_UNIT_PROFILE_DIGEST)) invalid('Native unit receipt profile differs.');
   for (const key of ['profileDigest', 'operationIdentityDigest', 'boundAttemptDigest', 'providerIdentityDigest', 'inputDigest', 'invocationDigest', 'receiptDigest']) digest(record[key], key);
   integer(record.deadlineAtUnixMs, Number.MAX_SAFE_INTEGER, 'deadline', 1);
   const unit = exact(record.unit, ['name', 'invocationId', 'managerBootId', 'managerStartTime', 'cgroupPath', 'mainPid', 'mainPidStartTime', 'namespaceIdentities', 'rootDevice', 'rootInode', 'workingDirectory', 'workingDirectoryDevice', 'workingDirectoryInode', 'trustedPackageReadable', 'outputWritable', 'managerMainPid', 'managerMainPidStartTime'], 'unit');

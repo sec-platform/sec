@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { HostedSutCommandPlan, HostedSutExecutionAuthorization } from "../../../../../execution/verification/hosted.ts";
+import { linuxRuntimeToolCopyScript } from '../../../../providers/linux-verification/runtime-tools.ts';
 import { compileLinuxRepositoryNamespaceFence } from '../../../../runtime-state/physical/runtime/physical-no-follow-native.ts';
 
 import type { CiVerificationNormalizedOperation, VerificationActionKeyDigest } from '../../../../../execution/verification/action.ts';
@@ -374,52 +375,7 @@ function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 
-const HOSTED_SUT_RUNTIME_COPY_FUNCTION = Object.freeze([
-  'copy_runtime() {',
-  '  source="$1"',
-  '  destination="$2"',
-  '  [ -f "$source" ]',
-  '  /usr/bin/install -D -m 0555 -- "$source" "$root$destination"',
-  '  while IFS= read -r library; do',
-  '    [ -n "$library" ] || continue',
-  '    /usr/bin/install -D -m 0555 -- "$library" "$root$library"',
-  `  done < <(/usr/bin/ldd "$source" 2>/dev/null | /usr/bin/awk '$2 == "=>" && $3 ~ /^\\// { print $3 } $1 ~ /^\\// { print $1 }' || true)`,
-  '}',
-  'copy_required_dynamic_dependencies() {',
-  '  dependency_source="$1"',
-  '  dependency_output="$(/usr/bin/ldd "$dependency_source")"',
-  '  if /usr/bin/grep -F "not found" <<< "$dependency_output" >/dev/null; then return 1; fi',
-  '  dependency_inventory="$root/tmp/python-extension-dependencies"',
-  '  /usr/bin/awk \u0027$2 == "=>" && $3 ~ /^\\// { print $3 } $1 ~ /^\\// { print $1 }\u0027 <<< "$dependency_output" > "$dependency_inventory"',
-  '  while IFS= read -r library; do',
-  '    [ -n "$library" ] || continue',
-  '    /usr/bin/install -D -m 0555 -- "$library" "$root$library"',
-  '  done < "$dependency_inventory"',
-  '  /usr/bin/rm -- "$dependency_inventory"',
-  '}'
-] as const);
-
-const HOSTED_SUT_RUNTIME_TOOL_CLOSURE = Object.freeze([
-  '# runtime-binary-closure',
-  ...HOSTED_SUT_RUNTIME_COPY_FUNCTION,
-  ...CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries.map(
-    (runtimePath) => `copy_runtime ${runtimePath} ${runtimePath}`
-  ),
-  ...CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories.flatMap((runtimePath) => [
-    `mkdir -p "$root${path.posix.dirname(runtimePath)}"`,
-    `/usr/bin/cp -a -- ${JSON.stringify(runtimePath)} "$root${runtimePath}"`
-  ]),
-  'python_extension_inventory="$root/tmp/python-extension-inventory"',
-  'python_extension_inventory_sorted="$root/tmp/python-extension-inventory.sorted"',
-  `/usr/bin/find ${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory)} -type f -name '*.so' -print0 > "$python_extension_inventory"`,
-  '/usr/bin/sort -z "$python_extension_inventory" > "$python_extension_inventory_sorted"',
-  'while IFS= read -r -d \u0027\u0027 extension; do copy_required_dynamic_dependencies "$extension"; done < "$python_extension_inventory_sorted"',
-  '/usr/bin/rm -- "$python_extension_inventory" "$python_extension_inventory_sorted"',
-  'copy_runtime "$bun_host" "/tool/bin/bun"',
-  ...CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeAliases.map(
-    (alias) => `ln -s ${JSON.stringify(alias.target)} "$root${alias.path}"`
-  )
-]);
+const HOSTED_SUT_RUNTIME_TOOL_CLOSURE = linuxRuntimeToolCopyScript('preserved');
 
 const HOSTED_SUT_PYTHON_CAPABILITY_SCRIPT = [
   'import hashlib,html,json,locale,pathlib,platform,re,sys,tempfile,unittest',

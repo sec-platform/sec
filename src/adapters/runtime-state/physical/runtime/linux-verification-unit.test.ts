@@ -74,6 +74,20 @@ describe('native verification unit data and live authority separation', () => {
     expect(() => getLinuxVerificationUnitRecovery(structural)).toThrow('not issued');
   });
 
+  test('original native-only profile bytes remain historical data after host-input admission', () => {
+    const receipt = historicalReceipt();
+    // Original profile at Git blob 0bf8987c82b91617ff3b2f3598752c57d70ef256.
+    // Pin its old bytes identity instead of deriving an oracle from the new profile.
+    receipt.profileDigest = 'sha256:b6f74d0a78704d71c723b79d4dca9cbce3f0b62d795c3e4d29ff981c6efc42cd' as typeof receipt.profileDigest;
+    const decoded = parseLinuxVerificationUnitReceipt(rehash(receipt));
+    expect(decoded.profileDigest).toBe(receipt.profileDigest);
+    expect(decoded.profileDigest).not.toBe(LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST);
+    const result = parseLinuxVerificationUnitResult({ receipt: rehash(receipt), stdout: '', stderr: '', outputFiles: {} }, invocation);
+    expect(() => assertLinuxVerificationUnitResult(result, {} as LinuxVerificationUnitSession)).toThrow('not issued');
+    receipt.profileDigest = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as typeof receipt.profileDigest;
+    expect(() => parseLinuxVerificationUnitReceipt(rehash(receipt))).toThrow('profile differs');
+  });
+
   test('every terminal domain is required independently of a caller-recomputed digest', () => {
     for (const key of ['unitInactive', 'cgroupEmpty', 'privateMountsRetired', 'inputsRetired'] as const) {
       const value = historicalReceipt();

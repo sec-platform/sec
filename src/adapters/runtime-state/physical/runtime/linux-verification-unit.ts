@@ -11,6 +11,7 @@ import {
   parseLinuxVerificationUnitReceipt, parseLinuxVerificationUnitResult,
   type LinuxVerificationRuntimeManifest, type LinuxVerificationUnitInvocation, type LinuxVerificationUnitResult
 } from '../contract/linux-verification-unit.ts';
+import { assertMainHealthHostRuntime, type MainHealthHostRuntime, type MainHealthHostRuntimeManifest } from './main-health-host-runtime.ts';
 import type { PhysicalDirectoryIdentity, RetainedNoFollowOrdinaryFile, RetainedNoFollowProvenDirectoryGeneration } from './physical-no-follow.ts';
 import type { ProcessResourceSessionReceipt } from './process-resource-session.ts';
 export * from '../contract/linux-verification-unit.ts';
@@ -25,7 +26,9 @@ export interface LinuxVerificationUnitInputs {
   readonly recoveryRoot: PhysicalDirectoryIdentity;
   /** Existing private origin, mandatory only for the fixed privileged SUT entry. Never transported. */
   readonly hostedSutOrigin?: AuthenticatedGitHubJobOrigin;
-  readonly runtime: Readonly<{ root: PhysicalDirectoryIdentity; manifest: LinuxVerificationRuntimeManifest; manifestDigest: `sha256:${string}` }>;
+  readonly runtime: Readonly<{ root: PhysicalDirectoryIdentity; manifest: LinuxVerificationRuntimeManifest | MainHealthHostRuntimeManifest; manifestDigest: `sha256:${string}` }>;
+  /** A different physical producer, never native accepted-content qualification. */
+  readonly mainHealthHostRuntime?: MainHealthHostRuntime;
   /** Borrowed from the original Git bundle owner; this owner never releases the borrow's issuer. */
   readonly bundle: Readonly<{ file: RetainedNoFollowOrdinaryFile; baseSha: string; headSha: string; baseTreeSha: string; headTreeSha: string; bundleDigest: `sha256:${string}` }>;
   /** Original publisher-proven input content, not a transplanted execution-generation proof. */
@@ -184,18 +187,29 @@ function assertHostedSutSource(inputs: LinuxVerificationUnitInputs): OperationDi
 
 /** Retains existing inputs and host tools only. No root command or unit is started. */
 export async function prepareLinuxVerificationUnitSession(inputs: LinuxVerificationUnitInputs): Promise<LinuxVerificationUnitSession> {
+  if (inputs.mainHealthHostRuntime !== undefined) {
+    assertMainHealthHostRuntime(inputs.mainHealthHostRuntime);
+    const original = inputs.mainHealthHostRuntime.runtime;
+    if (inputs.hostedSutOrigin !== undefined || inputs.retainedSutArchive !== undefined
+        || sha256(inputs.runtime) !== sha256(original)
+        || inputs.bundle.baseSha !== inputs.mainHealthHostRuntime.source.headSha
+        || inputs.bundle.headSha !== inputs.mainHealthHostRuntime.source.headSha
+        || inputs.bundle.baseTreeSha !== inputs.mainHealthHostRuntime.source.treeSha
+        || inputs.bundle.headTreeSha !== inputs.mainHealthHostRuntime.source.treeSha) invalid('MainHealth host input differs from its original exact source and retained runtime.');
+  } else {
+    const accepted = SEC_LINUX_VERIFICATION_NATIVE_PROFILE.acceptedContent;
+    if (accepted.status !== 'accepted') unsupported('Original native runtime content remains unresolved.');
+    const manifest = parseSecLinuxVerificationNativeRuntimeManifest(inputs.runtime.manifest);
+    if (sha256(manifest) !== accepted.manifestDigest || inputs.runtime.manifestDigest !== accepted.manifestDigest) invalid('Native runtime differs from the original accepted content authority.');
+  }
   inputs = Object.freeze({ ...inputs, recoveryRoot: Object.freeze({ ...inputs.recoveryRoot }),
     runtime: Object.freeze({ ...inputs.runtime, root: Object.freeze({ ...inputs.runtime.root }), manifest: deepFreeze(structuredClone(inputs.runtime.manifest)) }),
     bundle: Object.freeze({ ...inputs.bundle }),
     dependencies: inputs.dependencies === null ? null : Object.freeze({ ...inputs.dependencies }) });
   const originIdentityDigest = assertHostedSutSource(inputs);
-  const accepted = SEC_LINUX_VERIFICATION_NATIVE_PROFILE.acceptedContent;
-  if (accepted.status !== 'accepted') unsupported('Original native runtime content remains unresolved.');
-  const manifest = parseSecLinuxVerificationNativeRuntimeManifest(inputs.runtime.manifest);
-  if (sha256(manifest) !== accepted.manifestDigest || inputs.runtime.manifestDigest !== accepted.manifestDigest) invalid('Native runtime differs from the original accepted content authority.');
   assertLinuxVerificationUnitHostSupported();
   integer(inputs.deadlineAtUnixMs, Number.MAX_SAFE_INTEGER, 'native deadline', Date.now() + 1);
-  if (inputs.runtime.manifest.schema !== 'sec-linux-verification-native-runtime-manifest-v1'
+  if (inputs.runtime.manifest.schema !== (inputs.mainHealthHostRuntime === undefined ? 'sec-linux-verification-native-runtime-manifest-v1' : 'sec-main-health-host-runtime-manifest-v1')
       || inputs.runtime.manifest.platform !== 'linux/amd64'
       || sha256(inputs.runtime.manifest) !== inputs.runtime.manifestDigest) invalid('Native runtime input manifest is not exact.');
   assertRetainedNoFollowCapability(inputs.bundle.file, 'ordinary-file', 'native Git bundle');
@@ -400,6 +414,12 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
   const record = assertOpen(session);
   if (record.busy || record.process === undefined || record.operation === undefined || record.snapshotFailure !== undefined) invalid('Native unit is unbound, busy or retains an unresolved prior attempt.');
   const invocation = canonicalLinuxVerificationUnitInvocation(input);
+  if (record.inputs.mainHealthHostRuntime !== undefined) {
+    assertMainHealthHostRuntime(record.inputs.mainHealthHostRuntime);
+    if (invocation.kind !== 'main-health' || invocation.cwd !== 'candidate'
+        || JSON.stringify(invocation.argv) !== JSON.stringify(['run', 'test', '--', '--scope', 'fast'])
+        || invocation.stdin !== undefined || invocation.outputFiles.length !== 0) invalid('MainHealth host runtime only admits the fixed fast command.');
+  }
   if (invocation.kind === 'hosted-sut' && assertHostedSutSource(record.inputs) === null) invalid('Privileged SUT requires its existing original authenticated source capability.');
   if ((invocation.kind === 'lifecycle-canary') !== (record.inputs.dependencies === null)) invalid('Native dependency input presence differs from the closed invocation kind.');
   if (invocation.kind !== 'hosted-sut' && record.inputs.retainedSutArchive !== undefined) invalid('Only the fixed SUT entry consumes its original retained archive.');

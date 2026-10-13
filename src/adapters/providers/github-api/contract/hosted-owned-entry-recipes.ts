@@ -87,6 +87,8 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
         {
           "name": "Run the complete fast test inventory",
           "id": "test-fast",
+          "shell": "bun --no-env-file --no-install src/bootstrap/development/main-health-fast.ts {0}",
+          "env": { "SEC_MAIN_HEALTH_SHA": "${{ github.event.client_payload.payload.mainSha }}" },
           "run": "bun run test -- --scope fast"
         }
       ]
