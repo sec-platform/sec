@@ -357,11 +357,12 @@ test('GitConfigEffect respects an existing real Git lock without children or for
   const { processSession, provider } = openTestProvider(root);
   const target = await issueGitConfigTargetCapability({ path: targetPath });
   try {
-    await expect(replaceAllGitConfigValue({ provider, target, key: 'core.hooksPath', value: 'new' })).rejects.toThrow(/already exists/u);
+    await expect(replaceAllGitConfigValue({ provider, target, key: 'core.hooksPath', value: 'new' }))
+      .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' });
     expect(processSession.processCount).toBe(0);
     expect(await fs.readFile(targetPath, 'utf8')).toBe(original);
     expect(await fs.readFile(`${targetPath}.lock`, 'utf8')).toBe('foreign lock\n');
-    expect(await fs.readdir(root)).toEqual(['config', 'config.lock']);
+    expect((await fs.readdir(root)).sort()).toEqual(['config', 'config.lock']);
   } finally {
     closeGitConfigTargetCapability(target);
     closeGitPhysicalProvider(provider);
@@ -452,7 +453,7 @@ test('GitConfigEffect preserves primary preimage failure and independent cleanup
     expect(String(failures[0]!.error)).toMatch(/bytes changed|preimage/u);
     expect(await fs.readFile(targetPath, 'utf8')).toBe(replacement);
     expect(await fs.readFile(`${targetPath}.lock`, 'utf8')).toBe('foreign lock replacement\n');
-    expect(await fs.readdir(root)).toEqual(['config', 'config.lock']);
+    expect((await fs.readdir(root)).sort()).toEqual(['config', 'config.lock']);
   } finally {
     closeGitConfigTargetCapability(target);
     closeGitPhysicalProvider(provider);
@@ -479,7 +480,7 @@ test('GitConfigEffect cleanup failure after publication preserves the committed 
       .toEqual(['git-config-target-lock']);
     expect(await fs.readFile(targetPath, 'utf8')).toContain('hooksPath = committed');
     expect(await fs.readFile(`${targetPath}.lock`, 'utf8')).toBe('changed cleanup preimage\n');
-    expect(await fs.readdir(root)).toEqual(['config', 'config.lock']);
+    expect((await fs.readdir(root)).sort()).toEqual(['config', 'config.lock']);
     await expect(replaceAllGitConfigValue({ provider, target, key: 'core.hooksPath', value: 'retry' }))
       .rejects.toThrow(/unused owner-issued/u);
   } finally {
