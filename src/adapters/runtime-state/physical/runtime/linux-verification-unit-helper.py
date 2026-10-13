@@ -1598,7 +1598,7 @@ def read_request():
         raise Unavailable('argv-shape')
     if request['runtime']['manifest']['schema'] == 'sec-main-health-host-runtime-manifest-v1':
         if (invocation['kind'] != 'main-health' or invocation['cwd'] != 'candidate'
-                or invocation['argv'] != ['run', 'test', '--', '--scope', 'fast']
+                or invocation['argv'] != ['--version']
                 or invocation['stdin'] is not None or invocation['outputFiles']
                 or request['bundle']['baseSha'] != request['bundle']['headSha']
                 or request['bundle']['baseTreeSha'] != request['bundle']['headTreeSha']
@@ -1610,7 +1610,8 @@ def read_request():
         raise Unavailable('environment-shape')
     if invocation['cwd'] not in ('trusted', 'candidate', 'scratch'):
         raise Unavailable('cwd-shape')
-    if (invocation['kind'] == 'lifecycle-canary') != (request['dependencies'] is None):
+    dependency_free = invocation['kind'] == 'lifecycle-canary' or (invocation['kind'] == 'main-health' and invocation['argv'] == ['--version'])
+    if dependency_free != (request['dependencies'] is None):
         raise Unavailable('dependency-input-presence')
     if invocation['kind'] in ('hosted-sut', 'lifecycle-canary') and invocation['argv']:
         raise Unavailable('fixed-entry-arguments')

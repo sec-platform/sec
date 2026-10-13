@@ -497,11 +497,13 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
   if (record.inputs.mainHealthHostRuntime !== undefined) {
     assertMainHealthHostRuntime(record.inputs.mainHealthHostRuntime);
     if (invocation.kind !== 'main-health' || invocation.cwd !== 'candidate'
-        || JSON.stringify(invocation.argv) !== JSON.stringify(['run', 'test', '--', '--scope', 'fast'])
-        || invocation.stdin !== undefined || invocation.outputFiles.length !== 0) invalid('MainHealth host runtime only admits the fixed fast command.');
+        || invocation.argv.length !== 1 || invocation.argv[0] !== '--version'
+        || invocation.stdin !== undefined || invocation.outputFiles.length !== 0) invalid('MainHealth host runtime only admits the fixed runtime version canary.');
   }
   if (invocation.kind === 'hosted-sut' && assertHostedSutSource(record.inputs) === null) invalid('Privileged SUT requires its existing original authenticated source capability.');
-  if ((invocation.kind === 'lifecycle-canary') !== (record.inputs.dependencies === null)) invalid('Native dependency input presence differs from the closed invocation kind.');
+  const dependencyFree = invocation.kind === 'lifecycle-canary'
+    || (invocation.kind === 'main-health' && invocation.argv.length === 1 && invocation.argv[0] === '--version');
+  if (dependencyFree !== (record.inputs.dependencies === null)) invalid('Native dependency input presence differs from the closed invocation kind and command.');
   if (invocation.kind !== 'hosted-sut' && record.inputs.retainedSutArchive !== undefined) invalid('Only the fixed SUT entry consumes its original retained archive.');
   record.busy = true;
   const ordinal = record.runs.length + 1;

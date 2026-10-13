@@ -4,20 +4,12 @@ import { createHash } from 'node:crypto';
 import type { GitHubCheckObservation } from '../../../../execution/verification/session.ts';
 
 import {
-  parseDockerEndpointIdentity,
-  type DockerEndpointIdentity
-} from '../../../providers/docker/contract/daemon.ts';
-
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
-import {
   linuxVerificationUnitInvocationDigest,
   parseLinuxVerificationUnitReceipt,
   type LinuxVerificationUnitInvocation,
   type LinuxVerificationUnitReceipt
 } from '../../../runtime-state/physical/contract/linux-verification-unit.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import { createCiVerificationLocalExecutionEnvironment } from '../../../verification/platform/action/contract/ci.ts';
-import { CI_MAIN_HEALTH_COMMANDS } from '../../../verification/platform/ci/contract/core.ts';
 import {
   createMainHealthRepairWorkPackagePath,
   DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
@@ -82,73 +74,27 @@ function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
 
-const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA =
-  'sec-trusted-runtime-main-health-receipt-v2' as const;
-const TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID =
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.imageDigest;
-const TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT =
-  createCiVerificationLocalExecutionEnvironment({
-    os: 'linux',
-    arch: 'x64',
-    bunVersion: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion
-  });
-export const TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS = Object.freeze([
-  'bun run imports:check --all',
-  ...CI_MAIN_HEALTH_COMMANDS.slice(2)
-]);
+export const TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS = Object.freeze(['bun --version']);
 
-/** Closed command data shared by physical execution and historical decoding. */
+/** One fixed runtime-readiness invocation, independent of repository checks. */
 export function createTrustedRuntimeNativeMainHealthInvocation(command: string): LinuxVerificationUnitInvocation {
   if (!TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(command)) {
-    throw new Error('MainHealth native command is outside the canonical check closure.');
+    throw new Error('MainHealth native command is outside runtime readiness.');
   }
   return Object.freeze({ kind: 'main-health', cwd: 'candidate',
-    argv: Object.freeze(command.split(' ').slice(1)),
+    argv: Object.freeze(['--version']),
     environment: Object.freeze({ CI: '1', HOME: '/tmp/home', LANG: 'C', LC_ALL: 'C', TZ: 'UTC',
       SEC_STATE_HOME: '/sec-runtime/output/state', SEC_CACHE_HOME: '/sec-runtime/output/cache' }),
     outputFiles: Object.freeze([]), maxStdoutBytes: 16 * 1024 * 1024, maxStderrBytes: 16 * 1024 * 1024 });
 }
-export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST = hash(Object.freeze({
-  schema: 'sec-trusted-runtime-main-health-plan-v2',
-  canonicalHostedCommands: CI_MAIN_HEALTH_COMMANDS,
-  dependencyPreparation: 'private-authority-ephemeral-v1',
-  checkCommands: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
-  executionEnvironmentRevision:
-    TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
-  imageId: TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID
-}));
-
-/** Historical Docker interpretation. Its parser never issues live authority. */
-export interface TrustedRuntimeMainHealthDockerReceipt {
-  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA;
-  readonly repository: string;
-  readonly mainSha: string;
-  readonly mainTreeSha: string;
-  readonly executionId: string;
-  readonly imageId: typeof TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID;
-  readonly dockerEndpoint: DockerEndpointIdentity;
-  readonly dependencyCacheKey: null;
-  readonly dependencyPreparation: 'private-authority-ephemeral-v1';
-  readonly networkIsolatedBeforeExecution: true;
-  readonly executionEnvironmentRevision:
-    typeof TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision;
-  readonly planDigest: typeof TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST;
-  readonly actionResults: readonly Readonly<{
-    command: string;
-    resultDigest: Digest;
-  }>[];
-  readonly observedAt: string;
-  readonly receiptDigest: Digest;
-}
-
 export interface TrustedRuntimeMainHealthNativeReceipt {
-  readonly schema: 'sec-trusted-runtime-main-health-receipt-v3';
+  readonly schema: 'sec-trusted-runtime-main-health-receipt-v4';
   readonly repository: string;
   readonly mainSha: string;
   readonly mainTreeSha: string;
   readonly executionId: string;
   readonly dependencyCacheKey: null;
-  readonly dependencyPreparation: 'private-authority-ephemeral-v1';
+  readonly dependencyPreparation: 'not-required-for-runtime-readiness';
   readonly networkIsolatedBeforeExecution: true;
   readonly planDigest: Digest;
   readonly actionResults: readonly Readonly<{
@@ -160,9 +106,7 @@ export interface TrustedRuntimeMainHealthNativeReceipt {
   readonly receiptDigest: Digest;
 }
 
-export type TrustedRuntimeMainHealthReceipt =
-  | TrustedRuntimeMainHealthDockerReceipt
-  | TrustedRuntimeMainHealthNativeReceipt;
+export type TrustedRuntimeMainHealthReceipt = TrustedRuntimeMainHealthNativeReceipt;
 
 /** Data-only canonicalization. The physical producer retains the live results
  * separately and is the sole issuer of MainHealth qualification. */
@@ -177,10 +121,8 @@ export function createTrustedRuntimeNativeMainHealthReceipt(input: Readonly<{
   const mainSha = mainHealthSha(input.mainSha, 'native receipt mainSha');
   const mainTreeSha = mainHealthSha(input.mainTreeSha, 'native receipt mainTreeSha');
   if (input.actionResults.length !== TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length) {
-    throw new Error('MainHealth native receipt requires the complete canonical check closure.');
+    throw new Error('MainHealth native receipt requires its single runtime-readiness result.');
   }
-  const units = new Set<string>();
-  const invocations = new Set<string>();
   const actionResults = input.actionResults.map((entry, index) => {
     const command = TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS[index]!;
     if (entry.command !== command) {
@@ -188,18 +130,15 @@ export function createTrustedRuntimeNativeMainHealthReceipt(input: Readonly<{
     }
     const unitReceipt = parseLinuxVerificationUnitReceipt(entry.unitReceipt);
     if (unitReceipt.execution.exitCode !== 0 || unitReceipt.inputs.sutArchiveDigest !== null
-        || unitReceipt.inputs.dependencyContentDigest === null
+        || unitReceipt.inputs.dependencyContentDigest !== null
         || unitReceipt.unit.workingDirectory !== '/sec-runtime/workspace'
         || unitReceipt.invocationDigest !== linuxVerificationUnitInvocationDigest(createTrustedRuntimeNativeMainHealthInvocation(command))
         || [unitReceipt.gitBefore, unitReceipt.gitAfter].some((identity) =>
           identity.baseSha !== mainSha || identity.headSha !== mainSha
           || identity.baseTreeSha !== mainTreeSha || identity.headTreeSha !== mainTreeSha
-          || identity.status !== '')
-        || units.has(unitReceipt.unit.name) || invocations.has(unitReceipt.unit.invocationId)) {
-      throw new Error('MainHealth native unit is unsuccessful, repeated or belongs to another exact main.');
+          || identity.status !== '')) {
+      throw new Error('MainHealth native unit is unsuccessful or belongs to another exact main.');
     }
-    units.add(unitReceipt.unit.name);
-    invocations.add(unitReceipt.unit.invocationId);
     return Object.freeze({ command, unitReceipt, resultDigest: hash(Object.freeze({
       command, exitCode: unitReceipt.execution.exitCode,
       stdoutDigest: unitReceipt.execution.stdoutDigest,
@@ -208,31 +147,18 @@ export function createTrustedRuntimeNativeMainHealthReceipt(input: Readonly<{
     })) });
   });
   const first = actionResults[0]!.unitReceipt;
-  if (actionResults.some(({ unitReceipt }) =>
-    unitReceipt.profileDigest !== first.profileDigest
-    || unitReceipt.providerIdentityDigest !== first.providerIdentityDigest
-    || unitReceipt.unit.managerBootId !== first.unit.managerBootId
-    || unitReceipt.unit.managerStartTime !== first.unit.managerStartTime
-    || unitReceipt.boundAttemptDigest !== first.boundAttemptDigest
-    || unitReceipt.operationIdentityDigest !== first.operationIdentityDigest
-    || unitReceipt.inputDigest !== first.inputDigest
-    || unitReceipt.deadlineAtUnixMs !== first.deadlineAtUnixMs
-    || encodeVerificationActionData(unitReceipt.inputs) !== encodeVerificationActionData(first.inputs))) {
-    throw new Error('MainHealth native units do not share one exact admitted input and operation.');
-  }
   const withoutDigest = Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-receipt-v3' as const,
+    schema: 'sec-trusted-runtime-main-health-receipt-v4' as const,
     repository: boundedText(input.repository, 'native receipt repository'),
     mainSha, mainTreeSha,
     executionId: boundedText(input.executionId, 'native receipt executionId'),
     dependencyCacheKey: null,
-    dependencyPreparation: 'private-authority-ephemeral-v1' as const,
+    dependencyPreparation: 'not-required-for-runtime-readiness' as const,
     networkIsolatedBeforeExecution: true as const,
     planDigest: hash(Object.freeze({
-      schema: 'sec-trusted-runtime-main-health-plan-v3',
-      canonicalHostedCommands: CI_MAIN_HEALTH_COMMANDS,
+      schema: 'sec-trusted-runtime-main-health-plan-v4',
       checkCommands: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
-      dependencyPreparation: 'private-authority-ephemeral-v1',
+      dependencyPreparation: 'not-required-for-runtime-readiness',
       profileDigest: first.profileDigest,
       runtimeManifestDigest: first.inputs.runtimeManifestDigest
     })),
@@ -250,7 +176,7 @@ function parseTrustedRuntimeNativeMainHealthReceipt(
     'dependencyPreparation', 'networkIsolatedBeforeExecution', 'planDigest', 'actionResults',
     'observedAt', 'receiptDigest'
   ].sort().join(',') || record.dependencyCacheKey !== null
-      || record.dependencyPreparation !== 'private-authority-ephemeral-v1'
+      || record.dependencyPreparation !== 'not-required-for-runtime-readiness'
       || record.networkIsolatedBeforeExecution !== true || !Array.isArray(record.actionResults)) {
     throw new Error('MainHealth native receipt shape or fixed identity is invalid.');
   }
@@ -308,65 +234,10 @@ export function trustedRuntimeMainHealthReceiptReference(input: Readonly<{
 }>): string {
   const mainSha = mainHealthSha(input.mainSha, 'receipt reference mainSha');
   const receiptDigest = mainHealthDigest(input.receiptDigest, 'receipt reference digest');
-  if (input.schema !== undefined && input.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA
-      && input.schema !== 'sec-trusted-runtime-main-health-receipt-v3') {
+  if (input.schema !== undefined && input.schema !== 'sec-trusted-runtime-main-health-receipt-v4') {
     throw new Error('MainHealth receipt reference schema is invalid.');
   }
-  const version = input.schema === 'sec-trusted-runtime-main-health-receipt-v3' ? 'v3' : 'v2';
-  return `live-receipt:trusted-main-health/${version}/${mainSha}/${receiptDigest.slice(7)}`;
-}
-
-export function createTrustedRuntimeMainHealthReceipt(input: Readonly<{
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  executionId: string;
-  dockerEndpoint: DockerEndpointIdentity;
-  dependencyCacheKey: null;
-  actionResults: readonly Readonly<{ command: string; resultDigest: Digest }>[];
-  observedAt: string;
-}>): TrustedRuntimeMainHealthDockerReceipt {
-  if (input.dependencyCacheKey !== null) {
-    throw new Error('MainHealth authority cannot consume a candidate-writable dependency cache.');
-  }
-  if (TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length !== 5
-      || CI_MAIN_HEALTH_COMMANDS[0] !== 'bun run deps:ensure'
-      || input.actionResults.length !== TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length) {
-    throw new Error('MainHealth trusted-runtime canonical command closure is invalid.');
-  }
-  const actionResults = input.actionResults.map((entry, index) => {
-    const expectedCommand = TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS[index]!;
-    if (entry.command !== expectedCommand) {
-      throw new Error(
-        `MainHealth trusted-runtime actionResults[${index}] command differs from the canonical plan.`
-      );
-    }
-    return Object.freeze({
-      command: expectedCommand,
-      resultDigest: mainHealthDigest(
-        entry.resultDigest,
-        `trusted-runtime actionResults[${index}].resultDigest`
-      )
-    });
-  });
-  const withoutDigest = Object.freeze({
-    schema: TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA,
-    repository: boundedText(input.repository, 'trusted-runtime receipt repository'),
-    mainSha: mainHealthSha(input.mainSha, 'trusted-runtime receipt mainSha'),
-    mainTreeSha: mainHealthSha(input.mainTreeSha, 'trusted-runtime receipt mainTreeSha'),
-    executionId: boundedText(input.executionId, 'trusted-runtime receipt executionId'),
-    imageId: TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID,
-    dockerEndpoint: parseDockerEndpointIdentity(input.dockerEndpoint),
-    dependencyCacheKey: null,
-    dependencyPreparation: 'private-authority-ephemeral-v1' as const,
-    networkIsolatedBeforeExecution: true as const,
-    executionEnvironmentRevision:
-      TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
-    actionResults: Object.freeze(actionResults),
-    observedAt: mainHealthInstant(input.observedAt, 'trusted-runtime receipt observedAt')
-  });
-  return Object.freeze({ ...withoutDigest, receiptDigest: hash(withoutDigest) });
+  return `live-receipt:trusted-main-health/v4/${mainSha}/${receiptDigest.slice(7)}`;
 }
 
 export function parseTrustedRuntimeMainHealthReceipt(
@@ -383,53 +254,10 @@ export function parseTrustedRuntimeMainHealthReceipt(
     throw new Error('MainHealth trusted-runtime receipt must be an object.');
   }
   const record = value as Record<string, unknown>;
-  if (record.schema === 'sec-trusted-runtime-main-health-receipt-v3') {
-    return parseTrustedRuntimeNativeMainHealthReceipt(record);
+  if (record.schema !== 'sec-trusted-runtime-main-health-receipt-v4') {
+    throw new Error('MainHealth trusted-runtime receipt schema is invalid.');
   }
-  const expected = [
-    'schema', 'repository', 'mainSha', 'mainTreeSha', 'executionId', 'imageId',
-    'dockerEndpoint', 'dependencyCacheKey', 'dependencyPreparation', 'networkIsolatedBeforeExecution',
-    'executionEnvironmentRevision', 'planDigest', 'actionResults', 'observedAt',
-    'receiptDigest'
-  ].sort();
-  const actual = Object.keys(record).sort();
-  if (actual.length !== expected.length
-      || actual.some((key, index) => key !== expected[index])
-      || record.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA
-      || record.dependencyCacheKey !== null
-      || record.dependencyPreparation !== 'private-authority-ephemeral-v1'
-      || record.imageId !== TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID
-      || record.networkIsolatedBeforeExecution !== true
-      || record.executionEnvironmentRevision
-        !== TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
-      || record.planDigest !== TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
-      || !Array.isArray(record.actionResults)) {
-    throw new Error('MainHealth trusted-runtime receipt shape or fixed identity is invalid.');
-  }
-  const rebuilt = createTrustedRuntimeMainHealthReceipt({
-    repository: boundedText(
-      record.repository as string,
-      'trusted-runtime receipt repository'
-    ),
-    mainSha: mainHealthSha(record.mainSha, 'trusted-runtime receipt mainSha'),
-    mainTreeSha: mainHealthSha(record.mainTreeSha, 'trusted-runtime receipt mainTreeSha'),
-    executionId: boundedText(
-      record.executionId as string,
-      'trusted-runtime receipt executionId'
-    ),
-    dockerEndpoint: parseDockerEndpointIdentity(record.dockerEndpoint),
-    dependencyCacheKey: null,
-    actionResults: record.actionResults as TrustedRuntimeMainHealthReceipt['actionResults'],
-    observedAt: mainHealthInstant(
-      record.observedAt,
-      'trusted-runtime receipt observedAt'
-    )
-  });
-  if (rebuilt.receiptDigest
-      !== mainHealthDigest(record.receiptDigest, 'trusted-runtime receipt receiptDigest')) {
-    throw new Error('MainHealth trusted-runtime receipt digest mismatch.');
-  }
-  return rebuilt;
+  return parseTrustedRuntimeNativeMainHealthReceipt(record);
 }
 
 function boundedText(value: unknown, label: string): string {
@@ -440,8 +268,7 @@ function boundedText(value: unknown, label: string): string {
   return value;
 }
 
-/** The receipt schema is separate from observation-v1 data. Omitting it keeps
- * the historical V2 interpretation; live callers supply the parsed receipt's schema. */
+/** Observation-v1 data always references the current runtime-readiness receipt. */
 export function createTrustedRuntimeMainHealthInput(
   input: TrustedRuntimeMainHealthObservation,
   receiptSchema?: TrustedRuntimeMainHealthReceipt['schema']

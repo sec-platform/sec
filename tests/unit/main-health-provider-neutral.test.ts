@@ -125,7 +125,7 @@ test('trusted runtime live receipt compiles the same healthy semantic revision a
   expect(local.producer).toMatchObject({
     sourceTransport: 'trusted-runtime-live-readback',
     sourceRunId: 'trusted-main-health-run',
-    sourceRef: `live-receipt:trusted-main-health/v2/${MAIN}/${'e'.repeat(64)}`
+    sourceRef: `live-receipt:trusted-main-health/v4/${MAIN}/${'e'.repeat(64)}`
   });
   expect(() => createTrustedRuntimeMainHealthInput({
     schema: 'sec-trusted-runtime-main-health-observation-v1',
@@ -140,7 +140,7 @@ test('trusted runtime live receipt compiles the same healthy semantic revision a
   })).toThrow('not exact or fresh');
 });
 
-test('trusted runtime projection preserves the explicit receipt version and exact content reference', () => {
+test('trusted runtime projection binds current receipt identity and rejects retired schemas', () => {
   const observation = {
     schema: 'sec-trusted-runtime-main-health-observation-v1' as const,
     repository: 'sec-platform/sec',
@@ -152,14 +152,10 @@ test('trusted runtime projection preserves the explicit receipt version and exac
     observedAt: '2026-09-29T00:00:00.000Z',
     expiresAt: '2026-09-29T00:10:00.000Z'
   };
-  for (const [schema, version] of [
-    [undefined, 'v2'],
-    ['sec-trusted-runtime-main-health-receipt-v2', 'v2'],
-    ['sec-trusted-runtime-main-health-receipt-v3', 'v3']
-  ] as const) {
+  for (const schema of [undefined, 'sec-trusted-runtime-main-health-receipt-v4'] as const) {
     const projected = createTrustedRuntimeMainHealthInput(observation, schema);
     expect(projected.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/${version}/${MAIN}/${'e'.repeat(64)}`
+      `live-receipt:trusted-main-health/v4/${MAIN}/${'e'.repeat(64)}`
     );
     expect(projected.producer.sourceRef).toBe(trustedRuntimeMainHealthReceiptReference({
       mainSha: MAIN, receiptDigest: observation.verificationReceiptDigest, schema
@@ -168,15 +164,16 @@ test('trusted runtime projection preserves the explicit receipt version and exac
     const changedDigest = createTrustedRuntimeMainHealthInput({ ...observation,
       verificationReceiptDigest: `sha256:${'f'.repeat(64)}` }, schema);
     expect(changedDigest.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/${version}/${MAIN}/${'f'.repeat(64)}`
+      `live-receipt:trusted-main-health/v4/${MAIN}/${'f'.repeat(64)}`
     );
     const changedMain = createTrustedRuntimeMainHealthInput({ ...observation,
       mainSha: '3'.repeat(40), trustRevision: '3'.repeat(40) }, schema);
     expect(changedMain.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/${version}/${'3'.repeat(40)}/${'e'.repeat(64)}`
+      `live-receipt:trusted-main-health/v4/${'3'.repeat(40)}/${'e'.repeat(64)}`
     );
   }
-  for (const schema of [null, '', 'v3', 'sec-trusted-runtime-main-health-receipt-v4',
+  for (const schema of [null, '', 'v3', 'sec-trusted-runtime-main-health-receipt-v2',
+    'sec-trusted-runtime-main-health-receipt-v3',
     'sec-trusted-runtime-main-health-observation-v1']) {
     const invalidSchema = schema as TrustedRuntimeMainHealthReceipt['schema'];
     expect(() => createTrustedRuntimeMainHealthInput(observation, invalidSchema))
@@ -186,7 +183,7 @@ test('trusted runtime projection preserves the explicit receipt version and exac
       .toThrow('receipt reference schema');
   }
   expect(() => createTrustedRuntimeMainHealthInput({ ...observation,
-    verificationReceiptDigest: 'sha256:invalid' }, 'sec-trusted-runtime-main-health-receipt-v3'))
+    verificationReceiptDigest: 'sha256:invalid' }, 'sec-trusted-runtime-main-health-receipt-v4'))
     .toThrow('receipt digest is invalid');
 });
 

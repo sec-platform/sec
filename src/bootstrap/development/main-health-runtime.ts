@@ -7,8 +7,6 @@ import { assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, cl
 import { MainHealthHostRuntimePreparationError, prepareMainHealthHostRuntime, retireMainHealthHostRuntime, type MainHealthHostRuntime } from '../../adapters/runtime-state/physical/runtime/main-health-host-runtime.ts';
 import { createExclusiveNoFollowDirectory, inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createTrustedRuntimeNativeMainHealthInvocation } from '../../adapters/self-hosting/control/main-health/main-health-observation.ts';
-import { assertCompilerDependencyReadGenerationRetirementReceipt, observeCompilerDependencyExecutionGenerationAuthority, retainCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../adapters/toolchain/dependencies/runtime.ts';
-import { compilerRuntimeLayout } from '../../adapters/toolchain/runtime/layout.ts';
 import { sha256 } from '../../contracts/canonical.ts';
 import { failureMessage, getErrorCode, inspectFailureValue } from '../../contracts/failure-inspection.ts';
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
@@ -16,7 +14,7 @@ import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperati
 import { isResourceCompositeSettlementError, readResourceCompositeSettlementFailures, settleResourcesAsync } from '../../execution/resource-settlement.ts';
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-export const MAIN_HEALTH_FAST_COMMAND = 'bun run test -- --scope fast';
+export const MAIN_HEALTH_RUNTIME_COMMAND = 'bun --version';
 
 /** Full bounded diagnostics survive the runner; they never qualify execution. */
 function preserveMainHealthFailure(data: unknown): string {
@@ -29,10 +27,10 @@ function preserveMainHealthFailure(data: unknown): string {
 }
 
 /** A GitHub custom-shell file is closed data, never shell input or an argv source. */
-export function assertMainHealthFastCommandBytes(bytes: Uint8Array): void {
-  if (!Buffer.from(bytes).equals(Buffer.from(MAIN_HEALTH_FAST_COMMAND))
-      && !Buffer.from(bytes).equals(Buffer.from(MAIN_HEALTH_FAST_COMMAND + '\n'))) {
-    throw new Error('MainHealth custom shell only admits its fixed fast command.');
+export function assertMainHealthRuntimeCommandBytes(bytes: Uint8Array): void {
+  if (!Buffer.from(bytes).equals(Buffer.from(MAIN_HEALTH_RUNTIME_COMMAND))
+      && !Buffer.from(bytes).equals(Buffer.from(MAIN_HEALTH_RUNTIME_COMMAND + '\n'))) {
+    throw new Error('MainHealth custom shell only admits its fixed runtime command.');
   }
 }
 
@@ -47,7 +45,7 @@ async function run(): Promise<number> {
   const command = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(commandPath)), path.basename(commandPath));
   try {
     if (command.size > 4096) throw new Error('MainHealth command file exceeds its closed bound.');
-    assertMainHealthFastCommandBytes(command.readBytes());
+    assertMainHealthRuntimeCommandBytes(command.readBytes());
     command.assertCurrent();
   } finally { command.dispose(); }
   // This deadline is inherited by both fixed preparation and native execution.
@@ -56,7 +54,6 @@ async function run(): Promise<number> {
   const headSha = process.env.SEC_MAIN_HEALTH_SHA!;
   let runtime: MainHealthHostRuntime | undefined;
   let temporary: PhysicalDirectoryIdentity | undefined;
-  let dependencies: RetainedCompilerDependencyReadGeneration | undefined;
   let bundle: GitCandidateBundle | undefined;
   let session: LinuxVerificationUnitSession | undefined;
   let originalOperation: BoundSemanticOperation | undefined;
@@ -66,13 +63,9 @@ async function run(): Promise<number> {
   let recoveredFailure: LinuxVerificationUnitRecoveryRequiredError | undefined;
   let code = 1;
   let projection: Readonly<Record<string, unknown>> | undefined;
-  let dependenciesRetired = false;
   let bundleRetired = false;
   let runtimeRetired = false;
   try {
-    const authority = await observeCompilerDependencyExecutionGenerationAuthority({ installMode: 'prebound-only', deadlineAtUnixMs }, compilerRuntimeLayout.dependencyRoot);
-    if (authority === null) throw new Error('MainHealth existing compiler dependency generation is unavailable.');
-    dependencies = await retainCompilerDependencyReadGeneration(authority, { deadlineAtUnixMs });
     runtime = await prepareMainHealthHostRuntime({ sourceRoot: SOURCE_ROOT, expectedHeadSha: headSha, deadlineAtUnixMs });
     temporary = createExclusiveNoFollowDirectory(inspectNoFollowDirectoryChain('/tmp').target, 'sec-main-health-' + randomUUID().replaceAll('-', ''));
     const recovery = createExclusiveNoFollowDirectory(temporary, 'recovery');
@@ -80,19 +73,19 @@ async function run(): Promise<number> {
     session = await prepareLinuxVerificationUnitSession({ recoveryRoot: recovery, runtime: runtime.runtime, mainHealthHostRuntime: runtime,
       bundle: { file: assertGitCandidateBundleCurrent(bundle), baseSha: headSha, headSha, baseTreeSha: runtime.source.treeSha,
         headTreeSha: runtime.source.treeSha, bundleDigest: bundle.bundleDigest },
-      dependencies: { physicalGeneration: dependencies.physicalGeneration, generationDigest: dependencies.generationDigest }, deadlineAtUnixMs });
+      dependencies: null, deadlineAtUnixMs });
     const requirement = { id: LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, contractDigest: LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST,
       effectKinds: ['process', 'provider', 'filesystem', 'persistent-state'] as const,
       failureKinds: ['main-health.immutable-input', 'main-health.unit-settlement'] };
-    const operation = bindSemanticOperation(compileSemanticOperationPlan({ operation: 'verification.main-health.fast',
-      intentDigest: sha256({ source: runtime.source, inputDigest: session.inputDigest, command: MAIN_HEALTH_FAST_COMMAND }) as OperationDigest,
+    const operation = bindSemanticOperation(compileSemanticOperationPlan({ operation: 'verification.main-health.runtime',
+      intentDigest: sha256({ source: runtime.source, inputDigest: session.inputDigest, command: MAIN_HEALTH_RUNTIME_COMMAND }) as OperationDigest,
       decisionDigest: requirement.contractDigest, deadlineAtUnixMs, aggregateBudgets: LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS,
       requirements: [requirement], attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: requirement.contractDigest })
     }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest, providerIdentityDigest: session.providerIdentityDigest })]);
     bindLinuxVerificationUnitSession(session, { operation,
       requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: requirement.id, resourceCeilings: LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS }) });
     originalOperation = operation;
-    const result = await executeLinuxVerificationUnit(session, createTrustedRuntimeNativeMainHealthInvocation(MAIN_HEALTH_FAST_COMMAND));
+    const result = await executeLinuxVerificationUnit(session, createTrustedRuntimeNativeMainHealthInvocation(MAIN_HEALTH_RUNTIME_COMMAND));
     assertLinuxVerificationUnitResult(result, session);
     code = result.receipt.execution.exitCode;
     if (code !== 0) {
@@ -101,16 +94,16 @@ async function run(): Promise<number> {
       try { preserveMainHealthFailure(diagnostic); }
       catch (diagnosticError) { console.error(JSON.stringify({ failure: diagnostic, diagnosticPublicationFailure: failureMessage(diagnosticError) })); }
     }
-    // GitHub command interpretation is disabled for arbitrary test output.
+    // GitHub command interpretation is disabled for captured runtime output.
     // Raw bytes remain bound in the original receipt, not emitted as commands.
-    projection = Object.freeze({ schema: 'sec-main-health-fast-result-v1', source: runtime.source,
+    projection = Object.freeze({ schema: 'sec-main-health-runtime-result-v1', source: runtime.source,
       exitCode: code, unitReceiptDigest: result.receipt.receiptDigest,
       stdoutDigest: result.receipt.execution.stdoutDigest, stderrDigest: result.receipt.execution.stderrDigest,
       stdoutTailBase64: Buffer.from(result.stdout).subarray(-4096).toString('base64'),
       stderrTailBase64: Buffer.from(result.stderr).subarray(-4096).toString('base64') });
   } catch (error) {
     preparationUnsettled = error instanceof MainHealthHostRuntimePreparationError;
-    primary = { label: 'MainHealth immutable fast entry', error };
+    primary = { label: 'MainHealth immutable runtime entry', error };
   }
   await settleResourcesAsync({ primary, cleanup: [
     { label: 'MainHealth original native unit settlement', settle: async () => {
@@ -125,9 +118,6 @@ async function run(): Promise<number> {
       }
       terminal = true;
     } },
-    { label: 'MainHealth original dependency pin retirement', settle: async () => {
-      if (terminal) { if (dependencies !== undefined) assertCompilerDependencyReadGenerationRetirementReceipt(await dependencies.retire(), dependencies.generationDigest); dependenciesRetired = true; }
-    } },
     { label: 'MainHealth original bundle pin retirement', settle: () => {
       if (terminal) { if (bundle !== undefined) assertGitCandidateBundleReceipt(closeGitCandidateBundle(bundle), bundle); bundleRetired = true; }
     } },
@@ -135,7 +125,7 @@ async function run(): Promise<number> {
       if (terminal) { if (runtime !== undefined) retireMainHealthHostRuntime(runtime); runtimeRetired = true; }
     } },
     { label: 'MainHealth owned temporary retirement', settle: () => {
-      if (!terminal || !dependenciesRetired || !bundleRetired || !runtimeRetired) throw new Error('MainHealth original resources remain unresolved; preserve owned temporary root: ' + (temporary?.path ?? 'not-created'));
+      if (!terminal || !bundleRetired || !runtimeRetired) throw new Error('MainHealth original resources remain unresolved; preserve owned temporary root: ' + (temporary?.path ?? 'not-created'));
       if (temporary !== undefined) retireNoFollowDirectoryTree({ root: temporary, parent: inspectNoFollowDirectoryChain('/tmp').target,
         inventory: scanNoFollowDirectoryTreeMetadata(temporary, { deadlineAtMs: performance.now() + Math.max(1, deadlineAtUnixMs - Date.now()), maximumEntries: 200_000, includePermissionMode: true }),
         restoreOwnerPermissions: true, deadlineAtMonotonicMs: performance.now() + Math.max(1, deadlineAtUnixMs - Date.now()) });
@@ -151,7 +141,7 @@ if (import.meta.main) {
   try { process.exitCode = await run(); }
   catch (error) {
     const failures = isResourceCompositeSettlementError(error)
-      ? readResourceCompositeSettlementFailures(error) : [{ label: 'MainHealth immutable fast entry', error }];
+      ? readResourceCompositeSettlementFailures(error) : [{ label: 'MainHealth immutable runtime entry', error }];
     const diagnostic = failures.map(failure => ({ label: failure.label,
       code: getErrorCode(failure.error), message: failureMessage(failure.error),
       nativeFailure: failure.error instanceof LinuxVerificationUnitNativeFailureError ? failure.error.diagnostic : null,

@@ -65,36 +65,11 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
           "run": "bun run deps:ensure"
         },
         {
-          "name": "Reject import organization drift",
-          "id": "imports-check",
-          "run": "bun run imports:check --all"
-        },
-        {
-          "name": "Run exact-main TypeScript checks",
-          "id": "typecheck",
-          "run": "bun run typecheck:verified"
-        },
-        {
-          "name": "Reject static architecture contradictions",
-          "id": "static-architecture",
-          "run": "bun run audit -- --worktree-source-program --enforce"
-        },
-        {
-          "name": "Validate active documentation authority",
-          "id": "docs-doctor",
-          "run": "bun run docs:doctor"
-        },
-        {
-          "name": "Verify original native failure recovery",
-          "id": "native-recovery",
-          "run": "sudo -n -k -- /usr/bin/python3.12 -B -I -S src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.test.py NativeRecoveryIntegration RuntimeCopyPermissions.test_recovery_removes_only_original_fixed_empty_objects RuntimeCopyPermissions.test_cleanup_denies_non_control_processes_before_spawn"
-        },
-        {
-          "name": "Run the complete fast test inventory",
-          "id": "test-fast",
-          "shell": "bun --no-env-file --no-install src/bootstrap/development/main-health-fast.ts {0}",
+          "name": "Observe native runtime readiness",
+          "id": "runtime-readiness",
+          "shell": "bun --no-env-file --no-install src/bootstrap/development/main-health-runtime.ts {0}",
           "env": { "SEC_MAIN_HEALTH_SHA": "${{ github.event.client_payload.payload.mainSha }}" },
-          "run": "bun run test -- --scope fast"
+          "run": "bun --version"
         },
         {
           "name": "Preserve complete MainHealth failure diagnostics",

@@ -17,9 +17,7 @@ import {
 } from '../../src/adapters/runtime-state/physical/contract/linux-verification-unit.ts';
 import {
   TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
   createTrustedRuntimeMainHealthInput,
-  createTrustedRuntimeMainHealthReceipt,
   createTrustedRuntimeNativeMainHealthInvocation,
   createTrustedRuntimeNativeMainHealthReceipt,
   parseTrustedRuntimeMainHealthReceipt,
@@ -116,7 +114,7 @@ function historicalNativeUnit(index: number): LinuxVerificationUnitReceipt {
       namespaceIdentities: { mount: 'mnt:[1]', pid: 'pid:[2]', network: 'net:[3]', user: 'user:[4]', ipc: 'ipc:[5]' } }),
     inputs: Object.freeze({ runtimeManifestDigest: sha256('historical-runtime') as OperationDigest,
       bundleDigest: sha256('historical-bundle') as OperationDigest,
-      dependencyContentDigest: sha256('historical-dependencies') as OperationDigest,
+      dependencyContentDigest: null,
       sutArchiveDigest: null }),
     gitBefore: identity, gitAfter: identity,
     execution: Object.freeze({ exitCode: 0, stdoutDigest: rawSha256('') as OperationDigest,
@@ -163,6 +161,7 @@ function historicalSourceProgramCarrier() {
     boundAttemptDigest: operation.boundAttemptDigest,
     providerIdentityDigest: operation.bindings[0]!.providerIdentityDigest,
     invocationDigest: linuxVerificationUnitInvocationDigest(invocation),
+    inputs: { ...oldUnit.inputs, dependencyContentDigest: sha256('historical-dependencies') as OperationDigest },
     unit: { ...oldUnit.unit, workingDirectory: '/sec-runtime/trusted' },
     gitBefore: gitIdentity, gitAfter: gitIdentity,
     execution: { ...oldUnit.execution, stdoutDigest: rawSha256(stdout) as OperationDigest,
@@ -277,7 +276,7 @@ describe('provider-neutral trusted runtime container', () => {
     const receipt = createTrustedRuntimeNativeMainHealthReceipt(request);
     expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
     expect(trustedRuntimeMainHealthReceiptReference(receipt)).toBe(
-      `live-receipt:trusted-main-health/v3/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
+      `live-receipt:trusted-main-health/v4/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
     );
     const parsed = parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt));
     const projected = createTrustedRuntimeMainHealthInput({
@@ -288,12 +287,16 @@ describe('provider-neutral trusted runtime container', () => {
       expiresAt: '2026-10-04T00:10:00.000Z'
     }, parsed.schema);
     expect(projected.producer.sourceRef).toBe(
-      `live-receipt:trusted-main-health/v3/${parsed.mainSha}/${parsed.receiptDigest.slice(7)}`
+      `live-receipt:trusted-main-health/v4/${parsed.mainSha}/${parsed.receiptDigest.slice(7)}`
     );
     expect(projected.producer.sourceRef).toBe(trustedRuntimeMainHealthReceiptReference(parsed));
     expect(projected.producer.sourceDigest).toBe(parsed.receiptDigest);
-    expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
-      schema: 'sec-trusted-runtime-main-health-receipt-v2' })).toThrow('shape or fixed identity');
+    for (const schema of ['sec-trusted-runtime-main-health-receipt-v2', 'sec-trusted-runtime-main-health-receipt-v3']) {
+      expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt, schema })).toThrow('receipt schema is invalid');
+    }
+    expect(TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS).toEqual(['bun --version']);
+    expect(receipt.dependencyPreparation).toBe('not-required-for-runtime-readiness');
+    expect(receipt.actionResults[0]!.unitReceipt.inputs.dependencyContentDigest).toBeNull();
     expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
       receiptDigest: `sha256:${'f'.repeat(64)}` })).toThrow('canonical subject, plan or result bytes');
     for (const unqualified of [receipt, { ...receipt }, parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))]) {
@@ -303,10 +306,10 @@ describe('provider-neutral trusted runtime container', () => {
     }
     expect(() => createTrustedRuntimeNativeMainHealthReceipt({ ...request, mainSha: '3'.repeat(40) })).toThrow('another exact main');
     expect(() => createTrustedRuntimeNativeMainHealthReceipt({ ...request,
-      actionResults: request.actionResults.slice(1) })).toThrow('complete canonical check closure');
+      actionResults: request.actionResults.slice(1) })).toThrow('single runtime-readiness result');
     expect(() => createTrustedRuntimeNativeMainHealthReceipt({ ...request,
-      actionResults: request.actionResults.map((entry, index) => index === 1
-        ? { ...entry, unitReceipt: request.actionResults[0]!.unitReceipt } : entry) })).toThrow('repeated');
+      actionResults: [{ ...request.actionResults[0]!, command: 'bun run test -- --scope fast' }] }))
+      .toThrow('differs from the canonical plan');
     const incomplete = { ...request.actionResults[0]!.unitReceipt,
       settlement: { ...request.actionResults[0]!.unitReceipt.settlement, cgroupEmpty: false } };
     const { receiptDigest: _discarded, ...incompleteBody } = incomplete;
@@ -334,64 +337,6 @@ describe('provider-neutral trusted runtime container', () => {
         ? { ...entry, resultDigest: `sha256:${'f'.repeat(64)}` } : entry) })).toThrow('canonical subject, plan or result bytes');
   });
 
-  test('MainHealth receipt binds exact subject environment plan and canonical command closure', () => {
-    expect(TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS).toEqual([
-      'bun run imports:check --all',
-      'bun run typecheck:verified',
-      'bun run audit -- --worktree-source-program --enforce',
-      'bun run docs:doctor',
-      'bun run test -- --scope fast'
-    ]);
-    expect(TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    const receipt = createTrustedRuntimeMainHealthReceipt({
-      repository: 'sec-platform/sec',
-      mainSha: '1'.repeat(40),
-      mainTreeSha: '2'.repeat(40),
-      executionId: 'trusted-main-health-fixture',
-      dockerEndpoint,
-      dependencyCacheKey: null,
-      actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
-        command,
-        resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`
-      })),
-      observedAt: '2026-09-29T00:00:00.000Z'
-    });
-    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
-    for (const unqualified of [receipt, parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))]) {
-      expect(() => assertTrustedRuntimeMainHealthQualification({
-        receipt: unqualified, repositoryRoot: process.cwd(), repository: receipt.repository,
-        mainSha: receipt.mainSha, mainTreeSha: receipt.mainTreeSha
-      })).toThrow('current live production execution qualification');
-    }
-    expect(trustedRuntimeMainHealthReceiptReference(receipt)).toBe(
-      `live-receipt:trusted-main-health/v2/${receipt.mainSha}/${receipt.receiptDigest.slice(7)}`
-    );
-    expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt,
-      schema: 'sec-trusted-runtime-main-health-receipt-v3' })).toThrow('shape or fixed identity');
-    expect(trustedRuntimeMainHealthReceiptReference(receipt)).not.toContain('.json');
-    expect(() => trustedRuntimeMainHealthReceiptReference({
-      mainSha: '../main', receiptDigest: receipt.receiptDigest
-    })).toThrow('one lowercase Git SHA');
-    expect(() => trustedRuntimeMainHealthReceiptReference({
-      mainSha: receipt.mainSha, receiptDigest: 'sha256:invalid'
-    })).toThrow('one SHA-256 digest');
-    expect(() => parseTrustedRuntimeMainHealthReceipt({
-      ...receipt,
-      planDigest: `sha256:${'f'.repeat(64)}`
-    })).toThrow('shape or fixed identity');
-    expect(() => createTrustedRuntimeMainHealthReceipt({
-      repository: receipt.repository,
-      mainSha: receipt.mainSha,
-      mainTreeSha: receipt.mainTreeSha,
-      executionId: receipt.executionId,
-      dockerEndpoint,
-      dependencyCacheKey: receipt.dependencyCacheKey,
-      actionResults: receipt.actionResults.map((entry, index) => index === 0
-        ? { ...entry, command: 'bun run imports:check' }
-        : entry),
-      observedAt: receipt.observedAt
-    })).toThrow('differs from the canonical plan');
-  });
 
 
   test('joins only one provider-issued exact requirement settlement with independent endpoint readback', () => {
