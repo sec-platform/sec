@@ -10,8 +10,8 @@ last-reviewed: 2026-10-13
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/main-source-health-repair-20261013.md
-manifestDigest: sha256:95315c1c3a0aa361548f76f1237a43fbf8996af1959554aca1ed283bb6e62e7d
+manifest: config/repository/work-packages/main-health-dependency-admission-20261013.md
+manifestDigest: sha256:f129c53e67b77206b27486f05611491734d79cdd94cd07441319c88d2f7c9b04
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

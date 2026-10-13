@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { assertCiVerificationPerJobHostedWorkflowShape, hostedSessionCoordinationBudget } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, hostedSessionCoordinationBudget } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { CI_VERIFICATION_ACTION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -161,11 +161,19 @@ test('release verification resolves exactly one parent from the trusted default 
 });
 
 test('release verification binds local parent checks before the hosted Linux executor', async () => {
-  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const source = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
+  assertCiVerificationPerJobHostedWholeWorkflowShape(source);
+  const release = parseYaml(source) as Workflow;
   const job = 'compiler-release-verification';
   const steps = release.jobs[job]!.steps;
   const verifyParent = step(release, job, 'Verify checked-out release parent and tree');
   const verify = step(release, job, 'Run exact-head full verification');
+  const dependencies = steps.find(({ run }) => run === 'bun run deps:ensure');
+  expect(dependencies).toBeDefined();
+  expect(dependencies?.if).toBeUndefined();
+  expect(dependencies?.['working-directory']).toBeUndefined();
+  expect(steps.indexOf(dependencies!)).toBeGreaterThan(steps.indexOf(verifyParent));
+  expect(steps.indexOf(dependencies!)).toBeLessThan(steps.indexOf(verify));
   const contract = buildCiContract();
   expect(release.permissions).toEqual({ contents: 'read' });
   expect(steps.map(({ name }) => name)).toEqual(contract.releaseWorkflowStepOrder);

@@ -143,6 +143,11 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
   });
   expect(job.steps.map((step) => step.name)).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
   expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+  expect(job.steps.filter((step) => step.run).map((step) => step.run).slice(0, 3)).toEqual([
+    'bun run deps:ensure',
+    'bun run imports:check --all',
+    'bun run typecheck:verified'
+  ]);
   expect(job.steps.find((step) => step.id === 'typecheck')?.run).toBe('bun run typecheck:verified');
   expect((workflow.on as Record<string, unknown>).push).toBeUndefined();
   expect(job.steps[0]?.if).toBe("${{ github.event_name == 'repository_dispatch' }}");

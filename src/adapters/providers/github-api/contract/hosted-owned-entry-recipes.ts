@@ -60,9 +60,9 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
           }
         },
         {
-          "name": "Install dependencies from the frozen lock",
+          "name": "Prepare the owned compiler dependency generation",
           "id": "install",
-          "run": "bun install --frozen-lockfile"
+          "run": "bun run deps:ensure"
         },
         {
           "name": "Reject import organization drift",
@@ -142,8 +142,8 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
           }
         },
         {
-          "name": "Install dependencies once",
-          "run": "bun install --frozen-lockfile"
+          "name": "Prepare the owned compiler dependency generation",
+          "run": "bun run deps:ensure"
         },
         {
           "name": "Run exact-head full verification",

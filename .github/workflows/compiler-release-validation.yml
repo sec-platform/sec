@@ -73,8 +73,8 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-bun-
-      - name: Install dependencies once
-        run: bun install --frozen-lockfile
+      - name: Prepare the owned compiler dependency generation
+        run: bun run deps:ensure
       - name: Run exact-head full verification
         id: verify
         shell: bash
