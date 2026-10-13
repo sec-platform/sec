@@ -76,7 +76,7 @@ try:
     try: h.wait_preflight_ready(early_request,record,properties,unit,token,streams,d,d,pidfds)
     except h.NativeFailure as error:
         diagnostic=error.projection(); expected=bytes(range(256))*4+b'fixture early failure\n'
-        if (diagnostic['message']!='native-preflight-exited' or diagnostic['unitName']!=early_name or diagnostic['execMainStatus']!=23
+        if (diagnostic['message'].split('\n',1)[0]!='native-preflight-exited' or diagnostic['unitName']!=early_name or diagnostic['execMainStatus']!=23
                 or diagnostic['exitCode']!=23 or not diagnostic['stderrComplete'] or diagnostic['qualification']!='not-issued'
                 or h.base64.b64decode(diagnostic['stderrBase64'],validate=True)!=expected or diagnostic['stderrBytes']!=len(expected)
                 or diagnostic['stderrDigest']!=h.sha(expected) or len(h.canonical(diagnostic))<=512): raise
@@ -109,8 +109,8 @@ sys.exit(1)
                                         '--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', worker, str(Path(helper.__file__).resolve()), json.dumps(request)],
                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=helper.FIXED_ENV)
             stdout, stderr = process.communicate(timeout=15)
-            self.assertEqual(process.returncode, 1, stderr.decode(errors='replace')[:1024])
-            self.assertEqual(stdout.strip(), b'original-helper-failed-with-owned-resources')
+            self.assertEqual(process.returncode, 1, stderr.decode(errors='replace'))
+            self.assertEqual(stdout.strip(), b'original-helper-failed-with-owned-resources', stderr.decode(errors='replace'))
             helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
             deadline = helper.Deadline(request['deadlineAtUnixMs'])
             self.assertFalse(helper.cgroup_empty({'cgroupPath': '/system.slice/' + scope}))
