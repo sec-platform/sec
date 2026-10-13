@@ -668,26 +668,10 @@ else:
 os.execv(argv[0],argv)
 '''
 
-# Temporary, fixed-field observation for the unresolved UID transition. No
-# source, argv, environment or request values enter this diagnostic packet.
-PRIVILEGE_DIAGNOSTIC_SOURCE = r'''
-def emit_privilege_stage(stage):
-    keys={'Uid','Gid','CapPrm','CapEff','CapBnd','CapInh','CapAmb','NoNewPrivs','Seccomp'}
-    with open('/proc/self/status') as stream:
-        values={k:v.strip() for line in stream for k,v in [line.split(':',1)] if k in keys}
-    if set(values)!=keys: raise RuntimeError('privilege-stage-status-incomplete')
-    observation={'stage':stage,'pid':os.getpid(),'ppid':os.getppid(),'status':values,
-                 'userNamespace':os.readlink('/proc/self/ns/user'),'securebits':ctypes.CDLL(None,use_errno=True).prctl(27,0,0,0,0)}
-    for name in ['uid_map','gid_map']:
-        with open('/proc/self/'+name) as stream: observation[name]=stream.read(65536)
-    sys.stderr.write('SEC_NATIVE_PRIVILEGE_STAGE '+json.dumps(observation,sort_keys=True,separators=(',',':'))+'\n');sys.stderr.flush()
-'''
-UID_TRANSITION_DIAGNOSTIC_SHIM = 'import ctypes,json,os,sys\n' + PRIVILEGE_DIAGNOSTIC_SOURCE + '\nemit_privilege_stage("pid-namespace-before-final-setpriv")\n' + (
-    'argv=["/usr/bin/setpriv","--reuid=65532","--regid=65532","--clear-groups","--no-new-privs","--bounding-set=-all","--inh-caps=-all","--ambient-caps=-all","--","/usr/bin/python3","-I","-S","-u","-c",' + repr(LAUNCH_SHIM) + ']\nos.execv(argv[0],argv)\n')
-
 # Only this fixed root program crosses the original mount namespace boundary.
 # Foreign proc FDs are identity/input capabilities, never manager mount targets.
-BOOTSTRAP_SHIM = 'import ctypes,json,os,re,stat,sys\n' + PRIVILEGE_DIAGNOSTIC_SOURCE + r'''
+BOOTSTRAP_SHIM = r'''
+import ctypes,json,os,re,stat,sys
 p=json.loads(sys.argv[1])
 libc=ctypes.CDLL(None,use_errno=True)
 libc.setns.argtypes=[ctypes.c_int,ctypes.c_int]
@@ -773,12 +757,13 @@ checked(libc.syscall(429,ctypes.c_int(dev),ctypes.c_char_p(b''),ctypes.c_int(loc
 mount('tmpfs',root+'/tmp','tmpfs',2|4,'size=512M,mode=1777')
 cwd={'trusted':'sec-runtime/trusted','candidate':'sec-runtime/workspace','scratch':'tmp'}[p['cwd']]
 cwd_fd=os.open(cwd,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=local['root'])
-emit_privilege_stage('bootstrap-before-chroot-and-exec')
 os.chroot(root);os.fchdir(cwd_fd)
 for fd in [dev,ns,cwd_fd]+list(foreign.values())+list(local.values()): os.close(fd)
 argv=['/usr/bin/setpriv','--bounding-set='+('-sys_ptrace' if p['rootWorker'] else '-sys_ptrace,-sys_chroot'),'--inh-caps=-all','--ambient-caps=-all','--',
       '/usr/bin/unshare','--mount','--pid','--fork','--kill-child=KILL','--mount-proc','--']
-''' + '\nargv.extend(["/usr/bin/python3","-I","-S","-u","-c",' + repr(LAUNCH_SHIM) + ' if p["rootWorker"] else ' + repr(UID_TRANSITION_DIAGNOSTIC_SHIM) + '])\nos.execv(argv[0],argv)\n'
+if not p['rootWorker']:
+    argv.extend(['/usr/bin/setpriv','--reuid=65532','--regid=65532','--clear-groups','--no-new-privs','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--'])
+''' + '\nargv.extend(["/usr/bin/python3","-I","-S","-u","-c",' + repr(LAUNCH_SHIM) + '])\nos.execv(argv[0],argv)\n'
 
 UNIT_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description',
                    'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter', 'UMask', 'BindsTo', 'After']
@@ -1175,7 +1160,11 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                   'StandardInput=file:' + host_root + recovery.path + '/stdin',
                   'StandardOutput=file:' + host_root + recovery.path + '/stdout',
                   'StandardError=file:' + host_root + recovery.path + '/stderr',
-                  'CapabilityBoundingSet=' + ((ROOT_CAPABILITIES + ' CAP_SYS_PTRACE') if root_worker else (NAMESPACE_CAPABILITIES + ' CAP_SYS_CHROOT CAP_SYS_PTRACE')), 'AmbientCapabilities=']
+                  'CapabilityBoundingSet=' + ((ROOT_CAPABILITIES + ' CAP_SYS_PTRACE') if root_worker else (NAMESPACE_CAPABILITIES + ' CAP_SYS_CHROOT CAP_SYS_PTRACE')),
+                  # systemd's seccomp setup drops SETUID unless explicitly
+                  # retained as ambient. The first setpriv clears inh/ambient;
+                  # the final observer still requires the original exact mask.
+                  'AmbientCapabilities=CAP_SETUID']
     args = ['/usr/bin/systemd-run', '--quiet', '--no-ask-password', '--expand-environment=no', '--unit=' + request['unitName'],
             '--service-type=exec', '--remain-after-exit']
     args.extend('--property=' + value for value in properties)
