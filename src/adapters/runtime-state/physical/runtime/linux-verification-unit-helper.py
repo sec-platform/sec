@@ -668,6 +668,103 @@ else:
 os.execv(argv[0],argv)
 '''
 
+# Only this fixed root program crosses the original mount namespace boundary.
+# Foreign proc FDs are identity/input capabilities, never manager mount targets.
+BOOTSTRAP_SHIM = r'''
+import ctypes,json,os,re,stat,sys
+p=json.loads(sys.argv[1])
+libc=ctypes.CDLL(None,use_errno=True)
+libc.setns.argtypes=[ctypes.c_int,ctypes.c_int]
+libc.unshare.argtypes=[ctypes.c_int]
+libc.setfsuid.argtypes=[ctypes.c_uint]
+libc.setfsuid.restype=ctypes.c_uint
+libc.mount.argtypes=[ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_ulong,ctypes.c_char_p]
+def checked(result,label):
+    if result<0: raise OSError(ctypes.get_errno(),label)
+    return result
+def identity(fd):
+    s=os.fstat(fd)
+    if not stat.S_ISDIR(s.st_mode): raise RuntimeError('bootstrap-directory-type')
+    return {'device':str(s.st_dev),'inode':str(s.st_ino)}
+def start(pid):
+    with open('/proc/'+str(pid)+'/stat','rb') as stream: return stream.read(65536).decode().rsplit(') ',1)[1].split()[19]
+def exact(fd,expected):
+    if identity(fd)!=expected: raise RuntimeError('bootstrap-directory-replaced')
+def mount(source,target,filesystem,flags,data=None):
+    enc=lambda v: None if v is None else os.fsencode(v)
+    checked(libc.mount(enc(source),enc(target),enc(filesystem),flags,enc(data)),'bootstrap-mount')
+# Clone systemd's already isolated /dev before leaving its mount namespace.
+dev=checked(libc.syscall(428,ctypes.c_int(-100),ctypes.c_char_p(b'/dev'),ctypes.c_uint(1|os.O_CLOEXEC|0x8000)),'bootstrap-open-tree-private-dev')
+pid=p['helperPid']; prefix='/proc/'+str(pid)
+if start(pid)!=p['helperStartTime']: raise RuntimeError('bootstrap-helper-replaced')
+ns=os.open(prefix+'/ns/mnt',os.O_RDONLY|os.O_CLOEXEC)
+foreign={k:os.open(prefix+'/fd/'+str(p[k+'Fd']),os.O_PATH|os.O_DIRECTORY|os.O_CLOEXEC) for k in ['record','root','control','output']}
+for k in foreign: exact(foreign[k],p[k+'Identity'])
+info=os.fstat(foreign['record'])
+if info.st_uid!=0 or stat.S_IMODE(info.st_mode)!=0o700: raise RuntimeError('bootstrap-private-record-root')
+record_fd=os.open('record.json',os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=foreign['record'])
+try:
+    info=os.fstat(record_fd)
+    if info.st_uid!=0 or info.st_nlink!=1 or not stat.S_ISREG(info.st_mode) or info.st_size>65536: raise RuntimeError('bootstrap-record-identity')
+    raw=os.read(record_fd,65537); record=json.loads(raw)
+finally: os.close(record_fd)
+if json.dumps(record,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()+b'\n'!=raw: raise RuntimeError('bootstrap-record-canonical')
+for k in ['operationIdentityDigest','boundAttemptDigest','inputDigest']:
+    if record[k]!=p[k]: raise RuntimeError('bootstrap-operation-replaced')
+if (record['runtimeRoot']!=p['recordIdentity'] or record['activeUnitName']!=p['unitName'] or record['description']!=p['description']
+        or record['helperPid']!=pid or record['helperStartTime']!=p['helperStartTime']): raise RuntimeError('bootstrap-record-binding')
+with open(prefix+'/cgroup') as stream: membership=stream.read(65536).splitlines()
+with open('/proc/sys/kernel/random/boot_id') as stream: boot=stream.read(128).strip()
+if membership!=['0::'+record['control']['cgroupPath']] or boot!=record['control']['managerBootId'] or start(1)!=record['control']['managerStartTime']:
+    raise RuntimeError('bootstrap-original-control-replaced')
+if start(pid)!=p['helperStartTime']: raise RuntimeError('bootstrap-helper-replaced')
+checked(libc.setns(ns,0x00020000),'bootstrap-enter-original-mount-namespace')
+os.fchdir(foreign['record'])
+checked(libc.unshare(0x00020000),'bootstrap-copy-original-mount-namespace')
+# unshare maps cwd to the copied tree. Reopen locally rather than mounting
+# through any of the original helper's foreign file descriptors.
+local_record=os.open('.',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+exact(local_record,p['recordIdentity'])
+local={'record':local_record}
+for k,relative in [('root','rootfs'),('control','control'),('output',p['outputRelative'])]:
+    if not re.fullmatch(r'(?:rootfs|control|output(?:/hosted-[0-9a-f]{32})?)',relative): raise RuntimeError('bootstrap-local-path')
+    current=os.dup(local_record)
+    try:
+        for component in relative.split('/'):
+            if k=='output' and component.startswith('hosted-'):
+                ancestor=os.fstat(current)
+                if (ancestor.st_uid,ancestor.st_gid,stat.S_IMODE(ancestor.st_mode))!=(65532,65532,0o700): raise RuntimeError('bootstrap-output-ancestor-owner')
+                previous=libc.setfsuid(65532)
+                try:
+                    if previous!=0 or libc.setfsuid(0xffffffff)!=65532: raise RuntimeError('bootstrap-output-fsuid')
+                    nxt=os.open(component,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=current)
+                finally:
+                    libc.setfsuid(previous)
+                    if libc.setfsuid(0xffffffff)!=previous: raise RuntimeError('bootstrap-output-fsuid-restore')
+            else:
+                nxt=os.open(component,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=current)
+            os.close(current);current=nxt
+        exact(current,p[k+'Identity']);local[k]=current;current=None
+    finally:
+        if current is not None: os.close(current)
+mount(None,'/',None,0x40000|0x4000)
+root='/proc/self/fd/'+str(local['root'])
+control=root+'/sec-runtime/control'; output=root+'/sec-runtime/output'
+mount('/proc/self/fd/'+str(local['control']),control,None,4096)
+mount(None,control,None,4096|32|1|2|4)
+mount('/proc/self/fd/'+str(local['output']),output,None,4096)
+checked(libc.syscall(429,ctypes.c_int(dev),ctypes.c_char_p(b''),ctypes.c_int(local['root']),ctypes.c_char_p(b'dev'),ctypes.c_uint(4)),'bootstrap-install-private-dev')
+mount('tmpfs',root+'/tmp','tmpfs',2|4,'size=512M,mode=1777')
+cwd={'trusted':'sec-runtime/trusted','candidate':'sec-runtime/workspace','scratch':'tmp'}[p['cwd']]
+cwd_fd=os.open(cwd,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=local['root'])
+os.chroot(root);os.fchdir(cwd_fd)
+for fd in [dev,ns,cwd_fd]+list(foreign.values())+list(local.values()): os.close(fd)
+argv=['/usr/bin/setpriv','--bounding-set='+('-sys_ptrace' if p['rootWorker'] else '-sys_ptrace,-sys_chroot'),'--inh-caps=-all','--ambient-caps=-all','--',
+      '/usr/bin/unshare','--mount','--pid','--fork','--kill-child=KILL','--mount-proc','--']
+if not p['rootWorker']:
+    argv.extend(['/usr/bin/setpriv','--reuid=65532','--regid=65532','--clear-groups','--no-new-privs','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--'])
+''' + '\nargv.extend(["/usr/bin/python3","-I","-S","-u","-c",' + repr(LAUNCH_SHIM) + '])\nos.execv(argv[0],argv)\n'
+
 UNIT_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description',
                    'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter', 'UMask', 'BindsTo', 'After']
 CONTROL_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description']
@@ -726,6 +823,15 @@ def fail_exited_preflight(request, recovery, properties, unit, description, stre
     code, status = int(properties['ExecMainCode']), int(properties['ExecMainStatus'])
     failure = NativeFailure('native-preflight-exited', phase='preflight', unit_name=request['unitName'],
                             exit_code=status if code == 1 else min(255, 128 + status), exec_main_code=code, exec_main_status=status)
+    # Manager setup errors can precede StandardError redirection. Read only
+    # this original unit's boot-scoped journal; it cannot qualify an effect.
+    try:
+        journal_code, journal, journal_error = run_tool(['/usr/bin/journalctl', '--no-pager', '--quiet', '--all',
+            '--output=json', '--boot=' + unit['managerBootId'], '--unit=' + request['unitName']], deadline)
+        failure.args = (str(failure) + '\nOriginal unit manager journal (exit=' + str(journal_code) + '):\n'
+                        + journal.decode('utf8') + '\nJournal stderr:\n' + journal_error.decode('utf8', errors='replace'),)
+    except BaseException as journal_failure:
+        failure.args = (str(failure) + '\nOriginal unit manager journal unavailable: ' + str(journal_failure),)
     try:
         settle_unit(request, unit, description, deadline)
         recovery.update({**recovery.value, 'phase': 'unit-settled'})
@@ -876,8 +982,13 @@ def observe_start(request, properties, root, cwd, manager, control=None):
         actual_root = os.stat('/proc/' + str(pid) + '/root')
         actual_cwd = os.stat('/proc/' + str(pid) + '/cwd')
         namespaces = {key: os.readlink('/proc/' + str(pid) + '/ns/' + name) for key, name in [('mount', 'mnt'), ('pid', 'pid'), ('network', 'net'), ('user', 'user'), ('ipc', 'ipc')]}
+        private_dev = os.stat('/proc/' + str(pid) + '/root/dev')
+        null = os.stat('/proc/' + str(pid) + '/root/dev/null')
+        sys_entries = os.listdir('/proc/' + str(pid) + '/root/sys')
     if (expected_root.st_dev, expected_root.st_ino) != (actual_root.st_dev, actual_root.st_ino) or (expected_cwd.st_dev, expected_cwd.st_ino) != (actual_cwd.st_dev, actual_cwd.st_ino):
         raise Unavailable('unit-root-cwd')
+    if private_dev.st_dev in (actual_root.st_dev, os.stat('/dev').st_dev) or not stat.S_ISCHR(null.st_mode) or null.st_rdev != os.makedev(1, 3) or sys_entries:
+        raise Unavailable('unit-private-dev-or-empty-sys')
     for key, ns in [('mount', 'mnt'), ('pid', 'pid'), ('network', 'net'), ('ipc', 'ipc')]:
         if namespaces[key] == os.readlink('/proc/self/ns/' + ns):
             raise Unavailable('unit-namespace-not-private')
@@ -1045,23 +1156,23 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                   'User=0', 'Group=0', 'UMask=0022', 'NoNewPrivileges=yes',
                   'PrivateNetwork=yes', 'PrivateMounts=yes', 'PrivateDevices=yes', 'ProtectControlGroups=yes', 'PrivateIPC=yes',
                   'KeyringMode=private', 'SystemCallArchitectures=x86-64', 'SystemCallFilter=~keyctl add_key request_key', 'SystemCallErrorNumber=EPERM',
-                  'RootDirectory=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[root]), 'WorkingDirectory=' + cwd,
-                  'ProtectSystem=strict', 'ReadWritePaths=/sec-runtime/output /tmp' + (' /sec-runtime/trusted /sec-runtime/workspace /sec-runtime/dependency-content' if setup else ''),
-                  'BindReadOnlyPaths=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[control]) + ':/sec-runtime/control',
-                  'BindPaths=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[output]) + ':/sec-runtime/output',
-                  'TemporaryFileSystem=/tmp:rw,nodev,nosuid,mode=1777',
+                  'WorkingDirectory=/',
                   'StandardInput=file:' + host_root + recovery.path + '/stdin',
                   'StandardOutput=file:' + host_root + recovery.path + '/stdout',
                   'StandardError=file:' + host_root + recovery.path + '/stderr',
-                  'CapabilityBoundingSet=' + (ROOT_CAPABILITIES if root_worker else NAMESPACE_CAPABILITIES), 'AmbientCapabilities=']
+                  'CapabilityBoundingSet=' + ((ROOT_CAPABILITIES + ' CAP_SYS_PTRACE') if root_worker else (NAMESPACE_CAPABILITIES + ' CAP_SYS_CHROOT CAP_SYS_PTRACE')), 'AmbientCapabilities=']
     args = ['/usr/bin/systemd-run', '--quiet', '--no-ask-password', '--expand-environment=no', '--unit=' + request['unitName'],
             '--service-type=exec', '--remain-after-exit']
     args.extend('--property=' + value for value in properties)
-    args.extend(['--', '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL', '--mount-proc', '--'])
-    if not root_worker:
-        args.extend(['/usr/bin/setpriv', '--reuid=65532', '--regid=65532', '--clear-groups', '--no-new-privs',
-                     '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--'])
-    args.extend(['/usr/bin/python3', '-I', '-S', '-u', '-c', LAUNCH_SHIM])
+    bootstrap = {'helperPid': os.getpid(), 'helperStartTime': process_start(os.getpid()), 'recordFd': recovery.fd,
+                 'rootFd': MOUNT_HANDLES[root], 'controlFd': MOUNT_HANDLES[control], 'outputFd': MOUNT_HANDLES[output],
+                 'recordIdentity': recovery.physical, 'outputRelative': os.path.relpath(output, recovery.path),
+                 'unitName': request['unitName'], 'description': description, 'cwd': invocation['cwd'], 'rootWorker': root_worker,
+                 **{key: request[key] for key in ['operationIdentityDigest', 'boundAttemptDigest', 'inputDigest']}}
+    for key, fd in [('root', MOUNT_HANDLES[root]), ('control', MOUNT_HANDLES[control]), ('output', MOUNT_HANDLES[output])]:
+        info = os.fstat(fd)
+        bootstrap[key + 'Identity'] = {'device': str(info.st_dev), 'inode': str(info.st_ino)}
+    args.extend(['--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', BOOTSTRAP_SHIM, canonical(bootstrap).decode()])
     unit, pidfds = None, []
     failure, result = None, None
     try:

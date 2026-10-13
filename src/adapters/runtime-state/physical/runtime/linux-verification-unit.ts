@@ -104,7 +104,7 @@ import { issueRetainedCommandBoundary } from './process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
 const HELPER_PATH = fileURLToPath(new URL('./linux-verification-unit-helper.py', import.meta.url));
-const PLATFORM_FILES = ['/usr/bin/python3.12', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/git', '/usr/bin/tar', '/usr/bin/cp'] as const;
+const PLATFORM_FILES = ['/usr/bin/python3.12', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/journalctl', '/usr/bin/git', '/usr/bin/tar', '/usr/bin/cp'] as const;
 const CONTROL_ENVIRONMENT = Object.freeze({ PATH: '', HOME: '/', LANG: 'C', LC_ALL: 'C' });
 const GIT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 // Each loaded failed domain needs at most five fixed manager commands. A
