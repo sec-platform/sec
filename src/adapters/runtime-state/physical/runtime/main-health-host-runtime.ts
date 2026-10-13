@@ -48,7 +48,9 @@ const MAIN_HEALTH_RUNTIME_BINARIES = Object.freeze([
   '/usr/bin/unshare', '/usr/bin/curl', '/usr/bin/mkfifo',
   `/usr/bin/python${LINUX_RUNTIME_TOOLS.python.version.split('.').slice(0, 2).join('.')}`
 ]);
-const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"', 'node_host="$3"',
+const SCRIPT = ['set -Eeuo pipefail',
+  `trap 'status=$?; printf "MainHealth tool snapshot failed at line %s: %s (exit %s)\\n" "$LINENO" "$BASH_COMMAND" "$status" >&2; exit "$status"' ERR`,
+  'root="$1"', 'bun_host="$2"', 'node_host="$3"',
   'mkdir -p "$root/tmp" "$root/tool/bin"', ...linuxRuntimeToolCopyScript('independent-files'),
   ...MAIN_HEALTH_RUNTIME_BINARIES.map(runtimePath => `copy_runtime ${runtimePath} ${runtimePath}`),
   // Native addons consume the installed glibc ABI family beyond the libraries
@@ -57,8 +59,9 @@ const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"', 'node_host="$
   '/usr/bin/dpkg-query -L libc6:amd64 > "$glibc_inventory"',
   'glibc_libraries=0',
   'while IFS= read -r library; do',
-  '  case "$library" in /*.so|/*.so.*)',
-  '    [ -f "$library" ]',
+  '  [ -d "$library" ] && continue',
+  '  case "${library##*/}" in *.so|*.so.*)',
+  '    if [ ! -f "$library" ]; then printf "Installed glibc shared-library source is not an ordinary file: %s\\n" "$library" >&2; exit 1; fi',
   '    resolved_library="$(/usr/bin/realpath -e -- "$library")"',
   '    copy_runtime "$resolved_library" "$library"',
   '    glibc_libraries=$((glibc_libraries + 1))',
