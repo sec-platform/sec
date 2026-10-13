@@ -133,6 +133,53 @@ async function fsyncDirectory(directory: string): Promise<void> {
   }
 }
 
+/** Called only while the current generation owns the control plane. Keep its
+ * high-water mark and every ambiguous predecessor; terminal history grants no
+ * recovery authority after its holder and all other links have disappeared. */
+async function retireTerminalHistory(workspaceRoot: string, token: WorkspaceWriteLeaseToken): Promise<readonly number[]> {
+  if (process.platform !== 'linux' && process.platform !== 'win32') return Object.freeze([]);
+  const paths = workspaceWriteLeasePathsFor(workspaceRoot);
+  const parent = inspectNoFollowDirectoryChain(retirementFenceParent(workspaceRoot), 'Workspace lease history retirement fence parent').target;
+  if (readNoFollowOrdinaryFile(parent, retirementFenceName(token.workspaceIdentityDigest)) !== null) return Object.freeze([]);
+  const inventory = await readInventory(paths.root);
+  if (inventory.highestGeneration !== token.generation || inventory.terminalGenerations.has(token.generation)) {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-002', 'Workspace lease history retirement requires its active highest generation');
+  }
+  const root = inspectNoFollowDirectoryChain(paths.root, 'Workspace lease terminal history').target;
+  const retired: number[] = [];
+  for (const generation of inventory.ownerGenerations) {
+    if (generation >= token.generation || !inventory.terminalGenerations.has(generation)) continue;
+    let state: Awaited<ReturnType<typeof readGenerationState>>;
+    try { state = await readGenerationState(paths.root, generation); }
+    catch { continue; } // An unclassified predecessor remains owned elsewhere.
+    if (state.terminal === null || state.ownerLinkCount !== 1
+        || state.owner.workspaceIdentityDigest !== token.workspaceIdentityDigest) continue;
+    const predecessor = tokenFromOwner(state.owner);
+    try { await fs.lstat(holderDirectory(paths.holders, predecessor)); continue; }
+    catch (error) { if (!isMissingError(error)) throw error; }
+    const ownerName = path.basename(generationOwnerPath(paths.root, generation));
+    const terminalName = path.basename(generationTerminalPath(paths.root, generation));
+    const owner = inspectNoFollowOrdinaryFileEntry(root, ownerName);
+    const terminal = inspectNoFollowOrdinaryFileEntry(root, terminalName);
+    if (owner === null || terminal === null || owner.bytes === null || terminal.bytes === null
+        || !Buffer.from(owner.bytes).equals(Buffer.from(jsonFile(state.owner)))
+        || !Buffer.from(terminal.bytes).equals(Buffer.from(jsonFile(state.terminal)))) continue;
+    const ownerMetadata = await fs.lstat(generationOwnerPath(paths.root, generation), { bigint: true });
+    const terminalMetadata = await fs.lstat(generationTerminalPath(paths.root, generation), { bigint: true });
+    if (ownerMetadata.nlink !== 1n || terminalMetadata.nlink !== 1n
+        || !ownerMetadata.isFile() || ownerMetadata.isSymbolicLink()
+        || !terminalMetadata.isFile() || terminalMetadata.isSymbolicLink()
+        || ownerFileIdentity(ownerMetadata) !== state.ownerFileIdentityDigest) continue;
+    // Durable terminal removal precedes owner removal: interruption can leave
+    // an unpaired old owner, never an ownerless terminal that corrupts inventory.
+    deleteRetainedNoFollowEntry({ root, relativePath: terminalName, kind: 'file', device: terminal.device, inode: terminal.inode, ancestorDirectories: [] });
+    await fsyncDirectory(paths.root);
+    deleteRetainedNoFollowEntry({ root, relativePath: ownerName, kind: 'file', device: owner.device, inode: owner.inode, ancestorDirectories: [] });
+    retired.push(generation);
+  }
+  return Object.freeze(retired);
+}
+
 function jsonFile(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -1603,6 +1650,7 @@ export function createWorkspaceWriteLeaseManager(
     assertManagerHolder(token);
     await assertOwned(workspaceRoot, token);
     const paths = pathsFor(workspaceRoot);
+    await retireTerminalHistory(workspaceRoot, token);
     await publishTerminal(paths, token, 'released');
     const terminal = await readOptionalTerminal(generationTerminalPath(paths.root, token.generation));
     if (!terminal || !sameToken(terminal.token, token)) {
@@ -1671,6 +1719,14 @@ export function createWorkspaceWriteLeaseManager(
 }
 
 export const workspaceWriteLeaseManager = createWorkspaceWriteLeaseManager();
+
+/** One-time historical cleanup uses the same active-generation and release
+ * path as ordinary writers; it never retires the protocol namespace. */
+export async function retireWorkspaceWriteLeaseHistory(workspaceRoot: string): Promise<readonly number[]> {
+  return workspaceWriteLeaseManager.withLease(workspaceRoot, undefined, token =>
+    workspaceWriteLeaseManager.withControlPlaneQuiesced(workspaceRoot, token, () =>
+      retireTerminalHistory(workspaceRoot, token)));
+}
 
 export const acquireWorkspaceWriteLease = workspaceWriteLeaseManager.acquire;
 

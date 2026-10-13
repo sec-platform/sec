@@ -4,13 +4,69 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  publishImportTransformTransaction
+  publishImportTransformTransaction,
+  retireTerminalImportTransformTransactions
 } from '../../src/adapters/self-hosting/development/runner/import-transform-transaction.ts';
 
 async function withWorkspace(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-transaction-'));
   try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
+
+test('terminal-only retirement removes accepted and rolled-back carriers without recovering active work', async () => {
+  await withWorkspace(async (root) => {
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 0, retained: [] });
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    const writes = [{ relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') }];
+    const accepted = await publishImportTransformTransaction(root, writes);
+    expect(accepted.status).toBe('accepted');
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [] });
+    await expect(stat(path.dirname(accepted.journalPath))).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    const rolledBack = await publishImportTransformTransaction(root, writes, { afterPublish: () => { throw new Error('publication interrupted'); } });
+    expect(rolledBack.status).toBe('rolled-back');
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [] });
+    expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a0\n');
+    const active = await publishImportTransformTransaction(root, writes, {
+      beforeJournalAppend: () => { throw new Error('prepared journal not yet durable'); }
+    });
+    expect(active.status).toBe('recovery-required');
+    const before = await readdir(path.dirname(active.journalPath));
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 0, retained: [active.transactionId] });
+    expect(await readdir(path.dirname(active.journalPath))).toEqual(before);
+    expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a0\n');
+  });
+});
+
+test('interrupted terminal deletion is outside active recovery and resumes without deleted payloads', async () => {
+  await withWorkspace(async (root) => {
+    await writeFile(path.join(root, 'a.ts'), 'a0\n');
+    const accepted = await publishImportTransformTransaction(root, [{ relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') }]);
+    const before = await readdir(path.dirname(accepted.journalPath));
+    let deleted = '';
+    await expect(retireTerminalImportTransformTransactions(root, {
+      afterTerminalRetirementEntry: relativePath => { deleted = relativePath; throw new Error('interrupted after first physical delete'); }
+    })).rejects.toThrow('interrupted after first physical delete');
+    expect(deleted.endsWith('.preimage') || deleted.endsWith('.replacement')).toBe(true);
+    await expect(stat(path.dirname(accepted.journalPath))).rejects.toHaveProperty('code', 'ENOENT');
+    const garbage = path.join(root, '.sec', 'import-transform-retired', accepted.transactionId);
+    expect(await readdir(garbage)).toHaveLength(before.length - 1);
+    await expect(stat(path.join(garbage, deleted))).rejects.toHaveProperty('code', 'ENOENT');
+    const foreign = path.join(garbage, 'foreign.txt');
+    await writeFile(foreign, 'must survive');
+    await writeFile(path.join(root, 'b.ts'), 'b0\n');
+    const next = await publishImportTransformTransaction(root, [{ relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }]);
+    expect(next.status).toBe('accepted');
+    expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
+    expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b1\n');
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [garbage] });
+    expect(await readFile(foreign, 'utf8')).toBe('must survive');
+    await rm(foreign);
+    expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 1, retained: [] });
+    await expect(stat(garbage)).rejects.toHaveProperty('code', 'ENOENT');
+  });
+});
 
 test('journal faults preserve physical rollback priority and ancestor aliases publish zero outside bytes', async () => {
   const outside = await mkdtemp(path.join(tmpdir(), 'sec-import-outside-'));
@@ -127,7 +183,7 @@ test('a legacy journal is read-only evidence and blocks a new transaction until 
   });
 });
 
-test('a terminal legacy journal settles once into a digest-bound compact receipt', async () => {
+test('a terminal legacy journal is strictly validated and physically retired before another publication', async () => {
   await withWorkspace(async (root) => {
     const transactionId = 'legacy-accepted';
     const transactionRoot = path.join(root, '.sec', 'import-transform-transactions', transactionId);
@@ -170,15 +226,8 @@ test('a terminal legacy journal settles once into a digest-bound compact receipt
       relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n')
     }]);
     expect(accepted.status).toBe('accepted');
-    const receiptPath = path.join(transactionRoot, 'terminal-receipt.json');
-    expect(await readFile(receiptPath, 'utf8')).toContain('sec-import-transform-terminal-receipt-v1');
-
-    const journal = await readFile(journalPath, 'utf8');
-    await writeFile(journalPath, journal.replaceAll(transactionId, 'legacy-accepteX'));
-    const blocked = await publishImportTransformTransaction(root, [{
-      relativePath: 'c.ts', expectedBytes: Buffer.from('c0\n'), replacementBytes: Buffer.from('c1\n')
-    }]);
-    expect(blocked).toMatchObject({ status: 'recovery-required', reasonCode: 'journal-failed' });
+    await expect(stat(transactionRoot)).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await readFile(target, 'utf8')).toBe('a1\n');
     expect(await readFile(path.join(root, 'c.ts'), 'utf8')).toBe('c0\n');
   });
 });
@@ -494,6 +543,8 @@ test('unknown transaction residue blocks recovery instead of acting as terminal 
     }]);
     expect(accepted.status).toBe('accepted');
     await writeFile(path.join(path.dirname(accepted.journalPath), 'orphan.json'), '{}');
+    await expect(retireTerminalImportTransformTransactions(root)).rejects.toThrow('unknown or non-regular residue');
+    expect(await readFile(path.join(path.dirname(accepted.journalPath), 'orphan.json'), 'utf8')).toBe('{}');
 
     await writeFile(path.join(root, 'b.ts'), 'b0\n');
     const blocked = await publishImportTransformTransaction(root, [{

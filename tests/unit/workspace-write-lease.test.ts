@@ -13,6 +13,7 @@ import {
   inspectWorkspaceWriteLease,
   recoverWorkspaceWriteLeaseRetirement,
   resumeWorkspaceWriteLeaseRetirement,
+  retireWorkspaceWriteLeaseHistory,
   type WorkspaceWriteLeaseToken
 } from '../../src/adapters/filesystem/write-lease.ts';
 import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -85,6 +86,49 @@ function ids(prefix: string): () => string {
   let next = 0;
   return () => `${prefix}-${next += 1}`;
 }
+
+test('terminal lease history retains a monotonic generation without accumulating released pairs', async () => {
+  await withTempWorkspace(async root => {
+    const manager = createWorkspaceWriteLeaseManager();
+    for (let generation = 1; generation <= 4; generation += 1) {
+      const lease = await manager.acquire(root);
+      expect(lease.token.generation).toBe(generation);
+      await lease.release();
+      const observed = await inspectWorkspaceWriteLease(root);
+      expect(observed.state).toBe('quiescent');
+      expect(observed.ownerGenerations).toEqual([generation]);
+      expect(observed.terminalGenerations).toEqual([generation]);
+    }
+    await retireWorkspaceWriteLeaseHistory(root);
+    expect((await inspectWorkspaceWriteLease(root)).ownerGenerations).toEqual([5]);
+  }, 'workspace-write-lease-history-');
+});
+
+test('terminal lease history preserves unpaired owners and externally linked predecessors', async () => {
+  await withTempWorkspace(async root => {
+    const manager = createWorkspaceWriteLeaseManager();
+    const first = await manager.acquire(root);
+    await first.release();
+    const second = await manager.acquire(root);
+    const protocol = path.join(root, '.sec', 'workspace-write-lease');
+    const ownerPath = path.join(protocol, '0000000000000001.owner.json');
+    const alias = path.join(root, 'retained-owner.json');
+    await link(ownerPath, alias);
+    await second.release();
+    expect((await readdir(protocol)).filter(name => name.endsWith('.owner.json')).sort()).toEqual([
+      '0000000000000001.owner.json', '0000000000000002.owner.json'
+    ]);
+    await unlink(alias);
+    const third = await manager.acquire(root);
+    await unlink(path.join(protocol, '0000000000000001.terminal.json'));
+    const bytes = await readFile(ownerPath);
+    await third.release();
+    expect((await readdir(protocol)).filter(name => name.endsWith('.owner.json')).sort()).toEqual([
+      '0000000000000001.owner.json', '0000000000000003.owner.json'
+    ]);
+    expect(await readFile(ownerPath)).toEqual(bytes);
+  }, 'workspace-write-lease-history-preservation-');
+});
 
 function immutableCandidateName(kind: string, id: string): string {
   const digest = createHash('sha256').update(JSON.stringify({ kind, id })).digest('hex');
