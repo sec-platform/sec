@@ -94,11 +94,12 @@ import { fileURLToPath } from 'node:url';
 import { deepFreeze, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../../../contracts/exact-json.ts';
 import { failureMessage } from '../../../../contracts/failure-inspection.ts';
-import { assertSemanticOperationProjection, issueProviderSettlementReceipt } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { assertSemanticOperationProjection, bindSemanticOperation, compileCapabilityBinding, compileProviderSettlementSet, compileSemanticOperationPlan, issueProviderSettlementReceipt, issueSemanticOperationAttemptContext } from '../../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
 import { issueRetainedNoFollowCapability } from './physical-no-follow-authority.ts';
 import { assertRetainedNoFollowCapability, assertRetainedNoFollowProvenDirectoryGeneration, assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from './physical-no-follow.ts';
-import { assertProcessResourceRunResult, openProcessResourceSession, type ProcessResourceRunResult, type ProcessResourceSession } from './process-resource-session.ts';
+import { assertProcessResourceRunResult, assertProcessResourceSessionReceipt, openProcessResourceSession, type ProcessResourceRunResult, type ProcessResourceSession } from './process-resource-session.ts';
 import { issueRetainedCommandBoundary } from './process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
@@ -106,6 +107,14 @@ const HELPER_PATH = fileURLToPath(new URL('./linux-verification-unit-helper.py',
 const PLATFORM_FILES = ['/usr/bin/python3.12', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/git', '/usr/bin/tar', '/usr/bin/cp'] as const;
 const CONTROL_ENVIRONMENT = Object.freeze({ PATH: '', HOME: '/', LANG: 'C', LC_ALL: 'C' });
 const GIT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+// Each loaded failed domain needs at most five fixed manager commands. A
+// blocked lock may require settling control once before the ordinary pair.
+const ACKNOWLEDGMENT_CONTROL_PROCESSES = 15;
+const RECOVERY_CONTROL_PROCESSES = 32;
+
+function helperFailureMessage(label: string, result: Readonly<{ code: number | null; stderr: string }>): string {
+  return label + '; exit=' + result.code + '; stderr=' + JSON.stringify(Buffer.from(result.stderr).subarray(-1024).toString('utf8'));
+}
 
 /** Necessary read-only prerequisites only; success never issues qualification. */
 export function assertLinuxVerificationUnitHostSupported(): void {
@@ -130,6 +139,7 @@ type NativeState = {
   inputs: LinuxVerificationUnitInputs;
   files: RetainedNoFollowOrdinaryFile[];
   boundary: RetainedCommandBoundary;
+  cleanupBoundary: RetainedCommandBoundary;
   tarBoundary: RetainedCommandBoundary;
   copyExecutable: RetainedNoFollowOrdinaryFile;
   snapshotCwd?: ReturnType<typeof retainNoFollowDirectoryForChildProcess>;
@@ -229,7 +239,7 @@ export async function prepareLinuxVerificationUnitSession(inputs: LinuxVerificat
   let cwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   try {
     const root = process.getuid?.() === 0;
-    const rawExecutable = root ? platformFile('/usr/bin/python3.12', 3, true) : platformFile('/usr/bin/sudo', 3);
+    const rawExecutable = root ? platformFile('/usr/bin/systemd-run', 3, true) : platformFile('/usr/bin/sudo', 3);
     files.push(rawExecutable);
     const executable = root ? rawExecutable : issueRetainedNoFollowCapability(Object.freeze({
       ...rawExecutable, childPath: '/proc/self/fd/3',
@@ -247,6 +257,9 @@ export async function prepareLinuxVerificationUnitSession(inputs: LinuxVerificat
     if (rawSha256(helperSource) !== helper.digest().byteDigest) invalid('Native helper read differs from retained bytes.');
     cwd = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain('/'), 4);
     const boundary = issueRetainedCommandBoundary({ executable, workingDirectory: cwd });
+    const cleanupExecutable = root ? platformFile('/usr/bin/python3.12', 3, true) : executable;
+    if (root) files.push(cleanupExecutable);
+    const cleanupBoundary = root ? issueRetainedCommandBoundary({ executable: cleanupExecutable, workingDirectory: cwd }) : boundary;
     const tar = platformFile('/usr/bin/tar', 3, true); files.push(tar);
     const tarBoundary = issueRetainedCommandBoundary({ executable: tar, workingDirectory: cwd });
     const copyExecutable = platformFile('/usr/bin/cp', 3, true); files.push(copyExecutable);
@@ -261,7 +274,7 @@ export async function prepareLinuxVerificationUnitSession(inputs: LinuxVerificat
     const inputSnapshotReady = new Promise<void>((resolve, reject) => { resolveSnapshot = resolve; rejectSnapshot = reject; });
     void inputSnapshotReady.catch(() => undefined);
     const handle = Object.freeze({ providerIdentityDigest, inputDigest, deadlineAtUnixMs: inputs.deadlineAtUnixMs, inputSnapshotReady }) as LinuxVerificationUnitSession;
-    sessions.set(handle, { inputs, files, boundary, tarBoundary, copyExecutable, helperSource, busy: false, closed: false,
+    sessions.set(handle, { inputs, files, boundary, cleanupBoundary, tarBoundary, copyExecutable, helperSource, busy: false, closed: false,
       resolveSnapshot, rejectSnapshot, runs: [], internalProcessReservations: 0, disposed: new Set() });
     return handle;
   } catch (error) {
@@ -450,7 +463,16 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
     if (request.byteLength > LINUX_VERIFICATION_UNIT_PROFILE.maximumRequestBytes) invalid('Native unit request exceeds its transport bound.');
     const outputBound = Math.ceil((invocation.maxStdoutBytes + invocation.maxStderrBytes
       + invocation.outputFiles.reduce((sum, file) => sum + file.maxBytes, 0)) * 4 / 3) + 128 * 1024;
-    const args = [...(process.getuid?.() === 0 ? [] : ['-n', '-k', '--', '/usr/bin/python3.12']),
+    const scope = unitName.slice(0, -'.service'.length) + '-control.scope';
+    // The fixed command and all of its control descendants share one native
+    // domain, even when a tool changes its process group or session.
+    const args = [...(process.getuid?.() === 0 ? [] : ['-n', '-k', '--', '/usr/bin/systemd-run']),
+      '--scope', '--quiet', '--slice=system.slice', '--unit=' + scope,
+      '--description=sec-native-control:' + record.operation.plan.identity.identityDigest + ':' + record.operation.boundAttemptDigest + ':' + session.inputDigest,
+      '--property=KillMode=control-group', '--property=SendSIGKILL=yes', '--property=TimeoutStopSec=5s',
+      '--property=RuntimeMaxSec=' + Math.max(.001, (session.deadlineAtUnixMs - Date.now()) / 1000) + 's',
+      '--property=CPUQuota=200%', '--property=CPUQuotaPeriodSec=100ms', '--property=MemoryMax=4294967296', '--property=TasksMax=256',
+      '--', '/usr/bin/python3.12',
       '-I', '-S', '-u', '-c', record.helperSource, String(session.deadlineAtUnixMs),
       record.operation.plan.identity.identityDigest, record.operation.boundAttemptDigest, String(ordinal)];
     reserveHelperProcesses(record, record.process, 64);
@@ -461,8 +483,7 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
       beforeSpawn: async () => { assertOpen(session); assertLinuxVerificationUnitHostSupported();
         if (invocation.kind === 'hosted-sut' && assertHostedSutSource(record.inputs) === null) invalid('Privileged SUT source capability is unavailable.'); } });
     if (run.result.code !== 0) throw new LinuxVerificationUnitUnavailableError('unknown',
-      'Native helper did not return a complete settled result; exit=' + run.result.code
-      + '; stderr=' + JSON.stringify(Buffer.from(run.result.stderr).subarray(-1024).toString('utf8')),
+      helperFailureMessage('Native helper did not return a complete settled result', run.result),
       { unitName, deadlineAtUnixMs: session.deadlineAtUnixMs });
     const result = parseLinuxVerificationUnitResult(parseExactJsonBytes(run.result.stdout, 'native unit response', { maximumInputBytes: outputBound, maximumDepth: 16 }), invocation);
     const receipt = result.receipt;
@@ -481,14 +502,17 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
     // Keep the terminal digest across acknowledgment response loss. The root
     // tombstone may be removed only after this parent retained the actual result.
     record.pendingRequest = { ordinal, unitName, invocationDigest, terminalReceiptDigest: receipt.receiptDigest };
-    reserveHelperProcesses(record, record.process, 1);
+    reserveHelperProcesses(record, record.process, ACKNOWLEDGMENT_CONTROL_PROCESSES);
     const acknowledgment = Buffer.from(JSON.stringify({ schema: 'sec-linux-native-unit-recovery-request-v1', mode: 'acknowledge',
       recoveryRoot: record.inputs.recoveryRoot, operationIdentityDigest: receipt.operationIdentityDigest,
       boundAttemptDigest: receipt.boundAttemptDigest, inputDigest: session.inputDigest, invocationDigest, unitName, ordinal,
-      deadlineAtUnixMs: session.deadlineAtUnixMs, maximumControlProcesses: 1, terminalReceiptDigest: receipt.receiptDigest }));
-    const acknowledged = await record.process.run(record.boundary, args, { envMode: 'replace', env: CONTROL_ENVIRONMENT,
+      deadlineAtUnixMs: session.deadlineAtUnixMs, maximumControlProcesses: ACKNOWLEDGMENT_CONTROL_PROCESSES, terminalReceiptDigest: receipt.receiptDigest }));
+    const cleanupArgs = [...(process.getuid?.() === 0 ? [] : ['-n', '-k', '--', '/usr/bin/python3.12']),
+      '-I', '-S', '-u', '-c', record.helperSource, String(session.deadlineAtUnixMs),
+      receipt.operationIdentityDigest, receipt.boundAttemptDigest, String(ordinal)];
+    const acknowledged = await record.process.run(record.cleanupBoundary, cleanupArgs, { envMode: 'replace', env: CONTROL_ENVIRONMENT,
       input: acknowledgment, maxStdinBytes: 65536, maxStdoutBytes: 65536, maxStderrBytes: 65536 });
-    if (acknowledged.result.code !== 0) invalid('Native terminal acknowledgment is unresolved.');
+    if (acknowledged.result.code !== 0) invalid(helperFailureMessage('Native terminal acknowledgment is unresolved', acknowledged.result));
     const ack = parseExactJsonBytes(acknowledged.result.stdout, 'native terminal acknowledgment', { maximumInputBytes: 65536, maximumDepth: 4 }) as Record<string, unknown>;
     assertRecoveryProjection(ack, record.pendingRequest, session.inputDigest, receipt.operationIdentityDigest, receipt.boundAttemptDigest);
     assertPlatformCurrent(record);
@@ -595,7 +619,7 @@ export async function recoverLinuxVerificationUnitSession(recovery: LinuxVerific
     if (record.pendingRequest !== undefined) {
       const pending = record.pendingRequest;
       const request = Buffer.from(JSON.stringify({ schema: 'sec-linux-native-unit-recovery-request-v1',
-        mode: 'recover', recoveryRoot: record.inputs.recoveryRoot, maximumControlProcesses: 32, terminalReceiptDigest: pending.terminalReceiptDigest ?? null,
+        mode: 'recover', recoveryRoot: record.inputs.recoveryRoot, maximumControlProcesses: RECOVERY_CONTROL_PROCESSES, terminalReceiptDigest: pending.terminalReceiptDigest ?? null,
         operationIdentityDigest: recovery.originalOperationIdentityDigest, boundAttemptDigest: recovery.originalBoundAttemptDigest,
         inputDigest: recovery.inputDigest, invocationDigest: pending.invocationDigest,
         unitName: pending.unitName, ordinal: pending.ordinal, deadlineAtUnixMs: recoveryProcess.deadlineAtUnixMs }));
@@ -604,25 +628,24 @@ export async function recoverLinuxVerificationUnitSession(recovery: LinuxVerific
         recovery.originalOperationIdentityDigest, recovery.originalBoundAttemptDigest, String(pending.ordinal)];
       // Recovery has its own bounded cleanup admission. It never refunds the
       // original session's irrevocable reservations or renews workload time.
-      if (recoveryProcess.observeNativeResourceCapacity().remaining < 33) invalid('Native recovery control-process budget is insufficient.');
-      const observed = await recoveryProcess.run(record.boundary, args, { envMode: 'replace', env: CONTROL_ENVIRONMENT, input: request,
+      if (recoveryProcess.observeNativeResourceCapacity().remaining < RECOVERY_CONTROL_PROCESSES + ACKNOWLEDGMENT_CONTROL_PROCESSES + 2) invalid('Native recovery control-process budget is insufficient.');
+      const observed = await recoveryProcess.run(record.cleanupBoundary, args, { envMode: 'replace', env: CONTROL_ENVIRONMENT, input: request,
         maxStdinBytes: 65536, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
       if (observed.result.code !== 0) throw new LinuxVerificationUnitRecoveryRequiredError(recovery,
-        new Error('Native cleanup remains unconfirmed; exit=' + observed.result.code
-          + '; stderr=' + JSON.stringify(Buffer.from(observed.result.stderr).subarray(-1024).toString('utf8'))));
+        new Error(helperFailureMessage('Native cleanup remains unconfirmed', observed.result)));
       const result = parseExactJsonBytes(observed.result.stdout, 'native recovery result', { maximumInputBytes: 131072, maximumDepth: 8 }) as Record<string, unknown>;
       assertRecoveryProjection(result, pending, recovery.inputDigest, recovery.originalOperationIdentityDigest, recovery.originalBoundAttemptDigest);
       const terminalReceiptDigest = sha256(result) as OperationDigest;
       record.pendingRequest = { ...pending, terminalReceiptDigest };
       const acknowledgment = Buffer.from(JSON.stringify({ schema: 'sec-linux-native-unit-recovery-request-v1', mode: 'acknowledge',
-        recoveryRoot: record.inputs.recoveryRoot, maximumControlProcesses: 1, terminalReceiptDigest,
+        recoveryRoot: record.inputs.recoveryRoot, maximumControlProcesses: ACKNOWLEDGMENT_CONTROL_PROCESSES, terminalReceiptDigest,
         operationIdentityDigest: recovery.originalOperationIdentityDigest, boundAttemptDigest: recovery.originalBoundAttemptDigest,
         inputDigest: recovery.inputDigest, invocationDigest: pending.invocationDigest,
         unitName: pending.unitName, ordinal: pending.ordinal, deadlineAtUnixMs: recoveryProcess.deadlineAtUnixMs }));
-      if (recoveryProcess.observeNativeResourceCapacity().remaining < 34) invalid('Native cleanup acknowledgment exceeds original recovery allowance.');
-      const acknowledged = await recoveryProcess.run(record.boundary, args, { envMode: 'replace', env: CONTROL_ENVIRONMENT, input: acknowledgment,
+      if (recoveryProcess.observeNativeResourceCapacity().remaining < RECOVERY_CONTROL_PROCESSES + ACKNOWLEDGMENT_CONTROL_PROCESSES + 1) invalid('Native cleanup acknowledgment exceeds original recovery allowance.');
+      const acknowledged = await recoveryProcess.run(record.cleanupBoundary, args, { envMode: 'replace', env: CONTROL_ENVIRONMENT, input: acknowledgment,
         maxStdinBytes: 65536, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
-      if (acknowledged.result.code !== 0) invalid('Native cleanup acknowledgment remains unresolved.');
+      if (acknowledged.result.code !== 0) invalid(helperFailureMessage('Native cleanup acknowledgment remains unresolved', acknowledged.result));
       const ack = parseExactJsonBytes(acknowledged.result.stdout, 'native cleanup acknowledgment', { maximumInputBytes: 16384, maximumDepth: 4 }) as Record<string, unknown>;
       assertRecoveryProjection(ack, pending, recovery.inputDigest, recovery.originalOperationIdentityDigest, recovery.originalBoundAttemptDigest);
       record.pendingRequest = undefined;
@@ -652,6 +675,52 @@ export async function recoverLinuxVerificationUnitSession(recovery: LinuxVerific
     try { recoveryProcess.close(); } catch { /* Original recovery capability retains the unresolved debt. */ }
     throw new LinuxVerificationUnitRecoveryRequiredError(recovery, error);
   } finally { record.busy = false; }
+}
+
+/** One cleanup-only compiler and settlement check for every native consumer. */
+export async function recoverOwnedLinuxVerificationUnit(recovery: LinuxVerificationUnitRecovery,
+  originalOperation: BoundSemanticOperation): Promise<LinuxVerificationUnitRecoverySettlement> {
+  const session = recoveryOwners.get(recovery);
+  if (session === undefined) invalid('Native recovery handle is not owner-issued.');
+  const record = state(session);
+  assertSemanticOperationProjection(originalOperation);
+  if (record.operation !== originalOperation
+      || originalOperation.plan.identity.identityDigest !== recovery.originalOperationIdentityDigest
+      || originalOperation.boundAttemptDigest !== recovery.originalBoundAttemptDigest) invalid('Native recovery differs from its retained original operation.');
+  if (record.recoverySettlement !== undefined) {
+    compileProviderSettlementSet(originalOperation, [record.recoverySettlement.originalProviderSettlement]);
+    return record.recoverySettlement;
+  }
+  const requirement = { id: LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
+    contractDigest: LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
+    effectKinds: ['process', 'filesystem', 'provider', 'persistent-state'] as const,
+    failureKinds: ['native-unit.recovery-unknown'] };
+  const duration = LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS.find(value => value.resource === 'duration-ms')!;
+  const deadlineAtUnixMs = Date.now() + duration.maximum;
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({ operation: requirement.id,
+    intentDigest: sha256({ originalOperationIdentityDigest: recovery.originalOperationIdentityDigest,
+      originalBoundAttemptDigest: recovery.originalBoundAttemptDigest, inputDigest: recovery.inputDigest }) as OperationDigest,
+    decisionDigest: requirement.contractDigest, deadlineAtUnixMs,
+    aggregateBudgets: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, requirements: [requirement],
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: recovery.originalOperationIdentityDigest,
+      runIdDigest: recovery.originalBoundAttemptDigest })
+  }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
+    providerIdentityDigest: recovery.providerIdentityDigest })]);
+  const settled = await recoverLinuxVerificationUnitSession(recovery, { operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: requirement.id,
+      resourceCeilings: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, absoluteDeadlineAtUnixMs: deadlineAtUnixMs }) });
+  assertProcessResourceSessionReceipt(settled.processReceipt, {
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest, requirementId: requirement.id });
+  compileProviderSettlementSet(operation, [settled.providerSettlement]);
+  compileProviderSettlementSet(originalOperation, [settled.originalProviderSettlement]);
+  if (settled.status !== 'settled' || settled.transportRetired !== true
+      || settled.originalOperationIdentityDigest !== recovery.originalOperationIdentityDigest
+      || settled.originalBoundAttemptDigest !== recovery.originalBoundAttemptDigest
+      || settled.recoveryOperationIdentityDigest !== operation.plan.identity.identityDigest
+      || settled.providerSettlement.physicalDisposition !== 'settled'
+      || settled.originalProviderSettlement.physicalDisposition !== 'settled') invalid('Native recovery did not settle its exact original physical scope.');
+  return settled;
 }
 
 function assertRecoveryProjection(result: Record<string, unknown>, pending: NonNullable<NativeState['pendingRequest']>, inputDigest: OperationDigest, operationIdentityDigest: OperationDigest, boundAttemptDigest: OperationDigest): void {

@@ -85,6 +85,11 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
           "run": "bun run docs:doctor"
         },
         {
+          "name": "Verify original native failure recovery",
+          "id": "native-recovery",
+          "run": "sudo -n -k -- /usr/bin/python3.12 -B -I -S src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.test.py NativeRecoveryIntegration RuntimeCopyPermissions.test_recovery_removes_only_original_fixed_empty_objects RuntimeCopyPermissions.test_cleanup_denies_non_control_processes_before_spawn"
+        },
+        {
           "name": "Run the complete fast test inventory",
           "id": "test-fast",
           "shell": "bun --no-env-file --no-install src/bootstrap/development/main-health-fast.ts {0}",

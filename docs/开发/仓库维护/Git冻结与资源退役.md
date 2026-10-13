@@ -104,7 +104,7 @@ retained closeout 还可消费用户明确选定的远端后继保全位置。�
 
 重复 bundle family 的退役也必须能在每个删除切点续接：发现同时覆盖 bundle 与其剩余 sidecar，名称只定位，不签发资格；先验证所有现存 journal 各自匹配完整的 completed receipt，再退役 preparation/journal、bundle/checksum，最后删除自包含终态 receipt。bundle 已缺席时仍须由这些原 receipt 绑定原恢复摘要与终态；未完成 operation、未知 sidecar 或前像漂移保持原位。没有 lifecycle evidence 的裸重复包则保留 bundle 到最后，避免失去发现入口。
 
-terminal receipt 是部分退役的恢复依据。新 retained receipt 自包含原 canonical authorization、物理根与保全绑定，重启不要求调用者再次选择目标。原 owner 在 terminal 验真及当前缺席/保全回读后，按原 family 顺序退役 bundle、checksum 与已验证 sidecar，随后退役 authorization，最后删除 receipt；各切点中断均按该 receipt 与剩余准确字节、身份续接。pending operation 必须保有完整恢复材料，未知 sidecar、物理漂移或 ref 重现阻断续接。旧 v2 terminal receipt 与原 authorization 同在时，可由同 owner 在验真后生成自包含的新版本 receipt；已孤立且缺少必需授权上下文的历史 v2 receipt 保持 unknown，不能由当前环境重建丢失的历史 authority。
+terminal receipt 是部分退役的恢复依据。新 retained receipt 自包含原 canonical authorization、物理根与保全绑定，重启不要求调用者再次选择目标。原 owner 在 terminal 验真及当前缺席/保全回读后，按原 family 顺序退役 bundle、checksum 与已验证 sidecar，随后退役 authorization，最后删除 receipt；各切点中断均按该 receipt 与剩余准确字节、身份续接。pending operation 必须保有完整恢复材料，未知 sidecar、物理漂移或 ref 重现阻断续接。已退役的 v2 terminal receipt 一律返回明确的 authority unknown 并保全原 ref 与恢复材料；authorization 同在也不触发隐式升级，不能由当前环境重建或重签历史 receipt authority。仍由当前 producer 产生的旧版本 authorization 继续按各自原合同解释，不受 receipt 退役影响。
 
 ```mermaid
 stateDiagram-v2

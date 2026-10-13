@@ -1,5 +1,6 @@
-"""Bounded filesystem tests; these never launch a native verification unit."""
+"""Bounded filesystem tests and one root-only native cleanup integration."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import stat
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,7 +17,135 @@ helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 
 
+class NativeRecoveryIntegration(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and Path('/proc/1/comm').read_text().strip() == 'systemd', 'requires root and the real systemd manager')
+    def test_original_control_and_unobserved_workload_are_recovered(self):
+        namespace = Path(tempfile.mkdtemp(prefix='sec-native-recovery-integration-'))
+        info = namespace.stat()
+        binding = helper.sha(os.urandom(32))
+        name = 'sec-native-' + binding[7:39] + '.service'
+        request = {'mode': 'recover', 'unitName': name, 'operationIdentityDigest': binding, 'boundAttemptDigest': binding,
+                   'inputDigest': binding, 'invocationDigest': binding, 'deadlineAtUnixMs': int(time.time() * 1000) + 45000,
+                   'recoveryRoot': {'path': str(namespace), 'device': str(info.st_dev), 'inode': str(info.st_ino)}, 'terminalReceiptDigest': None}
+        scope = name[:-len('.service')] + '-control.scope'
+        description = 'sec-native-control:' + ':'.join([binding] * 3)
+        worker = r'''
+import importlib.util,json,os,subprocess,sys,time
+spec=importlib.util.spec_from_file_location('actual_helper',sys.argv[1]); h=importlib.util.module_from_spec(spec); spec.loader.exec_module(h)
+r=json.loads(sys.argv[2]); d=h.Deadline(r['deadlineAtUnixMs'])
+if h.LIBC.unshare(0x00020000)!=0: raise OSError('private-test-mount-namespace')
+h.mount(None,'/',None,0x40000|0x4000,None)
+control=h.original_control(r,d); record=h.RecoveryRecord(r,'run',control)
+try:
+    for leaf in ['rootfs','control','output']:
+        path=record.path+'/'+leaf; os.mkdir(path,0o755); h.mount('tmpfs',path,'tmpfs',2|4,'size=1M,mode=0755')
+    subprocess.Popen([sys.executable,'-I','-S','-c','import time;time.sleep(45)'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,close_fds=True,start_new_session=True,env=h.FIXED_ENV)
+    token='sec-native-recovery-test:'+os.urandom(32).hex()
+    record.update({**record.value,'phase':'unit-starting','activeUnitName':r['unitName'],'description':token,'manager':h.manager_identity(),'unit':None})
+    args=['/usr/bin/systemd-run','--quiet','--no-ask-password','--unit='+r['unitName'],'--service-type=exec','--remain-after-exit',
+          '--property=Description='+token,'--property=BindsTo='+control['name'],'--property=After='+control['name'],
+          '--property=CollectMode=inactive-or-failed','--property=SuccessExitStatus='+' '.join(map(str,range(256))),
+          '--property=KillMode=control-group','--property=RuntimeMaxSec=45s','--',sys.executable,'-I','-S','-c','import time;time.sleep(45)']
+    code,out,err=h.run_tool(args,d)
+    if code: raise RuntimeError('native-test-workload-start-failed')
+    print('original-helper-failed-with-owned-resources',flush=True)
+finally: record.close()
+sys.exit(1)
+'''
+        process = None
+        original = (helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES)
+        locator = namespace / name[:-len('.service')]
+        try:
+            process = subprocess.Popen(['/usr/bin/systemd-run', '--scope', '--quiet', '--unit=' + scope, '--slice=system.slice', '--description=' + description,
+                                        '--property=CPUQuota=200%', '--property=CPUQuotaPeriodSec=100ms', '--property=MemoryMax=4294967296', '--property=TasksMax=256',
+                                        '--property=KillMode=control-group', '--property=SendSIGKILL=yes', '--property=TimeoutStopSec=5s', '--property=RuntimeMaxSec=45s',
+                                        '--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', worker, str(Path(helper.__file__).resolve()), json.dumps(request)],
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=helper.FIXED_ENV)
+            stdout, stderr = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 1, stderr.decode(errors='replace')[:1024])
+            self.assertEqual(stdout.strip(), b'original-helper-failed-with-owned-resources')
+            helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
+            deadline = helper.Deadline(request['deadlineAtUnixMs'])
+            self.assertFalse(helper.cgroup_empty({'cgroupPath': '/system.slice/' + scope}))
+            self.assertEqual(helper.unit_readback(name, deadline)['ActiveState'], 'active')
+            result = helper.recover(request, deadline)
+            self.assertEqual(result['qualification'], 'not-issued')
+            for unit in [scope, name]:
+                self.assertTrue(helper.cgroup_empty({'cgroupPath': '/system.slice/' + unit}))
+                self.assertIn(helper.unit_readback(unit, deadline)['ActiveState'], ['inactive', 'failed'])
+            self.assertEqual(set(p.name for p in locator.iterdir()), {'record.json', 'lock'})
+            request = {**request, 'mode': 'acknowledge', 'terminalReceiptDigest': helper.sha(helper.canonical(result))}
+            helper.recover(request, deadline)
+            self.assertFalse(locator.exists())
+        finally:
+            try:
+                if locator.exists():
+                    helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
+                    cleanup_request = {**request, 'mode': 'recover', 'terminalReceiptDigest': None}
+                    result = helper.recover(cleanup_request, helper.Deadline(request['deadlineAtUnixMs']))
+                    helper.recover({**cleanup_request, 'mode': 'acknowledge', 'terminalReceiptDigest': helper.sha(helper.canonical(result))}, helper.Deadline(request['deadlineAtUnixMs']))
+                if process is not None and process.poll() is None:
+                    process.terminate(); process.communicate(timeout=2)
+                observed_namespace = namespace.stat()
+                if (not locator.exists() and not os.listdir(namespace) and (observed_namespace.st_dev, observed_namespace.st_ino) == (info.st_dev, info.st_ino)
+                        and (process is None or process.poll() is not None) and helper.cgroup_empty({'cgroupPath': '/system.slice/' + scope})):
+                    namespace.rmdir()
+                else:
+                    raise RuntimeError('native recovery fixture retained: ' + str(namespace))
+            except BaseException as error:
+                raise RuntimeError('native recovery fixture requires original-owner recovery: ' + str(namespace)) from error
+            finally:
+                helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = original
+
+
 class RuntimeCopyPermissions(unittest.TestCase):
+    def test_recovery_removes_only_original_fixed_empty_objects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ['rootfs', 'control', 'output']:
+                (root / name).mkdir(mode=0o755)
+            for name in ['stdout', 'stderr']:
+                os.mkfifo(root / name, 0o600)
+            helper.write_bytes(str(root / 'stdin'), b'private input', 0o400)
+            (root / 'record.json').write_bytes(b'original record')
+            (root / 'lock').write_bytes(b'')
+            fd = helper.nofollow_directory(directory)
+            try:
+                recovery = SimpleNamespace(fd=fd)
+                # Root is the real producer/retirement owner. Nonroot runs
+                # cannot turn this filesystem test into privilege evidence.
+                if os.getuid() != 0:
+                    with self.assertRaisesRegex(helper.Unavailable, 'owner-or-mount'):
+                        helper.cleanup_original_files(recovery)
+                    self.assertTrue((root / 'stdin').exists())
+                    return
+                (root / 'unexpected').write_bytes(b'must survive')
+                before = set(root.iterdir())
+                with self.assertRaisesRegex(helper.Unavailable, 'unknown-original'):
+                    helper.cleanup_original_files(recovery)
+                self.assertEqual(set(root.iterdir()), before)
+                (root / 'unexpected').unlink()
+                (root / 'rootfs' / 'foreign').write_bytes(b'must survive')
+                with self.assertRaisesRegex(helper.Unavailable, 'not-empty'):
+                    helper.cleanup_original_files(recovery)
+                self.assertTrue((root / 'stdin').exists())
+                self.assertEqual((root / 'rootfs' / 'foreign').read_bytes(), b'must survive')
+                (root / 'rootfs' / 'foreign').unlink()
+                helper.cleanup_original_files(recovery)
+                self.assertEqual(set(os.listdir(fd)), {'record.json', 'lock'})
+                helper.cleanup_original_files(recovery)
+                self.assertEqual((root / 'record.json').read_bytes(), b'original record')
+            finally:
+                os.close(fd)
+
+    def test_cleanup_denies_non_control_processes_before_spawn(self):
+        with patch.object(helper, 'CLEANUP_MODE', True), patch.object(helper.subprocess, 'Popen') as spawn:
+            for argv in [['/usr/bin/git', '--version'], ['/usr/bin/systemctl', '--no-ask-password', 'start', '--', 'sec-native-' + '0' * 32 + '.service'],
+                         ['/usr/bin/systemctl', '--no-ask-password', 'stop', '--', 'unrelated.service']]:
+                with self.assertRaisesRegex(helper.Unavailable, 'cleanup-control-command-denied'):
+                    helper.run_tool(argv, helper.Deadline((time.time() + 5) * 1000))
+            spawn.assert_not_called()
+
     def fixture(self, root):
         source, target = root / 'source', root / 'target'
         source.mkdir()

@@ -13,14 +13,11 @@ import {
   executeLinuxVerificationUnit,
   getLinuxVerificationUnitRecovery,
   LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST,
-  LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
-  LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
-  LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
   LINUX_VERIFICATION_UNIT_REQUIREMENT_ID,
   linuxVerificationUnitInvocationDigest,
   parseLinuxVerificationUnitReceipt,
   prepareLinuxVerificationUnitSession,
-  recoverLinuxVerificationUnitSession,
+  recoverOwnedLinuxVerificationUnit,
   type LinuxVerificationUnitInvocation,
   type LinuxVerificationUnitReceipt,
   type LinuxVerificationUnitRecovery,
@@ -1217,48 +1214,6 @@ class TrustedRuntimeOwnedRecoveryRequiredError extends AggregateError {
   }
 }
 
-async function recoverTrustedRuntimeOwnedUnit(recovery: LinuxVerificationUnitRecovery,
-  originalOperation: BoundSemanticOperation): Promise<void> {
-  const requirement = Object.freeze({ id: LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
-    contractDigest: LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
-    effectKinds: Object.freeze(['filesystem', 'process', 'provider', 'persistent-state'] as const),
-    failureKinds: Object.freeze(['native-unit.recovery-unknown']) });
-  const duration = LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS.find(
-    (value: Readonly<{ resource: string; maximum: number }>) => value.resource === 'duration-ms');
-  if (duration === undefined) fail('native recovery has no fixed cleanup deadline');
-  const deadlineAtUnixMs = Date.now() + duration.maximum;
-  const operation = bindSemanticOperation(compileSemanticOperationPlan({
-    operation: requirement.id,
-    intentDigest: digestValue({ originalOperationIdentityDigest: recovery.originalOperationIdentityDigest,
-      originalBoundAttemptDigest: recovery.originalBoundAttemptDigest, inputDigest: recovery.inputDigest }) as OperationDigest,
-    decisionDigest: requirement.contractDigest, deadlineAtUnixMs,
-    aggregateBudgets: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
-    requirements: [requirement], attempt: issueSemanticOperationAttemptContext({
-      authorityGrantDigest: recovery.originalOperationIdentityDigest,
-      runIdDigest: recovery.originalBoundAttemptDigest })
-  }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
-    providerIdentityDigest: recovery.providerIdentityDigest })]);
-  const settled = await recoverLinuxVerificationUnitSession(recovery, { operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
-      requirementId: requirement.id, resourceCeilings: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
-      absoluteDeadlineAtUnixMs: deadlineAtUnixMs }) });
-  assertProcessResourceSessionReceipt(settled.processReceipt, {
-    operationIdentityDigest: operation.plan.identity.identityDigest,
-    boundAttemptDigest: operation.boundAttemptDigest, requirementId: requirement.id });
-  compileProviderSettlementSet(operation, [settled.providerSettlement]);
-  compileProviderSettlementSet(originalOperation, [settled.originalProviderSettlement]);
-  if (settled.status !== 'settled' || settled.transportRetired !== true
-      || originalOperation.plan.identity.identityDigest !== recovery.originalOperationIdentityDigest
-      || originalOperation.boundAttemptDigest !== recovery.originalBoundAttemptDigest
-      || settled.originalOperationIdentityDigest !== recovery.originalOperationIdentityDigest
-      || settled.originalBoundAttemptDigest !== recovery.originalBoundAttemptDigest
-      || settled.recoveryOperationIdentityDigest !== operation.plan.identity.identityDigest
-      || settled.providerSettlement.physicalDisposition !== 'settled'
-      || settled.originalProviderSettlement.physicalDisposition !== 'settled') {
-    fail('native recovery did not settle its exact original operation and cleanup scope');
-  }
-}
-
 /** The existing local runtime owner retains all input issuers and its operation
  * lease. The native provider owns only physical units, never source authority. */
 async function withTrustedRuntimeNativeWorkspace<T>(input: Readonly<{
@@ -1512,7 +1467,7 @@ async function withTrustedRuntimeNativeWorkspace<T>(input: Readonly<{
         pending = (async () => {
           if (!unitRecovered) {
             if (nativeOperation === null) fail('native recovery lost its original operation object');
-            await recoverTrustedRuntimeOwnedUnit(unitRecovery, nativeOperation);
+            await recoverOwnedLinuxVerificationUnit(unitRecovery, nativeOperation);
             unitRecovered = true;
           }
           await releaseSources();

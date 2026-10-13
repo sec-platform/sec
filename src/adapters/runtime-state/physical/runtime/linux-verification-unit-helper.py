@@ -37,6 +37,7 @@ DIGEST = re.compile(r'^sha256:[0-9a-f]{64}$')
 FIXED_ENV = {'PATH': '', 'HOME': '/', 'LANG': 'C', 'LC_ALL': 'C', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
 TOOL_PROCESSES = 0
 MAX_TOOL_PROCESSES = 64
+CLEANUP_MODE = False
 PRIVATE_ROOT_ANCHOR = None
 PRIVATE_ROOT_FD = None
 MOUNT_HANDLES = {}
@@ -150,6 +151,15 @@ class Deadline:
 
 def run_tool(argv, deadline, maximum=262144, *, creation_umask=-1):
     """Only callers in this fixed program choose executables and argument shapes."""
+    if CLEANUP_MODE:
+        # Recovery has no source, dependency or workload execution authority.
+        fixed = len(argv) >= 5 and argv[:2] == ['/usr/bin/systemctl', '--no-ask-password']
+        if not fixed or argv[2] not in ('show', 'stop', 'reset-failed') or argv[-2] != '--' or not re.fullmatch(r'sec-native-[0-9a-f]{32}(?:\.service|-control\.scope)', argv[-1]):
+            raise Unavailable('cleanup-control-command-denied')
+        expected = (['/usr/bin/systemctl', '--no-ask-password', 'show', '--no-pager', '--property=' + ','.join(UNIT_PROPERTIES if argv[-1].endswith('.service') else CONTROL_PROPERTIES), '--', argv[-1]]
+                    if argv[2] == 'show' else ['/usr/bin/systemctl', '--no-ask-password', argv[2], '--', argv[-1]])
+        if argv != expected:
+            raise Unavailable('cleanup-control-command-denied')
     deadline.remaining()
     reserve_processes()
     deadline.remaining()
@@ -201,7 +211,7 @@ class RecoveryRecord:
     It cannot issue a runtime, dependency, source, SUT or MainHealth qualification.
     Unknown/replaced records are preserved; a new attempt never overwrites them.
     """
-    def __init__(self, request, mode):
+    def __init__(self, request, mode, control=None, deadline=None):
         global PRIVATE_ROOT_ANCHOR, PRIVATE_ROOT_FD
         self.name = request['unitName'][:-len('.service')]
         if not re.fullmatch(r'sec-native-[0-9a-f]{32}', self.name):
@@ -225,11 +235,23 @@ class RecoveryRecord:
         # namespace/name substitution for every later privileged path effect.
         self.path = '/proc/' + str(os.getpid()) + '/fd/' + str(self.fd)
         PRIVATE_ROOT_ANCHOR, PRIVATE_ROOT_FD = self.path, self.fd
-        self.lock = os.open('lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=self.fd)
+        self.lock = os.open('lock', os.O_RDWR | (os.O_CREAT if mode == 'run' else 0) | os.O_NOFOLLOW, 0o600, dir_fd=self.fd)
         lock = os.fstat(self.lock)
         if lock.st_uid != 0 or lock.st_nlink != 1 or not stat.S_ISREG(lock.st_mode):
             raise Unavailable('recovery-lock-identity')
-        fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        original_control_identity = None
+        try:
+            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if mode == 'run' or deadline is None:
+                raise
+            # Read only immutable control ownership before lock acquisition.
+            # Stopping that exact domain settles its original writer; mutable
+            # workload state is consumed only after reacquiring and rereading.
+            observed = self.read_original_record(request)
+            original_control_identity = recorded_control(request, observed)
+            settle_unit({**request, 'unitName': original_control_identity['name']}, original_control_identity, original_control_identity['description'], deadline)
+            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.value = None
         if mode == 'run':
             self.update({'schema': 'sec-native-unit-recovery-v1', 'phase': 'intent',
@@ -238,22 +260,28 @@ class RecoveryRecord:
                          'invocationDigest': request['invocationDigest'], 'deadlineAtUnixMs': request['deadlineAtUnixMs'],
                          'unitName': request['unitName'], 'runtimeRoot': self.physical,
                          'helperPid': os.getpid(), 'helperStartTime': process_start(os.getpid()),
-                         'unit': None})
+                         'control': control, 'unit': None})
         else:
-            fd = os.open('record.json', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
-            try:
-                current = os.fstat(fd)
-                if current.st_uid != 0 or current.st_nlink != 1 or not stat.S_ISREG(current.st_mode) or current.st_size > 65536:
-                    raise Unavailable('recovery-record-identity')
-                raw = os.read(fd, 65537)
-            finally:
-                os.close(fd)
-            self.value = json.loads(raw, object_pairs_hook=no_duplicates)
-            if canonical(self.value) + b'\n' != raw or self.value['runtimeRoot'] != self.physical:
-                raise Unavailable('recovery-record-bytes')
-            for key in ['operationIdentityDigest', 'boundAttemptDigest', 'inputDigest', 'invocationDigest', 'unitName']:
-                if self.value[key] != request[key]:
-                    raise Unavailable('recovery-transplant')
+            self.value = self.read_original_record(request)
+            if original_control_identity is not None and recorded_control(request, self.value) != original_control_identity:
+                raise Unavailable('original-control-identity-changed')
+
+    def read_original_record(self, request):
+        fd = os.open('record.json', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd)
+        try:
+            current = os.fstat(fd)
+            if current.st_uid != 0 or current.st_nlink != 1 or not stat.S_ISREG(current.st_mode) or current.st_size > 65536:
+                raise Unavailable('recovery-record-identity')
+            raw = os.read(fd, 65537)
+        finally:
+            os.close(fd)
+        value = json.loads(raw, object_pairs_hook=no_duplicates)
+        if canonical(value) + b'\n' != raw or value['schema'] != 'sec-native-unit-recovery-v1' or value['runtimeRoot'] != self.physical:
+            raise Unavailable('recovery-record-bytes')
+        for key in ['operationIdentityDigest', 'boundAttemptDigest', 'inputDigest', 'invocationDigest', 'unitName']:
+            if value[key] != request[key]:
+                raise Unavailable('recovery-transplant')
+        return value
 
     def update(self, value):
         raw = canonical(value) + b'\n'
@@ -594,12 +622,14 @@ os.execv(argv[0],argv)
 '''
 
 UNIT_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description',
-                   'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter', 'UMask']
+                   'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter', 'UMask', 'BindsTo', 'After']
+CONTROL_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description']
 
 
 def unit_readback(name, deadline):
+    wanted = CONTROL_PROPERTIES if name.endswith('.scope') else UNIT_PROPERTIES
     code, output, _error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'show', '--no-pager',
-                                   '--property=' + ','.join(UNIT_PROPERTIES), '--', name], deadline)
+                                   '--property=' + ','.join(wanted), '--', name], deadline)
     if code:
         raise Unavailable('manager-readback-unavailable')
     properties = {}
@@ -607,10 +637,10 @@ def unit_readback(name, deadline):
         if '=' not in line:
             raise Unavailable('manager-property-shape')
         key, value = line.split('=', 1)
-        if key in properties or key not in UNIT_PROPERTIES:
+        if key in properties or key not in wanted:
             raise Unavailable('manager-property-identity')
         properties[key] = value
-    if set(properties) != set(UNIT_PROPERTIES):
+    if set(properties) != set(wanted):
         raise Unavailable('manager-property-incomplete')
     return properties
 
@@ -619,6 +649,42 @@ def manager_identity():
     if bounded_read('/proc/1/comm', 64).strip() != b'systemd':
         raise Unavailable('system-manager-required')
     return {'boot': bounded_read('/proc/sys/kernel/random/boot_id', 128).decode().strip(), 'start': process_start(1)}
+
+
+def accepted_unit(name, properties, description, manager):
+    """Persist manager acceptance before waiting for a SUT readiness message."""
+    if (properties['Id'] != name or properties['Description'] != description
+            or properties['ControlGroup'] != '/system.slice/' + name
+            or not re.fullmatch('[0-9a-f]{32}', properties['InvocationID'])
+            or manager != manager_identity()):
+        raise Unavailable('manager-accepted-unit-identity')
+    return {'name': name, 'invocationId': properties['InvocationID'],
+            'managerBootId': manager['boot'], 'managerStartTime': manager['start'],
+            'cgroupPath': properties['ControlGroup']}
+
+
+def original_control(request, deadline):
+    name = request['unitName'][:-len('.service')] + '-control.scope'
+    description = 'sec-native-control:' + request['operationIdentityDigest'] + ':' + request['boundAttemptDigest'] + ':' + request['inputDigest']
+    manager = manager_identity()
+    properties = unit_readback(name, deadline)
+    identity = accepted_unit(name, properties, description, manager)
+    if properties['ActiveState'] != 'active' or bounded_read('/proc/self/cgroup', 65536).decode().splitlines() != ['0::' + identity['cgroupPath']]:
+        raise Unavailable('original-control-scope-membership')
+    observe_control_resources(identity)
+    return {**identity, 'description': description}
+
+
+def observe_control_resources(control):
+    group = '/sys/fs/cgroup' + control['cgroupPath']
+    for file, expected in [('cpu.max', b'200000 100000'), ('memory.max', b'4294967296'), ('pids.max', b'256')]:
+        if bounded_read(group + '/' + file, 4096).strip() != expected:
+            raise Unavailable('control-resource-readback')
+
+
+def observe_control_dependency(properties, control):
+    if any(control['name'] not in properties[key].split() for key in ('BindsTo', 'After')):
+        raise Unavailable('original-control-dependency-readback')
 
 
 @contextlib.contextmanager
@@ -643,10 +709,13 @@ def observation_filesystem_credentials(uid, gid):
             os._exit(126)
 
 
-def observe_start(request, properties, root, cwd, manager):
+def observe_start(request, properties, root, cwd, manager, control=None):
     name = request['unitName']
     if properties['UMask'] != '0022':
         raise Unavailable('unit-creation-mask')
+    if control is None:
+        raise Unavailable('original-control-domain-not-observed')
+    observe_control_resources(control)
     if properties['Id'] != name or properties['ControlGroup'] != '/system.slice/' + name:
         raise Unavailable('unit-domain-identity')
     manager_pid = int(properties['MainPID'])
@@ -720,17 +789,18 @@ def cgroup_empty(unit):
 
 
 def settle_unit(request, unit, description, deadline):
+    if unit is None or manager_identity() != {'boot': unit['managerBootId'], 'start': unit['managerStartTime']}:
+        raise Unavailable('manager-changed-before-stop')
     current = unit_readback(request['unitName'], deadline)
     if current['LoadState'] == 'not-found':
         if unit is None or not cgroup_empty(unit):
             raise Unavailable('unit-disappeared-without-settlement')
         return
-    if current['Description'] != description or (unit is not None and current['InvocationID'] != unit['invocationId']):
+    inactive = current['ActiveState'] in ('inactive', 'failed') and current['InvocationID'] == ''
+    if current['Description'] != description or (current['InvocationID'] != unit['invocationId'] and not inactive):
         raise Unavailable('unit-replaced-before-stop')
     if unit is None:
         raise Unavailable('unit-start-observation-lost')
-    if manager_identity() != {'boot': unit['managerBootId'], 'start': unit['managerStartTime']}:
-        raise Unavailable('manager-changed-before-stop')
     code, _out, _err = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'stop', '--', request['unitName']], deadline)
     if code:
         raise Unavailable('unit-stop-unconfirmed')
@@ -743,6 +813,9 @@ def settle_unit(request, unit, description, deadline):
         code, _out, _err = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'reset-failed', '--', request['unitName']], deadline)
         if code:
             raise Unavailable('unit-retirement-unconfirmed')
+        retired = unit_readback(request['unitName'], deadline)
+        if retired['LoadState'] != 'not-found' and (retired['ActiveState'] != 'inactive' or retired['Description'] != description or retired['InvocationID'] not in ('', unit['invocationId'])):
+            raise Unavailable('unit-retirement-readback')
 
 
 def write_bytes(file, data, mode=0o600):
@@ -822,10 +895,14 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
     write_bytes(recovery.path + '/stdin', stdin, 0o400)
     streams = BoundedStreams(recovery, invocation)
     host_root = ''  # All paths already use the explicit retained helper PID/fd anchor.
-    description = 'sec-native:' + request['operationIdentityDigest'] + ':' + request['boundAttemptDigest'] + ':' + request['inputDigest']
+    description = 'sec-native:' + request['operationIdentityDigest'] + ':' + request['boundAttemptDigest'] + ':' + request['inputDigest'] + ':' + os.urandom(32).hex()
     root_worker = invocation['kind'] == 'hosted-sut'
     uid = 0 if root_worker else 65532
-    properties = ['Description=' + description, 'Restart=no', 'CollectMode=inactive', 'KillMode=control-group',
+    properties = ['Description=' + description, 'Restart=no', 'CollectMode=inactive-or-failed',
+                  # Numeric failures remain observable in ExecMainStatus under
+                  # RemainAfterExit. Failed late starts have no workload and GC.
+                  'SuccessExitStatus=' + ' '.join(str(code) for code in range(256)),
+                  'BindsTo=' + recovery.value['control']['name'], 'After=' + recovery.value['control']['name'], 'KillMode=control-group',
                   'SendSIGKILL=yes', 'TimeoutStopSec=5s', 'RuntimeMaxSec=' + str(max(.001, deadline.remaining())) + 's',
                   'CPUQuota=200%', 'CPUQuotaPeriodSec=100ms', 'MemoryMax=4294967296', 'TasksMax=256',
                   'User=0', 'Group=0', 'UMask=0022', 'NoNewPrivileges=yes',
@@ -856,6 +933,10 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         code, _out, _err = run_tool(args, deadline)
         if code:
             raise Unavailable('unit-start-unconfirmed')
+        accepted = unit_readback(request['unitName'], deadline)
+        observe_control_dependency(accepted, recovery.value['control'])
+        unit = accepted_unit(request['unitName'], accepted, description, manager)
+        recovery.update({**recovery.value, 'phase': 'unit-accepted', 'unit': unit})
         while b'\n' not in streams.buffers['stdout']:
             streams.drain(min(.01, deadline.remaining()))
         ready_line = bytes(streams.buffers['stdout']).split(b'\n', 1)[0]
@@ -867,9 +948,10 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         del streams.buffers['stdout'][:len(ready_line) + 1]
         streams.limits['stdout'] = invocation['maxStdoutBytes']
         properties = unit_readback(request['unitName'], deadline)
+        observe_control_dependency(properties, recovery.value['control'])
         if properties['Description'] != description:
             raise Unavailable('unit-description-drift')
-        unit = observe_start(request, properties, root, cwd, manager)
+        unit = observe_start(request, properties, root, cwd, manager, recovery.value['control'])
         for pid_key, time_key in [('mainPid', 'mainPidStartTime'), ('managerMainPid', 'managerMainPidStartTime')]:
             fd = os.pidfd_open(unit[pid_key], 0)
             pidfds.append(fd)
@@ -1088,7 +1170,7 @@ def dependency_setup(request, recovery, root, control, output, deadline, control
 
 
 def read_request():
-    global MAX_TOOL_PROCESSES
+    global MAX_TOOL_PROCESSES, CLEANUP_MODE
     if len(sys.argv) != 5 or os.getresuid() != (0, 0, 0) or os.getresgid() != (0, 0, 0):
         raise Unavailable('fixed-root-arguments')
     deadline = int(sys.argv[1])
@@ -1122,6 +1204,7 @@ def read_request():
     if type(request['maximumControlProcesses']) is not int or not 1 <= request['maximumControlProcesses'] <= 64:
         raise Unavailable('control-process-allowance')
     MAX_TOOL_PROCESSES = request['maximumControlProcesses']
+    CLEANUP_MODE = request['mode'] != 'run'
     if request['mode'] != 'run':
         return request, control_deadline, None
     if sha(canonical(request['profile'])) != request['profileDigest'] or request['profile']['revision'] != 'sec-linux-native-verification-unit-v1':
@@ -1176,9 +1259,87 @@ def recovery_result(request):
             'unitName': request['unitName'], 'qualification': 'not-issued'}
 
 
+def cleanup_original_files(recovery):
+    """Only fixed private objects, after both original native domains settle.
+
+    Their tmpfs contents vanished with the original mount namespace. Never
+    recursively delete a visible mount, foreign object or uncommitted record.
+    """
+    directories = {'rootfs', 'control', 'output'}
+    streams = {'stdin', 'stdout', 'stderr'}
+    names = set(os.listdir(recovery.fd))
+    if not names <= directories | streams | {'record.json', 'lock'}:
+        raise Unavailable('unknown-original-recovery-residue')
+    root = os.fstat(recovery.fd)
+    # Check the whole set before the first destructive action.
+    for name in sorted(names & (directories | streams)):
+        info = os.stat(name, dir_fd=recovery.fd, follow_symlinks=False)
+        if info.st_uid != 0 or info.st_dev != root.st_dev:
+            raise Unavailable('original-recovery-object-owner-or-mount')
+        if name in directories:
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=recovery.fd)
+            try:
+                observed = os.fstat(fd)
+                if (observed.st_dev, observed.st_ino) != (info.st_dev, info.st_ino) or os.listdir(fd):
+                    raise Unavailable('original-recovery-directory-not-empty')
+            finally:
+                os.close(fd)
+        elif info.st_nlink != 1 or (name == 'stdin' and (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o400)) or (name != 'stdin' and (not stat.S_ISFIFO(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600)):
+            raise Unavailable('original-recovery-stream-identity')
+    for name in sorted(names & streams):
+        os.unlink(name, dir_fd=recovery.fd)
+    for name in sorted(names & directories):
+        os.rmdir(name, dir_fd=recovery.fd)
+    fsync_directory(recovery.fd)
+
+
+def recorded_control(request, value):
+    control = value.get('control')
+    if not isinstance(control, dict) or control.get('name') != request['unitName'][:-len('.service')] + '-control.scope':
+        raise Unavailable('original-control-domain-not-recorded')
+    exact(control, ['name', 'invocationId', 'managerBootId', 'managerStartTime', 'cgroupPath', 'description'], 'original-control-domain')
+    if (not re.fullmatch('[0-9a-f]{32}', control['invocationId']) or control['cgroupPath'] != '/system.slice/' + control['name']
+            or control['description'] != 'sec-native-control:' + request['operationIdentityDigest'] + ':' + request['boundAttemptDigest'] + ':' + request['inputDigest']):
+        raise Unavailable('original-control-domain-identity')
+    return control
+
+
+def settle_original_domains(request, value, deadline):
+    control = recorded_control(request, value)
+    settle_unit({**request, 'unitName': control['name']}, control, control['description'], deadline)
+    name = value.get('activeUnitName')
+    if name is None:
+        if value['phase'] not in ('intent', 'terminal') or value.get('unit') is not None:
+            raise Unavailable('native-recovery-state-unknown')
+        return
+    if not re.fullmatch(r'sec-native-[0-9a-f]{32}\.service', name):
+        raise Unavailable('original-active-unit-name')
+    unit = value.get('unit')
+    if unit is None:
+        # A random root-generated token was durable before StartTransientUnit.
+        # Once its BindsTo control scope is gone, a delayed accepted start
+        # cannot execute. CollectMode retires failed dependency starts.
+        properties = unit_readback(name, deadline)
+        manager = {'boot': control['managerBootId'], 'start': control['managerStartTime']}
+        if manager != manager_identity():
+            raise Unavailable('manager-changed-before-recovery')
+        if properties['LoadState'] == 'not-found':
+            if not cgroup_empty({'cgroupPath': '/system.slice/' + name}):
+                raise Unavailable('unobserved-unit-domain-not-empty')
+            return
+        observe_control_dependency(properties, control)
+        if properties['InvocationID'] == '' and properties['ActiveState'] in ('inactive', 'failed'):
+            if properties['Id'] != name or properties['Description'] != value['description'] or properties['ControlGroup'] not in ('', '/system.slice/' + name):
+                raise Unavailable('unobserved-terminal-unit-identity')
+            unit = {'name': name, 'invocationId': '', 'managerBootId': manager['boot'], 'managerStartTime': manager['start'], 'cgroupPath': '/system.slice/' + name}
+        else:
+            unit = accepted_unit(name, properties, value['description'], manager)
+    settle_unit({**request, 'unitName': name}, unit, value['description'], deadline)
+
+
 def recover(request, deadline):
     try:
-        recovery = RecoveryRecord(request, 'recover')
+        recovery = RecoveryRecord(request, 'recover', deadline=deadline)
     except FileNotFoundError:
         # Distinguish absent exact directory from record-unlink/lock/rmdir cuts.
         # A missing record inside a surviving root is retained unknown residue.
@@ -1198,6 +1359,7 @@ def recover(request, deadline):
             os.close(parent)
     try:
         value = recovery.value
+        settle_original_domains(request, value, deadline)
         if value['phase'] == 'terminal':
             if request['mode'] == 'acknowledge':
                 if request['terminalReceiptDigest'] is None or request['terminalReceiptDigest'] not in (value.get('terminalReceiptDigest'), value.get('terminalCleanupDigest')):
@@ -1210,36 +1372,24 @@ def recover(request, deadline):
             return recovery_result(request)
         if request['mode'] == 'acknowledge':
             raise Unavailable('acknowledgment-before-terminal')
-        try:
-            alive = process_start(value['helperPid']) == value['helperStartTime']
-        except FileNotFoundError:
-            alive = False
-        if alive:
-            raise Unavailable('original-helper-not-settled')
-        if value['phase'] == 'unit-starting':
-            # Manager acceptance without durable InvocationID cannot be safely
-            # resolved from a unit name. Keep the record and original debt.
-            raise Unavailable('manager-acceptance-observation-lost')
-        if value.get('unit') is not None:
-            active = {**request, 'unitName': value['activeUnitName']}
-            settle_unit(active, value['unit'], value['description'], deadline)
-        elif value['phase'] != 'intent':
-            raise Unavailable('native-recovery-state-unknown')
-        # Stopping the persisted unit does not prove all control descendants of
-        # a crashed root helper have settled. Preserve the exact journal and
-        # transported inputs; no new attempt may acknowledge this debt.
-        raise Unavailable('original-control-domain-settlement-unknown')
+        cleanup_original_files(recovery)
+        cleanup_digest = sha(canonical(recovery_result(request)))
+        recovery.update({**value, 'phase': 'terminal', 'terminalCleanupDigest': cleanup_digest})
+        return recovery_result(request)
     finally:
         recovery.close()
 
 
 def run(request, control_deadline, execution_deadline):
+    # Include the outer fixed systemd-run scope wrapper in the original pool.
+    reserve_processes()
     # Retain the directory in the SAME private mount namespace that creates
     # the subsequent mountpoints and is exported by the exact /proc/PID/fd.
     if LIBC.unshare(0x00020000) != 0:
         raise OSError(ctypes.get_errno(), 'private-manager-mount-namespace')
     mount(None, '/', None, 0x40000 | 0x4000, None)
-    recovery = RecoveryRecord(request, 'run')
+    control_identity = original_control(request, control_deadline)
+    recovery = RecoveryRecord(request, 'run', control_identity)
     root = recovery.path + '/rootfs'
     control, output = recovery.path + '/control', recovery.path + '/output'
     mounted = []
