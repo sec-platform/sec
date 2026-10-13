@@ -823,7 +823,7 @@ test.skipIf(process.platform !== 'win32')('authorized externally unregistered wo
   }
 }, 60_000);
 
-test('closeout composes provider retirement for an automatically reused dependency locator', async () => {
+test.each([false, true])('closeout composes provider retirement for an automatically reused dependency locator (detached=%s)', async (detached) => {
   const value = fixture({ compilerDependencies: true });
   const previousCacheHome = process.env.SEC_CACHE_HOME;
   const previousStateHome = process.env.SEC_STATE_HOME;
@@ -861,10 +861,12 @@ test('closeout composes provider retirement for an automatically reused dependen
     expect(ready.source).toBe('existing');
     expect(path.resolve(realpathSync(path.join(value.target, 'node_modules'))))
       .toBe(path.resolve(realpathSync(path.join(value.repository, 'node_modules'))));
+    if (detached) git(value.target, ['checkout', '--detach', value.headSha]);
+    const expectedBranch = detached ? `detached-scratch-${value.headSha}` : value.branch;
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
-      expectedBranch: value.branch,
+      expectedBranch,
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -888,7 +890,7 @@ test('closeout composes provider retirement for an automatically reused dependen
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
-      expectedBranch: value.branch,
+      expectedBranch,
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,

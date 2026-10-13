@@ -1,6 +1,10 @@
 import path from 'node:path';
 import { assertGeneratedStateWorktreeRetirement, type GeneratedStateWorktreeRetirement } from './contract.ts';
 import type { GeneratedStatePhysicalObservationBackend } from './physical-port.ts';
+export const DETACHED_WORKTREE_RETIREMENT_BRANCH_PREFIX = 'detached-scratch-';
+export function detachedWorktreeRetirementBranch(headSha: string): string {
+  return `${DETACHED_WORKTREE_RETIREMENT_BRANCH_PREFIX}${headSha}`;
+}
 export interface GeneratedStateWorktreeRetirementInput {
   readonly repositoryRoot: string; readonly workspaceRoot: string;
   readonly expectedBranch: string; readonly expectedHeadSha: string; readonly expectedTreeSha: string;
