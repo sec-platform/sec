@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import select
 import selectors
 import shutil
 import signal
@@ -654,13 +655,89 @@ def manager_identity():
 def accepted_unit(name, properties, description, manager):
     """Persist manager acceptance before waiting for a SUT readiness message."""
     if (properties['Id'] != name or properties['Description'] != description
-            or properties['ControlGroup'] != '/system.slice/' + name
             or not re.fullmatch('[0-9a-f]{32}', properties['InvocationID'])
             or manager != manager_identity()):
         raise Unavailable('manager-accepted-unit-identity')
+    group = '/system.slice/' + name
+    if properties['ControlGroup'] != group:
+        # systemd prunes an empty cgroup in SERVICE_EXITED even when
+        # RemainAfterExit keeps the exact invocation active. This minimum
+        # acceptance observation never qualifies a workload that was not ready.
+        if properties['ControlGroup'] != '' or not exited_before_ready(properties) or not cgroup_empty({'cgroupPath': group}):
+            raise Unavailable('manager-accepted-unit-identity')
     return {'name': name, 'invocationId': properties['InvocationID'],
             'managerBootId': manager['boot'], 'managerStartTime': manager['start'],
-            'cgroupPath': properties['ControlGroup']}
+            'cgroupPath': group}
+
+
+def exited_before_ready(properties):
+    return int(properties.get('ExecMainExitTimestampMonotonic', '0')) > 0 and properties.get('MainPID') == '0'
+
+
+def fail_exited_preflight(request, recovery, properties, unit, description, streams, deadline):
+    if not exited_before_ready(properties):
+        return
+    settle_unit(request, unit, description, deadline)
+    recovery.update({**recovery.value, 'phase': 'unit-settled'})
+    streams.drain(0)
+    # Keep the final exception line rather than a traceback prefix, within
+    # the fixed top-level error bound even for fully escaped UTF-8 errors.
+    detail = json.dumps(bytes(streams.buffers['stderr'])[-48:].decode('utf8', errors='replace'), ensure_ascii=True)
+    raise Unavailable('native-preflight-exited unit=' + request['unitName'] + ' ExecMainCode=' + properties['ExecMainCode']
+                      + ' ExecMainStatus=' + properties['ExecMainStatus'] + ' stderr=' + detail)
+
+
+def wait_preflight_ready(request, recovery, properties, unit, description, streams, deadline, control_deadline, pidfds):
+    """The original manager process and bounded FIFOs share one readiness wait."""
+    fail_exited_preflight(request, recovery, properties, unit, description, streams, control_deadline)
+    pid = int(properties['MainPID'])
+    if pid <= 1:
+        raise Unavailable('preflight-manager-process-unavailable')
+
+    def observe_exit():
+        current = unit_readback(request['unitName'], control_deadline)
+        observed = accepted_unit(request['unitName'], current, description, manager_identity())
+        if observed != unit:
+            raise Unavailable('preflight-manager-invocation-replaced')
+        fail_exited_preflight(request, recovery, current, unit, description, streams, control_deadline)
+        raise Unavailable('preflight-process-ended-without-manager-terminal')
+
+    try:
+        fd = os.pidfd_open(pid, 0)
+    except ProcessLookupError:
+        observe_exit()
+    pidfds.append(fd)
+    try:
+        membership = bounded_read('/proc/' + str(pid) + '/cgroup', 65536).decode().splitlines()
+    except FileNotFoundError:
+        observe_exit()
+    if membership != ['0::' + unit['cgroupPath']]:
+        raise Unavailable('preflight-manager-process-domain-replaced')
+    current = unit_readback(request['unitName'], deadline)
+    observed = accepted_unit(request['unitName'], current, description, manager_identity())
+    if observed != unit:
+        raise Unavailable('preflight-manager-invocation-replaced')
+    fail_exited_preflight(request, recovery, current, unit, description, streams, control_deadline)
+    if current['MainPID'] != str(pid):
+        raise Unavailable('preflight-manager-process-replaced')
+    registered = False
+    try:
+        streams.selector.register(fd, selectors.EVENT_READ, 'process')
+        registered = True
+        while b'\n' not in streams.buffers['stdout']:
+            if streams.drain(min(.01, deadline.remaining())):
+                streams.selector.unregister(fd)
+                registered = False
+                observe_exit()
+        # A ready line and process exit can become readable together. Death
+        # wins; an already-exited preflight must never issue admission.
+        if select.select([fd], [], [], 0)[0]:
+            streams.selector.unregister(fd)
+            registered = False
+            observe_exit()
+    finally:
+        if registered:
+            streams.selector.unregister(fd)
 
 
 def original_control(request, deadline):
@@ -937,8 +1014,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         observe_control_dependency(accepted, recovery.value['control'])
         unit = accepted_unit(request['unitName'], accepted, description, manager)
         recovery.update({**recovery.value, 'phase': 'unit-accepted', 'unit': unit})
-        while b'\n' not in streams.buffers['stdout']:
-            streams.drain(min(.01, deadline.remaining()))
+        wait_preflight_ready(request, recovery, accepted, unit, description, streams, deadline, control_deadline, pidfds)
         ready_line = bytes(streams.buffers['stdout']).split(b'\n', 1)[0]
         ready = json.loads(ready_line, object_pairs_hook=no_duplicates)
         expected = {'kind': 'ready', 'nonce': nonce, 'cwd': cwd, 'uid': uid, 'gid': uid,
@@ -958,11 +1034,11 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
             if process_start(unit[pid_key]) != unit[time_key]:
                 raise Unavailable('unit-process-replaced')
         recovery.update({**recovery.value, 'phase': 'started', 'unit': unit})
-        streams.selector.register(pidfds[1], selectors.EVENT_READ, 'process')
+        streams.selector.register(pidfds[-1], selectors.EVENT_READ, 'process')
         write_bytes(control + '/admit', nonce.encode(), 0o444)
         while not streams.drain(min(.1, deadline.remaining())):
             pass
-        streams.selector.unregister(pidfds[1])
+        streams.selector.unregister(pidfds[-1])
         properties = unit_readback(request['unitName'], control_deadline)
         if properties['InvocationID'] != unit['invocationId'] or int(properties['ExecMainExitTimestampMonotonic']) == 0 or int(properties['MainPID']) != 0:
             raise Unavailable('unit-terminal-process-readback')
@@ -989,7 +1065,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                 os.close(fd)
         return unit, exit_code, stdout, stderr, captured
     except BaseException:
-        if unit is not None:
+        if unit is not None and recovery.value['phase'] != 'unit-settled':
             settle_unit(request, unit, description, control_deadline)
             recovery.update({**recovery.value, 'phase': 'unit-settled'})
         raise
