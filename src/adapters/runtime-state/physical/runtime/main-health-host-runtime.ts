@@ -5,7 +5,7 @@ import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
-import { linuxRuntimeToolCopyScript } from '../../../providers/linux-verification/runtime-tools.ts';
+import { LINUX_RUNTIME_TOOLS, linuxRuntimeToolCopyScript } from '../../../providers/linux-verification/runtime-tools.ts';
 import { createExclusiveNoFollowDirectory, inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, type PhysicalDirectoryIdentity } from './physical-no-follow.ts';
 import { openProcessResourceSession } from './process-resource-session.ts';
 import { issueRetainedCommandBoundary } from './process.ts';
@@ -44,9 +44,13 @@ const CEILINGS = Object.freeze([
   { resource: 'output-bytes' as const, maximum: 1_048_576 },
   { resource: 'processes' as const, maximum: 16 }
 ]);
+const MAIN_HEALTH_RUNTIME_BINARIES = Object.freeze([
+  '/usr/bin/unshare', '/usr/bin/curl',
+  `/usr/bin/python${LINUX_RUNTIME_TOOLS.python.version.split('.').slice(0, 2).join('.')}`
+]);
 const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"',
   'mkdir -p "$root/tmp" "$root/tool/bin"', ...linuxRuntimeToolCopyScript('independent-files'),
-  'copy_runtime "/usr/bin/unshare" "/usr/bin/unshare"',
+  ...MAIN_HEALTH_RUNTIME_BINARIES.map(runtimePath => `copy_runtime ${runtimePath} ${runtimePath}`),
   'copy_runtime "$bun_host" "/usr/local/bin/bun"',
   'rmdir "$root/tmp"', 'chmod -R go-w -- "$root"'].join('\n');
 const CONTRACT = sha256({ requirement: REQUIREMENT, script: SCRIPT, transport: 'actual-host-bytes-not-native-accepted-content' });
