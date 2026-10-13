@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relative: string) => JSON.stringify(path.join(repo, relative));
@@ -94,10 +95,7 @@ for (const fault of ['package-acquire', 'lock-acquire', 'lock-acquire-and-dispos
         }
         console.log('owned controls settled');
       `);
-      const child = Bun.spawn([process.execPath, script], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-      const [code, stdout, stderr] = await Promise.all([
-        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-      ]);
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('owned controls settled');
     } finally { await rm(root, { recursive: true, force: true }); }
@@ -229,10 +227,7 @@ test('release public entries preserve body and cleanup failures for every retain
       assert.ok(events.includes('dispose-executable'));
       console.log('retained capability failures preserved');
     `);
-    const child = Bun.spawn([process.execPath, script], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-    const [code, stdout, stderr] = await Promise.all([
-      child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-    ]);
+    const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
     expect(code, stderr).toBe(0);
     expect(stdout.trim()).toBe('retained capability failures preserved');
   } finally { await rm(root, { recursive: true, force: true }); }

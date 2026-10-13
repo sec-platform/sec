@@ -6,6 +6,7 @@ import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical
 import { formatFailure } from '../../src/contracts/failure-format.ts';
 import { boundedFailureCode } from '../../src/contracts/failure-inspection.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const allowedCodes = new Set([
   'IMPORT-AUTHORITY-002', 'RUNTIME-DEPS-001', 'RUNTIME-DEPS-003',
@@ -83,7 +84,7 @@ test('distinct failure categories survive ordinary message, JSON and failure for
   }
 });
 
-test('Bun uncaught output preserves categories without traversing raw native causes', () => {
+test('Bun uncaught output preserves categories without traversing raw native causes', async () => {
   const inspectionUrl = new URL('../../src/contracts/failure-inspection.ts', import.meta.url).href;
   const failureUrl = new URL('../../src/contracts/failure.ts', import.meta.url).href;
   const script = `
@@ -100,11 +101,11 @@ test('Bun uncaught output preserves categories without traversing raw native cau
       'Compiler dependency generation staging residue is preserved for recovery; materialization=' + materializationCode + '; cleanup=' + cleanupCode,
       { materializationCode, cleanupCode, recoveryRequired: true });
   `;
-  const result = Bun.spawnSync([process.execPath, '-e', script], {
-    env: { ...process.env, SEC_TEST_FAILURE_SENTINEL: sentinel }, stdout: 'pipe', stderr: 'pipe'
+  const result = await runRetainedBunTestCommand(['-e', script], {
+    env: { ...process.env, SEC_TEST_FAILURE_SENTINEL: sentinel }
   });
-  assert.notEqual(result.exitCode, 0);
-  const output = Buffer.concat([result.stdout, result.stderr]).toString();
+  assert.notEqual(result.code, 0);
+  const output = result.stdout + result.stderr;
   assert.ok(output.includes('materialization=RUNTIME-DEPS-001; cleanup=EACCES'));
   assert.ok(output.includes('IMPORT-AUTHORITY-004'));
   assert.equal(output.includes(sentinel), false);

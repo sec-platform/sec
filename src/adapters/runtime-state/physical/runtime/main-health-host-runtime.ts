@@ -45,15 +45,17 @@ const CEILINGS = Object.freeze([
   { resource: 'processes' as const, maximum: 16 }
 ]);
 const MAIN_HEALTH_RUNTIME_BINARIES = Object.freeze([
-  '/usr/bin/unshare', '/usr/bin/curl',
+  '/usr/bin/unshare', '/usr/bin/curl', '/usr/bin/mkfifo',
   `/usr/bin/python${LINUX_RUNTIME_TOOLS.python.version.split('.').slice(0, 2).join('.')}`
 ]);
-const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"',
+const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"', 'node_host="$3"',
   'mkdir -p "$root/tmp" "$root/tool/bin"', ...linuxRuntimeToolCopyScript('independent-files'),
   ...MAIN_HEALTH_RUNTIME_BINARIES.map(runtimePath => `copy_runtime ${runtimePath} ${runtimePath}`),
   'mkdir -p "$root/usr/share/git-core"',
   '/usr/bin/cp -R -L --preserve=mode,timestamps -- /usr/share/git-core/templates "$root/usr/share/git-core/templates"',
   'copy_runtime "$bun_host" "/usr/local/bin/bun"',
+  '/usr/bin/rm -- "$root/tool/bin/node"',
+  'copy_runtime "$node_host" "/tool/bin/node"',
   'rmdir "$root/tmp"', 'chmod -R go-w -- "$root"'].join('\n');
 const CONTRACT = sha256({ requirement: REQUIREMENT, script: SCRIPT, transport: 'actual-host-bytes-not-native-accepted-content' });
 const ENVIRONMENT = Object.freeze({ PATH: '/usr/bin:/bin', HOME: '/', LANG: 'C', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' });
@@ -83,6 +85,7 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
   let bash: ReturnType<typeof retainNoFollowOrdinaryFile>;
   let git: ReturnType<typeof retainNoFollowOrdinaryFile>;
   let bun: ReturnType<typeof retainNoFollowOrdinaryFile>;
+  let node: ReturnType<typeof retainNoFollowOrdinaryFile>;
   let cwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess>;
   let session: ReturnType<typeof openProcessResourceSession>;
   try {
@@ -90,15 +93,19 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
   git = allocate(retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain('/usr/bin'), 'git', undefined, 'MainHealth Git', 3, 'executable'));
   const bunPath = realpathSync.native(process.execPath);
   bun = allocate(retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(bunPath)), path.basename(bunPath), undefined, 'MainHealth Bun', 5));
+  const nodeCandidate = Bun.which('node');
+  if (nodeCandidate === null) throw new Error('MainHealth requires an existing host Node executable.');
+  const nodePath = realpathSync.native(nodeCandidate);
+  node = allocate(retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(path.dirname(nodePath)), path.basename(nodePath), undefined, 'MainHealth Node', 6));
   cwd = allocate(retainNoFollowDirectoryForChildProcess(source, 4));
   const requirement = { id: REQUIREMENT, contractDigest: CONTRACT as OperationDigest, effectKinds: ['process', 'filesystem'] as const,
     failureKinds: ['main-health.host-runtime-preparation', 'main-health.host-runtime-retirement'] };
   const operation = bindSemanticOperation(compileSemanticOperationPlan({ operation: REQUIREMENT,
-    intentDigest: sha256({ source: source.target, headSha: input.expectedHeadSha, bun: bun.digest(), script: CONTRACT }) as OperationDigest,
+    intentDigest: sha256({ source: source.target, headSha: input.expectedHeadSha, bun: bun.digest(), node: node.digest(), script: CONTRACT }) as OperationDigest,
     decisionDigest: CONTRACT as OperationDigest, deadlineAtUnixMs: input.deadlineAtUnixMs, aggregateBudgets: CEILINGS,
     requirements: [requirement], attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT as OperationDigest })
   }), [compileCapabilityBinding({ requirementId: REQUIREMENT, contractDigest: CONTRACT as OperationDigest,
-    providerIdentityDigest: sha256({ bash: bash.physical, git: git.physical, bun: bun.physical, cwd: source.target }) as OperationDigest })]);
+    providerIdentityDigest: sha256({ bash: bash.physical, git: git.physical, bun: bun.physical, node: node.physical, cwd: source.target }) as OperationDigest })]);
   session = openProcessResourceSession({ operation, signal: input.signal,
     requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: REQUIREMENT, resourceCeilings: CEILINGS }) });
   } catch (error) {
@@ -128,16 +135,20 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
     const tree = await read(['rev-parse', '--verify', 'HEAD^{tree}']);
     if (head !== input.expectedHeadSha || await read(['status', '--porcelain=v1', '--untracked-files=all']) !== '') throw new Error('MainHealth source differs from exact clean main.');
     root = createExclusiveNoFollowDirectory(inspectNoFollowDirectoryChain('/tmp').target, 'sec-main-health-runtime-' + randomUUID().replaceAll('-', ''));
-    const boundary = issueRetainedCommandBoundary({ executable: bash, workingDirectory: cwd, auxiliaryInputs: [{ kind: 'ordinary-file', capability: bun }] });
-    const copied = await session.run(boundary, ['-ceu', SCRIPT, 'sec-main-health-host-runtime', root.path, bun.childPath], {
+    const boundary = issueRetainedCommandBoundary({ executable: bash, workingDirectory: cwd, auxiliaryInputs: [
+      { kind: 'ordinary-file', capability: bun }, { kind: 'ordinary-file', capability: node }
+    ] });
+    const copied = await session.run(boundary, ['-ceu', SCRIPT, 'sec-main-health-host-runtime', root.path, bun.childPath, node.childPath], {
       envMode: 'replace', env: ENVIRONMENT, maxStdoutBytes: 65536, maxStderrBytes: 65536,
-      beforeSpawn: async () => { bun.assertCurrent(); cwd.assertCurrent(); } });
+      beforeSpawn: async () => { bun.assertCurrent(); node.assertCurrent(); cwd.assertCurrent(); } });
     if (copied.result.code !== 0) throw new Error('MainHealth existing tool snapshot failed: ' + JSON.stringify({
       exitCode: copied.result.code, stdoutBase64: Buffer.from(copied.result.stdout).toString('base64'),
       stderrBase64: Buffer.from(copied.result.stderr).toString('base64') }));
     const observed = inventory();
     bun.assertCurrent();
+    node.assertCurrent();
     const bunDigest = bun.digest().byteDigest;
+    const nodeDigest = node.digest().byteDigest;
     const files = observed.map(entry => {
       if (entry.kind === 'link' && entry.linkTarget !== null) {
         const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entry.relativePath), entry.linkTarget));
@@ -153,8 +164,9 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
     });
     const manifest: MainHealthHostRuntimeManifest = Object.freeze({ schema: 'sec-main-health-host-runtime-manifest-v1', platform: 'linux/amd64', files: Object.freeze(files) });
     if (!['usr/local/bin/bun', 'tool/bin/bun'].every(name => files.some(entry => entry.path === name && entry.type === 'file' && entry.digest === bunDigest))
+        || !files.some(entry => entry.path === 'tool/bin/node' && entry.type === 'file' && entry.digest === nodeDigest)
         || await read(['rev-parse', '--verify', 'HEAD^{commit}']) !== head || await read(['rev-parse', '--verify', 'HEAD^{tree}']) !== tree
-        || await read(['status', '--porcelain=v1', '--untracked-files=all']) !== '') throw new Error('MainHealth source or Bun snapshot changed.');
+        || await read(['status', '--porcelain=v1', '--untracked-files=all']) !== '') throw new Error('MainHealth source or runtime executable snapshot changed.');
     const generation = sha256(observed);
     result = Object.freeze({ [brand]: true as const, runtime: Object.freeze({ root, manifest, manifestDigest: sha256(manifest) }), source: Object.freeze({ root: input.sourceRoot, headSha: head, treeSha: tree }) });
     issued.set(result, { assertCurrent() { if (root === undefined || sha256(inventory()) !== generation) throw new Error('MainHealth host runtime changed or retired.'); }, retire });

@@ -26,6 +26,7 @@ jobs:
           sudo -n -k -- /usr/bin/python3.12 -B -I -S
           src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.test.py
           NativeRecoveryIntegration
+          RuntimeCopyPermissions.test_temporary_snapshot_uses_retained_filesystem_after_path_replacement
       - name: Execute the original fixed Linux entry
         if: ${{ !cancelled() }}
         shell: bun --no-env-file --no-install src/bootstrap/development/main-health-fast.ts {0}

@@ -942,7 +942,7 @@ def observation_filesystem_credentials(uid, gid):
             os._exit(126)
 
 
-def observe_start(request, properties, root, cwd, manager, control=None):
+def observe_start(request, properties, root, cwd, manager, control=None, retained_temporary=None):
     name = request['unitName']
     if properties['UMask'] != '0022':
         raise Unavailable('unit-creation-mask')
@@ -985,6 +985,12 @@ def observe_start(request, properties, root, cwd, manager, control=None):
         private_dev = os.stat('/proc/' + str(pid) + '/root/dev')
         null = os.stat('/proc/' + str(pid) + '/root/dev/null')
         sys_entries = os.listdir('/proc/' + str(pid) + '/root/sys')
+        if retained_temporary is not None:
+            temporary = os.open('/proc/' + str(pid) + '/root/tmp', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            retained_temporary.append(temporary)
+            temporary_info = os.fstat(temporary)
+            if temporary_info.st_dev == actual_root.st_dev or stat.S_IMODE(temporary_info.st_mode) != 0o1777:
+                raise Unavailable('unit-private-temporary-filesystem')
     if (expected_root.st_dev, expected_root.st_ino) != (actual_root.st_dev, actual_root.st_ino) or (expected_cwd.st_dev, expected_cwd.st_ino) != (actual_cwd.st_dev, actual_cwd.st_ino):
         raise Unavailable('unit-root-cwd')
     if private_dev.st_dev in (actual_root.st_dev, os.stat('/dev').st_dev) or not stat.S_ISCHR(null.st_mode) or null.st_rdev != os.makedev(1, 3) or sys_entries:
@@ -1024,6 +1030,15 @@ def cgroup_empty(unit):
         return events.get('populated') == '0'
     finally:
         os.close(fd)
+
+
+def temporary_filesystem_snapshot(fd):
+    identity = os.fstat(fd)
+    state = os.fstatvfs(fd)
+    block = state.f_frsize or state.f_bsize
+    return {'device': str(identity.st_dev), 'inode': str(identity.st_ino),
+            'bytesTotal': state.f_blocks * block, 'bytesFree': state.f_bfree * block, 'bytesAvailable': state.f_bavail * block,
+            'inodesTotal': state.f_files, 'inodesFree': state.f_ffree, 'inodesAvailable': state.f_favail}
 
 
 def settle_unit(request, unit, description, deadline):
@@ -1178,6 +1193,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         bootstrap[key + 'Identity'] = {'device': str(info.st_dev), 'inode': str(info.st_ino)}
     args.extend(['--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', BOOTSTRAP_SHIM, canonical(bootstrap).decode()])
     unit, pidfds = None, []
+    retained_temporary = []
     failure, result = None, None
     try:
         # Fixed systemd-created unshare parent + one forked namespace child.
@@ -1203,7 +1219,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         observe_control_dependency(properties, recovery.value['control'])
         if properties['Description'] != description:
             raise Unavailable('unit-description-drift')
-        unit = observe_start(request, properties, root, cwd, manager, recovery.value['control'])
+        unit = observe_start(request, properties, root, cwd, manager, recovery.value['control'], retained_temporary)
         for pid_key, time_key in [('mainPid', 'mainPidStartTime'), ('managerMainPid', 'managerMainPidStartTime')]:
             fd = os.pidfd_open(unit[pid_key], 0)
             pidfds.append(fd)
@@ -1216,9 +1232,14 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
             pass
         streams.selector.unregister(pidfds[-1])
         properties = unit_readback(request['unitName'], control_deadline)
-        if properties['InvocationID'] != unit['invocationId'] or int(properties['ExecMainExitTimestampMonotonic']) == 0 or int(properties['MainPID']) != 0:
-            raise Unavailable('unit-terminal-process-readback')
-        code, status = int(properties['ExecMainCode']), int(properties['ExecMainStatus'])
+        terminal_code = int(properties['ExecMainCode']) if properties['ExecMainCode'].isdigit() else None
+        terminal_status = int(properties['ExecMainStatus']) if properties['ExecMainStatus'].isdigit() else None
+        terminal_time = int(properties['ExecMainExitTimestampMonotonic']) if properties['ExecMainExitTimestampMonotonic'].isdigit() else None
+        original_terminal = properties['InvocationID'] == unit['invocationId'] and properties['LoadState'] != 'not-found' and terminal_time not in (None, 0)
+        if not original_terminal or properties['MainPID'] != '0' or terminal_code is None or terminal_status is None:
+            raise NativeFailure('unit-terminal-process-readback: ' + canonical(properties).decode(), phase='terminal-readback', unit_name=request['unitName'],
+                                exec_main_code=terminal_code if original_terminal else None, exec_main_status=terminal_status if original_terminal else None)
+        code, status = terminal_code, terminal_status
         exit_code = status if code == 1 else min(255, 128 + status)
         settle_unit(request, unit, description, control_deadline)
         recovery.update({**recovery.value, 'phase': 'unit-settled'})
@@ -1242,6 +1263,11 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         result = unit, exit_code, stdout, stderr, captured
     except BaseException as error:
         failure = native_failure(error, phase='preflight' if recovery.value['phase'] in ('unit-starting', 'unit-accepted') else 'execution', unit_name=request['unitName'])
+        if retained_temporary:
+            try:
+                failure.args = (str(failure) + '\nRetained invocation /tmp filesystem snapshot: ' + canonical(temporary_filesystem_snapshot(retained_temporary[0])).decode(),)
+            except BaseException as diagnostic_error:
+                failure.args = (str(failure) + '\nRetained invocation /tmp snapshot unavailable: ' + str(diagnostic_error),)
         if unit is not None and recovery.value['phase'] != 'unit-settled' and not failure.cleanup_failures:
             try:
                 settle_unit(request, unit, description, control_deadline)
@@ -1260,7 +1286,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
             if not failure.stderr:
                 failure.stderr = bytes(streams.buffers['stderr'])
     finally:
-        for action in [streams.close] + [lambda fd=fd: os.close(fd) for fd in pidfds]:
+        for action in [streams.close] + [lambda fd=fd: os.close(fd) for fd in pidfds + retained_temporary]:
             try:
                 action()
             except BaseException as cleanup:

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
@@ -76,7 +76,7 @@ const receiptFields = { schema: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.tru
   evidenceByteLength: Buffer.byteLength(bytes(evidence)), evidenceDigest: evidence.evidenceDigest,
   producerSourceDigest: evidence.producer.sourceDigest };
 
-function runPendingStatus(saved: unknown, receiptOverrides: Record<string, unknown> = {}) {
+async function runPendingStatus(saved: unknown, receiptOverrides: Record<string, unknown> = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-local-pending-'));
   const root = path.join(parent, 'workspace');
   const state = path.join(parent, 'state');
@@ -93,15 +93,15 @@ function runPendingStatus(saved: unknown, receiptOverrides: Record<string, unkno
     writeFileSync(path.join(records, 'verification-pending-qualification.json'), bytes({ ...record, pendingDigest: digest(record) }));
     const requestPath = path.join(root, 'request.json');
     writeFileSync(requestPath, JSON.stringify(saved));
-    return spawnSync(process.execPath, [path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts"),
+    return await runRetainedBunTestCommand([path.resolve("src/bootstrap/development/closeout/verification-session-cli.ts"),
       'status', '--request', requestPath], { cwd: root, env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache },
-      encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024 });
+      envMode: 'replace', timeoutMs: 15_000, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }
 
-test('unmocked pending status reports matching historical evidence and unestablished request bindings', () => {
-  const result = runPendingStatus(request);
-  expect(result.status).toBe(0);
+test('unmocked pending status reports matching historical evidence and unestablished request bindings', async () => {
+  const result = await runPendingStatus(request);
+  expect(result.code).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({ status: 'LOCAL_EVIDENCE_RECORDED',
     verificationStatus: 'passed', evidenceRecord: 'pending-qualification', artifactDigest: null,
     unverifiedRequestFields: ['repository', 'prNumber', 'expectedScopeProposalDigest', 'reviewPolicyDigest', 'requestOperationId'],
@@ -113,17 +113,17 @@ for (const [pin, value, evidenceField] of [
   ['expectedHeadSha', 'f'.repeat(40), 'headSha'], ['expectedHeadTreeSha', 'f'.repeat(40), 'headTreeSha'],
   ['manifestPath', 'other.json', 'manifestPath'], ['manifestDigest', D('f'), 'manifestDigest'], ['profile', 'full', 'profile']
 ] as const) {
-  test(`unmocked pending status rejects contradictory saved ${pin} with unchanged Session and Action digests`, () => {
-    const result = runPendingStatus({ ...request, request: { ...request.request, [pin]: value } });
-    expect(result.status).toBe(1);
+  test(`unmocked pending status rejects contradictory saved ${pin} with unchanged Session and Action digests`, async () => {
+    const result = await runPendingStatus({ ...request, request: { ...request.request, [pin]: value } });
+    expect(result.code).toBe(1);
     expect(result.stderr).toContain(`Verification V4 evidence ${evidenceField} mismatch.`);
   });
 }
 
 for (const pin of ['baseSha', 'headSha', 'headTreeSha']) {
-  test(`unmocked pending status rejects receipt ${pin} contradiction despite valid independent digests`, () => {
-    const result = runPendingStatus(request, { [pin]: 'f'.repeat(40) });
-    expect(result.status).toBe(1);
+  test(`unmocked pending status rejects receipt ${pin} contradiction despite valid independent digests`, async () => {
+    const result = await runPendingStatus(request, { [pin]: 'f'.repeat(40) });
+    expect(result.code).toBe(1);
     expect(result.stderr).toContain('pending qualification evidence differs from the exact container receipt');
   });
 }

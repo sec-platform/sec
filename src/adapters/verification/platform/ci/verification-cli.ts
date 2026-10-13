@@ -79,7 +79,8 @@ import {
   CodexDevelopmentReadExactGitBlobs,
   CodexDevelopmentRunGateProcess,
   CodexDevelopmentTestImpactSourceProviderFromSnapshot,
-  type CodexDevelopmentChangedPathSnapshot
+  type CodexDevelopmentChangedPathSnapshot,
+  type CodexDevelopmentGateProcessResult
 } from './runtime/ci-orchestration-core.ts';
 import {
   ensureVerificationActionGitHubProviderTransaction
@@ -608,48 +609,12 @@ async function runCodexDevelopmentCiVerification(
           }
           // Keep the configured parent alive across execution and publication;
           // neither a new directory nor recycled inode may inherit this binding.
-          return await withAcquiredResource({
-            operationLabel: 'Source Program transition output publication',
-            resourceLabel: 'Source Program transition output parent',
-            acquire: () => retainNoFollowFileTransaction(
-              path.dirname(evidencePath), 'Source Program transition output'
-            ),
-            use: async (transitionOutput) => {
-              const settled = await runGate({
-                ...descriptor,
-                argv: [descriptor.argv[0]!, '--no-env-file', '--config',
-                  path.join(compilerRuntimeLayout.packageRoot, 'bunfig.toml'),
-                  path.join(compilerRuntimeLayout.packageRoot, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT), ...descriptor.argv.slice(2)]
-              }, execution);
-              if (settled.result.stdout === undefined) {
-                throw new Error('Source Program transition producer did not return exact stdout bytes.');
-              }
-              // A copy of the captured process bytes, bound in this Action's evidenceRefs.
-              // Neither this file nor the JSON it contains is an author capability.
-              transitionOutput.assertCurrent();
-              const stdout = Buffer.from(settled.result.stdout);
-              const publication = publishExclusiveDurableCanonicalFile({
-                parent: transitionOutput.rootIdentity,
-                name: SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE,
-                bytes: stdout,
-                permissionMode: 0o400,
-                validate: (bytes) => {
-                  if (!Buffer.from(bytes).equals(stdout)) {
-                    throw new Error('Source Program transition output differs from the captured stdout bytes.');
-                  }
-                }
-              });
-              // Physical permits idempotent reuse; this producer's wx contract does not.
-              if (!publication.created) {
-                throw new PhysicalNoFollowError(
-                  'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT',
-                  'Source Program transition output already exists.'
-                );
-              }
-              return settled;
-            },
-            release: (transitionOutput) => transitionOutput.dispose()
-          });
+          return await publishSourceProgramTransitionOutput(evidencePath, () => runGate({
+            ...descriptor,
+            argv: [descriptor.argv[0]!, '--no-env-file', '--config',
+              path.join(compilerRuntimeLayout.packageRoot, 'bunfig.toml'),
+              path.join(compilerRuntimeLayout.packageRoot, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT), ...descriptor.argv.slice(2)]
+          }, execution));
         } finally {
           console.log('::endgroup::');
         }
@@ -830,6 +795,44 @@ async function runCodexDevelopmentCiVerification(
     }
   }
   return exitCode;
+}
+
+/** Copies captured process output under the retained parent across execution.
+ * This publication neither admits a process nor qualifies its result. */
+export async function publishSourceProgramTransitionOutput<T extends Readonly<{
+  result: CodexDevelopmentGateProcessResult;
+}>>(evidencePath: string, execute: () => Promise<T>): Promise<T> {
+  return withAcquiredResource({
+    operationLabel: 'Source Program transition output publication',
+    resourceLabel: 'Source Program transition output parent',
+    acquire: () => retainNoFollowFileTransaction(path.dirname(evidencePath), 'Source Program transition output'),
+    use: async (transitionOutput) => {
+      const settled = await execute();
+      if (settled.result.stdout === undefined) {
+        throw new Error('Source Program transition producer did not return exact stdout bytes.');
+      }
+      transitionOutput.assertCurrent();
+      const stdout = Buffer.from(settled.result.stdout);
+      const publication = publishExclusiveDurableCanonicalFile({
+        parent: transitionOutput.rootIdentity,
+        name: SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE,
+        bytes: stdout,
+        permissionMode: 0o400,
+        validate: (bytes) => {
+          if (!Buffer.from(bytes).equals(stdout)) {
+            throw new Error('Source Program transition output differs from the captured stdout bytes.');
+          }
+        }
+      });
+      // Physical permits idempotent reuse; this producer's wx contract does not.
+      if (!publication.created) {
+        throw new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT',
+          'Source Program transition output already exists.');
+      }
+      return settled;
+    },
+    release: (transitionOutput) => transitionOutput.dispose()
+  });
 }
 
 async function executeCodexDevelopmentCiVerification(

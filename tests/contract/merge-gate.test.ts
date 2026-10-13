@@ -915,11 +915,13 @@ test('merge wakeup is event-driven and rejects stale or nonterminal provider obs
 test('compiler exposes one terminal artifact and relies on native completion wakeup', async () => {
   const workflow = await readCompilerWorkflow();
   const coordinator = workflow.jobs['coordinate-verification-session']!;
-  const names = coordinator.steps.map(({ name }) => name);
-  const upload = names.indexOf('Upload sole terminal Verification Session artifact');
-  const terminal = names.indexOf('Preserve exact terminal five-state Session result');
-  expect(upload).toBeGreaterThan(-1);
-  expect(terminal).toBeGreaterThan(upload);
+  const coordinate = coordinator.steps.findIndex(({ id }) => id === 'coordinate');
+  const upload = coordinator.steps.findIndex(({ id }) => id === 'upload-session');
+  expect(coordinate).toBeGreaterThan(-1);
+  expect(upload).toBeGreaterThan(coordinate);
+  expect(coordinator.steps[upload]?.if).toBe("${{ always() && !cancelled() && steps.coordinate.outputs.session-ready == 'true' }}");
+  expect(coordinator.steps[upload]?.with?.name).toBe('${{ steps.coordinate.outputs.session-artifact-name }}');
+  expect(coordinator.steps[upload]?.with?.overwrite).toBe(false);
   const dispatchSites = Object.values(workflow.jobs).flatMap((job) => job.steps)
     .filter((candidate) => typeof candidate.with?.script === 'string' &&
       candidate.with.script.includes('createDispatchEvent'));
@@ -957,10 +959,16 @@ test('hosted integration splits read-only authorization, terminal status, and me
     contents: 'read',
     issues: 'read',
     'pull-requests': 'read',
-    statuses: 'read'
+    statuses: 'read',
+    'id-token': 'write'
   });
   expect(authorize.steps.map(({ name }) => name)).toContain('Prepare exact integration recovery artifact');
-  expect(authorize.steps.map(({ name }) => name)).toContain('Prove exact main authority rulesets before terminal authorization');
+  expect(authorize.steps.find(({ id }) => id === 'prepare')?.run)
+    .toContain('--job authorize --phase prepare-integration-hosted');
+  expect(authorize.steps.find(({ id }) => id === 'verify')?.run)
+    .toContain('--job authorize --phase verify-integration-recovery');
+  expect(authorize.steps.findIndex(({ id }) => id === 'verify'))
+    .toBeGreaterThan(authorize.steps.findIndex(({ id }) => id === 'upload-recovery'));
   expect(authorize.steps.map(({ name }) => name)).not.toContain('Integrate exact hosted Session and publish live readback status');
 
   expect(terminal.needs).toEqual(['plan', 'authorize']);
@@ -978,19 +986,18 @@ test('hosted integration splits read-only authorization, terminal status, and me
     contents: 'write',
     issues: 'write',
     'pull-requests': 'write',
-    statuses: 'read'
+    statuses: 'read',
+    'id-token': 'write'
   });
   const integrateNames = integrate.steps.map(({ name }) => name);
   expect(integrateNames).toContain('Download exact integration preflight and recovery artifact');
-  expect(integrateNames).toContain('Re-prove exact main authority rulesets before integration effect');
-  expect(integrateNames).toContain('Re-read terminal authorization subject before effect');
   expect(integrateNames).toContain('Integrate exact hosted Session and publish live readback status');
   expect(integrateNames).toContain('Close out exact integrated branch');
   expect(integrateNames).toContain('Publish exact branch closeout receipt');
-  expect(integrateNames.indexOf('Re-prove exact main authority rulesets before integration effect'))
-    .toBeLessThan(integrateNames.indexOf('Integrate exact hosted Session and publish live readback status'));
-  expect(integrateNames.indexOf('Re-read terminal authorization subject before effect'))
-    .toBeLessThan(integrateNames.indexOf('Integrate exact hosted Session and publish live readback status'));
+  expect(integrate.steps.find(({ id }) => id === 'integrate')?.run)
+    .toContain('--job integrate --phase integrate-hosted');
+  expect(integrate.steps.find(({ id }) => id === 'integrate')?.env?.SEC_GITHUB_RULESET_AUDITOR_TOKEN)
+    .toBe('${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}');
   expect(integrateNames.indexOf('Download exact integration preflight and recovery artifact'))
     .toBeLessThan(integrateNames.indexOf('Integrate exact hosted Session and publish live readback status'));
 });

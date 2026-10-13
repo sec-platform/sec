@@ -7,6 +7,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync
 } from 'node:fs';
@@ -251,6 +252,8 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
     writeFileSync(hardLinkSource, 'export const hardLinkSource = true;\n', 'utf8');
     linkSync(hardLinkSource, path.join(root, 'leaf.ts'));
     symlinkSync(outside, path.join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    const hardLinkIdentity = statSync(hardLinkSource, { bigint: true });
+    const outsideIdentity = statSync(outsideFile, { bigint: true });
 
     expect(() => trustedRuntimeClosure(['entry.ts'], {
       candidateRoot: `${root}${path.sep}`
@@ -261,11 +264,20 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
     expect(() => trustedRuntimeClosure(['../entry.ts'], { candidateRoot: root }))
       .toThrow('module path is not canonical');
     expect(() => trustedRuntimeClosure(['directory.ts'], { candidateRoot: root }))
-      .toThrow('physical single-link regular file');
+      .toThrow('TCB candidate module bounded read failed');
     expect(() => trustedRuntimeClosure(['leaf.ts'], { candidateRoot: root }))
-      .toThrow('physical single-link regular file');
+      .toThrow('TCB candidate module bounded read failed');
+    expect(readFileSync(hardLinkSource, 'utf8')).toBe('export const hardLinkSource = true;\n');
+    expect(readFileSync(path.join(root, 'leaf.ts'), 'utf8')).toBe('export const hardLinkSource = true;\n');
     expect(() => trustedRuntimeClosure(['linked/leaf.ts'], { candidateRoot: root }))
-      .toThrow('module path is not canonical');
+      .toThrow('TCB candidate module bounded read failed');
+    expect(readFileSync(outsideFile, 'utf8')).toBe('export const outside = true;\n');
+    expect(statSync(hardLinkSource, { bigint: true })).toMatchObject({
+      dev: hardLinkIdentity.dev, ino: hardLinkIdentity.ino, nlink: hardLinkIdentity.nlink
+    });
+    expect(statSync(outsideFile, { bigint: true })).toMatchObject({
+      dev: outsideIdentity.dev, ino: outsideIdentity.ino, nlink: outsideIdentity.nlink
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });

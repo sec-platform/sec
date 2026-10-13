@@ -2,6 +2,7 @@
  * physical qualification, accepted native content, Session or PASS is mocked. */
 import { mock } from 'bun:test';
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as gitAuthority from '../../../src/adapters/providers/git-read/authority.ts';
 import * as mainHealth from '../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
 import * as workPackage from '../../../src/adapters/self-hosting/control/task/contract/work-package.ts';
@@ -21,7 +22,7 @@ const candidate = { repository: 'sec-platform/sec', number: 123, state: 'OPEN', 
   headSha: head, headTreeSha: '4'.repeat(40), authorNodeId: 'AUTHOR', body: '' };
 const counters = { source: 0, native: 0, healthObservation: 0, candidate: 0, review: 0 };
 let actor = 'MAINTAINER', cancel = false, changedLocator = false;
-const moduleMock = (url: string, factory: () => object) => mock.module(new URL(url, import.meta.url).pathname, factory);
+const moduleMock = (url: string, factory: () => object) => mock.module(fileURLToPath(new URL(url, import.meta.url)), factory);
 moduleMock('../../../src/adapters/providers/git-read/authority.ts', () => ({ ...gitAuthority,
   withAuthorityGitReadSession: async (_input: unknown, callback: (value: unknown) => unknown) => callback({}) }));
 moduleMock('../../../src/adapters/self-hosting/development/tooling/git/git-read.ts', () => ({ ...gitRead,

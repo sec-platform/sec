@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
+import { createRawTestExecutableFixture } from '../../../../../tests/testkit/raw-process.ts';
 
 import {
   PHYSICAL_MUTATION_LEASE_SCHEMA,
@@ -23,9 +24,14 @@ const NAMESPACE_LEAF = 'registrations-v3';
 const ANCHOR_NAME = `.sec-namespace-coordination-guard-${createHash('sha256').update(NAMESPACE_LEAF).digest('hex')}.lock`;
 
 function exitedPid(): number {
-  const result = spawnSync(process.execPath, ['-e', '0'], { stdio: 'ignore' });
-  if (!Number.isSafeInteger(result.pid) || result.pid <= 0) throw new Error('Failed to observe an exited helper process.');
-  return result.pid;
+  const executable = createRawTestExecutableFixture();
+  try {
+    const result = spawnSync(executable.command, ['-e', '0'], { stdio: 'ignore' });
+    if (result.error !== undefined || result.status !== 0 || !Number.isSafeInteger(result.pid) || result.pid <= 0) {
+      throw new Error('Failed to observe an exited helper process.', { cause: result.error });
+    }
+    return result.pid;
+  } finally { executable.dispose(); }
 }
 
 function legacyOwner(overrides: Partial<PhysicalMutationLeaseOwner> = {}): PhysicalMutationLeaseOwner {

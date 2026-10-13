@@ -8,6 +8,7 @@ import { buildE2eMatrix } from '../../src/assurance/verification/review/matrix.t
 import { formatExplainSummary } from '../../src/entry/cli/explain-summary.ts';
 import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 // Domain effects are replaced only inside a separate process. The real command
@@ -42,9 +43,8 @@ test('live explain routing preserves raw JSON, text and single matrix derivation
       await Bun.write(${JSON.stringify(receiptPath)}, JSON.stringify({ reads }));
     `);
     const invoke = async (args: string[]) => {
-      const child = Bun.spawn([process.execPath, scriptPath, 'explain', ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      expect(exitCode, stderr).toBe(0);
+      const { stdout, stderr, code } = await runRetainedBunTestCommand([scriptPath, 'explain', ...args], { cwd: root });
+      expect(code, stderr).toBe(0);
       return stdout;
     };
     const e2eMatrix = buildE2eMatrix(reviewSummary);

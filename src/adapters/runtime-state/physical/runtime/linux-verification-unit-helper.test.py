@@ -1,4 +1,5 @@
 """Bounded filesystem tests and one root-only native cleanup integration."""
+import errno
 import importlib.util
 import json
 import os
@@ -146,6 +147,30 @@ sys.exit(1)
 
 
 class RuntimeCopyPermissions(unittest.TestCase):
+    def test_temporary_snapshot_uses_retained_filesystem_after_path_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            temporary = root / 'tmp'
+            temporary.mkdir()
+            original = temporary.stat()
+            fd = helper.nofollow_directory(str(temporary))
+            try:
+                temporary.rename(root / 'retained')
+                temporary.mkdir()
+                snapshot = helper.temporary_filesystem_snapshot(fd)
+                self.assertEqual((snapshot['device'], snapshot['inode']), (str(original.st_dev), str(original.st_ino)))
+                self.assertNotEqual(snapshot['inode'], str(temporary.stat().st_ino))
+                self.assertGreater(snapshot['bytesTotal'], 0)
+                self.assertGreaterEqual(snapshot['bytesTotal'], snapshot['bytesFree'])
+                self.assertGreaterEqual(snapshot['bytesFree'], snapshot['bytesAvailable'])
+                self.assertGreaterEqual(snapshot['inodesTotal'], snapshot['inodesFree'])
+                self.assertGreaterEqual(snapshot['inodesFree'], snapshot['inodesAvailable'])
+            finally:
+                os.close(fd)
+            with self.assertRaises(OSError) as closed:
+                helper.temporary_filesystem_snapshot(fd)
+            self.assertEqual(closed.exception.errno, errno.EBADF)
+
     def test_recovery_removes_only_original_fixed_empty_objects(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -5,6 +5,7 @@ import { mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import * as gitAuthority from '../../../src/adapters/providers/git-read/authority.ts';
 import * as githubSession from '../../../src/adapters/providers/github-api/operation-session.ts';
@@ -65,7 +66,7 @@ const prepared = () => {
   return { request: scenario === 'environment-drift' ? { ...request, expectedActionPlanDigest: D('f') } : request,
     sessionRevision: fixtureSession.sessionRevision, envelope };
 };
-const mockModule = (url: string, factory: () => object) => mock.module(new URL(url, import.meta.url).pathname, factory);
+const mockModule = (url: string, factory: () => object) => mock.module(fileURLToPath(new URL(url, import.meta.url)), factory);
 mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts', () => ({
   ...sessionRuntime, prepareTrustedMainVerificationSession: prepared, prepareTrustedRuntimeVerificationSession: prepared,
   finalizeVerificationSessionHostedArtifact: () => artifact, refreshVerificationSessionHostedArtifact: () => artifact
@@ -120,10 +121,10 @@ mockModule('../../../src/adapters/self-hosting/development/tooling/git/git-read.
   }
 }));
 mockModule('../../../src/adapters/self-hosting/control/task/contract/work-package.ts', () => ({
-  ...workPackage, parseWorkPackageLocator: () => request.manifestPath,
-  workPackageManifestDigest: () => request.manifestDigest,
-  parseCurrentWorkPackageManifest: () => ({ requiredProfile: request.profile }),
-  assertWorkPackageOwnership: () => {}
+  ...workPackage, CodexDevelopmentParseWorkPackageLocator: () => request.manifestPath,
+  CodexDevelopmentWorkPackageManifestDigest: () => request.manifestDigest,
+  CodexDevelopmentParseCurrentWorkPackageManifest: () => ({ requiredProfile: request.profile }),
+  CodexDevelopmentAssertWorkPackageOwnership: () => {}
 }));
 mockModule('../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts', () => ({
   ...mainHealth,

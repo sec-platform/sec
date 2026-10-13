@@ -11,6 +11,7 @@ import type { PipelineSemanticContext } from '../../src/compiler/pipeline/semant
 import { assertUniqueSemanticOutputPaths } from '../../src/compiler/semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from '../../src/compiler/state-transition-plan.ts';
 import type { StateTransitionMapGeneratorPlanTask } from '../../src/semantics/generation/types.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 function task(id = 'one', values = ['open', 'closed']): StateTransitionMapGeneratorPlanTask {
   return {
@@ -292,10 +293,10 @@ for (const fault of ['fence-and-dispose', 'readback-and-dispose', 'different-and
       fs.writeFileSync(${JSON.stringify(target)}, 'after settlement');
       assert.equal(fs.readFileSync(${JSON.stringify(target)}, 'utf8'), 'after settlement');
     `);
-    const result = Bun.spawnSync([process.execPath, script], {
-      cwd: process.cwd(), env: process.env, stdout: 'pipe', stderr: 'pipe', timeout: DEFAULT_TEST_TIMEOUT_MS
+    const result = await runRetainedBunTestCommand([script], {
+      cwd: process.cwd(), env: process.env, timeoutMs: DEFAULT_TEST_TIMEOUT_MS
     });
-    assert.equal(result.exitCode, 0, Buffer.from(result.stderr).toString('utf8'));
+    assert.equal(result.code, 0, result.stderr);
   }));
 }
 
@@ -324,10 +325,10 @@ test('unsupported retained platforms keep the original writer without acquiring 
     assert.equal(fs.readFileSync(${JSON.stringify(target)}, 'utf8'), ${JSON.stringify(source)});
     assert.notEqual(fs.statSync(${JSON.stringify(target)}, { bigint: true }).mtimeNs, ${before}n);
   `);
-  const result = Bun.spawnSync([process.execPath, script], {
-    cwd: process.cwd(), env: process.env, stdout: 'pipe', stderr: 'pipe', timeout: DEFAULT_TEST_TIMEOUT_MS
+  const result = await runRetainedBunTestCommand([script], {
+    cwd: process.cwd(), env: process.env, timeoutMs: DEFAULT_TEST_TIMEOUT_MS
   });
-  assert.equal(result.exitCode, 0, Buffer.from(result.stderr).toString('utf8'));
+  assert.equal(result.code, 0, result.stderr);
 }));
 
 test('returned task data is independently owned and remains mutable for its next lifecycle', async () => fixture(async root => {

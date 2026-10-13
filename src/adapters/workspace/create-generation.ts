@@ -10,7 +10,7 @@ import { snapshotWorkspaceCreateRequest, type WorkspaceCreateIntent, type Worksp
 import { assertWorkspaceWriteLease, WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
 import { observePhysicalJournalMutationEntry } from '../runtime-state/physical/runtime/mutation-lease.ts';
 import {
-  assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory,
+  assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectoryWithReceipt,
   deleteRetainedNoFollowEntry, flushNoFollowDirectory,
   inspectNoFollowDirectoryLeaf,
   relocateRetainedNoFollowDirectoryAcrossParents,
@@ -312,35 +312,42 @@ export async function openWorkspaceCreateSession(input: Readonly<{
       if (!observedOnce || journal !== null || recorded !== null || guard !== null) conflict('generation-already-observed');
       await assertWorkspaceCreateSurfaceEmpty(input.workspaceRoot, input.token);
       const generation = randomUUID(), stageName = STAGE_PREFIX + generation;
-      const stage = createExclusiveNoFollowDirectory(local, stageName);
-      const stageFence = async () => { await fence(); assertSameNoFollowDirectoryIdentity(stage, 'Workspace unpublished stage'); };
+      const stageBirth = createExclusiveNoFollowDirectoryWithReceipt(local, stageName);
+      const stage = stageBirth.directory;
+      const stageFence = async () => {
+        await fence();
+        assertSameNoFollowDirectoryIdentity(stage, 'Workspace unpublished stage');
+        const current = scanNoFollowDirectoryDirectMetadata(local, bounds()).find(entry => entry.relativePath === stageName);
+        if (!current || current.kind !== 'directory' || !sameIdentity(current, stage)
+            || (current.permissionMode ?? null) !== stageBirth.permissionMode) conflict('changed-staged-birth');
+      };
       const stageFiles = retainNoFollowFileTransaction(stage.path, 'Workspace staged generation', input.testOnlyActor);
       let primary: { label: string; error: unknown } | undefined;
       let prepared!: Journal;
-      const births = new Map<string, Identity>();
+      const births = new Map<string, Readonly<{ identity: Identity; permissionMode: number | null }>>();
       try {
       for (const relative of blueprint.directories) {
         await stageFence();
         const parentPath = path.posix.dirname(relative);
         const parent = parentPath === '.' ? stage : directoryAt(stage, parentPath)!;
-        const created = createExclusiveNoFollowDirectory(parent, path.posix.basename(relative), undefined, 0o777);
-        births.set(relative, identity(created));
+        const created = createExclusiveNoFollowDirectoryWithReceipt(parent, path.posix.basename(relative), undefined, 0o777);
+        births.set(relative, { identity: identity(created.directory), permissionMode: created.permissionMode });
       }
       for (const file of blueprint.files) {
         await stageFence();
         const created = await stageFiles.createExclusive(file.relativePath, file.bytes, 'Workspace staged file', file.creationMode ?? 0o666);
-        births.set(file.relativePath, identity(created.identity));
+        births.set(file.relativePath, { identity: identity(created.identity), permissionMode: created.permissionMode });
       }
       await stageFence();
       prepared = { schema: SCHEMA, phase: 'prepared', generation, template: intent.template,
         blueprintDigest: intent.digest, root: identity(root), localState: identity(local), stage: identity(stage), stageName, entries: inventory(stage) };
       assertBlueprint(prepared, blueprint);
       // Both native exclusive creators return after their publication barriers.
-      // Reuse those exact receipts, and reject a same-byte replacement before
-      // journal birth instead of adopting the later inventory's identities.
+      // Reuse those exact identities and birth modes; neither a same-byte
+      // replacement nor an in-place chmod may be adopted by journal birth.
       for (const entry of prepared.entries) {
         const born = births.get(entry.relativePath);
-        if (!born || !sameIdentity(born, entry)) conflict('changed-staged-birth');
+        if (!born || !sameIdentity(born.identity, entry) || born.permissionMode !== entry.permissionMode) conflict('changed-staged-birth');
       }
       flushNoFollowDirectory(stage);
       } catch (error) { primary = { label: 'workspace create staging', error }; throw error; }

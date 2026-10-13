@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
 import type { BranchCloseoutAttempt, BranchCloseoutPreparation } from '../../src/execution/verification/branch-closeout.ts';
@@ -7,16 +7,16 @@ import type { BranchCloseoutAttempt, BranchCloseoutPreparation } from '../../src
 /** An isolated test process replaces only the original admission validator.
  * Git, its retained provider, workspace lease and CAS remain their actual
  * owners. This fixture never issues or proves a MainHealth qualification. */
-export function observeLocalRefCasWithAdmissionDouble(input: Readonly<{
+export async function observeLocalRefCasWithAdmissionDouble(input: Readonly<{
   preparation: BranchCloseoutPreparation;
   operationId: OperationDigest;
   revokeAtFinalCheck?: boolean;
-}>): Readonly<{
+}>): Promise<Readonly<{
   result: BranchCloseoutAttempt;
   attempts: readonly BranchCloseoutAttempt[];
   admissionChecks: number;
   realForgedAdmissionRejected: boolean;
-}> {
+}>> {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const script = `
     import { mock } from 'bun:test';
@@ -55,12 +55,12 @@ export function observeLocalRefCasWithAdmissionDouble(input: Readonly<{
       lease => deleteHostedLocalRefCas(input.preparation, attempts, lease, input.operationId, qualification));
     process.stdout.write(JSON.stringify({ result, attempts, admissionChecks, realForgedAdmissionRejected }));
   `;
-  const observed = spawnSync(process.execPath, ['--no-env-file', '-e', script], {
-    cwd: root, input: JSON.stringify(input), encoding: 'utf8', windowsHide: true,
-    env: process.env, maxBuffer: 1024 * 1024
+  const observed = await runRetainedBunTestCommand(['--no-env-file', '-e', script], {
+    cwd: root, input: Buffer.from(JSON.stringify(input)), maxStdinBytes: 1024 * 1024,
+    env: process.env
   });
-  if (observed.status !== 0) {
+  if (observed.code !== 0) {
     throw new Error(`Isolated local CAS/admission oracle did not complete: ${observed.stderr}`);
   }
-  return JSON.parse(observed.stdout) as ReturnType<typeof observeLocalRefCasWithAdmissionDouble>;
+  return JSON.parse(observed.stdout) as Awaited<ReturnType<typeof observeLocalRefCasWithAdmissionDouble>>;
 }

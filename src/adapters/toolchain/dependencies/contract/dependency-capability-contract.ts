@@ -35,6 +35,7 @@ export const DEPENDENCY_CAPABILITY_SPECS: readonly Readonly<DependencyCapability
   { name: 'ora', section: 'dependencies', generatedRuntime: 'none' },
   { name: 'p-limit', section: 'dependencies', generatedRuntime: 'none' },
   { name: 'picocolors', section: 'dependencies', generatedRuntime: 'none' },
+  { name: 'yauzl', section: 'dependencies', generatedRuntime: 'none' },
   { name: 'yaml', section: 'dependencies', generatedRuntime: 'dependency' },
   { name: 'zod', section: 'dependencies', generatedRuntime: 'none' },
   {
@@ -51,9 +52,11 @@ export const DEPENDENCY_CAPABILITY_SPECS: readonly Readonly<DependencyCapability
     freshness: { kind: 'runtime-version', runtime: 'bun' }
   },
   { name: '@types/node', section: 'devDependencies', generatedRuntime: 'devDependency' },
+  { name: '@types/yauzl', section: 'devDependencies', generatedRuntime: 'none' },
   { name: 'jscpd', section: 'devDependencies', generatedRuntime: 'none' },
   { name: 'knip', section: 'devDependencies', generatedRuntime: 'none' },
   { name: 'prettier', section: 'devDependencies', generatedRuntime: 'none' },
+  { name: 'yazl', section: 'devDependencies', generatedRuntime: 'none' },
   {
     name: 'typescript',
     section: 'devDependencies',

@@ -11,6 +11,7 @@ import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-conte
 import { readLockFile } from '../../src/adapters/workspace/lock.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
+import { productVerificationSubjectRevision } from '../../src/assurance/verification/project/report.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
@@ -21,6 +22,7 @@ import {
   buildReviewLock,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
+import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { writeCanonicalVerificationArtifactSetFixture } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -41,7 +43,8 @@ function skippedPolicyReport(): PolicyReport {
 
 async function writeCanonicalPassingVerificationArtifacts(
   workspaceRoot: string,
-  report: VerificationReport
+  report: VerificationReport,
+  lock: LockFile
 ): Promise<VerificationReport> {
   const policyReport = skippedPolicyReport();
   const acceptanceCoverage = buildPassingReviewCoverage({
@@ -63,13 +66,13 @@ async function writeCanonicalPassingVerificationArtifacts(
     ...report,
     policy: { status: 'skipped', violations: [] },
     fast,
-  }, { policyReport, acceptanceCoverage });
+  }, { policyReport, acceptanceCoverage, subjectRevision: productVerificationSubjectRevision(lock) });
   return verificationReport;
 }
 
 test('buildProvenance consumes only a complete canonical Verification artifact set', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const lock: LockFile = {
+    const lock = buildReviewLock({
       formatVersion: '1',
       app: {
         id: 'customer-admin',
@@ -79,6 +82,8 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       },
       resolvedBlocks: [],
       resolvedCapabilities: [],
+      semanticLoweringTasks: [],
+      semanticViews: buildSemanticViewFixture(),
       installPlan: [
         buildOfficialCopyInstallStep({
           stepId: 'copy_customer_runtime_test',
@@ -111,7 +116,7 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
         lock: 'pending',
         emit: 'pending'
       }
-    };
+    });
 
     const report = buildPassingReviewReport({
       unit: { status: 'passed', passed: ['tests/unit/customer-runtime.test.ts'] },
@@ -128,7 +133,7 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       }),
       summary: { requestedLane: 'all' }
     });
-    const verificationReport = await writeCanonicalPassingVerificationArtifacts(workspaceRoot, report);
+    const verificationReport = await writeCanonicalPassingVerificationArtifacts(workspaceRoot, report, lock);
 
     const captured = readOptionalVerificationArtifactSet(workspaceRoot);
     const provenance = await buildProvenance(workspaceRoot, lock);
@@ -189,15 +194,18 @@ test('lockProject rejects foreign subjects before effects and captures admitted 
     const before = await fs.readFile(lockPath, 'utf8');
     const pendingVerify = structuredClone(fixture.lock);
     pendingVerify.passStatus.verify = 'pending';
-    await expect(lockProject(workspaceRoot, pendingVerify)).rejects.toMatchObject({ code: 'LOCK-BLOCKED-001' });
-    expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
+    const admittedPending = await lockProject(workspaceRoot, pendingVerify);
+    expect(admittedPending.passStatus.verify).toBe('pending');
+    expect(admittedPending.passStatus.lock).toBe('succeeded');
+    const admittedBytes = await fs.readFile(lockPath, 'utf8');
+    expect(admittedBytes).not.toBe(before);
     const foreign = structuredClone(fixture.lock);
     foreign.app.id = 'foreign-lock-subject';
     let effects = 0;
     await expect(lockProject(workspaceRoot, foreign, async () => { effects++; }))
-      .rejects.toMatchObject({ code: 'LOCK-BLOCKED-002' });
+      .rejects.toMatchObject({ code: 'VERIFY-SUBJECT-002' });
     expect(effects).toBe(0);
-    expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
+    expect(await fs.readFile(lockPath, 'utf8')).toBe(admittedBytes);
 
     const pending = lockProject(workspaceRoot, fixture.lock);
     fixture.lock.app.id = 'retargeted-after-admission';

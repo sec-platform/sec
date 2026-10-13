@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // Isolate loader failure from the other tests' module cache. The production
 // wrapper, not a replacement execution function, owns the fallback boundary.
@@ -30,8 +31,7 @@ test('unavailable optional progress dependency cannot block or retry the request
       if (calls !== 3) throw new Error('action was omitted or repeated');
       console.log('completed once per request');
     `);
-    const child = Bun.spawn([process.execPath, script], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const { code, stdout: out, stderr: err } = await runRetainedBunTestCommand([script], { cwd: root });
     expect(code, err).toBe(0);
     expect(out.trim()).toBe('completed once per request');
   } finally { await rm(root, { recursive: true, force: true }); }

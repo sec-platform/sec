@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { formatOutputFiles } from '../../src/adapters/compilation/compose/format-output-files.ts';
 import { generateRuntimeLibraryScaffold } from '../../src/adapters/compilation/compose/generate-runtime-library.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 function deferred() {
   let resolve!: () => void;
@@ -141,13 +142,10 @@ for (const stage of ['lower', 'runtime', 'baseline', 'saved'] as const) {
         }
         console.log('joined real stage; observed original cancellation and durable outcome');
       `);
-      const child = Bun.spawn([process.execPath, script], {
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script], {
         env: { ...process.env, SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
-        stdout: 'pipe', stderr: 'pipe', timeout: 15_000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024
+        timeoutMs: 15_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024
       });
-      const [code, stdout, stderr] = await Promise.all([
-        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-      ]);
       assert.equal(code, 0, stderr);
       assert.equal(stdout.trim(), 'joined real stage; observed original cancellation and durable outcome');
     } finally { rmSync(root, { recursive: true, force: true }); }

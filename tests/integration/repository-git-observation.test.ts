@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { affectedGitSelectionDigest, issueAffectedGitSelectionSource, rebindAffectedGitSelectionSource } from '../../src/adapters/verification/platform/test-impact/runtime/affected-git-source.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import { createAuthorityGitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
@@ -156,11 +157,9 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
       "return { status: config.status, stdoutByteLength: config.stdout.byteLength, indexStatus: index.status, indexPaths: index.stdout.toString('utf8') }; });",
       "process.stdout.write(JSON.stringify(result));"
     ].join('\n');
-    const ambientChild = spawnSync(process.execPath, ['--no-env-file', '--eval', source], {
+    const ambientChild = await runRetainedBunTestCommand(['--no-env-file', '--eval', source], {
       cwd: process.cwd(),
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30_000,
+      timeoutMs: 30_000,
       env: {
         ...hostileEnvironment,
         GIT_CONFIG_COUNT: '1',
@@ -169,7 +168,7 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
         GIT_CONFIG_NOSYSTEM: '0'
       }
     });
-    expect(ambientChild.status).toBe(0);
+    expect(ambientChild.code).toBe(0);
     expect(ambientChild.stderr).toBe('');
     expect(JSON.parse(ambientChild.stdout)).toEqual({
       status: 1,

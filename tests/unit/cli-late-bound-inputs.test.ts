@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relative: string) => JSON.stringify(path.join(repo, relative));
@@ -12,8 +13,7 @@ async function runCase(body: (root: string, decoy: string) => string) {
     const decoy = path.join(root, 'decoy'); await mkdir(decoy);
     const script = path.join(root, 'case.ts');
     await writeFile(script, body(root, decoy));
-    const child = Bun.spawn([process.execPath, script], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
     expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('bound request retained');
   } finally { await rm(root, { recursive: true, force: true }); }
 }

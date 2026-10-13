@@ -101,7 +101,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       generationParent,
       deadlineAtUnixMs
     });
-    expect(completed.status).toBe('completed');
+    expect(completed.status, JSON.stringify(completed)).toBe('completed');
     if (completed.status !== 'completed') throw new Error('Knip did not complete');
     expect(completed.receipt).toMatchObject({
       provider: 'knip',
