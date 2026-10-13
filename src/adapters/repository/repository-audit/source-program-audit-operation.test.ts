@@ -1,15 +1,26 @@
 import { describe, test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rmdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { syntheticTestFindingComparison } from '../../../../tests/testkit/source-program-test-finding-fixture.ts';
 
+import { createRawTestExecutableFixture } from '../../../../tests/testkit/raw-process.ts';
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext } from '../../../execution/operation/semantic.ts';
+import { settleResourcesAsync } from '../../../execution/resource-settlement.ts';
+import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
+import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
+import { materializeRetainedSealedPhysicalExecutionTreeGeneration, retainMutableSealedPhysicalExecutionProtectedRoot } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../../self-hosting/development/tooling/git/git-read.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel } from '../source-program-model/contract.ts';
+import { compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot } from '../source-program-model/producer-closure.ts';
 import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
 import { querySourceProgramModel } from '../source-program-model/typescript.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
+import { acquireWorkingTreeWorkspaceSourceSnapshot, compileVirtualWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
 import type { RepositoryAuditLoadedImplementationEvidence } from './loaded-implementation.ts';
 import {
   BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
@@ -41,10 +52,112 @@ import {
   compileRepositoryAuditWorkerRequest,
   compileRepositoryAuditWorkerResultCandidate,
   encodeRepositoryAuditWorkerCandidateStream,
+  encodeRepositoryAuditWorkerRequest,
+  parseRepositoryAuditWorkerCandidateStream,
   REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS
 } from './worker-protocol.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
+
+test('descriptor worker executes its exact sealed closure without repository or package resources', async () => {
+  const repositoryRoot = path.resolve(import.meta.dir, '../../../..');
+  const closure = await withAuthorityGitReadSession({
+    cwd: repositoryRoot,
+    budget: GIT_READ_OPERATION_BUDGET
+  }, async (session) => {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    return compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(snapshot, {
+      capability: 'repository-audit.source-program-operation',
+      operation: 'executeRepositoryAuditSourceProgramOperation'
+    });
+  });
+  let generationParentPath: string | null = null;
+  let executable: ReturnType<typeof createRawTestExecutableFixture> | null = null;
+  let protectedRoot: ReturnType<typeof retainMutableSealedPhysicalExecutionProtectedRoot> | null = null;
+  let generation: Awaited<ReturnType<typeof materializeRetainedSealedPhysicalExecutionTreeGeneration>> | null = null;
+  let primary: unknown;
+  try {
+    generationParentPath = await mkdtemp(path.join(tmpdir(), 'gift-audit-worker-'));
+    executable = createRawTestExecutableFixture();
+    protectedRoot = retainMutableSealedPhysicalExecutionProtectedRoot(
+      inspectNoFollowDirectoryChain(repositoryRoot, 'worker test source').target
+    );
+    generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
+      deadlineAtUnixMs: Date.now() + 30_000,
+      directoryNamePrefix: 'worker-',
+      generationParent: inspectNoFollowDirectoryChain(generationParentPath, 'worker test parent').target,
+      files: closure.implementationFiles.map(({ path: filePath, source }) => ({
+        path: filePath, bytes: Buffer.from(source, 'utf8')
+      })),
+      links: [],
+      protectedRoots: [protectedRoot],
+      maximumBytes: 16 * 1024 * 1024,
+      maximumEntries: 1024
+    });
+    const sourceRevision = digest('sealed-source');
+    const modelDigest = digest('sealed-model');
+    const subjectDigest = digest('sealed-subject');
+    const projection = {
+      sourceRevision, modelDigest,
+      enforcement: { requested: true, blockingReasons: ['independent-blocking-fixture'] }
+    };
+    const request = compileRepositoryAuditWorkerRequest({
+      operationIdentityDigest: digest('sealed-operation'),
+      boundAttemptDigest: digest('sealed-attempt'),
+      generationDigest: generation.identity.generationDigest,
+      entrypointAddress: closure.entrypoint.address,
+      implementationDigest: closure.closureDigest,
+      dependencyGenerationDigest: digest('no-external-dependency-fixture'),
+      subjectDigest,
+      payload: encodeSourceProgramAuditOperationInput({
+        binding: { sourceRevision, modelDigest, subjectDigest },
+        enforce: true,
+        blockingReasons: ['independent-blocking-fixture'],
+        projection,
+        reductionPatch: null
+      })
+    });
+    const result = await runCommandBytes(executable.command, [
+      '--no-env-file', '--no-install', closure.entrypoint.path
+    ], {
+      cwd: generation.workingDirectory.root.path,
+      env: {}, envMode: 'replace',
+      input: encodeRepositoryAuditWorkerRequest(request),
+      maxStdinBytes: REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumRequestBytes,
+      maxStdoutBytes: REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumCandidateStreamBytes,
+      maxStderrBytes: 16_384,
+      timeoutMs: 5_000
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    const candidate = parseRepositoryAuditWorkerCandidateStream({
+      bytes: result.stdout, eofObserved: true
+    }, request, {
+      maximumRequestBytes: REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumRequestBytes,
+      maximumResultBytes: REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumCandidateStreamBytes
+    });
+    const operation = parseSourceProgramAuditOperationResult(
+      candidate.payload, REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumOperationResultBytes
+    );
+    assert.equal(operation.exitCode, 1);
+    assert.deepEqual(operation.projection, projection);
+    assert.equal(candidate.result.authority, 'none-candidate-only');
+  } catch (error) {
+    primary = error;
+  } finally {
+    await settleResourcesAsync({
+      ...(primary === undefined ? {} : { primary: { label: 'sealed worker test', error: primary } }),
+      cleanup: [
+        { label: 'sealed worker generation', settle: async () => { await generation?.retire(); } },
+        { label: 'protected source root', settle: () => protectedRoot?.release() },
+        { label: 'test executable', settle: () => executable?.dispose() },
+        { label: 'test parent', settle: async () => {
+          if (generationParentPath !== null) await rmdir(generationParentPath);
+        } }
+      ]
+    });
+  }
+}, 60_000);
 
 function input(
   currentCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
