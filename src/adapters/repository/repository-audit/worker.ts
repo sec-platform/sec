@@ -4,7 +4,7 @@ import {
   compileSourceProgramAuditOperation,
   encodeSourceProgramAuditOperationResult,
   parseSourceProgramAuditOperationInput
-} from './source-program-audit-operation.ts';
+} from './source-program-audit-kernel.ts';
 import {
   compileRepositoryAuditWorkerHandshakeCandidate,
   compileRepositoryAuditWorkerResultCandidate,

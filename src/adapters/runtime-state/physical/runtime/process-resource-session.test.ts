@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { sha256 } from '../../../../contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import {
   issueSecOperationRequirementBindingContext,
   type SecOperationRequirementBindingContext,
@@ -19,6 +19,7 @@ import {
   type SecOperationDigest,
   type SecOperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
+import { ResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
 import {
   issueIndependentProviderProcessCapability
 } from './independent-provider-process.ts';
@@ -550,13 +551,13 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
   session.close();
 });
 
-test('child timeout settles its physical process tree inside the parent operation deadline', async () => {
+test('child timeout settles its physical process tree and retains bounded failure diagnostics', async () => {
   const retained = retainTestBoundary();
   const operation = boundOperation({
     budgets: [
       { resource: 'duration-ms', maximum: 1_000 },
       { resource: 'input-bytes', maximum: 0 },
-      { resource: 'output-bytes', maximum: 2 },
+      { resource: 'output-bytes', maximum: 8 },
       { resource: 'processes', maximum: 2 }
     ],
     deadlineAtUnixMs: Date.now() + 5_000,
@@ -573,10 +574,10 @@ test('child timeout settles its physical process tree inside the parent operatio
       await session.run(retained.boundary, [
         '--no-env-file',
         '--eval',
-        'setInterval(() => {}, 1_000)'
+        'process.stdout.write(Buffer.from([0, 255]));process.stderr.write(Buffer.from([101, 114, 114, 58, 255, 0]));setInterval(() => {}, 1_000)'
       ], {
-        maxStderrBytes: 1,
-        maxStdoutBytes: 1,
+        maxStderrBytes: 6,
+        maxStdoutBytes: 2,
         terminationGraceMs: 50
       });
     } catch (error) {
@@ -597,6 +598,16 @@ test('child timeout settles its physical process tree inside the parent operatio
       }
     });
     expect(settledAtMonotonicMs).toBeLessThan(session.deadlineAtMonotonicMs);
+    const captured = transportFailure.readCapturedOutput();
+    expect(captured?.stdout.bytes).toEqual(new Uint8Array([0, 255]));
+    expect(captured?.stderr.bytes).toEqual(new Uint8Array([101, 114, 114, 58, 255, 0]));
+    expect(captured?.stderr.capturedDigest).toBe(rawSha256(new Uint8Array([101, 114, 114, 58, 255, 0])));
+    expect(captured?.stderr.capturedDigest).toBe(transportFailure.outcome.stderr.digest);
+    expect(captured?.stdout.completeness).toBe('complete');
+    expect(captured?.stderr.completeness).toBe('complete');
+    captured!.stderr.bytes.fill(0);
+    expect(transportFailure.readCapturedOutput()?.stderr.bytes)
+      .toEqual(new Uint8Array([101, 114, 114, 58, 255, 0]));
     const receipt = session.close();
     expect(receipt).toMatchObject({
       processCount: 1,
@@ -605,6 +616,18 @@ test('child timeout settles its physical process tree inside the parent operatio
       failedProcessCount: 1,
       settledNativeResourceCount: receipt.admittedNativeResourceCount
     });
+    const { compileRepositoryAuditWorkerDiagnostic, readRepositoryAuditWorkerCapturedOutput } =
+      await import('../../../repository/repository-audit/cli.ts');
+    const diagnostic = compileRepositoryAuditWorkerDiagnostic(new ResourceCompositeSettlementError([
+      { label: 'worker process', error: transportFailure },
+      { label: 'independent cleanup failure', error: new Error('cleanup fixture') }
+    ]), receipt);
+    expect(diagnostic.resources).toBe(receipt);
+    expect(diagnostic.status).toBe('denied');
+    expect(readRepositoryAuditWorkerCapturedOutput(diagnostic)?.stderr.bytes)
+      .toEqual(new Uint8Array([101, 114, 114, 58, 255, 0]));
+    expect(JSON.stringify(diagnostic)).not.toContain('err:');
+    expect(JSON.stringify(transportFailure)).not.toContain('err:');
   } finally {
     retained.dispose();
   }
@@ -683,14 +706,21 @@ test('failed command settlement retains its full output reservation in the termi
     requirementBindingContext: requirementBindingContext(operation)
   });
   try {
-    await expect(session.run(retained.boundary, [
+    let failure: unknown;
+    try { await session.run(retained.boundary, [
       '--no-env-file',
       '--eval',
       "process.stdout.write('overflow')"
     ], {
       maxStderrBytes: 0,
       maxStdoutBytes: 2
-    })).rejects.toThrow(/stdout exceeded/u);
+    }); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(RetainedCommandTransportError);
+    expect((failure as Error).message).toMatch(/stdout exceeded/u);
+    const captured = (failure as RetainedCommandTransportError).readCapturedOutput();
+    expect(captured?.stdout.completeness).toBe('partial');
+    expect(captured?.stdout.bytes.byteLength).toBe(0);
+    expect(captured?.stdout.capturedDigest).toBe(rawSha256(new Uint8Array()));
     expect(session.close()).toMatchObject({
       processCount: 1,
       settledProcessCount: 1,
