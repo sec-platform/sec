@@ -12,25 +12,25 @@ last-reviewed: 2026-10-13
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:95315c1c3a0aa361548f76f1237a43fbf8996af1959554aca1ed283bb6e62e7d",
-    "manifestPath": "config/repository/work-packages/main-source-health-repair-20261013.md",
-    "packageId": "main-source-health-repair-20261013",
+    "manifestDigest": "sha256:f129c53e67b77206b27486f05611491734d79cdd94cd07441319c88d2f7c9b04",
+    "manifestPath": "config/repository/work-packages/main-health-dependency-admission-20261013.md",
+    "packageId": "main-health-dependency-admission-20261013",
     "tracking": "none"
   },
   "authority": "none",
   "candidates": [],
-  "exactMain": "fa80716ab04ef697116ea9457f1ce0913e23acf5",
-  "exactMainTree": "b7fb519379d69c50249ad706a39e7133a455392f",
-  "projectionDigest": "sha256:f3c3b8cd3a7503128183f85b71719ab00cd05821f768e725cc1f6a19d66e8312",
+  "exactMain": "a2ee46c9ad478def280bad0fc5358e4b9eb1eb62",
+  "exactMainTree": "03a4f0c4bf4fcf9de2cf19442fde97898539fa2f",
+  "projectionDigest": "sha256:8b59fd51885de3a3a902bbfd60f86675df97b1f42dbfa193483d9931b1b2681c",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### main-source-health-repair-20261013
+### main-health-dependency-admission-20261013
 
-Proposal-only target manifest `config/repository/work-packages/main-source-health-repair-20261013.md` at `sha256:95315c1c3a0aa361548f76f1237a43fbf8996af1959554aca1ed283bb6e62e7d`, based on exact main `fa80716ab04ef697116ea9457f1ce0913e23acf5` and tree `b7fb519379d69c50249ad706a39e7133a455392f`.
+Proposal-only target manifest `config/repository/work-packages/main-health-dependency-admission-20261013.md` at `sha256:f129c53e67b77206b27486f05611491734d79cdd94cd07441319c88d2f7c9b04`, based on exact main `a2ee46c9ad478def280bad0fc5358e4b9eb1eb62` and tree `03a4f0c4bf4fcf9de2cf19442fde97898539fa2f`.
 
 ## 候选 Work Package
 

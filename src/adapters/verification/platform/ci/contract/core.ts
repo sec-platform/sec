@@ -47,7 +47,7 @@ export const CI_MAIN_HEALTH_STEP_ORDER = [
   'Checkout exact pushed main revision',
   'Setup trusted Bun',
   'Cache Bun install',
-  'Install dependencies from the frozen lock',
+  'Prepare the owned compiler dependency generation',
   'Reject import organization drift',
   'Run exact-main TypeScript checks',
   'Reject static architecture contradictions',
@@ -55,7 +55,7 @@ export const CI_MAIN_HEALTH_STEP_ORDER = [
   'Run the complete fast test inventory'
 ] as const;
 export const CI_MAIN_HEALTH_COMMANDS = [
-  'bun install --frozen-lockfile',
+  'bun run deps:ensure',
   'bun run imports:check --all',
   'bun run typecheck:verified',
   'bun run audit -- --worktree-source-program --enforce',
