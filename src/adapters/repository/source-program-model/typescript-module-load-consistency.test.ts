@@ -3,21 +3,21 @@ import assert from 'node:assert/strict';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleGraph,
-  compileTypeScriptSourceProgramModel,
-  releaseTypeScriptSourceProgramWorkspace,
-  sourceProgramTypeScriptCompilerIdentity
-} from './typescript.ts';
+  assembleTypeScriptSourceProgramModel,
+  compileTypeScriptSourceProgramFactShard,
+  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
+} from './typescript-fact-shards.ts';
 import {
   TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
   TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
   TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
 } from './typescript-profile.ts';
 import {
-  assembleTypeScriptSourceProgramModel,
-  compileTypeScriptSourceProgramFactShard,
-  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
-} from './typescript-fact-shards.ts';
+  compileSecRepositoryModuleGraph,
+  compileTypeScriptSourceProgramModel,
+  releaseTypeScriptSourceProgramWorkspace,
+  sourceProgramTypeScriptCompilerIdentity
+} from './typescript.ts';
 
 const moduleMembership = Object.freeze({
   descriptors: Object.freeze([]), graphRoots: Object.freeze([]),

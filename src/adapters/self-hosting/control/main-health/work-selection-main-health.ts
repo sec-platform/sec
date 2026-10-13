@@ -1304,6 +1304,7 @@ function mainHealthPublicationStableDigest(input: Readonly<{
   authority: MainHealthPublicationAuthority;
 }>): MainHealthDigest {
   const ledger = input.ledger;
+  const binding = input.repairDecision.binding;
   return digestRef(Object.freeze({
     schema: 'sec-main-health-provider-publication-stable-observation-v2',
     projection: input.projection,
@@ -1326,7 +1327,20 @@ function mainHealthPublicationStableDigest(input: Readonly<{
       status: input.repairDecision.status,
       routingState: input.repairDecision.routingState,
       reasonCode: input.repairDecision.reasonCode,
-      binding: input.repairDecision.binding
+      // The complete receipt digest still binds repair effects. Observation
+      // stability compares its routing identity without the refreshed clock.
+      binding: binding === null ? null : Object.freeze({
+        repository: binding.repository,
+        defaultBranch: binding.defaultBranch,
+        mainSha: binding.mainSha,
+        mainTreeSha: binding.mainTreeSha,
+        trustRevision: binding.trustRevision,
+        healthRevision: binding.healthRevision,
+        owner: binding.owner,
+        manifestPath: binding.manifestPath,
+        packageId: binding.packageId,
+        failureFingerprints: binding.failureFingerprints
+      })
     })
   }));
 }

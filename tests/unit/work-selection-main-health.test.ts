@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, setSystemTime, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -7,24 +7,93 @@ import {
   withGitHubApiTestReadOperationBudget,
   withGitHubApiTestSession
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
-import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
-import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   createTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
-  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS
+  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  trustedRuntimeMainHealthReceiptLocator
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
-import { GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import { createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import {
   attachRegisteredMainHealthWorkflowProvenance,
   observeCanonicalMainHealthForDocumentControlTestingV2,
   resolveWorkSelectionMainHealthProviders
 } from '../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const TEST_TOKEN = 'test-token-0123456789';
+
+test('repair observations ignore receipt refresh but retain provider changes', async () => {
+  const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-refresh-state-'));
+  const cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-refresh-cache-'));
+  const previous = { stateHome: process.env.SEC_STATE_HOME, cacheHome: process.env.SEC_CACHE_HOME };
+  process.env.SEC_STATE_HOME = stateHome;
+  process.env.SEC_CACHE_HOME = cacheHome;
+  let runId = 123;
+  let conclusion = 'failure';
+  const policy = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY;
+  const observe = () => withGitHubApiTestEnrollmentSession({
+    repository: 'sec-platform/sec', effect: 'read', readToken: async () => TEST_TOKEN,
+    transport: async (inputUrl) => {
+      const url = String(inputUrl);
+      if (url.endsWith('/user')) return Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' });
+      if (url.includes('/collaborators/maintainer/permission')) return Response.json({ permission: 'read' });
+      if (url.includes(`/commits/${MAIN}/check-runs`)) return Response.json({
+        total_count: 1,
+        check_runs: [{
+          id: 456, name: policy.context, status: 'completed', conclusion, head_sha: MAIN,
+          details_url: `https://github.com/sec-platform/sec/actions/runs/${runId}/job/456`,
+          app: { id: policy.app.id, node_id: policy.app.nodeId, slug: policy.app.slug }
+        }]
+      });
+      if (url.endsWith(`/actions/runs/${runId}`)) return Response.json({
+        id: runId, head_sha: MAIN, path: '.github/workflows/compiler-pr-validation.yml',
+        event: 'repository_dispatch',
+        display_title: `SEC main health ${MAIN} operation ${createCiMainHealthRequestOperationId(MAIN)}`
+      });
+      throw new Error(`unexpected MainHealth refresh test URL: ${url}`);
+    },
+    operation: capability => observeCanonicalMainHealthForDocumentControlTestingV2({
+      repositoryRoot: process.cwd(), repository: 'sec-platform/sec', defaultBranch: 'main',
+      mainSha: MAIN, mainTreeSha: TREE, capability
+    })
+  });
+  try {
+    setSystemTime(new Date('2026-10-13T00:00:00.000Z'));
+    const first = await observe();
+    setSystemTime(new Date('2026-10-13T00:01:00.000Z'));
+    const refreshed = await observe();
+    for (const observation of [first, refreshed]) {
+      expect(observation.repairDecision.status).toBe('repair-ready');
+      expect(observation.repairDecision.routingState).toBe('repair-only');
+      expect(observation.repairDecision.binding).not.toBeNull();
+    }
+    expect(refreshed.repairDecision.binding!.healthRevision).toBe(first.repairDecision.binding!.healthRevision);
+    expect(refreshed.repairDecision.binding!.ledgerDigest).not.toBe(first.repairDecision.binding!.ledgerDigest);
+    expect(refreshed.stableDigest).toBe(first.stableDigest);
+
+    runId += 1;
+    const changedProvider = await observe();
+    expect(changedProvider.repairDecision.binding!.healthRevision).toBe(first.repairDecision.binding!.healthRevision);
+    expect(changedProvider.stableDigest).not.toBe(refreshed.stableDigest);
+    conclusion = 'success';
+    const healthy = await observe();
+    expect(healthy.repairDecision.routingState).toBe('ordinary-only');
+    expect(healthy.stableDigest).not.toBe(changedProvider.stableDigest);
+  } finally {
+    setSystemTime();
+    if (previous.stateHome === undefined) delete process.env.SEC_STATE_HOME;
+    else process.env.SEC_STATE_HOME = previous.stateHome;
+    if (previous.cacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+    else process.env.SEC_CACHE_HOME = previous.cacheHome;
+    rmSync(stateHome, { recursive: true, force: true });
+    rmSync(cacheHome, { recursive: true, force: true });
+  }
+});
 
 test('unrelated Actions checks do not require MainHealth workflow provenance', () => {
   const policy = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY;

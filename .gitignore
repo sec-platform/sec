@@ -17,6 +17,8 @@ venv/
 Thumbs.db
 
 # Build
+/.documentation/source-manifest.json
+/.documentation/requirements.json
 .documentation/figures.json
 dist/
 build/

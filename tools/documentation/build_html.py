@@ -36,7 +36,9 @@ def esc(value): return html.escape(str(value),quote=True)
 
 def safe_files(root: Path, args=None) -> list[Path]:
     if not (root/'README.md').is_file() or not (root/'docs').is_dir(): raise BuildError('Expected SEC root with README.md and docs/')
-    return list(documentation_files(root, include_cache=args is None or (args.diagrams in ('cached', 'browser') and not args.diagram_cache)))
+    return list(documentation_files(root,
+        include_cache=args is None or (args.diagrams in ('cached', 'browser') and not args.diagram_cache),
+        include_projections=args is None or args.sealed))
 
 def capture(root,args):
     paths=safe_files(root,args); captured={}; total=0
@@ -492,7 +494,7 @@ def main(argv=None):
     if args.diagrams=='required' and not args.mermaid_js:raise BuildError('All diagrams are required. Set --mermaid-js to local mermaid.min.js; or explicitly choose --diagrams source')
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
-        check_docs.verify(root)
+        check_docs.verify(root,sealed=True)
     before=out.read_bytes()if out.is_file()else None
     captured=capture(root,args);book=Book(root,captured,args)
     renderer_info={'state':'not-rendered'}
@@ -512,7 +514,7 @@ def main(argv=None):
     unchanged(root,captured,args)
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
-        check_docs.verify(root)
+        check_docs.verify(root,sealed=True)
     out.parent.mkdir(parents=True,exist_ok=True)
     lock=out.with_name(out.name+'.lock');temp=None;fd=None
     try:

@@ -1,6 +1,11 @@
 import { expect, test } from 'bun:test';
 
 import {
+  readVerificationDataRecord,
+  snapshotVerificationData,
+  verificationDataEqual
+} from '../../src/assurance/verification/contract/data.ts';
+import {
   createProofObligation,
   createVerificationClaim,
   createVerificationMethodSelection,
@@ -11,11 +16,6 @@ import {
   createVerificationEvidenceUse,
   type VerificationEvidenceUseInput
 } from '../../src/assurance/verification/evidence-use/contract/use.ts';
-import {
-  readVerificationDataRecord,
-  snapshotVerificationData,
-  verificationDataEqual
-} from '../../src/assurance/verification/contract/data.ts';
 
 function digest(hex: string): `sha256:${string}` {
   return `sha256:${hex.repeat(64)}`;

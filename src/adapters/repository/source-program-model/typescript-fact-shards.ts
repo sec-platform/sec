@@ -1,7 +1,7 @@
 import {
   canonicalJson,
-  deepFreeze,
   compareCodeUnits,
+  deepFreeze,
   isPlainObject,
   sha256
 } from '../../../contracts/canonical.ts';

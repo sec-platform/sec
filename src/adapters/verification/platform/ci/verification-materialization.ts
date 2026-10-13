@@ -28,8 +28,8 @@ import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, type VerificationActionProviderOrigi
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY
 } from './contract/revision.ts';
-import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution } from './verification-hosted-action-contract.ts';
+import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 
 export function hostedActionRepositoryIdentity(): Readonly<{

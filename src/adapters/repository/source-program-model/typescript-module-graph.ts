@@ -1,3 +1,8 @@
+import {
+  compareCodeUnits,
+  rawSha256,
+  sha256
+} from '../../../contracts/canonical.ts';
 import type {
   SecRepositoryModuleGraph,
   SecRepositoryModuleGraphImport,
@@ -12,17 +17,9 @@ import type {
 import {
   resolveSourceProgramCompilationOperation
 } from './compilation-operation.ts';
-import {
-  compareCodeUnits,
-  rawSha256,
-  sha256
-} from '../../../contracts/canonical.ts';
 import type {
   SourceProgramFileInput
 } from './contract.ts';
-import {
-  typeScriptModuleImportFacts
-} from './typescript-module-imports.ts';
 import {
   assembleSecRepositoryModuleGraph
 } from './module-graph.ts';
@@ -33,6 +30,9 @@ import {
   SOURCE_EXTENSION,
   sourceProgramFileSnapshotDigest
 } from './typescript-input.ts';
+import {
+  typeScriptModuleImportFacts
+} from './typescript-module-imports.ts';
 import {
   compileExactTypeScriptProgram
 } from './typescript-workspace.ts';

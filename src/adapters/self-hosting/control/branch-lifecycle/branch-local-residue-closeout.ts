@@ -26,10 +26,10 @@ import {
 import {
   assertGitLocalRefDeleteBatchReceipt,
   deleteExactLocalGitRefs,
-  type GitLocalRefDeleteBatchReceipt,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
-  MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT
+  MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT,
+  type GitLocalRefDeleteBatchReceipt
 } from '../../../providers/git/ref-effect.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {

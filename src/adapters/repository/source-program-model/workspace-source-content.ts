@@ -1,4 +1,4 @@
-import { rawSha256, compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
 import { type SourceProgramFileInput } from './contract.ts';
 

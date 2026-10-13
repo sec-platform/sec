@@ -1,11 +1,3 @@
-import type {
-  SourceProgramDeclaration,
-  SourceProgramModel,
-  SourceProgramReturnProvenance
-} from './contract.ts';
-import {
-  sourceProgramSurfaceForPath
-} from './contract.ts';
 import ts from 'typescript';
 import {
   compareCodeUnits,
@@ -15,6 +7,14 @@ import {
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
 import type {
+  SourceProgramDeclaration,
+  SourceProgramModel,
+  SourceProgramReturnProvenance
+} from './contract.ts';
+import {
+  sourceProgramSurfaceForPath
+} from './contract.ts';
+import type {
   TypeScriptRequiredApiClosure
 } from './typescript-api-closure.ts';
 import {
@@ -22,27 +22,27 @@ import {
   compileTypeScriptRequiredApiClosure
 } from './typescript-api-closure.ts';
 import type {
-  ExactTypeScriptProgram,
-  TypeScriptRenameObservation
-} from './typescript-workspace.ts';
-import {
-  compileExactTypeScriptProgram
-} from './typescript-workspace.ts';
-import type {
   PreparedTypeScriptModelInput
 } from './typescript-input.ts';
 import {
   TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION
 } from './typescript-profile.ts';
 import {
+  compileSourceProgramReturnProvenance
+} from './typescript-return-provenance.ts';
+import {
   declarationName,
   executionScopeName,
   semanticDeclarationText,
   spanFor
 } from './typescript-syntax.ts';
+import type {
+  ExactTypeScriptProgram,
+  TypeScriptRenameObservation
+} from './typescript-workspace.ts';
 import {
-  compileSourceProgramReturnProvenance
-} from './typescript-return-provenance.ts';
+  compileExactTypeScriptProgram
+} from './typescript-workspace.ts';
 
 /** Exact-program facts and capability observations bound to model identity; private generation registry. */
 export type TypeScriptSyntaxObservation = Readonly<{

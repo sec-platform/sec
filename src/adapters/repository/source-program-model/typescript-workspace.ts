@@ -1,8 +1,9 @@
+import path from 'node:path';
 import ts from 'typescript';
-import type {
-  SourceProgramFileInput,
-  SourceProgramSpan
-} from './contract.ts';
+import {
+  compareCodeUnits,
+  sha256
+} from '../../../contracts/canonical.ts';
 import type {
   SourceProgramCompilationOperation,
   SourceProgramCompilationPhase
@@ -10,21 +11,20 @@ import type {
 import {
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
-import {
-  compareCodeUnits,
-  sha256
-} from '../../../contracts/canonical.ts';
-import path from 'node:path';
+import type {
+  SourceProgramFileInput,
+  SourceProgramSpan
+} from './contract.ts';
 import {
   resolveSecRepositoryModuleImportCandidates
 } from './module-graph.ts';
+import type {
+  TypeScriptSourceProgramFileIdentity
+} from './typescript-input.ts';
 import {
   TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
   TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
 } from './typescript-profile.ts';
-import type {
-  TypeScriptSourceProgramFileIdentity
-} from './typescript-input.ts';
 
 /** Language-service lifecycle and virtual workspace state; one active service per process. */
 function moduleExtensionFor(fileName: string): ts.Extension {

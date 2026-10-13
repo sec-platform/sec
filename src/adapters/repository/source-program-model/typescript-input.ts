@@ -1,10 +1,8 @@
-import type {
-  SourceProgramCompilation,
-  SourceProgramFileInput
-} from './contract.ts';
+import path from 'node:path';
 import {
-  sourceProgramSurfaceForPath
-} from './contract.ts';
+  rawSha256,
+  sha256
+} from '../../../contracts/canonical.ts';
 import type {
   SecRepositoryModuleMembership
 } from '../architecture/contract.ts';
@@ -18,11 +16,13 @@ import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
-import path from 'node:path';
+import type {
+  SourceProgramCompilation,
+  SourceProgramFileInput
+} from './contract.ts';
 import {
-  rawSha256,
-  sha256
-} from '../../../contracts/canonical.ts';
+  sourceProgramSurfaceForPath
+} from './contract.ts';
 import {
   recordTypeScriptPerformance
 } from './typescript-performance.ts';
