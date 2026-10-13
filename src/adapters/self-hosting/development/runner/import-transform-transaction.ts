@@ -8,6 +8,7 @@ import { CodedFailure } from '../../../../contracts/failure.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../../../workspace/contract/local-state.ts';
 import { ensureDir } from "../../../filesystem/files.ts";
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
+import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectoryAcrossParents, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 export type ImportTransformWrite = Readonly<{
   relativePath: string;
@@ -47,6 +48,7 @@ export type ImportTransformTransactionTestHooks = Readonly<{
   beforeJournalAppend?: (state: 'prepared' | 'publishing' | 'accepted' | 'rolling-back' | 'rolled-back' | 'recovery-required') => void | Promise<void>;
   afterPublish?: (relativePath: string, index: number) => void | Promise<void>;
   beforeRollback?: (relativePath: string, index: number) => void | Promise<void>;
+  afterTerminalRetirementEntry?: (relativePath: string) => void | Promise<void>;
 }>;
 
 type PreparedWrite = Readonly<{
@@ -484,7 +486,7 @@ function recoveryRequiredOutcome(
 
 function exactPrefix(
   raw: unknown,
-  files: readonly PreparedWrite[],
+  files: readonly Pick<PreparedWrite, 'relativePath'>[],
   label: string
 ): readonly string[] {
   if (!Array.isArray(raw) || raw.length > files.length) recoveryFailure(`${label} is invalid.`);
@@ -509,7 +511,7 @@ function prefixDoesNotGrow(previous: readonly string[], next: readonly string[])
 function validateLegacyJournalTransition(
   previous: LegacyJournalEntry | undefined,
   next: LegacyJournalEntry,
-  files: readonly PreparedWrite[]
+  files: readonly Pick<PreparedWrite, 'relativePath'>[]
 ): void {
   const forward = next.state === 'prepared' || next.state === 'publishing' || next.state === 'accepted';
   if (forward) {
@@ -575,7 +577,7 @@ function validateLegacyJournalTransition(
 function parseLegacyJournalEntries(
   source: string,
   transactionId: string,
-  files: readonly PreparedWrite[]
+  files: readonly Pick<PreparedWrite, 'relativePath' | 'expectedDigest' | 'replacementDigest'>[]
 ): readonly LegacyJournalEntry[] {
   const lines = journalLines(source, 'Import transform legacy journal',
     IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
@@ -1069,39 +1071,12 @@ async function readOptionalTerminalReceipt(
   }
 }
 
-async function writeLegacyTerminalReceipt(
-  receiptPath: string,
-  transactionId: string,
-  bindingDigest: string,
-  journalBytes: Buffer,
-  terminal: LegacyJournalEntry,
-  assertLease: () => Promise<void>
-): Promise<void> {
-  if (terminal.state !== 'accepted' && terminal.state !== 'rolled-back') {
-    recoveryFailure('Only a terminal legacy journal can issue a compact settlement receipt.');
-  }
-  await assertLease();
-  const receipt: ImportTransformTerminalReceipt = Object.freeze({
-    formatVersion: ImportTransformTerminalReceiptFormat,
-    transactionId,
-    bindingDigest,
-    journalFormat: ImportTransformJournalFormat,
-    journalDigest: digest(journalBytes),
-    journalBytes: journalBytes.byteLength,
-    state: terminal.state,
-    publishedCount: terminal.published.length,
-    publicationReasonCode: terminal.publicationReasonCode
-  });
-  await writeDurable(receiptPath, `${JSON.stringify(canonicalJson(receipt))}\n`);
-}
-
-async function readUnfinishedTransaction(
+async function readTransactionBinding(
   workspaceRoot: string,
   transactionRoot: string,
   transactionId: string,
   assertLease: () => Promise<void>
-): Promise<RecoveredTransaction> {
-  const journalPath = path.join(transactionRoot, 'journal.jsonl');
+): Promise<Readonly<{ bindingDigest: string; files: readonly Omit<PreparedWrite, 'expectedBytes' | 'replacementBytes'>[] }>> {
   const bindingPath = path.join(transactionRoot, 'binding.json');
   await assertLease();
   await assertOrdinaryContainedTargetChain(workspaceRoot, bindingPath);
@@ -1118,7 +1093,7 @@ async function readUnfinishedTransaction(
   }
   const bindingDigest = digest(bindingBytes);
   const seen = new Set<string>();
-  const files: PreparedWrite[] = [];
+  const files: Omit<PreparedWrite, 'expectedBytes' | 'replacementBytes'>[] = [];
   for (const rawWrite of binding.writes) {
     const write = asRecord(rawWrite, 'Import transform transaction binding write');
     exactKeys(write, ['expectedDigest', 'mode', 'preimageCandidateRelativePath', 'relativePath',
@@ -1140,6 +1115,24 @@ async function readUnfinishedTransaction(
       || write.replacementCandidateRelativePath !== candidateRelative(replacementCandidatePath)) {
       recoveryFailure('Import transform transaction candidate binding is invalid.');
     }
+    files.push(Object.freeze({ relativePath: write.relativePath, absolutePath, preimageCandidatePath, replacementCandidatePath,
+      expectedDigest: write.expectedDigest, replacementDigest: write.replacementDigest, mode: write.mode }));
+  }
+  return Object.freeze({ bindingDigest, files: Object.freeze(files) });
+}
+
+async function readUnfinishedTransaction(
+  workspaceRoot: string,
+  transactionRoot: string,
+  transactionId: string,
+  assertLease: () => Promise<void>,
+  recoveryWrites: boolean = true
+): Promise<RecoveredTransaction> {
+  const journalPath = path.join(transactionRoot, 'journal.jsonl');
+  const binding = await readTransactionBinding(workspaceRoot, transactionRoot, transactionId, assertLease);
+  const bindingDigest = binding.bindingDigest;
+  const files: PreparedWrite[] = [];
+  for (const write of binding.files) {
     const stem = digest(write.relativePath);
     const preimagePath = path.join(transactionRoot, `${stem}.preimage`);
     const replacementPath = path.join(transactionRoot, `${stem}.replacement`);
@@ -1152,11 +1145,7 @@ async function readUnfinishedTransaction(
     if (digest(expectedBytes) !== write.expectedDigest || digest(replacementBytes) !== write.replacementDigest) {
       recoveryFailure('Import transform transaction artifact digest is invalid.');
     }
-    files.push(Object.freeze({
-      relativePath: write.relativePath, absolutePath, preimageCandidatePath, replacementCandidatePath,
-      expectedBytes, replacementBytes,
-      expectedDigest: write.expectedDigest, replacementDigest: write.replacementDigest, mode: write.mode
-    }));
+    files.push(Object.freeze({ ...write, expectedBytes, replacementBytes }));
   }
   const terminalReceiptPath = path.join(transactionRoot, 'terminal-receipt.json');
   const allowedArtifacts = new Set<string>(['binding.json', 'journal.jsonl', 'terminal-receipt.json']);
@@ -1234,6 +1223,7 @@ async function readUnfinishedTransaction(
     // safe interpretation is pre-publication, followed by an explicit v3
     // prepared record before any recovery decision.
     if (journalRepairOffset !== null) {
+      if (!recoveryWrites) recoveryFailure('Import transform journal requires owner tail recovery before retirement.');
       if (journalIdentity === undefined) recoveryFailure('Import transform journal tail has no physical identity.');
       await repairJournalTail(journalPath, journalRepairOffset, assertLease, journalIdentity);
     }
@@ -1256,16 +1246,6 @@ async function readUnfinishedTransaction(
     const journal = parseLegacyJournalEntries(completeJournalSource, transactionId, files);
     const last = journal.at(-1);
     if (last === undefined) recoveryFailure('Import transform transaction journal is empty.');
-    if (last.state === 'accepted' || last.state === 'rolled-back') {
-      await writeLegacyTerminalReceipt(terminalReceiptPath, transactionId, bindingDigest,
-        journalBytes, last, assertLease);
-      const readback = await readOptionalTerminalReceipt(terminalReceiptPath,
-        transactionId, bindingDigest, files.length);
-      if (readback === null || readback.journalDigest !== digest(journalBytes)
-        || readback.journalBytes !== journalBytes.byteLength || readback.state !== last.state) {
-        recoveryFailure('Import transform terminal receipt readback failed.');
-      }
-    }
     return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion, bindingDigest,
       compactJournalTail: null, journalWasMissing,
       state: last.state, published: last.published, outstanding: last.outstanding,
@@ -1273,6 +1253,7 @@ async function readUnfinishedTransaction(
   }
   const last = parseCompactJournal(completeJournalSource, transactionId, files.length, bindingDigest);
   if (journalRepairOffset !== null) {
+    if (!recoveryWrites) recoveryFailure('Import transform journal requires owner tail recovery before retirement.');
     if (journalIdentity === undefined) recoveryFailure('Import transform journal tail has no physical identity.');
     await repairJournalTail(journalPath, journalRepairOffset, assertLease, journalIdentity);
   }
@@ -1368,6 +1349,139 @@ async function observePublishedPrefixAfterFailure(
   return Object.freeze(result);
 }
 
+async function retireTransactionGarbage(
+  workspaceRoot: string,
+  transactionRoot: string,
+  assertLease: () => Promise<void>,
+  testHooks: ImportTransformTransactionTestHooks
+): Promise<void> {
+  await assertLease();
+  const parent = inspectNoFollowDirectoryChain(path.dirname(transactionRoot), 'Import transform garbage parent').target;
+  const root = inspectNoFollowDirectoryChain(transactionRoot, 'Import transform garbage root').target;
+  const deadlineAtMonotonicMs = performance.now() + 30_000;
+  const metadata = scanNoFollowDirectoryTreeMetadata(root, { deadlineAtMs: deadlineAtMonotonicMs,
+    maximumEntries: IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS * 2 + 3 });
+  if (metadata.length !== 0) {
+    // This is a garbage-domain inventory, never terminal or publication evidence.
+    // The original binding survives payload deletion and is deleted last.
+    const binding = await readTransactionBinding(workspaceRoot, transactionRoot, path.basename(transactionRoot), assertLease);
+    const allowed = new Map<string, string | null>([['binding.json', binding.bindingDigest], ['journal.jsonl', null], ['terminal-receipt.json', null]]);
+    for (const file of binding.files) {
+      allowed.set(digest(file.relativePath) + '.preimage', file.expectedDigest);
+      allowed.set(digest(file.relativePath) + '.replacement', file.replacementDigest);
+    }
+    if (metadata.some(entry => entry.kind !== 'file' || !allowed.has(entry.relativePath)
+      || entry.size > (entry.relativePath === 'journal.jsonl' ? IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES : IMPORT_TRANSFORM_JOURNAL_MAX_BYTES))) {
+      recoveryFailure('Import transform retirement garbage contains unknown or oversized objects.');
+    }
+    const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: deadlineAtMonotonicMs,
+      maximumEntries: metadata.length, maximumBytes: metadata.reduce((bytes, entry) => bytes + entry.size, 0), includeByteDigest: true });
+    for (const entry of inventory) {
+      if (entry.kind !== 'file' || !allowed.has(entry.relativePath)
+        || (allowed.get(entry.relativePath) !== null && entry.byteDigest !== 'sha256:' + allowed.get(entry.relativePath))) {
+        recoveryFailure('Import transform retirement garbage contains unknown or changed objects.');
+      }
+      if (entry.relativePath === 'journal.jsonl') {
+        const bytes = await readRegularTransactionArtifact(path.join(transactionRoot, entry.relativePath), 'Import transform retired journal', IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
+        const source = decodeRecoveryUtf8(bytes, 'Import transform retired journal');
+        const first = asRecord(parseRecoveryJson(source.split('\n')[0]!, 'Import transform retired journal'), 'Import transform retired journal');
+        if (first.formatVersion === ImportTransformCompactJournalFormat) parseCompactJournal(source, path.basename(transactionRoot), binding.files.length, binding.bindingDigest);
+        else parseLegacyJournalEntries(source, path.basename(transactionRoot), binding.files);
+      } else if (entry.relativePath === 'terminal-receipt.json') {
+        await readOptionalTerminalReceipt(path.join(transactionRoot, entry.relativePath), path.basename(transactionRoot), binding.bindingDigest, binding.files.length);
+      }
+    }
+    const deletionOrder = (name: string) => name === 'binding.json' ? 3 : name === 'journal.jsonl' ? 2 : name === 'terminal-receipt.json' ? 1 : 0;
+    for (const entry of [...inventory].sort((left, right) => deletionOrder(left.relativePath) - deletionOrder(right.relativePath) || left.relativePath.localeCompare(right.relativePath))) {
+      await assertLease();
+      if (performance.now() >= deadlineAtMonotonicMs) throw new Error('Import transform garbage retirement deadline expired.');
+      const expectedFileBytes = await readRegularTransactionArtifact(path.join(transactionRoot, entry.relativePath), 'Import transform garbage deletion source', IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
+      if ('sha256:' + digest(expectedFileBytes) !== entry.byteDigest) throw new Error('Import transform garbage changed before physical deletion.');
+      deleteRetainedNoFollowEntry({ root, relativePath: entry.relativePath, kind: 'file', device: entry.device, inode: entry.inode, expectedFileBytes, ancestorDirectories: [] });
+      await testHooks.afterTerminalRetirementEntry?.(entry.relativePath);
+    }
+  }
+  await assertLease();
+  retireNoFollowDirectoryTree({ parent, root, inventory: [], deadlineAtMonotonicMs });
+}
+
+async function retireTerminalTransaction(
+  workspaceRoot: string,
+  transactionRoot: string,
+  transaction: RecoveredTransaction,
+  assertLease: () => Promise<void>,
+  testHooks: ImportTransformTransactionTestHooks
+): Promise<void> {
+  await assertLease();
+  const root = inspectNoFollowDirectoryChain(transactionRoot, 'Import transform retirement root').target;
+  const deadlineAtMonotonicMs = performance.now() + 30_000;
+  const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: deadlineAtMonotonicMs,
+    maximumEntries: transaction.files.length * 2 + 3,
+    maximumBytes: IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES + IMPORT_TRANSFORM_JOURNAL_MAX_BYTES * 2
+      + transaction.files.reduce((bytes, file) => bytes + file.expectedBytes.length + file.replacementBytes.length, 0) });
+  if (inventory.some(entry => entry.kind !== 'file')) recoveryFailure('Import transform terminal retirement contains non-file objects.');
+  const confirmed = await readUnfinishedTransaction(workspaceRoot, transactionRoot, transaction.transactionId, assertLease, false);
+  if ((confirmed.state !== 'accepted' && confirmed.state !== 'rolled-back')
+    || confirmed.state !== transaction.state || confirmed.bindingDigest !== transaction.bindingDigest) {
+    recoveryFailure('Import transform terminal transaction changed before retirement.');
+  }
+  await assertLease();
+  const stateRoot = inspectNoFollowDirectoryChain(resolveWorkspaceLocalStateRoot(workspaceRoot), 'Import transform state root').target;
+  const garbagePath = path.join(stateRoot.path, 'import-transform-retired');
+  const presence = inspectExactNoFollowDirectoryPresence(garbagePath, 'Import transform retirement garbage namespace');
+  const garbage = presence.state === 'absent' ? createExclusiveNoFollowDirectory(stateRoot, 'import-transform-retired') : presence.directory.target;
+  const relocated = relocateRetainedNoFollowDirectoryAcrossParents({ directory: root, destinationParent: garbage, tombstoneName: transaction.transactionId });
+  await retireTransactionGarbage(workspaceRoot, relocated.path, assertLease, testHooks);
+}
+
+/** Retire only proven terminal recovery carriers; unfinished transactions remain untouched. */
+export async function retireTerminalImportTransformTransactions(workspaceRoot: string, testHooks: ImportTransformTransactionTestHooks = {}): Promise<Readonly<{
+  retired: number;
+  retained: readonly string[];
+}>> {
+  const root = path.resolve(workspaceRoot);
+  return withWorkspaceWriteLease(root, undefined, async (lease) => {
+    const assertLease = () => assertWorkspaceWriteLease(root, lease);
+    await assertLease();
+    const transactionsRoot = path.join(resolveWorkspaceLocalStateRoot(root), 'import-transform-transactions');
+    let entries: Dirent[];
+    try { entries = await fs.readdir(transactionsRoot, { withFileTypes: true }) as Dirent[]; } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') entries = [];
+      else throw error;
+    }
+    if (entries.length !== 0) inspectNoFollowDirectoryChain(transactionsRoot, 'Import transform terminal retirement namespace');
+    let retired = 0;
+    const retained: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) recoveryFailure('Import transform transaction root contains unknown residue.');
+      const transactionRoot = path.join(transactionsRoot, entry.name);
+      const transaction = await readUnfinishedTransaction(root, transactionRoot, entry.name, assertLease, false);
+      if (transaction.state !== 'accepted' && transaction.state !== 'rolled-back') {
+        retained.push(entry.name);
+        continue;
+      }
+      await retireTerminalTransaction(root, transactionRoot, transaction, assertLease, testHooks);
+      retired += 1;
+    }
+    const garbagePath = path.join(resolveWorkspaceLocalStateRoot(root), 'import-transform-retired');
+    const garbage = inspectExactNoFollowDirectoryPresence(garbagePath, 'Import transform retirement garbage namespace');
+    if (garbage.state === 'present') {
+      for (const entry of await fs.readdir(garbagePath, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.isSymbolicLink()) { retained.push(path.join(garbagePath, entry.name)); continue; }
+        const candidate = path.join(garbagePath, entry.name);
+        try { await retireTransactionGarbage(root, candidate, assertLease, testHooks); }
+        catch (error) {
+          if (!(error instanceof ImportTransformTransactionFailure)) throw error;
+          retained.push(candidate);
+          continue;
+        }
+        retired += 1;
+      }
+    }
+    return Object.freeze({ retired, retained: Object.freeze(retained) });
+  });
+}
+
 async function reconcileUnfinishedImportTransactions(
   workspaceRoot: string,
   assertLease: () => Promise<void>,
@@ -1391,10 +1505,10 @@ async function reconcileUnfinishedImportTransactions(
     } catch (error) {
       return recoveryRequiredOutcome(entry.name, path.join(transactionRoot, 'journal.jsonl'), 'journal-failed');
     }
-    // A terminal journal is immutable evidence, not an active lease on the
-    // transformed target. It is still read and shape-checked before it is
-    // ignored; an orphan marker or missing journal can never bypass recovery.
+    // Terminal journals no longer own recovery or the transformed target.
+    // Strict validation precedes physical retirement under the original lease.
     if (transaction.state === 'accepted' || transaction.state === 'rolled-back') {
+      await retireTerminalTransaction(workspaceRoot, transactionRoot, transaction, assertLease, testHooks);
       continue;
     }
     // Legacy v2 is a read-only migration/recovery input. There is no v2
