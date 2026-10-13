@@ -392,6 +392,7 @@ for (const cut of ['bundle', 'checksum', 'authorization'] as const) {
       expect(receipt.authorization.entries[0].successor.ref).toBe('refs/heads/codex/successor');
       const resumed = await executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run,
+        retainedTargets: cut === 'checksum' ? fixture.retainedTargets : undefined,
         faults: { afterDelete: () => { throw new Error('duplicate ref effect'); } }
       });
       expect(resumed.settled).toEqual(['codex/source']);

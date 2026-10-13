@@ -2823,6 +2823,15 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       files: Object.freeze([...retiredBefore.files, ...retiredFiles])
     });
   }
+  const completedHeads = new Map([...scanned.completed, ...retained.completed]
+    .flatMap(({ authorization }) => authorization.entries.map(({ branch, headSha }) => [branch, headSha] as const)));
+  const remainingTargets = input.retainedTargets?.filter((target) => {
+    if (!retiredBefore.branches.includes(target.branch)) return true;
+    if (completedHeads.get(target.branch) !== target.expectedHeadSha) {
+      throw new Error(`Retained continuation selection differs from its completed head: ${target.branch}.`);
+    }
+    return false;
+  });
   const pending = scanned.pending;
   if (pending !== null) {
     assertAuthorizationIdentity({
@@ -2859,12 +2868,12 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   assertRecoverySeparatedFromWorktrees(store, first);
   const plan = planMergedLocalBranchResidueCloseout(first);
   if (plan.eligible.length === 0 || (input.retainedTargets?.length ?? 0) > 0) {
-    const native = input.retainedTargets === undefined || input.retainedTargets.length === 0
+    const native = remainingTargets === undefined || remainingTargets.length === 0
       ? { eligible: [] as readonly Omit<RetainedEntry, 'recovery'>[],
           protectedBranches: plan.protectedBranches,
           unresolvedBranches: plan.unresolvedBranches }
       : await planRetainedNativeEntries({ run, repositoryRoot, repository, observation: first,
-          targets: input.retainedTargets, observeReview: input.observeReview });
+          targets: remainingTargets, observeReview: input.observeReview });
     const eligible = native.eligible.filter(({ branch }) => !retiredBefore.branches.includes(branch));
     if (eligible.length > 0) {
       const entries = Object.freeze(await Promise.all(eligible.map(async (entry) => Object.freeze({
