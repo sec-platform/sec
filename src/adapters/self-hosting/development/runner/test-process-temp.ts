@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
+import { hostname } from 'node:os';
 import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
@@ -15,10 +16,12 @@ import {
   assertSameNoFollowDirectoryIdentity,
   createExclusiveNoFollowDirectory,
   createNoFollowDirectoryChain,
+  deleteRetainedNoFollowEntry,
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,
   inspectNoFollowOrdinaryFileEntry,
+  observeDurableCanonicalFileReplacement,
   physicallyContainsDirectoryChain,
   publishExclusiveDurableCanonicalFile,
   relocateRetainedNoFollowDirectory,
@@ -1028,6 +1031,226 @@ function recoverDeadRuntimeInvocationLeases(input: Readonly<{
       stagingScope: match[1]!,
       invocationDigest: `sha256:${match[2]!}`
     });
+  }
+}
+
+/** Explicitly discards one retained disposable invocation. This releases only
+ * its present retention obligation; it does not recover or certify the old
+ * attempt, infer process termination, or make unguarded leases reclaimable.
+ * The trusted composition supplies the current discard decision, independently
+ * of the old attempt's unknown process state. Paths, digests, PID absence and
+ * expiry are not that authority.
+ */
+export async function disposeRetainedTestInvocationRuntime(input: Readonly<{
+  repositoryRoot: string;
+  environment: NodeJS.ProcessEnv;
+  selection: Readonly<{
+    invocationDigest: TestProcessTempDigest;
+    ownerDigest: TestProcessTempDigest;
+    state: PhysicalDirectoryIdentity;
+    cache: PhysicalDirectoryIdentity | null;
+    container: PhysicalDirectoryIdentity | null;
+    bindingBytes: Uint8Array;
+    runtimeLease: Readonly<{ name: string; owner: PhysicalMutationLeaseOwner; bytes: Uint8Array; device: string; inode: string }>;
+    invocationLease: Readonly<{ name: string; owner: PhysicalMutationLeaseOwner; bytes: Uint8Array; device: string; inode: string }>;
+  }>;
+  reviewDiscard: (selection: Readonly<{
+    invocationDigest: TestProcessTempDigest;
+    ownerDigest: TestProcessTempDigest;
+    state: PhysicalDirectoryIdentity;
+    cache: PhysicalDirectoryIdentity | null;
+    container: PhysicalDirectoryIdentity | null;
+    statePresence: 'bound' | 'empty' | 'absent';
+  }>) => Promise<Readonly<{ disposition: 'discard' | 'retain'; reference: string }>>;
+}>): Promise<Readonly<{ retentionReleased: true; historicalAttempt: 'UNVERIFIED' }>> {
+  // Unguarded exact-byte deletion is a retained Windows file capability. Linux
+  // requires native namespace exclusion which these old leases do not possess.
+  if (process.platform !== 'win32') throw new TestProcessTempLifecycleError(
+    'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN', 'Explicit unguarded invocation discard requires retained Windows byte-CAS deletion.'
+  );
+  const selected = Object.freeze({ ...input.selection,
+    state: Object.freeze({ ...input.selection.state }),
+    cache: input.selection.cache === null ? null : Object.freeze({ ...input.selection.cache }),
+    container: input.selection.container === null ? null : Object.freeze({ ...input.selection.container }) });
+  const bindingBytes = Buffer.from(selected.bindingBytes);
+  const leases = [selected.runtimeLease, selected.invocationLease].map(lease => Object.freeze({
+    ...lease, owner: Object.freeze({ ...lease.owner }), bytes: Buffer.from(lease.bytes)
+  }));
+  const [runtimeLease, invocationLease] = leases;
+  const roots = resolveSecWorkspaceRuntimeRoots(input);
+  const binding = parseRuntimeTempParentBinding(bindingBytes);
+  const match = runtimeLease!.name.match(RUNTIME_RECOVERY_LEASE);
+  const reject = (message: string): never => {
+    throw new TestProcessTempLifecycleError('TEST_PROCESS_TEMP_RESIDUE_UNKNOWN', message);
+  };
+  const assertNotCurrentProcessOwner = (): void => {
+    // Conservative rejection only. A different PID is never terminal proof.
+    if (runtimeLease!.owner.host === hostname() && runtimeLease!.owner.pid === process.pid) {
+      reject('Explicit discard refuses current-process invocation ownership.');
+    }
+  };
+  assertNotCurrentProcessOwner();
+  if (binding === null || match === null || match[2] !== selected.invocationDigest.slice(7)
+      || binding.invocationDigest !== selected.invocationDigest
+      || binding.containerName !== `${TEST_PROCESS_TEMP_CONTAINER}${digestLocator(selected.invocationDigest)}`
+      || binding.ownerDigest !== selected.ownerDigest || sha256(runtimeLease!.owner) !== selected.ownerDigest
+      || (selected.container !== null && !sameIdentity(binding.container, selected.container))
+      || invocationLease!.name !== `invocation-${selected.invocationDigest.slice(7)}.lease`
+      || invocationLease!.owner.host !== runtimeLease!.owner.host
+      || invocationLease!.owner.pid !== runtimeLease!.owner.pid
+      || invocationLease!.owner.processNonce !== runtimeLease!.owner.processNonce) {
+    reject('Explicit invocation discard selection differs from its original binding or owners.');
+  }
+  for (const lease of leases) {
+    const canonical = Buffer.from(`${JSON.stringify({ schema: 'sec-physical-mutation-lease-record-v2',
+      activeOwner: lease.owner, recoveryOwner: null })}\n`);
+    if (!canonical.equals(lease.bytes)) reject('Explicit discard requires the exact original unguarded lease bytes.');
+  }
+  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    repositoryRoot: input.repositoryRoot, stateRoot: roots.stateRoot, cacheRoot: roots.cacheRoot,
+    requiredDirectories: []
+  });
+  try {
+    const stateParent = inspectNoFollowDirectoryChain(path.join(roots.stateRoot, 'test-invocation-runs', 'v1'), 'Discard State parent');
+    const cacheParent = inspectNoFollowDirectoryChain(path.join(roots.cacheRoot, 'test-invocation-runs', 'v1'), 'Discard Cache parent');
+    const leaseParent = inspectNoFollowDirectoryChain(roots.testProcessTempLeaseRoot, 'Discard lease parent').target;
+    if (path.dirname(selected.state.path) !== stateParent.target.path
+        || (selected.cache !== null && path.dirname(selected.cache.path) !== cacheParent.target.path)
+        || runtimeStateGenerationName({ parent: stateParent.target, invocationDigest: selected.invocationDigest,
+          owner: runtimeLease!.owner, physical: selected.state, scope: match![1]!, bindingBytes }) !== path.basename(selected.state.path)
+        || (selected.cache !== null && generationName(cacheParent.target, selected.invocationDigest,
+          runtimeLease!.owner, selected.cache) !== path.basename(selected.cache.path))) {
+      reject('Explicit discard State/Cache generation is not bound to the selected owner.');
+    }
+    // Capture absence, rather than turning a later same-name object into a
+    // replacement owner. Original bytes still identify the selected attempt.
+    const leasePresence = new Map(leases.map(lease => [lease.name,
+      inspectNoFollowOrdinaryFileEntry(leaseParent, lease.name) !== null]));
+    const initialState = inspectExactNoFollowDirectoryPresence(selected.state.path, 'Discard State preimage');
+    if (initialState.state === 'present') assertSameNoFollowDirectoryIdentity(selected.state, 'Discard State');
+    const initialBinding = initialState.state === 'absent' ? null
+      : inspectNoFollowOrdinaryFileEntry(selected.state, TEST_INVOCATION_TEMP_BINDING_NAME);
+    const statePresence = initialState.state === 'absent' ? 'absent' as const
+      : initialBinding === null ? 'empty' as const : 'bound' as const;
+    const assertOtherResourcesAbsent = (): void => {
+      if (inspectExactNoFollowDirectoryPresence(binding!.container.path, 'Discard final TMP absence').state !== 'absent'
+          || findBoundRuntimeGeneration({ parent: cacheParent, invocationDigest: selected.invocationDigest,
+            owner: runtimeLease!.owner, stagingScope: match![1]! }) !== null
+          || leases.some(lease => observeDurableCanonicalFileReplacement({ parent: leaseParent, name: lease.name }) !== 'none'
+            || inspectNoFollowOrdinaryFileEntry(leaseParent, lease.name) !== null)) {
+        reject('Explicit discard State tail requires all other original resources absent.');
+      }
+    };
+    if (statePresence !== 'bound') {
+      if (selected.container !== null || selected.cache !== null) reject('Explicit State tail discard requires selected TMP/Cache absence.');
+      assertOtherResourcesAbsent();
+    }
+    const assertLeasePreimage = (lease: typeof leases[number]): void => {
+      if (observeDurableCanonicalFileReplacement({ parent: leaseParent, name: lease.name }) !== 'none') {
+        reject('Explicit discard lease has unresolved physical replacement.');
+      }
+      const current = inspectNoFollowOrdinaryFileEntry(leaseParent, lease.name);
+      if (leasePresence.get(lease.name) === false) {
+        if (current !== null) reject('Explicit discard absent lease was replaced; no same-name object is adopted.');
+      } else if (current?.bytes === null || current?.bytes === undefined || current.device !== lease.device
+          || current.inode !== lease.inode || !lease.bytes.equals(Buffer.from(current.bytes))) {
+        reject('Explicit discard original lease bytes or physical identity drifted.');
+      }
+    };
+    const assertPreimages = (): void => {
+      assertNotCurrentProcessOwner();
+      for (const [label, identity] of [['Cache', selected.cache], ['TMP', selected.container],
+        ['TMP parent', binding!.hostTemp]] as const) {
+        if (identity !== null) assertSameNoFollowDirectoryIdentity(identity, `Discard ${label}`);
+      }
+      if (selected.container === null
+          && inspectExactNoFollowDirectoryPresence(binding!.container.path, 'Discard original absent TMP').state !== 'absent') {
+        reject('Explicit discard absent TMP was replaced; no same-name object is adopted.');
+      }
+      const boundCache = findBoundRuntimeGeneration({ parent: cacheParent, invocationDigest: selected.invocationDigest,
+        owner: runtimeLease!.owner, stagingScope: match![1]! });
+      if (boundCache === 'unknown' || (selected.cache === null ? boundCache !== null
+        : boundCache === null || !sameIdentity(selected.cache, boundCache.target))) {
+        reject('Explicit discard Cache presence differs from the selected original generation.');
+      }
+      if (statePresence === 'absent') {
+        if (inspectExactNoFollowDirectoryPresence(selected.state.path, 'Discard absent State preimage').state !== 'absent') {
+          reject('Explicit discard absent State was replaced; no same-name object is adopted.');
+        }
+      } else {
+        assertSameNoFollowDirectoryIdentity(selected.state, 'Discard original State preimage');
+        if (statePresence === 'empty') {
+          if (topLevelInventory(selected.state).length !== 0) reject('Explicit discard missing binding requires the same empty State.');
+        } else {
+          const currentBinding = inspectNoFollowOrdinaryFileEntry(selected.state, TEST_INVOCATION_TEMP_BINDING_NAME);
+          if (currentBinding?.bytes === null || currentBinding?.bytes === undefined
+              || !bindingBytes.equals(Buffer.from(currentBinding.bytes))) reject('Explicit discard original binding bytes drifted.');
+        }
+      }
+      if (statePresence !== 'bound') assertOtherResourcesAbsent();
+      for (const lease of leases) {
+        assertLeasePreimage(lease);
+      }
+    };
+    assertPreimages();
+    if (selected.container !== null) for (const entry of topLevelInventory(selected.container)) {
+      const child = entry.kind === 'directory'
+        ? inspectNoFollowDirectoryChild(selected.container, entry.relativePath, 'Discard TMP generation') : null;
+      if (child === null || generationName(selected.container, selected.invocationDigest, invocationLease!.owner, child) !== entry.relativePath) {
+        reject('Explicit discard TMP contains a foreign or unbound generation.');
+      }
+    }
+    const plans = [selected.container, selected.cache, statePresence === 'absent' ? null : selected.state].filter(
+      (root): root is PhysicalDirectoryIdentity => root !== null
+    ).map(root => {
+      const deadlineAtMonotonicMs = cleanupDeadline();
+      const inventory = scanNoFollowDirectoryTreeMetadata(root, { includePermissionMode: true,
+        deadlineAtMs: deadlineAtMonotonicMs, maximumEntries: TEST_RUNTIME_CLEANUP_MAXIMUM_ENTRIES });
+      if (inventory.some(entry => entry.kind !== 'file' && entry.kind !== 'directory')) {
+        reject('Explicit discard refuses linked or foreign physical entries.');
+      }
+      const parent = inspectNoFollowDirectoryChain(path.dirname(root.path), 'Discard generation parent').target;
+      return { root, parent, inventory };
+    });
+    const decision = await input.reviewDiscard(Object.freeze({ invocationDigest: selected.invocationDigest,
+      ownerDigest: selected.ownerDigest, state: selected.state, cache: selected.cache, container: selected.container, statePresence }));
+    if (decision.disposition !== 'discard' || decision.reference.trim().length === 0) {
+      reject('Current explicit discard authorization is unavailable.');
+    }
+    await authority.assertCurrent();
+    assertPreimages();
+    for (const plan of plans.slice(0, -1)) retireNoFollowDirectoryTree({ ...plan,
+      deadlineAtMonotonicMs: cleanupDeadline(), restoreOwnerPermissions: true });
+    // Keep State and its sealed binding until every other selected resource is
+    // retired. No recovery acknowledgement or old-attempt terminal is written.
+    for (const lease of leases) {
+      assertLeasePreimage(lease);
+      if (leasePresence.get(lease.name) === false) continue;
+      deleteRetainedNoFollowEntry({ root: leaseParent, relativePath: lease.name, kind: 'file',
+        device: lease.device, inode: lease.inode, expectedFileBytes: lease.bytes, ancestorDirectories: [] });
+    }
+    for (const lease of leases) {
+      if (observeDurableCanonicalFileReplacement({ parent: leaseParent, name: lease.name }) !== 'none'
+          || inspectNoFollowOrdinaryFileEntry(leaseParent, lease.name) !== null) {
+        reject('Explicit discard leases must remain absent before State retirement.');
+      }
+    }
+    assertOtherResourcesAbsent();
+    if (statePresence !== 'absent') retireNoFollowDirectoryTree({ ...plans.at(-1)!,
+      deadlineAtMonotonicMs: cleanupDeadline(), restoreOwnerPermissions: true });
+    for (const root of [binding!.container, ...(selected.cache === null ? [] : [selected.cache]), selected.state]) {
+      if (inspectExactNoFollowDirectoryPresence(root.path, 'Discard final generation readback').state !== 'absent') {
+        reject('Explicit discard generation retirement readback differs.');
+      }
+    }
+    if (findBoundRuntimeGeneration({ parent: cacheParent, invocationDigest: selected.invocationDigest,
+      owner: runtimeLease!.owner, stagingScope: match![1]! }) !== null) reject('Explicit discard Cache final readback differs.');
+    for (const lease of leases) if (inspectNoFollowOrdinaryFileEntry(leaseParent, lease.name) !== null) {
+      reject('Explicit discard lease retirement readback differs.');
+    }
+    return Object.freeze({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
+  } finally {
+    await authority.release();
   }
 }
 

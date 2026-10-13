@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ResourceCompositeSettlementError } from '../../../execution/resource-settlement.ts';
-import { isGitCandidateBundleByteLength } from '../../runtime-state/physical/contract/git-bundle.ts';
+import { GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES, isGitCandidateBundleByteLength } from '../../runtime-state/physical/contract/git-bundle.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { createGitBundleTestFixture } from './test/runtime-fixture.ts';
 
@@ -31,8 +31,8 @@ afterEach(() => {
 describe('Git candidate bundle effect', () => {
   test('shares the inclusive complete-history byte boundary with the native input consumer', () => {
     expect(isGitCandidateBundleByteLength(1)).toBe(true);
-    expect(isGitCandidateBundleByteLength(16 * 1024 * 1024)).toBe(true);
-    for (const invalid of [0, -1, 0.5, 16 * 1024 * 1024 + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(isGitCandidateBundleByteLength(GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES)).toBe(true);
+    for (const invalid of [0, -1, 0.5, GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(isGitCandidateBundleByteLength(invalid)).toBe(false);
     }
   });

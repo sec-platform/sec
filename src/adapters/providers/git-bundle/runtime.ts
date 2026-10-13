@@ -21,16 +21,17 @@ import {
 } from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
+  copyNoFollowDirectoryTreesBulk,
   createExclusiveNoFollowDirectory,
   createExclusiveNoFollowRandomDirectory,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryLeaf,
   inspectNoFollowOrdinaryFileEntry,
-  publishExclusiveDurableCanonicalFile,
   readNoFollowOrdinaryFile,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
   retireNoFollowDirectoryTree,
+  scanNoFollowDirectoryDirectMetadata,
   scanNoFollowDirectoryTreeInventory,
   scanNoFollowDirectoryTreeMetadata,
   type PhysicalDirectoryChain,
@@ -76,7 +77,7 @@ const CANDIDATE_BUNDLE_REQUIREMENT = 'git-bundle.host-process';
 const CANDIDATE_BUNDLE_CONTRACT = sha256({
   operation: CANDIDATE_BUNDLE_OPERATION,
   source: 'git-read-exact-repository-identity-v1',
-  effect: 'fixed-local-fetch-and-bundle-v1',
+  effect: 'fixed-local-fetch-and-file-bundle-v2',
   output: 'retained-ordinary-file-v1'
 }) as OperationDigest;
 const CANDIDATE_BUNDLE_PROCESS_PROVIDER = sha256({
@@ -109,10 +110,9 @@ const GIT_READ_BUDGET = Object.freeze({
 });
 
 // Git identity observations settle before the four fixed transport commands.
-// Their aggregate read bound plus init/fetch/verify stdout+stderr and bundle
-// stderr leave the entire shared file bound available to bundle stdout.
-const CANDIDATE_BUNDLE_MAXIMUM_OUTPUT_BYTES = GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES
-  + 7 * CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES
+// File bytes do not become process messages. All four commands retain the same
+// small diagnostic bound; artifact admission observes the completed native file.
+const CANDIDATE_BUNDLE_MAXIMUM_OUTPUT_BYTES = 8 * CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES
   + GIT_READ_BUDGET.maxStdoutBytes + GIT_READ_BUDGET.maxStderrBytes;
 
 export type GitCandidateBundle = Readonly<{
@@ -154,6 +154,7 @@ function compileCandidateBundleOperation(input: Readonly<{
   headSha: string;
   deadlineAtUnixMs: number;
   checkoutPurpose?: CandidateCheckoutPurpose;
+  maximumBundleBytes?: number;
 }>): BoundSemanticOperation {
   const operationName = input.checkoutPurpose === undefined ? CANDIDATE_BUNDLE_OPERATION : 'external-capabilities.git-bundle.checkout';
   const contract = input.checkoutPurpose === undefined ? CANDIDATE_BUNDLE_CONTRACT : sha256({
@@ -167,6 +168,7 @@ function compileCandidateBundleOperation(input: Readonly<{
       temporaryRoot: input.temporaryRoot,
       baseSha: input.baseSha,
       headSha: input.headSha,
+      maximumBundleBytes: input.maximumBundleBytes ?? GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES,
       bareName: CANDIDATE_BUNDLE_BARE_NAME,
       bundleName: CANDIDATE_BUNDLE_FILE_NAME,
       ...(input.checkoutPurpose === undefined ? {} : { purpose: input.checkoutPurpose })
@@ -291,6 +293,7 @@ async function materializeCandidateBundle(input: Readonly<{
   processSession: ReturnType<typeof openProcessResourceSession>;
   temporaryRootIdentity: PhysicalDirectoryChain;
   signal?: AbortSignal;
+  maximumBundleBytes: number;
 }>): Promise<Readonly<{
   retainedBundle: RetainedNoFollowOrdinaryFile;
   objectFormat: 'sha1' | 'sha256';
@@ -388,8 +391,7 @@ async function materializeCandidateBundle(input: Readonly<{
       assertGitPhysicalResourceAdmissionInternal(provider, {
         processes: 4,
         inputBytes: 0,
-        outputBytes: GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES
-          + 7 * CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES
+        outputBytes: 8 * CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES
       });
       const sourceAuxiliary = [...retainedSources.values()].map((capability) => Object.freeze({
         capability,
@@ -432,22 +434,11 @@ async function materializeCandidateBundle(input: Readonly<{
         retainedSources.get(commonDirectory)!.childPath,
         `${input.baseSha}:refs/sec/base`, `${input.headSha}:refs/sec/head`
       ], 'exact local fetch', directoryAuxiliary);
-      const bundleBytes = await runRequiredGitCommand(provider, [
-        '-C', bareCapability.childPath,
-        'bundle', 'create', '-',
+      await runRequiredGitCommand(provider, [
+        `--git-dir=${bareCapability.childPath}`,
+        'bundle', 'create', CANDIDATE_BUNDLE_FILE_NAME,
         'refs/sec/base', 'refs/sec/head'
-      ], 'bundle creation', directoryAuxiliary, GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES);
-      const publication = publishExclusiveDurableCanonicalFile({
-        parent: input.temporaryRootIdentity.target,
-        name: CANDIDATE_BUNDLE_FILE_NAME,
-        bytes: bundleBytes,
-        validate: (bytes) => {
-          if (!isGitCandidateBundleByteLength(bytes.byteLength)) {
-            throw new Error('Git candidate bundle output exceeds its fixed byte domain.');
-          }
-        }
-      });
-      publicationDigest = publication.digest;
+      ], 'bundle creation', directoryAuxiliary);
       const bundleParent = assertSameNoFollowDirectoryIdentity(
         input.temporaryRootIdentity.target,
         'Git candidate bundle output parent'
@@ -459,6 +450,14 @@ async function materializeCandidateBundle(input: Readonly<{
         'Git candidate bundle output',
         9
       );
+      const artifact = retainedBundle.digest();
+      if (retainedBundle.linkCount !== 1) {
+        throw new Error('Git candidate bundle output is not one independently owned ordinary file.');
+      }
+      if (!isGitCandidateBundleByteLength(artifact.size) || artifact.size > input.maximumBundleBytes) {
+        throw new Error('Git candidate bundle output exceeds its admitted artifact byte budget.');
+      }
+      publicationDigest = artifact.byteDigest;
       await runRequiredGitCommand(provider, [
         '-C', bareCapability.childPath,
         'bundle', 'verify', retainedBundle.childPath
@@ -547,6 +546,8 @@ export async function createGitCandidateBundle(input: Readonly<{
   readonly headSha: string;
   readonly deadlineAtUnixMs?: number;
   readonly signal?: AbortSignal;
+  /** Post-creation artifact admission, not a runtime disk-allocation limit. */
+  readonly maximumBundleBytes?: number;
 }>): Promise<GitCandidateBundle> {
   // Fix the child bound before preparation. The local cap may shorten the
   // inherited deadline, but no provider/readback phase may renew that pool.
@@ -566,6 +567,10 @@ export async function createGitCandidateBundle(input: Readonly<{
   assertWithinBound();
   const sourceRoot = path.resolve(input.sourceRoot);
   const temporaryRoot = path.resolve(input.temporaryRoot);
+  const maximumBundleBytes = input.maximumBundleBytes ?? GIT_CANDIDATE_BUNDLE_MAXIMUM_BYTES;
+  if (!isGitCandidateBundleByteLength(maximumBundleBytes)) {
+    throw new Error('Git candidate bundle artifact byte budget is invalid.');
+  }
   if (!path.isAbsolute(input.sourceRoot) || sourceRoot !== input.sourceRoot
       || !path.isAbsolute(input.temporaryRoot) || temporaryRoot !== input.temporaryRoot
       || !OBJECT_ID.test(input.baseSha) || !OBJECT_ID.test(input.headSha)) {
@@ -585,6 +590,7 @@ export async function createGitCandidateBundle(input: Readonly<{
     temporaryRoot,
     baseSha: input.baseSha,
     headSha: input.headSha,
+    maximumBundleBytes,
     deadlineAtUnixMs
   });
   const processSession = openProcessResourceSession({
@@ -609,7 +615,8 @@ export async function createGitCandidateBundle(input: Readonly<{
       operation,
       processSession,
       temporaryRootIdentity,
-      signal
+      signal,
+      maximumBundleBytes
     });
   } catch (error) {
     primary = { label: 'git-candidate-bundle-operation', error };
@@ -652,6 +659,9 @@ export async function createGitCandidateBundle(input: Readonly<{
     assertWithinBound();
     materialized.retainedBundle.assertCurrent();
     const digest = materialized.retainedBundle.digest();
+    if (digest.byteDigest !== materialized.publicationDigest || digest.size > maximumBundleBytes) {
+      throw new Error('Git candidate bundle verified artifact changed before publication.');
+    }
     const withoutIdentity = Object.freeze({
       bundlePath: materialized.retainedBundle.path,
       bundleSize: digest.size,
@@ -1012,7 +1022,7 @@ export async function withGitCandidateCheckout<T>(input: Readonly<{
     generation = createExclusiveNoFollowRandomDirectory(parent, 'sec-private-candidate-');
     bundleAttempted = true;
     bundle = await createGitCandidateBundle({ sourceRoot, temporaryRoot: generation.path,
-      baseSha, headSha, deadlineAtUnixMs, signal });
+      baseSha, headSha, deadlineAtUnixMs, signal, maximumBundleBytes: CHECKOUT_MAXIMUM_BYTES });
     currentRoots();
     const resolution = openGitPhysicalProvider({ cwd: generation.path, executablePath: preflight.executablePath,
       operation, processSession: processes, maximumExecutableBytes: CANDIDATE_BUNDLE_EXECUTABLE_BYTES,
@@ -1188,10 +1198,40 @@ export async function withGitCandidateCheckout<T>(input: Readonly<{
       materializeTransport: async () => {
         assertGitCandidateCheckoutCurrent(scope);
         if (purpose !== 'action-materialization') throw new Error('Private candidate transport purpose is invalid.');
-        const parent = inspectNoFollowDirectoryChain(path.join(root.path, '.sec-trusted-input')).target;
-        const bytes = assertGitCandidateBundleCurrent(bundle!).readBytes();
-        publishExclusiveDurableCanonicalFile({ parent, name: 'candidate.bundle', bytes,
-          validate: observed => { if (!Buffer.from(observed).equals(bytes)) throw new Error('Private bundle projection drifted.'); } });
+        const source = assertGitCandidateBundleCurrent(bundle!);
+        const identity = source.digest();
+        const sourceParent = inspectNoFollowDirectoryChain(path.dirname(source.path)).target;
+        const excluded = scanNoFollowDirectoryDirectMetadata(sourceParent, {
+          deadlineAtMs: deadlineAtMonotonicMs, maximumEntries: CHECKOUT_MAXIMUM_ENTRIES
+        }).filter(entry => entry.relativePath !== CANDIDATE_BUNDLE_FILE_NAME).map(entry => entry.relativePath);
+        const target = path.join(root.path, '.sec-trusted-input');
+        await copyNoFollowDirectoryTreesBulk([{ source: sourceParent, target }], {
+          // The copier's include/exclude modes are exclusive. Prune the exact
+          // observed complement so only this file is traversed. The raw name
+          // census counts excluded roots twice plus one destination member;
+          // its byte budget covers source/copy/target/source observations.
+          excludeRelativePaths: excluded,
+          maximumEntries: 2 * (excluded.length + 1) + 1, maximumBytes: 4 * identity.size,
+          deadlineAtMs: deadlineAtMonotonicMs, signal, rejectHardLinks: true,
+          assertCurrent: () => { assertGitCandidateCheckoutCurrent(scope); source.assertCurrent(); }
+        });
+        const members = scanNoFollowDirectoryDirectMetadata(inspectNoFollowDirectoryChain(target).target, {
+          deadlineAtMs: deadlineAtMonotonicMs, maximumEntries: 1
+        });
+        if (members.length !== 1 || members[0]!.kind !== 'file'
+            || members[0]!.relativePath !== CANDIDATE_BUNDLE_FILE_NAME) {
+          throw new Error('Private bundle projection acquired an unexpected transport member.');
+        }
+        const copied = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(target), CANDIDATE_BUNDLE_FILE_NAME);
+        try {
+          const observed = copied.digest();
+          source.assertCurrent();
+          if (observed.size !== identity.size || observed.byteDigest !== identity.byteDigest
+              || source.digest().byteDigest !== identity.byteDigest) {
+            throw new Error('Private bundle projection drifted.');
+          }
+          copied.assertCurrent();
+        } finally { copied.dispose(); }
         await run(['-C', directory!.childPath, 'update-ref', 'refs/sec/base', baseSha]);
         assertGitCandidateCheckoutCurrent(scope);
         await run(['-C', directory!.childPath, 'update-ref', 'refs/sec/head', headSha]);
