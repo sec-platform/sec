@@ -3,7 +3,7 @@
  * physical journal publication, lease and settlement owners execute normally. */
 import { mock } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,7 @@ import * as mainHealth from '../../../src/adapters/self-hosting/control/main-hea
 import * as workPackage from '../../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import * as gitRead from '../../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import { encodeVerificationActionData } from '../../../src/adapters/verification/platform/action/contract/action.ts';
+import * as ciActionContract from '../../../src/adapters/verification/platform/action/contract/ci.ts';
 import * as evidenceContract from '../../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import * as github from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
@@ -44,6 +45,8 @@ const fixtureSession = { repository: candidate.repository, prNumber: 123,
   baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
   manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
   profile: request.profile, reviewPolicyDigest: request.reviewPolicyDigest };
+const layout = resolveSecRuntimeStateForRepository({ repositoryRoot, repository: candidate.repository });
+const records = path.join(layout.repositoryStateRoot, 'trusted-runtime', 'v1', fixtureSession.sessionRevision.slice(7));
 const producer = { sourceDigest: D('8') };
 const evidence = { sessionRevision: request.expectedSessionRevision,
   baseSha: candidate.baseSha, headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
@@ -67,6 +70,13 @@ const prepared = () => {
     sessionRevision: fixtureSession.sessionRevision, envelope };
 };
 const mockModule = (url: string, factory: () => object) => mock.module(fileURLToPath(new URL(url, import.meta.url)), factory);
+// This orchestration fixture supplies a local projection, never accepted native content.
+mockModule('../../../src/adapters/verification/platform/action/contract/ci.ts', () => ({
+  ...ciActionContract,
+  createCiVerificationNativeLocalExecutionEnvironment: () => ciActionContract.createCiVerificationLocalExecutionEnvironment({
+    os: process.platform, arch: process.arch, bunVersion: Bun.version
+  })
+} satisfies Partial<Record<keyof typeof ciActionContract, unknown>>));
 mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts', () => ({
   ...sessionRuntime, prepareTrustedMainVerificationSession: prepared, prepareTrustedRuntimeVerificationSession: prepared,
   finalizeVerificationSessionHostedArtifact: () => artifact, refreshVerificationSessionHostedArtifact: () => artifact
@@ -77,10 +87,10 @@ mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-
   observeVerificationSessionActionDependencyBlobs: async () => []
 }));
 mockModule('../../../src/adapters/verification/platform/ci/contract/evidence.ts', () => ({
-  ...evidenceContract, parseVerificationSessionArtifact: (source: string) => JSON.parse(source),
-  assertVerificationEvidence: () => {},
+  ...evidenceContract, CodexDevelopmentParseVerificationSessionArtifact: (source: string) => JSON.parse(source),
+  CodexDevelopmentAssertVerificationEvidenceV4: () => {},
   parseSourceProgramTransitionAcceptanceRecord: (value: unknown) => value
-}));
+} satisfies Partial<Record<keyof typeof evidenceContract, unknown>>));
 mockModule('../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts', () => ({
   ...container,
   withTrustedRuntimeMainHealthQualification: async () => { throw new Error('TEST_NATIVE_MAIN_HEALTH_UNAVAILABLE'); },
@@ -92,7 +102,7 @@ mockModule('../../../src/adapters/verification/platform/ci/runtime/verification-
     observeCandidate: async () => {
       counters.currentSubject++;
       return scenario === 'merged-input' ? { ...candidate, state: 'MERGED' }
-        : scenario === 'subject-drift' && counters.currentSubject >= 4
+        : scenario === 'subject-drift' && existsSync(path.join(records, 'verification-action.json'))
           ? { ...candidate, headTreeSha: 'f'.repeat(40) } : candidate;
     },
     observeComparison: async () => ({ status: 'ahead', behindBy: 0 }),
@@ -125,7 +135,7 @@ mockModule('../../../src/adapters/self-hosting/control/task/contract/work-packag
   CodexDevelopmentWorkPackageManifestDigest: () => request.manifestDigest,
   CodexDevelopmentParseCurrentWorkPackageManifest: () => ({ requiredProfile: request.profile }),
   CodexDevelopmentAssertWorkPackageOwnership: () => {}
-}));
+} satisfies Partial<Record<keyof typeof workPackage, unknown>>));
 mockModule('../../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts', () => ({
   ...mainHealth,
   observeMainHealthGitHubDefaultBranchSha: async () => candidate.baseSha,
@@ -171,8 +181,6 @@ try {
     : await verifyWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, request: saved }, source);
   if (scenario === 'reuse') result = await verifyWithTrustedRuntime({ repositoryRoot, repository: candidate.repository, request: saved }, source);
 } catch (error) { failure = error instanceof Error ? error.message : String(error); }
-const layout = resolveSecRuntimeStateForRepository({ repositoryRoot, repository: candidate.repository });
-const records = path.join(layout.repositoryStateRoot, 'trusted-runtime', 'v1', fixtureSession.sessionRevision.slice(7));
 let files: string[] = [];
 try { files = readdirSync(records).sort(); } catch {}
 const projection = failure === null && ['verified', 'reuse', 'source-waiting'].includes(scenario ?? '')

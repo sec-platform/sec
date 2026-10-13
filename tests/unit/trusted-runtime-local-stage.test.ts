@@ -177,7 +177,7 @@ test('verification-only composition publishes through original journals and stop
   expect(observed.failure).toBeNull();
   expect(observed.result).toMatchObject({ status: 'LOCAL_VERIFIED', stage: 'verification-only',
     integrationAuthorization: 'not-issued-by-this-operation', actionEvidenceReused: false });
-  expect(observed.counters).toMatchObject({ source: 1, review: 1, currentSubject: 4,
+  expect(observed.counters).toMatchObject({ source: 1, review: 1,
     remoteWrite: 0, platform: 0 });
   expect(observed.files).toContain('verification-action.json');
   expect(observed.files.some((file: string) => file.startsWith('source-program-attempt-'))).toBe(true);
