@@ -10,8 +10,8 @@ last-reviewed: 2026-10-13
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/main-health-dependency-admission-20261013.md
-manifestDigest: sha256:f129c53e67b77206b27486f05611491734d79cdd94cd07441319c88d2f7c9b04
+manifest: config/repository/work-packages/audit-worker-boundary-20261013.md
+manifestDigest: sha256:e7748e4393fedb1c7eb98c6baf578b9668fe7b882ba5cb8fb33a8c16ab5733ae
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
