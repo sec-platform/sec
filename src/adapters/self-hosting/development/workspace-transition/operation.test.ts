@@ -17,6 +17,8 @@ let hookMaterializations = 0;
 let currentHead = HEAD;
 let parentProcessSession: ProcessResourceSession | null = null;
 let parentOperation: BoundSemanticOperation | null = null;
+let repositoryObservations = 0;
+let dependencyObservationRoots: string[] = [];
 
 function completed(value: string) {
   return Object.freeze({
@@ -31,7 +33,10 @@ const session = Object.freeze({
   workingDirectoryIdentity: Object.freeze({ root: 'D:\\repo' }),
   async run(args: readonly string[]) {
     if (args.includes('--show-object-format')) return completed('sha1');
-    if (args.includes('HEAD^{tree}')) return completed(TREE);
+    if (args.includes('HEAD^{tree}')) {
+      repositoryObservations += 1;
+      return completed(TREE);
+    }
     if (args.includes('--show-toplevel')) return completed('D:\\repo');
     if (args.includes('--absolute-git-dir')) return completed('D:\\repo\\.git');
     if (args.includes('--git-common-dir')) return completed('D:\\repo\\.git');
@@ -61,8 +66,9 @@ mock.module('../../../providers/git-read/authority.ts', () => ({
 }));
 
 mock.module('../../../toolchain/dependencies/runtime.ts', () => ({
-  async observeCompilerDependencyExecutionGenerationAuthority() {
+  async observeCompilerDependencyExecutionGenerationAuthority(_options: unknown, repositoryRoot: string) {
     expect(activeSessions).toBe(1);
+    dependencyObservationRoots.push(repositoryRoot);
     return dependencyReady
       ? Object.freeze({ generationDigest: `sha256:${'2'.repeat(64)}` })
       : null;
@@ -108,6 +114,8 @@ function reset(): void {
   currentHead = HEAD;
   parentProcessSession = null;
   parentOperation = null;
+  repositoryObservations = 0;
+  dependencyObservationRoots = [];
   dependencyReady = true;
   hookObservation = 'ready';
   delete process.env.SEC_WORKSPACE_TRANSITION_DEADLINE_AT_UNIX_MS;
@@ -130,6 +138,7 @@ test('ready observations complete with zero materialization Effect and final rea
   expect(hookMaterializations).toBe(0);
   expect(maximumActiveSessions).toBe(1);
   expect(activeSessions).toBe(0);
+  expect(dependencyObservationRoots).toEqual(['D:\\repo', 'D:\\repo']);
   expect(parentProcessSession?.signal.aborted).toBe(true);
   expect(parentProcessSession?.operationIdentityDigest)
     .toBe(parentOperation?.plan.identity.identityDigest);
@@ -145,6 +154,24 @@ test('path checkout does not admit dependency or hook installation', async () =>
     repositoryRoot: 'D:\\repo',
     async handoff() { throw new Error('path checkout must not hand off'); }
   })).resolves.toBe(0);
+  expect(dependencyMaterializations).toBe(0);
+  expect(hookMaterializations).toBe(0);
+  expect(activeSessions).toBe(0);
+  expect(parentProcessSession?.signal.aborted).toBe(true);
+});
+
+test('same-commit branch checkout reads back Git without acquiring dependencies or hooks', async () => {
+  reset();
+  dependencyReady = false;
+  hookObservation = 'materialization-required';
+  await expect(runWorkspaceTransitionOperation({
+    event: 'post-checkout',
+    arguments: [HEAD, HEAD, '1'],
+    repositoryRoot: 'D:\\repo',
+    async handoff() { throw new Error('same-commit checkout must not hand off'); }
+  })).resolves.toBe(0);
+  expect(repositoryObservations).toBe(2);
+  expect(dependencyObservationRoots).toEqual([]);
   expect(dependencyMaterializations).toBe(0);
   expect(hookMaterializations).toBe(0);
   expect(activeSessions).toBe(0);

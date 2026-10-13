@@ -25,7 +25,6 @@ import {
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
   observeCompilerDependencyExecutionGenerationAuthority,
-  observeCompilerDependencyMaterializationInput,
   type CompilerDepsReadyState
 } from '../../../toolchain/dependencies/runtime.ts';
 import {
@@ -440,22 +439,22 @@ export async function runWorkspaceTransitionOperation(input: Readonly<{
           currentHead: repository.currentHead,
           objectIdLength: repository.objectIdLength
         });
-        // Git also emits post-checkout for path restores. Like an ordinary
-        // file edit, that does not transition the workspace revision or admit
-        // dependency/hook installation. Their actual consumers retain admission.
-        if (trigger.event === 'post-checkout' && trigger.checkoutKind === 'paths') {
+        // Path restores and symbolic/detached changes at the same commit do
+        // not transition the managed source revision. Neither admits dependency
+        // or hook installation; their actual consumers retain admission.
+        if (trigger.event === 'post-checkout'
+            && (trigger.checkoutKind === 'paths' || trigger.previousHead === trigger.newHead)) {
           const finalRepository = await observeRepository(session);
           assertSameRepository(repository, finalRepository, trigger.newHead);
           return 0;
         }
         const dependencyAuthority = await observeCompilerDependencyExecutionGenerationAuthority({
           deadlineAtUnixMs
-        });
+        }, repositoryRoot);
         if (dependencyAuthority === null) {
-          await observeCompilerDependencyMaterializationInput();
           throw new WorkspaceTransitionContractError(
             'workspace-transition-provider-integration-unavailable',
-            'Compiler dependency materialization has not adopted the parent process session.'
+            'This workspace has no compatible retained compiler dependency generation; automatic materialization is unavailable for this transition.'
           );
         }
         const hookObservation = await observeHooks(repositoryRoot, session);
@@ -488,7 +487,7 @@ export async function runWorkspaceTransitionOperation(input: Readonly<{
         const finalHooks = await observeHooks(repositoryRoot, session);
         const finalDependencyAuthority = await observeCompilerDependencyExecutionGenerationAuthority({
           deadlineAtUnixMs
-        });
+        }, repositoryRoot);
         if (finalHooks.disposition !== 'ready'
             || finalDependencyAuthority === null
             || sha256(finalDependencyAuthority) !== dependencyObservationDigest) {

@@ -130,15 +130,16 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
     bun.assertCurrent();
     const bunDigest = bun.digest().byteDigest;
     const files = observed.map(entry => {
-      const mode = entry.permissionMode;
-      if (mode === undefined || mode === null) throw new Error('MainHealth runtime permission observation is unavailable.');
-      if (entry.kind === 'directory') return Object.freeze({ path: entry.relativePath, type: 'directory' as const, mode });
-      if (entry.kind === 'file' && entry.byteDigest !== undefined) return Object.freeze({ path: entry.relativePath, type: 'file' as const, mode, size: entry.size, digest: entry.byteDigest });
       if (entry.kind === 'link' && entry.linkTarget !== null) {
         const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entry.relativePath), entry.linkTarget));
         if (entry.linkTarget.startsWith('/') || resolved === '..' || resolved.startsWith('../')) throw new Error('MainHealth runtime link escapes its private snapshot.');
         return Object.freeze({ path: entry.relativePath, type: 'symlink' as const, mode: 0o777 as const, target: entry.linkTarget });
       }
+      if (entry.kind !== 'directory' && entry.kind !== 'file') throw new Error('MainHealth runtime contains an unsupported entry.');
+      const mode = entry.permissionMode;
+      if (mode === undefined || mode === null) throw new Error('MainHealth runtime permission observation is unavailable.');
+      if (entry.kind === 'directory') return Object.freeze({ path: entry.relativePath, type: 'directory' as const, mode });
+      if (entry.byteDigest !== undefined) return Object.freeze({ path: entry.relativePath, type: 'file' as const, mode, size: entry.size, digest: entry.byteDigest });
       throw new Error('MainHealth runtime contains an unsupported entry.');
     });
     const manifest: MainHealthHostRuntimeManifest = Object.freeze({ schema: 'sec-main-health-host-runtime-manifest-v1', platform: 'linux/amd64', files: Object.freeze(files) });

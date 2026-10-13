@@ -5,7 +5,7 @@ import path from 'node:path';
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import type { GeneratedStateWorktreeRetirement } from '../../../../execution/generated-state/contract.ts';
 import { isGeneratedStateWorktreeRetirementBlocked } from '../../../../execution/generated-state/errors.ts';
-import type { GeneratedStateWorktreeRetirementInput } from '../../../../execution/generated-state/worktree-admission.ts';
+import { DETACHED_WORKTREE_RETIREMENT_BRANCH_PREFIX as DETACHED_BRANCH_PREFIX, detachedWorktreeRetirementBranch as detachedMarker, type GeneratedStateWorktreeRetirementInput } from '../../../../execution/generated-state/worktree-admission.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { assertGeneratedStateWorktreeRetirementEffectStart } from '../../../runtime-state/generated-state/lifecycle-evidence.ts';
@@ -81,8 +81,6 @@ export interface PrepareDetachedScratchWorktreePhysicalCloseoutInput {
 export interface ExecuteDetachedScratchWorktreePhysicalCloseoutInput extends PrepareDetachedScratchWorktreePhysicalCloseoutInput {
   readonly authorizationPath: string;
 }
-const DETACHED_BRANCH_PREFIX = 'detached-scratch-';
-function detachedMarker(headSha: string): string { return `${DETACHED_BRANCH_PREFIX}${headSha}`; }
 
 /** Opaque same-process capability; raw JSON can never mint this token. */
 export class WorktreePhysicalCloseoutConsumptionToken {
@@ -799,21 +797,19 @@ export async function prepareWorktreePhysicalCloseout(
   }
   await retireDocumentationCoordinationAtWorktreeCloseout(input);
   let generatedStateRetirement: GeneratedStateWorktreeRetirement | null = null;
-  if (!input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
-    try {
-      generatedStateRetirement = await operations.settleGeneratedStateForWorktreeRetirement({
-        repositoryRoot: input.repositoryRoot,
-        workspaceRoot: input.targetPath,
-        expectedBranch: input.expectedBranch,
-        expectedHeadSha: input.expectedHeadSha,
-        expectedTreeSha: input.expectedTreeSha
-      });
-    } catch (error) {
-      if (!isGeneratedStateWorktreeRetirementBlocked(error)) throw error;
-      // The generated-state owner made no Effect. Preserve its fail-closed
-      // classification and let the worktree-closeout owner emit the canonical
-      // working-state blocker.
-    }
+  try {
+    generatedStateRetirement = await operations.settleGeneratedStateForWorktreeRetirement({
+      repositoryRoot: input.repositoryRoot,
+      workspaceRoot: input.targetPath,
+      expectedBranch: input.expectedBranch,
+      expectedHeadSha: input.expectedHeadSha,
+      expectedTreeSha: input.expectedTreeSha
+    });
+  } catch (error) {
+    if (!isGeneratedStateWorktreeRetirementBlocked(error)) throw error;
+    // The generated-state owner made no Effect. Preserve its fail-closed
+    // classification and let the worktree-closeout owner emit the canonical
+    // working-state blocker.
   }
   await assertCoordinatedRepository(repository, commonLease);
   return withAcquiredResource({

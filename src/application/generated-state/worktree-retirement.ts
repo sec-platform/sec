@@ -16,7 +16,7 @@ import { executeGeneratedStateProviderEffect, issueGeneratedStateProviderSettlem
 import { issueGeneratedStatePublication } from '../../execution/generated-state/registration-session.ts';
 import { generatedStateOwnerRetirementRef } from '../../execution/generated-state/registration-transition.ts';
 import { issueGeneratedStateTreeEffect, withGeneratedStateOperation } from '../../execution/generated-state/tree-effect.ts';
-import { assertGeneratedStateWorktreeRetirementEffectStart, type GeneratedStateWorktreeRetirementInput } from '../../execution/generated-state/worktree-admission.ts';
+import { assertGeneratedStateWorktreeRetirementEffectStart, DETACHED_WORKTREE_RETIREMENT_BRANCH_PREFIX, detachedWorktreeRetirementBranch, type GeneratedStateWorktreeRetirementInput } from '../../execution/generated-state/worktree-admission.ts';
 import type { GeneratedStateCleanupDependencies } from './cleanup.ts';
 import { withMigratedGeneratedStateMutation } from './registration.ts';
 
@@ -53,8 +53,11 @@ export async function settleGeneratedStateForWorktreeRetirement(input: Generated
     const worktrees = await dependencies.git.observeWorktrees(), tree = await dependencies.git.observeWorktreeTree();
     const records = worktrees.state === 'observed' ? worktrees.worktrees : [];
     const record = records.find(candidate => path.resolve(candidate.path).toLocaleLowerCase('en-US') === workspaceRoot.toLocaleLowerCase('en-US'));
-    if (record === undefined || record === records[0] || record.bare || record.detached || record.locked || record.prunable ||
-        record.branch !== input.expectedBranch || record.headSha !== input.expectedHeadSha || tree.state !== 'observed' || tree.treeSha !== input.expectedTreeSha) {
+    const branchMatches = record !== undefined && record.headSha !== null && (record.detached
+      ? record.branch === null && input.expectedBranch === detachedWorktreeRetirementBranch(record.headSha)
+      : !input.expectedBranch.startsWith(DETACHED_WORKTREE_RETIREMENT_BRANCH_PREFIX) && record.branch === input.expectedBranch);
+    if (record === undefined || record === records[0] || record.bare || record.locked || record.prunable ||
+        !branchMatches || record.headSha !== input.expectedHeadSha || tree.state !== 'observed' || tree.treeSha !== input.expectedTreeSha) {
       throw new Error('Worktree retirement admission no longer matches one ordinary linked worktree.');
     }
     const namespace = await dependencies.effects.operationNamespace(physicalResource);
