@@ -295,7 +295,7 @@ export function gitReadCommandIsObservation(args: readonly string[], scope?: Rea
     const positional = commandArgs[0] === '--exit-code' ? commandArgs.slice(1) : commandArgs;
     return positional.length === 2
       && positional.every((argument) => argument.length > 0 && !argument.startsWith('-'))
-      && positional[1]!.startsWith('refs/heads/');
+      && (positional[1]!.startsWith('refs/heads/') || /^refs\/pull\/[1-9][0-9]*\/head$/u.test(positional[1]!));
   }
   if (command === 'rev-parse') {
     const allowed = REV_PARSE_FLAGS;
