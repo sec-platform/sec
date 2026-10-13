@@ -49,13 +49,13 @@ test('hosted local ref consumer admits the native Git delete transaction', async
     });
     const attempts: BranchCloseoutAttempt[] = [];
     const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as OperationDigest;
-    const rejected = observeLocalRefCasWithAdmissionDouble({ preparation, operationId,
+    const rejected = await observeLocalRefCasWithAdmissionDouble({ preparation, operationId,
       revokeAtFinalCheck: true });
     expect(rejected.realForgedAdmissionRejected).toBe(true);
     expect(rejected.admissionChecks).toBe(2);
     expect(rejected.result.status).toBe('failed');
     expect(git(repositoryRoot, ['rev-parse', 'refs/heads/feat/example'])).toBe(headSha);
-    const observed = observeLocalRefCasWithAdmissionDouble({ preparation, operationId });
+    const observed = await observeLocalRefCasWithAdmissionDouble({ preparation, operationId });
     const result = observed.result;
     attempts.push(...observed.attempts);
     expect(observed.realForgedAdmissionRejected).toBe(true);

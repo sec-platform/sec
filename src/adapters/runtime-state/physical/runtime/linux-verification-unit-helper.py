@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import traceback
 
 LIBC = ctypes.CDLL(None, use_errno=True)
 LIBC.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_char_p]
@@ -55,6 +56,39 @@ def reserve_processes(count=1):
 
 class Unavailable(RuntimeError):
     pass
+
+
+class NativeFailure(Unavailable):
+    """Failure transport for this fixed native boundary; never a qualification."""
+    def __init__(self, message, *, phase, unit_name=None, exit_code=None, exec_main_code=None, exec_main_status=None, stderr=b'', stderr_complete=False, error_type=None):
+        super().__init__(message)
+        self.phase, self.unit_name = phase, unit_name
+        self.exit_code, self.exec_main_code, self.exec_main_status = exit_code, exec_main_code, exec_main_status
+        self.stderr, self.stderr_complete = stderr, stderr_complete
+        self.error_type = error_type or type(self).__name__
+        self.cleanup_failures = []
+
+    def add_cleanup(self, error):
+        self.cleanup_failures.append({'errorType': getattr(error, 'error_type', type(error).__name__), 'message': str(error),
+                                      'stderrBase64': base64.b64encode(getattr(error, 'stderr', b'')).decode()})
+        self.cleanup_failures.extend(getattr(error, 'cleanup_failures', []))
+
+    def projection(self):
+        return {'schema': 'sec-linux-native-unit-failure-v1', 'qualification': 'not-issued', 'phase': self.phase,
+                'unitName': self.unit_name, 'errorType': self.error_type, 'message': str(self), 'exitCode': self.exit_code,
+                'execMainCode': self.exec_main_code, 'execMainStatus': self.exec_main_status,
+                'stderrBase64': base64.b64encode(self.stderr).decode(), 'stderrBytes': len(self.stderr),
+                'stderrDigest': sha(self.stderr), 'stderrComplete': self.stderr_complete, 'cleanupFailures': self.cleanup_failures}
+
+
+def native_failure(error, *, phase, unit_name=None):
+    if isinstance(error, NativeFailure):
+        if error.unit_name is None:
+            error.unit_name = unit_name
+        return error
+    failure = NativeFailure(str(error), phase=phase, unit_name=unit_name, error_type=type(error).__name__)
+    failure.__cause__ = error
+    return failure
 
 
 def sha(data):
@@ -167,6 +201,7 @@ def run_tool(argv, deadline, maximum=262144, *, creation_umask=-1):
     child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, env=FIXED_ENV, close_fds=True, umask=creation_umask)
     captured = {'stdout': bytearray(), 'stderr': bytearray()}
+    failure, result = None, None
     try:
         with selectors.DefaultSelector() as ready:
             ready.register(child.stdout, selectors.EVENT_READ, 'stdout')
@@ -177,21 +212,32 @@ def run_tool(argv, deadline, maximum=262144, *, creation_umask=-1):
                     if not part:
                         ready.unregister(key.fileobj)
                         continue
-                    captured[key.data].extend(part)
-                    if sum(map(len, captured.values())) > maximum:
+                    remaining = maximum - sum(map(len, captured.values()))
+                    captured[key.data].extend(part[:remaining])
+                    if len(part) > remaining:
                         raise Unavailable('platform-output-bound')
         child.wait(timeout=deadline.remaining())
-        return child.returncode, bytes(captured['stdout']), bytes(captured['stderr'])
+        result = child.returncode, bytes(captured['stdout']), bytes(captured['stderr'])
+    except BaseException as error:
+        failure = native_failure(error, phase='control-command')
+        failure.exit_code = child.returncode
+        failure.stderr = bytes(captured['stderr'])
     finally:
-        try:
-            if child.poll() is None:
-                child.kill()
-                child.wait(timeout=1)
-        finally:
+        actions = ([child.kill, lambda: child.wait(timeout=1)] if child.returncode is None else []) + [child.stdout.close, child.stderr.close]
+        for action in actions:
             try:
-                child.stdout.close()
-            finally:
-                child.stderr.close()
+                action()
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = native_failure(cleanup, phase='control-cleanup')
+                    failure.exit_code = child.returncode
+                    failure.stderr = bytes(captured['stderr'])
+                    failure.stderr_complete = result is not None
+                else:
+                    failure.add_cleanup(cleanup)
+    if failure is not None:
+        raise failure
+    return result
 
 
 def mount(source, target, filesystem, flags, data):
@@ -531,10 +577,10 @@ def safe_extract_dependency_content(archive, target, deadline):
 def git(root, arguments, deadline):
     # Git creates the private checkout consumed by both root and UID 65532.
     # Set only this child's mask; never alter the controller's host process.
-    code, stdout, _stderr = run_tool(['/usr/bin/git', '-c', 'safe.directory=' + root, '-C', root] + arguments, deadline,
+    code, stdout, stderr = run_tool(['/usr/bin/git', '-c', 'safe.directory=' + root, '-C', root] + arguments, deadline,
                                    creation_umask=0o022)
     if code:
-        raise Unavailable('fixed-git-command-failed')
+        raise NativeFailure('fixed-git-command-failed', phase='git-preparation', exit_code=code, stderr=stderr, stderr_complete=True)
     return stdout.decode('ascii').strip()
 
 
@@ -563,6 +609,49 @@ def git_identity(request, trusted, candidate, deadline):
 
 # This program runs in the final unit namespace/UID before the workload is admitted.
 # It has no caller-supplied source or command interpreter. The root SUT path is fixed.
+NAMESPACE_INIT_PROGRAM = r'''
+import os, signal
+def namespace_init(argv):
+    main_pid, terminating = 0, 0
+    main_pidfd = None
+    signals = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+    def forward(number, frame):
+        nonlocal terminating
+        terminating = terminating or number
+        if main_pidfd is not None:
+            try: signal.pidfd_send_signal(main_pidfd, number)
+            except ProcessLookupError: pass
+    for number in signals: signal.signal(number, forward)
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+    pending = set(signal.sigpending()).intersection(signals)
+    if terminating or pending:
+        os._exit(128 + (terminating or min(pending)))
+    read_gate, write_gate = os.pipe2(os.O_CLOEXEC)
+    main_pid = os.fork()
+    if main_pid == 0:
+        os.close(write_gate)
+        for number in signals: signal.signal(number, signal.SIG_DFL)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        allowed = os.read(read_gate, 1)
+        os.close(read_gate)
+        if allowed != b'1': os._exit(125)
+        os.execv(argv[0], argv)
+    os.close(read_gate)
+    main_pidfd = os.pidfd_open(main_pid, 0)
+    signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+    try:
+        if not terminating: os.write(write_gate, b'1')
+    except BrokenPipeError: pass
+    finally: os.close(write_gate)
+    while True:
+        try: child, status = os.waitpid(-1, 0)
+        except InterruptedError: continue
+        if child == main_pid:
+            # Exit closes the retained pidfd without replacing the main status.
+            if os.WIFEXITED(status): os._exit(os.WEXITSTATUS(status))
+            if os.WIFSIGNALED(status): os._exit(128 + os.WTERMSIG(status))
+'''
+
 LAUNCH_SHIM = r'''
 import ctypes, errno, json, os, sys, time
 with open('/proc/self/status', 'r') as stream:
@@ -619,8 +708,104 @@ elif invocation['kind']=='lifecycle-canary':
 else:
     if os.getuid()!=65532: raise RuntimeError('nonroot-workload')
     argv=['/usr/local/bin/bun']+invocation['argv']
-os.execv(argv[0],argv)
-'''
+''' + NAMESPACE_INIT_PROGRAM + '\nnamespace_init(argv)\n'
+
+# Only this fixed root program crosses the original mount namespace boundary.
+# Foreign proc FDs are identity/input capabilities, never manager mount targets.
+BOOTSTRAP_SHIM = r'''
+import ctypes,json,os,re,stat,sys
+p=json.loads(sys.argv[1])
+libc=ctypes.CDLL(None,use_errno=True)
+libc.setns.argtypes=[ctypes.c_int,ctypes.c_int]
+libc.unshare.argtypes=[ctypes.c_int]
+libc.setfsuid.argtypes=[ctypes.c_uint]
+libc.setfsuid.restype=ctypes.c_uint
+libc.mount.argtypes=[ctypes.c_char_p,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_ulong,ctypes.c_char_p]
+def checked(result,label):
+    if result<0: raise OSError(ctypes.get_errno(),label)
+    return result
+def identity(fd):
+    s=os.fstat(fd)
+    if not stat.S_ISDIR(s.st_mode): raise RuntimeError('bootstrap-directory-type')
+    return {'device':str(s.st_dev),'inode':str(s.st_ino)}
+def start(pid):
+    with open('/proc/'+str(pid)+'/stat','rb') as stream: return stream.read(65536).decode().rsplit(') ',1)[1].split()[19]
+def exact(fd,expected):
+    if identity(fd)!=expected: raise RuntimeError('bootstrap-directory-replaced')
+def mount(source,target,filesystem,flags,data=None):
+    enc=lambda v: None if v is None else os.fsencode(v)
+    checked(libc.mount(enc(source),enc(target),enc(filesystem),flags,enc(data)),'bootstrap-mount')
+# Clone systemd's already isolated /dev before leaving its mount namespace.
+dev=checked(libc.syscall(428,ctypes.c_int(-100),ctypes.c_char_p(b'/dev'),ctypes.c_uint(1|os.O_CLOEXEC|0x8000)),'bootstrap-open-tree-private-dev')
+pid=p['helperPid']; prefix='/proc/'+str(pid)
+if start(pid)!=p['helperStartTime']: raise RuntimeError('bootstrap-helper-replaced')
+ns=os.open(prefix+'/ns/mnt',os.O_RDONLY|os.O_CLOEXEC)
+foreign={k:os.open(prefix+'/fd/'+str(p[k+'Fd']),os.O_PATH|os.O_DIRECTORY|os.O_CLOEXEC) for k in ['record','root','control','output']}
+for k in foreign: exact(foreign[k],p[k+'Identity'])
+info=os.fstat(foreign['record'])
+if info.st_uid!=0 or stat.S_IMODE(info.st_mode)!=0o700: raise RuntimeError('bootstrap-private-record-root')
+record_fd=os.open('record.json',os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=foreign['record'])
+try:
+    info=os.fstat(record_fd)
+    if info.st_uid!=0 or info.st_nlink!=1 or not stat.S_ISREG(info.st_mode) or info.st_size>65536: raise RuntimeError('bootstrap-record-identity')
+    raw=os.read(record_fd,65537); record=json.loads(raw)
+finally: os.close(record_fd)
+if json.dumps(record,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()+b'\n'!=raw: raise RuntimeError('bootstrap-record-canonical')
+for k in ['operationIdentityDigest','boundAttemptDigest','inputDigest']:
+    if record[k]!=p[k]: raise RuntimeError('bootstrap-operation-replaced')
+if (record['runtimeRoot']!=p['recordIdentity'] or record['activeUnitName']!=p['unitName'] or record['description']!=p['description']
+        or record['helperPid']!=pid or record['helperStartTime']!=p['helperStartTime']): raise RuntimeError('bootstrap-record-binding')
+with open(prefix+'/cgroup') as stream: membership=stream.read(65536).splitlines()
+with open('/proc/sys/kernel/random/boot_id') as stream: boot=stream.read(128).strip()
+if membership!=['0::'+record['control']['cgroupPath']] or boot!=record['control']['managerBootId'] or start(1)!=record['control']['managerStartTime']:
+    raise RuntimeError('bootstrap-original-control-replaced')
+if start(pid)!=p['helperStartTime']: raise RuntimeError('bootstrap-helper-replaced')
+checked(libc.setns(ns,0x00020000),'bootstrap-enter-original-mount-namespace')
+os.fchdir(foreign['record'])
+checked(libc.unshare(0x00020000),'bootstrap-copy-original-mount-namespace')
+# unshare maps cwd to the copied tree. Reopen locally rather than mounting
+# through any of the original helper's foreign file descriptors.
+local_record=os.open('.',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+exact(local_record,p['recordIdentity'])
+local={'record':local_record}
+for k,relative in [('root','rootfs'),('control','control'),('output',p['outputRelative'])]:
+    if not re.fullmatch(r'(?:rootfs|control|output(?:/hosted-[0-9a-f]{32})?)',relative): raise RuntimeError('bootstrap-local-path')
+    current=os.dup(local_record)
+    try:
+        for component in relative.split('/'):
+            if k=='output' and component.startswith('hosted-'):
+                ancestor=os.fstat(current)
+                if (ancestor.st_uid,ancestor.st_gid,stat.S_IMODE(ancestor.st_mode))!=(65532,65532,0o700): raise RuntimeError('bootstrap-output-ancestor-owner')
+                previous=libc.setfsuid(65532)
+                try:
+                    if previous!=0 or libc.setfsuid(0xffffffff)!=65532: raise RuntimeError('bootstrap-output-fsuid')
+                    nxt=os.open(component,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=current)
+                finally:
+                    libc.setfsuid(previous)
+                    if libc.setfsuid(0xffffffff)!=previous: raise RuntimeError('bootstrap-output-fsuid-restore')
+            else:
+                nxt=os.open(component,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=current)
+            os.close(current);current=nxt
+        exact(current,p[k+'Identity']);local[k]=current;current=None
+    finally:
+        if current is not None: os.close(current)
+mount(None,'/',None,0x40000|0x4000)
+root='/proc/self/fd/'+str(local['root'])
+control=root+'/sec-runtime/control'; output=root+'/sec-runtime/output'
+mount('/proc/self/fd/'+str(local['control']),control,None,4096)
+mount(None,control,None,4096|32|1|2|4)
+mount('/proc/self/fd/'+str(local['output']),output,None,4096)
+checked(libc.syscall(429,ctypes.c_int(dev),ctypes.c_char_p(b''),ctypes.c_int(local['root']),ctypes.c_char_p(b'dev'),ctypes.c_uint(4)),'bootstrap-install-private-dev')
+mount('tmpfs',root+'/tmp','tmpfs',2|4,'size=512M,mode=1777')
+cwd={'trusted':'sec-runtime/trusted','candidate':'sec-runtime/workspace','scratch':'tmp'}[p['cwd']]
+cwd_fd=os.open(cwd,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=local['root'])
+os.chroot(root);os.fchdir(cwd_fd)
+for fd in [dev,ns,cwd_fd]+list(foreign.values())+list(local.values()): os.close(fd)
+argv=['/usr/bin/setpriv','--bounding-set='+('-sys_ptrace' if p['rootWorker'] else '-sys_ptrace,-sys_chroot'),'--inh-caps=-all','--ambient-caps=-all','--',
+      '/usr/bin/unshare','--mount','--pid','--fork','--kill-child=KILL','--mount-proc','--']
+if not p['rootWorker']:
+    argv.extend(['/usr/bin/setpriv','--reuid=65532','--regid=65532','--clear-groups','--no-new-privs','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--'])
+''' + '\nargv.extend(["/usr/bin/python3","-I","-S","-u","-c",' + repr(LAUNCH_SHIM) + '])\nos.execv(argv[0],argv)\n'
 
 UNIT_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationID', 'ControlGroup', 'Description',
                    'MainPID', 'ExecMainPID', 'ExecMainCode', 'ExecMainStatus', 'ExecMainExitTimestampMonotonic', 'SystemCallFilter', 'UMask', 'BindsTo', 'After']
@@ -629,10 +814,10 @@ CONTROL_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationI
 
 def unit_readback(name, deadline):
     wanted = CONTROL_PROPERTIES if name.endswith('.scope') else UNIT_PROPERTIES
-    code, output, _error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'show', '--no-pager',
+    code, output, error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'show', '--no-pager',
                                    '--property=' + ','.join(wanted), '--', name], deadline)
     if code:
-        raise Unavailable('manager-readback-unavailable')
+        raise NativeFailure('manager-readback-unavailable', phase='manager-readback', unit_name=name, exit_code=code, stderr=error, stderr_complete=True)
     properties = {}
     for line in output.decode('utf8').splitlines():
         if '=' not in line:
@@ -677,14 +862,27 @@ def exited_before_ready(properties):
 def fail_exited_preflight(request, recovery, properties, unit, description, streams, deadline):
     if not exited_before_ready(properties):
         return
-    settle_unit(request, unit, description, deadline)
-    recovery.update({**recovery.value, 'phase': 'unit-settled'})
-    streams.drain(0)
-    # Keep the final exception line rather than a traceback prefix, within
-    # the fixed top-level error bound even for fully escaped UTF-8 errors.
-    detail = json.dumps(bytes(streams.buffers['stderr'])[-48:].decode('utf8', errors='replace'), ensure_ascii=True)
-    raise Unavailable('native-preflight-exited unit=' + request['unitName'] + ' ExecMainCode=' + properties['ExecMainCode']
-                      + ' ExecMainStatus=' + properties['ExecMainStatus'] + ' stderr=' + detail)
+    code, status = int(properties['ExecMainCode']), int(properties['ExecMainStatus'])
+    failure = NativeFailure('native-preflight-exited', phase='preflight', unit_name=request['unitName'],
+                            exit_code=status if code == 1 else min(255, 128 + status), exec_main_code=code, exec_main_status=status)
+    # Manager setup errors can precede StandardError redirection. Read only
+    # this original unit's boot-scoped journal; it cannot qualify an effect.
+    try:
+        journal_code, journal, journal_error = run_tool(['/usr/bin/journalctl', '--no-pager', '--quiet', '--all',
+            '--output=json', '--boot=' + unit['managerBootId'].replace('-', ''), '--unit=' + request['unitName']], deadline)
+        failure.args = (str(failure) + '\nOriginal unit manager journal (exit=' + str(journal_code) + '):\n'
+                        + journal.decode('utf8') + '\nJournal stderr:\n' + journal_error.decode('utf8', errors='replace'),)
+    except BaseException as journal_failure:
+        failure.args = (str(failure) + '\nOriginal unit manager journal unavailable: ' + str(journal_failure),)
+    try:
+        settle_unit(request, unit, description, deadline)
+        recovery.update({**recovery.value, 'phase': 'unit-settled'})
+        streams.drain(0)
+        failure.stderr_complete = True
+    except BaseException as cleanup:
+        failure.add_cleanup(cleanup)
+    failure.stderr = bytes(streams.buffers['stderr'])
+    raise failure
 
 
 def wait_preflight_ready(request, recovery, properties, unit, description, streams, deadline, control_deadline, pidfds):
@@ -786,7 +984,7 @@ def observation_filesystem_credentials(uid, gid):
             os._exit(126)
 
 
-def observe_start(request, properties, root, cwd, manager, control=None):
+def observe_start(request, properties, root, cwd, manager, control=None, retained_temporary=None):
     name = request['unitName']
     if properties['UMask'] != '0022':
         raise Unavailable('unit-creation-mask')
@@ -826,8 +1024,19 @@ def observe_start(request, properties, root, cwd, manager, control=None):
         actual_root = os.stat('/proc/' + str(pid) + '/root')
         actual_cwd = os.stat('/proc/' + str(pid) + '/cwd')
         namespaces = {key: os.readlink('/proc/' + str(pid) + '/ns/' + name) for key, name in [('mount', 'mnt'), ('pid', 'pid'), ('network', 'net'), ('user', 'user'), ('ipc', 'ipc')]}
+        private_dev = os.stat('/proc/' + str(pid) + '/root/dev')
+        null = os.stat('/proc/' + str(pid) + '/root/dev/null')
+        sys_entries = os.listdir('/proc/' + str(pid) + '/root/sys')
+        if retained_temporary is not None:
+            temporary = os.open('/proc/' + str(pid) + '/root/tmp', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            retained_temporary.append(temporary)
+            temporary_info = os.fstat(temporary)
+            if temporary_info.st_dev == actual_root.st_dev or stat.S_IMODE(temporary_info.st_mode) != 0o1777:
+                raise Unavailable('unit-private-temporary-filesystem')
     if (expected_root.st_dev, expected_root.st_ino) != (actual_root.st_dev, actual_root.st_ino) or (expected_cwd.st_dev, expected_cwd.st_ino) != (actual_cwd.st_dev, actual_cwd.st_ino):
         raise Unavailable('unit-root-cwd')
+    if private_dev.st_dev in (actual_root.st_dev, os.stat('/dev').st_dev) or not stat.S_ISCHR(null.st_mode) or null.st_rdev != os.makedev(1, 3) or sys_entries:
+        raise Unavailable('unit-private-dev-or-empty-sys')
     for key, ns in [('mount', 'mnt'), ('pid', 'pid'), ('network', 'net'), ('ipc', 'ipc')]:
         if namespaces[key] == os.readlink('/proc/self/ns/' + ns):
             raise Unavailable('unit-namespace-not-private')
@@ -837,6 +1046,8 @@ def observe_start(request, properties, root, cwd, manager, control=None):
     for file, expected in [('cpu.max', b'200000 100000'), ('memory.max', b'4294967296'), ('pids.max', b'256')]:
         if bounded_read(group + '/' + file, 4096).strip() != expected:
             raise Unavailable('unit-resource-readback')
+    if retained_temporary is not None:
+        retained_temporary.append(nofollow_directory(group))
     if manager != manager_identity():
         raise Unavailable('manager-replaced')
     return {'name': name, 'invocationId': properties['InvocationID'], 'managerBootId': manager['boot'],
@@ -865,6 +1076,34 @@ def cgroup_empty(unit):
         os.close(fd)
 
 
+def temporary_filesystem_snapshot(fd):
+    identity = os.fstat(fd)
+    state = os.fstatvfs(fd)
+    block = state.f_frsize or state.f_bsize
+    return {'device': str(identity.st_dev), 'inode': str(identity.st_ino),
+            'bytesTotal': state.f_blocks * block, 'bytesFree': state.f_bfree * block, 'bytesAvailable': state.f_bavail * block,
+            'inodesTotal': state.f_files, 'inodesFree': state.f_ffree, 'inodesAvailable': state.f_favail}
+
+
+def cgroup_resource_snapshot(fd, path):
+    snapshot = {'path': path}
+    try:
+        identity = os.fstat(fd)
+        snapshot.update({'device': str(identity.st_dev), 'inode': str(identity.st_ino)})
+    except OSError as error:
+        snapshot['identityUnavailable'] = str(error)
+    for name in ['pids.current', 'pids.events', 'memory.current', 'memory.events']:
+        try:
+            file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            with os.fdopen(file, 'rb', buffering=0) as stream:
+                value = stream.read(4097)
+            if len(value) > 4096: raise Unavailable('cgroup-diagnostic-read-bound')
+            snapshot[name] = value.decode('ascii')
+        except BaseException as error:
+            snapshot[name] = {'unavailable': str(error)}
+    return snapshot
+
+
 def settle_unit(request, unit, description, deadline):
     if unit is None or manager_identity() != {'boot': unit['managerBootId'], 'start': unit['managerStartTime']}:
         raise Unavailable('manager-changed-before-stop')
@@ -878,18 +1117,18 @@ def settle_unit(request, unit, description, deadline):
         raise Unavailable('unit-replaced-before-stop')
     if unit is None:
         raise Unavailable('unit-start-observation-lost')
-    code, _out, _err = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'stop', '--', request['unitName']], deadline)
+    code, _out, error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'stop', '--', request['unitName']], deadline)
     if code:
-        raise Unavailable('unit-stop-unconfirmed')
+        raise NativeFailure('unit-stop-unconfirmed', phase='cleanup-stop', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
     while not cgroup_empty(unit):
         time.sleep(min(.01, deadline.remaining()))
     terminal = unit_readback(request['unitName'], deadline)
     if terminal['LoadState'] != 'not-found' and (terminal['ActiveState'] not in ('inactive', 'failed') or terminal['InvocationID'] not in ('', unit['invocationId'])):
         raise Unavailable('unit-terminal-identity')
     if terminal['ActiveState'] == 'failed':
-        code, _out, _err = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'reset-failed', '--', request['unitName']], deadline)
+        code, _out, error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'reset-failed', '--', request['unitName']], deadline)
         if code:
-            raise Unavailable('unit-retirement-unconfirmed')
+            raise NativeFailure('unit-retirement-unconfirmed', phase='cleanup-retirement', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
         retired = unit_readback(request['unitName'], deadline)
         if retired['LoadState'] != 'not-found' and (retired['ActiveState'] != 'inactive' or retired['Description'] != description or retired['InvocationID'] not in ('', unit['invocationId'])):
             raise Unavailable('unit-retirement-readback')
@@ -947,17 +1186,27 @@ class BoundedStreams:
         return False
 
     def close(self):
-        self.selector.close()
-        for fd in self.fds.values():
-            os.close(fd)
+        failure = None
+        for action in [self.selector.close] + [lambda fd=fd: os.close(fd) for fd in self.fds.values()]:
+            try:
+                action()
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = native_failure(cleanup, phase='stream-cleanup')
+                else:
+                    failure.add_cleanup(cleanup)
+        if failure is not None:
+            raise failure
 
 
 def launch_unit(request, recovery, root, control, output, deadline, control_deadline, setup=False):
     invocation = request['invocation']
     manager = manager_identity()
-    code, version, _err = run_tool(['/usr/bin/systemd-run', '--version'], deadline, 65536)
+    code, version, error = run_tool(['/usr/bin/systemd-run', '--version'], deadline, 65536)
+    if code:
+        raise NativeFailure('systemd-native-profile-unavailable', phase='manager-profile', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
     matched = re.match(rb'systemd ([0-9]+)', version)
-    if code or matched is None or int(matched.group(1)) < 255 or b'+SECCOMP' not in version:
+    if matched is None or int(matched.group(1)) < 255 or b'+SECCOMP' not in version:
         raise Unavailable('systemd-native-profile-unavailable')
     cwd = {'trusted': '/sec-runtime/trusted', 'candidate': '/sec-runtime/workspace', 'scratch': '/tmp'}[invocation['cwd']]
     nonce = os.urandom(16).hex()
@@ -985,31 +1234,37 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                   'User=0', 'Group=0', 'UMask=0022', 'NoNewPrivileges=yes',
                   'PrivateNetwork=yes', 'PrivateMounts=yes', 'PrivateDevices=yes', 'ProtectControlGroups=yes', 'PrivateIPC=yes',
                   'KeyringMode=private', 'SystemCallArchitectures=x86-64', 'SystemCallFilter=~keyctl add_key request_key', 'SystemCallErrorNumber=EPERM',
-                  'RootDirectory=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[root]), 'WorkingDirectory=' + cwd,
-                  'ProtectSystem=strict', 'ReadWritePaths=/sec-runtime/output /tmp' + (' /sec-runtime/trusted /sec-runtime/workspace /sec-runtime/dependency-content' if setup else ''),
-                  'BindReadOnlyPaths=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[control]) + ':/sec-runtime/control',
-                  'BindPaths=/proc/' + str(os.getpid()) + '/fd/' + str(MOUNT_HANDLES[output]) + ':/sec-runtime/output',
-                  'TemporaryFileSystem=/tmp:rw,nodev,nosuid,mode=1777',
+                  'WorkingDirectory=/',
                   'StandardInput=file:' + host_root + recovery.path + '/stdin',
                   'StandardOutput=file:' + host_root + recovery.path + '/stdout',
                   'StandardError=file:' + host_root + recovery.path + '/stderr',
-                  'CapabilityBoundingSet=' + (ROOT_CAPABILITIES if root_worker else NAMESPACE_CAPABILITIES), 'AmbientCapabilities=']
+                  'CapabilityBoundingSet=' + ((ROOT_CAPABILITIES + ' CAP_SYS_PTRACE') if root_worker else (NAMESPACE_CAPABILITIES + ' CAP_SYS_CHROOT CAP_SYS_PTRACE')),
+                  # systemd's seccomp setup drops SETUID unless explicitly
+                  # retained as ambient. The first setpriv clears inh/ambient;
+                  # the final observer still requires the original exact mask.
+                  'AmbientCapabilities=CAP_SETUID']
     args = ['/usr/bin/systemd-run', '--quiet', '--no-ask-password', '--expand-environment=no', '--unit=' + request['unitName'],
             '--service-type=exec', '--remain-after-exit']
     args.extend('--property=' + value for value in properties)
-    args.extend(['--', '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL', '--mount-proc', '--'])
-    if not root_worker:
-        args.extend(['/usr/bin/setpriv', '--reuid=65532', '--regid=65532', '--clear-groups', '--no-new-privs',
-                     '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--'])
-    args.extend(['/usr/bin/python3', '-I', '-S', '-u', '-c', LAUNCH_SHIM])
+    bootstrap = {'helperPid': os.getpid(), 'helperStartTime': process_start(os.getpid()), 'recordFd': recovery.fd,
+                 'rootFd': MOUNT_HANDLES[root], 'controlFd': MOUNT_HANDLES[control], 'outputFd': MOUNT_HANDLES[output],
+                 'recordIdentity': recovery.physical, 'outputRelative': os.path.relpath(output, recovery.path),
+                 'unitName': request['unitName'], 'description': description, 'cwd': invocation['cwd'], 'rootWorker': root_worker,
+                 **{key: request[key] for key in ['operationIdentityDigest', 'boundAttemptDigest', 'inputDigest']}}
+    for key, fd in [('root', MOUNT_HANDLES[root]), ('control', MOUNT_HANDLES[control]), ('output', MOUNT_HANDLES[output])]:
+        info = os.fstat(fd)
+        bootstrap[key + 'Identity'] = {'device': str(info.st_dev), 'inode': str(info.st_ino)}
+    args.extend(['--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', BOOTSTRAP_SHIM, canonical(bootstrap).decode()])
     unit, pidfds = None, []
+    retained_temporary = []
+    failure, result = None, None
     try:
         # Fixed systemd-created unshare parent + one forked namespace child.
         reserve_processes(2)
         recovery.update({**recovery.value, 'phase': 'unit-starting', 'activeUnitName': request['unitName'], 'description': description, 'manager': manager, 'unit': None})
-        code, _out, _err = run_tool(args, deadline)
+        code, _out, error = run_tool(args, deadline)
         if code:
-            raise Unavailable('unit-start-unconfirmed')
+            raise NativeFailure('unit-start-unconfirmed', phase='manager-start', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
         accepted = unit_readback(request['unitName'], deadline)
         observe_control_dependency(accepted, recovery.value['control'])
         unit = accepted_unit(request['unitName'], accepted, description, manager)
@@ -1027,7 +1282,7 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
         observe_control_dependency(properties, recovery.value['control'])
         if properties['Description'] != description:
             raise Unavailable('unit-description-drift')
-        unit = observe_start(request, properties, root, cwd, manager, recovery.value['control'])
+        unit = observe_start(request, properties, root, cwd, manager, recovery.value['control'], retained_temporary)
         for pid_key, time_key in [('mainPid', 'mainPidStartTime'), ('managerMainPid', 'managerMainPidStartTime')]:
             fd = os.pidfd_open(unit[pid_key], 0)
             pidfds.append(fd)
@@ -1040,9 +1295,14 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
             pass
         streams.selector.unregister(pidfds[-1])
         properties = unit_readback(request['unitName'], control_deadline)
-        if properties['InvocationID'] != unit['invocationId'] or int(properties['ExecMainExitTimestampMonotonic']) == 0 or int(properties['MainPID']) != 0:
-            raise Unavailable('unit-terminal-process-readback')
-        code, status = int(properties['ExecMainCode']), int(properties['ExecMainStatus'])
+        terminal_code = int(properties['ExecMainCode']) if properties['ExecMainCode'].isdigit() else None
+        terminal_status = int(properties['ExecMainStatus']) if properties['ExecMainStatus'].isdigit() else None
+        terminal_time = int(properties['ExecMainExitTimestampMonotonic']) if properties['ExecMainExitTimestampMonotonic'].isdigit() else None
+        original_terminal = properties['InvocationID'] == unit['invocationId'] and properties['LoadState'] != 'not-found' and terminal_time not in (None, 0)
+        if not original_terminal or properties['MainPID'] != '0' or terminal_code is None or terminal_status is None:
+            raise NativeFailure('unit-terminal-process-readback: ' + canonical(properties).decode(), phase='terminal-readback', unit_name=request['unitName'],
+                                exec_main_code=terminal_code if original_terminal else None, exec_main_status=terminal_status if original_terminal else None)
+        code, status = terminal_code, terminal_status
         exit_code = status if code == 1 else min(255, 128 + status)
         settle_unit(request, unit, description, control_deadline)
         recovery.update({**recovery.value, 'phase': 'unit-settled'})
@@ -1063,16 +1323,50 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                     raise Unavailable('output-file-incomplete')
             finally:
                 os.close(fd)
-        return unit, exit_code, stdout, stderr, captured
-    except BaseException:
-        if unit is not None and recovery.value['phase'] != 'unit-settled':
-            settle_unit(request, unit, description, control_deadline)
-            recovery.update({**recovery.value, 'phase': 'unit-settled'})
-        raise
+        result = unit, exit_code, stdout, stderr, captured
+    except BaseException as error:
+        failure = native_failure(error, phase='preflight' if recovery.value['phase'] in ('unit-starting', 'unit-accepted') else 'execution', unit_name=request['unitName'])
+        if retained_temporary:
+            try:
+                failure.args = (str(failure) + '\nRetained invocation /tmp filesystem snapshot: ' + canonical(temporary_filesystem_snapshot(retained_temporary[0])).decode(),)
+            except BaseException as diagnostic_error:
+                failure.args = (str(failure) + '\nRetained invocation /tmp snapshot unavailable: ' + str(diagnostic_error),)
+        if len(retained_temporary) > 1:
+            try:
+                failure.args = (str(failure) + '\nRetained invocation cgroup resource snapshot: ' + canonical(cgroup_resource_snapshot(retained_temporary[1], unit['cgroupPath'] if unit is not None else properties['ControlGroup'])).decode(),)
+            except BaseException as diagnostic_error:
+                failure.args = (str(failure) + '\nRetained invocation cgroup snapshot unavailable: ' + str(diagnostic_error),)
+        if unit is not None and recovery.value['phase'] != 'unit-settled' and not failure.cleanup_failures:
+            try:
+                settle_unit(request, unit, description, control_deadline)
+                recovery.update({**recovery.value, 'phase': 'unit-settled'})
+                streams.drain(0)
+                if not failure.stderr:
+                    failure.stderr = bytes(streams.buffers['stderr'])
+                    failure.stderr_complete = True
+            except BaseException as cleanup:
+                failure.add_cleanup(cleanup)
+        if not failure.stderr_complete:
+            try:
+                streams.drain(0)
+            except BaseException as cleanup:
+                failure.add_cleanup(cleanup)
+            if not failure.stderr:
+                failure.stderr = bytes(streams.buffers['stderr'])
     finally:
-        streams.close()
-        for fd in pidfds:
-            os.close(fd)
+        for action in [streams.close] + [lambda fd=fd: os.close(fd) for fd in pidfds + retained_temporary]:
+            try:
+                action()
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = native_failure(cleanup, phase='execution-cleanup', unit_name=request['unitName'])
+                    failure.stderr = bytes(streams.buffers['stderr'])
+                    failure.stderr_complete = result is not None
+                else:
+                    failure.add_cleanup(cleanup)
+    if failure is not None:
+        raise failure
+    return result
 
 
 def tree_content_entries(root, deadline):
@@ -1214,9 +1508,14 @@ def dependency_setup(request, recovery, root, control, output, deadline, control
                 os.unlink(recovery.path + '/' + name)
             except FileNotFoundError:
                 pass
-        _unit, code, stdout, _stderr, _files = launch_unit(internal, recovery, root, control, output, deadline, control_deadline, setup=True)
+        try:
+            _unit, code, stdout, stderr, _files = launch_unit(internal, recovery, root, control, output, deadline, control_deadline, setup=True)
+        except BaseException as error:
+            failure = native_failure(error, phase='dependency-' + phase, unit_name=internal['unitName'])
+            failure.phase = 'dependency-' + phase + '/' + failure.phase
+            raise failure
         if code:
-            raise Unavailable('original-dependency-owner-rejected')
+            raise NativeFailure('original-dependency-owner-rejected', phase='dependency-' + phase, unit_name=internal['unitName'], exit_code=code, stderr=stderr, stderr_complete=True)
         observed = json.loads(stdout, object_pairs_hook=no_duplicates)
         exact(observed, ['schema', 'authority', 'phase', 'kind', 'deadlineAtUnixMs', 'transportDigest', 'status', 'contentRetirement', 'trusted', 'workspace'], 'dependency-result')
         if stdout != canonical(observed) + b'\n' or observed['schema'] != 'sec-native-verification-dependency-result-v1' or observed['authority'] != 'projection-only':
@@ -1299,7 +1598,7 @@ def read_request():
         raise Unavailable('argv-shape')
     if request['runtime']['manifest']['schema'] == 'sec-main-health-host-runtime-manifest-v1':
         if (invocation['kind'] != 'main-health' or invocation['cwd'] != 'candidate'
-                or invocation['argv'] != ['run', 'test', '--', '--scope', 'fast']
+                or invocation['argv'] != ['--version']
                 or invocation['stdin'] is not None or invocation['outputFiles']
                 or request['bundle']['baseSha'] != request['bundle']['headSha']
                 or request['bundle']['baseTreeSha'] != request['bundle']['headTreeSha']
@@ -1311,7 +1610,8 @@ def read_request():
         raise Unavailable('environment-shape')
     if invocation['cwd'] not in ('trusted', 'candidate', 'scratch'):
         raise Unavailable('cwd-shape')
-    if (invocation['kind'] == 'lifecycle-canary') != (request['dependencies'] is None):
+    dependency_free = invocation['kind'] == 'lifecycle-canary' or (invocation['kind'] == 'main-health' and invocation['argv'] == ['--version'])
+    if dependency_free != (request['dependencies'] is None):
         raise Unavailable('dependency-input-presence')
     if invocation['kind'] in ('hosted-sut', 'lifecycle-canary') and invocation['argv']:
         raise Unavailable('fixed-entry-arguments')
@@ -1566,6 +1866,14 @@ if __name__ == '__main__':
         sys.stdout.buffer.write(canonical(result) + b'\n')
         sys.stdout.buffer.flush()
     except BaseException as error:
-        # No request data, authentication material or raw command output escapes.
-        sys.stderr.write('fixed native unit failed: ' + type(error).__name__ + ': ' + str(error)[:512] + '\n')
+        # The existing bounded transport retains diagnostics. Stderr is only
+        # a presentation summary, never the sole copy of a native failure.
+        context = locals().get('request', {})
+        failure = native_failure(error, phase='native-' + context.get('mode', 'request'), unit_name=context.get('unitName'))
+        if context.get('mode') == 'run':
+            diagnostic = failure.projection()
+            diagnostic['message'] = ''.join(traceback.format_exception(error))
+            sys.stdout.buffer.write(canonical(diagnostic) + b'\n')
+            sys.stdout.buffer.flush()
+        sys.stderr.write('fixed native unit failed: ' + failure.error_type + ': ' + str(failure)[:512] + '\n')
         sys.exit(1)

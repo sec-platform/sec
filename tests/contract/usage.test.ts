@@ -3,6 +3,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expectCliSuccess } from '../testkit/cli.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const cliEntrypoint = path.resolve(import.meta.dir, '../../src/bootstrap/cli/cli.ts');
@@ -10,22 +11,16 @@ const internalFailureEntrypoint = path.resolve(import.meta.dir, '../helpers/cli-
 
 // Native Commander termination is part of this contract; do not replace it
 // with an in-process parser or a test-owned error/help implementation.
-function runEntry(workspaceRoot: string, args: readonly string[], internalFailure = false) {
+async function runEntry(workspaceRoot: string, args: readonly string[], internalFailure = false) {
   const options = {
     cwd: workspaceRoot,
     env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
-    stdout: 'pipe' as const,
-    stderr: 'pipe' as const,
-    timeout: 5_000,
-    maxBuffer: 1024 * 1024
+    timeoutMs: 5_000
   };
-  const result = internalFailure
-    ? Bun.spawnSync([process.execPath, '--no-env-file', internalFailureEntrypoint, ...args], options)
-    : Bun.spawnSync([process.execPath, '--no-env-file', cliEntrypoint, ...args], options);
-  expect(result.signalCode).toBeUndefined();
-  expect(result.exitedDueToTimeout).not.toBe(true);
-  expect(result.exitedDueToMaxBuffer).not.toBe(true);
-  return { status: result.exitCode, stdout: result.stdout.toString('utf8'), stderr: result.stderr.toString('utf8') };
+  const result = await runRetainedBunTestCommand([
+    '--no-env-file', internalFailure ? internalFailureEntrypoint : cliEntrypoint, ...args
+  ], options);
+  return { status: result.code, stdout: result.stdout, stderr: result.stderr };
 }
 
 // reportCliFailure emits one compact protocol frame, followed by optional
@@ -57,7 +52,7 @@ function errorProtocol(stderr: string): Record<string, unknown> {
 
 test('CLI prints its real help for missing commands', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const result = runEntry(workspaceRoot, []);
+    const result = await runEntry(workspaceRoot, []);
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
     await expectCliSuccess(workspaceRoot, ['--help']);
@@ -71,10 +66,12 @@ test('CLI prints its real help for missing commands', async () => {
 for (const args of [['unknown'], ['unknown', '--flag']]) {
   test(`CLI rejects unknown invocation: ${args.join(' ')}`, async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const result = runEntry(workspaceRoot, args);
-      expect(result.status).toBe(1);
+      const result = await runEntry(workspaceRoot, args);
+      expect(result.status).toBe(2);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toMatch(/^error: /);
+      expect(errorProtocol(result.stderr)).toMatchObject({
+        code: 'CLI-USAGE-001', issueType: 'usage', recoverable: true
+      });
       expect(result.stderr).toContain(args.at(-1)!);
       await expect(expectCliSuccess(workspaceRoot, args)).rejects.toThrow('CLI exited with code 1');
       expect(await readdir(workspaceRoot)).toEqual([]);
@@ -98,17 +95,13 @@ const usageCases = [
 for (const { args, diagnostic, protocol } of usageCases) {
   test(`CLI reports the argument error for ${args.join(' ')}`, async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const result = runEntry(workspaceRoot, args);
-      expect(result.status).toBe(1);
+      const result = await runEntry(workspaceRoot, args);
+      expect(result.status).toBe(protocol ? 1 : 2);
       expect(result.stdout).toBe('');
       expect(result.stderr).toContain(diagnostic);
-      if (protocol) {
-        expect(errorProtocol(result.stderr)).toMatchObject({
-          code: 'CLI-USAGE-001', issueType: 'usage', recoverable: true
-        });
-      } else {
-        expect(result.stderr).toMatch(/^error: /);
-      }
+      expect(errorProtocol(result.stderr)).toMatchObject({
+        code: 'CLI-USAGE-001', issueType: 'usage', recoverable: true
+      });
       expect(await readdir(workspaceRoot)).toEqual([]);
     });
   }, 10_000);
@@ -116,7 +109,7 @@ for (const { args, diagnostic, protocol } of usageCases) {
 
 test('CLI preserves an unexpected handler failure as a kernel error', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const result = runEntry(workspaceRoot, ['fail'], true);
+    const result = await runEntry(workspaceRoot, ['fail'], true);
     expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
     expect(errorProtocol(result.stderr)).toMatchObject({

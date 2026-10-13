@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // Each child keeps its narrow admission-boundary interleaving local. The
 // inventory, file writes, fresh observations and reverse CAS are real providers.
@@ -61,12 +62,7 @@ for (const changed of ['live', 'original'] as const) {
         }
       `
       );
-      const child = Bun.spawn([process.execPath, script], { stdout: 'pipe', stderr: 'pipe' });
-      const [code, stdout, stderr] = await Promise.all([
-        child.exited,
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text()
-      ]);
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('unadmitted bytes preserved');
     } finally {
@@ -138,10 +134,7 @@ for (const changed of ['foreign-member', 'preimage-replacement', 'record-replace
           fs.rmSync(root, { recursive: true, force: true });
         }
       `);
-      const child = Bun.spawn([process.execPath, script], { stdout: 'pipe', stderr: 'pipe' });
-      const [code, stdout, stderr] = await Promise.all([
-        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-      ]);
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('foreign backup state preserved');
     } finally {

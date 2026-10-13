@@ -42,9 +42,11 @@ import {
   linuxErrno,
   linuxIdentity,
   linuxOpenAt,
+  linuxOpenLeafAt,
   linuxOpenReadableLeafAt,
   linuxOpenRoot,
   linuxRaiseDescriptorFloor,
+  linuxReadRetainedLinkTarget,
   requireLinuxLibc,
   requireWindowsKernel32,
   streamCanonicalHexContentDigest,
@@ -118,6 +120,125 @@ function copyTargetCoveredByExcludedSourceSubtree(
 }
 
 type CopyPermissionComparison = 'none' | 'files' | 'all';
+
+function assertContainedProjectedSymbolicLinks(
+  inventory: readonly NoFollowDirectoryTreeInventoryEntry[],
+  assertDeadline: () => void
+): void {
+  const entries = new Map(inventory.map((entry) => [entry.relativePath, entry]));
+  const resolved = new Map<string, readonly string[]>();
+  for (const link of inventory) {
+    if (link.kind !== 'link' || resolved.has(link.relativePath)) continue;
+    let current = link.relativePath.split('/').slice(0, -1);
+    const active = new Set<string>([link.relativePath]);
+    type Component = string | Readonly<{ endLink: string }>;
+    const targetParts = (entry: NoFollowDirectoryTreeInventoryEntry): string[] => {
+      const target = entry.linkTarget;
+      if (target === null || target.length === 0 || target.includes('\0') || target.includes('\\') ||
+          path.posix.isAbsolute(target) || path.win32.isAbsolute(target) || /^[A-Za-z]:/u.test(target)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy requires an exact contained relative symbolic-link target.');
+      }
+      return target.split('/');
+    };
+    const pending: Component[] = [{ endLink: link.relativePath }, ...targetParts(link).reverse()];
+    while (pending.length > 0) {
+      assertDeadline();
+      const component = pending.pop()!;
+      if (typeof component !== 'string') {
+        active.delete(component.endLink);
+        resolved.set(component.endLink, [...current]);
+        continue;
+      }
+      if (current.length > 0 && entries.get(current.join('/'))?.kind !== 'directory') {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow symbolic-link traversal crosses a non-directory.');
+      }
+      if (component === '' || component === '.') continue;
+      if (component === '..') {
+        if (current.length === 0) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow symbolic-link target escapes the projected root.');
+        current.pop();
+        continue;
+      }
+      const relative = [...current, component].join('/');
+      const entry = entries.get(relative);
+      if (entry === undefined) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow symbolic-link target is absent from the projected tree.');
+      if (entry.kind !== 'link') {
+        current.push(component);
+      } else {
+        if (active.has(relative)) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow symbolic-link target contains a cycle.');
+        const cached = resolved.get(relative);
+        if (cached !== undefined) {
+          current = [...cached];
+        } else {
+          active.add(relative);
+          pending.push({ endLink: relative }, ...targetParts(entry).reverse());
+        }
+      }
+    }
+  }
+}
+
+function copyLinuxBulkSymbolicLink(
+  sourceParent: LinuxBulkDirectoryHandle,
+  targetParent: LinuxBulkDirectoryHandle,
+  entry: NoFollowDirectoryTreeInventoryEntry,
+  name: string
+): void {
+  const descriptors: number[] = [];
+  let failure: unknown;
+  try {
+    const assertParent = (parent: LinuxBulkDirectoryHandle): void => {
+      if (!sameIdentity(parent.identity, linuxIdentity(parent.fd, parent.identity.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow symbolic-link parent changed.');
+      }
+    };
+    assertParent(sourceParent);
+    assertParent(targetParent);
+    const source = linuxOpenLeafAt(sourceParent.fd, name, 'No-follow bulk source symbolic link');
+    descriptors.push(source);
+    const before = fstatSync(source, { bigint: true });
+    if (!before.isSymbolicLink() || String(before.dev) !== entry.device || String(before.ino) !== entry.inode ||
+        before.size !== BigInt(entry.size) || linuxReadRetainedLinkTarget(source, 'No-follow bulk source symbolic link') !== entry.linkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk symbolic-link source changed before copy.');
+    }
+    if (entry.linkTarget === null || requireLinuxLibc().symbols.symlinkat(
+      Buffer.from(`${entry.linkTarget}\0`, 'utf8'), targetParent.fd, Buffer.from(`${name}\0`, 'utf8')
+    ) !== 0) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `No-follow bulk symbolic-link create failed (errno ${linuxErrno()}).`);
+    const target = linuxOpenLeafAt(targetParent.fd, name, 'No-follow bulk target symbolic link');
+    descriptors.push(target);
+    const targetBefore = fstatSync(target, { bigint: true });
+    if (!targetBefore.isSymbolicLink() || targetBefore.size !== before.size || linuxReadRetainedLinkTarget(target, 'No-follow bulk target symbolic link') !== entry.linkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow bulk symbolic-link target readback differs.');
+    }
+    const named = linuxOpenLeafAt(sourceParent.fd, name, 'No-follow bulk source symbolic-link readback');
+    descriptors.push(named);
+    const after = fstatSync(source, { bigint: true });
+    const namedAfter = fstatSync(named, { bigint: true });
+    if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mode !== before.mode ||
+        after.nlink !== before.nlink || after.ctimeNs !== before.ctimeNs || namedAfter.dev !== before.dev || namedAfter.ino !== before.ino ||
+        linuxReadRetainedLinkTarget(named, 'No-follow bulk source symbolic-link readback') !== entry.linkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk symbolic-link source changed during copy.');
+    }
+    assertParent(sourceParent);
+    assertParent(targetParent);
+    fsyncSync(targetParent.fd);
+    const targetNamed = linuxOpenLeafAt(targetParent.fd, name, 'No-follow bulk target symbolic-link final readback');
+    descriptors.push(targetNamed);
+    const targetAfter = fstatSync(targetNamed, { bigint: true });
+    if (!targetAfter.isSymbolicLink() || targetAfter.dev !== targetBefore.dev || targetAfter.ino !== targetBefore.ino ||
+        targetAfter.size !== targetBefore.size || linuxReadRetainedLinkTarget(targetNamed, 'No-follow bulk target symbolic-link final readback') !== entry.linkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk symbolic-link target changed during copy.');
+    }
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const closeError = closeLinuxDescriptorsBestEffort(descriptors, 'No-follow bulk symbolic link');
+    if (closeError !== null) {
+      if (failure !== undefined) throw new AggregateError([failure, closeError], 'No-follow symbolic-link copy and settlement failed.');
+      throw closeError;
+    }
+  }
+}
 
 function sameCopyInventory(
   left: readonly NoFollowDirectoryTreeInventoryEntry[],
@@ -784,6 +905,7 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
   readonly preserveDirectoryPermissionMode: boolean;
   readonly preserveFilePermissionMode: boolean;
   readonly rejectHardLinks: boolean;
+  readonly preserveContainedRelativeSymbolicLinks: boolean;
 }>): Promise<void> {
   const entries = [...input.sourceInventory].sort((left, right) => {
     const depth = (value: string): number => value.split('/').length;
@@ -893,6 +1015,8 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
             input.preserveFilePermissionMode,
             input.rejectHardLinks
           );
+        } else if (entry.kind === 'link' && input.preserveContainedRelativeSymbolicLinks) {
+          copyLinuxBulkSymbolicLink(sourceParent, targetParent, entry, name);
         } else {
           throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `No-follow bulk source contains an unsupported link: ${entry.relativePath}.`);
         }
@@ -1040,7 +1164,8 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
 /**
  * Performs one operation-scoped physical directory copy.  The mature
  * recursive copier is used only inside this contract: every source root is
- * first traversed with no-follow inventory, reparse children are rejected,
+ * first traversed with no-follow inventory. Links require the explicit Linux
+ * contained-relative closure option; all other reparse children are rejected.
  * target names must be absent, and both source and destination are read back
  * with content digests after the effect.  The caller's authority fence is
  * intentionally invoked only at the operation boundaries, never once per
@@ -1072,6 +1197,7 @@ export async function copyNoFollowDirectoryTreesBulk(
   const preserveFilePermissionMode =
     preserveDirectoryPermissionMode || (options.preserveFilePermissionMode ?? false);
   const rejectHardLinks = options.rejectHardLinks ?? false;
+  const preserveContainedRelativeSymbolicLinks = options.preserveContainedRelativeSymbolicLinks ?? false;
   if (includeRelativePaths !== undefined && excludeRelativePaths !== undefined) {
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
@@ -1090,7 +1216,7 @@ export async function copyNoFollowDirectoryTreesBulk(
   }
   if (typeof preserveDirectoryPermissionMode !== 'boolean' ||
       typeof (options.preserveFilePermissionMode ?? false) !== 'boolean' ||
-      typeof rejectHardLinks !== 'boolean') {
+      typeof rejectHardLinks !== 'boolean' || typeof preserveContainedRelativeSymbolicLinks !== 'boolean') {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy permission-mode option is invalid.');
   }
   const assertDeadline = (): void => {
@@ -1212,7 +1338,10 @@ export async function copyNoFollowDirectoryTreesBulk(
       excludeRelativePaths
     );
     if (sourceInventory.some(({ kind }) => kind === 'link')) {
-      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy source contains a reparse entry.');
+      if (!preserveContainedRelativeSymbolicLinks || process.platform !== 'linux') {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow bulk copy source contains a reparse entry.');
+      }
+      assertContainedProjectedSymbolicLinks(sourceInventory, assertDeadline);
     }
     return Object.freeze({
       source,
@@ -1281,7 +1410,8 @@ export async function copyNoFollowDirectoryTreesBulk(
       assertDeadline,
       preserveDirectoryPermissionMode,
       preserveFilePermissionMode,
-      rejectHardLinks
+      rejectHardLinks,
+      preserveContainedRelativeSymbolicLinks
     });
     const target = inspectNoFollowDirectoryChain(snapshot.target, 'No-follow bulk copy target readback').target;
     if (!samePhysicalObject(snapshot.targetParentIdentity, inspectNoFollowDirectoryChain(

@@ -1,16 +1,14 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const supported = process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64');
 const moduleUrl = new URL('../../src/adapters/runtime-state/physical/runtime/linux-user-home.ts', import.meta.url).href;
 
 async function probe(source: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  const child = Bun.spawn([process.execPath, '--eval', source], {
-    env, stdout: 'pipe', stderr: 'pipe', timeout: 5_000
+  const { stdout, stderr, code } = await runRetainedBunTestCommand(['--eval', source], {
+    env, envMode: 'replace', timeoutMs: 5_000
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited
-  ]);
   expect(code, stderr).toBe(0);
   return stdout.trim();
 }

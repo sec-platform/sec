@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +10,7 @@ import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapt
 import { selectHostedJobRuntimePhase } from '../../src/application/hosted-job-runtime.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 import {
   assertAgentOperationActivationTestCensus,
@@ -294,7 +294,7 @@ test('candidate-local objects cannot satisfy the hosted provider schema', () => 
   })).toThrow(/finalize requires/u);
 });
 
-test.skipIf(process.platform !== 'win32')('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', () => {
+test.skipIf(process.platform !== 'win32')('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', async () => {
   const binHome = mkdtempSync(path.join(tmpdir(), 'sec-agent-activation-fake-cli-'));
   const gitExecutionSentinel = path.join(binHome, 'git-executed.txt');
   const ghExecutionSentinel = path.join(binHome, 'gh-executed.txt');
@@ -310,7 +310,7 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
 
   try {
     const runner = path.resolve(import.meta.dir, '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts');
-    const result = spawnSync(process.execPath, [
+    const result = await runRetainedBunTestCommand([
       runner,
       'request',
       '--phase', 'prepare',
@@ -318,8 +318,6 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
       '--json'
     ], {
       cwd: process.cwd(),
-      encoding: 'utf8',
-      windowsHide: true,
       env: {
         ...process.env,
         PATH: binHome,
@@ -330,7 +328,7 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
       }
     });
 
-    expect(result.status).not.toBe(0);
+    expect(result.code).not.toBe(0);
     expect(JSON.parse(result.stderr)).toMatchObject({
       schema: 'sec-agent-operation-activation-blocked-v1',
       reasonCode: 'activation-provider-unavailable'

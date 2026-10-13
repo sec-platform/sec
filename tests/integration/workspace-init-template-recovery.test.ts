@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 const initializer = new URL('../../src/bootstrap/engineering/workspace-orchestrator.ts', import.meta.url).href;
@@ -41,12 +42,9 @@ const observations = `
 `;
 
 async function runChild(script: string): Promise<void> {
-  // The selected test's canonical budget owns this child, matching the existing
-  // workspace-init-safety fixture. No second ten-second runner is introduced.
-  const child = Bun.spawn([process.execPath, '--no-env-file', '-e', script], { stdout: 'pipe', stderr: 'pipe' });
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-  ]);
+  const { code, stdout, stderr } = await runRetainedBunTestCommand(
+    ['--no-env-file', '-e', script], { timeoutMs: 180_000, envMode: 'inherit' }
+  );
   expect({ code, stderr, stdout: stdout.trim() }).toEqual({ code: 0, stderr: '', stdout: 'settled' });
 }
 

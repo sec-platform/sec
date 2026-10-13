@@ -305,6 +305,8 @@ export interface NoFollowDirectoryTreeCopyOptions {
   readonly preserveFilePermissionMode?: boolean;
   /** Reject ordinary files with another hard-link name instead of breaking alias topology. */
   readonly rejectHardLinks?: boolean;
+  /** Linux only: preserve relative symlinks whose complete projected closure stays within this tree. */
+  readonly preserveContainedRelativeSymbolicLinks?: boolean;
 }
 
 export interface RetainedWindowsHostNamespaceDirectory {

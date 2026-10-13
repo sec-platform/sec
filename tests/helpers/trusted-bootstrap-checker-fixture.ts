@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { materializeTrustedBootstrapCheckerProgram } from '../../src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-program.ts';
 import { compilerRoot } from '../../src/adapters/workspace-context.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 export const TRUSTED_CHECKER_NATIVE = 'src/adapters/verification/platform/trust/runtime/trusted-bootstrap-checker-native.ts';
 
@@ -99,12 +100,12 @@ process.stdout.write(JSON.stringify(observe()));
     if (!build.success || build.outputs.length !== 1) throw new Error('Checker identity fixture did not bundle.');
     const bundleBytes = new Uint8Array(await build.outputs[0]!.arrayBuffer());
     await writeFile(artifactPath, bundleBytes, { flag: 'wx' });
-    const result = spawnSync(process.execPath, ['--no-env-file', artifactPath], {
-      cwd: root, encoding: 'utf8', timeout: 5_000, maxBuffer: 1024 * 1024,
-      env: { PATH: process.env.PATH }
+    const result = await runRetainedBunTestCommand(['--no-env-file', artifactPath], {
+      cwd: root, timeoutMs: 5_000,
+      envMode: 'replace', env: { PATH: process.env.PATH }
     });
-    if (result.error !== undefined || result.status !== 0) {
-      throw new Error(`Checker identity fixture failed: ${result.error?.message ?? result.stderr}`);
+    if (result.code !== 0) {
+      throw new Error(`Checker identity fixture failed: ${result.stderr}`);
     }
     const observed: { path?: unknown; digest?: unknown } = JSON.parse(result.stdout);
     return Object.freeze({ artifactPath, sourcePath, bundleBytes,

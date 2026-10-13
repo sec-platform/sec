@@ -1,16 +1,16 @@
 import { expect, test } from 'bun:test';
 import { assertMainHealthHostRuntime, type MainHealthHostRuntime } from '../../src/adapters/runtime-state/physical/runtime/main-health-host-runtime.ts';
-import { assertMainHealthFastCommandBytes } from '../../src/bootstrap/development/main-health-fast.ts';
+import { assertMainHealthRuntimeCommandBytes } from '../../src/bootstrap/development/main-health-runtime.ts';
 
 test('MainHealth command file is fixed data and cannot supply shell or alternate argv', () => {
-  for (const command of ['bun run test -- --scope fast', 'bun run test -- --scope fast\n']) {
-    expect(() => assertMainHealthFastCommandBytes(Buffer.from(command))).not.toThrow();
+  for (const command of ['bun --version', 'bun --version\n']) {
+    expect(() => assertMainHealthRuntimeCommandBytes(Buffer.from(command))).not.toThrow();
   }
-  for (const command of ['bun run test -- --scope fast; echo substituted',
-    'bun run test -- --scope fast\necho substituted', 'bun run test -- --scope fast --update-snapshots',
-    'bun run test -- --scope fast\n\n', 'bun run test -- --scope fast\0',
-    'bun run test -- --scope fаst', '', 'bun run test -- --scope fast\r\n']) {
-    expect(() => assertMainHealthFastCommandBytes(Buffer.from(command))).toThrow(/fixed fast command/u);
+  for (const command of ['bun --version; echo substituted',
+    'bun --version\necho substituted', 'bun --version --update-snapshots',
+    'bun --version\n\n', 'bun --version\0',
+    'bun --versiоn', '', 'bun --version\r\n', 'bun run test -- --scope fast']) {
+    expect(() => assertMainHealthRuntimeCommandBytes(Buffer.from(command))).toThrow(/fixed runtime command/u);
   }
 });
 

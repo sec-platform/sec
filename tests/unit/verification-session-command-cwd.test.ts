@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 const commandModule = JSON.stringify(path.join(repositoryRoot, 'src/adapters/verification/platform/ci/runtime/session-command.ts'));
@@ -22,10 +23,10 @@ async function isolatedCase(body: string): Promise<void> {
       const root = ${JSON.stringify(root)};
       ${body}
     `);
-    const result = Bun.spawnSync([process.execPath, script], {
-      cwd: repositoryRoot, env: process.env, stdout: 'pipe', stderr: 'pipe', timeout: DEFAULT_TEST_TIMEOUT_MS
+    const result = await runRetainedBunTestCommand([script], {
+      cwd: repositoryRoot, env: process.env, timeoutMs: DEFAULT_TEST_TIMEOUT_MS
     });
-    expect(result.exitCode, Buffer.from(result.stderr).toString('utf8')).toBe(0);
+    expect(result.code, result.stderr).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

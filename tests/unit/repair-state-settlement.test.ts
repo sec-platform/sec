@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { readLockFile, saveLock } from '../../src/adapters/workspace/lock.ts';
 import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { buildCurrentVerificationLock, writeCurrentVerificationFixture } from '../helpers/current-verification-fixture.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // Failure injection is confined to an isolated process. The real repair entry,
 // artifact reader, plan builder and physical lease lifecycle still execute.
@@ -40,8 +41,7 @@ test('repair preserves its first publication failure when failure-state persiste
       if (publications !== 1 || settlements !== 1) throw new Error('operation was retried or omitted');
       console.log('both failures retained');
     `);
-    const child = Bun.spawn([process.execPath, script], { stdout: 'pipe', stderr: 'pipe' });
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
     expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('both failures retained');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

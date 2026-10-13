@@ -32,6 +32,7 @@ type WorkflowStep = Readonly<{
   uses?: string;
   run?: string;
   'working-directory'?: string;
+  shell?: string;
   env?: Readonly<Record<string, string | number>>;
   with?: Readonly<Record<string, unknown>>;
 }>;
@@ -127,10 +128,12 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
   expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST);
   expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
   expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
-  expect(contract.mainHealthCommands).toContain('bun run imports:check --all');
-  expect(contract.mainHealthCommands).not.toContain('bun run imports:check');
-  expect(contract.mainHealthCommands).toContain('bun run typecheck:verified');
-  expect(contract.mainHealthCommands).not.toContain('bun run typecheck');
+  expect(contract.mainHealthCommands).toEqual(['bun run deps:ensure', 'bun --version']);
+  expect(CI_MAIN_HEALTH_POLICY.runtimeReadinessInput).toMatchObject({
+    command: 'bun --version', dependencyPreparation: 'not-required-for-runtime-readiness',
+    guarantees: ['runtime-startup', 'successful-exit', 'original-resource-release'],
+    excludedQualification: ['full-fast-tests', 'typecheck', 'documentation', 'business-behavior']
+  });
   const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
   const job = Object.values(workflow.jobs).find(({ name }) => name === CI_MAIN_HEALTH_JOB_NAME);
   if (!job) throw new Error(`MainHealth workflow job is missing: ${CI_MAIN_HEALTH_JOB_NAME}`);
@@ -143,12 +146,10 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
   });
   expect(job.steps.map((step) => step.name)).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
   expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
-  expect(job.steps.filter((step) => step.run).map((step) => step.run).slice(0, 3)).toEqual([
-    'bun run deps:ensure',
-    'bun run imports:check --all',
-    'bun run typecheck:verified'
-  ]);
-  expect(job.steps.find((step) => step.id === 'typecheck')?.run).toBe('bun run typecheck:verified');
+  const readiness = job.steps.find((step) => step.id === 'runtime-readiness');
+  expect(readiness?.run).toBe('bun --version');
+  expect(readiness?.shell).toBe('bun --no-env-file --no-install src/bootstrap/development/main-health-runtime.ts {0}');
+  expect(readiness?.env?.SEC_MAIN_HEALTH_SHA).toBe('${{ github.event.client_payload.payload.mainSha }}');
   expect((workflow.on as Record<string, unknown>).push).toBeUndefined();
   expect(job.steps[0]?.if).toBe("${{ github.event_name == 'repository_dispatch' }}");
   expect(job.steps[1]?.with).toMatchObject({

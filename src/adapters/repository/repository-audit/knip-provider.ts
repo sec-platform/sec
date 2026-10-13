@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { inspect } from 'node:util';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
@@ -77,6 +78,7 @@ type KnipProviderDiagnostic = Readonly<{
     | 'physical-boundary-unsettled'
     | 'source-drift';
   detailDigest: `sha256:${string}`;
+  detail: string;
 }>;
 
 export type KnipProviderResult =
@@ -96,15 +98,15 @@ export type ExecuteKnipProviderInput = Readonly<{
 }>;
 
 function unresolved(reason: KnipProviderDiagnostic['reason'], detail: unknown): KnipProviderResult {
+  const diagnostic = inspect(detail, { depth: null, maxArrayLength: null, maxStringLength: null, customInspect: false, getters: false });
   return Object.freeze({
     status: 'unresolved' as const,
     diagnostic: Object.freeze({
       provider: 'knip' as const,
       status: 'unresolved' as const,
       reason,
-      detailDigest: sha256({
-        detail: detail instanceof Error ? detail.message : String(detail)
-      }) as `sha256:${string}`
+      detail: diagnostic,
+      detailDigest: sha256({ detail: diagnostic }) as `sha256:${string}`
     })
   });
 }
@@ -364,7 +366,7 @@ export async function executeKnipUnusedSymbolProvider(
       maxStdoutBytes: KNIP_MAX_OUTPUT_BYTES,
       maxStderrBytes: KNIP_MAX_STDERR_BYTES
     });
-    if (run.result.code !== 0) throw new Error(`Knip exited with code ${run.result.code}`);
+    if (run.result.code !== 0) throw new Error(`Knip exited with code ${run.result.code}`, { cause: run.result });
   } catch (error) {
     executionFailed = true;
     failure = { error };

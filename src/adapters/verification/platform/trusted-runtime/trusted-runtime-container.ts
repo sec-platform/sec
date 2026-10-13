@@ -2054,18 +2054,15 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
   now?: () => Date;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
-  selectedCommand?: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
 }>) {
-  if (input.selectedCommand !== undefined && !TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.selectedCommand)) {
-    fail('MainHealth single-check selector is outside the closed command set');
-  }
-  const commands = input.selectedCommand === undefined ? TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS : [input.selectedCommand];
+  const commands = TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS;
   const mainSha = sha(input.mainSha, 'MainHealth mainSha');
   const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
   const completed = await withTrustedRuntimeNativeWorkspace({
     repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository,
     baseSha: mainSha, baseTreeSha: mainTreeSha, headSha: mainSha, headTreeSha: mainTreeSha,
     operationKey: `main-health-${mainSha.slice(0, 24)}`,
+    dependencies: false,
     deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
     execute: async (workspace) => {
       const actionResults: Array<Readonly<{ command: string; resultDigest: Digest; unitReceipt: LinuxVerificationUnitReceipt }>> = [];
@@ -2092,10 +2089,6 @@ async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
   const first = completed.value[0]!.unitReceipt;
   return Object.freeze({ repository: repository(input.repository), mainSha, mainTreeSha,
     executionId: `trusted-main-health-${first.boundAttemptDigest.slice(7, 31)}`,
-    dependencyCacheKey: null,
-    planDigest: digestValue({ schema: 'sec-trusted-runtime-main-health-plan-v3',
-      canonicalHostedCommands: commands, profileDigest: first.profileDigest,
-      runtimeManifestDigest: first.inputs.runtimeManifestDigest }),
     actionResults: completed.value,
     observedAt: (input.now ?? (() => new Date()))().toISOString() });
 }
@@ -2110,32 +2103,6 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
   signal?: AbortSignal;
 }>): Promise<TrustedRuntimeMainHealthNativeReceipt> {
   return createTrustedRuntimeNativeMainHealthReceipt(await executeTrustedRuntimeMainHealthCommands(input));
-}
-
-/** One actual isolated check for one canonical hosted step. This never enters
- * the MainHealth live-proof registry or claims that the other four checks ran. */
-export async function executeTrustedRuntimeMainHealthCheck(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  mainSha: string;
-  mainTreeSha: string;
-  command: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
-  deadlineAtUnixMs: number;
-  signal?: AbortSignal;
-}>) {
-  input = Object.freeze({ repositoryRoot: input.repositoryRoot, repository: input.repository,
-    mainSha: input.mainSha, mainTreeSha: input.mainTreeSha, command: input.command,
-    deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal });
-  if (!TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.command)) {
-    fail('MainHealth single-check selector is outside the closed command set');
-  }
-  const observation = await executeTrustedRuntimeMainHealthCommands({ ...input, selectedCommand: input.command });
-  if (observation.actionResults.length !== 1 || observation.actionResults[0]!.command !== input.command) {
-    fail('MainHealth single-check result differs from the admitted command');
-  }
-  return Object.freeze({ schema: 'sec-trusted-runtime-main-health-check-v2' as const,
-    authority: 'single-check-observation-only' as const, ...observation,
-    command: input.command, resultDigest: observation.actionResults[0]!.resultDigest });
 }
 
 /** The admitted physical execution budget bounds the entire live consumption

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 import { canonicalGitChildEnvironment } from '../../src/adapters/providers/git/environment.ts';
 import { createLocalGitWorktreeAddFailureActorForTests } from '../../src/adapters/providers/git/local-worktree.ts';
@@ -315,9 +316,9 @@ for (const interruptedReplacement of [false, true]) {
       const source = `import { acquireLocalCandidateWorktree } from ${JSON.stringify(modulePath)};
         try { const lease = await acquireLocalCandidateWorktree(${JSON.stringify(value.input)}); await lease.release(); process.exitCode = 2; }
         catch (error) { console.log(JSON.stringify({ reason: error.reason })); }`;
-      const result = spawnSync(process.execPath, ['-e', source], { cwd: value.root, env: process.env,
-        encoding: 'utf8', timeout: 10_000 });
-      expect(result.status).toBe(0);
+      const result = await runRetainedBunTestCommand(['-e', source], { cwd: value.root, env: process.env,
+        timeoutMs: 10_000 });
+      expect(result.code).toBe(0);
       expect(JSON.parse(result.stdout.trim())).toEqual({ reason: 'prior-attempt-closure-unavailable' });
       expect(readFileSync(lease.markerPath)).toEqual(bytes);
       expect(existsSync(lease.owner.candidateRoot)).toBe(true);

@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // Replace only the final effectful engine in an isolated process. Real request
 // binding, lease acquisition, semantic prelude and failure settlement still run.
@@ -75,10 +76,7 @@ for (const operation of ['verify', 'compose'] as const) for (const inherited of 
           throw new Error('live cancellation was detached');
         console.log('captured once, original cancellation remains live');
       `);
-      const child = Bun.spawn([process.execPath, script], { stdout: 'pipe', stderr: 'pipe' });
-      const [code, stdout, stderr] = await Promise.all([
-        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-      ]);
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('captured once, original cancellation remains live');
     } finally { await rm(root, { recursive: true, force: true }); }

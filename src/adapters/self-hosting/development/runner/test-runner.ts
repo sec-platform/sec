@@ -804,6 +804,7 @@ async function runFastTestExecutionWaves(
     | Readonly<{ kind: 'environment-unsupported'; observation: FastTestInvocationHostObservation }>
     | Readonly<{ kind: 'observed-command'; observation: DevCommandObservation }>;
   let hasUnsupportedInvocation = false;
+  let firstFailedExitCode: number | undefined;
   const dispatch = async (invocation: FastTestInvocation): Promise<InvocationOutcome> => {
     const host = observeFastTestInvocationHost(admission, invocation.id);
     if (host.unmetRequirements.length > 0) {
@@ -866,17 +867,24 @@ async function runFastTestExecutionWaves(
       detail: { invocationCount: invocations.length }
     });
     emitFastTestFailureReceipt(invocations[0]!.queue, waveIndex, failures);
-    const executionFailure = failures.find((failure) => failure.kind !== 'environment-unsupported');
-    // Actual command/observer failures retain settled-wave fail-fast behavior.
-    if (executionFailure?.kind === 'observer-rejected') return 1;
-    if (executionFailure?.kind === 'observed-command-failure') {
-      return devCommandObservationExitCode(executionFailure.observation);
+    // Only a normal, completely observed exit whose original temp owner has
+    // released may leave independent waves runnable. Check the whole wave:
+    // an earlier ordinary failure cannot hide a sibling's unresolved state.
+    if (failures.some((failure) => failure.kind === 'observer-rejected')) return 1;
+    const unsafe = failures.find((failure) => failure.kind === 'observed-command-failure'
+      && (failure.observation.terminal.kind !== 'exited'
+        || failure.observation.observationIntegrity.kind !== 'complete'));
+    if (unsafe?.kind === 'observed-command-failure') return devCommandObservationExitCode(unsafe.observation);
+    for (const failure of failures) {
+      if (failure.kind === 'observed-command-failure') {
+        firstFailedExitCode ??= devCommandObservationExitCode(failure.observation);
+      }
     }
     // An unsupported fixture is not a prerequisite failure for independent
     // files. Continue them, but never clear this batch's incomplete result.
-    hasUnsupportedInvocation = true;
+    hasUnsupportedInvocation ||= failures.some((failure) => failure.kind === 'environment-unsupported');
   }
-  return hasUnsupportedInvocation ? 1 : 0;
+  return firstFailedExitCode ?? (hasUnsupportedInvocation ? 1 : 0);
 }
 
 function fastInvocationEnvironment(

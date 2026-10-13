@@ -1,4 +1,5 @@
 """Bounded filesystem tests and one root-only native cleanup integration."""
+import errno
 import importlib.util
 import json
 import os
@@ -18,6 +19,44 @@ spec.loader.exec_module(helper)
 
 
 class NativeRecoveryIntegration(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and Path('/proc/1/comm').read_text().strip() == 'systemd', 'requires root and the real systemd manager')
+    def test_namespace_init_reaps_adopted_children_and_preserves_main_status(self):
+        workload = r'''
+import os,sys,time
+assert os.getppid()==1
+deadline=time.monotonic()+15
+for iteration in range(300):
+    reader,writer=os.pipe()
+    child=os.fork()
+    if child==0:
+        os.close(reader)
+        grandchild=os.fork()
+        if grandchild==0:
+            while os.getppid()!=1:
+                if time.monotonic()>=deadline: os._exit(90)
+                time.sleep(.001)
+            os.write(writer,str(os.getpid()).encode());os.close(writer);os._exit(0)
+        os._exit(0)
+    os.close(writer)
+    _,status=os.waitpid(child,0)
+    assert status==0
+    adopted=int(os.read(reader,32));os.close(reader)
+    while os.path.exists('/proc/'+str(adopted)):
+        if time.monotonic()>=deadline: raise RuntimeError('adopted-child-not-reaped:'+str(adopted))
+        time.sleep(.001)
+print('reaped:300',flush=True)
+sys.exit(23)
+'''
+        for source, expected, stdout in [(workload, 23, b'reaped:300\n'),
+                                         ('import os,signal;os.kill(os.getpid(),signal.SIGKILL)', 137, b'')]:
+            with self.subTest(exitCode=expected):
+                program = helper.NAMESPACE_INIT_PROGRAM + '\nnamespace_init(' + repr([sys.executable, '-I', '-S', '-c', source]) + ')\n'
+                completed = subprocess.run(['/usr/bin/unshare', '--fork', '--pid', '--mount-proc', '--kill-child=KILL', '--',
+                                            sys.executable, '-I', '-S', '-u', '-c', program],
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, env=helper.FIXED_ENV)
+                self.assertEqual(completed.returncode, expected, completed.stderr.decode(errors='replace'))
+                self.assertEqual(completed.stdout, stdout, completed.stderr.decode(errors='replace'))
+
     @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and Path('/proc/1/comm').read_text().strip() == 'systemd', 'requires root and the real systemd manager')
     def test_original_control_and_unobserved_workload_are_recovered(self):
         namespace = Path(tempfile.mkdtemp(prefix='sec-native-recovery-integration-'))
@@ -60,7 +99,7 @@ try:
                 +'        time.sleep(.01);continue\n'
                 +'    if admitted!=b"allow-native-early-exit": sys.exit(92)\n'
                 +'    break\n'
-                +'sys.stderr.write("fixture early failure\\n");sys.exit(23)')
+                +'sys.stderr.buffer.write(bytes(range(256))*4+b"fixture early failure\\n");sys.exit(23)')
     early=args[:-1]+[early_code]
     early[early.index('--unit='+r['unitName'])]='--unit='+early_name
     early.insert(early.index('--'),'--property=StandardError=file:'+record.path+'/stderr')
@@ -74,8 +113,12 @@ try:
     os.rename('early-admit.pending','early-admit',src_dir_fd=gate_fd,dst_dir_fd=gate_fd)
     pidfds=[]
     try: h.wait_preflight_ready(early_request,record,properties,unit,token,streams,d,d,pidfds)
-    except h.Unavailable as error:
-        if 'native-preflight-exited' not in str(error) or 'ExecMainStatus=23' not in str(error) or 'fixture early failure\\n' not in str(error): raise
+    except h.NativeFailure as error:
+        diagnostic=error.projection(); expected=bytes(range(256))*4+b'fixture early failure\n'
+        if (diagnostic['message'].split('\n',1)[0]!='native-preflight-exited' or diagnostic['unitName']!=early_name or diagnostic['execMainStatus']!=23
+                or diagnostic['exitCode']!=23 or not diagnostic['stderrComplete'] or diagnostic['qualification']!='not-issued'
+                or h.base64.b64decode(diagnostic['stderrBase64'],validate=True)!=expected or diagnostic['stderrBytes']!=len(expected)
+                or diagnostic['stderrDigest']!=h.sha(expected) or len(h.canonical(diagnostic))<=512): raise
     else: raise RuntimeError('native-test-early-failure-was-accepted')
     finally:
         streams.close()
@@ -105,8 +148,8 @@ sys.exit(1)
                                         '--', '/usr/bin/python3.12', '-I', '-S', '-u', '-c', worker, str(Path(helper.__file__).resolve()), json.dumps(request)],
                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=helper.FIXED_ENV)
             stdout, stderr = process.communicate(timeout=15)
-            self.assertEqual(process.returncode, 1, stderr.decode(errors='replace')[:1024])
-            self.assertEqual(stdout.strip(), b'original-helper-failed-with-owned-resources')
+            self.assertEqual(process.returncode, 1, stderr.decode(errors='replace'))
+            self.assertEqual(stdout.strip(), b'original-helper-failed-with-owned-resources', stderr.decode(errors='replace'))
             helper.CLEANUP_MODE, helper.TOOL_PROCESSES, helper.MAX_TOOL_PROCESSES = True, 0, 32
             deadline = helper.Deadline(request['deadlineAtUnixMs'])
             self.assertFalse(helper.cgroup_empty({'cgroupPath': '/system.slice/' + scope}))
@@ -142,6 +185,43 @@ sys.exit(1)
 
 
 class RuntimeCopyPermissions(unittest.TestCase):
+    def test_temporary_snapshot_uses_retained_filesystem_after_path_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            temporary = root / 'tmp'
+            temporary.mkdir()
+            original = temporary.stat()
+            fd = helper.nofollow_directory(str(temporary))
+            try:
+                temporary.rename(root / 'retained')
+                temporary.mkdir()
+                snapshot = helper.temporary_filesystem_snapshot(fd)
+                self.assertEqual((snapshot['device'], snapshot['inode']), (str(original.st_dev), str(original.st_ino)))
+                self.assertNotEqual(snapshot['inode'], str(temporary.stat().st_ino))
+                self.assertGreater(snapshot['bytesTotal'], 0)
+                self.assertGreaterEqual(snapshot['bytesTotal'], snapshot['bytesFree'])
+                self.assertGreaterEqual(snapshot['bytesFree'], snapshot['bytesAvailable'])
+                self.assertGreaterEqual(snapshot['inodesTotal'], snapshot['inodesFree'])
+                self.assertGreaterEqual(snapshot['inodesFree'], snapshot['inodesAvailable'])
+                (root / 'retained' / 'pids.current').write_bytes(b'7\n')
+                (root / 'retained' / 'pids.events').write_bytes(b'max 3\n')
+                (root / 'retained' / 'memory.current').write_bytes(b'1' * 4097)
+                (temporary / 'pids.current').write_bytes(b'999\n')
+                resources = helper.cgroup_resource_snapshot(fd, '/original-unit')
+                self.assertEqual(resources['inode'], str(original.st_ino))
+                self.assertEqual(resources['pids.current'], '7\n')
+                self.assertEqual(resources['pids.events'], 'max 3\n')
+                self.assertIn('cgroup-diagnostic-read-bound', resources['memory.current']['unavailable'])
+                self.assertIn('unavailable', resources['memory.events'])
+            finally:
+                os.close(fd)
+            with self.assertRaises(OSError) as closed:
+                helper.temporary_filesystem_snapshot(fd)
+            self.assertEqual(closed.exception.errno, errno.EBADF)
+            unavailable = helper.cgroup_resource_snapshot(fd, '/original-unit')
+            self.assertIn('identityUnavailable', unavailable)
+            self.assertTrue(all('unavailable' in unavailable[name] for name in ['pids.current', 'pids.events', 'memory.current', 'memory.events']))
+
     def test_recovery_removes_only_original_fixed_empty_objects(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

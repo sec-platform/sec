@@ -10,9 +10,7 @@ import {
 import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
-  createTrustedRuntimeMainHealthReceipt,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
-  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
   type TrustedRuntimeMainHealthReceipt
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -230,7 +228,7 @@ test('WorkSelection prefers exact valid local evidence over hosted absence/unava
       trustRevision: base.mainSha,
       sourceTransport: 'trusted-runtime-live-readback',
       sourceRunId: 'trusted-main-health-run',
-      sourceRef: `live-receipt:trusted-main-health/v2/${MAIN}/${'7'.repeat(64)}`,
+      sourceRef: `live-receipt:trusted-main-health/v4/${MAIN}/${'7'.repeat(64)}`,
       sourceDigest: `sha256:${'7'.repeat(64)}`
     }
   });
@@ -485,28 +483,19 @@ test('historical files and constructed receipts cannot replace live production q
       repository: 'sec-platform/sec',
       repositoryRoot
     });
-    const receipt = createTrustedRuntimeMainHealthReceipt({
-      repository: 'sec-platform/sec',
-      mainSha: MAIN,
-      mainTreeSha: TREE,
-      executionId: 'trusted-main-health-reader-fixture',
-      dockerEndpoint: {
-        schema: 'sec-docker-endpoint-identity-v1',
-        contextName: 'test-linux',
-        endpointHost: process.platform === 'win32'
-          ? 'npipe:////./pipe/dockerDesktopLinuxEngine'
-          : 'unix:///var/run/docker.sock',
-        daemonId: 'daemon-main-health-reader',
-        osType: 'linux',
-        architecture: 'x86_64'
-      },
+    // Deliberately caller-shaped data cannot enter the live qualification registry.
+    // Valid native receipt decoding is exercised at its separate codec boundary.
+    const receipt = {
+      schema: 'sec-trusted-runtime-main-health-receipt-v4',
+      repository: 'sec-platform/sec', mainSha: MAIN, mainTreeSha: TREE,
+      executionId: 'unqualified-main-health-reader-fixture',
       dependencyCacheKey: null,
-      actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
-        command,
-        resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`
-      })),
-      observedAt: new Date().toISOString()
-    });
+      dependencyPreparation: 'not-required-for-runtime-readiness',
+      networkIsolatedBeforeExecution: true,
+      planDigest: `sha256:${'8'.repeat(64)}`,
+      actionResults: [], observedAt: new Date().toISOString(),
+      receiptDigest: `sha256:${'7'.repeat(64)}`
+    } as unknown as TrustedRuntimeMainHealthReceipt;
     const historicalBytes = `${encodeVerificationActionData(receipt)}\n`;
     // These are legacy storage addresses, intentionally independent of the
     // current live reference compiler. Neither file grants qualification.

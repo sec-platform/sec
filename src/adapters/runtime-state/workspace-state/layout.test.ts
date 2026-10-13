@@ -200,7 +200,7 @@ test('physical Runtime State rejects a symlink or junction into the repository b
       repositoryRoot,
       checkpoint,
       environment
-    })).rejects.toThrow(/no-follow|ordinary non-reparse|physical/iu);
+    })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -59,7 +59,7 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       expect(wrong.status).not.toBe(0);
       expect(readCloseoutCliHarnessState(prepared.statePath).localDeleteCount).toBe(0);
       const attempts: BranchCloseoutAttempt[] = [];
-      const observed = observeLocalRefCasWithAdmissionDouble({
+      const observed = await observeLocalRefCasWithAdmissionDouble({
         preparation: prepared.rehydratedPrepared.preparation,
         operationId: `sha256:${'c'.repeat(64)}` as OperationDigest });
       const result = observed.result;

@@ -50,7 +50,7 @@ test('duplicate selections, ambiguous ZIP paths and cumulative expansion are rej
 test('bootstrap projection reads all fixed members from one archive response', async () => {
   const archive = Buffer.from(PRE, 'base64'), digest = rawSha256(archive);
   const requests: string[] = [];
-  const capability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', effect: 'verification-read', token: 'fixture-no-secret',
+  const capability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', effect: 'verification-read', token: 'fixture-token-no-secret',
     principal: { transport: 'github-rest-token', login: 'fixture', nodeId: 'FIXTURE', userId: 1, permission: 'maintain' },
     transport: async (target, init) => {
       const url = new URL(String(target)); requests.push(url.href);
@@ -63,7 +63,7 @@ test('bootstrap projection reads all fixed members from one archive response', a
         return new Response(archive);
       }
       expect(url.origin).toBe('https://api.github.com');
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer fixture-no-secret');
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer fixture-token-no-secret');
       if (url.pathname === '/repos/sec-platform/sec/actions/artifacts/8/zip') return new Response(null, { status: 302,
         headers: { location: 'https://fixture.blob.core.windows.net/archive' } });
       expect(url.pathname).toBe('/repos/sec-platform/sec/actions/artifacts/8');

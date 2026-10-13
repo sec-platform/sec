@@ -12,7 +12,7 @@ import { compilerRuntimeResources } from '../../src/adapters/toolchain/runtime/l
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { ensureProjectBase, RUNTIME_DATABASE_TEMPLATE_PATH } from '../../src/adapters/workspace/project-base.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type RuntimePackageJson = {
@@ -71,32 +71,19 @@ test('project base emits the canonical TypeScript runtime package', async () => 
       "export async function runSuite() { await Promise.resolve(); console.log('native-acceptance-called'); }\n");
     const generatedPaths = await generateRuntimeLibraryScaffold(workspaceRoot, { resolvedBlocks: [] } as unknown as LockFile);
     expect(generatedPaths).toContain('tests/fast.test.ts');
-    const executable = createRawTestExecutableFixture();
-    const runFast = async () => {
-      const child = Bun.spawn([executable.command, 'run', 'test:fast'], {
-        cwd: workspaceRoot, stdout: 'pipe', stderr: 'pipe'
-      });
-      const [code, stdout, stderr] = await Promise.all([
-        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-      ]);
-      return { code, stdout, stderr };
-    };
-    try {
-      const passed = await runFast();
-      expect(passed.code, passed.stdout + passed.stderr).toBe(0);
-      expect(passed.stdout.split('native-acceptance-called')).toHaveLength(2);
-      const contractPath = path.join(paths.srcRoot, 'installed', 'infra', 'postgres-contract.ts');
-      const source = await readFile(contractPath, 'utf8');
-      await writeFile(contractPath, source.replace("provider: 'postgres'", "provider: 'broken-provider'"));
-      const failed = await runFast();
-      expect(failed.code).not.toBe(0);
-      expect(failed.stdout + failed.stderr).toContain('broken-provider');
-      await writeFile(path.join(paths.testsRoot, 'unit', 'postgres-contract.test.ts'), 'export {};\n');
-      const missing = await runFast();
-      expect(missing.code).not.toBe(0);
-      expect(missing.stdout + missing.stderr).toContain('runSuite');
-    } finally {
-      executable.dispose();
-    }
+    const runFast = () => runRetainedBunTestCommand(['run', 'test:fast'], { cwd: workspaceRoot });
+    const passed = await runFast();
+    expect(passed.code, passed.stdout + passed.stderr).toBe(0);
+    expect(passed.stdout.split('native-acceptance-called')).toHaveLength(2);
+    const contractPath = path.join(paths.srcRoot, 'installed', 'infra', 'postgres-contract.ts');
+    const source = await readFile(contractPath, 'utf8');
+    await writeFile(contractPath, source.replace("provider: 'postgres'", "provider: 'broken-provider'"));
+    const failed = await runFast();
+    expect(failed.code).not.toBe(0);
+    expect(failed.stdout + failed.stderr).toContain('broken-provider');
+    await writeFile(path.join(paths.testsRoot, 'unit', 'postgres-contract.test.ts'), 'export {};\n');
+    const missing = await runFast();
+    expect(missing.code).not.toBe(0);
+    expect(missing.stdout + missing.stderr).toContain('runSuite');
   }, 'engineering-compiler-runtime-library-');
 });

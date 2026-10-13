@@ -1117,11 +1117,13 @@ test.serial('explicit inner concurrency is byte-preserved while managed outer co
     ]);
 
     expect(code).toBe(7);
-    expect(devCommandCalls).toHaveLength(1);
-    const explicitIndex = devCommandCalls[0].args.indexOf('--max-concurrency');
-    expect(explicitIndex).toBeGreaterThanOrEqual(0);
-    expect(devCommandCalls[0].args.slice(explicitIndex, explicitIndex + 2))
-      .toEqual(['--max-concurrency', explicit]);
+    expect(devCommandCalls).toHaveLength(selectedFiles.length);
+    for (const call of devCommandCalls) {
+      const explicitIndex = call.args.indexOf('--max-concurrency');
+      expect(explicitIndex).toBeGreaterThanOrEqual(0);
+      expect(call.args.slice(explicitIndex, explicitIndex + 2))
+        .toEqual(['--max-concurrency', explicit]);
+    }
     expect(errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
       .toHaveLength(1);
   } finally {
@@ -1405,7 +1407,7 @@ test.serial('observer rejection receipt bounds planned argv and UTF-8 error', as
   }
 });
 
-test.serial('runFastTests preserves unresolved terminal and failed observation integrity composition', async () => {
+test.serial('runFastTests never lets an ordinary sibling failure hide an unresolved terminal', async () => {
   const independentCandidates = [
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts'
@@ -1423,6 +1425,10 @@ test.serial('runFastTests preserves unresolved terminal and failed observation i
   const siblingSettlement = deferred();
   const siblingStarted = deferred();
 
+  if (siblingCanStart) {
+    devCommandExitCodes.push(7);
+    devCommandObservationOverrides.push(undefined);
+  }
   devCommandObservationOverrides.push({
     terminal: { kind: 'unresolved', reason: 'close-without-status' },
     observationIntegrity: {
@@ -1431,7 +1437,6 @@ test.serial('runFastTests preserves unresolved terminal and failed observation i
     }
   });
   if (siblingCanStart) {
-    devCommandObservationOverrides.push(undefined);
     devCommandSettlements.push(undefined, siblingSettlement.promise);
     devCommandStartObservers.push(undefined, siblingStarted.resolve);
   }
@@ -1461,12 +1466,13 @@ test.serial('runFastTests preserves unresolved terminal and failed observation i
         observationIntegrity: { kind: string; error?: string };
       }>;
     };
-    expect(receipt.failures).toHaveLength(1);
-    expect(receipt.failures[0].terminal).toEqual({
+    expect(receipt.failures).toHaveLength(expectedFirstBatchSize);
+    const unresolved = receipt.failures.find(({ terminal }) => terminal.kind === 'unresolved')!;
+    expect(unresolved.terminal).toEqual({
       kind: 'unresolved',
       reason: 'close-without-status'
     });
-    expect(receipt.failures[0].observationIntegrity).toEqual({
+    expect(unresolved.observationIntegrity).toEqual({
       kind: 'failed',
       error: 'observation integrity sentinel'
     });
@@ -1560,7 +1566,7 @@ test.serial('each resource class obeys its own bounded batches and deterministic
   }
 });
 
-test.serial('resource-class failure stops every later class', async () => {
+test.serial('settled test failure preserves its exit while independent later classes still run', async () => {
   devCommandExitCodes.push(7, 0, 0, 0);
   const errors: string[] = [];
   const originalError = console.error;
@@ -1573,9 +1579,12 @@ test.serial('resource-class failure stops every later class', async () => {
     ]);
 
     expect(code).toBe(7);
-    expect(devCommandCalls).toHaveLength(1);
+    expect(devCommandCalls).toHaveLength(2);
     expect(invocationTestFiles(devCommandCalls[0].args)).toEqual([
       'tests/integration/pipeline-kernel.test.ts'
+    ]);
+    expect(invocationTestFiles(devCommandCalls[1].args)).toEqual([
+      'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
     ]);
     const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
     expect(receipt).toContain('"queue":"independent-process"');

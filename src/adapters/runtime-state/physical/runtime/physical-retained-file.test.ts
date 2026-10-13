@@ -90,7 +90,8 @@ test.skipIf(process.platform !== 'linux')(
       const result = await runRetainedCommand(issueRetainedCommandBoundary({executable, workingDirectory: directory}),
         ['--no-env-file', '--eval', nestedScript],
         {timeoutMs: 15000, maxStdoutBytes: 10000, maxStderrBytes: 10000});
-      expect(result.code).toBe(0);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.terminal).toEqual({ exitCode: 0, signal: null });
       expect(result.stderr).toBe('');
       expect(JSON.parse(result.stdout)).toEqual(expected);
     } finally {

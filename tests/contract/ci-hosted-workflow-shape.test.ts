@@ -22,18 +22,18 @@ const ALLOCATION = 'job identity, allocation, deadline or permissions differ';
 const STEPS = 'setup, launcher phases or native artifact steps differ';
 const HEADER = 'complete workflow header scheduling differs';
 
-test('MainHealth immutable fast input routing cannot be removed or redirected', async () => {
+test('MainHealth runtime readiness input routing cannot be removed or redirected', async () => {
   const source = await readCompilerFile(COMPILER);
   const baseline = parseYaml(source) as Workflow;
   expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(source)).not.toThrow();
   for (const mutate of [
     (value: Step) => { delete value.shell; },
     (value: Step) => { value.shell = 'bash {0}'; },
-    (value: Step) => { value.run = 'bun run test -- --scope fast --update-snapshots'; },
+    (value: Step) => { value.run = 'bun --version --eval "process.exit(0)"'; },
     (value: Step) => { value.env = { SEC_MAIN_HEALTH_SHA: '${{ github.event.client_payload.payload.otherSha }}' }; }
   ]) {
     const changed = structuredClone(baseline);
-    mutate(step(changed.jobs['main-health']!, 'test-fast'));
+    mutate(step(changed.jobs['main-health']!, 'runtime-readiness'));
     expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(stringifyYaml(changed))).toThrow();
   }
 });

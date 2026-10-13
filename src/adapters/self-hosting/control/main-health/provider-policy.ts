@@ -17,8 +17,8 @@ export function createCiMainHealthRequestOperationId(mainSha: string): `sha256:$
 
 /** Exact-main GitHub Actions producer policy; local admission has its own identity. */
 export const CI_MAIN_HEALTH_POLICY = Object.freeze({
-  schema: 'sec-ci-main-health-policy-v7' as const,
-  policyRevision: 'sec-ci-main-health-policy-v7' as const,
+  schema: 'sec-ci-main-health-policy-v8' as const,
+  policyRevision: 'sec-ci-main-health-policy-v8' as const,
   context: 'sec/main-health' as const,
   app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app,
   producer: Object.freeze({
@@ -35,11 +35,14 @@ export const CI_MAIN_HEALTH_POLICY = Object.freeze({
     }),
     branch: 'main' as const
   }),
-  immutableFastInput: Object.freeze({ producer: 'original-native-unit-with-retained-host-tools' as const,
+  runtimeReadinessInput: Object.freeze({ producer: 'original-native-unit-with-retained-host-tools' as const,
     runtimeQualification: 'actual-host-bytes-not-native-accepted-content' as const,
-    dependencyPreparation: 'original-offline-import-and-fresh-observe' as const,
+    command: 'bun --version' as const,
+    dependencyPreparation: 'not-required-for-runtime-readiness' as const,
     sourceSeal: 'private-tmpfs-superblock-read-only' as const,
-    terminal: 'exact-systemd-unit-cgroup-empty-and-private-mount-retirement' as const }),
+    terminal: 'exact-systemd-unit-cgroup-empty-and-private-mount-retirement' as const,
+    guarantees: Object.freeze(['runtime-startup', 'successful-exit', 'original-resource-release'] as const),
+    excludedQualification: Object.freeze(['full-fast-tests', 'typecheck', 'documentation', 'business-behavior'] as const) }),
   terminal: Object.freeze({
     status: 'completed' as const,
     conclusion: 'success' as const,

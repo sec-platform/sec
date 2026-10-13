@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // The delayed domain records only; no real dependency cleanup is performed.
 // Native cwd changes and the actual Commander action execute in a child.
@@ -45,8 +46,7 @@ for (const [name, changeRoot] of [
           throw new Error('cleanup scope was expanded during loading');
         console.log('original target and scope retained');
       `);
-      const child = Bun.spawn([process.execPath, script], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script], { cwd: root });
       expect(code, stderr).toBe(0); expect(stdout.trim()).toBe('original target and scope retained');
     } finally { await rm(root, { recursive: true, force: true }); }
   });

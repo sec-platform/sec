@@ -1,5 +1,6 @@
 import { fstatSync, lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { inspect } from 'node:util';
 
 import { withAuthorityGitReadSession } from '../../adapters/providers/git-read/authority.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../adapters/providers/git-read/runtime/budget.ts';
@@ -477,7 +478,7 @@ if (import.meta.main) {
     process.stdout.write(result);
   } catch (error) {
     process.stderr.write(`${error instanceof CodedFailure ? error.code : 'RUNTIME-DEPS-004'}: ${
-      (error instanceof Error ? error.message : 'Native dependency setup failed').slice(0, 2_048)}\n`);
+      inspect(error, { depth: null, maxStringLength: null, maxArrayLength: null, customInspect: false, getters: false })}\n`);
     process.exitCode = 1;
   }
 }

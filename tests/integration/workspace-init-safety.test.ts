@@ -21,6 +21,7 @@ import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts
 import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { withAcquiredResource } from '../../src/execution/resource-settlement.ts';
 import { snapshotWorkspaceCreateRequest, type WorkspaceCreateSession } from '../../src/execution/workspace-create.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('init creates the minimal workspace on an empty root', async () => {
@@ -371,8 +372,9 @@ test('publication interrupted in a settled predecessor process resumes in a new 
     }
   `;
   const run = async (interrupt: boolean) => {
-    const child = Bun.spawn([process.execPath, '--no-env-file', '-e', script(interrupt)], { stdout: 'pipe', stderr: 'pipe' });
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const { code, stdout, stderr } = await runRetainedBunTestCommand(
+      ['--no-env-file', '-e', script(interrupt)], { timeoutMs: 180_000, envMode: 'inherit' }
+    );
     expect(code, stderr).toBe(0); expect(stdout.trim()).toBe(interrupt ? 'interrupted-settled' : 'recovered');
   };
   await run(true);
@@ -678,10 +680,9 @@ test('current generation sessions close every real nested transaction and preser
     }
     console.log('current generation transactions settled');
   `;
-  const child = Bun.spawn([process.execPath, '--no-env-file', '-e', script], { stdout: 'pipe', stderr: 'pipe' });
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()
-  ]);
+  const { code, stdout, stderr } = await runRetainedBunTestCommand(
+    ['--no-env-file', '-e', script], { timeoutMs: 180_000, envMode: 'inherit' }
+  );
   expect(code, stderr).toBe(0);
   expect(stdout.trim()).toBe('current generation transactions settled');
 });
@@ -773,9 +774,11 @@ test.skipIf(process.platform === 'win32')('native publication process death pres
       console.log('interrupted-settled');
     }
   `;
-  const child = Bun.spawn([process.execPath, '--no-env-file', '-e', script(true)], { stdout: 'pipe', stderr: 'pipe' });
-  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  expect(code, stderr).toBe(137);
+  const { terminal } = await runRetainedBunTestCommand(
+    ['--no-env-file', '-e', script(true)], { timeoutMs: 180_000, envMode: 'inherit' }
+  );
+  expect(terminal.signal).toBe('SIGKILL');
+  expect(terminal.exitCode).toBeNull();
   const recordPath = path.join(root, '.sec/workspace-create.json');
   const planPath = path.join(root, 'sec.yaml');
   const record = await fs.readFile(recordPath);

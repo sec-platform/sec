@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { readLockFile, saveLock } from '../../src/adapters/workspace/lock.ts';
 import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // Isolate the engine, policy observation and final publication in a child.
 // Actual request, lease and failed-snapshot construction retain their owners.
@@ -57,8 +58,7 @@ for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runt
         if (executions !== 1 || publications !== ${lane === 'runtime' ? 0 : 1}) throw new Error('work was omitted or repeated');
         console.log('verification and settlement boundaries retained');
       `);
-      const child = Bun.spawn([process.execPath, script], { stdout: 'pipe', stderr: 'pipe' });
-      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      const { code, stdout, stderr } = await runRetainedBunTestCommand([script]);
       expect(code, stderr).toBe(0);
       expect(stdout.trim()).toBe('verification and settlement boundaries retained');
     } finally { await rm(root, { recursive: true, force: true }); }

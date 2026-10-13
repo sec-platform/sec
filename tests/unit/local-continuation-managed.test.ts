@@ -7,6 +7,7 @@ import process from 'node:process';
 
 import { createLocalContinuationCheckpoint, LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES } from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const LOCAL_CONTINUATION_PROGRAM_PATH = path.resolve(
   import.meta.dir,
@@ -25,18 +26,14 @@ function git(cwd: string, ...args: string[]): string {
   return run(cwd, 'git', args);
 }
 
-function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
-  const result = spawnSync(process.execPath, [LOCAL_CONTINUATION_PROGRAM_PATH, 'continue', ...args, '--json'], {
-    cwd,
-    encoding: 'utf8',
-    windowsHide: true,
-    env
+async function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
+  return await runRetainedBunTestCommand([LOCAL_CONTINUATION_PROGRAM_PATH, 'continue', ...args, '--json'], {
+    cwd, env, envMode: 'replace', timeoutMs: 60_000
   });
-  return result;
 }
 
 test.each(['codex-development-work-package-v1', 'codex-development-work-package-v3'] as const)(
-  '%s upstream handoff becomes managed local continuation until explicit external boundaries', (schema) => {
+  '%s upstream handoff becomes managed local continuation until explicit external boundaries', async (schema) => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'sec-managed-continuation-'));
   const repositoryRoot = path.join(fixtureRoot, 'repo');
   const stateRoot = path.join(fixtureRoot, 'state');
@@ -105,7 +102,7 @@ tests:
     if (process.platform !== 'win32') {
       const aliasPath = path.join(fixtureRoot, 'handoff-link.json');
       symlinkSync(handoffPath, aliasPath, 'file');
-      expect(invoke(repositoryRoot, env, '--handoff', aliasPath).status).not.toBe(0);
+      expect((await invoke(repositoryRoot, env, '--handoff', aliasPath)).code).not.toBe(0);
       rmSync(aliasPath, { force: true });
     }
     const oversizedHandoffPath = path.join(fixtureRoot, 'handoff-oversized.json');
@@ -114,37 +111,37 @@ tests:
       ' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1),
       'utf8'
     );
-    expect(invoke(repositoryRoot, env, '--handoff', oversizedHandoffPath).status).not.toBe(0);
+    expect((await invoke(repositoryRoot, env, '--handoff', oversizedHandoffPath)).code).not.toBe(0);
 
-    const imported = invoke(repositoryRoot, env, '--handoff', handoffPath);
-    expect(imported.status).toBe(0);
+    const imported = await invoke(repositoryRoot, env, '--handoff', handoffPath);
+    expect(imported.code).toBe(0);
     const importedValue = JSON.parse(imported.stdout) as Record<string, unknown>;
     expect(importedValue.localState).toBe('exact-snapshot');
     expect((importedValue.invalidation as Record<string, unknown>).disposition).toBe('reuse-zero-remote');
     expect(importedValue.importedAdmission).not.toBeNull();
 
-    const resumed = invoke(repositoryRoot, env);
-    if (resumed.status !== 0) throw new Error(resumed.stderr || resumed.stdout);
-    expect(resumed.status).toBe(0);
+    const resumed = await invoke(repositoryRoot, env);
+    if (resumed.code !== 0) throw new Error(resumed.stderr || resumed.stdout);
+    expect(resumed.code).toBe(0);
     const resumedValue = JSON.parse(resumed.stdout) as Record<string, unknown>;
     expect(resumedValue.localState).toBe('exact-snapshot');
     expect(resumedValue.importedAdmission).toBeNull();
 
     writeFileSync(path.join(repositoryRoot, 'src', 'value.ts'), 'export const value = 3;\n', 'utf8');
-    const localEdit = invoke(repositoryRoot, env);
-    expect(localEdit.status).toBe(0);
+    const localEdit = await invoke(repositoryRoot, env);
+    expect(localEdit.code).toBe(0);
     const localEditValue = JSON.parse(localEdit.stdout) as Record<string, unknown>;
     expect(localEditValue.localState).toBe('local-candidate-diverged');
     expect((localEditValue.invalidation as Record<string, unknown>).remoteOwners).toEqual([]);
 
-    const reviewBoundary = invoke(repositoryRoot, env, '--boundary', 'review');
-    expect(reviewBoundary.status).toBe(0);
+    const reviewBoundary = await invoke(repositoryRoot, env, '--boundary', 'review');
+    expect(reviewBoundary.code).toBe(0);
     const reviewValue = JSON.parse(reviewBoundary.stdout) as Record<string, unknown>;
     expect((reviewValue.invalidation as Record<string, unknown>).remoteOwners).toEqual(['review']);
 
     writeFileSync(path.join(repositoryRoot, 'README.md'), 'forbidden local edit\n', 'utf8');
-    const forbiddenDirty = invoke(repositoryRoot, env);
-    expect(forbiddenDirty.status).toBe(0);
+    const forbiddenDirty = await invoke(repositoryRoot, env);
+    expect(forbiddenDirty.code).toBe(0);
     const forbiddenDirtyValue = JSON.parse(forbiddenDirty.stdout) as Record<string, unknown>;
     expect(forbiddenDirtyValue.localState).toBe('control-drift');
     expect((forbiddenDirtyValue.invalidation as Record<string, unknown>).disposition)
@@ -152,20 +149,20 @@ tests:
 
     rmSync(path.join(repositoryRoot, 'README.md'), { force: true });
     git(repositoryRoot, 'restore', '--source=HEAD', '--staged', '--worktree', '--', 'src/value.ts');
-    const reimported = invoke(repositoryRoot, env, '--handoff', handoffPath);
-    if (reimported.status !== 0) {
+    const reimported = await invoke(repositoryRoot, env, '--handoff', handoffPath);
+    if (reimported.code !== 0) {
       const status = git(repositoryRoot, 'status', '--porcelain=v2', '--untracked-files=all');
       throw new Error(`clean handoff reimport failed; status=${JSON.stringify(status)}: ${reimported.stderr || reimported.stdout}`);
     }
 
-    const externallyStale = invoke(repositoryRoot, env, '--external-changed');
-    expect(externallyStale.status).toBe(0);
+    const externallyStale = await invoke(repositoryRoot, env, '--external-changed');
+    expect(externallyStale.code).toBe(0);
     expect((JSON.parse(externallyStale.stdout) as Record<string, unknown>).invalidation)
       .toMatchObject({ disposition: 'refresh-live-owner', remoteOwners: ['repository-orientation'] });
-    const afterExternalChange = invoke(repositoryRoot, env);
-    expect(afterExternalChange.status).not.toBe(0);
+    const afterExternalChange = await invoke(repositoryRoot, env);
+    expect(afterExternalChange.code).not.toBe(0);
     expect(afterExternalChange.stderr).toContain('no managed continuation exists');
-    expect(invoke(repositoryRoot, env, '--handoff', handoffPath).status).toBe(0);
+    expect((await invoke(repositoryRoot, env, '--handoff', handoffPath)).code).toBe(0);
 
     const stateBackup = path.join(fixtureRoot, 'state-before-control-drift');
     cpSync(stateRoot, stateBackup, { recursive: true });
@@ -174,8 +171,8 @@ tests:
       'commit-tree', unrelatedTree, '-m', 'unrelated candidate history'
     ]);
     git(repositoryRoot, 'reset', '--hard', unrelatedCommit);
-    const unrelated = invoke(repositoryRoot, env);
-    expect(unrelated.status).toBe(0);
+    const unrelated = await invoke(repositoryRoot, env);
+    expect(unrelated.code).toBe(0);
     const unrelatedValue = JSON.parse(unrelated.stdout) as Record<string, unknown>;
     expect(unrelatedValue.localState).toBe('control-drift');
     expect((unrelatedValue.invalidation as Record<string, unknown>).disposition)
@@ -185,15 +182,15 @@ tests:
     rmSync(stateRoot, { recursive: true, force: true });
     cpSync(stateBackup, stateRoot, { recursive: true });
 
-    const terminal = invoke(repositoryRoot, env, '--terminal');
-    expect(terminal.status).toBe(0);
+    const terminal = await invoke(repositoryRoot, env, '--terminal');
+    expect(terminal.code).toBe(0);
     expect((JSON.parse(terminal.stdout) as Record<string, unknown>).gc).toEqual({
       scanned: 1,
       removed: 1,
       retained: 0
     });
-    const afterTerminal = invoke(repositoryRoot, env);
-    expect(afterTerminal.status).not.toBe(0);
+    const afterTerminal = await invoke(repositoryRoot, env);
+    expect(afterTerminal.code).not.toBe(0);
     expect(afterTerminal.stderr).toContain('no managed continuation exists');
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });

@@ -332,7 +332,14 @@ export async function acquireHeavyVerificationGateLease(
       }
     }
     if (!current) {
-      const lockStat = await stat(lockPath).catch(() => null);
+      const lockStat = await stat(lockPath).catch((error: unknown) => {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null;
+        throw error;
+      });
+      // A contender can observe the previous owner releasing between the
+      // failed publication and readback. Absence permits another exclusive
+      // publication; it never permits adopting or removing an unknown lock.
+      if (lockStat === null) continue;
       if (lockStat && Date.now() - lockStat.mtimeMs < INITIALIZATION_GRACE_MS) {
         throw new HeavyVerificationGateBusyError('initializing', 'Heavy verification gate owner publication is still initializing.');
       }
@@ -343,7 +350,7 @@ export async function acquireHeavyVerificationGateLease(
     // one worktree-global exclusion domain. Preserve the original rendezvous.
     throw new Error('Heavy verification gate requires original execution-domain recovery; retained owner is unverified.');
   }
-  throw new Error('Heavy verification gate could not acquire its worktree-local lease.');
+  throw new HeavyVerificationGateBusyError('active', 'Heavy verification gate changed owners during bounded acquisition.');
 }
 
 export async function withHeavyVerificationGateLease<T>(

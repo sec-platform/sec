@@ -12,6 +12,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   rmSync,
   statSync,
@@ -839,6 +840,59 @@ test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact re
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'linux')('Linux bulk copy preserves contained relative links and resolves ancestor-link chains', async () => {
+  const root = fixtureRoot();
+  try {
+    const sourcePath = path.join(root, 'source');
+    mkdirSync(path.join(sourcePath, 'real', 'nested'), { recursive: true });
+    writeFileSync(path.join(sourcePath, 'real', 'nested', 'value'), Buffer.from([0, 127, 255]));
+    symlinkSync('real', path.join(sourcePath, 'alias'));
+    symlinkSync('alias/nested', path.join(sourcePath, 'through'));
+    symlinkSync('./through/value', path.join(sourcePath, 'value-link'));
+    const target = path.join(root, 'target');
+    await copyNoFollowDirectoryTreesBulk([{ source: inspectNoFollowDirectoryChain(sourcePath).target, target }], {
+      preserveContainedRelativeSymbolicLinks: true, preservePermissionMode: true, maximumEntries: 128, maximumBytes: 128
+    });
+    expect(readlinkSync(path.join(target, 'alias'))).toBe('real');
+    expect(readlinkSync(path.join(target, 'through'))).toBe('alias/nested');
+    expect(readlinkSync(path.join(target, 'value-link'))).toBe('./through/value');
+    expect(readFileSync(path.join(target, 'value-link'))).toEqual(Buffer.from([0, 127, 255]));
+    expect(lstatSync(path.join(target, 'value-link')).isSymbolicLink()).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or projected-away link closures before creating the target', async () => {
+  for (const fault of ['default', 'escape', 'absolute', 'dangling', 'cycle', 'ancestor-cycle', 'ancestor-escape', 'excluded']) {
+    const root = fixtureRoot();
+    try {
+      const sourcePath = path.join(root, 'source');
+      mkdirSync(path.join(sourcePath, 'real'), { recursive: true });
+      writeFileSync(path.join(sourcePath, 'real', 'value'), 'retained');
+      const raw = fault === 'escape' ? '../outside' : fault === 'absolute' ? path.join(sourcePath, 'real', 'value')
+        : fault === 'dangling' ? 'missing' : fault === 'cycle' ? 'other' : fault === 'ancestor-cycle' ? 'real/link'
+        : fault === 'ancestor-escape' ? 'alias/../outside' : 'real/value';
+      symlinkSync(raw, path.join(sourcePath, 'link'));
+      if (fault === 'cycle') symlinkSync('link', path.join(sourcePath, 'other'));
+      if (fault === 'ancestor-escape') symlinkSync('.', path.join(sourcePath, 'alias'));
+      if (fault === 'ancestor-cycle') {
+        symlinkSync('real', path.join(sourcePath, 'alias'));
+        symlinkSync('../alias/link', path.join(sourcePath, 'real', 'link'));
+      }
+      const target = path.join(root, 'target');
+      await expect(copyNoFollowDirectoryTreesBulk([{ source: inspectNoFollowDirectoryChain(sourcePath).target, target }], {
+        preserveContainedRelativeSymbolicLinks: fault !== 'default',
+        ...(fault === 'excluded' ? { includeRelativePaths: ['link'] } : {}), maximumEntries: 128, maximumBytes: 128
+      })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+      expect(existsSync(target)).toBe(false);
+      expect(readFileSync(path.join(sourcePath, 'real', 'value'), 'utf8')).toBe('retained');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
