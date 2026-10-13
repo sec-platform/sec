@@ -39,7 +39,8 @@ function git(root: string, args: readonly string[]): string {
 }
 
 for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anchor-lost',
-  'legacy-applied', 'legacy-pending', 'reviewed-superseded', 'reviewed-rejected'] as const) {
+  'legacy-applied', 'legacy-pending', 'reviewed-superseded', 'reviewed-rejected',
+  'carrier-retained', 'carrier-rejected'] as const) {
   test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
     const { root } = await fixture();
     const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
@@ -53,7 +54,8 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
         : originalBase;
       const changedTree = git(root, ['write-tree']);
       const reviewedDefault = mode === 'reviewed-superseded' || mode === 'reviewed-rejected';
-      const target = git(root, ['commit-tree', mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault
+      const retainedCarrier = mode === 'carrier-retained' || mode === 'carrier-rejected';
+      const target = git(root, ['commit-tree', mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
         ? changedTree : baseTree, '-p', base, '-m', 'historical terminal attempt']);
       const main = git(root, ['commit-tree', baseTree, '-p', mode === 'main-adopted' ? target : base,
         '-m', 'later adopted main']);
@@ -64,10 +66,10 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
       const source = `${JSON.stringify(canonicalJson({
         schema: 'sec-development-commit-journal-v1', operation: `sha256:${'1'.repeat(64)}`,
         attempt: `sha256:${'2'.repeat(64)}`, ref: reviewedDefault ? 'refs/heads/main' : 'refs/heads/retired-topic', preimage: base,
-        target, object: target, tree: mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault
+        target, object: target, tree: mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault || retainedCarrier
           ? changedTree : baseTree, terminal: mode === 'legacy-pending' ? null : 'applied'
       }))}\n`;
-      if (mode === 'legacy-applied' || mode === 'legacy-pending' || reviewedDefault) {
+      if (mode === 'legacy-applied' || mode === 'legacy-pending' || reviewedDefault || retainedCarrier) {
         await writeFile(journalPath, source);
       } else {
         const writer = createRuntimeStateJournalFileSystem(
@@ -75,12 +77,51 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
         expect(writer.createExclusiveFsync(journalPath, source)).toBe(true);
       }
       const unrelated = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor']);
+      const oldMerge = retainedCarrier
+        ? git(root, ['commit-tree', baseTree, '-m', 'merge discarded by default history rewrite']) : originalBase;
+      const carrierRepository = path.join(harness, 'carrier.git');
+      if (retainedCarrier) {
+        git(root, ['init', '--quiet', '--bare', carrierRepository]);
+        git(root, ['push', '--quiet', carrierRepository, `${target}:refs/pull/1/head`]);
+      }
       const script = path.join(harness, 'case.ts');
       await writeFile(script, `
         import assert from 'node:assert/strict';
         import { spawnSync } from 'node:child_process';
         import * as fs from 'node:fs';
         import { mock } from 'bun:test';
+        if (${retainedCarrier}) {
+          const authority = await import(${modulePath('../../src/adapters/providers/git-read/authority.ts')});
+          const withOriginalSession = authority.withAuthorityGitReadSession;
+          let carrierReads = 0;
+          let carrierBehavior = ${JSON.stringify(mode)} === 'carrier-rejected' ? 'missing' : 'retained';
+          const carrierUpdate = value => {
+            const args = ['--git-dir', ${JSON.stringify(carrierRepository)}, 'update-ref'];
+            if (value === null) args.push('-d', 'refs/pull/1/head');
+            else args.push('refs/pull/1/head', value);
+            const result = spawnSync('git', args, { encoding: 'utf8', windowsHide: true });
+            assert.equal(result.status, 0, result.stderr);
+          };
+          globalThis.nextCarrierAttempt = () => {
+            carrierReads = 0; carrierBehavior = 'drift'; carrierUpdate(${JSON.stringify(target)});
+          };
+          mock.module(${modulePath('../../src/adapters/providers/git-read/authority.ts')}, () => ({
+            ...authority,
+            withAuthorityGitReadSession: (input, execute) => withOriginalSession(input, session =>
+              execute({ ...session, run: async args => {
+                if (args[0] !== 'ls-remote') return session.run(args);
+                // Only the remote endpoint is replaced; real Git resolves the independently retained bare ref.
+                assert.deepEqual(args, ['ls-remote', '--exit-code', 'origin', 'refs/pull/1/head']);
+                carrierReads++;
+                if (carrierBehavior === 'missing') carrierUpdate(null);
+                if (carrierBehavior === 'drift' && carrierReads > 1) carrierUpdate(${JSON.stringify(originalBase)});
+                const result = spawnSync('git', ['ls-remote', '--exit-code', ${JSON.stringify(carrierRepository)},
+                  'refs/pull/1/head'], { encoding: 'utf8', windowsHide: true });
+                return { kind: 'completed', result: { code: result.status,
+                  stdout: Buffer.from(result.stdout), stderr: Buffer.from(result.stderr) } };
+              } }))
+          }));
+        }
         const provider = await import(${modulePath('../../src/adapters/providers/github-api/operation-session.ts')});
         let mainReads = 0;
         mock.module(${modulePath('../../src/adapters/providers/github-api/operation-session.ts')}, () => ({
@@ -89,8 +130,8 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
           async executeGitHubApiOperation(_capability, operation) {
             if (operation.kind === 'repository') return { full_name: 'example/repository', default_branch: 'main' };
             if (operation.kind === 'pull') return {
-              number: 1, state: 'closed', merged: true, merge_commit_sha: ${JSON.stringify(originalBase)},
-              head: { ref: 'retired-topic', sha: ${JSON.stringify(originalBase)}, repo: { full_name: 'example/repository' } },
+              number: 1, state: 'closed', merged: true, merge_commit_sha: ${JSON.stringify(oldMerge)},
+              head: { ref: 'retired-topic', sha: ${JSON.stringify(retainedCarrier ? target : originalBase)}, repo: { full_name: 'example/repository' } },
               base: { ref: 'main', repo: { full_name: 'example/repository' } }
             };
             if (operation.kind === 'git-ref' && operation.branch === 'retired-topic') {
@@ -146,6 +187,12 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
             }), /no longer binds the exact live and local default ref/);
             assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
           }
+        } else if (${JSON.stringify(mode)} === 'carrier-rejected') {
+          await assert.rejects(retire, /exact retained pull carrier is absent or changed/);
+          assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+          globalThis.nextCarrierAttempt();
+          await assert.rejects(retire, /exact retained pull carrier is absent or changed/);
+          assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
         } else if (${JSON.stringify(mode)} === 'nonempty-unconsumed' || ${JSON.stringify(mode)} === 'anchor-lost'
             || ${JSON.stringify(mode)} === 'legacy-pending') {
           await assert.rejects(retire, ${JSON.stringify(mode)} === 'anchor-lost'

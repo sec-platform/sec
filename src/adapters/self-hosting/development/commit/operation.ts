@@ -1677,6 +1677,7 @@ export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
   const pull = await readPull();
   const ref = `refs/heads/${pull.branch}`;
   return withAuthorityGitReadSession({ cwd: input.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+    let retainedPullCarrier = false;
     const assertTerminal = async () => {
       if (JSON.stringify(await readPull()) !== JSON.stringify(pull)) {
         throw new Error('Merged PR identity changed before journal retirement.');
@@ -1694,8 +1695,19 @@ export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
         throw new Error('Merged commit journal main identity is unresolved.');
       }
       const reachable = await session.run(['merge-base', '--is-ancestor', pull.mergeSha, mainObject.sha]);
-      if (reachable.kind !== 'completed' || reachable.result.code !== 0) {
-        throw new Error('Merged commit journal is not reachable from live default ref.');
+      if (reachable.kind !== 'completed' || (reachable.result.code !== 0 && reachable.result.code !== 1)) {
+        throw new Error('Merged commit journal default-ref ancestry observation is unresolved.');
+      }
+      if (reachable.result.code === 1 || retainedPullCarrier) {
+        // Rewritten default history does not destroy an exact retained transport
+        // carrier. It proves retention discharge, not current-main adoption.
+        const carrierRef = `refs/pull/${input.pullRequestNumber}/head`;
+        const carrier = await session.run(['ls-remote', '--exit-code', 'origin', carrierRef]);
+        if (carrier.kind !== 'completed' || carrier.result.code !== 0 || carrier.result.stderr.length !== 0
+            || Buffer.from(carrier.result.stdout).toString('utf8').trimEnd() !== `${pull.headSha}\t${carrierRef}`) {
+          throw new Error('Merged commit journal exact retained pull carrier is absent or changed.');
+        }
+        retainedPullCarrier = true;
       }
       return mainObject.sha;
     };
