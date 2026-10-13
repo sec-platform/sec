@@ -47,7 +47,6 @@ const CEILINGS = Object.freeze([
 const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"',
   'mkdir -p "$root/tmp" "$root/tool/bin"', ...linuxRuntimeToolCopyScript('independent-files'),
   'copy_runtime "/usr/bin/unshare" "/usr/bin/unshare"',
-  'copy_runtime "/usr/bin/python3.12" "/usr/bin/python3"',
   'copy_runtime "$bun_host" "/usr/local/bin/bun"',
   'rmdir "$root/tmp"', 'chmod -R go-w -- "$root"'].join('\n');
 const CONTRACT = sha256({ requirement: REQUIREMENT, script: SCRIPT, transport: 'actual-host-bytes-not-native-accepted-content' });
