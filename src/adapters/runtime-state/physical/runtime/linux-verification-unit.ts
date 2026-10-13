@@ -79,7 +79,7 @@ export interface LinuxVerificationUnitRecoverySettlement {
 export class LinuxVerificationUnitRecoveryRequiredError extends Error {
   readonly code = 'SEC-LINUX-NATIVE-UNIT-RECOVERY-REQUIRED';
   constructor(readonly recovery: LinuxVerificationUnitRecovery, cause: unknown) {
-    super('Original native unit resources require exact bounded recovery.', { cause });
+    super('Original native unit resources require exact bounded recovery: ' + failureMessage(cause).slice(0, 1536), { cause });
   }
 }
 
@@ -93,6 +93,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deepFreeze, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../../../contracts/exact-json.ts';
+import { failureMessage } from '../../../../contracts/failure-inspection.ts';
 import { assertSemanticOperationProjection, issueProviderSettlementReceipt } from '../../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../../execution/resource-settlement.ts';
 import { issueRetainedNoFollowCapability } from './physical-no-follow-authority.ts';
@@ -459,7 +460,10 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
       maxStdoutBytes: outputBound, maxStderrBytes: 64 * 1024,
       beforeSpawn: async () => { assertOpen(session); assertLinuxVerificationUnitHostSupported();
         if (invocation.kind === 'hosted-sut' && assertHostedSutSource(record.inputs) === null) invalid('Privileged SUT source capability is unavailable.'); } });
-    if (run.result.code !== 0) throw new LinuxVerificationUnitUnavailableError('unknown', 'Native helper did not return a complete settled result.', { unitName, deadlineAtUnixMs: session.deadlineAtUnixMs });
+    if (run.result.code !== 0) throw new LinuxVerificationUnitUnavailableError('unknown',
+      'Native helper did not return a complete settled result; exit=' + run.result.code
+      + '; stderr=' + JSON.stringify(Buffer.from(run.result.stderr).subarray(-1024).toString('utf8')),
+      { unitName, deadlineAtUnixMs: session.deadlineAtUnixMs });
     const result = parseLinuxVerificationUnitResult(parseExactJsonBytes(run.result.stdout, 'native unit response', { maximumInputBytes: outputBound, maximumDepth: 16 }), invocation);
     const receipt = result.receipt;
     if (receipt.operationIdentityDigest !== record.operation.plan.identity.identityDigest || receipt.boundAttemptDigest !== record.operation.boundAttemptDigest
@@ -603,7 +607,9 @@ export async function recoverLinuxVerificationUnitSession(recovery: LinuxVerific
       if (recoveryProcess.observeNativeResourceCapacity().remaining < 33) invalid('Native recovery control-process budget is insufficient.');
       const observed = await recoveryProcess.run(record.boundary, args, { envMode: 'replace', env: CONTROL_ENVIRONMENT, input: request,
         maxStdinBytes: 65536, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
-      if (observed.result.code !== 0) throw new LinuxVerificationUnitRecoveryRequiredError(recovery, new Error('Native cleanup remains unconfirmed.'));
+      if (observed.result.code !== 0) throw new LinuxVerificationUnitRecoveryRequiredError(recovery,
+        new Error('Native cleanup remains unconfirmed; exit=' + observed.result.code
+          + '; stderr=' + JSON.stringify(Buffer.from(observed.result.stderr).subarray(-1024).toString('utf8'))));
       const result = parseExactJsonBytes(observed.result.stdout, 'native recovery result', { maximumInputBytes: 131072, maximumDepth: 8 }) as Record<string, unknown>;
       assertRecoveryProjection(result, pending, recovery.inputDigest, recovery.originalOperationIdentityDigest, recovery.originalBoundAttemptDigest);
       const terminalReceiptDigest = sha256(result) as OperationDigest;
