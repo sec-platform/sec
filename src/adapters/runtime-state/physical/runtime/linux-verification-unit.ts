@@ -111,9 +111,75 @@ const GIT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 // blocked lock may require settling control once before the ordinary pair.
 const ACKNOWLEDGMENT_CONTROL_PROCESSES = 15;
 const RECOVERY_CONTROL_PROCESSES = 32;
+const NATIVE_CONTROL_OUTPUT_BYTES = 262144;
+// One settlement failure plus four tool teardowns, one drain, three stream
+// closes and three retained pidfd closes can all fail independently.
+const NATIVE_CLEANUP_FAILURE_LIMIT = 12;
+
+function nativeFailureTransportBound(maximumStderrBytes: number): number {
+  return Math.ceil((maximumStderrBytes + NATIVE_CLEANUP_FAILURE_LIMIT * NATIVE_CONTROL_OUTPUT_BYTES) * 4 / 3) + 128 * 1024;
+}
 
 function helperFailureMessage(label: string, result: Readonly<{ code: number | null; stderr: string }>): string {
   return label + '; exit=' + result.code + '; stderr=' + JSON.stringify(Buffer.from(result.stderr).subarray(-1024).toString('utf8'));
+}
+
+/** Diagnostic data cannot issue a result, settlement or recovery capability. */
+export interface LinuxVerificationUnitFailureDiagnostic {
+  readonly schema: 'sec-linux-native-unit-failure-v1';
+  readonly qualification: 'not-issued';
+  readonly phase: string;
+  readonly unitName: string | null;
+  readonly errorType: string;
+  readonly message: string;
+  readonly exitCode: number | null;
+  readonly execMainCode: number | null;
+  readonly execMainStatus: number | null;
+  readonly stderrBase64: string;
+  readonly stderrBytes: number;
+  readonly stderrDigest: string;
+  readonly stderrComplete: boolean;
+  readonly cleanupFailures: readonly Readonly<{ errorType: string; message: string; stderrBase64: string }>[];
+}
+
+export function parseLinuxVerificationUnitFailureDiagnostic(bytes: Uint8Array, maximumStderrBytes: number): LinuxVerificationUnitFailureDiagnostic {
+  const maximumInputBytes = nativeFailureTransportBound(maximumStderrBytes);
+  const value = parseExactJsonBytes(bytes, 'native failure diagnostic', { maximumInputBytes, maximumDepth: 6 }) as Record<string, unknown>;
+  const keys = ['schema', 'qualification', 'phase', 'unitName', 'errorType', 'message', 'exitCode', 'execMainCode', 'execMainStatus',
+    'stderrBase64', 'stderrBytes', 'stderrDigest', 'stderrComplete', 'cleanupFailures'];
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== keys.length
+      || !keys.every(key => Object.hasOwn(value, key)) || value.schema !== 'sec-linux-native-unit-failure-v1'
+      || value.qualification !== 'not-issued' || typeof value.phase !== 'string' || typeof value.errorType !== 'string'
+      || typeof value.message !== 'string' || (value.unitName !== null && (typeof value.unitName !== 'string'
+        || !/^sec-native-[0-9a-f]{32}(?:\.service|-control\.scope)$/u.test(value.unitName)))
+      || typeof value.stderrComplete !== 'boolean' || !Array.isArray(value.cleanupFailures)
+      || value.cleanupFailures.length > NATIVE_CLEANUP_FAILURE_LIMIT) invalid('Native failure diagnostic shape is invalid.');
+  for (const key of ['exitCode', 'execMainCode', 'execMainStatus']) {
+    if (value[key] !== null && !Number.isSafeInteger(value[key])) invalid('Native failure status is invalid.');
+  }
+  const decode = (encoded: unknown): Buffer => {
+    if (typeof encoded !== 'string' || encoded.length > Math.ceil(maximumStderrBytes / 3) * 4) invalid('Native failure stderr bound is invalid.');
+    const decoded = Buffer.from(encoded, 'base64');
+    if (decoded.byteLength > maximumStderrBytes || decoded.toString('base64') !== encoded) invalid('Native failure stderr encoding is invalid.');
+    return decoded;
+  };
+  const stderr = decode(value.stderrBase64);
+  if (value.stderrBytes !== stderr.byteLength || value.stderrDigest !== rawSha256(stderr)) invalid('Native failure stderr bytes changed.');
+  for (const cleanup of value.cleanupFailures) {
+    if (cleanup === null || typeof cleanup !== 'object' || Array.isArray(cleanup)
+        || Object.keys(cleanup).sort().join(',') !== 'errorType,message,stderrBase64'
+        || typeof cleanup.errorType !== 'string' || typeof cleanup.message !== 'string') invalid('Native cleanup failure is invalid.');
+    decode(cleanup.stderrBase64);
+  }
+  return deepFreeze(value) as unknown as LinuxVerificationUnitFailureDiagnostic;
+}
+
+export class LinuxVerificationUnitNativeFailureError extends LinuxVerificationUnitUnavailableError {
+  constructor(readonly diagnostic: LinuxVerificationUnitFailureDiagnostic | null,
+    readonly transportFailure: Readonly<{ exitCode: number | null; stdoutBase64: string; stderrBase64: string; decodeFailure: string | null }> | null = null) {
+    super('unknown', diagnostic === null ? `Native helper transport failed; exit=${transportFailure?.exitCode}; ${transportFailure?.decodeFailure ?? 'no failure response'}`
+      : `${diagnostic.phase}: ${diagnostic.message}; unit=${diagnostic.unitName}; exit=${diagnostic.exitCode}; ExecMainStatus=${diagnostic.execMainStatus}`);
+  }
 }
 
 /** Necessary read-only prerequisites only; success never issues qualification. */
@@ -461,8 +527,10 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
       sutArchive: snapshot.sut === null ? null : { path: snapshot.sut.path, physical: snapshot.sut.physical, ...snapshot.sut.digest() },
       invocation: invocationData }));
     if (request.byteLength > LINUX_VERIFICATION_UNIT_PROFILE.maximumRequestBytes) invalid('Native unit request exceeds its transport bound.');
-    const outputBound = Math.ceil((invocation.maxStdoutBytes + invocation.maxStderrBytes
-      + invocation.outputFiles.reduce((sum, file) => sum + file.maxBytes, 0)) * 4 / 3) + 128 * 1024;
+    const maximumDiagnosticStderrBytes = Math.max(invocation.maxStderrBytes, NATIVE_CONTROL_OUTPUT_BYTES);
+    const outputBound = Math.max(nativeFailureTransportBound(maximumDiagnosticStderrBytes),
+      Math.ceil((invocation.maxStdoutBytes + invocation.maxStderrBytes
+      + invocation.outputFiles.reduce((sum, file) => sum + file.maxBytes, 0)) * 4 / 3) + 128 * 1024);
     const scope = unitName.slice(0, -'.service'.length) + '-control.scope';
     // The fixed command and all of its control descendants share one native
     // domain, even when a tool changes its process group or session.
@@ -482,9 +550,16 @@ async function executeNativeUnit(session: LinuxVerificationUnitSession, input: L
       maxStdoutBytes: outputBound, maxStderrBytes: 64 * 1024,
       beforeSpawn: async () => { assertOpen(session); assertLinuxVerificationUnitHostSupported();
         if (invocation.kind === 'hosted-sut' && assertHostedSutSource(record.inputs) === null) invalid('Privileged SUT source capability is unavailable.'); } });
-    if (run.result.code !== 0) throw new LinuxVerificationUnitUnavailableError('unknown',
-      helperFailureMessage('Native helper did not return a complete settled result', run.result),
-      { unitName, deadlineAtUnixMs: session.deadlineAtUnixMs });
+    if (run.result.code !== 0) {
+      let diagnostic: LinuxVerificationUnitFailureDiagnostic | null = null;
+      let decodeFailure: string | null = null;
+      try { if (run.result.stdout.byteLength > 0) diagnostic = parseLinuxVerificationUnitFailureDiagnostic(run.result.stdout, maximumDiagnosticStderrBytes); }
+      catch (error) { decodeFailure = failureMessage(error); }
+      throw new LinuxVerificationUnitNativeFailureError(diagnostic, diagnostic === null ? {
+        exitCode: run.result.code, stdoutBase64: Buffer.from(run.result.stdout).toString('base64'),
+        stderrBase64: Buffer.from(run.result.stderr).toString('base64'), decodeFailure
+      } : null);
+    }
     const result = parseLinuxVerificationUnitResult(parseExactJsonBytes(run.result.stdout, 'native unit response', { maximumInputBytes: outputBound, maximumDepth: 16 }), invocation);
     const receipt = result.receipt;
     if (receipt.operationIdentityDigest !== record.operation.plan.identity.identityDigest || receipt.boundAttemptDigest !== record.operation.boundAttemptDigest

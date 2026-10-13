@@ -16,10 +16,27 @@ import {
 import {
   assertLinuxVerificationUnitResult,
   getLinuxVerificationUnitRecovery,
+  parseLinuxVerificationUnitFailureDiagnostic,
   type LinuxVerificationUnitSession
 } from './linux-verification-unit.ts';
 
 const digest = `sha256:${'0'.repeat(64)}` as const;
+
+test('native failure diagnostics retain complete binary stderr and reject altered or qualifying data', () => {
+  const stderr = Buffer.concat([Buffer.from(Array.from({ length: 256 }, (_, i) => i)), Buffer.alloc(2048, 65)]);
+  const failure = { schema: 'sec-linux-native-unit-failure-v1', qualification: 'not-issued', phase: 'dependency-prepare/preflight',
+    unitName: 'sec-native-' + 'a'.repeat(32) + '.service', errorType: 'NativeFailure', message: 'original failure',
+    exitCode: 23, execMainCode: 1, execMainStatus: 23, stderrBase64: stderr.toString('base64'),
+    stderrBytes: stderr.length, stderrDigest: rawSha256(stderr), stderrComplete: true, cleanupFailures: [] };
+  const decoded = parseLinuxVerificationUnitFailureDiagnostic(Buffer.from(JSON.stringify(failure)), stderr.length);
+  expect(Buffer.from(decoded.stderrBase64, 'base64')).toEqual(stderr);
+  expect(decoded.execMainStatus).toBe(23);
+  for (const changed of [{ ...failure, stderrBytes: 48 }, { ...failure, stderrDigest: digest },
+    { ...failure, qualification: 'issued' }, { ...failure, receipt: {} }]) {
+    expect(() => parseLinuxVerificationUnitFailureDiagnostic(Buffer.from(JSON.stringify(changed)), stderr.length)).toThrow();
+  }
+  expect(() => parseLinuxVerificationUnitFailureDiagnostic(Buffer.from(JSON.stringify(failure)), stderr.length - 1)).toThrow();
+});
 
 test.skipIf(process.platform !== 'linux')('native runtime permissions survive caller umasks and execution phases', () => {
   const result = spawnSync('/usr/bin/python3.12', ['-B', '-I', '-S', fileURLToPath(new URL('./linux-verification-unit-helper.test.py', import.meta.url))], {

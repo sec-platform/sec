@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import traceback
 
 LIBC = ctypes.CDLL(None, use_errno=True)
 LIBC.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_char_p]
@@ -55,6 +56,39 @@ def reserve_processes(count=1):
 
 class Unavailable(RuntimeError):
     pass
+
+
+class NativeFailure(Unavailable):
+    """Failure transport for this fixed native boundary; never a qualification."""
+    def __init__(self, message, *, phase, unit_name=None, exit_code=None, exec_main_code=None, exec_main_status=None, stderr=b'', stderr_complete=False, error_type=None):
+        super().__init__(message)
+        self.phase, self.unit_name = phase, unit_name
+        self.exit_code, self.exec_main_code, self.exec_main_status = exit_code, exec_main_code, exec_main_status
+        self.stderr, self.stderr_complete = stderr, stderr_complete
+        self.error_type = error_type or type(self).__name__
+        self.cleanup_failures = []
+
+    def add_cleanup(self, error):
+        self.cleanup_failures.append({'errorType': getattr(error, 'error_type', type(error).__name__), 'message': str(error),
+                                      'stderrBase64': base64.b64encode(getattr(error, 'stderr', b'')).decode()})
+        self.cleanup_failures.extend(getattr(error, 'cleanup_failures', []))
+
+    def projection(self):
+        return {'schema': 'sec-linux-native-unit-failure-v1', 'qualification': 'not-issued', 'phase': self.phase,
+                'unitName': self.unit_name, 'errorType': self.error_type, 'message': str(self), 'exitCode': self.exit_code,
+                'execMainCode': self.exec_main_code, 'execMainStatus': self.exec_main_status,
+                'stderrBase64': base64.b64encode(self.stderr).decode(), 'stderrBytes': len(self.stderr),
+                'stderrDigest': sha(self.stderr), 'stderrComplete': self.stderr_complete, 'cleanupFailures': self.cleanup_failures}
+
+
+def native_failure(error, *, phase, unit_name=None):
+    if isinstance(error, NativeFailure):
+        if error.unit_name is None:
+            error.unit_name = unit_name
+        return error
+    failure = NativeFailure(str(error), phase=phase, unit_name=unit_name, error_type=type(error).__name__)
+    failure.__cause__ = error
+    return failure
 
 
 def sha(data):
@@ -167,6 +201,7 @@ def run_tool(argv, deadline, maximum=262144, *, creation_umask=-1):
     child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, env=FIXED_ENV, close_fds=True, umask=creation_umask)
     captured = {'stdout': bytearray(), 'stderr': bytearray()}
+    failure, result = None, None
     try:
         with selectors.DefaultSelector() as ready:
             ready.register(child.stdout, selectors.EVENT_READ, 'stdout')
@@ -177,21 +212,32 @@ def run_tool(argv, deadline, maximum=262144, *, creation_umask=-1):
                     if not part:
                         ready.unregister(key.fileobj)
                         continue
-                    captured[key.data].extend(part)
-                    if sum(map(len, captured.values())) > maximum:
+                    remaining = maximum - sum(map(len, captured.values()))
+                    captured[key.data].extend(part[:remaining])
+                    if len(part) > remaining:
                         raise Unavailable('platform-output-bound')
         child.wait(timeout=deadline.remaining())
-        return child.returncode, bytes(captured['stdout']), bytes(captured['stderr'])
+        result = child.returncode, bytes(captured['stdout']), bytes(captured['stderr'])
+    except BaseException as error:
+        failure = native_failure(error, phase='control-command')
+        failure.exit_code = child.returncode
+        failure.stderr = bytes(captured['stderr'])
     finally:
-        try:
-            if child.poll() is None:
-                child.kill()
-                child.wait(timeout=1)
-        finally:
+        actions = ([child.kill, lambda: child.wait(timeout=1)] if child.returncode is None else []) + [child.stdout.close, child.stderr.close]
+        for action in actions:
             try:
-                child.stdout.close()
-            finally:
-                child.stderr.close()
+                action()
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = native_failure(cleanup, phase='control-cleanup')
+                    failure.exit_code = child.returncode
+                    failure.stderr = bytes(captured['stderr'])
+                    failure.stderr_complete = result is not None
+                else:
+                    failure.add_cleanup(cleanup)
+    if failure is not None:
+        raise failure
+    return result
 
 
 def mount(source, target, filesystem, flags, data):
@@ -531,10 +577,10 @@ def safe_extract_dependency_content(archive, target, deadline):
 def git(root, arguments, deadline):
     # Git creates the private checkout consumed by both root and UID 65532.
     # Set only this child's mask; never alter the controller's host process.
-    code, stdout, _stderr = run_tool(['/usr/bin/git', '-c', 'safe.directory=' + root, '-C', root] + arguments, deadline,
+    code, stdout, stderr = run_tool(['/usr/bin/git', '-c', 'safe.directory=' + root, '-C', root] + arguments, deadline,
                                    creation_umask=0o022)
     if code:
-        raise Unavailable('fixed-git-command-failed')
+        raise NativeFailure('fixed-git-command-failed', phase='git-preparation', exit_code=code, stderr=stderr, stderr_complete=True)
     return stdout.decode('ascii').strip()
 
 
@@ -629,10 +675,10 @@ CONTROL_PROPERTIES = ['Id', 'LoadState', 'ActiveState', 'SubState', 'InvocationI
 
 def unit_readback(name, deadline):
     wanted = CONTROL_PROPERTIES if name.endswith('.scope') else UNIT_PROPERTIES
-    code, output, _error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'show', '--no-pager',
+    code, output, error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'show', '--no-pager',
                                    '--property=' + ','.join(wanted), '--', name], deadline)
     if code:
-        raise Unavailable('manager-readback-unavailable')
+        raise NativeFailure('manager-readback-unavailable', phase='manager-readback', unit_name=name, exit_code=code, stderr=error, stderr_complete=True)
     properties = {}
     for line in output.decode('utf8').splitlines():
         if '=' not in line:
@@ -677,14 +723,18 @@ def exited_before_ready(properties):
 def fail_exited_preflight(request, recovery, properties, unit, description, streams, deadline):
     if not exited_before_ready(properties):
         return
-    settle_unit(request, unit, description, deadline)
-    recovery.update({**recovery.value, 'phase': 'unit-settled'})
-    streams.drain(0)
-    # Keep the final exception line rather than a traceback prefix, within
-    # the fixed top-level error bound even for fully escaped UTF-8 errors.
-    detail = json.dumps(bytes(streams.buffers['stderr'])[-48:].decode('utf8', errors='replace'), ensure_ascii=True)
-    raise Unavailable('native-preflight-exited unit=' + request['unitName'] + ' ExecMainCode=' + properties['ExecMainCode']
-                      + ' ExecMainStatus=' + properties['ExecMainStatus'] + ' stderr=' + detail)
+    code, status = int(properties['ExecMainCode']), int(properties['ExecMainStatus'])
+    failure = NativeFailure('native-preflight-exited', phase='preflight', unit_name=request['unitName'],
+                            exit_code=status if code == 1 else min(255, 128 + status), exec_main_code=code, exec_main_status=status)
+    try:
+        settle_unit(request, unit, description, deadline)
+        recovery.update({**recovery.value, 'phase': 'unit-settled'})
+        streams.drain(0)
+        failure.stderr_complete = True
+    except BaseException as cleanup:
+        failure.add_cleanup(cleanup)
+    failure.stderr = bytes(streams.buffers['stderr'])
+    raise failure
 
 
 def wait_preflight_ready(request, recovery, properties, unit, description, streams, deadline, control_deadline, pidfds):
@@ -878,18 +928,18 @@ def settle_unit(request, unit, description, deadline):
         raise Unavailable('unit-replaced-before-stop')
     if unit is None:
         raise Unavailable('unit-start-observation-lost')
-    code, _out, _err = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'stop', '--', request['unitName']], deadline)
+    code, _out, error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'stop', '--', request['unitName']], deadline)
     if code:
-        raise Unavailable('unit-stop-unconfirmed')
+        raise NativeFailure('unit-stop-unconfirmed', phase='cleanup-stop', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
     while not cgroup_empty(unit):
         time.sleep(min(.01, deadline.remaining()))
     terminal = unit_readback(request['unitName'], deadline)
     if terminal['LoadState'] != 'not-found' and (terminal['ActiveState'] not in ('inactive', 'failed') or terminal['InvocationID'] not in ('', unit['invocationId'])):
         raise Unavailable('unit-terminal-identity')
     if terminal['ActiveState'] == 'failed':
-        code, _out, _err = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'reset-failed', '--', request['unitName']], deadline)
+        code, _out, error = run_tool(['/usr/bin/systemctl', '--no-ask-password', 'reset-failed', '--', request['unitName']], deadline)
         if code:
-            raise Unavailable('unit-retirement-unconfirmed')
+            raise NativeFailure('unit-retirement-unconfirmed', phase='cleanup-retirement', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
         retired = unit_readback(request['unitName'], deadline)
         if retired['LoadState'] != 'not-found' and (retired['ActiveState'] != 'inactive' or retired['Description'] != description or retired['InvocationID'] not in ('', unit['invocationId'])):
             raise Unavailable('unit-retirement-readback')
@@ -947,17 +997,27 @@ class BoundedStreams:
         return False
 
     def close(self):
-        self.selector.close()
-        for fd in self.fds.values():
-            os.close(fd)
+        failure = None
+        for action in [self.selector.close] + [lambda fd=fd: os.close(fd) for fd in self.fds.values()]:
+            try:
+                action()
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = native_failure(cleanup, phase='stream-cleanup')
+                else:
+                    failure.add_cleanup(cleanup)
+        if failure is not None:
+            raise failure
 
 
 def launch_unit(request, recovery, root, control, output, deadline, control_deadline, setup=False):
     invocation = request['invocation']
     manager = manager_identity()
-    code, version, _err = run_tool(['/usr/bin/systemd-run', '--version'], deadline, 65536)
+    code, version, error = run_tool(['/usr/bin/systemd-run', '--version'], deadline, 65536)
+    if code:
+        raise NativeFailure('systemd-native-profile-unavailable', phase='manager-profile', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
     matched = re.match(rb'systemd ([0-9]+)', version)
-    if code or matched is None or int(matched.group(1)) < 255 or b'+SECCOMP' not in version:
+    if matched is None or int(matched.group(1)) < 255 or b'+SECCOMP' not in version:
         raise Unavailable('systemd-native-profile-unavailable')
     cwd = {'trusted': '/sec-runtime/trusted', 'candidate': '/sec-runtime/workspace', 'scratch': '/tmp'}[invocation['cwd']]
     nonce = os.urandom(16).hex()
@@ -1003,13 +1063,14 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                      '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--'])
     args.extend(['/usr/bin/python3', '-I', '-S', '-u', '-c', LAUNCH_SHIM])
     unit, pidfds = None, []
+    failure, result = None, None
     try:
         # Fixed systemd-created unshare parent + one forked namespace child.
         reserve_processes(2)
         recovery.update({**recovery.value, 'phase': 'unit-starting', 'activeUnitName': request['unitName'], 'description': description, 'manager': manager, 'unit': None})
-        code, _out, _err = run_tool(args, deadline)
+        code, _out, error = run_tool(args, deadline)
         if code:
-            raise Unavailable('unit-start-unconfirmed')
+            raise NativeFailure('unit-start-unconfirmed', phase='manager-start', unit_name=request['unitName'], exit_code=code, stderr=error, stderr_complete=True)
         accepted = unit_readback(request['unitName'], deadline)
         observe_control_dependency(accepted, recovery.value['control'])
         unit = accepted_unit(request['unitName'], accepted, description, manager)
@@ -1063,16 +1124,40 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                     raise Unavailable('output-file-incomplete')
             finally:
                 os.close(fd)
-        return unit, exit_code, stdout, stderr, captured
-    except BaseException:
-        if unit is not None and recovery.value['phase'] != 'unit-settled':
-            settle_unit(request, unit, description, control_deadline)
-            recovery.update({**recovery.value, 'phase': 'unit-settled'})
-        raise
+        result = unit, exit_code, stdout, stderr, captured
+    except BaseException as error:
+        failure = native_failure(error, phase='preflight' if recovery.value['phase'] in ('unit-starting', 'unit-accepted') else 'execution', unit_name=request['unitName'])
+        if unit is not None and recovery.value['phase'] != 'unit-settled' and not failure.cleanup_failures:
+            try:
+                settle_unit(request, unit, description, control_deadline)
+                recovery.update({**recovery.value, 'phase': 'unit-settled'})
+                streams.drain(0)
+                if not failure.stderr:
+                    failure.stderr = bytes(streams.buffers['stderr'])
+                    failure.stderr_complete = True
+            except BaseException as cleanup:
+                failure.add_cleanup(cleanup)
+        if not failure.stderr_complete:
+            try:
+                streams.drain(0)
+            except BaseException as cleanup:
+                failure.add_cleanup(cleanup)
+            if not failure.stderr:
+                failure.stderr = bytes(streams.buffers['stderr'])
     finally:
-        streams.close()
-        for fd in pidfds:
-            os.close(fd)
+        for action in [streams.close] + [lambda fd=fd: os.close(fd) for fd in pidfds]:
+            try:
+                action()
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = native_failure(cleanup, phase='execution-cleanup', unit_name=request['unitName'])
+                    failure.stderr = bytes(streams.buffers['stderr'])
+                    failure.stderr_complete = result is not None
+                else:
+                    failure.add_cleanup(cleanup)
+    if failure is not None:
+        raise failure
+    return result
 
 
 def tree_content_entries(root, deadline):
@@ -1214,9 +1299,14 @@ def dependency_setup(request, recovery, root, control, output, deadline, control
                 os.unlink(recovery.path + '/' + name)
             except FileNotFoundError:
                 pass
-        _unit, code, stdout, _stderr, _files = launch_unit(internal, recovery, root, control, output, deadline, control_deadline, setup=True)
+        try:
+            _unit, code, stdout, stderr, _files = launch_unit(internal, recovery, root, control, output, deadline, control_deadline, setup=True)
+        except BaseException as error:
+            failure = native_failure(error, phase='dependency-' + phase, unit_name=internal['unitName'])
+            failure.phase = 'dependency-' + phase + '/' + failure.phase
+            raise failure
         if code:
-            raise Unavailable('original-dependency-owner-rejected')
+            raise NativeFailure('original-dependency-owner-rejected', phase='dependency-' + phase, unit_name=internal['unitName'], exit_code=code, stderr=stderr, stderr_complete=True)
         observed = json.loads(stdout, object_pairs_hook=no_duplicates)
         exact(observed, ['schema', 'authority', 'phase', 'kind', 'deadlineAtUnixMs', 'transportDigest', 'status', 'contentRetirement', 'trusted', 'workspace'], 'dependency-result')
         if stdout != canonical(observed) + b'\n' or observed['schema'] != 'sec-native-verification-dependency-result-v1' or observed['authority'] != 'projection-only':
@@ -1566,6 +1656,14 @@ if __name__ == '__main__':
         sys.stdout.buffer.write(canonical(result) + b'\n')
         sys.stdout.buffer.flush()
     except BaseException as error:
-        # No request data, authentication material or raw command output escapes.
-        sys.stderr.write('fixed native unit failed: ' + type(error).__name__ + ': ' + str(error)[:512] + '\n')
+        # The existing bounded transport retains diagnostics. Stderr is only
+        # a presentation summary, never the sole copy of a native failure.
+        context = locals().get('request', {})
+        failure = native_failure(error, phase='native-' + context.get('mode', 'request'), unit_name=context.get('unitName'))
+        if context.get('mode') == 'run':
+            diagnostic = failure.projection()
+            diagnostic['message'] = ''.join(traceback.format_exception(error))
+            sys.stdout.buffer.write(canonical(diagnostic) + b'\n')
+            sys.stdout.buffer.flush()
+        sys.stderr.write('fixed native unit failed: ' + failure.error_type + ': ' + str(failure)[:512] + '\n')
         sys.exit(1)

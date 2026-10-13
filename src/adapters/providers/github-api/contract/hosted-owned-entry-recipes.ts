@@ -95,6 +95,19 @@ export const HOSTED_OWNED_ENTRY_RECIPES = deepFreeze([
           "shell": "bun --no-env-file --no-install src/bootstrap/development/main-health-fast.ts {0}",
           "env": { "SEC_MAIN_HEALTH_SHA": "${{ github.event.client_payload.payload.mainSha }}" },
           "run": "bun run test -- --scope fast"
+        },
+        {
+          "name": "Preserve complete MainHealth failure diagnostics",
+          "id": "failure-diagnostics",
+          "if": "${{ failure() && !cancelled() }}",
+          "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "with": {
+            "name": "main-health-failure-${{ github.run_id }}-${{ github.run_attempt }}",
+            "path": "/tmp/sec-main-health-diagnostics-*/diagnostic.json",
+            "if-no-files-found": "warn",
+            "retention-days": 7,
+            "overwrite": false
+          }
         }
       ]
     }

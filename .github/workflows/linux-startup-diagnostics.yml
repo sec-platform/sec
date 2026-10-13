@@ -1,0 +1,42 @@
+name: linux-startup-diagnostics
+run-name: Linux startup diagnosis ${{ github.sha }}
+# Task-only launcher. Removed before the final PR; never a qualification owner.
+on:
+  push:
+    branches: [codex/linux-startup-repair]
+permissions:
+  contents: read
+jobs:
+  startup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: .bun-version
+      - name: Prepare the existing owned dependency generation
+        run: bun run deps:ensure
+      - name: Verify native recovery and complete pre-ready failures
+        run: >-
+          sudo -n -k -- /usr/bin/python3.12 -B -I -S
+          src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.test.py
+          NativeRecoveryIntegration
+      - name: Execute the original fixed Linux entry
+        shell: bun --no-env-file --no-install src/bootstrap/development/main-health-fast.ts {0}
+        env:
+          SEC_MAIN_HEALTH_SHA: ${{ github.sha }}
+        run: bun run test -- --scope fast
+      - name: Preserve complete failure diagnostics
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: linux-startup-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/sec-main-health-diagnostics-*/diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7
+          overwrite: false

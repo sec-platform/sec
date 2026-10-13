@@ -60,7 +60,7 @@ try:
                 +'        time.sleep(.01);continue\n'
                 +'    if admitted!=b"allow-native-early-exit": sys.exit(92)\n'
                 +'    break\n'
-                +'sys.stderr.write("fixture early failure\\n");sys.exit(23)')
+                +'sys.stderr.buffer.write(bytes(range(256))*4+b"fixture early failure\\n");sys.exit(23)')
     early=args[:-1]+[early_code]
     early[early.index('--unit='+r['unitName'])]='--unit='+early_name
     early.insert(early.index('--'),'--property=StandardError=file:'+record.path+'/stderr')
@@ -74,8 +74,12 @@ try:
     os.rename('early-admit.pending','early-admit',src_dir_fd=gate_fd,dst_dir_fd=gate_fd)
     pidfds=[]
     try: h.wait_preflight_ready(early_request,record,properties,unit,token,streams,d,d,pidfds)
-    except h.Unavailable as error:
-        if 'native-preflight-exited' not in str(error) or 'ExecMainStatus=23' not in str(error) or 'fixture early failure\\n' not in str(error): raise
+    except h.NativeFailure as error:
+        diagnostic=error.projection(); expected=bytes(range(256))*4+b'fixture early failure\n'
+        if (diagnostic['message']!='native-preflight-exited' or diagnostic['unitName']!=early_name or diagnostic['execMainStatus']!=23
+                or diagnostic['exitCode']!=23 or not diagnostic['stderrComplete'] or diagnostic['qualification']!='not-issued'
+                or h.base64.b64decode(diagnostic['stderrBase64'],validate=True)!=expected or diagnostic['stderrBytes']!=len(expected)
+                or diagnostic['stderrDigest']!=h.sha(expected) or len(h.canonical(diagnostic))<=512): raise
     else: raise RuntimeError('native-test-early-failure-was-accepted')
     finally:
         streams.close()

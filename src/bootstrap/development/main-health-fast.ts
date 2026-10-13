@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertGitCandidateBundleCurrent, assertGitCandidateBundleReceipt, closeGitCandidateBundle, createGitCandidateBundle, type GitCandidateBundle } from '../../adapters/providers/git-bundle/runtime.ts';
-import { assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, LinuxVerificationUnitRecoveryRequiredError, prepareLinuxVerificationUnitSession, recoverOwnedLinuxVerificationUnit, type LinuxVerificationUnitSession } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
+import { assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, LinuxVerificationUnitNativeFailureError, LinuxVerificationUnitRecoveryRequiredError, prepareLinuxVerificationUnitSession, recoverOwnedLinuxVerificationUnit, type LinuxVerificationUnitSession } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
 import { MainHealthHostRuntimePreparationError, prepareMainHealthHostRuntime, retireMainHealthHostRuntime, type MainHealthHostRuntime } from '../../adapters/runtime-state/physical/runtime/main-health-host-runtime.ts';
 import { createExclusiveNoFollowDirectory, inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createTrustedRuntimeNativeMainHealthInvocation } from '../../adapters/self-hosting/control/main-health/main-health-observation.ts';
@@ -16,6 +17,16 @@ import { isResourceCompositeSettlementError, readResourceCompositeSettlementFail
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const MAIN_HEALTH_FAST_COMMAND = 'bun run test -- --scope fast';
+
+/** Full bounded diagnostics survive the runner; they never qualify execution. */
+function preserveMainHealthFailure(data: unknown): string {
+  const root = createExclusiveNoFollowDirectory(inspectNoFollowDirectoryChain('/tmp').target,
+    'sec-main-health-diagnostics-' + randomUUID().replaceAll('-', ''));
+  const file = path.join(root.path, 'diagnostic.json');
+  writeFileSync(file, JSON.stringify({ schema: 'sec-main-health-failure-diagnostic-v1',
+    qualification: 'not-issued', sourceHead: process.env.SEC_MAIN_HEALTH_SHA, data }) + '\n', { flag: 'wx', mode: 0o600 });
+  return file;
+}
 
 /** A GitHub custom-shell file is closed data, never shell input or an argv source. */
 export function assertMainHealthFastCommandBytes(bytes: Uint8Array): void {
@@ -84,6 +95,12 @@ async function run(): Promise<number> {
     const result = await executeLinuxVerificationUnit(session, createTrustedRuntimeNativeMainHealthInvocation(MAIN_HEALTH_FAST_COMMAND));
     assertLinuxVerificationUnitResult(result, session);
     code = result.receipt.execution.exitCode;
+    if (code !== 0) {
+      const diagnostic = { receipt: result.receipt, stdoutBase64: Buffer.from(result.stdout).toString('base64'),
+        stderrBase64: Buffer.from(result.stderr).toString('base64') };
+      try { preserveMainHealthFailure(diagnostic); }
+      catch (diagnosticError) { console.error(JSON.stringify({ failure: diagnostic, diagnosticPublicationFailure: failureMessage(diagnosticError) })); }
+    }
     // GitHub command interpretation is disabled for arbitrary test output.
     // Raw bytes remain bound in the original receipt, not emitted as commands.
     projection = Object.freeze({ schema: 'sec-main-health-fast-result-v1', source: runtime.source,
@@ -135,9 +152,18 @@ if (import.meta.main) {
   catch (error) {
     const failures = isResourceCompositeSettlementError(error)
       ? readResourceCompositeSettlementFailures(error) : [{ label: 'MainHealth immutable fast entry', error }];
-    console.error(inspectFailureValue(failures.map(failure => ({
-      label: failure.label, code: getErrorCode(failure.error), message: failureMessage(failure.error).slice(0, 2048)
-    }))));
+    const diagnostic = failures.map(failure => ({ label: failure.label,
+      code: getErrorCode(failure.error), message: failureMessage(failure.error),
+      nativeFailure: failure.error instanceof LinuxVerificationUnitNativeFailureError ? failure.error.diagnostic : null,
+      transportFailure: failure.error instanceof LinuxVerificationUnitNativeFailureError ? failure.error.transportFailure : null }));
+    try {
+      const file = preserveMainHealthFailure(diagnostic);
+      console.error('Complete MainHealth failure diagnostic: ' + file);
+    } catch (diagnosticError) {
+      // Failure publication must preserve both the primary failure and its own cause.
+      console.error(JSON.stringify({ failures: diagnostic, diagnosticPublicationFailure: failureMessage(diagnosticError) }));
+    }
+    console.error(inspectFailureValue(diagnostic));
     process.exitCode = 1;
   }
 }
