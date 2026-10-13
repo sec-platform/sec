@@ -42,8 +42,10 @@ import {
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
 import { parseWorktreePorcelainZ } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
-import { observePhysicalJournalMutationEntry } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
+import { observePhysicalJournalMutationEntry, readPhysicalJournalMutationResource } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import {
+  deleteRetainedNoFollowEntry,
+  flushNoFollowDirectory,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,
   retireNoFollowDirectoryTree,
@@ -334,7 +336,10 @@ function readJournal(commonDirectory: string, journalPath: string): Journal {
   return parseJournal(source);
 }
 
-type ObservedJournal = Readonly<{ journal: Journal; journalPath: string; source: string }>;
+type ObservedJournal = Readonly<{
+  journal: Journal; journalPath: string; source: string;
+  physical: Readonly<{ device: string; inode: string }>;
+}>;
 
 function observeJournalCensus(commonDirectory: string, ref: string): Readonly<{
   matching: readonly ObservedJournal[];
@@ -377,7 +382,9 @@ function observeJournalCensus(commonDirectory: string, ref: string): Readonly<{
       throw new Error('Development commit journal census exceeds its aggregate byte ceiling.');
     }
     const journal = parseJournal(observed.text);
-    if (journal.ref === ref) matching.push(Object.freeze({ journal, journalPath, source: observed.text }));
+    if (journal.ref === ref) matching.push(Object.freeze({
+      journal, journalPath, source: observed.text, physical: observed.physical
+    }));
   }
   if (matching.length > MAXIMUM_REF_JOURNALS) {
     throw new Error('Development commit journal exact-ref attempt ceiling exceeded.');
@@ -1095,6 +1102,7 @@ async function normalizeLocalRefRetirementJournals(input: Readonly<{
       );
     }
     normalized.push(Object.freeze({
+      ...candidate,
       journal: terminal,
       journalPath: candidate.journalPath,
       source
@@ -1422,7 +1430,9 @@ async function assertNoTopicConsumers(input: Readonly<{
 
 async function classifyTransportedJournals(input: Readonly<{
   session: GitReadSession; matching: readonly ObservedJournal[]; headSha: string; label: string;
-}>): Promise<void> {
+  liveMainSha?: string;
+}>): Promise<readonly string[]> {
+  const mainAnchors = new Set<string>();
   for (const { journal } of input.matching) {
     if (journal.terminal !== 'applied' || journal.object !== journal.target) {
       throw new Error(`${input.label} preserves nonterminal or unknown journal consumers.`);
@@ -1436,10 +1446,28 @@ async function classifyTransportedJournals(input: Readonly<{
       throw new Error(`${input.label} journal object binding differs.`);
     }
     const consumed = await input.session.run(['merge-base', '--is-ancestor', journal.target, input.headSha]);
-    if (consumed.kind !== 'completed' || consumed.result.code !== 0) {
-      throw new Error(`${input.label} did not consume this exact journal target.`);
+    if (consumed.kind === 'completed' && consumed.result.code === 0) continue;
+    if (input.liveMainSha !== undefined) {
+      const adopted = await input.session.run(['merge-base', '--is-ancestor', journal.target, input.liveMainSha]);
+      if (adopted.kind === 'completed' && adopted.result.code === 0) {
+        mainAnchors.add(journal.target);
+        continue;
+      }
+      const parentTree = await commandText(input.session,
+        ['rev-parse', `${journal.preimage}^{tree}`], `read ${input.label} journal parent tree`);
+      if (parentTree === journal.tree) {
+        const parentAdopted = await input.session.run([
+          'merge-base', '--is-ancestor', journal.preimage, input.liveMainSha
+        ]);
+        if (parentAdopted.kind === 'completed' && parentAdopted.result.code === 0) {
+          mainAnchors.add(journal.preimage);
+          continue;
+        }
+      }
     }
+    throw new Error(`${input.label} did not consume this exact journal target.`);
   }
+  return Object.freeze([...mainAnchors]);
 }
 
 async function assertClosedAbsentTerminal(input: Readonly<{
@@ -1563,6 +1591,57 @@ export async function acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
   });
 }
 
+/** Only owner-qualified retention discharge may retire unguarded historical data.
+ * This neither reconstructs its old ref CAS nor admits it to active recovery. */
+async function retireQualifiedHistoricalJournal(
+  commonDirectory: string,
+  writer: ReturnType<typeof journalWriter>,
+  candidate: ObservedJournal
+): Promise<boolean> {
+  const scope = commitJournalScopes.getStore();
+  if (scope === undefined || !scope.active || scope.commonDirectory !== commonDirectory) {
+    throw new Error('Historical journal retirement requires its original common-directory writer scope.');
+  }
+  await assertWorkspaceWriteLease(commonDirectory, scope.token);
+  const name = path.basename(candidate.journalPath);
+  const parent = inspectNoFollowDirectoryChild(
+    inspectNoFollowDirectoryChain(commonDirectory, 'Historical journal retirement common directory').target,
+    JOURNAL_DIRECTORY, 'Historical journal retirement owner'
+  );
+  if (parent === null || !JOURNAL_NAME.test(name)
+      || candidate.journalPath !== path.join(parent.path, name)) {
+    throw new Error('Historical journal retirement path differs from its canonical owner.');
+  }
+  const resourceName = runtimeStateJournalMutationLeaseName(writer.rootPath, candidate.journalPath);
+  if (readPhysicalJournalMutationResource(parent, resourceName, name) !== null) {
+    return retireCommitJournal(commonDirectory, writer, candidate.journalPath, candidate.source);
+  }
+  const current = writer.observeTextRetained(candidate.journalPath, {
+    deadlineAtMonotonicMs: performance.now() + 5_000, maximumBytes: MAXIMUM_JOURNAL_BYTES
+  });
+  if (current === null || current.text !== candidate.source
+      || current.physical.device !== candidate.physical.device
+      || current.physical.inode !== candidate.physical.inode) {
+    throw new Error('Historical journal identity or bytes changed before retention discharge.');
+  }
+  await assertWorkspaceWriteLease(commonDirectory, scope.token);
+  if (!scope.active || commitJournalScopes.getStore() !== scope
+      || readPhysicalJournalMutationResource(parent, resourceName, name) !== null) {
+    throw new Error('Historical journal retirement admission changed before its exact effect.');
+  }
+  deleteRetainedNoFollowEntry({
+    root: parent, relativePath: name, kind: 'file',
+    device: candidate.physical.device, inode: candidate.physical.inode,
+    expectedFileBytes: Buffer.from(candidate.source, 'utf8'), ancestorDirectories: []
+  });
+  flushNoFollowDirectory(parent);
+  if (writer.exists(candidate.journalPath)
+      || readPhysicalJournalMutationResource(parent, resourceName, name) !== null) {
+    throw new Error('Historical journal retirement final absence readback differs.');
+  }
+  return true;
+}
+
 /** Historical merged transport proves consumer termination, not a lost local CAS. */
 export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
   repositoryRoot: string;
@@ -1618,22 +1697,127 @@ export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
       if (reachable.kind !== 'completed' || reachable.result.code !== 0) {
         throw new Error('Merged commit journal is not reachable from live default ref.');
       }
+      return mainObject.sha;
     };
-    await assertTerminal();
+    const liveMainSha = await assertTerminal();
     const commonDirectory = path.resolve(await commandText(
       session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'resolve merged journal common directory'
     ));
     return withCommitJournalWriteScope(commonDirectory, undefined, async () => {
       const { matching, writer } = observeJournalCensus(commonDirectory, ref);
-      await classifyTransportedJournals({ session, matching, headSha: pull.headSha, label: 'Merged PR' });
-      await assertTerminal();
+      const mainAnchors = await classifyTransportedJournals({
+        session, matching, headSha: pull.headSha, label: 'Merged PR', liveMainSha
+      });
+      const currentMainSha = await assertTerminal();
+      for (const anchor of mainAnchors) {
+        const retained = await session.run(['merge-base', '--is-ancestor', anchor, currentMainSha]);
+        if (retained.kind !== 'completed' || retained.result.code !== 0) {
+          throw new Error('Merged commit journal adoption anchor is no longer in live default ref.');
+        }
+      }
       for (const candidate of matching) {
-        if (!await retireCommitJournal(commonDirectory, writer, candidate.journalPath, candidate.source)) {
+        if (!await retireQualifiedHistoricalJournal(commonDirectory, writer, candidate)) {
           throw new Error('Merged commit journal changed before exact retirement.');
         }
       }
       retireEmptyJournalDirectory(commonDirectory);
       return Object.freeze({ ref, observed: matching.length, retired: matching.length });
+    });
+  });
+}
+
+/** Trusted maintenance composition supplies the semantic review; no CLI projection
+ * can replace it. The result releases current retention, not historical CAS proof. */
+export async function retireReviewedHistoricalDefaultCommitJournal(input: Readonly<{
+  repositoryRoot: string;
+  capability: GitHubApiCapability;
+  journalPath: string;
+  expectedTargetSha: string;
+  reviewedMainSha: string;
+  review: (observation: Readonly<{
+    journalPath: string; ref: string; targetSha: string; tree: string; preimage: string;
+    mainSha: string; mainTree: string;
+  }>) => Promise<Readonly<{ disposition: 'superseded' | 'retain'; reference: string }>>;
+}>) {
+  if (!path.isAbsolute(input.journalPath) || !OBJECT_ID.test(input.expectedTargetSha)
+      || !OBJECT_ID.test(input.reviewedMainSha) || typeof input.review !== 'function') {
+    throw new Error('Historical default journal retirement requires exact subjects and a trusted review callback.');
+  }
+  const binding = inspectGitHubApiCapability(input.capability);
+  const repository = await executeGitHubApiOperation(input.capability, { kind: 'repository' }) as Record<string, unknown>;
+  if (repository.full_name !== binding.repository || typeof repository.default_branch !== 'string'
+      || !REF.test(`refs/heads/${repository.default_branch}`)) {
+    throw new Error('Historical default journal repository identity is unresolved.');
+  }
+  const ref = `refs/heads/${repository.default_branch}`;
+  return withAuthorityGitReadSession({ cwd: input.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async session => {
+    const commonDirectory = path.resolve(await commandText(session,
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'resolve historical default journal common directory'));
+    const name = path.basename(input.journalPath);
+    if (!JOURNAL_NAME.test(name)
+        || input.journalPath !== path.join(commonDirectory, JOURNAL_DIRECTORY, name)) {
+      throw new Error('Historical default journal path differs from its exact canonical owner.');
+    }
+    const assertCurrent = async () => {
+      await assertGitHubRepositoryBinding(session, binding.repository);
+      const currentRepository = await executeGitHubApiOperation(input.capability, {
+        kind: 'repository'
+      }) as Record<string, unknown>;
+      if (currentRepository.full_name !== binding.repository
+          || currentRepository.default_branch !== repository.default_branch) {
+        throw new Error('Historical default journal repository or default branch changed after review binding.');
+      }
+      const main = await executeGitHubApiOperation(input.capability, {
+        kind: 'git-ref', branch: repository.default_branch as string
+      }) as Record<string, unknown>;
+      const object = main.object as Record<string, unknown> | undefined;
+      if (main.ref !== ref || object?.sha !== input.reviewedMainSha
+          || await observeExactLocalRefForJournalRetirement(session, ref) !== input.reviewedMainSha) {
+        throw new Error('Historical default journal review no longer binds the exact live and local default ref.');
+      }
+      return commandText(session, ['rev-parse', `${input.reviewedMainSha}^{tree}`], 'read reviewed default tree');
+    };
+    return withCommitJournalWriteScope(commonDirectory, undefined, async () => {
+      const mainTree = await assertCurrent();
+      const { matching, writer } = observeJournalCensus(commonDirectory, ref);
+      const candidate = matching.find(value => value.journalPath === input.journalPath);
+      if (candidate === undefined) throw new Error('Historical default journal is absent from its exact ref census.');
+      const { journal } = candidate;
+      if (journal.target !== input.expectedTargetSha || journal.terminal !== 'applied'
+          || journal.object !== journal.target || journal.target === input.reviewedMainSha
+          || journal.preimage === input.reviewedMainSha) {
+        throw new Error('Historical default journal preserves a current, pending or unknown attempt.');
+      }
+      const bytes = await commandText(session, ['cat-file', 'commit', journal.target], 'read reviewed historical commit');
+      const headers = bytes.split('\n\n', 1)[0]!.split('\n');
+      if (JSON.stringify(headers.filter(line => line.startsWith('tree '))) !== JSON.stringify([`tree ${journal.tree}`])
+          || JSON.stringify(headers.filter(line => line.startsWith('parent ')))
+            !== JSON.stringify([`parent ${journal.preimage}`])) {
+        throw new Error('Historical default journal object binding differs.');
+      }
+      const subject = Object.freeze({
+        journalPath: candidate.journalPath, ref, targetSha: journal.target, tree: journal.tree,
+        preimage: journal.preimage, mainSha: input.reviewedMainSha, mainTree
+      });
+      const reviewed = await input.review(subject);
+      if (reviewed?.disposition !== 'superseded' || typeof reviewed.reference !== 'string'
+          || reviewed.reference.trim().length === 0 || reviewed.reference.length > 4096) {
+        throw new Error('Historical default journal retention was not released by the trusted review.');
+      }
+      if (await assertCurrent() !== mainTree) throw new Error('Reviewed default tree changed before retention discharge.');
+      const current = observeJournalCensus(commonDirectory, ref).matching
+        .find(value => value.journalPath === candidate.journalPath);
+      if (current === undefined || current.source !== candidate.source
+          || current.physical.device !== candidate.physical.device
+          || current.physical.inode !== candidate.physical.inode) {
+        throw new Error('Historical default journal subject changed after review.');
+      }
+      await retireQualifiedHistoricalJournal(commonDirectory, writer, candidate);
+      retireEmptyJournalDirectory(commonDirectory);
+      return Object.freeze({
+        ...subject, reference: reviewed.reference, retired: 1,
+        disposition: 'historical-retention-released' as const, historicalLocalCas: 'unverified' as const
+      });
     });
   });
 }

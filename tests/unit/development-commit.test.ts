@@ -8,6 +8,8 @@ import { expect, test } from 'bun:test';
 
 import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import { createHostGitReadSessionForTests } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createRuntimeStateJournalFileSystem } from '../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
 import {
   issueDevelopmentCommitAdmission,
   type DevelopmentCommitAdmission,
@@ -24,6 +26,7 @@ import {
 } from '../../src/adapters/self-hosting/development/commit/operation.ts';
 import { IMPORT_NORMALIZATION_OPERATION } from '../../src/adapters/self-hosting/development/import-normalization/contract.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { canonicalJson } from '../../src/contracts/canonical.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -33,6 +36,134 @@ function git(root: string, args: readonly string[]): string {
   });
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
+}
+
+for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anchor-lost',
+  'legacy-applied', 'legacy-pending', 'reviewed-superseded', 'reviewed-rejected'] as const) {
+  test(`development.commit merged journal retirement binds native main absorption: ${mode}`, async () => {
+    const { root } = await fixture();
+    const harness = await mkdtemp(path.join(tmpdir(), 'sec-merged-journal-'));
+    const modulePath = (relative: string) => JSON.stringify(fileURLToPath(new URL(relative, import.meta.url)));
+    try {
+      git(root, ['remote', 'add', 'origin', 'https://github.com/example/repository.git']);
+      const originalBase = git(root, ['rev-parse', 'HEAD']);
+      const baseTree = git(root, ['rev-parse', 'HEAD^{tree}']);
+      const base = mode === 'anchor-lost'
+        ? git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'separately adopted anchor'])
+        : originalBase;
+      const changedTree = git(root, ['write-tree']);
+      const reviewedDefault = mode === 'reviewed-superseded' || mode === 'reviewed-rejected';
+      const target = git(root, ['commit-tree', mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault
+        ? changedTree : baseTree, '-p', base, '-m', 'historical terminal attempt']);
+      const main = git(root, ['commit-tree', baseTree, '-p', mode === 'main-adopted' ? target : base,
+        '-m', 'later adopted main']);
+      git(root, ['checkout', '--quiet', '--detach', main]);
+      if (reviewedDefault) git(root, ['update-ref', 'refs/heads/main', main]);
+      const journalPath = path.join(root, '.git', 'sec-development-commit', `${'1'.repeat(64)}.json`);
+      await mkdir(path.dirname(journalPath));
+      const source = `${JSON.stringify(canonicalJson({
+        schema: 'sec-development-commit-journal-v1', operation: `sha256:${'1'.repeat(64)}`,
+        attempt: `sha256:${'2'.repeat(64)}`, ref: reviewedDefault ? 'refs/heads/main' : 'refs/heads/retired-topic', preimage: base,
+        target, object: target, tree: mode === 'nonempty-unconsumed' || mode === 'main-adopted' || reviewedDefault
+          ? changedTree : baseTree, terminal: mode === 'legacy-pending' ? null : 'applied'
+      }))}\n`;
+      if (mode === 'legacy-applied' || mode === 'legacy-pending' || reviewedDefault) {
+        await writeFile(journalPath, source);
+      } else {
+        const writer = createRuntimeStateJournalFileSystem(
+          inspectNoFollowDirectoryChain(path.join(root, '.git'), 'Merged journal fixture root').target);
+        expect(writer.createExclusiveFsync(journalPath, source)).toBe(true);
+      }
+      const unrelated = git(root, ['commit-tree', baseTree, '-p', originalBase, '-m', 'main without adoption anchor']);
+      const script = path.join(harness, 'case.ts');
+      await writeFile(script, `
+        import assert from 'node:assert/strict';
+        import { spawnSync } from 'node:child_process';
+        import * as fs from 'node:fs';
+        import { mock } from 'bun:test';
+        const provider = await import(${modulePath('../../src/adapters/providers/github-api/operation-session.ts')});
+        let mainReads = 0;
+        mock.module(${modulePath('../../src/adapters/providers/github-api/operation-session.ts')}, () => ({
+          ...provider,
+          inspectGitHubApiCapability: () => ({ repository: 'example/repository' }),
+          async executeGitHubApiOperation(_capability, operation) {
+            if (operation.kind === 'repository') return { full_name: 'example/repository', default_branch: 'main' };
+            if (operation.kind === 'pull') return {
+              number: 1, state: 'closed', merged: true, merge_commit_sha: ${JSON.stringify(originalBase)},
+              head: { ref: 'retired-topic', sha: ${JSON.stringify(originalBase)}, repo: { full_name: 'example/repository' } },
+              base: { ref: 'main', repo: { full_name: 'example/repository' } }
+            };
+            if (operation.kind === 'git-ref' && operation.branch === 'retired-topic') {
+              throw new provider.GitHubApiProviderError('absent', 404);
+            }
+            if (operation.kind === 'git-ref' && operation.branch === 'main') {
+              mainReads++;
+              // Keep the PR merge reachable while removing the separately adopted journal anchor.
+              return { ref: 'refs/heads/main', object: { sha: ${JSON.stringify(mode)} === 'anchor-lost'
+                && mainReads > 1 ? ${JSON.stringify(unrelated)} : ${JSON.stringify(main)} } };
+            }
+            throw new Error('unexpected provider operation');
+          }
+        }));
+        const { retireMergedDevelopmentCommitJournals, retireReviewedHistoricalDefaultCommitJournal } = await import(
+          ${modulePath('../../src/adapters/self-hosting/development/commit/operation.ts')});
+        const retire = () => retireMergedDevelopmentCommitJournals({
+          repositoryRoot: ${JSON.stringify(root)}, capability: {}, pullRequestNumber: 1
+        });
+        if (${reviewedDefault}) {
+          const reviewedRetire = review => retireReviewedHistoricalDefaultCommitJournal({
+            repositoryRoot: ${JSON.stringify(root)}, capability: {}, journalPath: ${JSON.stringify(journalPath)},
+            expectedTargetSha: ${JSON.stringify(target)}, reviewedMainSha: ${JSON.stringify(main)}, review
+          });
+          const subject = observation => {
+            assert.equal(Object.isFrozen(observation), true);
+            assert.equal(observation.ref, 'refs/heads/main');
+            assert.equal(observation.targetSha, ${JSON.stringify(target)});
+            assert.equal(observation.mainSha, ${JSON.stringify(main)});
+            assert.equal(observation.tree, ${JSON.stringify(changedTree)});
+          };
+          if (${JSON.stringify(mode)} === 'reviewed-superseded') {
+            const result = await reviewedRetire(async observation => {
+              subject(observation);
+              return { disposition: 'superseded', reference: 'fixture independent semantic review' };
+            });
+            assert.equal(result.disposition, 'historical-retention-released');
+            assert.equal(result.historicalLocalCas, 'unverified');
+            assert.equal(result.retired, 1);
+            assert.equal(result.targetSha, ${JSON.stringify(target)});
+            assert.equal(fs.existsSync(${JSON.stringify(journalPath)}), false);
+          } else {
+            await assert.rejects(() => reviewedRetire(async observation => {
+              subject(observation); return { disposition: 'retain', reference: 'retain independent obligation' };
+            }), /retention was not released/);
+            assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+            await assert.rejects(() => reviewedRetire(async observation => {
+              subject(observation);
+              const moved = spawnSync('git', ['update-ref', 'refs/heads/main', ${JSON.stringify(originalBase)}],
+                { cwd: ${JSON.stringify(root)}, encoding: 'utf8', windowsHide: true });
+              assert.equal(moved.status, 0, moved.stderr);
+              return { disposition: 'superseded', reference: 'review invalidated by local ref drift' };
+            }), /no longer binds the exact live and local default ref/);
+            assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+          }
+        } else if (${JSON.stringify(mode)} === 'nonempty-unconsumed' || ${JSON.stringify(mode)} === 'anchor-lost'
+            || ${JSON.stringify(mode)} === 'legacy-pending') {
+          await assert.rejects(retire, ${JSON.stringify(mode)} === 'anchor-lost'
+            ? /adoption anchor is no longer/ : ${JSON.stringify(mode)} === 'legacy-pending'
+              ? /nonterminal or unknown journal consumers/ : /did not consume this exact journal target/);
+          assert.equal(fs.readFileSync(${JSON.stringify(journalPath)}, 'utf8'), ${JSON.stringify(source)});
+        } else {
+          assert.deepEqual(await retire(), { ref: 'refs/heads/retired-topic', observed: 1, retired: 1 });
+          assert.equal(fs.existsSync(${JSON.stringify(journalPath)}), false);
+        }
+      `);
+      const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8', windowsHide: true });
+      expect(result.status, result.stderr).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(harness, { recursive: true, force: true });
+    }
+  }, 30_000);
 }
 
 async function fixture(prefix = 'sec-development-commit-'): Promise<Readonly<{
