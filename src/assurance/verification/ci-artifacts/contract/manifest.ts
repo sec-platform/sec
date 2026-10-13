@@ -1,3 +1,4 @@
+import { CI_ARTIFACT_ROOT_RELATIVE_PATH, graphLockArtifactRelativePath, verificationReportArtifactRelativePath } from '../../../../contracts/artifact-paths.ts';
 import { uniqueSorted } from '../../../../contracts/canonical.ts';
 import { countPositiveValues } from '../../../../contracts/collections.ts';
 import { isCanonicalPortableLogicalPath } from '../../../../contracts/logical-path.ts';
@@ -14,19 +15,19 @@ import {
 } from './types.ts';
 
 /**
- * The artifact contract owns every publishable path below this root. A
- * workspace path resolver consumes this root; it does not copy the artifact
- * subpath table into another owner.
+ * The manifest owns publishable artifact classification. Shared logical path
+ * identities come from contracts; host resolvers consume them without copying
+ * this domain's subpath table.
  */
-export const CI_ARTIFACT_ROOT_RELATIVE_PATH = '.sec/artifacts' as const;
+
 
 export const CI_ARTIFACT_FILES = {
   artifactManifest: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/ci/artifacts.json`,
-  graphLock: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/state/graph.lock.json`,
+  graphLock: graphLockArtifactRelativePath,
   provenance: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/provenance/provenance.json`,
   blockUsageMap: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/block-usage-map.json`,
   installManifest: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/install-manifest.json`,
-  verificationReport: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/verification-report.json`,
+  verificationReport: verificationReportArtifactRelativePath,
   runtimeReport: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/runtime-report.json`,
   policyReport: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/policy-report.json`,
   acceptanceCoverage: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/acceptance-coverage.json`,

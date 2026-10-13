@@ -1,9 +1,10 @@
-import { CompilerError, getErrorCode, inspectFailureValue } from '../compiler/errors.ts';
+import { getErrorCode, inspectFailureValue } from '../contracts/failure-inspection.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 
 /** Failure description is diagnostic only; the original value remains the cause. */
 export function describePipelineFailure(error: unknown): Readonly<{ code: string; message: string }> {
   let code = 'UNEXPECTED';
-  try { if (error instanceof CompilerError) code = getErrorCode(error) ?? code; }
+  try { if (error instanceof CodedFailure) code = getErrorCode(error) ?? code; }
   catch { /* A revoked proxy is still a failure value. */ }
   try {
     if (error instanceof Error) {
@@ -23,7 +24,7 @@ export interface PipelineSettlementFailureEntry {
 /** A failed settlement is not optional diagnostic output. It may fail before
  * or after a durable write; do not infer physical absence. Preserve both
  * the execution cause and every attempted settlement failure, never hide either. */
-export class PipelineSettlementFailure extends CompilerError {
+export class PipelineSettlementFailure extends CodedFailure {
   readonly settlementFailures: readonly PipelineSettlementFailureEntry[];
 
   constructor(primary: unknown, failures: readonly PipelineSettlementFailureEntry[]) {

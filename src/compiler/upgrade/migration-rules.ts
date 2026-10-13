@@ -1,25 +1,25 @@
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
 import type { UpgradePlan } from '../../semantics/upgrade/upgrade-artifact.ts';
-import { CompilerError } from '../errors.ts';
 
 export function ensureMigrationString(value: unknown, field: string, entryPath: string): string {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires ${field}`);
+    throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires ${field}`);
   }
   return value;
 }
 
 function ensureMigrationStringArray(value: unknown, field: string, entryPath: string): string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
-    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires ${field}`);
+    throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires ${field}`);
   }
   return value;
 }
 
 function assertSafeJsonMutationKey(key: string, field: string): void {
   if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-MIGRATION-030',
       `${field} contains reserved JSON mutation key "${key}"`
     );
@@ -32,7 +32,7 @@ export function readOwnJsonMutationValue(object: Record<string, unknown>, key: s
   const descriptor = Object.getOwnPropertyDescriptor(object, key);
   if (descriptor === undefined) return undefined;
   if (!Object.hasOwn(descriptor, 'value')) {
-    throw new CompilerError('UPGRADE-MIGRATION-030', 'JSON mutation properties must be data properties');
+    throw new CodedFailure('UPGRADE-MIGRATION-030', 'JSON mutation properties must be data properties');
   }
   return descriptor.value;
 }
@@ -79,22 +79,22 @@ export function validateConfigRewriteMigrationEntry({
   entryPath
 }: MigrationEntryValidationContext<'config-rewrite'>): void {
   if (!Array.isArray(entry.updates)) {
-    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates`);
+    throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates`);
   }
   for (const update of entry.updates) {
     if (typeof update !== 'object' || update === null || Array.isArray(update)) {
-      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
+      throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[]`);
     }
     ensureMigrationStringArray(update.path, 'updates[].path', entryPath);
     if (update.path.length === 0) {
-      throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
+      throw new CodedFailure('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
     }
     assertSafeJsonMutationPath(update.path, 'Config rewrite path');
     if (update.operation !== undefined && update.operation !== 'set' && update.operation !== 'delete') {
-      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
+      throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].operation`);
     }
     if ((update.operation === undefined || update.operation === 'set') && !Object.prototype.hasOwnProperty.call(update, 'value')) {
-      throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].value`);
+      throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires updates[].value`);
     }
   }
 }
@@ -105,11 +105,11 @@ export function validateJsonArrayMigrationEntry({
 }: JsonArrayMigrationEntryValidationContext): void {
   ensureMigrationStringArray(entry.path, 'path', entryPath);
   if (entry.path.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
+    throw new CodedFailure('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
   }
   assertSafeJsonMutationPath(entry.path, 'JSON array migration path');
   if (!Array.isArray(entry.items) || entry.items.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
+    throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires items`);
   }
 }
 
@@ -119,11 +119,11 @@ export function validateJsonObjectMergeMigrationEntry({
 }: MigrationEntryValidationContext<'json-object-merge'>): void {
   ensureMigrationStringArray(entry.path, 'path', entryPath);
   if (entry.path.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
+    throw new CodedFailure('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
   }
   assertSafeJsonMutationPath(entry.path, 'JSON object merge path');
   if (!isJsonObject(entry.value)) {
-    throw new CompilerError('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires value`);
+    throw new CodedFailure('UPGRADE-MIGRATION-011', `Migration entry "${entryPath}" requires value`);
   }
   assertSafeJsonMergeObject(entry.value, 'JSON object merge value');
 }
@@ -136,7 +136,7 @@ export function validateDbExpandContractMigrationEntry({
   ensureMigrationString(entry.expandField, 'expandField', entryPath);
   ensureMigrationString(entry.contractField, 'contractField', entryPath);
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(entry.contractField)) {
-    throw new CompilerError('UPGRADE-MIGRATION-011', 'Contracted database field must be one identifier');
+    throw new CodedFailure('UPGRADE-MIGRATION-011', 'Contracted database field must be one identifier');
   }
   if (entry.copyJobCode !== undefined) {
     ensureMigrationString(entry.copyJobCode, 'copyJobCode', entryPath);
@@ -150,7 +150,7 @@ export function dbExpandContractCopyJobProjectPath(
 ): string | null {
   if (entry.copyJobCode === undefined) return null;
   if (!isCanonicalPortableLogicalPath(entry.id) || entry.id.includes('/')) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-MIGRATION-011',
       `Database copy-job migration id must be one canonical portable leaf: ${entry.id}`
     );
@@ -160,7 +160,7 @@ export function dbExpandContractCopyJobProjectPath(
 
 export function ensureJsonObject(config: unknown, label: string): Record<string, unknown> {
   if (typeof config !== 'object' || config === null || Array.isArray(config)) {
-    throw new CompilerError('UPGRADE-MIGRATION-009', `${label} target must contain a JSON object`);
+    throw new CodedFailure('UPGRADE-MIGRATION-009', `${label} target must contain a JSON object`);
   }
   return config as Record<string, unknown>;
 }
@@ -174,7 +174,7 @@ export function applyConfigUpdates(config: unknown, updates: Array<{ path: strin
 
   for (const update of updates) {
     if (update.path.length === 0) {
-      throw new CompilerError('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
+      throw new CodedFailure('UPGRADE-MIGRATION-010', 'Config rewrite path must not be empty');
     }
     assertSafeJsonMutationPath(update.path, 'Config rewrite path');
     let current = root;
@@ -207,7 +207,7 @@ function resolveJsonArrayTarget(
   options: { createParents: boolean }
 ): { root: Record<string, unknown>; parent: Record<string, unknown>; key: string; target: unknown } {
   if (pathSegments.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
+    throw new CodedFailure('UPGRADE-MIGRATION-010', 'JSON array migration path must not be empty');
   }
   assertSafeJsonMutationPath(pathSegments, `${label} path`);
   const root = ensureJsonObject(config, label);
@@ -230,7 +230,7 @@ function resolveJsonArrayTarget(
 export function applyJsonArrayAppend(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-array-append' }>): unknown {
   const { parent, key, target } = resolveJsonArrayTarget(config, entry.path, 'JSON array append', { createParents: true });
   if (target !== undefined && !Array.isArray(target)) {
-    throw new CompilerError('UPGRADE-MIGRATION-012', 'JSON array append target must be an array');
+    throw new CodedFailure('UPGRADE-MIGRATION-012', 'JSON array append target must be an array');
   }
 
   const existing = Array.isArray(target) ? target : [];
@@ -253,7 +253,7 @@ export function applyJsonArrayRemove(config: unknown, entry: Extract<UpgradeMigr
     return config;
   }
   if (!Array.isArray(target)) {
-    throw new CompilerError('UPGRADE-MIGRATION-012', 'JSON array remove target must be an array');
+    throw new CodedFailure('UPGRADE-MIGRATION-012', 'JSON array remove target must be an array');
   }
 
   const removeItems = new Set(entry.items.map((item) => JSON.stringify(item)));
@@ -276,7 +276,7 @@ function mergeJsonObjects(target: Record<string, unknown>, source: Record<string
 
 export function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigrationEntry, { kind: 'json-object-merge' }>): unknown {
   if (entry.path.length === 0) {
-    throw new CompilerError('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
+    throw new CodedFailure('UPGRADE-MIGRATION-010', 'JSON object merge path must not be empty');
   }
   assertSafeJsonMutationPath(entry.path, 'JSON object merge path');
   assertSafeJsonMergeObject(entry.value, 'JSON object merge value');
@@ -285,7 +285,7 @@ export function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigr
   for (const segment of entry.path.slice(0, -1)) {
     const next = readOwnJsonMutationValue(current, segment);
     if (next !== undefined && !isJsonObject(next)) {
-      throw new CompilerError('UPGRADE-MIGRATION-013', 'JSON object merge parent must be an object');
+      throw new CodedFailure('UPGRADE-MIGRATION-013', 'JSON object merge parent must be an object');
     }
     if (next === undefined) {
       setOwnJsonValue(current, segment, {});
@@ -296,7 +296,7 @@ export function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigr
   const key = entry.path[entry.path.length - 1];
   const target = readOwnJsonMutationValue(current, key);
   if (target !== undefined && !isJsonObject(target)) {
-    throw new CompilerError('UPGRADE-MIGRATION-013', 'JSON object merge target must be an object');
+    throw new CodedFailure('UPGRADE-MIGRATION-013', 'JSON object merge target must be an object');
   }
   const targetObject = isJsonObject(target) ? target : {};
   mergeJsonObjects(targetObject, entry.value);
@@ -306,7 +306,7 @@ export function applyJsonObjectMerge(config: unknown, entry: Extract<UpgradeMigr
 
 export function applyTextReplace(source: string, entry: Extract<UpgradeMigrationEntry, { kind: 'text-replace' }>): string {
   if (!source.includes(entry.search)) {
-    throw new CompilerError('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
+    throw new CodedFailure('UPGRADE-MIGRATION-015', `Text replacement pattern did not match "${entry.target}"`);
   }
   return source.split(entry.search).join(entry.replacement);
 }
@@ -376,7 +376,7 @@ export function compileUpgradeMigrationOperation(
       });
     default: {
       const unsupported = entry as { kind: string };
-      throw new CompilerError(
+      throw new CodedFailure(
         'UPGRADE-MIGRATION-006',
         `Unsupported migration kind "${unsupported.kind}"`
       );

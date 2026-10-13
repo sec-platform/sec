@@ -9,14 +9,15 @@ import type { ProductVerificationGateObservation } from '../../assurance/verific
 import { createSkippedFastLane } from '../../assurance/verification/project/report.ts';
 import { CodexDevelopmentSnapshotVerificationData } from '../../assurance/verification/result/contract/result.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import { canonicalEquals, compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
+import { formatFailure } from '../../contracts/failure-format.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { Logger } from '../../contracts/logging.ts';
 import { isNativeAborted, throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
+import type { DependencyProjectOperation } from '../../execution/dependency-materialization.ts';
 import { defaultLogger } from '../diagnostics/json-logger.ts';
 import { listFilesRecursive } from '../filesystem/discovery.ts';
-import { withProjectDependencyBridge } from '../toolchain/dependencies/runtime.ts';
 import { getWorkspacePaths } from '../workspace-context.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
@@ -96,8 +97,9 @@ function throwFastCancellation(
 export async function runFastVerification(
   workspaceRoot: string,
   isolated: boolean,
-  signal?: AbortSignal,
-  beforeCommit?: () => Promise<void>
+  signal: AbortSignal | undefined,
+  beforeCommit: (() => Promise<void>) | undefined,
+  dependencies: DependencyProjectOperation
 ): Promise<{
   lane: FastVerificationLaneReport;
   failure?: Readonly<{ reason: unknown }>;
@@ -130,21 +132,25 @@ export async function runFastVerification(
     });
     return isolated
       ? execute()
-      : withProjectDependencyBridge(workspaceRoot, execute, {
+      : (() => {
+          if (dependencies === undefined) throw new Error('Live verification requires its bound dependency operation.');
+          return dependencies.withProjectDependencyBridge(workspaceRoot, execute, {
           beforeCommit,
           signal
-        });
+          });
+        })();
   };
 
   try {
-    await typecheckProject(workspaceRoot, { isolated });
+    if (isolated) await typecheckProject(workspaceRoot, { isolated: true });
+    else await typecheckProject(workspaceRoot, { isolated: false }, dependencies);
     throwIfNativeAborted(signal);
     lane.build.status = 'passed';
   } catch (error) {
     throwFastCancellation(signal, error);
     lane.build.status = 'failed';
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(error);
+    lane.logs.stderr = formatFailure(error);
     return { lane, failure: { reason: error } };
   }
 
@@ -157,7 +163,7 @@ export async function runFastVerification(
     throwFastCancellation(signal, error);
     lane.unit.status = 'failed';
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(error);
+    lane.logs.stderr = formatFailure(error);
     return { lane, failure: { reason: error } };
   }
 
@@ -176,7 +182,7 @@ export async function runFastVerification(
       ? []
       : [relativePosixPath(acceptanceRoot, failedFile)];
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(error);
+    lane.logs.stderr = formatFailure(error);
     return { lane, failure: { reason: error } };
   }
 
@@ -197,14 +203,14 @@ export async function runFastVerification(
 
   if (policyReport.status === 'failed') {
     failure = {
-      reason: new CompilerError(
+      reason: new CodedFailure(
         'VERIFY-POLICY-001',
         'Policy gate failed',
         policyReport.violations
       )
     };
     lane.status = 'failed';
-    lane.logs.stderr = formatCompilerFailure(failure.reason);
+    lane.logs.stderr = formatFailure(failure.reason);
     return { lane, failure };
   }
 

@@ -1,4 +1,5 @@
 import { compareCodeUnits, digest, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import { uniqueSortedSemanticTuples } from '../../semantics/definitions/identity-components.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../semantics/definitions/types.ts';
 import { type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
 import { type SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
@@ -63,9 +64,9 @@ function canonicalSemanticContract(contract: SemanticContract): object {
       field: state.field,
       owner: state.owner,
       values: uniqueSorted(state.values),
-      transitions: uniqueSortedByKey(
+      transitions: uniqueSortedSemanticTuples(
         state.transitions.map((transition) => ({ from: transition.from, to: transition.to, by: transition.by })),
-        (transition) => `${transition.from}\u0000${transition.to}\u0000${transition.by}`
+        (transition) => [transition.from, transition.to, transition.by]
       )
     })),
     responsibilities: stableById(contract.responsibilities).map((responsibility) => ({

@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { CompilerError } from '../../../compiler/errors.ts';
 import type { OpaqueModuleMaterializationMode } from '../../../compiler/target-materialization.ts';
 import { canonicalEquals, compareCodeUnits } from '../../../contracts/canonical.ts';
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { createTaskGroupEffectFence, mapTaskGroup, runTaskGroup } from '../../../execution/task-group.ts';
 import { ensureDir, isFileNotFoundError, pathEntryExists, pathExists, writeJson } from "../../filesystem/files.ts";
 import { isYamlParseFailure, parseYamlValue } from '../../formats/yaml.ts';
@@ -82,7 +82,7 @@ function readOpaqueModuleDescriptor(yamlFile: string): OpaqueModuleEntry {
     });
   } catch (error) {
     if (!isYamlParseFailure(error)) throw error;
-    throw new CompilerError(
+    throw new CodedFailure(
       'OPAQUE-MODULE-001',
       `Opaque module descriptor is not valid bounded YAML: ${yamlFile}`,
       { yamlFailureCode: error.code, yamlFailureKind: error.kind },

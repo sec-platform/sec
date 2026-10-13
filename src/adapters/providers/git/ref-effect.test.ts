@@ -1,24 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { closeProvider, fixture, git, openProvider } from './test/ref-effect-fixture.ts';
 
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
-import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
-} from '../../../execution/operation/semantic.ts';
 import { withWorkspaceWriteLease } from '../../filesystem/write-lease.ts';
-import { openProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  closeGitPhysicalProvider,
-  openGitPhysicalProvider,
   type GitPhysicalProviderCapability
 } from './physical-provider.ts';
 import {
@@ -35,81 +23,6 @@ import {
   measureExactLocalGitRefDeleteBatchAggregateInputBytes,
   measureExactLocalGitRefDeleteBatchInputBytes
 } from './ref-effect.ts';
-
-const CONTRACT = sha256({ test: 'git-ref-effect' }) as SecOperationDigest;
-const REQUIREMENT = 'git.ref-effect.process';
-
-function git(root: string, args: readonly string[]): string {
-  const result = spawnSync('git', [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
-  if (result.status !== 0) throw new Error(result.stderr);
-  return result.stdout.trim();
-}
-
-function fixture(): string {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-ref-effect-'));
-  git(root, ['init', '--quiet', '--initial-branch=current']);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
-  writeFileSync(path.join(root, 'base.txt'), 'base\n', 'utf8');
-  git(root, ['add', 'base.txt']);
-  git(root, ['commit', '--quiet', '-m', 'base']);
-  return root;
-}
-
-function testOperation() {
-  const plan = compileSecSemanticOperationPlan({
-    operation: 'external-capabilities.git.ref-effect.test',
-    intentDigest: CONTRACT,
-    decisionDigest: CONTRACT,
-    deadlineAtUnixMs: Date.now() + 10_000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 10_000 },
-      { resource: 'input-bytes', maximum: MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES },
-      { resource: 'output-bytes', maximum: MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES },
-      { resource: 'processes', maximum: MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT }
-    ],
-    requirements: [{
-      id: REQUIREMENT,
-      contractDigest: CONTRACT,
-      effectKinds: ['filesystem', 'process'],
-      failureKinds: ['filesystem.write-failed', 'process.unavailable']
-    }]
-  });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: REQUIREMENT,
-    contractDigest: CONTRACT,
-    providerIdentityDigest: CONTRACT
-  })]);
-}
-
-function openProvider(root: string) {
-  const operation = testOperation();
-  const processSession = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
-      operation,
-      requirementId: REQUIREMENT,
-      resourceCeilings: operation.plan.execution.aggregateBudgets
-    })
-  });
-  const executablePath = Bun.which('git');
-  if (executablePath === null) throw new Error('Focused Git ref test requires Git.');
-  const resolution = openGitPhysicalProvider({
-    cwd: root,
-    executablePath: path.resolve(executablePath),
-    operation,
-    processSession,
-    maximumExecutableBytes: 64 * 1024 * 1024
-  });
-  if (resolution.status !== 'ready') throw new Error(`Git provider unavailable: ${resolution.reason}`);
-  return { processSession, provider: resolution.capability };
-}
-
-function closeProvider(value: ReturnType<typeof openProvider>): void {
-  closeGitPhysicalProvider(value.provider);
-  value.processSession.close();
-}
 
 test('GitRefEffect CAS-deletes an exact remote-tracking ref with absence readback', async () => {
   const root = fixture();
@@ -203,48 +116,6 @@ test('GitRefEffect deletes an exact local batch under one live common-directory 
       expect(receipt.entries.map((entry) => entry.ref)).toEqual(['refs/heads/topic-a', 'refs/heads/topic-b']);
       expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/topic-a'], { cwd: root }).status).toBe(1);
       expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/topic-b'], { cwd: root }).status).toBe(1);
-    } finally { closeProvider(opened); }
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('GitRefEffect exact local observation ignores unrelated refs beyond the old stdout cap', async () => {
-  const root = fixture();
-  try {
-    const sha = git(root, ['rev-parse', 'HEAD']);
-    git(root, ['branch', 'target']);
-    const noise = Array.from({ length: 700 }, (_, index) => [
-      `create refs/heads/noise-${String(index).padStart(4, '0')}-${'x'.repeat(55)} ${sha}`,
-      `create refs/heads/absent/child-${String(index).padStart(4, '0')}-${'x'.repeat(55)} ${sha}`
-    ]).flat().join('\n') + '\n';
-    const created = spawnSync('git', ['update-ref', '--stdin'], {
-      cwd: root, input: noise, encoding: 'utf8', windowsHide: true
-    });
-    expect(created.status).toBe(0);
-    const wholeInventory = spawnSync('git', [
-      'for-each-ref', '--format=%(refname)%00%(symref)%00%(objectname)%00', 'refs/heads/'
-    ], { cwd: root, encoding: 'buffer', windowsHide: true });
-    expect(wholeInventory.status).toBe(0);
-    expect(wholeInventory.stdout.byteLength).toBeGreaterThan(128 * 1024);
-    const absent = spawnSync('git', ['for-each-ref', '--stdin', '--format=%(refname)'], {
-      cwd: root, input: 'refs/[h]eads/absent\n', encoding: 'utf8', windowsHide: true
-    });
-    expect(absent.status).toBe(0);
-    expect(absent.stdout).toBe('');
-    const exact = spawnSync('git', ['for-each-ref', '--stdin', '--format=%(refname)'], {
-      cwd: root, input: 'refs/[h]eads/target\n', encoding: 'utf8', windowsHide: true
-    });
-    expect(exact.status).toBe(0);
-    expect(exact.stdout).toBe('refs/heads/target\n');
-    const opened = openProvider(root);
-    try {
-      const receipt = await withWorkspaceWriteLease(path.join(root, '.git'), undefined, (coordinatedLease) => (
-        deleteExactLocalGitRefs({ provider: opened.provider, coordinatedLease,
-          entries: [{ ref: 'refs/heads/target', expectedOldSha: sha }] })
-      ));
-      assertGitLocalRefDeleteBatchReceipt(receipt);
-      expect(receipt.entries.map((entry) => entry.ref)).toEqual(['refs/heads/target']);
-      expect(git(root, ['show-ref', '--verify', 'refs/heads/noise-0000-' + 'x'.repeat(55)])).toContain(sha);
-      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/target'], { cwd: root }).status).toBe(1);
     } finally { closeProvider(opened); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

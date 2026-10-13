@@ -1,7 +1,7 @@
 import path from 'node:path';
 import ts from 'typescript';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseRuntimeDependencyPackageReference } from '../../toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { compilerDependencyManifestAuthority } from '../../toolchain/dependencies/runtime/compiler-input-contract.ts';
@@ -80,7 +80,7 @@ function currentTypeScriptCompilerApiInputDigest(): `sha256:${string}` {
     }
     return sha256({ manifest: rawSha256(manifest), lock: rawSha256(lock) }) as `sha256:${string}`;
   } catch (cause) {
-    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED',
+    throw new CodedFailure('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED',
       'Required locked TypeScript compiler API is unavailable or stale; no dependency installation was selected.', {}, { cause });
   }
 }
@@ -120,7 +120,7 @@ export interface TypeScriptCompilerIdentity {
 export function typeScriptCompilerIdentity(): TypeScriptCompilerIdentity {
   const inputDigest = currentTypeScriptCompilerApiInputDigest();
   if (inputDigest !== TYPESCRIPT_COMPILER_API_INPUT_DIGEST) {
-    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED', 'TypeScript compiler API inputs changed; a fresh compiler process is required.');
+    throw new CodedFailure('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED', 'TypeScript compiler API inputs changed; a fresh compiler process is required.');
   }
   const identity = Object.freeze({
     [typeScriptCompilerIdentityBrand]: true as const,
@@ -148,6 +148,6 @@ export function assertTypeScriptCompilerIdentity(
   }
   if (identity.dependencyGenerationDigest !== sha256({ compiler: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST,
     inputs: currentTypeScriptCompilerApiInputDigest() })) {
-    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED', 'TypeScript compiler API inputs changed after capability issuance.');
+    throw new CodedFailure('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED', 'TypeScript compiler API inputs changed after capability issuance.');
   }
 }

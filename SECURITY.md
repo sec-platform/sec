@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-SEC is currently an active development preview and has not declared a stable release line. Security fixes are applied to the current `main` branch. Older commits, branches, forks, and unreleased interfaces are not maintained as supported versions.
+Gift is currently an active development preview and has not declared a stable release line. Security fixes are applied to the current `main` branch. Older commits, branches, forks, and unreleased interfaces are not maintained as supported versions.
 
 ## Reporting a vulnerability
 
@@ -14,4 +14,4 @@ The maintainer will make a best-effort initial assessment within seven days. Val
 
 ## Scope
 
-Security reports should concern behavior implemented by this repository or a repository-owned release artifact. A design document describing a future capability is not proof that the capability exists. Vulnerabilities in dependencies should also be reported to their upstream maintainers when the issue is not caused by SEC's integration.
+Security reports should concern behavior implemented by this repository or a repository-owned release artifact. A design document describing a future capability is not proof that the capability exists. Vulnerabilities in dependencies should also be reported to their upstream maintainers when the issue is not caused by Gift's integration.

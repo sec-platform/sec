@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import type { RetainedNoFollowProvenDirectoryGeneration } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { createTypeScriptSnapshotDirectoryReader, TYPESCRIPT_SNAPSHOT_DIRECTORY_SEMANTICS } from '../../toolchain/typescript/snapshot-directory.ts';
-import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
+import { normalizeRepositoryPath } from '../architecture/contract.ts';
 import { assertPhysicalWorkspaceSourceSnapshot, assertWorkspaceSourceSnapshot, type PhysicalWorkspaceSourceSnapshot, type WorkspaceSourceSnapshot } from './workspace-source-authority.ts';
 import type { WorkspaceSourceFile } from './workspace-source-content.ts';
 import { parseContainedTypeScriptProjectConfig, parseTypeScriptProjectConfiguration } from './workspace-typescript-config.ts';
@@ -405,7 +405,7 @@ export function compileTypeScriptProjectInput(
   }> = {}
 ): TypeScriptProjectInput {
   assertWorkspaceSourceSnapshot(snapshot);
-  const canonicalConfigPath = normalizeSecRepositoryPath(projectConfigPath);
+  const canonicalConfigPath = normalizeRepositoryPath(projectConfigPath);
   if (canonicalConfigPath !== projectConfigPath || canonicalConfigPath.length === 0) {
     throw new Error('TypeScript ProjectInput config path is not canonical');
   }

@@ -1,21 +1,22 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
+import type { VerificationActionKeyInput } from '../../../../execution/verification/action.ts';
 import {
   withAuthorityGitReadSession,
   type AuthorityGitReadOperation
 } from '../../../providers/git-read/authority.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntriesFromSession
+  listExactGitTreeEntriesFromSession
 } from '../../../providers/git-read/exact-blob.ts';
 import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
@@ -32,17 +33,14 @@ import {
 import {
   acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   acquireStagedIndexWorkspaceSourceSnapshot,
+  acquireStagedWorkspaceSourceSelection,
   assertPhysicalWorkspaceSourceSnapshot,
   readBackStagedIndexWorkspaceSourceSnapshot,
-  selectStagedWorkspaceSourceSnapshot,
+  readBackStagedWorkspaceSourceSelection,
+  requireStagedWorkspaceSourceSelection,
   type PhysicalWorkspaceSourceSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
-import {
-  issueNonProcessVerificationActionTerminalSettlement,
-  issueVerificationActionOwnerTerminalReceipt,
-  type VerificationActionKeyInput,
-  type VerificationActionTerminalSettlement
-} from '../../../verification/platform/action/contract/action.ts';
+import { issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionTerminalSettlement } from '../../../verification/platform/action/contract/action.ts';
 import {
   createVerificationActionRunner,
   type VerificationActionRunOutcome
@@ -68,9 +66,11 @@ export type CandidateNormalizationAdmissionReceipt = Readonly<{
   schema: 'sec-candidate-normalization-admission';
   status: 'admitted';
   subjectDigest: CandidateNormalizationDigest;
-  actionKey: CandidateNormalizationDigest;
   terminalResultDigest: CandidateNormalizationDigest;
-}>;
+}> & (
+  | Readonly<{ applicability: 'verified'; actionKey: CandidateNormalizationDigest }>
+  | Readonly<{ applicability: 'not-applicable'; actionKey: null }>
+);
 
 export function requireCandidateNormalizationAdmissionReceipt(
   value: unknown
@@ -97,6 +97,7 @@ function issueCandidateNormalizationAdmissionReceipt(input: Readonly<{
   const receipt = Object.freeze({
     schema: 'sec-candidate-normalization-admission' as const,
     status: 'admitted' as const,
+    applicability: 'verified' as const,
     subjectDigest: input.subject.subjectDigest,
     actionKey: input.action.actionKey,
     terminalResultDigest: terminal.resultDigest
@@ -114,7 +115,7 @@ async function readBackCandidateNormalizationSnapshot(input: Readonly<{
   if (provenance.kind !== 'git-tree') {
     throw new Error('Candidate normalization readback requires exact Git provenance');
   }
-  const entries = await CodexDevelopmentListExactGitTreeEntriesFromSession(
+  const entries = await listExactGitTreeEntriesFromSession(
     input.session,
     provenance.commitSha
   );
@@ -172,7 +173,7 @@ async function settleNormalizationObservation(
     executionSubjectDigest: subject.subjectDigest,
     readbackSubjectDigest
   }) as CandidateNormalizationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'development.import-normalization',
     intentDigest: action.actionKey,
     decisionDigest: subject.subjectDigest,
@@ -188,29 +189,29 @@ async function settleNormalizationObservation(
       effectKinds: ['filesystem', 'process'],
       failureKinds: ['candidate-normalization-noncanonical']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: subject.subjectDigest
     })
   });
-  const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const bound = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'candidate-normalization-observation',
     contractDigest: subject.normalizationContractDigest,
     providerIdentityDigest: subject.producerClosureDigest
   })]);
-  const provider = issueSecProviderSettlementReceipt(bound, {
+  const provider = issueProviderSettlementReceipt(bound, {
     requirementId: 'candidate-normalization-observation',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: observationDigest
   });
-  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
+  const providerSet = compileProviderSettlementSet(bound, [provider]);
   const passed = status === 'canonical';
-  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+  const readback = issueNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: subject.resultContractDigest,
     readbackReferenceDigest: observationDigest,
     currentPhysicalEpochDigest: readbackSubjectDigest,
     disposition: passed ? 'applied' : 'not-applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
     ownerTerminalContractDigest: subject.resultContractDigest,
     ownerTerminalReferenceDigest: observationDigest
   });
@@ -329,20 +330,52 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
    * the input subject and are never imported to execute this operation. */
   producerSnapshot?: PhysicalWorkspaceSourceSnapshot;
 }>): Promise<Readonly<{
-  outcome: VerificationActionRunOutcome;
+  outcome: VerificationActionRunOutcome | Readonly<{
+    state: 'not-applicable';
+    actionKey: null;
+    terminal: null;
+    reason: string;
+  }>;
   admission: CandidateNormalizationAdmissionReceipt | null;
 }>> {
   const gitOperation = input.gitOperation;
   const candidateBase = input.candidateBase;
-  const { snapshot, stagedSelection, repositoryRoot } = await gitOperation.runPhase(
+  const stagedSelection = await gitOperation.runPhase('normalization-selection', (session) => (
+    acquireStagedWorkspaceSourceSelection({
+      session,
+      ...(candidateBase === undefined ? {} : { candidateBase })
+    })
+  ));
+  if (!stagedSelection.selectedPaths.some(isCandidateNormalizationPath)) {
+    const readbackDigest = await gitOperation.runPhase('normalization-final-readback', (session) => (
+      readBackStagedWorkspaceSourceSelection(stagedSelection, session)
+    ));
+    const admission = Object.freeze({
+      schema: 'sec-candidate-normalization-admission' as const,
+      status: 'admitted' as const,
+      applicability: 'not-applicable' as const,
+      subjectDigest: stagedSelection.selectionDigest,
+      actionKey: null,
+      terminalResultDigest: sha256({
+        applicability: 'not-applicable', selectionDigest: stagedSelection.selectionDigest,
+        readbackDigest
+      }) as CandidateNormalizationDigest
+    });
+    issuedCandidateNormalizationAdmissionReceipts.add(admission);
+    return Object.freeze({
+      outcome: Object.freeze({
+        state: 'not-applicable' as const, actionKey: null, terminal: null,
+        reason: 'The exact staged candidate has no import-normalization targets.'
+      }),
+      admission
+    });
+  }
+  const { snapshot, repositoryRoot } = await gitOperation.runPhase(
     'normalization-source',
     async (session) => {
       const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session });
-      const stagedSelection = await selectStagedWorkspaceSourceSnapshot({
-        snapshot, session,
-        ...(candidateBase === undefined ? {} : { candidateBase })
-      });
-      return { snapshot, stagedSelection, repositoryRoot: session.cwd };
+      await readBackStagedWorkspaceSourceSelection(stagedSelection, session);
+      return { snapshot, repositoryRoot: session.cwd };
     }
   );
   const producerSnapshot = input.producerSnapshot ?? snapshot;
@@ -401,14 +434,27 @@ export async function checkStagedCandidateImportNormalizationWithSelection(
   input: StagedCandidateImportCheckInput
 ): Promise<Readonly<{ outcome: ImportCheckOutcome; candidateBase: string }>> {
   const progressCommand = input.progressCommand ?? 'imports:check';
-  const snapshot = await observeExecutionProgressPhase(progressCommand, 'staged-source-snapshot',
-    () => acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session }));
   const selection = await observeExecutionProgressPhase(progressCommand, 'staged-source-selection',
-    () => selectStagedWorkspaceSourceSnapshot({
-      snapshot,
+    () => acquireStagedWorkspaceSourceSelection({
       session: input.session,
       ...(input.candidateBase === undefined ? {} : { candidateBase: input.candidateBase })
     }));
+  if (!selection.selectedPaths.some(isCandidateNormalizationPath)) {
+    await observeExecutionProgressPhase(progressCommand, 'staged-source-readback',
+      () => readBackStagedWorkspaceSourceSelection(selection, input.session));
+    return Object.freeze({
+      outcome: Object.freeze({
+        schema: 'sec-import-check-outcome-v1' as const,
+        status: 'canonical' as const,
+        files: Object.freeze([])
+      }),
+      candidateBase: selection.candidateBase
+    });
+  }
+  const snapshot = await observeExecutionProgressPhase(progressCommand, 'staged-source-snapshot',
+    () => acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session }));
+  requireStagedWorkspaceSourceSelection(selection, snapshot);
+  await readBackStagedWorkspaceSourceSelection(selection, input.session);
   const files = snapshot.files.map(({ path, source, contentDigest }) => Object.freeze({
     relativePath: path,
     source,

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BranchLifecycleInventory, PreparedBranchCloseoutEnvelope } from '../../src/execution/verification/branch-closeout.ts';
 
 import { expect, test } from 'bun:test';
 
@@ -13,12 +14,9 @@ import {
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import { createBranchCloseoutPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import {
-  BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
-  type PreparedBranchCloseoutEnvelope
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import type { BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import { createMainAbsorptionRecovery } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import {
   compileClosedUnmergedCloseoutOperation,

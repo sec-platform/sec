@@ -203,7 +203,7 @@ export function readyTransactionFixture(requestId = 'request:add-transition') {
     status: 'passed',
     requirements: plan.requiredVerification
   }));
-  return { request, auth, base, plan, verification };
+  return { request, auth, base, staged, plan, verification };
 }
 
 export type RecoveryDraft = Omit<

@@ -1,13 +1,14 @@
-import { CompilerError } from '../errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 
-export interface PrismaBlock {
+interface PrismaBlock {
   type: string;
   name: string;
   content: string;
+  readonly before: string;
 }
 
 function prismaParseError(message: string): never {
-  throw new CompilerError('COMPOSE-PRISMA-002', message);
+  throw new CodedFailure('COMPOSE-PRISMA-002', message);
 }
 
 /** Scan the block delimiters used by the supported line-oriented merge subset.
@@ -56,15 +57,12 @@ function assertUniqueBlocks(blocks: readonly PrismaBlock[], label: string): void
   }
 }
 
-interface PrismaDocumentBlock extends PrismaBlock { readonly before: string }
-
-/** One scanner serves the public block projection and lossless merge layout. */
+/** Scan supported blocks while retaining their lossless merge layout. */
 function parsePrismaDocument(content: string) {
   const source = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-  const blocks: PrismaDocumentBlock[] = [];
+  const blocks: PrismaBlock[] = [];
   let currentBlock: { type: string; name: string; start: number } | null = null;
   let braceCount = 0, offset = 0, previousEnd = 0;
-  const headerLines: string[] = [];
   for (const line of source.split('\n')) {
     const trimmed = line.trim();
     if (currentBlock === null) {
@@ -74,7 +72,6 @@ function parsePrismaDocument(content: string) {
         braceCount = scanPrismaLine(line, 0).depth;
       } else {
         if (trimmed.length > 0 && !trimmed.startsWith('//')) prismaParseError(`Unsupported top-level Prisma syntax: ${trimmed}`);
-        headerLines.push(line);
       }
     } else {
       braceCount = scanPrismaLine(line, braceCount).depth;
@@ -90,12 +87,7 @@ function parsePrismaDocument(content: string) {
   }
   if (currentBlock !== null) prismaParseError(`Prisma block ${currentBlock.type}:${currentBlock.name} is not closed`);
   assertUniqueBlocks(blocks, 'Schema');
-  return { source, blocks, trailing: source.slice(previousEnd), headerTrivia: headerLines.join('\n') };
-}
-
-export function parsePrismaSchema(content: string): { blocks: PrismaBlock[]; headerTrivia: string } {
-  const parsed = parsePrismaDocument(content);
-  return { blocks: parsed.blocks.map(({ type, name, content }) => ({ type, name, content })), headerTrivia: parsed.headerTrivia };
+  return { blocks, trailing: source.slice(previousEnd) };
 }
 
 function bodyBounds(content: string): { opening: number; closing: number } {
@@ -196,9 +188,9 @@ export function mergePrismaSchemas(existingContent: string, templateContent: str
   const existing = parsePrismaDocument(existingContent);
   const template = parsePrismaDocument(templateContent);
 
-  const blockMap = new Map<string, PrismaDocumentBlock>();
+  const blockMap = new Map<string, PrismaBlock>();
   const mergedList = existing.blocks.map((block) => ({ ...block }));
-  const addedBlocks: PrismaDocumentBlock[] = [];
+  const addedBlocks: PrismaBlock[] = [];
   for (const block of mergedList) blockMap.set(`${block.type}:${block.name}`, block);
 
   for (const templateBlock of template.blocks) {

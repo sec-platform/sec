@@ -4,12 +4,12 @@ import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonica
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { mapTaskGroup } from '../../../execution/task-group.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntries,
-  CodexDevelopmentListExactGitTreeEntriesFromSession,
-  CodexDevelopmentReadExactGitTextBlobsBatch,
-  CodexDevelopmentReadExactGitTextBlobsBatchFromSession,
-  type CodexDevelopmentExactGitTextBlob,
-  type CodexDevelopmentExactGitTreeEntry
+  listExactGitTreeEntries,
+  listExactGitTreeEntriesFromSession,
+  readExactGitTextBlobsBatch,
+  readExactGitTextBlobsBatchFromSession,
+  type ExactGitTextBlob,
+  type ExactGitTreeEntry
 } from '../../providers/git-read/exact-blob.ts';
 import {
   decodeGitIndexGeneration,
@@ -20,11 +20,11 @@ import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
-import { compileSecRepositoryModuleMembershipSnapshot, normalizeSecRepositoryPath, type SecRepositoryModuleMembership } from '../architecture/contract.ts';
+import type { RepositoryModuleGraph } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot, normalizeRepositoryPath, type RepositoryModuleMembership } from '../architecture/contract.ts';
 import { isSourceProgramInputPath, type SourceProgramCompilation, type SourceProgramCompilationMatchInput, type SourceProgramFileInput } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { canonicalFiles, sourceGeneration, type WorkspaceSourceFile, type WorkspaceSourceFileMode } from './workspace-source-content.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -38,8 +38,8 @@ const workspaceSourceSnapshotBrand: unique symbol = Symbol('workspace-source-sna
 const issuedWorkspaceSourceSnapshots = new WeakSet<object>();
 // Canonical membership snapshots own deeply immutable descriptors and lookup closures.
 const canonicalSnapshotMemberships = new WeakSet<object>();
-function canonicalSnapshotMembership(input: Parameters<typeof compileSecRepositoryModuleMembershipSnapshot>[0]): SecRepositoryModuleMembership {
-  const membership = compileSecRepositoryModuleMembershipSnapshot(input);
+function canonicalSnapshotMembership(input: Parameters<typeof compileRepositoryModuleMembershipSnapshot>[0]): RepositoryModuleMembership {
+  const membership = compileRepositoryModuleMembershipSnapshot(input);
   canonicalSnapshotMemberships.add(membership);
   return membership;
 }
@@ -50,6 +50,11 @@ const stagedWorkspaceSourceSelectionBrand: unique symbol = Symbol(
 );
 
 const issuedStagedWorkspaceSourceSelections = new WeakSet<object>();
+const stagedSelectionObservations = new WeakMap<object, Readonly<{
+  index: StagedIndexObservation;
+  providerIdentityDigest: string;
+  repositoryRootIdentityDigest: string;
+}>>();
 
 export type WorkspaceSourceSnapshotSubject =
   | Readonly<{
@@ -94,14 +99,14 @@ type PhysicalObservationReceipt = Extract<
 type IssueWorkspaceSourceSnapshotInput = Readonly<{
   subject: WorkspaceSourceSnapshotSubject;
   files: readonly WorkspaceSourceFile[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   sourceByteLength: number | null;
 }>;
 
 export type CompileVirtualSnapshotInput = Readonly<{
   subject: Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>;
   files: readonly (SourceProgramFileInput & Readonly<{ mode?: WorkspaceSourceFileMode }>)[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 type IssuePhysicalWorkspaceSourceSnapshotInput = Omit<
@@ -134,7 +139,7 @@ export type AcquireStagedIndexSnapshotInput = Readonly<{
 export interface StagedSourceSelection {
   readonly [stagedWorkspaceSourceSelectionBrand]: true;
   readonly candidateBase: string;
-  readonly snapshotSubjectDigest: `sha256:${string}`;
+  readonly indexSubjectDigest: `sha256:${string}`;
   readonly selectedPaths: readonly string[];
   readonly selectionDigest: `sha256:${string}`;
 }
@@ -164,7 +169,7 @@ export interface WorkspaceSourceSnapshot extends SourceProgramCompilation {
   readonly files: readonly WorkspaceSourceFile[];
   /** Physical provider observation reused by resource admission; never semantic identity. */
   readonly sourceByteLength: number | null;
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly snapshotDigest: `sha256:${string}`;
   readonly moduleMembershipDigest: `sha256:${string}`;
   readonly moduleGraphCompilationCount: 1;
@@ -239,7 +244,7 @@ function canonicalSubject(
 
 function membershipDigest(
   files: readonly SourceProgramFileInput[],
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): `sha256:${string}` {
   return sha256({
     graphRoots: [...membership.graphRoots].sort(compareCodeUnits),
@@ -248,7 +253,7 @@ function membershipDigest(
   }) as `sha256:${string}`;
 }
 
-function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
+function graphDigest(graph: RepositoryModuleGraph): `sha256:${string}` {
   return sha256({
     files: graph.files,
     references: graph.references,
@@ -256,7 +261,7 @@ function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
   }) as `sha256:${string}`;
 }
 
-function emptyModuleMembership(): SecRepositoryModuleMembership {
+function emptyModuleMembership(): RepositoryModuleMembership {
   const membership = Object.freeze({
     descriptors: Object.freeze([]),
     graphRoots: Object.freeze([]),
@@ -281,17 +286,17 @@ function issueWorkspaceSourceSnapshot(
   const sourceByPath = new Map(files.map((file) => [file.path, file] as const));
   const subjectDigest = sha256(subject) as `sha256:${string}`;
   let semanticProjection: Readonly<{
-    moduleGraph: SecRepositoryModuleGraph;
+    moduleGraph: RepositoryModuleGraph;
     moduleGraphDigest: `sha256:${string}`;
     snapshotDigest: `sha256:${string}`;
     identityDigest: `sha256:${string}`;
   }> | null = null;
   const requireSemanticProjection = () => {
     if (semanticProjection !== null) return semanticProjection;
-    const moduleGraph = compileSecRepositoryModuleGraph({
+    const moduleGraph = compileSourceProgramRepositoryModuleGraph({
       files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
       readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
-      readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
+      readEmbeddedLanguageImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
     });
     const moduleGraphDigest = graphDigest(moduleGraph);
     const snapshotDigest = sha256({
@@ -447,7 +452,7 @@ function nulSeparatedRepositoryPaths(bytes: Uint8Array, label: string): readonly
   }
   const paths = source.length === 0 ? [] : source.slice(0, -1).split('\0');
   const canonical = paths.map((repositoryPath) => {
-    const normalized = normalizeSecRepositoryPath(repositoryPath);
+    const normalized = normalizeRepositoryPath(repositoryPath);
     if (normalized !== repositoryPath || normalized.length === 0) {
       throw new Error(`${label} path is not canonical: ${repositoryPath}`);
     }
@@ -511,7 +516,7 @@ function stagedIndexEntries(
       Buffer.from(entry.pathHex, 'hex'),
       'Staged index path'
     );
-    const normalized = normalizeSecRepositoryPath(repositoryPath);
+    const normalized = normalizeRepositoryPath(repositoryPath);
     if (normalized.length === 0 || normalized !== repositoryPath) {
       throw new Error(`Staged index path is not canonical: ${repositoryPath}`);
     }
@@ -675,13 +680,13 @@ async function observeWorkingTreeMembership(
     .map((record): WorkingTreeMembershipEntry => {
       const match = /^([0-7]{6}) [0-9a-f]{40,64} 0\t([\s\S]+)$/u.exec(record);
       if (match === null) {
-        const repositoryPath = normalizeSecRepositoryPath(record);
+        const repositoryPath = normalizeRepositoryPath(record);
         if (repositoryPath !== record || repositoryPath.length === 0) {
           throw new Error(`Workspace untracked membership path is not canonical: ${record}`);
         }
         return Object.freeze({ path: repositoryPath, mode: null });
       }
-      const repositoryPath = normalizeSecRepositoryPath(match[2]!);
+      const repositoryPath = normalizeRepositoryPath(match[2]!);
       if (repositoryPath !== match[2] || repositoryPath.length === 0) {
         throw new Error(`Workspace tracked membership path is not canonical: ${match[2]}`);
       }
@@ -729,7 +734,7 @@ export async function acquireWorkingTreeSnapshot(
   ));
   const admittedEntries = await mapTaskGroup(sourceMembershipEntries, async (membershipEntry) => {
     const repositoryPath = membershipEntry.path;
-    const canonicalPath = normalizeSecRepositoryPath(repositoryPath);
+    const canonicalPath = normalizeRepositoryPath(repositoryPath);
     if (canonicalPath !== repositoryPath || canonicalPath.length === 0) {
       throw new Error(`Workspace source membership path is not canonical: ${repositoryPath}`);
     }
@@ -926,6 +931,26 @@ export async function selectStagedSnapshot(input: Readonly<{
   if (provenance.kind !== 'staged-index-observation') {
     throw new Error('Staged workspace source selection requires staged-index provenance');
   }
+  const selection = await acquireStagedSourceSelection(input);
+  await readBackStagedIndexSnapshot(input.snapshot, input.session);
+  requireStagedSourceSelection(selection, input.snapshot);
+  return selection;
+}
+
+/** Index membership and diff are sufficient to establish an empty operation
+ * selection. No source blob or compiler project is acquired on this path. */
+export async function acquireStagedSourceSelection(input: Readonly<{
+  session: GitReadSession;
+  candidateBase?: string;
+}>): Promise<StagedSourceSelection> {
+  assertProductionGitReadSession(input.session);
+  const session = input.session;
+  if (session.failure !== null || session.providerIdentity === null
+      || session.workingDirectoryIdentity == null
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Staged source selection requires a current production Git session');
+  }
+  const index = await observeStagedIndex(session);
   const suppliedBase = input.candidateBase;
   if (suppliedBase !== undefined && !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(suppliedBase)) {
     throw new Error('Candidate import base must be one full Git object ID');
@@ -952,10 +977,13 @@ export async function selectStagedSnapshot(input: Readonly<{
   if (input.session.consumeRecords(selectedPaths.length) !== null) {
     throw new Error('Staged candidate import surface exceeded the Git session record budget');
   }
-  await readBackStagedIndexSnapshot(input.snapshot, input.session);
   const unsigned = Object.freeze({
     candidateBase,
-    snapshotSubjectDigest: input.snapshot.subjectDigest,
+    indexSubjectDigest: sha256({
+      indexIdentityDigest: index.identityDigest,
+      providerIdentityDigest: sha256(session.providerIdentity),
+      repositoryRootIdentityDigest: sha256(session.workingDirectoryIdentity)
+    }) as `sha256:${string}`,
     selectedPaths
   });
   const selection = Object.freeze({
@@ -964,7 +992,36 @@ export async function selectStagedSnapshot(input: Readonly<{
     selectionDigest: sha256(unsigned) as `sha256:${string}`
   });
   issuedStagedWorkspaceSourceSelections.add(selection);
+  stagedSelectionObservations.set(selection, Object.freeze({
+    index,
+    providerIdentityDigest: sha256(session.providerIdentity),
+    repositoryRootIdentityDigest: sha256(session.workingDirectoryIdentity)
+  }));
+  await readBackStagedSourceSelection(selection, session);
   return selection;
+}
+
+export async function readBackStagedSourceSelection(
+  selection: StagedSourceSelection,
+  session: GitReadSession
+): Promise<`sha256:${string}`> {
+  const observation = stagedSelectionObservations.get(selection);
+  if (!issuedStagedWorkspaceSourceSelections.has(selection) || observation === undefined) {
+    throw new Error('Staged workspace source selection is not owner-issued');
+  }
+  assertProductionGitReadSession(session);
+  if (session.failure !== null || session.providerIdentity === null
+      || session.workingDirectoryIdentity == null
+      || sha256(session.providerIdentity) !== observation.providerIdentityDigest
+      || sha256(session.workingDirectoryIdentity) !== observation.repositoryRootIdentityDigest
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Staged source selection provider changed before readback');
+  }
+  const current = await observeStagedIndex(session);
+  if (current.identityDigest !== observation.index.identityDigest) {
+    throw new Error('Staged source selection index changed before readback');
+  }
+  return selection.selectionDigest;
 }
 
 export function requireStagedSourceSelection(
@@ -975,12 +1032,17 @@ export function requireStagedSourceSelection(
     throw new Error('Staged workspace source selection is not owner-issued');
   }
   assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  const observation = stagedSelectionObservations.get(selection);
+  const provenance = snapshot.subject.provenance;
   const unsigned = Object.freeze({
     candidateBase: selection.candidateBase,
-    snapshotSubjectDigest: selection.snapshotSubjectDigest,
+    indexSubjectDigest: selection.indexSubjectDigest,
     selectedPaths: selection.selectedPaths
   });
-  if (selection.snapshotSubjectDigest !== snapshot.subjectDigest
+  if (observation === undefined || provenance.kind !== 'staged-index-observation'
+      || provenance.identityDigest !== observation.index.identityDigest
+      || provenance.providerIdentityDigest !== observation.providerIdentityDigest
+      || provenance.repositoryRootIdentityDigest !== observation.repositoryRootIdentityDigest
       || selection.selectionDigest !== sha256(unsigned)) {
     throw new Error('Staged workspace source selection differs from its exact snapshot');
   }
@@ -994,8 +1056,8 @@ export function requireStagedSourceSelection(
  */
 function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   commitSha: string;
-  treeEntries: readonly CodexDevelopmentExactGitTreeEntry[];
-  sourceBlobs: readonly CodexDevelopmentExactGitTextBlob[];
+  treeEntries: readonly ExactGitTreeEntry[];
+  sourceBlobs: readonly ExactGitTextBlob[];
 }>): PhysicalWorkspaceSourceSnapshot {
   const { treeEntries, sourceBlobs } = input;
   const ordinaryEntries = treeEntries.filter(({ mode, type }) => (
@@ -1069,7 +1131,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
 export function acquireExactGitTreeSnapshot(
   input: AcquireExactGitTreeSnapshotInput
 ): PhysicalWorkspaceSourceSnapshot {
-  const treeEntries = CodexDevelopmentListExactGitTreeEntries({
+  const treeEntries = listExactGitTreeEntries({
     repositoryRoot: input.repositoryRoot,
     commitSha: input.commitSha
   });
@@ -1081,7 +1143,7 @@ export function acquireExactGitTreeSnapshot(
   return issueExactGitTreeWorkspaceSourceSnapshot({
     commitSha: input.commitSha,
     treeEntries,
-    sourceBlobs: CodexDevelopmentReadExactGitTextBlobsBatch({
+    sourceBlobs: readExactGitTextBlobsBatch({
       repositoryRoot: input.repositoryRoot,
       entries: sourceEntries
     })
@@ -1092,7 +1154,7 @@ export async function acquireExactGitTreeSnapshotFromSession(
   input: AcquireExactGitTreeSnapshotFromSessionInput
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
   assertProductionGitReadSession(input.session);
-  const treeEntries = await CodexDevelopmentListExactGitTreeEntriesFromSession(
+  const treeEntries = await listExactGitTreeEntriesFromSession(
     input.session,
     input.commitSha
   );
@@ -1104,7 +1166,7 @@ export async function acquireExactGitTreeSnapshotFromSession(
   return issueExactGitTreeWorkspaceSourceSnapshot({
     commitSha: input.commitSha,
     treeEntries,
-    sourceBlobs: await CodexDevelopmentReadExactGitTextBlobsBatchFromSession(
+    sourceBlobs: await readExactGitTextBlobsBatchFromSession(
       input.session,
       { entries: sourceEntries, maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES }
     )

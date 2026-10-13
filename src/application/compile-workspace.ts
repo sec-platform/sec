@@ -55,8 +55,21 @@ export async function completeWorkspaceCompilationTransaction(
       (revalidateStagedProof !== undefined && typeof revalidateStagedProof !== 'function')) {
     throw new TypeError('Workspace compilation completion operations must be callable');
   }
+  // Let the stage owner select and capture only the admitted methods. A
+  // spread would drop prototype methods and give stateful providers a new
+  // receiver. Each selected forwarding closure retains the original method.
+  const bindStage = <Stage extends PipelineStageId>(stage: Stage): PipelineUseCaseOperations[Stage] => {
+    const operation = operations[stage];
+    if (typeof operation !== 'function') return operation;
+    return (() => Reflect.apply(operation, operations, [])) as PipelineUseCaseOperations[Stage];
+  };
   const stageResult = await coordinatePipelineStages(stages, {
-    ...operations,
+    get resolve() { return bindStage('resolve'); },
+    get semantic() { return bindStage('semantic'); },
+    get compose() { return bindStage('compose'); },
+    get verify() { return bindStage('verify'); },
+    get lock() { return bindStage('lock'); },
+    get emit() { return bindStage('emit'); },
     beforeStage: async stage => {
       await assertStageLease.call(operations);
       await emitStageBoundary.call(operations, stage, pipelineStageBoundary(stage));

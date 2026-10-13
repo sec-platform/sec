@@ -1,16 +1,14 @@
-# Engineering Workspace Compiler
-
-> Engineering intent, maintainable authoring, and available implementations compiled into controlled changes to real software workspaces.
+# Gift — Engineering Workspace Compiler
 
 [中文说明](README.zh-CN.md)
 
-This repository retains the historical name `sec`; that name is not the current project definition or acronym. SEC is a local-first **Engineering Workspace Compiler** for connecting product goals, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints.
+This repository retains the historical name `sec`; that name is not the current project definition or acronym. Gift is a local-first **Engineering Workspace Compiler** for connecting product goals, structured engineering semantics, governed source facts, implementation choices, verification evidence, and target-environment constraints.
 
-The long-term direction is for people and AI to work primarily with intent, semantics, constraints, responsibilities, effects, and evidence, while conventional source code increasingly serves as a lower-level realization target. Existing languages and ecosystems remain essential implementation targets and interoperability layers.
+The project is a **development preview**. Start with [PROJECT_STATUS.md](PROJECT_STATUS.md) for the available source examples and their limitations.
 
-## What the system does
+The design aims to let people and AI express goals, behavior, and constraints while reusing existing languages, libraries, and tools to produce conventional source code. Its scope includes creating software and maintaining existing workspaces.
 
-SEC supports two input paths: it can reconstruct relevant engineering facts from an existing workspace, or consume deliberately authored goals and constraints. Both paths feed the same responsibility chain:
+Gift supports two input paths: it can reconstruct relevant engineering facts from an existing workspace, or consume deliberately authored goals and constraints. Both paths feed the same responsibility chain:
 
 ```text
 Goal / Existing Workspace
@@ -26,13 +24,13 @@ Target Artifacts + Controlled Effects
 Readback + Verification + Evidence
 ```
 
-The requested outcome determines where a task ends. Analysis, a bounded design, an implementation candidate, a generated artifact, an executed operation, and a verified delivery are distinct results.
+This diagram shows responsibility handoffs rather than a mandatory execution sequence. Checks occur where their claims and operation preconditions apply, including before an effect is admitted. The requested outcome determines where a task ends: analysis, a bounded design, an implementation candidate, a generated artifact, a settled operation, and a verified delivery are distinct results. A request for analysis or in-memory generation does not also save, execute, or publish its result.
 
 ## Core boundaries
 
-SEC is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. Files, generated output, test results, tool responses, and AI statements do not become authoritative merely because they exist. Their identity, source, scope, effects, and evidence must remain explicit at the boundary where they are consumed.
+Gift is not an unrestricted whole-repository AI code generator, a low-code runtime, or a template marketplace. Files, generated output, test results, tool responses, and AI statements do not become authoritative merely because they exist. Their identity, source, scope, effects, and evidence must remain explicit at the boundary where they are consumed.
 
-The system keeps author content, semantic interpretation, compilation, verification, external effects, recovery, and publication as separate responsibilities. A plan does not grant write authority; generated code does not prove adoption; a process exit does not prove that an external effect settled; and a documented target design does not claim that its implementation is complete.
+Author content, semantic interpretation, compilation, assurance, external effects, recovery, and publication remain separate responsibilities. Plans do not authorize writes, generated source does not prove adoption, and a process exit does not prove that an external effect settled. The specifications describe the target design; implementation and verification status must be checked separately. External operations require readback of their actual effects.
 
 ## Read the design
 
@@ -47,11 +45,11 @@ The canonical design corpus currently uses Chinese titles and paths:
 | Why was a design chosen, and what remains unresolved? | [Decisions](docs/决策/README.md) · [Open status](docs/状态/README.md) |
 | How is this specification maintained? | [Documentation maintenance](docs/维护/README.md) |
 
-The summaries in this root directory are reader-facing projections. Canonical definitions remain in their owning documents under `docs/**`; document identity and generated inventory are maintained under `.documentation/**`. The current corpus digest is recorded in [`.documentation/source-manifest.json`](.documentation/source-manifest.json), and the delivery number is recorded in [`.documentation/baseline.json`](.documentation/baseline.json). These identify documentation content and its delivery label; they do not certify implementation or release status.
+The summaries in this root directory are reader-facing projections. Canonical definitions remain in their owning documents under `docs/**`. [The source boundary](.documentation/baseline.json) and [stable document identities](.documentation/documents.json) are authored inputs. Ordinary checks read the actual source; delivery builds generate a source manifest and requirement index in their target package. Authors do not refresh or commit those derived files after each edit. [The identity contract](docs/维护/文档身份与重组协议.md#documentation-identity-domains) defines strict package verification. Content identities and delivery labels do not certify implementation or release status.
 
 ## Project status
 
-The project is under active research and development. It contains substantial implementation, tests, documentation, examples, and verification infrastructure, but documented capabilities can be at different stages of specification, implementation, verification, adoption, and retirement.
+The repository contains a TypeScript implementation, tests, design specifications, examples, and verification infrastructure. Capabilities are at different stages of implementation and validation.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a reproducible starting path.
 
@@ -61,4 +59,4 @@ Repository development rules are in [AGENTS.md](AGENTS.md), and contributor guid
 
 Repository-owned software, tests, tools, executable examples, and build or workflow material are licensed under [MPL-2.0](LICENSE). Repository-owned documentation and specifications are licensed under [CC BY 4.0](LICENSES/CC-BY-4.0.txt). See the [license map](LICENSES/README.md), [authors](AUTHORS.md), and [citation metadata](CITATION.cff) for the exact scope and attribution.
 
-MPL-2.0 is used without Exhibit B. Using SEC on another project does not by itself apply MPL-2.0 to that project's source or generated output; copied SEC implementation material retains its license. Third-party components remain subject to their own licenses and notices.
+MPL-2.0 is used without Exhibit B. Using Gift on another project does not by itself apply MPL-2.0 to that project's source or generated output; copied Gift implementation material retains its license. Third-party components remain subject to their own licenses and notices.

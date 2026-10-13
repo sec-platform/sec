@@ -6,10 +6,10 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
   assertPhysicalGenerationRetirementReceipt,
@@ -30,9 +30,9 @@ function digest(value: string): `sha256:${string}` {
 function legacyRelocationOperation() {
   const requirementId = 'runtime-physical.legacy-relocation';
   const contractDigest = sha256({ contract: requirementId }) as `sha256:${string}`;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     aggregateBudgets: [{ resource: 'duration-ms', maximum: 30_000 }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: digest('relocation-authority') }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: digest('relocation-authority') }),
     deadlineAtUnixMs: Date.now() + 30_000,
     decisionDigest: digest('relocation-decision'),
     intentDigest: digest('relocation-intent'),
@@ -44,7 +44,7 @@ function legacyRelocationOperation() {
       id: requirementId
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     contractDigest,
     providerIdentityDigest: digest('runtime-physical-provider'),
     requirementId

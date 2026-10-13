@@ -1,5 +1,5 @@
 /** Canonical executable identity for the repository development runner. */
-export const DEV_RUNNER_ENTRYPOINT_PATH = 'src/adapters/self-hosting/development/runner/cli.ts' as const;
+export const DEV_RUNNER_ENTRYPOINT_PATH = 'src/bootstrap/development/runner-cli.ts' as const;
 
 // Canonical aggregate limits for one generic development command. Long-lived
 // domain operations must present their own issued admission instead of

@@ -2,18 +2,12 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import {
   assembleTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramFactShard,
-  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
 } from './typescript-fact-shards.ts';
 import {
-  TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
-  TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
-  TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
-} from './typescript-profile.ts';
-import {
-  compileSecRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   releaseTypeScriptSourceProgramWorkspace,
   sourceProgramTypeScriptCompilerIdentity
@@ -50,7 +44,7 @@ for (const [name, source, hasDependency, unresolved] of cases) {
         { path: 'src/b.ts', source: 'export const value = 1;', contentDigest: rawSha256('export const value = 1;') }
       ];
       const model = compileTypeScriptSourceProgramModel({ sourceRevision: rawSha256(source), files, moduleMembership });
-      const graph = compileSecRepositoryModuleGraph({ files: files.map(({ path }) => path),
+      const graph = compileSourceProgramRepositoryModuleGraph({ files: files.map(({ path }) => path),
         readSource: (path) => files.find((file) => file.path === path)?.source ?? null });
       const references = model.references.filter((reference) => reference.kind === 'import'
         && reference.targetPath === 'src/b.ts');
@@ -65,18 +59,12 @@ for (const [name, source, hasDependency, unresolved] of cases) {
   });
 }
 
-test('prior name-only interpretation cannot reuse persisted shards as the new semantic generation', () => {
-  const oldCompilerRevision = sha256({
-    compilerConfigDigest: sha256(TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS),
-    dependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST,
-    factShardSchemaDigest: SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
-    provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
-    semanticOwner: 'src/adapters/repository/source-program-model/typescript.ts'
-  });
+test('fact shards from an independent foreign compiler revision cannot join the current generation', () => {
+  const foreignCompilerRevision = sha256({ fixture: 'independent-foreign-compiler-revision' });
   const identity = sourceProgramTypeScriptCompilerIdentity();
-  assert.notEqual(identity.compilerRevision, oldCompilerRevision);
+  assert.notEqual(identity.compilerRevision, foreignCompilerRevision);
   const shard = compileTypeScriptSourceProgramFactShard({
-    compilerRevision: oldCompilerRevision, providerRevision: identity.providerRevision,
+    compilerRevision: foreignCompilerRevision, providerRevision: identity.providerRevision,
     rawFileDigest: rawSha256('export {};'), moduleDigest: sha256(null), semanticDependencyScope: 'module-scoped',
     facts: {
       path: 'src/a.ts', file: { path: 'src/a.ts', contentDigest: rawSha256('export {};'), moduleId: null,

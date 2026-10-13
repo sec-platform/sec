@@ -1,10 +1,13 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { semanticTargetParts } from '../../semantics/definitions/identity-components.ts';
 import { splitLinkedSemanticReference } from '../../semantics/definitions/link.ts';
 import type { LoadedSemanticContract, SemanticContractResponsibilityBinding } from '../../semantics/definitions/types.ts';
 import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
 import type { FactProvenance } from '../../semantics/engineering-ir/fact-types.ts';
 import type { FactInput } from './ir-fact-store.ts';
 import {
+  acceptanceEntityId,
+  blockEntityId,
   contractEffectId,
   contractEntityId,
   contractEventId,
@@ -18,7 +21,8 @@ import {
   contractStateId,
   scenarioStepEntityId,
   semanticEntity,
-  valueAttribute
+  valueAttribute,
+  verificationPolicyEntityId
 } from './ir-identity.ts';
 import { uniqueSorted } from './ir-normalization.ts';
 
@@ -57,7 +61,7 @@ function linkedEntityId(
 
 function linkedTargetId(reference: string): string {
   const { namespace, id } = splitLinkedSemanticReference(reference);
-  const [entityId, fieldId] = id.split('.');
+  const { entityId, fieldId } = semanticTargetParts(id);
   return fieldId
     ? contractFieldId(namespace, entityId!, fieldId)
     : contractEntityId(namespace, entityId!);
@@ -79,7 +83,7 @@ function linkedResponsibilityBindingTargetId(
 export function appendSemanticContract(input: LoadedSemanticContract, sink: BuildSink): void {
   sink.claimSemanticNamespace(input);
   const { contract } = input;
-  const blockId = `block:${input.blockId}`;
+  const blockId = blockEntityId(input.blockId);
   const provenance = contractProvenance(input);
 
   for (const entity of contract.entities) {
@@ -174,7 +178,7 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
       policy.rule ? [valueAttribute('rule', policy.rule)] : []
     ));
     for (const verificationPolicyId of policy.verifiedBy ?? []) {
-      const verificationEntityId = `policy:${verificationPolicyId}`;
+      const verificationEntityId = verificationPolicyEntityId(verificationPolicyId);
       sink.addFact({ subject: verificationEntityId, predicate: 'ENFORCES', object: { kind: 'entity', entityId: semanticPolicyId }, authority: 'authoritative', provenance });
       sink.addFact({ subject: semanticPolicyId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: verificationEntityId }, authority: 'authoritative', provenance });
     }
@@ -305,9 +309,9 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
       }
     }
 
-    const acceptanceEntityIds = scenario.acceptance.map((acceptanceId) => `acceptance:${acceptanceId}`);
-    for (const acceptanceEntityId of acceptanceEntityIds) {
-      sink.addFact({ subject: scenarioId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: acceptanceEntityId }, authority: 'authoritative', provenance });
+    const acceptanceEntityIds = scenario.acceptance.map(acceptanceEntityId);
+    for (const acceptanceId of acceptanceEntityIds) {
+      sink.addFact({ subject: scenarioId, predicate: 'VERIFIED_BY', object: { kind: 'entity', entityId: acceptanceId }, authority: 'authoritative', provenance });
     }
   }
 }

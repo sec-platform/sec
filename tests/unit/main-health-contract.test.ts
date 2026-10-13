@@ -176,22 +176,23 @@ test('valid degraded lane denial is distinct from expired or identity-drifted ob
 
 test('MainHealth revision changes for every health decision field', () => {
   const base = createMainHealthLedger(healthyInput());
-  const cases: readonly [string, MainHealthLedgerInput][] = [
+  const degradedRevision = createMainHealthLedger(degradedInput()).healthRevision;
+  const cases: readonly [string, MainHealthLedgerInput, string?][] = [
     ['repository', healthyInput({ repository: 'sec-platform/other' })],
     ['defaultBranch', healthyInput({ defaultBranch: 'trunk' })],
     ['mainSha', healthyInput({ mainSha: SHA_B })],
     ['mainTreeSha', healthyInput({ mainTreeSha: TREE_B })],
     ['status', lockedInput()],
-    ['failure fingerprint', degradedInput({ failureFingerprints: [D_B] })],
-    ['owner', degradedInput({ owner: 'other-owner' })],
+    ['failure fingerprint', degradedInput({ failureFingerprints: [D_B] }), degradedRevision],
+    ['owner', degradedInput({ owner: 'other-owner' }), degradedRevision],
     ['allowed lanes', healthyInput({ allowedLanes: ['ordinary', 'repair'] })],
     ['trustRevision', healthyInput({
       trustRevision: SHA_B,
       producer: { ...producer(), trustRevision: SHA_B }
     })]
   ];
-  for (const [label, candidate] of cases) {
-    expect(createMainHealthLedger(candidate).healthRevision, label).not.toBe(base.healthRevision);
+  for (const [label, candidate, previousRevision = base.healthRevision] of cases) {
+    expect(createMainHealthLedger(candidate).healthRevision, label).not.toBe(previousRevision);
   }
 });
 
@@ -222,6 +223,23 @@ test('MainHealth observation provenance changes receipt digest but not health re
   }));
   expect(local.healthRevision).toBe(base.healthRevision);
   expect(local.ledgerDigest).not.toBe(base.ledgerDigest);
+});
+
+test('live receipt provenance is distinct while historical durable ledgers stay decodable', () => {
+  const legacy = createMainHealthLedger(healthyInput({
+    producer: { ...producer(), sourceTransport: 'trusted-runtime-durable-readback',
+      sourceRef: `runtime-state:trusted-main-health/v2/main-${SHA_A}-${D_A.slice(7)}.json` }
+  }));
+  const live = createMainHealthLedger(healthyInput({
+    producer: { ...legacy.producer, sourceTransport: 'trusted-runtime-live-readback',
+      sourceRef: `live-receipt:trusted-main-health/v2/${SHA_A}/${D_A.slice(7)}` }
+  }));
+  expect(parseMainHealthLedger(JSON.stringify(legacy))).toEqual(legacy);
+  expect(parseMainHealthLedger(JSON.stringify(live))).toEqual(live);
+  expect(live.healthRevision).toBe(legacy.healthRevision);
+  expect(live.ledgerDigest).not.toBe(legacy.ledgerDigest);
+  expect(legacy.producer.sourceTransport).toBe('trusted-runtime-durable-readback');
+  expect(live.producer.sourceTransport).toBe('trusted-runtime-live-readback');
 });
 
 test('MainHealth canonicalizes set ordering and rejects duplicate/unknown members', () => {

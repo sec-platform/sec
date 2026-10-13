@@ -2,28 +2,28 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecRecoveredDomainReadbackReceipt,
-  issueSecRecoveredOwnerTerminalJoinReceipt,
-  issueSecRecoveredRetryAdmission,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueRecoveredDomainReadbackReceipt,
+  issueRecoveredOwnerTerminalJoinReceipt,
+  issueRecoveredRetryAdmission,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import type {
-  SecDurableExecutionDigest
+  DurableExecutionDigest
 } from '../../../runtime-state/workspace-state/durable-execution/contract.ts';
 import {
   createDurableExecutionWriter,
   durableExecutionJournalIdentity,
   durableExecutionPredecessorAttemptReference,
-  type SecDurableExecutionWriter
+  type DurableExecutionWriter
 } from '../../../runtime-state/workspace-state/durable-execution/store.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -60,7 +60,7 @@ export type LocalContainerEngineReadiness =
     mode: LocalContainerEngineReadinessMode;
     endpoint: DockerEndpointIdentity;
     loginStart: DockerDesktopLoginStart;
-    providerIdentityDigest: SecOperationDigest;
+    providerIdentityDigest: OperationDigest;
   }>
   | Readonly<{
     schema: typeof LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA;
@@ -69,7 +69,7 @@ export type LocalContainerEngineReadiness =
     loginStart: DockerDesktopLoginStart;
     reason: DockerDaemonAvailabilityFailureReason | 'command-provider-unavailable' | 'invalid-input';
     phase: DockerDaemonAvailabilityFailurePhase | 'provider-admission';
-    detailDigest: SecOperationDigest;
+    detailDigest: OperationDigest;
   }>;
 
 const REQUIREMENT_ID = 'external.container-engine-readiness';
@@ -77,43 +77,38 @@ const DURATION_BUDGET_MS = 120_000;
 
 function bindReadinessOperation(input: Readonly<{
   mode: LocalContainerEngineReadinessMode;
-  providerIdentityDigest: SecOperationDigest;
-  authorityGrantDigest?: SecOperationDigest;
-  operationEpochDigest?: SecOperationDigest;
-  resumeEpochDigest?: SecOperationDigest | null;
-  runIdDigest?: SecOperationDigest | null;
+  providerIdentityDigest: OperationDigest;
+  operationEpochDigest?: OperationDigest;
+  runIdDigest?: OperationDigest | null;
 }>) {
   const contractDigest = sha256({
     domain: 'sec.local-container-engine-readiness',
     requirementId: REQUIREMENT_ID,
     effectKinds: ['filesystem', 'process', 'provider'],
     durationBudgetMs: DURATION_BUDGET_MS
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: DURATION_BUDGET_MS },
       { resource: 'input-bytes', maximum: 1 },
       { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
       { resource: 'processes', maximum: 8 }
     ],
-    attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: input.authorityGrantDigest ?? contractDigest,
-      ...(input.runIdDigest === undefined ? {} : { runIdDigest: input.runIdDigest }),
-      ...(input.resumeEpochDigest === undefined
-        ? {}
-        : { resumeEpochDigest: input.resumeEpochDigest })
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest,
+      ...(input.runIdDigest === undefined ? {} : { runIdDigest: input.runIdDigest })
     }),
     deadlineAtUnixMs: Date.now() + DURATION_BUDGET_MS,
     decisionDigest: sha256({
       domain: 'sec.local-container-engine-readiness.decision',
       mode: input.mode,
       operationEpochDigest: input.operationEpochDigest ?? null
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     intentDigest: sha256({
       domain: 'sec.local-container-engine-readiness.intent',
       mode: input.mode,
       operationEpochDigest: input.operationEpochDigest ?? null
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     operation: 'external.container-engine-readiness',
     requirements: [{
       contractDigest,
@@ -128,7 +123,7 @@ function bindReadinessOperation(input: Readonly<{
       id: REQUIREMENT_ID
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT_ID,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -156,20 +151,61 @@ function unavailable(input: Readonly<{
       detail: input.detail instanceof Error
         ? { name: input.detail.name, message: input.detail.message }
         : String(input.detail)
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
+}
+
+function bindPostTerminalReadinessOperation(input: Readonly<{
+  mode: LocalContainerEngineReadinessMode;
+  providerIdentityDigest: OperationDigest;
+  terminalJoinReceiptDigest: OperationDigest;
+}>) {
+  return bindReadinessOperation({
+    mode: input.mode,
+    providerIdentityDigest: input.providerIdentityDigest,
+    operationEpochDigest: input.terminalJoinReceiptDigest,
+    runIdDigest: sha256({
+      domain: 'sec.docker.readiness.post-terminal-run',
+      terminalJoinReceiptDigest: input.terminalJoinReceiptDigest
+    }) as OperationDigest
+  });
+}
+
+function bindReadinessAttempt(input: Readonly<{
+  operation: BoundSemanticOperation;
+  authorityGrantDigest: OperationDigest;
+  resumeEpochDigest: OperationDigest | null;
+  runIdDigest: OperationDigest;
+}>) {
+  const { identity, execution } = input.operation.plan;
+  const plan = compileSemanticOperationPlan({
+    operation: identity.operation,
+    intentDigest: identity.intentDigest,
+    decisionDigest: identity.decisionDigest,
+    aggregateBudgets: execution.aggregateBudgets,
+    requirements: execution.requirements,
+    deadlineAtUnixMs: Date.now() + DURATION_BUDGET_MS,
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: input.authorityGrantDigest,
+      resumeEpochDigest: input.resumeEpochDigest,
+      runIdDigest: input.runIdDigest
+    })
+  });
+  // Recovery and retry replace only the attempt. The current journal's
+  // identity, execution contract and provider bindings remain authoritative.
+  return bindSemanticOperation(plan, input.operation.bindings);
 }
 
 type InstalledDockerProvider = Awaited<ReturnType<typeof openDockerCommandProvider>>;
 type ReadySessionObservation = Readonly<{
   supportedOperations: readonly ContainerEngineOperation['kind'][];
   endpoint: DockerEndpointIdentity;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
 }>;
 
 async function observeWithOwnedProvider(input: Readonly<{
   provider: InstalledDockerProvider;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   cwd: string;
   availability: LocalContainerEngineReadinessMode;
   beforeDesktopLaunch?: () => Promise<void> | void;
@@ -218,7 +254,7 @@ async function observeWithOwnedProvider(input: Readonly<{
 function durableWriter(input: Readonly<{
   authority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>>;
   repositoryRoot: string;
-}>): SecDurableExecutionWriter {
+}>): DurableExecutionWriter {
   const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: input.repositoryRoot });
   return createDurableExecutionWriter({
     fileSystem: createRuntimeStateJournalFileSystem(
@@ -315,28 +351,39 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
   let journalAuthority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>> | null = null;
   const completion = (async (): Promise<LocalContainerEngineReadiness> => {
     try {
-    let writer: SecDurableExecutionWriter | null = null;
+    let writer: DurableExecutionWriter | null = null;
     let retryAlreadyClaimed = false;
     if (mode === 'ensure-started' && process.platform === 'win32') {
       journalAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: cwd });
       writer = durableWriter({ authority: journalAuthority, repositoryRoot: cwd });
-      const prior = writer.read(durableExecutionJournalIdentity(operation));
+      let prior = writer.read(durableExecutionJournalIdentity(operation));
+      // A terminal predecessor can have an already-created successor. Follow
+      // that original lineage before observing or considering a new start;
+      // an unresolved successor must keep its own recovery responsibility.
+      while (prior?.state === 'settled' && prior.latestResolution?.resolutionKind === 'owner-terminal-reference') {
+        const successor = bindPostTerminalReadinessOperation({ mode,
+          providerIdentityDigest: provider.providerIdentityDigest,
+          terminalJoinReceiptDigest: prior.latestResolution.resolutionReferenceDigest as OperationDigest });
+        const successorPrior = writer.read(durableExecutionJournalIdentity(successor));
+        if (successorPrior === null) break;
+        operation = successor;
+        prior = successorPrior;
+      }
       if (prior?.activeAttempt !== null && prior?.activeAttempt !== undefined) {
         const predecessor = durableExecutionPredecessorAttemptReference(prior);
         const recoveryEpoch = sha256({
           domain: 'sec.docker.readiness.recovery-epoch',
           durableObservationDigest: prior.journalDigest,
           providerIdentityDigest: provider.providerIdentityDigest
-        }) as SecOperationDigest;
-        const recovery = bindReadinessOperation({
-          mode,
-          providerIdentityDigest: provider.providerIdentityDigest,
+        }) as OperationDigest;
+        const recovery = bindReadinessAttempt({
+          operation,
           authorityGrantDigest: operation.plan.attempt.authorityGrantDigest,
           resumeEpochDigest: recoveryEpoch,
           runIdDigest: sha256({
             domain: 'sec.docker.readiness.recovery-run',
             durableObservationDigest: prior.journalDigest
-          }) as SecOperationDigest
+          }) as OperationDigest
         });
         try {
           const recoveredReady = await observeWithOwnedProvider({
@@ -348,18 +395,18 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           const currentPhysicalEpochDigest = sha256({
             domain: 'sec.docker.daemon.physical-epoch',
             endpoint: recoveredReady.endpoint
-          }) as SecOperationDigest;
-          const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+          }) as OperationDigest;
+          const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
             predecessor,
             durableObservationDigest: prior.journalDigest,
-            readbackContractDigest: sha256('sec.docker.daemon.handle-independent-readback') as SecOperationDigest,
+            readbackContractDigest: sha256('sec.docker.daemon.handle-independent-readback') as OperationDigest,
             readbackReferenceDigest: currentPhysicalEpochDigest,
             currentPhysicalEpochDigest,
             disposition: 'applied'
           });
           writer.appendDomainReadback(recovery, recoveredReadback);
-          const terminal = issueSecRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
-            ownerTerminalContractDigest: sha256('sec.docker.daemon.ready-terminal') as SecOperationDigest,
+          const terminal = issueRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
+            ownerTerminalContractDigest: sha256('sec.docker.daemon.ready-terminal') as OperationDigest,
             ownerTerminalReferenceDigest: recoveredReady.providerIdentityDigest
           });
           writer.appendOwnerTerminalResolution(recovery, terminal);
@@ -381,19 +428,19 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           const currentPhysicalEpochDigest = sha256({
             domain: 'sec.docker.daemon.physical-epoch',
             unavailableReadbackDigest: error.detailDigest
-          }) as SecOperationDigest;
-          const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+          }) as OperationDigest;
+          const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
             predecessor,
             durableObservationDigest: prior.journalDigest,
-            readbackContractDigest: sha256('sec.docker.daemon.handle-independent-readback') as SecOperationDigest,
+            readbackContractDigest: sha256('sec.docker.daemon.handle-independent-readback') as OperationDigest,
             readbackReferenceDigest: error.detailDigest,
             currentPhysicalEpochDigest,
             disposition: 'not-applied'
           });
           writer.appendDomainReadback(recovery, recoveredReadback);
           if (predecessor.deadlineAtUnixMs <= Date.now()) {
-            const terminal = issueSecRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
-              ownerTerminalContractDigest: sha256('sec.docker.daemon.unavailable-terminal') as SecOperationDigest,
+            const terminal = issueRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
+              ownerTerminalContractDigest: sha256('sec.docker.daemon.unavailable-terminal') as OperationDigest,
               ownerTerminalReferenceDigest: error.detailDigest
             });
             writer.appendOwnerTerminalResolution(recovery, terminal);
@@ -405,14 +452,10 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               );
             }
             provider = successorProvider;
-            operation = bindReadinessOperation({
+            operation = bindPostTerminalReadinessOperation({
               mode,
               providerIdentityDigest: provider.providerIdentityDigest,
-              operationEpochDigest: terminal.joinReceiptDigest,
-              runIdDigest: sha256({
-                domain: 'sec.docker.readiness.post-terminal-run',
-                terminalJoinReceiptDigest: terminal.joinReceiptDigest
-              }) as SecOperationDigest
+              terminalJoinReceiptDigest: terminal.joinReceiptDigest
             });
             // The expired predecessor is terminal and never retried. The
             // explicit ensure-started invocation continues once as a new
@@ -420,7 +463,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
             // receipt and whose attempt receives the current canonical budget.
             retryAlreadyClaimed = false;
           } else {
-            const retryAdmission = issueSecRecoveredRetryAdmission(recovery, recoveredReadback);
+            const retryAdmission = issueRecoveredRetryAdmission(recovery, recoveredReadback);
             const successorProvider = await openDockerCommandProvider({ workingDirectory: cwd });
             if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
               disposeUnclaimedDockerCommandProviderCapability(successorProvider);
@@ -429,20 +472,19 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               );
             }
             provider = successorProvider;
-            operation = bindReadinessOperation({
-              mode,
-              providerIdentityDigest: provider.providerIdentityDigest,
+            operation = bindReadinessAttempt({
+              operation: recovery,
               authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
               resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest,
               runIdDigest: sha256({
                 domain: 'sec.docker.readiness.successor-run',
                 retryAdmissionDigest: retryAdmission.retryAdmissionDigest
-              }) as SecOperationDigest
+              }) as OperationDigest
             });
             writer.appendRecoveredRetryAttemptStart(
               recovery,
               operation,
-              sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest,
+              sha256('sec.docker.desktop-launcher-worker') as DurableExecutionDigest,
               retryAdmission,
               currentPhysicalEpochDigest
             );
@@ -450,26 +492,43 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           }
         }
       } else if (prior !== null) {
-        const currentReady = await observeWithOwnedProvider({
-          provider,
-          operation,
-          cwd,
-          availability: 'observe'
-        });
-        return Object.freeze({
-          schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
-          status: 'ready',
-          mode,
-          claim: 'daemon-observation',
-          supportedOperations: currentReady.supportedOperations,
-          endpoint: currentReady.endpoint,
-          loginStart,
-          providerIdentityDigest: currentReady.providerIdentityDigest
-        });
+        try {
+          const currentReady = await observeWithOwnedProvider({
+            provider,
+            operation,
+            cwd,
+            availability: 'observe'
+          });
+          return Object.freeze({
+            schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
+            status: 'ready',
+            mode,
+            claim: 'daemon-observation',
+            supportedOperations: currentReady.supportedOperations,
+            endpoint: currentReady.endpoint,
+            loginStart,
+            providerIdentityDigest: currentReady.providerIdentityDigest
+          });
+        } catch (error) {
+          if (!(error instanceof DockerDaemonAvailabilityFailure) || error.reason !== 'endpoint-unavailable' ||
+              error.phase !== 'endpoint-observe' || prior.state !== 'settled' ||
+              prior.latestResolution?.resolutionKind !== 'owner-terminal-reference') throw error;
+          const successorProvider = await openDockerCommandProvider({ workingDirectory: cwd });
+          if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
+            disposeUnclaimedDockerCommandProviderCapability(successorProvider);
+            throw new DockerCommandProviderUnavailableError(
+              'Docker command provider identity changed after terminal readiness observation.'
+            );
+          }
+          provider = successorProvider;
+          operation = bindPostTerminalReadinessOperation({ mode,
+            providerIdentityDigest: provider.providerIdentityDigest,
+            terminalJoinReceiptDigest: prior.latestResolution.resolutionReferenceDigest as OperationDigest });
+        }
       }
     }
 
-    let launcherSettlement: ReturnType<typeof issueSecProviderSettlementReceipt> | null = null;
+    let launcherSettlement: ReturnType<typeof issueProviderSettlementReceipt> | null = null;
     const ready = await observeWithOwnedProvider({
       provider,
       operation,
@@ -481,11 +540,11 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           writer!.createIntent(operation);
           writer!.appendInitialAttemptStart(
             operation,
-            sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest
+            sha256('sec.docker.desktop-launcher-worker') as DurableExecutionDigest
           );
         },
         observeDesktopLaunchSettlement: (settlement) => {
-          launcherSettlement = issueSecProviderSettlementReceipt(operation, {
+          launcherSettlement = issueProviderSettlementReceipt(operation, {
             requirementId: REQUIREMENT_ID,
             physicalDisposition: settlement.physicalDisposition === 'unknown'
               ? 'unknown'
@@ -497,7 +556,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               stderr: settlement.stderr,
               physicalDisposition: settlement.physicalDisposition,
               transportFailureStatus: settlement.transportFailureStatus ?? null
-            }) as SecOperationDigest
+            }) as OperationDigest
           });
           writer!.appendProviderSettlement(operation, launcherSettlement);
           if (settlement.physicalDisposition === 'unknown') {
@@ -510,37 +569,37 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       const observation = writer.read(durableExecutionJournalIdentity(operation));
       if (observation?.activeAttempt !== null && observation?.activeAttempt !== undefined) {
         if (launcherSettlement === null) {
-          launcherSettlement = issueSecProviderSettlementReceipt(operation, {
+          launcherSettlement = issueProviderSettlementReceipt(operation, {
             requirementId: REQUIREMENT_ID,
             physicalDisposition: 'not-started',
             providerSettlementReferenceDigest: sha256({
               domain: 'sec.docker.desktop-launcher-not-required',
               endpoint: ready.endpoint
-            }) as SecOperationDigest
+            }) as OperationDigest
           });
           writer.appendProviderSettlement(operation, launcherSettlement);
         }
-        const providerSettlements = compileSecProviderSettlementSet(
+        const providerSettlements = compileProviderSettlementSet(
           operation,
           [launcherSettlement]
         );
         const currentPhysicalEpochDigest = sha256({
           domain: 'sec.docker.daemon.physical-epoch',
           endpoint: ready.endpoint
-        }) as SecOperationDigest;
-        const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlements, {
-          readbackContractDigest: sha256('sec.docker.daemon.handle-independent-readback') as SecOperationDigest,
+        }) as OperationDigest;
+        const readback = issueNormalDomainReadbackReceipt(operation, providerSettlements, {
+          readbackContractDigest: sha256('sec.docker.daemon.handle-independent-readback') as OperationDigest,
           readbackReferenceDigest: currentPhysicalEpochDigest,
           currentPhysicalEpochDigest,
           disposition: 'applied'
         });
         writer.appendDomainReadback(operation, readback);
-        const terminal = issueSecNormalOwnerTerminalJoinReceipt(
+        const terminal = issueNormalOwnerTerminalJoinReceipt(
           operation,
           providerSettlements,
           readback,
           {
-            ownerTerminalContractDigest: sha256('sec.docker.daemon.ready-terminal') as SecOperationDigest,
+            ownerTerminalContractDigest: sha256('sec.docker.daemon.ready-terminal') as OperationDigest,
             ownerTerminalReferenceDigest: ready.providerIdentityDigest
           }
         );

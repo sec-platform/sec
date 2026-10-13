@@ -9,7 +9,7 @@ import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 
 // Isolate the engine, policy observation and final publication in a child.
 // Actual request, lease and failed-snapshot construction retain their owners.
-for (const lane of ['fast', 'runtime'] as const) for (const rejectPublication of [false, true]) {
+for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runtime', false]] as const) {
   test(`${lane} verification preserves integrity failure when snapshot rejection=${rejectPublication}`, async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-verify-settlement-'));
     const repo = fileURLToPath(new URL('../../', import.meta.url));

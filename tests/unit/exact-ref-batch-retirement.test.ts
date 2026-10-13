@@ -75,6 +75,19 @@ mock.module('../../src/adapters/providers/github-api/operation-session.ts', () =
 }));
 const { observeExactRefBatchResumeReceipt } = await import('../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts');
 
+test('historical receipt reader rejects malformed locator identity before provider access', async () => {
+  const prepared = preparation();
+  const locator = { artifactId: '123', artifactDigest: `sha256:${'d'.repeat(64)}` as const, runId: '456', runAttempt: 1 };
+  for (const changed of [{ runAttempt: 0 }, { artifactId: '../123' },
+    { artifactId: '9'.repeat(30) }, { artifactDigest: 'not-a-digest' }]) {
+    await expect(observeExactRefBatchResumeReceipt({
+      repositoryRoot: process.cwd(), repository: prepared.repository,
+      expectedMainSha: MAIN, retirements: prepared.retirements, requestDigest: prepared.requestDigest,
+      resumeReceipt: { ...locator, ...changed } as typeof locator
+    })).rejects.toThrow('Batch resume locator is invalid');
+  }
+});
+
 for (const fault of ['none', 'run', 'request', 'archive'] as const) {
   test.serial(`historical receipt verification-read ${fault}`, async () => {
     const prepared = preparation();

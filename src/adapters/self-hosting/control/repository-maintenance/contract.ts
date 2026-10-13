@@ -1,4 +1,4 @@
-/** Historical request/locator grammars. Parsing never authorizes a new maintenance effect. */
+/** Historical request grammar. Parsing never authorizes a new maintenance effect. */
 import {
   parseExactRefRetirement,
   type ExactRefRetirement
@@ -185,27 +185,4 @@ export function parseRepositoryMaintenanceRequest(source: string): MaintenanceRe
     expectedMainSha: sha(input.expectedMainSha, 'expectedMainSha'),
     operations: Object.freeze(operations)
   });
-}
-
-export type MaintenanceResumeReceipt = Readonly<{
-  artifactId: string;
-  artifactDigest: `sha256:${string}`;
-  runId: string;
-  runAttempt: number;
-}>;
-
-export function parseRepositoryMaintenanceResumeReceipt(source: string | undefined): MaintenanceResumeReceipt | undefined {
-  if (source === undefined || source === '') return undefined;
-  if (Buffer.byteLength(source, 'utf8') > 1024) throw new Error('resume receipt locator exceeds byte budget');
-  const value = record(JSON.parse(source), 'resume receipt locator');
-  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(['artifactDigest', 'artifactId', 'runAttempt', 'runId'])
-      || typeof value.artifactId !== 'string' || !/^[1-9][0-9]*$/u.test(value.artifactId)
-      || typeof value.runId !== 'string' || !/^[1-9][0-9]*$/u.test(value.runId)
-      || !Number.isSafeInteger(Number(value.artifactId)) || !Number.isSafeInteger(Number(value.runId))
-      || !Number.isSafeInteger(value.runAttempt) || Number(value.runAttempt) < 1
-      || typeof value.artifactDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.artifactDigest)) {
-    throw new Error('resume receipt locator is invalid');
-  }
-  return Object.freeze({ artifactId: value.artifactId, artifactDigest: value.artifactDigest as `sha256:${string}`,
-    runId: value.runId, runAttempt: Number(value.runAttempt) });
 }

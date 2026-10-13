@@ -12,9 +12,11 @@ import {
 import { factAssertionId } from './ir-fact-store.ts';
 import {
   appEntityId,
+  assertEngineeringIRInputIdentities,
   assertEngineeringIRReferences,
   engineeringGraphId,
-  factIdentity
+  factIdentity,
+  isCanonicalSemanticEntityIdentity
 } from './ir-identity.ts';
 import {
   normalizeAttributes,
@@ -45,16 +47,7 @@ function assertCanonicalIds(values: readonly { id: string }[], collection: strin
 }
 
 function entityIdMatchesKind(entity: SemanticEntity): boolean {
-  if (entity.kind === 'scenario-step') {
-    return /^scenario:.+#step:.+$/.test(entity.id);
-  }
-  if (entity.kind === 'port') {
-    return /^port:.+:(?:input|output):.+$/.test(entity.id);
-  }
-  if (entity.kind === 'field') {
-    return /^field:[^:]+:.+\..+$/.test(entity.id);
-  }
-  return entity.id.startsWith(`${entity.kind}:`) && entity.id.length > entity.kind.length + 1;
+  return isCanonicalSemanticEntityIdentity(entity);
 }
 
 function assertEntityIdentities(ir: EngineeringIR): void {
@@ -175,6 +168,7 @@ export function validateEngineeringIR(
   ir: EngineeringIR,
   input: BuildEngineeringIRInput
 ): ValidatedEngineeringIRSnapshot {
+  assertEngineeringIRInputIdentities(input);
   if (ir.formatVersion !== ENGINEERING_IR_FORMAT_VERSION) {
     fail(
       'IR-VALIDATION-001',

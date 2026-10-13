@@ -1,7 +1,7 @@
 import path from 'node:path';
 
-import { CompilerError } from '../../../compiler/errors.ts';
 import type { CommitFence } from "../../../contracts/commit-fence.ts";
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
 import type { OverrideEntry } from '../../../semantics/provenance/types.ts';
 import { deleteExpectedCanonicalWorkspaceFile, publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";
@@ -27,7 +27,7 @@ function readOverrideSource(
   const sourcePath = resolvePathInside(overrideRoot, entry.entry);
   const targetPath = resolvePathInside(workspaceRoot, entry.target);
   if (!sourcePath || !targetPath) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'OVERRIDE-APPLY-001',
       `Override "${entry.id}" escaped its validated source/target root`
     );
@@ -38,7 +38,7 @@ function readOverrideSource(
     `Override source ${entry.id}`
   );
   if (sourceBytes === null) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'OVERRIDE-APPLY-001',
       `Override "${entry.id}" source "${entry.entry}" is missing`
     );
@@ -48,7 +48,7 @@ function readOverrideSource(
   try {
     decodeExactUtf8(sourceBytes, `Override source ${entry.id}`);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'OVERRIDE-APPLY-001',
       `Override "${entry.id}" source is not exact UTF-8`,
       {},
@@ -79,13 +79,13 @@ function assertPreparedOverrideInputsCurrent(prepared: readonly PreparedOverride
       `Override target ${override.entry.id} final fence`
     );
     if (source === null || !Buffer.from(source).equals(Buffer.from(override.sourceBytes))) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'OVERRIDE-APPLY-001',
         `Override "${override.entry.id}" source changed after planning`
       );
     }
     if (!sameOptionalBytes(target, override.targetPreimage)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'OVERRIDE-APPLY-001',
         `Override "${override.entry.id}" target preimage changed after planning`
       );
@@ -154,7 +154,7 @@ export async function applyOverrides(
         );
         if (sourceAtPublication === null
             || !Buffer.from(sourceAtPublication).equals(Buffer.from(override.sourceBytes))) {
-          throw new CompilerError(
+          throw new CodedFailure(
             'OVERRIDE-APPLY-001',
             `Override "${override.entry.id}" source changed before publication`
           );
@@ -165,7 +165,7 @@ export async function applyOverrides(
         await publicationFence();
         const current = readOptionalRetainedOrdinaryFile(override.targetPath, `Override target ${override.entry.id} no-op readback`);
         if (!sameOptionalBytes(current, override.sourceBytes)) {
-          throw new CompilerError('OVERRIDE-APPLY-001', `Override "${override.entry.id}" target changed before no-op completion`);
+          throw new CodedFailure('OVERRIDE-APPLY-001', `Override "${override.entry.id}" target changed before no-op completion`);
         }
         continue;
       }
@@ -197,7 +197,7 @@ export async function applyOverrides(
     // confirmed prior outputs are compensated; no force-write guesses ownership.
     const failures = await rollbackPublishedOverrides(workspaceRoot, published);
     if (failures.length > 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'OVERRIDE-APPLY-002',
         'Override publication failed and exact rollback could not be proven',
         { rollbackFailures: failures.map(({ overrideId, targetPath }) => ({ overrideId, targetPath })) },

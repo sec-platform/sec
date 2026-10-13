@@ -1,6 +1,5 @@
 import path from 'node:path';
 import type { PipelineExecutionContext } from '../../adapters/compilation-protocol/types.ts';
-import { composeProject } from '../../adapters/compilation/compose/compose-project.ts';
 import { requirePipelineSemanticContext } from '../../adapters/compilation/pipeline/semantic-context.ts';
 import { createWorkspaceWriteCommitFence } from '../../adapters/filesystem/write-lease.ts';
 import { readLockFile } from '../../adapters/workspace/lock.ts';
@@ -12,10 +11,12 @@ import {
   type PreparedComposeWorkspaceRequest
 } from '../../application/compose-workspace.ts';
 import { coordinatePipelineStageAdmission } from '../../application/pipeline-stage-lifecycle.ts';
+import { executeProjectComposition } from '../../application/project-composition.ts';
 import type { LockFile, PlanFile } from '../../compiler/contract.ts';
 import type { PipelineSemanticContext } from '../../compiler/pipeline/semantic-context.ts';
 import { opaqueModuleMaterializationEnvironment } from '../../compiler/target-materialization.ts';
 import { executePipelineStage, withPipelineTransaction } from './pipeline-kernel.ts';
+import { createProjectCompositionOperations } from './project-composition.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 export type { ComposeWorkspaceOptions } from '../../application/compose-workspace.ts';
@@ -31,11 +32,11 @@ async function composeWorkspaceCore(
     readPlan: () => loadWorkspacePlan(workspaceRoot),
     readLock: () => readLockFile(workspaceRoot),
     compose: async (lock, semantic, prepared) => {
-      await composeProject(workspaceRoot, lock, semantic, {
+      await executeProjectComposition(lock, semantic, {
         commitFence,
         signal: prepared.signal,
         opaqueModuleMaterializationMode: prepared.materializationMode
-      });
+      }, createProjectCompositionOperations(workspaceRoot));
     }
   });
 }

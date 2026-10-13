@@ -1,56 +1,49 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/settings",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/settings",
   "namespace": "spec.settings",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:Versioned": {
       "kind": "req:enum-value",
       "name": "Versioned",
-      "body": {
-        "nominalIdentity": "sec/spec/settings#Versioned"
-      }
+      "body": {}
     },
     "v:User": {
       "kind": "req:enum-value",
       "name": "User",
-      "body": {
-        "nominalIdentity": "sec/spec/settings#User"
-      }
+      "body": {}
     },
     "v:Product": {
       "kind": "req:enum-value",
       "name": "Product",
-      "body": {
-        "nominalIdentity": "sec/spec/settings#Product"
-      }
+      "body": {}
     },
     "v:Workspace": {
       "kind": "req:enum-value",
       "name": "Workspace",
-      "body": {
-        "nominalIdentity": "sec/spec/settings#Workspace"
-      }
+      "body": {}
     },
     "v:ExplicitSchemaOrder": {
       "kind": "req:enum-value",
       "name": "ExplicitSchemaOrder",
-      "body": {
-        "nominalIdentity": "sec/spec/settings#ExplicitSchemaOrder"
-      }
+      "body": {}
     },
     "v:ReferenceOnly": {
       "kind": "req:enum-value",
       "name": "ReferenceOnly",
-      "body": {
-        "nominalIdentity": "sec/spec/settings#ReferenceOnly"
-      }
+      "body": {}
     },
     "r:Configuration": {
       "kind": "req:rule",
@@ -63,7 +56,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Configuration"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Configuration"
+                  }
+                }
               ]
             },
             "meaning": "配置主体"
@@ -75,9 +73,15 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "sec/spec/settings#Product",
-                  "sec/spec/settings#Workspace",
-                  "sec/spec/settings#User"
+                  {
+                    "definitionId": "v:Product"
+                  },
+                  {
+                    "definitionId": "v:Workspace"
+                  },
+                  {
+                    "definitionId": "v:User"
+                  }
                 ]
               }
             },
@@ -88,7 +92,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/settings#ExplicitSchemaOrder"
+                {
+                  "definitionId": "v:ExplicitSchemaOrder"
+                }
               ]
             },
             "meaning": "每个键公开固定层次：产品默认→用户→工程；策略硬约束单独合取"
@@ -98,7 +104,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/settings#ReferenceOnly"
+                {
+                  "definitionId": "v:ReferenceOnly"
+                }
               ]
             },
             "meaning": "秘密仅引用，值走秘密提供者"
@@ -108,7 +116,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/settings#Versioned"
+                {
+                  "definitionId": "v:Versioned"
+                }
               ]
             },
             "meaning": "变更固定输入与受影响实例"
@@ -117,7 +127,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "settings.Configuration",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -145,14 +154,6 @@
     },
     "Configuration": {
       "definitionId": "r:Configuration"
-    }
-  },
-  "extensions": {
-    "sec.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }
   }
 }

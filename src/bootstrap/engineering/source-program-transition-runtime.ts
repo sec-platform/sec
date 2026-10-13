@@ -101,7 +101,7 @@ export function createTrustedSourceProgramTransitionUseCase(): TrustedRuntimeSou
       /** Existing verification Actions own their effects, budgets and settlement.
        * The current batch requires sourceAction before launch; historical exact
        * completed verification can be reused. publishVerification owns state write. */
-      runVerification: async (_request, _control, source) => {
+      runVerification: async (_request, control, source) => {
         if (context.previousVerification !== null) return Object.freeze({
           kind: 'satisfied', verification: context.previousVerification
         });
@@ -115,7 +115,9 @@ export function createTrustedSourceProgramTransitionUseCase(): TrustedRuntimeSou
         const verification = await executeTrustedRuntimeContainerVerification({
           repositoryRoot: context.repositoryRoot, envelope,
           actorNodeId: context.actorNodeId, requiredBlobs: context.requiredBlobs,
-          sourceProgramTransition: binding, sourceAction: acquired.facts.sourceAction
+          sourceProgramTransition: binding, sourceAction: acquired.facts.sourceAction,
+          deadlineAtUnixMs: control.deadlineAtUnixMs,
+          ...(control.signal === undefined ? {} : { signal: control.signal })
         });
         context.publishVerification(verification);
         return Object.freeze({ kind: 'satisfied', verification });

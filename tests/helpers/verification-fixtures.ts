@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import { snapshotVerificationPublicationArtifacts } from '../../src/assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import {
@@ -14,7 +15,6 @@ import {
   type ProductVerificationObservations,
   type ProductVerificationRuntimeMode
 } from '../../src/assurance/verification/profile/contract/product.ts';
-import type { LockFile } from '../../src/compiler/contract.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 
@@ -25,6 +25,8 @@ export function emptyVerificationLogs(): VerificationReport['logs'] {
 type VerificationArtifactFixtureOptions = {
   policyReport?: PolicyReport;
   acceptanceCoverage?: AcceptanceCoverageReport;
+  subjectRevision?: string;
+  lane?: VerificationReport['summary']['requestedLane'];
 };
 
 function emptyPolicyReport(): PolicyReport {
@@ -50,9 +52,10 @@ function emptyAcceptanceCoverage(status: VerificationReport['runtime']['status']
 
 export function productVerificationObservationsFixture(
   lane: VerificationReport['summary']['requestedLane'] = 'all',
-  runtimeMode: ProductVerificationRuntimeMode = 'full'
+  runtimeMode: ProductVerificationRuntimeMode = 'full',
+  subjectRevision: string = sha256({ fixture: 'product-verification-subject' })
 ): ProductVerificationObservations {
-  const bindings = buildProductVerificationObservationBindings(sha256({ fixture: 'product-verification-subject' }), lane, runtimeMode);
+  const bindings = buildProductVerificationObservationBindings(subjectRevision, lane, runtimeMode);
   const executed = (binding: ProductVerificationGateObservation, label: string): ProductVerificationGateObservation => ({
     ...binding,
     environment: {
@@ -86,6 +89,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
   input: VerificationReport,
   options: VerificationArtifactFixtureOptions = {}
 ): Promise<VerificationReport> {
+  const lane = options.lane ?? 'all';
   const policyReport = structuredClone(options.policyReport ?? emptyPolicyReport());
   const runtime = structuredClone(input.runtime);
   const acceptanceCoverage = structuredClone(options.acceptanceCoverage ?? emptyAcceptanceCoverage(runtime.status));
@@ -98,13 +102,13 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     policyReport: structuredClone(policyReport)
   };
   const claimSummary = buildExpectedProductVerificationClaimSummary(
-    'all',
+    lane,
     structuredClone(fast),
     structuredClone(runtime),
-    inferProductVerificationRuntimeMode(runtime, 'all'),
+    inferProductVerificationRuntimeMode(runtime, lane),
     structuredClone(policyReport),
     structuredClone(acceptanceCoverage),
-    productVerificationObservationsFixture('all', inferProductVerificationRuntimeMode(runtime, 'all'))
+    productVerificationObservationsFixture(lane, inferProductVerificationRuntimeMode(runtime, lane), options.subjectRevision)
   );
   const failedLanes = [
     ...(fast.status === 'failed' ? ['fast' as const] : []),
@@ -119,7 +123,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     runtime,
     summary: {
       status: claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed',
-      requestedLane: 'all',
+      requestedLane: lane,
       failedLanes,
       claimSummary
     },
@@ -128,6 +132,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
       stderr: [fast.logs.stderr, runtime.logs.stderr].filter(Boolean).join('\n')
     }
   };
+  snapshotVerificationPublicationArtifacts({ verificationReport: report, runtimeReport: runtime, policyReport, acceptanceCoverage });
   const paths = {
     runtimeReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
     policyReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
@@ -142,48 +147,4 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     writeJson(paths.verificationReportPath, report)
   ]);
   return report;
-}
-
-export async function writeFailedFastUnitVerification(
-  workspaceRoot: string,
-  message: string
-): Promise<void> {
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'failed';
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'failed';
-  report.fast.status = 'failed';
-  report.fast.unit.status = 'failed';
-  report.fast.logs.stderr = message;
-  report.summary.status = 'failed';
-  report.summary.failedLanes = ['fast'];
-  report.logs.stderr = message;
-  await writeJson(verificationReportPath, report);
-}
-
-export async function writePassingVerificationState(workspaceRoot: string): Promise<void> {
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-  const lock = await readJson<LockFile>(lockPath);
-  lock.passStatus.verify = 'succeeded';
-  await writeJson(lockPath, lock);
-
-  const report = await readJson<VerificationReport>(verificationReportPath);
-  report.unit.status = 'passed';
-  report.unit.passed = [];
-  report.acceptance.status = 'passed';
-  report.acceptance.passed = [];
-  report.acceptance.failed = [];
-  report.policy.status = 'passed';
-  report.policy.violations = [];
-  report.fast.status = 'passed';
-  report.fast.unit.status = 'passed';
-  report.summary.status = 'passed';
-  report.summary.requestedLane = 'all';
-  report.summary.failedLanes = [];
-  await writeJson(verificationReportPath, report);
 }

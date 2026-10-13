@@ -1,10 +1,10 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/ide",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/ide",
   "namespace": "spec.ide",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
@@ -13,16 +13,12 @@
     "v:NotIncluded": {
       "kind": "req:enum-value",
       "name": "NotIncluded",
-      "body": {
-        "nominalIdentity": "sec/spec/ide#NotIncluded"
-      }
+      "body": {}
     },
     "v:NotRequired": {
       "kind": "req:enum-value",
       "name": "NotRequired",
-      "body": {
-        "nominalIdentity": "sec/spec/ide#NotRequired"
-      }
+      "body": {}
     },
     "t:Workbench": {
       "kind": "req:subject",
@@ -30,58 +26,130 @@
       "body": {
         "roles": {
           "workspace": {
-            "subjectKind": "Workspace"
+            "type": {
+              "decl": {
+                "definitionId": "t:Workspace"
+              }
+            }
           },
           "documents": {
-            "subjectKind": "DocumentSpace"
+            "type": {
+              "decl": {
+                "definitionId": "t:DocumentSpace"
+              }
+            }
           },
           "editor": {
-            "subjectKind": "EditorSurface"
+            "type": {
+              "decl": {
+                "definitionId": "t:EditorSurface"
+              }
+            }
           },
           "history": {
-            "subjectKind": "EditHistory"
+            "type": {
+              "decl": {
+                "definitionId": "t:EditHistory"
+              }
+            }
           },
           "search": {
-            "subjectKind": "SearchSurface"
+            "type": {
+              "decl": {
+                "definitionId": "t:SearchSurface"
+              }
+            }
           },
           "replace": {
-            "subjectKind": "ReplacementSurface"
+            "type": {
+              "decl": {
+                "definitionId": "t:ReplacementSurface"
+              }
+            }
           },
           "languages": {
-            "subjectKind": "LanguageServiceSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:LanguageServiceSet"
+              }
+            }
           },
           "diagnostics": {
-            "subjectKind": "DiagnosticSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:DiagnosticSet"
+              }
+            }
           },
           "tasks": {
-            "subjectKind": "TaskSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:TaskSet"
+              }
+            }
           },
           "terminal": {
-            "subjectKind": "TerminalSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:TerminalSet"
+              }
+            }
           },
           "debug": {
-            "subjectKind": "DebugSessionSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:DebugSessionSet"
+              }
+            }
           },
           "tests": {
-            "subjectKind": "TestSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:TestSet"
+              }
+            }
           },
           "vcs": {
-            "subjectKind": "VersionIntegration"
+            "type": {
+              "decl": {
+                "definitionId": "t:VersionIntegration"
+              }
+            }
           },
           "extensions": {
-            "subjectKind": "ExtensionSet"
+            "type": {
+              "decl": {
+                "definitionId": "t:ExtensionSet"
+              }
+            }
           },
           "settings": {
-            "subjectKind": "Configuration"
+            "type": {
+              "decl": {
+                "definitionId": "t:Configuration"
+              }
+            }
           },
           "shell": {
-            "subjectKind": "WorkbenchSurface"
+            "type": {
+              "decl": {
+                "definitionId": "t:WorkbenchSurface"
+              }
+            }
           },
           "release": {
-            "subjectKind": "DeliverySet"
+            "type": {
+              "decl": {
+                "definitionId": "t:DeliverySet"
+              }
+            }
           },
           "effects": {
-            "subjectKind": "EffectBoundary"
+            "type": {
+              "decl": {
+                "definitionId": "t:EffectBoundary"
+              }
+            }
           }
         }
       }
@@ -97,7 +165,11 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workbench"
+                {
+                  "decl": {
+                    "definitionId": "t:Workbench"
+                  }
+                }
               ]
             },
             "meaning": "整个产品根"
@@ -107,7 +179,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/ide#NotRequired"
+                {
+                  "definitionId": "v:NotRequired"
+                }
               ]
             },
             "meaning": "本地功能不以云账号为前置"
@@ -117,7 +191,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/ide#NotIncluded"
+                {
+                  "definitionId": "v:NotIncluded"
+                }
               ]
             },
             "meaning": "此发行不交付多人实时共同编辑"
@@ -127,7 +203,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/ide#NotRequired"
+                {
+                  "definitionId": "v:NotRequired"
+                }
               ]
             },
             "meaning": "扩展可显式本地安装，不以商店服务为前置"
@@ -137,7 +215,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/ide#NotIncluded"
+                {
+                  "definitionId": "v:NotIncluded"
+                }
               ]
             },
             "meaning": "此发行不宣称云配置同步"
@@ -146,10 +226,135 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "ide.Scope",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
+      }
+    },
+    "t:Workspace": {
+      "kind": "req:subject",
+      "name": "Workspace",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:DocumentSpace": {
+      "kind": "req:subject",
+      "name": "DocumentSpace",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:EditorSurface": {
+      "kind": "req:subject",
+      "name": "EditorSurface",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:EditHistory": {
+      "kind": "req:subject",
+      "name": "EditHistory",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:SearchSurface": {
+      "kind": "req:subject",
+      "name": "SearchSurface",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:ReplacementSurface": {
+      "kind": "req:subject",
+      "name": "ReplacementSurface",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:LanguageServiceSet": {
+      "kind": "req:subject",
+      "name": "LanguageServiceSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:DiagnosticSet": {
+      "kind": "req:subject",
+      "name": "DiagnosticSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:TaskSet": {
+      "kind": "req:subject",
+      "name": "TaskSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:TerminalSet": {
+      "kind": "req:subject",
+      "name": "TerminalSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:DebugSessionSet": {
+      "kind": "req:subject",
+      "name": "DebugSessionSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:TestSet": {
+      "kind": "req:subject",
+      "name": "TestSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:VersionIntegration": {
+      "kind": "req:subject",
+      "name": "VersionIntegration",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:ExtensionSet": {
+      "kind": "req:subject",
+      "name": "ExtensionSet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:Configuration": {
+      "kind": "req:subject",
+      "name": "Configuration",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:WorkbenchSurface": {
+      "kind": "req:subject",
+      "name": "WorkbenchSurface",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:DeliverySet": {
+      "kind": "req:subject",
+      "name": "DeliverySet",
+      "body": {
+        "roles": {}
+      }
+    },
+    "t:EffectBoundary": {
+      "kind": "req:subject",
+      "name": "EffectBoundary",
+      "body": {
+        "roles": {}
       }
     }
   },
@@ -165,14 +370,60 @@
     },
     "Scope": {
       "definitionId": "r:Scope"
-    }
-  },
-  "extensions": {
-    "sec.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
+    },
+    "Workspace": {
+      "definitionId": "t:Workspace"
+    },
+    "DocumentSpace": {
+      "definitionId": "t:DocumentSpace"
+    },
+    "EditorSurface": {
+      "definitionId": "t:EditorSurface"
+    },
+    "EditHistory": {
+      "definitionId": "t:EditHistory"
+    },
+    "SearchSurface": {
+      "definitionId": "t:SearchSurface"
+    },
+    "ReplacementSurface": {
+      "definitionId": "t:ReplacementSurface"
+    },
+    "LanguageServiceSet": {
+      "definitionId": "t:LanguageServiceSet"
+    },
+    "DiagnosticSet": {
+      "definitionId": "t:DiagnosticSet"
+    },
+    "TaskSet": {
+      "definitionId": "t:TaskSet"
+    },
+    "TerminalSet": {
+      "definitionId": "t:TerminalSet"
+    },
+    "DebugSessionSet": {
+      "definitionId": "t:DebugSessionSet"
+    },
+    "TestSet": {
+      "definitionId": "t:TestSet"
+    },
+    "VersionIntegration": {
+      "definitionId": "t:VersionIntegration"
+    },
+    "ExtensionSet": {
+      "definitionId": "t:ExtensionSet"
+    },
+    "Configuration": {
+      "definitionId": "t:Configuration"
+    },
+    "WorkbenchSurface": {
+      "definitionId": "t:WorkbenchSurface"
+    },
+    "DeliverySet": {
+      "definitionId": "t:DeliverySet"
+    },
+    "EffectBoundary": {
+      "definitionId": "t:EffectBoundary"
     }
   }
 }

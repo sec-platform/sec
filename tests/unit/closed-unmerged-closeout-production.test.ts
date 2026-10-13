@@ -13,6 +13,7 @@ import {
 import { parseClosedUnmergedCloseoutArguments } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-cli.ts';
 import {
   executeProductionClosedUnmergedCloseout,
+  observeProductionClosedUnmergedOpenPullRequests,
   observeProductionClosedUnmergedPullRequest
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-production.ts';
 
@@ -23,6 +24,58 @@ test('native closeout CLI needs no review comment while reviewed lane retains ex
   expect(parseClosedUnmergedCloseoutArguments([...base, '--review-comment', '5931']).reviewCommentId).toBe(5931);
 });
 const TOKEN = 'test-token-0123456789';
+
+function openPull(number: number, baseRef = 'main', headRepository = REPOSITORY) {
+  return { number, state: 'open', draft: false,
+    html_url: `https://github.com/${REPOSITORY}/pull/${number}`,
+    head: { ref: 'topic', sha: '1'.repeat(40), repo: { full_name: headRepository } },
+    base: { ref: baseRef, sha: '2'.repeat(40), repo: { full_name: REPOSITORY } } };
+}
+
+test('complete authenticated open PR census includes second-page base consumers and fork provenance', async () => {
+  const targets: string[] = [];
+  const api = capability('branch-closeout-write', async target => {
+    const url = new URL(String(target)); targets.push(url.search);
+    return Response.json(url.searchParams.get('page') === '1'
+      ? Array.from({ length: 100 }, (_, index) => openPull(index + 1))
+      : [openPull(101, 'target', 'foreign/repository')]);
+  });
+  await withGitHubApiTestSession({ capability: api, operation: async () => {
+    const observations = await observeProductionClosedUnmergedOpenPullRequests(api);
+    expect(observations).toHaveLength(101);
+    expect(observations[100]).toMatchObject({ baseBranch: 'target', isCrossRepository: true });
+  } });
+  expect(targets).toEqual(['?state=open&per_page=100&page=1', '?state=open&per_page=100&page=2']);
+});
+
+for (const fault of ['full-bound', 'repository', 'duplicate'] as const) {
+  test(`open PR census rejects ${fault} without issuing an empty complete result`, async () => {
+    const api = capability('branch-closeout-write', async target => {
+      const page = Number(new URL(String(target)).searchParams.get('page'));
+      const values = fault === 'full-bound'
+        ? Array.from({ length: 100 }, (_, index) => openPull((page - 1) * 100 + index + 1))
+        : fault === 'duplicate'
+          ? [openPull(1), openPull(1)] : [openPull(1)];
+      if (fault === 'repository') values[0]!.base.repo.full_name = 'foreign/repository';
+      return Response.json(values);
+    });
+    await withGitHubApiTestSession({ capability: api, operation: async () => {
+      await expect(observeProductionClosedUnmergedOpenPullRequests(api)).rejects.toThrow(
+        fault === 'full-bound' ? 'bounded complete pagination' : fault === 'repository' ? 'repository identity' : 'duplicate pagination');
+    } });
+  });
+}
+
+test('each authenticated census refresh observes consumers created after an earlier empty read', async () => {
+  let reads = 0;
+  const api = capability('branch-closeout-write', async () => Response.json(
+    ++reads === 1 ? [] : [openPull(1, 'target')]));
+  await withGitHubApiTestSession({ capability: api, operation: async () => {
+    expect(await observeProductionClosedUnmergedOpenPullRequests(api)).toEqual([]);
+    expect(await observeProductionClosedUnmergedOpenPullRequests(api)).toMatchObject([{ baseBranch: 'target' }]);
+  } });
+  expect(reads).toBe(2);
+});
 const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   transport: 'github-rest-token', login: 'maintainer', nodeId: 'MDQ6VXNlcjE=',
   userId: 900001, permission: 'maintain'

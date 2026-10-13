@@ -1,5 +1,5 @@
 import type { PassId } from '../../compiler/contract/pass-status.ts';
-import { CompilerError } from '../errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 
 interface StageOwnership {
   readonly primaryPass: PassId;
@@ -32,7 +32,7 @@ export function capturePipelineRequestedStages(
   value: readonly PipelineStageId[]
 ): readonly PipelineStageId[] {
   if (!Array.isArray(value)) {
-    throw new CompilerError('PIPELINE-USAGE-001', 'Pipeline stages must be an array');
+    throw new CodedFailure('PIPELINE-USAGE-001', 'Pipeline stages must be an array');
   }
   const result: PipelineStageId[] = [];
   const seen = new Set<PipelineStageId>();
@@ -43,7 +43,7 @@ export function capturePipelineRequestedStages(
     if (typeof stage !== 'string' ||
         !PIPELINE_STAGE_IDS.includes(stage as PipelineStageId) ||
         seen.has(stage as PipelineStageId)) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'PIPELINE-USAGE-001',
         'Pipeline stages must be dense, known and unique'
       );

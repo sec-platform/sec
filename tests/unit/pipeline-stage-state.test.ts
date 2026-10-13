@@ -32,10 +32,9 @@ test('preparation failure cannot fabricate successful internal passes that never
   assert.ok(!Object.values(patch).includes('succeeded'));
 });
 
-test('a state projection does not mutate current lock state or registry relations', () => {
-  const current = { ...PASS_INITIAL_STATES }, before = structuredClone(current);
+test('a state projection is immutable and resets invalidated repair state', () => {
   const patch = pipelineStageStatePatch(getPipelineStageDefinition('compose'), { kind: 'started' });
-  assert.deepEqual(current, before); assert.equal(Reflect.set(patch, 'compose', 'succeeded'), false);
+  assert.equal(Reflect.set(patch, 'compose', 'succeeded'), false);
   assert.equal(patch.repair, 'skipped');
 });
 

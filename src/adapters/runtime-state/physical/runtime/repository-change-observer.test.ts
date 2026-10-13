@@ -3,14 +3,15 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileSemanticOperationPlan, issueSemanticOperationAttemptContext } from '../../../../execution/operation/semantic.ts';
 import {
   armPreparedRepositoryChangeObserver,
   armRepositoryChangeObserver,
   disposePreparedRepositoryChangeObserver,
   prepareRepositoryChangeObserver,
   repositoryChangeObserverBinding,
+  repositoryChangeObserverEffectKinds,
   settlePreparedRepositoryChangeObserver,
   settleRepositoryChangeObserver,
   type PreparedRepositoryChangeObserver,
@@ -21,7 +22,7 @@ import {
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
 } from './windows-repository-change-observer.ts';
 
-test.skipIf(process.platform === 'win32')(
+test.skipIf(process.platform === 'win32' || process.platform === 'linux')(
   'unsupported host returns typed strict-capability absence without touching supplied roots',
   async () => {
     const roots = Object.defineProperty({}, 'roots', {
@@ -45,6 +46,7 @@ test('caller-authored capability fields cannot select, bind, arm or settle an ob
     })
   }) as unknown as PreparedRepositoryChangeObserver;
   expect(() => repositoryChangeObserverBinding(forged)).toThrow('owner-issued');
+  expect(() => repositoryChangeObserverEffectKinds(forged)).toThrow('owner-issued');
   // A forged capability is rejected before even consulting operation/context.
   const input = Object.defineProperties({ prepared: forged }, {
     operation: { get() { throw new Error('Forged capability reached operation admission.'); } },
@@ -72,14 +74,15 @@ test.skipIf(process.platform !== 'win32')(
       expect(binding).toBe(prepared.prepared.providerBinding);
       expect(binding.requirementId).toBe(RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID);
       expect(binding.contractDigest).toBe(RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST);
+      expect(repositoryChangeObserverEffectKinds(prepared.prepared)).toEqual(['filesystem']);
       const copiedCapability = { ...prepared.prepared };
       expect(() => repositoryChangeObserverBinding(copiedCapability)).toThrow('owner-issued');
-      const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
+      const operation = bindSemanticOperation(compileSemanticOperationPlan({
         operation: 'verification.repository-observer-dispatch',
         intentDigest: binding.contractDigest,
         decisionDigest: binding.contractDigest,
         deadlineAtUnixMs: Date.now() + 10_000,
-        attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: binding.contractDigest }),
+        attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: binding.contractDigest }),
         aggregateBudgets: [{ resource: 'duration-ms', maximum: 10_000 }],
         requirements: [{
           id: binding.requirementId,
@@ -91,7 +94,7 @@ test.skipIf(process.platform !== 'win32')(
       const resolution = await armPreparedRepositoryChangeObserver({
         prepared: prepared.prepared,
         operation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation,
           requirementId: binding.requirementId,
           resourceCeilings: [{ resource: 'duration-ms', maximum: 10_000 }]
@@ -112,3 +115,11 @@ test.skipIf(process.platform !== 'win32')(
     }
   }
 );
+
+// No raw route may manufacture an Effect grant from root identity.
+test.skipIf(process.platform !== 'linux')('Linux raw arm remains unavailable without operation admission', async () => {
+  let touched = false;
+  const input = Object.defineProperty({}, 'roots', { get() { touched = true; throw new Error('no admission'); } }) as Parameters<typeof armRepositoryChangeObserver>[0];
+  expect(await armRepositoryChangeObserver(input)).toEqual({ status: 'unavailable', reason: 'arm-failed' });
+  expect(touched).toBe(false);
+});

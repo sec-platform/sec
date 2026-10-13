@@ -17,7 +17,8 @@ import {
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   executeDetachedScratchWorktreePhysicalCloseout,
-  prepareDetachedScratchWorktreePhysicalCloseout
+  prepareDetachedScratchWorktreePhysicalCloseout,
+  type WorktreePhysicalCloseoutOperations
 } from '../../../../self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { openSessionLocalRepository, type SessionLocalRepository } from './session-local-repository.ts';
@@ -169,7 +170,7 @@ export async function acquireLocalCandidateWorktree(input: Readonly<{
   actionPlanDigest: `sha256:${string}`;
   maximumRepositoryObservations: number;
   failureActor?: LocalGitWorktreeAddFailureActor;
-}>): Promise<LocalCandidateWorktreeLease> {
+}>, closeoutOperations: WorktreePhysicalCloseoutOperations): Promise<LocalCandidateWorktreeLease> {
   const requestedCandidate = input.candidate;
   input = Object.freeze({ authorityRoot: input.authorityRoot,
     candidate: Object.freeze({ headSha: requestedCandidate.headSha, headTreeSha: requestedCandidate.headTreeSha }),
@@ -370,7 +371,7 @@ export async function acquireLocalCandidateWorktree(input: Readonly<{
               repositoryRoot: authorityRoot, targetPath: candidateRoot,
               expectedHeadSha: owner.headSha, expectedTreeSha: owner.headTreeSha,
               expectedRecoveryAuthorityDigest: owner.ownerDigest
-            });
+            }, closeoutOperations);
             assertMarker();
             candidate!.assertCurrent();
             // The canonical closeout now owns a durable exact physical authorization.

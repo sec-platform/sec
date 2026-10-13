@@ -1,9 +1,9 @@
 import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../contracts/canonical.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 import type { SemanticEntity } from '../semantics/engineering-ir/entity-types.ts';
 import type { SemanticFact, SemanticValue } from '../semantics/engineering-ir/fact-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir/validated-types.ts';
 import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan, SemanticGeneratorPlanTask, StateTransitionMapGeneratorPlanTask, StateTransitionPlanEntry } from '../semantics/generation/types.ts';
-import { CompilerError } from './errors.ts';
 import type {
   EngineeringIRIndex
 } from './ir/index-engineering-ir.ts';
@@ -36,7 +36,7 @@ function requireSingleTarget(
 ): string {
   const targets = entityTargets(index, subject, predicate);
   if (targets.length !== 1) {
-    throw new CompilerError(code, `IR entity "${subject}" requires exactly one ${predicate} target`, {
+    throw new CodedFailure(code, `IR entity "${subject}" requires exactly one ${predicate} target`, {
       subject,
       predicate,
       targets
@@ -52,7 +52,7 @@ function attribute(entity: SemanticEntity, key: string): SemanticEntity['attribu
 function requireStringAttribute(entity: SemanticEntity, key: string): string {
   const value = attribute(entity, key);
   if (typeof value !== 'string' || !value) {
-    throw new CompilerError('GENERATOR-PLAN-006', `IR entity "${entity.id}" requires string attribute "${key}"`);
+    throw new CodedFailure('GENERATOR-PLAN-006', `IR entity "${entity.id}" requires string attribute "${key}"`);
   }
   return value;
 }
@@ -60,7 +60,7 @@ function requireStringAttribute(entity: SemanticEntity, key: string): string {
 function requireStringArrayAttribute(entity: SemanticEntity, key: string): string[] {
   const value = attribute(entity, key);
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
-    throw new CompilerError('GENERATOR-PLAN-006', `IR entity "${entity.id}" requires string[] attribute "${key}"`);
+    throw new CodedFailure('GENERATOR-PLAN-006', `IR entity "${entity.id}" requires string[] attribute "${key}"`);
   }
   return uniqueSorted(value);
 }
@@ -71,7 +71,7 @@ function stateValues(index: EngineeringIRIndex, stateEntityId: string): string[]
     .map((fact) => fact.object.kind === 'value' ? fact.object.value : null)
     .filter((value): value is string => typeof value === 'string');
   if (values.length === 0) {
-    throw new CompilerError('GENERATOR-PLAN-002', `Semantic state "${stateEntityId}" has no IR values`);
+    throw new CodedFailure('GENERATOR-PLAN-002', `Semantic state "${stateEntityId}" has no IR values`);
   }
   return uniqueSorted(values);
 }
@@ -89,7 +89,7 @@ function transitionValue(value: SemanticValue, stateEntityId: string): {
     typeof value.to !== 'string' ||
     typeof value.by !== 'string'
   ) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'GENERATOR-PLAN-007',
       `Semantic state "${stateEntityId}" contains an invalid TRANSITIONS_TO Fact`
     );
@@ -110,7 +110,7 @@ function stateTransitions(
       );
       const operation = index.entityById.get(transition.by);
       if (!operation || operation.kind !== 'operation') {
-        throw new CompilerError(
+        throw new CodedFailure(
           'GENERATOR-PLAN-007',
           `Semantic transition operation "${transition.by}" is unavailable`
         );
@@ -159,7 +159,7 @@ function contractPath(
       .map((entry) => entry.sourcePath!)
   );
   if (paths.length !== 1) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'GENERATOR-PLAN-008',
       `Semantic state "${stateEntityId}" requires exactly one contract provenance path`,
       { stateEntityId, contractId, paths }
@@ -177,7 +177,7 @@ function buildStateTransitionTask(
   const expectedGeneratorId = generatorEntityId(source.blockId, declaration.id);
   const generator = index.entityById.get(expectedGeneratorId);
   if (!generator || generator.kind !== 'generator') {
-    throw new CompilerError('GENERATOR-PLAN-006', `Generator Entity "${expectedGeneratorId}" is unavailable`);
+    throw new CodedFailure('GENERATOR-PLAN-006', `Generator Entity "${expectedGeneratorId}" is unavailable`);
   }
   const target = normalizedArtifactTarget(declaration.target);
   if (
@@ -191,13 +191,13 @@ function buildStateTransitionTask(
     !canonicalEquals(requireStringArrayAttribute(generator, 'consumes'), uniqueSorted(declaration.consumes)) ||
     !canonicalEquals(requireStringArrayAttribute(generator, 'verification'), uniqueSorted(declaration.verification))
   ) {
-    throw new CompilerError('GENERATOR-PLAN-009', `Generator declaration "${declaration.id}" does not match validated IR`);
+    throw new CodedFailure('GENERATOR-PLAN-009', `Generator declaration "${declaration.id}" does not match validated IR`);
   }
 
   const stateEntityId = requireSingleTarget(index, generator.id, 'CONSUMES', 'GENERATOR-PLAN-002');
   const state = index.entityById.get(stateEntityId);
   if (!state || state.kind !== 'state') {
-    throw new CompilerError('GENERATOR-PLAN-002', `Semantic state "${stateEntityId}" is unavailable`);
+    throw new CodedFailure('GENERATOR-PLAN-002', `Semantic state "${stateEntityId}" is unavailable`);
   }
   const artifactId = requireSingleTarget(index, generator.id, 'GENERATES', 'GENERATOR-PLAN-010');
   const expectedArtifactId = artifactEntityId(target);
@@ -208,16 +208,16 @@ function buildStateTransitionTask(
     requireStringAttribute(artifact, 'target') !== target ||
     requireStringAttribute(artifact, 'artifactKind') !== declaration.produces
   ) {
-    throw new CompilerError('GENERATOR-PLAN-010', `Generator "${generator.id}" has an invalid Artifact target`);
+    throw new CodedFailure('GENERATOR-PLAN-010', `Generator "${generator.id}" has an invalid Artifact target`);
   }
   if (!entityTargets(index, state.id, 'LOWERS_TO').includes(artifactId)) {
-    throw new CompilerError('GENERATOR-PLAN-010', `State "${state.id}" does not lower to "${artifactId}"`);
+    throw new CodedFailure('GENERATOR-PLAN-010', `State "${state.id}" does not lower to "${artifactId}"`);
   }
 
   const namespacePrefix = 'state:';
   const stateSuffix = `:${declaration.state}`;
   if (!state.id.startsWith(namespacePrefix) || !state.id.endsWith(stateSuffix)) {
-    throw new CompilerError('GENERATOR-PLAN-002', `State Entity "${state.id}" does not match selector "${declaration.state}"`);
+    throw new CodedFailure('GENERATOR-PLAN-002', `State Entity "${state.id}" does not match selector "${declaration.state}"`);
   }
 
   const verifiedByEntityIds = entityTargets(index, artifactId, 'VERIFIED_BY');
@@ -233,7 +233,7 @@ function buildStateTransitionTask(
     !canonicalEquals(verifiedByEntityIds, expectedVerifiedByEntityIds) ||
     !canonicalEquals(verificationSelectors(index, artifactId), expectedVerificationSelectors)
   ) {
-    throw new CompilerError('GENERATOR-PLAN-011', `Artifact "${artifactId}" verification Facts do not match its declaration`);
+    throw new CodedFailure('GENERATOR-PLAN-011', `Artifact "${artifactId}" verification Facts do not match its declaration`);
   }
 
   return {

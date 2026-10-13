@@ -3,7 +3,6 @@ const templatePipelines = Object.freeze({
   'resolved-default': Object.freeze({ through: 'resolve', verificationLane: 'all' } as const),
   'composed-default': Object.freeze({ through: 'compose', verificationLane: 'all' } as const),
   'verified-fast-default': Object.freeze({ through: 'verify', verificationLane: 'fast' } as const),
-  'locked-default': Object.freeze({ through: 'lock', verificationLane: 'all' } as const),
   'locked-all-default': Object.freeze({ through: 'lock', verificationLane: 'all' } as const),
   'explained-all-default': Object.freeze({ through: 'emit', verificationLane: 'all' } as const)
 });

@@ -8,10 +8,10 @@ import {
   runtimeDependencyOperationRemainingMs,
   waitForRuntimeDependencyOperation
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 const deadlineFailure = (error: unknown): boolean =>
-  error instanceof SecError && error.code === 'RUNTIME-DEPS-003';
+  error instanceof CodedFailure && error.code === 'RUNTIME-DEPS-003';
 
 async function rejectionOf(work: Promise<unknown>): Promise<unknown> {
   try { await work; } catch (error) { return error; }

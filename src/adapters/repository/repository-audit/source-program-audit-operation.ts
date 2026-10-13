@@ -4,7 +4,7 @@ import {
   isPlainObject,
   sha256
 } from '../../../contracts/canonical.ts';
-import type { SecRepositoryModuleArchitectureProjection } from '../architecture/contract.ts';
+import type { RepositoryModuleArchitectureProjection } from '../architecture/contract.ts';
 import type {
   SourceProgramAnalysisNotRequested,
   SourceProgramCandidate,
@@ -247,7 +247,7 @@ export interface CompileWholeSourceProgramAuditOperationInput {
     readonly path: string;
     readonly contentDigest: string;
   }>[];
-  readonly moduleArchitecture: SecRepositoryModuleArchitectureProjection;
+  readonly moduleArchitecture: RepositoryModuleArchitectureProjection;
   readonly sourceProgramCompilation: Readonly<{
     readonly subjectDigest: Digest;
     readonly snapshotDigest: Digest;

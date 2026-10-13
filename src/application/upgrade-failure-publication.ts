@@ -1,5 +1,5 @@
-import { CompilerError } from '../compiler/errors.ts';
 import { throwUpgradeFailureWithSecondaryFailures } from '../compiler/upgrade/failure.ts';
+import { CodedFailure } from '../contracts/failure.ts';
 
 /**
  * Execute all requested failure publications so one secondary failure cannot
@@ -74,7 +74,7 @@ export async function publishUpgradeApplyFailureArtifacts<TTerminal>(
 export interface UpgradePlanningFailurePublicationOperations {
   clearPlan(): Promise<void>;
   clearExecutionTerminal(): Promise<void>;
-  publishDiagnostics(failure: CompilerError): Promise<void>;
+  publishDiagnostics(failure: CodedFailure): Promise<void>;
 }
 
 /**
@@ -95,7 +95,7 @@ export async function executeUpgradePlanningWithFailurePublication<T>(
   try {
     return await plan();
   } catch (failure) {
-    if (!(failure instanceof CompilerError)) throw failure;
+    if (!(failure instanceof CodedFailure)) throw failure;
     return publishUpgradeFailureArtifacts(
       failure,
       [

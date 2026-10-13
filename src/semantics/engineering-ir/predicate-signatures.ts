@@ -1,5 +1,5 @@
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
-import { SecError as CompilerError } from '../../contracts/failure.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { type SemanticEntity, type SemanticEntityKind } from './entity-types.ts';
 import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticValue } from './fact-types.ts';
 import { type PredicateSignatureRegistry, type PredicateSignatureVariant, type PredicateValueSchema } from './predicate-signature-types.ts';
@@ -441,7 +441,7 @@ export function assertPredicateSignatureRegistry(): void {
     const signature = PREDICATE_SIGNATURE_REGISTRY[predicate];
     if (signature.status === "reserved") continue;
     if (signature.variants.length === 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         "IR-PREDICATE-006",
         `Predicate "${predicate}" has no active signature variants`,
         { predicate },
@@ -456,7 +456,7 @@ export function assertPredicateSignatureRegistry(): void {
         (variant.object.kind === "entity" &&
           variant.object.entityKinds.length === 0)
       ) {
-        throw new CompilerError(
+        throw new CodedFailure(
           "IR-PREDICATE-006",
           `Predicate "${predicate}" has an invalid signature variant "${variant.id}"`,
           {
@@ -469,7 +469,7 @@ export function assertPredicateSignatureRegistry(): void {
 
       for (const candidate of signature.variants.slice(index + 1)) {
         if (variantsOverlap(variant, candidate)) {
-          throw new CompilerError(
+          throw new CodedFailure(
             "IR-PREDICATE-006",
             `Predicate "${predicate}" has ambiguous signature variants "${variant.id}" and "${candidate.id}"`,
             {
@@ -577,7 +577,7 @@ export function assertEngineeringIRPredicateSignatures(
   )) {
     const signature = PREDICATE_SIGNATURE_REGISTRY[fact.predicate];
     if (signature.status === "reserved") {
-      throw new CompilerError(
+      throw new CodedFailure(
         "IR-PREDICATE-001",
         `Fact "${fact.id}" uses reserved predicate "${fact.predicate}"`,
         {
@@ -593,7 +593,7 @@ export function assertEngineeringIRPredicateSignatures(
         subjectKind !== undefined && variant.subjectKinds.includes(subjectKind),
     );
     if (subjectVariants.length === 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         "IR-PREDICATE-002",
         `Fact "${fact.id}" predicate "${fact.predicate}" rejects subject "${fact.subject}"`,
         {
@@ -610,7 +610,7 @@ export function assertEngineeringIRPredicateSignatures(
       (variant) => variant.object.kind === fact.object.kind,
     );
     if (objectVariants.length === 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         "IR-PREDICATE-003",
         `Fact "${fact.id}" predicate "${fact.predicate}" rejects object kind "${fact.object.kind}"`,
         {
@@ -635,7 +635,7 @@ export function assertEngineeringIRPredicateSignatures(
         const expectedEntityKinds = objectVariants.flatMap((variant) =>
           variant.object.kind === "entity" ? variant.object.entityKinds : [],
         );
-        throw new CompilerError(
+        throw new CodedFailure(
           "IR-PREDICATE-004",
           `Fact "${fact.id}" predicate "${fact.predicate}" rejects entity object "${fact.object.entityId}"`,
           {
@@ -647,7 +647,7 @@ export function assertEngineeringIRPredicateSignatures(
         );
       }
       if (matchingVariants.length > 1) {
-        throw new CompilerError(
+        throw new CodedFailure(
           "IR-PREDICATE-006",
           `Fact "${fact.id}" predicate "${fact.predicate}" matches ambiguous signature variants`,
           {
@@ -673,7 +673,7 @@ export function assertEngineeringIRPredicateSignatures(
       return failure === undefined;
     });
     if (matchingVariants.length === 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         "IR-PREDICATE-005",
         `Fact "${fact.id}" predicate "${fact.predicate}" rejects value object`,
         {
@@ -686,7 +686,7 @@ export function assertEngineeringIRPredicateSignatures(
       );
     }
     if (matchingVariants.length > 1) {
-      throw new CompilerError(
+      throw new CodedFailure(
         "IR-PREDICATE-006",
         `Fact "${fact.id}" predicate "${fact.predicate}" matches ambiguous signature variants`,
         {

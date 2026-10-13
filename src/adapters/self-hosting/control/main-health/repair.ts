@@ -1,9 +1,6 @@
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
-import {
-  resolveRepairMainHealthLane,
-  type MainHealthDigest,
-  type MainHealthLedger
-} from './contract.ts';
+import type { MainHealthDigest, MainHealthLedger } from '../../../../execution/verification/session.ts';
+import { resolveRepairMainHealthLane } from './contract.ts';
 
 const MAIN_HEALTH_REPAIR_DECISION_SCHEMA =
   'sec-main-health-repair-decision-v1' as const;

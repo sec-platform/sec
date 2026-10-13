@@ -3,24 +3,25 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {
-  generatedStateDigest,
-  generatedStateLegacyRetirementRuleForPath
-} from '../../src/adapters/runtime-state/generated-state/contract.ts';
-import { generatedStateProducerHooks } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
-import {
-  cleanDependencyEnvironment,
-  getDoctorReport
-} from '../../src/adapters/toolchain/dependencies/environment.ts';
+import { legacySharedDependencyRetirementExpectation } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import {
   dependencyAuthorityPaths,
   disposeCanonicalSharedDependencies,
   migrateDependencyTransitionJournal
 } from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
-import { SecError } from '../../src/contracts/failure.ts';
+import {
+  cleanDependencyEnvironment,
+  getDoctorReport
+} from '../../src/bootstrap/toolchain/dependency-environment.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
+import {
+  generatedStateDigest,
+  generatedStateLegacyRetirementRuleForPath
+} from "../../src/execution/generated-state/contract.ts";
+import { generatedStateProducerHooks } from '../helpers/generated-state-fixture.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function withDependencyRetirementFixture(
@@ -200,10 +201,10 @@ test('unregistered legacy shared dependencies remain physically intact with a ty
       observed = error;
     }
 
-    expect(observed).toBeInstanceOf(SecError);
+    expect(observed).toBeInstanceOf(CodedFailure);
     expect(observed).toMatchObject({
       code: 'IMPORT-AUTHORITY-004',
-      details: { membership: 'not-current-spec', status: 'mismatch' }
+      cause: expect.objectContaining({ code: 'GENERATED_STATE_PROVENANCE_BLOCKED' })
     });
     expect(await fs.readFile(
       path.join(sharedDepsRoot, '.bun-cache', 'legacy-package', 'content.bin'),
@@ -228,6 +229,12 @@ test('historically registered shared dependencies retire through the legacy-only
     await expect(lifecycle.born('.shared-deps', 'forbidden-new-shared-deps-generation'))
       .rejects.toThrow('not registered by active policy');
     const options = { generatedStateLifecycle: lifecycle, lockTimeoutMs: 5_000 };
+    const physical = inspectNoFollowDirectoryChain(sharedDepsRoot, 'historical shared dependency observation').target;
+    const expectation = legacySharedDependencyRetirementExpectation({
+      device: physical.device,
+      inode: physical.inode,
+      objectId: physical.objectId
+    });
     await migrateDependencyTransitionJournal(repositoryRoot, options);
     expect(await disposeCanonicalSharedDependencies(
       options,
@@ -235,7 +242,7 @@ test('historically registered shared dependencies retire through the legacy-only
       repositoryRoot
     )).toBe(true);
     await expect(fs.stat(sharedDepsRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect((await lifecycle.observeRetirement('.shared-deps')).status)
+    expect((await lifecycle.observeRetirement('.shared-deps', expectation)).status)
       .toBe('retired-domain-settled');
     expect(await disposeCanonicalSharedDependencies(
       options,

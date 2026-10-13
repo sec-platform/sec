@@ -1,6 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot,
@@ -9,7 +8,8 @@ import {
   settleRetiredCompilerDependencyGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
+import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from "../../src/execution/generated-state/dependency-lifecycle.ts";
 
 const physical = Object.freeze({ device: 'dev', inode: 'inode', objectId: 'object' });
 const digest = `sha256:${'2'.repeat(64)}` as const;
@@ -100,7 +100,7 @@ test('recovery without an observation capability uses the same captured retireme
   const events: string[] = [];
   const source = { bind: async () => { events.push('bind'); return registration; },
     retired: async () => { events.push('retire'); } };
-  await ensureCompilerDependencyPreimageRetiredForRecovery({ generatedStateLifecycle: source }, physical, 'recover');
+  await ensureCompilerDependencyPreimageRetiredForRecovery({ generatedStateLifecycle: source }, physical, 'recover', process.cwd());
   assert.deepEqual(events, ['bind', 'retire']);
 });
 
@@ -140,7 +140,7 @@ test('hostile failure values do not replace a lifecycle domain failure', async (
 });
 
 test('an existing typed retirement blocker is preserved without wrapping', async () => {
-  const failure = new SecError('IMPORT-AUTHORITY-004', 'owned failure');
+  const failure = new CodedFailure('IMPORT-AUTHORITY-004', 'owned failure');
   await assert.rejects(bindAndRetireCompilerDependencyPreimage({ generatedStateLifecycle: {
     bind: async () => { throw failure; }, retired: async () => {}
   } }, physical, 'replace'), (error) => error === failure);

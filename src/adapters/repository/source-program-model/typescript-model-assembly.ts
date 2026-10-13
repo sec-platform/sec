@@ -1,5 +1,5 @@
 import type {
-  SecRepositoryModuleMembership
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import type {
   SourceProgramCompilationOperation
@@ -73,7 +73,7 @@ export function canonicalTypeScriptModel(input: Readonly<{
     string,
     TypeScriptSourceProgramFactShard['semanticDependencyScope']
   >;
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   files: readonly SourceProgramFile[];
   declarations: readonly SourceProgramDeclaration[];
   references: readonly SourceProgramReference[];

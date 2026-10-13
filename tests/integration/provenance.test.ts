@@ -1,17 +1,24 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 
-import { buildProvenance } from '../../src/adapters/artifacts/provenance.ts';
+import { buildProvenance, buildProvenanceFromVerificationPublication } from '../../src/adapters/artifacts/provenance.ts';
+import { lockProject } from '../../src/adapters/compilation/emit/lock-project.ts';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { readOptionalVerificationArtifactSet } from '../../src/adapters/verification/platform/artifact/runtime/authority.ts';
+import { publishVerificationArtifactSet } from '../../src/adapters/verification/verification-artifact-publication.ts';
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { readLockFile } from '../../src/adapters/workspace/lock.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
+import { buildRepairVerificationFixture } from '../helpers/repair-fixtures.ts';
 import {
   buildPassingReviewCoverage,
   buildPassingReviewReport,
+  buildReviewLock,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
 import { writeCanonicalVerificationArtifactSetFixture } from '../helpers/verification-fixtures.ts';
@@ -123,6 +130,7 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
     });
     const verificationReport = await writeCanonicalPassingVerificationArtifacts(workspaceRoot, report);
 
+    const captured = readOptionalVerificationArtifactSet(workspaceRoot);
     const provenance = await buildProvenance(workspaceRoot, lock);
 
     expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
@@ -152,9 +160,54 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       .rejects.toThrow('Provenance Verification artifact set is partially published');
 
     await fs.rm(paths.verificationReportPath);
+    expect(await buildProvenanceFromVerificationPublication(workspaceRoot, lock, captured)).toEqual(provenance);
     const unverifiedProvenance = await buildProvenance(workspaceRoot, lock);
     expect(unverifiedProvenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
       verifiedBy: []
     });
+  });
+});
+
+
+test('buildProvenance captures its Lock before override loading suspends', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    const lock = buildReviewLock({ generatedPaths: ['src/original.ts'] });
+    const pending = buildProvenance(workspaceRoot, lock);
+    lock.generatedPaths[0] = 'src/retargeted.ts';
+    expect((await pending).artifacts.map(artifact => artifact.path)).toEqual(['src/original.ts']);
+  });
+});
+
+test('lockProject rejects foreign subjects before effects and captures admitted publication', async () => {
+  await withTempWorkspace(async workspaceRoot => {
+    const fixture = buildRepairVerificationFixture('all', false);
+    for (const relative of [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.provenance]) {
+      await fs.mkdir(path.dirname(resolveWorkspaceArtifactPath(workspaceRoot, relative)), { recursive: true });
+    }
+    await publishVerificationArtifactSet({ workspaceRoot, ...fixture });
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const before = await fs.readFile(lockPath, 'utf8');
+    const pendingVerify = structuredClone(fixture.lock);
+    pendingVerify.passStatus.verify = 'pending';
+    await expect(lockProject(workspaceRoot, pendingVerify)).rejects.toMatchObject({ code: 'LOCK-BLOCKED-001' });
+    expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
+    const foreign = structuredClone(fixture.lock);
+    foreign.app.id = 'foreign-lock-subject';
+    let effects = 0;
+    await expect(lockProject(workspaceRoot, foreign, async () => { effects++; }))
+      .rejects.toMatchObject({ code: 'LOCK-BLOCKED-002' });
+    expect(effects).toBe(0);
+    expect(await fs.readFile(lockPath, 'utf8')).toBe(before);
+
+    const pending = lockProject(workspaceRoot, fixture.lock);
+    fixture.lock.app.id = 'retargeted-after-admission';
+    fixture.lock.passStatus.verify = 'failed';
+    const published = await pending;
+    expect(published.app.id).toBe('customer-admin');
+    expect(published.passStatus.verify).toBe('succeeded');
+    expect(published.passStatus.lock).toBe('succeeded');
+    expect(readLockFile(workspaceRoot)).toEqual(published);
+    expect(fixture.lock.passStatus.lock).toBe('succeeded');
+    expect(fixture.lock.generatedPaths).toEqual(published.generatedPaths);
   });
 });

@@ -252,10 +252,14 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
       targetBranch: fixture.branch,
       pullRequestNumber: 42,
       exactPullRequest,
+      currentOpenPullRequests: [],
       preparedInventory
     };
     const scoped = collectBranchLifecycleCloseoutTargetInventory(input);
     expect(scoped.pullRequests.map(({ number }) => number)).toEqual([42]);
+    expect(collectBranchLifecycleCloseoutTargetInventory({ ...input,
+      currentOpenPullRequests: undefined }).unknowns)
+      .toContain('Current complete open pull request consumer census is unavailable.');
     expect(scoped.remoteBranches.find(({ branch }) => branch === fixture.branch)?.sha)
       .toBe(fixture.headSha);
     expect(scoped.worktrees.every(({ dirtyCount, untrackedCount }) =>

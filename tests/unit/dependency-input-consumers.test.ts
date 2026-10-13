@@ -1,6 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureRuntimeDependencyInstallRequest as capture } from '../../src/adapters/toolchain/dependencies/contract/install-request.ts';
 import { bindCompilerInstallInvocation } from '../../src/adapters/toolchain/dependencies/runtime/install-invocation.ts';
 import { consumeRuntimeDependencyTestMaterialization, issueRuntimeDependencyTestMaterialization } from '../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
 import {
@@ -8,6 +7,7 @@ import {
   runtimeDependencyOperationEffectFence as fence
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { runtimeDependencyOperationContext as context, runtimeDependencyOperationRemainingMs as remaining } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { captureRuntimeDependencyInstallRequest as capture } from '../../src/execution/dependency-install-request.ts';
 
 const controls=()=>({lockTimeoutMs:1000,monotonicNowMs:()=>0});
 

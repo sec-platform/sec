@@ -1,0 +1,8 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/bootstrap/development/closeout/verification-session-cli.ts",
+    "src/bootstrap/development/closeout/worktree-physical-closeout-cli.ts"
+  ],
+  "preDependencyBootstrap": false
+}

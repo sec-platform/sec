@@ -21,10 +21,10 @@
 
 ### 使用者维护的全部内容
 
-`src/offer.sec`：
+`src/offer.gift`：
 
-```sec
-import "./pricing.sec";
+```gift
+import "./pricing.gift";
 
 export let pay = total =>
   pricing.payable(total, {threshold: 500, discount: 20});
@@ -36,9 +36,9 @@ export let pay = total =>
 
 ### 对应库的完整内容
 
-`src/pricing.sec`：
+`src/pricing.gift`：
 
-```sec
+```gift
 export type Rule = { threshold: Int, discount: Int };
 
 export fn payable(total: Int, rule: Rule)
@@ -65,7 +65,7 @@ pay的创建不执行payable。实际调用pay时才计算已写的参数并进�
 | 原作者短写法与目标对应 | EditCorrespondence引用原CST，不用展开程序替代 | 回源仍修改原literal/绑定；歧义保持 |
 | 可运行制品和实际输入 | 仅在已请求compute-eval/run时进入execution | 实际运行结果、失败与资源状态；本例没有执行 |
 
-源保存时仍是四行offer文件和原库；推导签名及捕获表是可重建结果，不在项目里自动追加`pay-expanded.sec`、requirements.json或手填类型树。新工程只按需要保存现有清单和锁；普通改折扣不重写语言锁。
+源保存时仍是四行offer文件和原库；推导签名及捕获表是可重建结果，不在项目里自动追加`pay-expanded.gift`、requirements.json或手填类型树。新工程只按需要保存现有清单和锁；普通改折扣不重写语言锁。
 
 ### 第二次修改只改真实差异
 
@@ -88,14 +88,14 @@ pay的创建不执行payable。实际调用pay时才计算已写的参数并进�
 
 **只改目标公开名。**使用既有目标控制；源码函数体与其他目标不变。无需因为TS发射采用类容器就写一份语义不同的class。
 
-**现有TS工程。**继续改TS原文，不为展示简洁性批量迁为本例。其推断和工具由实际宿主能力承担，SEC只处理既有相交责任。
+**现有TS工程。**继续改TS原文，不为展示简洁性批量迁为本例。其推断和工具由实际宿主能力承担，Gift只处理既有相交责任。
 
 **规则变成比例优惠。**这是真正新行为，必须定义精度、舍入和失败；不能将`"10%"`写进Int字段就宣布完成。
 
 ### 四类失败应当在同一入口修复
 
 1. `total => total`没有预期签名：给该参数或声明一个类型即可；不得要求用户填写整个IR。
-2. 导入从pricing.sec移动成rules.sec：保持性移动插入`as pricing`并更新准确路径；显式希望统一更名时，改真实引用而不字符串全库替换。
+2. 导入从pricing.gift移动成rules.gift：保持性移动插入`as pricing`并更新准确路径；显式希望统一更名时，改真实引用而不字符串全库替换。
 3. 上游Rule或payable签名改变：重新检查使用点与公开出口；当前源码无返回注解不等于接受任意新接口。
 4. discount被写成Text或文件尚未写完：保留错误草稿与局部诊断；旧产物不重贴成当前结果，不自动恢复旧文。
 
@@ -108,31 +108,31 @@ pay的创建不执行payable。实际调用pay时才计算已写的参数并进�
 
 ### 实际工程和源拥有者
 
-原生工程可以保持自己的`src/threshold.ts`、`tsconfig.json`、`package.json`、已有锁、README和assets。接入只建立实际快照、导入关系、类型与资产视图；不为了统一目录复制成一份`.sec`源码。文件内的普通新算法继续由TS拥有。
+原生工程可以保持自己的`src/threshold.ts`、`tsconfig.json`、`package.json`、已有锁、README和assets。接入只建立实际快照、导入关系、类型与资产视图；不为了统一目录复制成一份`.gift`源码。文件内的普通新算法继续由TS拥有。
 
 中立工程可以只有下列内容；控制/锁由既有工具形成，普通作者不手填完整节点树：
 
 ```text
 project/
-  src/threshold.sec       作者行为
+  src/threshold.gift       作者行为
   assets/                 真实资源存在时使用
   README.md               人工说明不默认改写
-  sec.project.json        模块、当前TS输出及稀疏控制
-  sec.lock.json           实际规则、供给与目标绑定
+  gift.project.json        模块、当前TS输出及稀疏控制
+  gift.lock.json           实际规则、供给与目标绑定
 ```
 
 只复用外部实现而没有算法源的工程也继续合法：其公开名、适配和参数对应真实根/控制，不能因为导入没有body就伪造作者文件。直接修改外部实现内部，需要实际源码及权利；不存在时只保留可调用资格。
 
 ### 直接编辑多个文件，不把协议当开发语言
 
-开发AI可以直接用已授权的编辑工具修改`src/threshold.sec`和引用它的模块，保留当前磁盘或未保存缓冲。修改期间暂时缺少导出是正常草稿。请求检查/预览时，工作区适配器一次取得版本化工作集和必要配置，构造同一候选；不要求每改一行就调用propose。
+开发AI可以直接用已授权的编辑工具修改`src/threshold.gift`和引用它的模块，保留当前磁盘或未保存缓冲。修改期间暂时缺少导出是正常草稿。请求检查/预览时，工作区适配器一次取得版本化工作集和必要配置，构造同一候选；不要求每改一行就调用propose。
 
 需通过远端工具传原文时，可用既有的完整文件分支。假定C0已绑定这两个作者路径，下列是一份完整请求范本，不是实际工具执行：
 
 ```text
-sec.propose({base: "C0", files: {
-  "src/limits.sec": "export fn threshold() -> Int = 12;",
-  "src/filter.sec": "import \"./limits.sec\" as limits; export fn passes(n: Int) -> Bool = n >= limits.threshold();"
+gift.propose({base: "C0", files: {
+  "src/limits.gift": "export fn threshold() -> Int = 12;",
+  "src/filter.gift": "import \"./limits.gift\" as limits; export fn passes(n: Int) -> Bool = n >= limits.threshold();"
 }})
 ```
 
@@ -144,9 +144,9 @@ sec.propose({base: "C0", files: {
 
 ## 首次生成与直接在目标上修改
 
-`src/threshold.sec`的完整源码：
+`src/threshold.gift`的完整源码：
 
-```sec
+```gift
 export fn passes(n: Int) -> Bool = n >= 10;
 ```
 
@@ -163,7 +163,7 @@ export function passes(n: bigint): boolean {
 用户提出“阈值改成12”，也可以直接在A0的代码上把10n改为12n。沿现有工具提交：
 
 ```text
-sec.propose({draft: {
+gift.propose({draft: {
   kind: "generated-edit",
   base: "C0",
   artifactRef: "A0",

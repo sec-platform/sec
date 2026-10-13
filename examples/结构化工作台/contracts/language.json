@@ -1,91 +1,74 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/language",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/language",
   "namespace": "spec.language",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:ExplicitUnavailable": {
       "kind": "req:enum-value",
       "name": "ExplicitUnavailable",
-      "body": {
-        "nominalIdentity": "sec/spec/language#ExplicitUnavailable"
-      }
+      "body": {}
     },
     "v:References": {
       "kind": "req:enum-value",
       "name": "References",
-      "body": {
-        "nominalIdentity": "sec/spec/language#References"
-      }
+      "body": {}
     },
     "v:CandidateNotEstablishedFact": {
       "kind": "req:enum-value",
       "name": "CandidateNotEstablishedFact",
-      "body": {
-        "nominalIdentity": "sec/spec/language#CandidateNotEstablishedFact"
-      }
+      "body": {}
     },
     "v:Hover": {
       "kind": "req:enum-value",
       "name": "Hover",
-      "body": {
-        "nominalIdentity": "sec/spec/language#Hover"
-      }
+      "body": {}
     },
     "v:Completion": {
       "kind": "req:enum-value",
       "name": "Completion",
-      "body": {
-        "nominalIdentity": "sec/spec/language#Completion"
-      }
+      "body": {}
     },
     "v:Definition": {
       "kind": "req:enum-value",
       "name": "Definition",
-      "body": {
-        "nominalIdentity": "sec/spec/language#Definition"
-      }
+      "body": {}
     },
     "v:Signature": {
       "kind": "req:enum-value",
       "name": "Signature",
-      "body": {
-        "nominalIdentity": "sec/spec/language#Signature"
-      }
+      "body": {}
     },
     "v:ByProducerScopeAndRevision": {
       "kind": "req:enum-value",
       "name": "ByProducerScopeAndRevision",
-      "body": {
-        "nominalIdentity": "sec/spec/language#ByProducerScopeAndRevision"
-      }
+      "body": {}
     },
     "v:NegotiateExact": {
       "kind": "req:enum-value",
       "name": "NegotiateExact",
-      "body": {
-        "nominalIdentity": "sec/spec/language#NegotiateExact"
-      }
+      "body": {}
     },
     "v:VersionedGroup": {
       "kind": "req:enum-value",
       "name": "VersionedGroup",
-      "body": {
-        "nominalIdentity": "sec/spec/language#VersionedGroup"
-      }
+      "body": {}
     },
     "v:EffectsAndEvaluationOrder": {
       "kind": "req:enum-value",
       "name": "EffectsAndEvaluationOrder",
-      "body": {
-        "nominalIdentity": "sec/spec/language#EffectsAndEvaluationOrder"
-      }
+      "body": {}
     },
     "r:Providers": {
       "kind": "req:rule",
@@ -98,7 +81,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "语言服务集合"
@@ -108,7 +96,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "输入的文档"
@@ -118,7 +111,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Configuration"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Configuration"
+                  }
+                }
               ]
             },
             "meaning": "语言配置来源"
@@ -128,7 +126,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/language#NegotiateExact"
+                {
+                  "definitionId": "v:NegotiateExact"
+                }
               ]
             },
             "meaning": "逐方法、编码和版本协商"
@@ -138,7 +138,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/language#ExplicitUnavailable"
+                {
+                  "definitionId": "v:ExplicitUnavailable"
+                }
               ]
             },
             "meaning": "未支持与零结果区分"
@@ -147,7 +149,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "language.Providers",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -164,7 +165,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DiagnosticSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DiagnosticSet"
+                  }
+                }
               ]
             },
             "meaning": "诊断集合"
@@ -174,7 +180,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "生产者范围"
@@ -184,7 +195,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "输入源"
@@ -194,7 +210,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/language#ByProducerScopeAndRevision"
+                {
+                  "definitionId": "v:ByProducerScopeAndRevision"
+                }
               ]
             },
             "meaning": "发布及清除绑定生产者、范围、版本和请求代"
@@ -203,7 +221,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "language.Diagnostics",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -220,7 +237,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "重构服务"
@@ -230,7 +252,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "目标模型"
@@ -240,7 +267,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "文件和资源变更范围"
@@ -250,7 +282,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/language#VersionedGroup"
+                {
+                  "definitionId": "v:VersionedGroup"
+                }
               ]
             },
             "meaning": "整组编辑的前像与外部范围语义固定"
@@ -260,7 +294,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/language#EffectsAndEvaluationOrder"
+                {
+                  "definitionId": "v:EffectsAndEvaluationOrder"
+                }
               ]
             },
             "meaning": "声称保持的改签名/更名需保留实参次序和效果"
@@ -269,7 +305,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "language.Refactoring",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -286,7 +321,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "LanguageServiceSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "LanguageServiceSet"
+                  }
+                }
               ]
             },
             "meaning": "辅助服务"
@@ -298,11 +338,21 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "sec/spec/language#Completion",
-                  "sec/spec/language#Definition",
-                  "sec/spec/language#References",
-                  "sec/spec/language#Hover",
-                  "sec/spec/language#Signature"
+                  {
+                    "definitionId": "v:Completion"
+                  },
+                  {
+                    "definitionId": "v:Definition"
+                  },
+                  {
+                    "definitionId": "v:References"
+                  },
+                  {
+                    "definitionId": "v:Hover"
+                  },
+                  {
+                    "definitionId": "v:Signature"
+                  }
                 ]
               }
             },
@@ -313,7 +363,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/language#CandidateNotEstablishedFact"
+                {
+                  "definitionId": "v:CandidateNotEstablishedFact"
+                }
               ]
             },
             "meaning": "推测建议与真实已绑定位置分开"
@@ -322,7 +374,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "language.Assistance",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -374,14 +425,6 @@
     },
     "Assistance": {
       "definitionId": "r:Assistance"
-    }
-  },
-  "extensions": {
-    "sec.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }
   }
 }

@@ -1,6 +1,6 @@
+import { CodedFailure } from '../contracts/failure.ts';
 import { portableLogicalPathCollisionKey } from '../contracts/logical-path.ts';
 import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
-import { CompilerError } from './errors.ts';
 
 /** Every output task owns one identity and one ordinary-file target. Repeated
  * IDs are not an idempotence receipt; parent/child file targets cannot coexist. */
@@ -9,12 +9,12 @@ export function assertUniqueSemanticOutputPaths(tasks: readonly SemanticGenerato
   const taskIds = new Set<string>();
   for (const task of tasks) {
     if (typeof task.id !== 'string' || task.id.length === 0 || taskIds.has(task.id)) {
-      throw new CompilerError('GENERATOR-PLAN-003', 'Semantic output tasks must have distinct non-empty identities');
+      throw new CodedFailure('GENERATOR-PLAN-003', 'Semantic output tasks must have distinct non-empty identities');
     }
     taskIds.add(task.id);
     const identity = portableLogicalPathCollisionKey(task.target, 'Semantic output path');
     if (pathToTask.has(identity)) {
-      throw new CompilerError('GENERATOR-PLAN-003', `Semantic output path "${task.target}" is declared by multiple tasks`);
+      throw new CodedFailure('GENERATOR-PLAN-003', `Semantic output path "${task.target}" is declared by multiple tasks`);
     }
     pathToTask.set(identity, task.id);
   }
@@ -22,7 +22,7 @@ export function assertUniqueSemanticOutputPaths(tasks: readonly SemanticGenerato
   for (const identity of pathToTask.keys()) {
     for (let separator = identity.indexOf('/'); separator !== -1; separator = identity.indexOf('/', separator + 1)) {
       if (pathToTask.has(identity.slice(0, separator))) {
-        throw new CompilerError('GENERATOR-PLAN-003', `Semantic output path "${identity}" descends from another file target`);
+        throw new CodedFailure('GENERATOR-PLAN-003', `Semantic output path "${identity}" descends from another file target`);
       }
     }
   }

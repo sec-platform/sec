@@ -1,9 +1,10 @@
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
 import type { ProvenanceFile } from '../../semantics/provenance/types.ts';
 import { ProjectIntegrityError } from '../../workspace/contract/project-integrity.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { PhysicalNoFollowError } from '../runtime-state/physical/runtime/physical-no-follow.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, secRelativePath, tsconfigRelativePath, workspaceConfigRelativePath } from "../workspace-context.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath, secRelativePath, tsconfigRelativePath } from "../workspace-context.ts";
 import { assertProjectBaseline, readProjectBaseline } from './project-baseline.ts';
 import { inspectProvenanceArtifacts } from './project-provenance-inspection.ts';
 import { listTrackedProjectPaths } from './project-tracked-files.ts';
@@ -57,15 +58,6 @@ async function verifyPreviousProvenance(
     }
   }
   return true;
-}
-
-export async function checkProjectBeforeCompile(workspaceRoot: string): Promise<void> {
-  const baseline = readProjectBaseline(workspaceRoot);
-  if (baseline) {
-    assertProjectBaseline(workspaceRoot, baseline);
-    return;
-  }
-  await verifyPreviousProvenance(workspaceRoot, { strictMissing: false });
 }
 
 export async function checkProjectBeforeVerify(

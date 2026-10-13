@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { buildLoadedPolicyScope, mergeLoadedPolicyDeclarations } from '../../src/semantics/policies/declarations.ts';
 import { POLICY_RULE_IDS } from '../../src/semantics/policies/rules.ts';
 import { PolicyRuleSchema, PolicySeveritySchema, PolicySpecSchema } from '../../src/semantics/policies/source-schema.ts';
 import type { PolicyRule, PolicySeverity, PolicySpec } from '../../src/semantics/policies/types.ts';
@@ -63,4 +64,32 @@ test('empty declared policy set stays legal but omitted or null containers are n
   for (const input of [{}, null, [], { policies: null }, { policies: [], authority: true }]) {
     assert.equal(PolicySpecSchema.safeParse(input).success, false);
   }
+});
+
+test('equal cross-scope policies preserve every source and project attribution', () => {
+  const official = buildLoadedPolicyScope('official', [{ sourcePath: 'official.yaml', spec: { policies: [policy()] } }]);
+  const project = buildLoadedPolicyScope('project', [{ sourcePath: 'project.yaml', spec: { policies: [policy()] } }]);
+  const result = mergeLoadedPolicyDeclarations(official, project);
+  assert.deepEqual(result.policies, [policy()]);
+  assert.equal(result.definitions.get(policy().id)?.sourceScope, 'project');
+  assert.deepEqual(result.official.sources, [{ path: 'official.yaml', policyIds: [policy().id] }]);
+  assert.deepEqual(result.project.sources, [{ path: 'project.yaml', policyIds: [policy().id] }]);
+});
+
+for (const change of [{ severity: 'info' as const }, { appliesTo: ['block/a'] }]) {
+  test(`source precedence cannot weaken the same policy: ${JSON.stringify(change)}`, () => {
+    const original = policy(), changed = { ...policy(), ...change };
+    for (const [first, second] of [[original, changed], [changed, original]]) {
+      const official = buildLoadedPolicyScope('official', [{ sourcePath: 'official.yaml', spec: { policies: [first!] } }]);
+      const project = buildLoadedPolicyScope('project', [{ sourcePath: 'project.yaml', spec: { policies: [second!] } }]);
+      assert.throws(() => mergeLoadedPolicyDeclarations(official, project), /Conflicting policy declarations/);
+    }
+  });
+}
+
+test('different policy identities still coexist with independent scopes', () => {
+  const official = buildLoadedPolicyScope('official', [{ sourcePath: 'official.yaml', spec: { policies: [policy()] } }]);
+  const different = { ...policy(), id: 'another-policy', severity: 'error' as const };
+  const project = buildLoadedPolicyScope('project', [{ sourcePath: 'project.yaml', spec: { policies: [different] } }]);
+  assert.deepEqual(mergeLoadedPolicyDeclarations(official, project).policyIds, ['another-policy', 'policy-reuse']);
 });

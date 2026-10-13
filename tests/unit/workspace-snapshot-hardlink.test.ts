@@ -17,7 +17,8 @@ test('upgrade snapshot rejects hard-linked workspace inputs before reporting a r
     await expect(snapshotWorkspace(
       root,
       path.join(root, '.sec', 'upgrade.lock'),
-      async () => undefined
+      async () => undefined,
+      { operationIdentityDigest: `sha256:${'1'.repeat(64)}`, attemptRevision: `sha256:${'2'.repeat(64)}` }
     )).rejects.toThrow('another hard-link name');
 
     expect(await readFile(source, 'utf8')).toBe('shared\n');

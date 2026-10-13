@@ -29,7 +29,7 @@ let rawExecutable: ReturnType<typeof createRawTestExecutableFixture>;
 beforeAll(() => { rawExecutable = createRawTestExecutableFixture(); });
 afterAll(() => { rawExecutable.dispose(); });
 
-import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
+import { runRetainedGitWriteTreeProbe } from '../helpers/retained-git-write-tree-probe.ts';
 
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -603,8 +603,8 @@ test('retained child-process file reads the observed inode after leaf replacemen
   }
 });
 
-test('retained Git index and object directories support write-tree without lexical reopen', () => {
-  expect(runRetainedGitWriteTreeProbeV1()).toMatch(/^[0-9a-f]{40}$/u);
+test('native Git write-tree uses a warm private index beneath its retained parent', () => {
+  expect(runRetainedGitWriteTreeProbe({ warmIndex: true, indexCustody: 'retained-parent' })).toMatch(/^[0-9a-f]{40}$/u);
 });
 
 test('exact ordinary leaf observation does not scan unrelated parent entries', () => {
@@ -1458,6 +1458,8 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('coope
         await assertWorkspaceWriteLease(repository, repositoryLease);
         const parent = inspectNoFollowDirectoryChain(parentPath, 'cooperative byte preimage').target;
         const original = statSync(target, { bigint: true });
+        const nativeOriginal = inspectNoFollowOrdinaryFileEntry(parent, 'journal.json');
+        if (nativeOriginal === null) throw new Error('Native byte-preimage fixture is absent.');
         const originalBytes = readFileSync(target);
         const writer = openSync(target, 'r+');
         try { writeSync(writer, Buffer.from('bad\n'), 0, 4, 0); }
@@ -1465,7 +1467,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('coope
         expect(statSync(target, { bigint: true }).ino).toBe(original.ino);
         const input = {
           parent, name: 'journal.json', bytes: Buffer.from('next\n'),
-          expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+          expectedExisting: { device: nativeOriginal.device, inode: nativeOriginal.inode },
           validate: () => undefined
         };
         expectPhysicalCode(() => replaceDurableCanonicalFile({ ...input, expectedExistingBytes: originalBytes }),

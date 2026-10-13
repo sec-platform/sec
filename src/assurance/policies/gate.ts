@@ -1,9 +1,9 @@
 import type { InstallPlanStep, LockFile } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import type { BuildEngineeringIRInput } from '../../compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, capabilityEntityId } from '../../compiler/ir/ir-identity.ts';
 import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineering-ir.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { PREDICATE_SIGNATURE_REGISTRY } from '../../semantics/engineering-ir/predicate-signatures.ts';
 import {
   policySemanticRule,
@@ -208,7 +208,7 @@ export function preparePolicyGateEvaluation(input: Readonly<{
     input.definitions.map(definition => definition.policy)
       .sort((left, right) => compareCodeUnits(left.id, right.id))
   )) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-POLICY-005',
       'Policy declarations changed while deriving the canonical Engineering IR input'
     );
@@ -223,7 +223,7 @@ export function preparePolicyGateEvaluation(input: Readonly<{
       rule.sourceCapability
     );
     if (providerModulePaths.length === 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-POLICY-005',
         `Policy rule ${definition.policy.rule} has no resolved source capability provider module`
       );

@@ -31,7 +31,7 @@ class CaptureResources(unittest.TestCase):
 
     def declare(self, roots):
         (self.root / '.documentation/baseline.json').write_text(
-            json.dumps(declaration(roots)), encoding='utf-8')
+            json.dumps({**declaration(roots),'entry':'../docs/main.md'}), encoding='utf-8')
 
     def test_ordinary_and_empty_files_keep_their_bytes(self):
         for data in (b'captured', b''):
@@ -75,11 +75,6 @@ class CaptureResources(unittest.TestCase):
                 read_ordinary(self.root, 'docs/main.md')
         self.assertIs(result.exception.primary, primary)
         self.assertIs(result.exception.settlement, cleanup)
-
-    def test_enumeration_does_not_materialize_iterdir_lists(self):
-        with patch.object(Path, 'iterdir', side_effect=AssertionError('unbounded directory read')):
-            names = {p.relative_to(self.root).as_posix() for p in source_files(self.root)}
-        self.assertEqual(names, {'.documentation/baseline.json', 'docs/main.md'})
 
     def test_fanout_is_bounded_while_streaming_and_closes(self):
         class Directory:

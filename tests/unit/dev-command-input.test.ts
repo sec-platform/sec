@@ -68,7 +68,7 @@ test('argument and auxiliary arrays use their own values rather than custom iter
   const args = ['original']; args[Symbol.iterator] = () => { throw new Error('iterator'); };
   assert.deepEqual(capture(undefined, args).args, ['original']);
   const invalid = [new Array(1), ['x', null], Object.defineProperty([], '0', { get() { assert.fail('getter'); }, configurable: true })];
-  for (const value of invalid) assert.throws(() => capture(undefined, value as never));
+  for (const value of invalid) assert.throws(() => capture(undefined, value as never), TypeError);
   assert.throws(() => capture(undefined, ['x\0y']));
   assert.throws(() => capture({ auxiliaryOrdinaryFilePaths: ['x', './x'] }), /unique/);
 });

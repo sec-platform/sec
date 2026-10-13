@@ -4,7 +4,7 @@ This is a public projection of the current integrated design on `main`. It helps
 
 ## System boundary
 
-SEC turns engineering goals, maintainable author content, and available implementations into target workspaces whose sources and limits remain explicit. It can return analysis, a bounded design, implementation candidates, complete artifacts, or the result of an authorized operation. The requested outcome determines the stopping point.
+Gift turns engineering goals, maintainable author content, and available implementations into target workspaces whose sources and limits remain explicit. It can return analysis, a bounded design, implementation candidates, complete artifacts, or the result of an authorized operation. The requested outcome determines the stopping point.
 
 ```text
 People / AI / Existing Tools
@@ -59,11 +59,11 @@ bootstrap constructs the selected implementation graph.
 
 ## Two input paths, one downstream model
 
-For existing software, SEC captures exact physical observations, language and dependency facts, and candidate responsibilities. It adopts supported meaning, rejects disproven interpretations, and preserves material unknowns.
+For existing software, Gift captures exact physical observations, language and dependency facts, and candidate responsibilities. It adopts supported meaning, rejects disproven interpretations, and preserves material unknowns.
 
-For new or intentionally changed software, SEC consumes goals, constraints, contracts, and authored choices. Both paths converge on maintained engineering content, implementation selection, exact target members, controlled changes, readback, and evidence.
+For new or intentionally changed software, Gift consumes goals, constraints, contracts, and authored choices. Both paths converge on maintained engineering content, implementation selection, exact target members, controlled changes, readback, and evidence.
 
-This convergence matters because generated code is not a separate truth. Author content remains maintainable, implementation choices remain traceable, and the target workspace carries only the source, dependencies, and resources it actually needs.
+At this boundary, each source region has an explicit owner. Author content remains maintainable, selected implementations remain traceable, and the target workspace carries the source, dependencies, and resources it actually needs. Generated regions derive from their maintained source; an authorized edit to generated output follows the supported return-to-source contract or becomes an explicit native region. Existing native source and independent observations retain their own roles.
 
 ## State and failure boundaries
 

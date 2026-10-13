@@ -1,0 +1,1679 @@
+{
+  "schema": "gift.author-module/1",
+  "moduleId": "example:deliverable:applications",
+  "namespace": "example:deliverable:applications",
+  "dialects": {
+    "req": {
+      "languageId": "gift.requirement-structure",
+      "constraint": "1"
+    }
+  },
+  "imports": {
+    "spec": {
+      "mode": "workspace",
+      "moduleId": "example/spec/deliverable-details"
+    },
+    "forms": {
+      "mode": "workspace",
+      "moduleId": "example:deliverable-definitions"
+    }
+  },
+  "definitions": {
+    "d:Definitions": {
+      "kind": "req:composite",
+      "name": "Definitions",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Definitions"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:StaticValue": {
+      "kind": "req:composite",
+      "name": "StaticValue",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "StaticValue"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Resources": {
+      "kind": "req:composite",
+      "name": "Resources",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Resources"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Expression": {
+      "kind": "req:composite",
+      "name": "Expression",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Expression"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:ContextPatch": {
+      "kind": "req:composite",
+      "name": "ContextPatch",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "ContextPatch"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Library": {
+      "kind": "req:composite",
+      "name": "Library",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Library"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:SDK": {
+      "kind": "req:composite",
+      "name": "SDK",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "SDK"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:ProtocolClient": {
+      "kind": "req:composite",
+      "name": "ProtocolClient",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "ProtocolClient"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Command": {
+      "kind": "req:composite",
+      "name": "Command",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Command"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:BatchCommand": {
+      "kind": "req:composite",
+      "name": "BatchCommand",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "BatchCommand"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:HttpHandler": {
+      "kind": "req:composite",
+      "name": "HttpHandler",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "HttpHandler"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Service": {
+      "kind": "req:composite",
+      "name": "Service",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Service"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Worker": {
+      "kind": "req:composite",
+      "name": "Worker",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Worker"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Component": {
+      "kind": "req:composite",
+      "name": "Component",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Component"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Plugin": {
+      "kind": "req:composite",
+      "name": "Plugin",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Plugin"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:WebPanel": {
+      "kind": "req:composite",
+      "name": "WebPanel",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "WebPanel"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Desktop": {
+      "kind": "req:composite",
+      "name": "Desktop",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Desktop"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Mobile": {
+      "kind": "req:composite",
+      "name": "Mobile",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          },
+          "operation": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Operation"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "require": {
+              "import": "spec",
+              "export": "Canonical"
+            },
+            "fields": {
+              "on": {
+                "subject": "operation"
+              }
+            }
+          },
+          {
+            "use": {
+              "import": "forms",
+              "export": "Mobile"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              },
+              "operation": {
+                "subject": "operation"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Family": {
+      "kind": "req:composite",
+      "name": "Family",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Family"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Query": {
+      "kind": "req:composite",
+      "name": "Query",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Query"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:BatchData": {
+      "kind": "req:composite",
+      "name": "BatchData",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "BatchData"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:WindowStream": {
+      "kind": "req:composite",
+      "name": "WindowStream",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "WindowStream"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Migration": {
+      "kind": "req:composite",
+      "name": "Migration",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Migration"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Compiler": {
+      "kind": "req:composite",
+      "name": "Compiler",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Compiler"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Analyzer": {
+      "kind": "req:composite",
+      "name": "Analyzer",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Analyzer"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Generator": {
+      "kind": "req:composite",
+      "name": "Generator",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Generator"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Inference": {
+      "kind": "req:composite",
+      "name": "Inference",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Inference"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Trainer": {
+      "kind": "req:composite",
+      "name": "Trainer",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Trainer"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Sampler": {
+      "kind": "req:composite",
+      "name": "Sampler",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Sampler"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Optimizer": {
+      "kind": "req:composite",
+      "name": "Optimizer",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Optimizer"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:GpuKernel": {
+      "kind": "req:composite",
+      "name": "GpuKernel",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "GpuKernel"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Firmware": {
+      "kind": "req:composite",
+      "name": "Firmware",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Firmware"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:RealTime": {
+      "kind": "req:composite",
+      "name": "RealTime",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "RealTime"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Installer": {
+      "kind": "req:composite",
+      "name": "Installer",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Installer"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:Deployment": {
+      "kind": "req:composite",
+      "name": "Deployment",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "Deployment"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    },
+    "d:NativeChange": {
+      "kind": "req:composite",
+      "name": "NativeChange",
+      "body": {
+        "parameters": {},
+        "subjects": {
+          "product": {
+            "type": {
+              "ref": {
+                "import": "spec",
+                "export": "Product"
+              }
+            }
+          }
+        },
+        "terms": [
+          {
+            "use": {
+              "import": "forms",
+              "export": "NativeChange"
+            },
+            "arguments": {
+              "on": {
+                "subject": "product"
+              }
+            }
+          }
+        ],
+        "exposes": {
+          "product": {
+            "subject": "product"
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Definitions": {
+      "definitionId": "d:Definitions"
+    },
+    "StaticValue": {
+      "definitionId": "d:StaticValue"
+    },
+    "Resources": {
+      "definitionId": "d:Resources"
+    },
+    "Expression": {
+      "definitionId": "d:Expression"
+    },
+    "ContextPatch": {
+      "definitionId": "d:ContextPatch"
+    },
+    "Library": {
+      "definitionId": "d:Library"
+    },
+    "SDK": {
+      "definitionId": "d:SDK"
+    },
+    "ProtocolClient": {
+      "definitionId": "d:ProtocolClient"
+    },
+    "Command": {
+      "definitionId": "d:Command"
+    },
+    "BatchCommand": {
+      "definitionId": "d:BatchCommand"
+    },
+    "HttpHandler": {
+      "definitionId": "d:HttpHandler"
+    },
+    "Service": {
+      "definitionId": "d:Service"
+    },
+    "Worker": {
+      "definitionId": "d:Worker"
+    },
+    "Component": {
+      "definitionId": "d:Component"
+    },
+    "Plugin": {
+      "definitionId": "d:Plugin"
+    },
+    "WebPanel": {
+      "definitionId": "d:WebPanel"
+    },
+    "Desktop": {
+      "definitionId": "d:Desktop"
+    },
+    "Mobile": {
+      "definitionId": "d:Mobile"
+    },
+    "Family": {
+      "definitionId": "d:Family"
+    },
+    "Query": {
+      "definitionId": "d:Query"
+    },
+    "BatchData": {
+      "definitionId": "d:BatchData"
+    },
+    "WindowStream": {
+      "definitionId": "d:WindowStream"
+    },
+    "Migration": {
+      "definitionId": "d:Migration"
+    },
+    "Compiler": {
+      "definitionId": "d:Compiler"
+    },
+    "Analyzer": {
+      "definitionId": "d:Analyzer"
+    },
+    "Generator": {
+      "definitionId": "d:Generator"
+    },
+    "Inference": {
+      "definitionId": "d:Inference"
+    },
+    "Trainer": {
+      "definitionId": "d:Trainer"
+    },
+    "Sampler": {
+      "definitionId": "d:Sampler"
+    },
+    "Optimizer": {
+      "definitionId": "d:Optimizer"
+    },
+    "GpuKernel": {
+      "definitionId": "d:GpuKernel"
+    },
+    "Firmware": {
+      "definitionId": "d:Firmware"
+    },
+    "RealTime": {
+      "definitionId": "d:RealTime"
+    },
+    "Installer": {
+      "definitionId": "d:Installer"
+    },
+    "Deployment": {
+      "definitionId": "d:Deployment"
+    },
+    "NativeChange": {
+      "definitionId": "d:NativeChange"
+    }
+  }
+}

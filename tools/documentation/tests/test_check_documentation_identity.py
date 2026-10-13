@@ -7,6 +7,36 @@ import hashlib
 import json
 
 import source_inventory as s
+import check_docs
+
+
+class IdentityNamespaceCoverage(TestCase):
+    def registry(self,*paths):
+        return {'schema':'sec.documentation-identity/1','scope':'fixture','documents':[
+            {'document_id':f'urn:uuid:00000000-0000-4000-8000-{i:012d}','path':path}
+            for i,path in enumerate(paths,1)]}
+
+    def test_audited_source_markdown_requires_identity_without_root_exceptions(self):
+        sources={'manual/a.md','manual/nested/b.md','manual/data.json','manual-other/c.md',
+                 'README.md','.documentation/README.md','examples/README.md'}
+        with self.assertRaisesRegex(ValueError,'manual/nested/b.md'):
+            check_docs.checked_identity_registry(self.registry('manual/a.md'),sources,['manual'])
+        rows=check_docs.checked_identity_registry(self.registry('manual/a.md','manual/nested/b.md'),sources,['manual'])
+        self.assertEqual(len(rows),2)
+
+    def test_new_member_and_removed_registration_both_reject(self):
+        registry=self.registry('docs/a.md','docs/b.md')
+        sources={'docs/a.md','docs/b.md'}
+        check_docs.checked_identity_registry(registry,sources,['docs'])
+        with self.assertRaisesRegex(ValueError,'docs/new.md'):
+            check_docs.checked_identity_registry(registry,sources|{'docs/new.md'},['docs'])
+        registry['documents'].pop()
+        with self.assertRaisesRegex(ValueError,'docs/b.md'):
+            check_docs.checked_identity_registry(registry,sources,['docs'])
+
+    def test_registered_external_source_still_has_its_identity_checked(self):
+        with self.assertRaisesRegex(ValueError,'source Markdown member'):
+            check_docs.checked_identity_registry(self.registry('examples/missing.md'),{'docs/a.md'},['docs'])
 
 
 def declaration(roots=None):

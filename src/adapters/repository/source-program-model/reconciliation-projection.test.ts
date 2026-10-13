@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleMembershipSnapshot
+  compileRepositoryModuleMembershipSnapshot
 } from '../architecture/contract.ts';
 import type { SourceProgramUnknown } from './contract.ts';
 import {
@@ -48,7 +48,7 @@ function compileFixture(
       ...source
     })
   }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [
       ...files.map(({ path }) => path),
       ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
@@ -142,6 +142,32 @@ function architectureEvolution(
     reconciliation: reconcile(before, after)
   });
 }
+
+test('architecture reconciliation observes stale descriptor operation on the original compiled models', () => {
+  const descriptor = [{
+    root: 'src/example',
+    source: {
+      capabilityProviders: [{
+        capability: 'example.operations',
+        operations: ['old']
+      }]
+    }
+  }];
+  const before = compileFixture({
+    'src/example/operation.ts': 'export function old(): void {}\n'
+  }, descriptor);
+  const after = compileFixture({
+    'src/example/operation.ts': 'export function current(): void {}\n'
+  }, descriptor);
+  const evolution = architectureEvolution(before, after);
+  expect(evolution.graphDelta.addedViolations.some((violation) => (
+    violation.includes('repository-descriptor-operation-export-absent')
+    && violation.includes('example.operations:old')
+  ))).toBe(true);
+  expect(evolution.graphDelta.removedViolations.some((violation) => (
+    violation.includes('repository-descriptor-operation-export-unresolved')
+  ))).toBe(false);
+});
 
 test('declaration rename, move, and re-export changes are derived from owner relations and compiler references', () => {
   const before = compileFixture({

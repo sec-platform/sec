@@ -1,8 +1,9 @@
-import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../../assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../../../../assurance/verification/result/contract/result.ts';
 import { canonicalEquals, sha256 as canonicalSha256 } from '../../../../../contracts/canonical.ts';
-import { encodeVerificationActionData, parseVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionPlan } from '../../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationNormalizedOperationArgv, parseCiVerificationNormalizedOperation, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
+import type { CiVerificationNormalizedOperation, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
+import type { HostedActionRawResult, HostedSutCapabilityObservation, HostedSutCleanupObservation, HostedSutDerivedCleanup, HostedSutEnvironmentProjection, HostedSutExecutionAuthorization, HostedSutInventory, HostedSutPhysicalCommandAuthorization, HostedSutProcessLifecycle, HostedSutSandboxReceipt, HostedSutTerminalProjection } from "../../../../../execution/verification/hosted.ts";
+import { encodeVerificationActionData, parseVerificationActionPlan } from '../../action/contract/action.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationNormalizedOperation, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import type { VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
@@ -15,7 +16,7 @@ export const CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA =
   'sec-verification-action-sandbox-receipt-v2' as const;
 export const CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA =
   'sec-verification-action-sut-authorization-v1' as const;
-const CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA =
+export const CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA =
   'sec-verification-action-sut-execution-proof-v1' as const;
 export const CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA =
   'sec-verification-action-physical-command-v1' as const;
@@ -74,27 +75,13 @@ function canonicalStrings(value: unknown, label: string): readonly string[] {
   return Object.freeze([...value] as string[]);
 }
 
-type CodexDevelopmentHostedSutEnvironmentProjection = readonly Readonly<{
-  name: string;
-  valueDigest: VerificationActionKeyDigest;
-}>[];
 
-type CodexDevelopmentHostedSutPhysicalCommandAuthorization = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA;
-  actionKey: VerificationActionKeyDigest;
-  operationSemanticDigest: VerificationActionKeyDigest;
-  unitName: string;
-  canonicalArgvDigest: VerificationActionKeyDigest;
-  semanticEnvironment: CodexDevelopmentHostedSutEnvironmentProjection;
-  fixedSandboxEnvironment: CodexDevelopmentHostedSutEnvironmentProjection;
-  sandboxPolicyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST;
-  providerRevision: typeof CI_VERIFICATION_HOSTED_PROVIDER_REVISION;
-  projectionDigest: VerificationActionKeyDigest;
-}>;
+
+
 
 function environmentProjection(
   entries: readonly Readonly<{ name: string; valueDigest: string }>[]
-): CodexDevelopmentHostedSutEnvironmentProjection {
+): HostedSutEnvironmentProjection {
   const projected = entries.map((entry) => Object.freeze({
     name: text(entry.name, 'environment name'),
     valueDigest: digest(entry.valueDigest, `environment ${entry.name}`)
@@ -120,7 +107,7 @@ export function CodexDevelopmentHostedSutCandidateEnvironment(input: Readonly<{
     SEC_AFFECTED_TESTS_BASE: operation.candidate.baseSha,
     SEC_BASE_TREE_SHA: operation.candidate.baseTreeSha,
     SEC_CHANGED_BASE: operation.candidate.baseSha,
-    SEC_EXECUTION_ENVIRONMENT_REVISION: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    SEC_EXECUTION_ENVIRONMENT_REVISION: resolveCiVerificationHostedExecutionEnvironment(operation.candidate.executionEnvironmentRevision).executionEnvironmentRevision,
     SEC_FORMAL_HOSTED_MODE: '1',
     SEC_WORK_PACKAGE_MANIFEST_PATH: text(input.manifestPath, 'manifest path'),
     TMPDIR: '/tmp'
@@ -139,7 +126,7 @@ function physicalCommandAuthorization(input: Readonly<{
   ticketDigest: VerificationActionKeyDigest;
   normalizedOperation: CiVerificationNormalizedOperation;
   manifestPath: string;
-}>): CodexDevelopmentHostedSutPhysicalCommandAuthorization {
+}>): HostedSutPhysicalCommandAuthorization<typeof CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION> {
   const operation = parseCiVerificationNormalizedOperation(input.normalizedOperation);
   const candidateEnvironment = CodexDevelopmentHostedSutCandidateEnvironment({
     normalizedOperation: operation,
@@ -161,7 +148,7 @@ function physicalCommandAuthorization(input: Readonly<{
     semanticEnvironment,
     fixedSandboxEnvironment,
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
-    providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
+    providerRevision: resolveCiVerificationHostedExecutionEnvironment(operation.candidate.executionEnvironmentRevision).executionEnvironmentRevision
   });
   return Object.freeze({ ...withoutDigest, projectionDigest: canonicalDigest(withoutDigest) });
 }
@@ -170,159 +157,39 @@ function physicalCommandAuthorization(input: Readonly<{
  * null preserves an unobserved fact; the transport binding, not this data shape,
  * supplies producer authority. A test process seam is not a production source.
  */
-export type CodexDevelopmentHostedSutProcessLifecycle = Readonly<{
-  supervisorSpawned: boolean | null;
-  supervisorClosed: boolean | null;
-  supervisorCloseCode: number | null;
-  supervisorSignal: string | null;
-  namespaceEstablished: boolean | null;
-  candidateStarted: boolean | null;
-  candidateUnitSettled: boolean | null;
-  observationGap: 'unsupported-source' | 'observation-lost' | null;
-}>;
 
-export type CodexDevelopmentHostedSutCleanupObservation = Readonly<{
-  supervisorSpawned: boolean | null;
-  supervisorClosed: boolean | null;
-  exitCode: number | null;
-  outputDigest: VerificationActionKeyDigest;
-}>;
 
-type CodexDevelopmentHostedSutSandboxCapabilityObservation = Readonly<{
-  commandPlanDigest: VerificationActionKeyDigest | null;
-  lifecycle: CodexDevelopmentHostedSutProcessLifecycle;
-  exitCode: number | null;
-  markerObserved: boolean;
-  outputDigest: VerificationActionKeyDigest;
-  cleanup: CodexDevelopmentHostedSutCleanupObservation;
-  diagnostic: string | null;
-}>;
 
-export function hostedSutLifecycleComplete(lifecycle: CodexDevelopmentHostedSutProcessLifecycle): boolean {
+
+
+
+export function hostedSutLifecycleComplete(lifecycle: HostedSutProcessLifecycle): boolean {
   return lifecycle.supervisorSpawned === true && lifecycle.supervisorClosed === true &&
     lifecycle.namespaceEstablished === true && lifecycle.candidateStarted === true &&
     lifecycle.candidateUnitSettled === true && lifecycle.observationGap === null;
 }
 
-export function hostedSutCleanupComplete(cleanup: CodexDevelopmentHostedSutCleanupObservation): boolean {
+export function hostedSutCleanupComplete(cleanup: HostedSutCleanupObservation): boolean {
   return cleanup.supervisorSpawned === true && cleanup.supervisorClosed === true && cleanup.exitCode === 0;
 }
 
-export type CodexDevelopmentHostedSutSandboxReceipt = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA;
-  policyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST;
-  actionKey: VerificationActionKeyDigest;
-  capability: CodexDevelopmentHostedSutSandboxCapabilityObservation;
-  commandPlanDigest: VerificationActionKeyDigest | null;
-  resources: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits;
-  authenticatedArchive: Readonly<{
-    archiveDigest: VerificationActionKeyDigest | null;
-    inventoryDigest: VerificationActionKeyDigest | null;
-    dependencyClosureDigest: VerificationActionKeyDigest | null;
-    gitBundleDigest: VerificationActionKeyDigest | null;
-    entryCount: number;
-    totalFileBytes: number;
-  }>;
-  rootIsolation: Readonly<{
-    substrate: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.substrate;
-    namespaces: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.namespaces;
-    uid: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid;
-    gid: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid;
-    network: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.network;
-    inputMount: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.inputMount;
-    workspace: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.workspace;
-    outputTransport: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outputTransport;
-    candidateEnvironmentNames: readonly string[];
-  }>;
-  execution: Readonly<{
-    lifecycle: CodexDevelopmentHostedSutProcessLifecycle;
-    unitName: string | null;
-    exitCode: number | null;
-    authenticatedInputDigest: VerificationActionKeyDigest | null;
-    postExecutionInputDigest: VerificationActionKeyDigest | null;
-    postExecutionReadbackErrorDigest: VerificationActionKeyDigest | null;
-    stdoutStderrDigest: VerificationActionKeyDigest;
-    stdoutDigest: VerificationActionKeyDigest;
-    stderrDigest: VerificationActionKeyDigest;
-    stdoutBytesObserved: number;
-    stderrBytesObserved: number;
-    outputTruncated: boolean;
-    boundedFailureTailDigest: VerificationActionKeyDigest;
-  }>;
-  cleanup: CodexDevelopmentHostedSutCleanupObservation;
-  diagnostic: string | null;
-  receiptDigest: VerificationActionKeyDigest;
-}>;
 
-export type CodexDevelopmentHostedSutInventoryClosure = Readonly<{
-  archiveDigest: VerificationActionKeyDigest;
-  inventoryDigest: VerificationActionKeyDigest;
-  entryCount: number;
-  totalFileBytes: number;
-  dependencyClosureDigest: VerificationActionKeyDigest;
-  gitBundleDigest: VerificationActionKeyDigest;
-}>;
 
-export type CodexDevelopmentHostedSutExecutionAuthorization = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA;
-  resolutionDigest: VerificationActionKeyDigest;
-  ticketDigest: VerificationActionKeyDigest;
-  actionKey: VerificationActionKeyDigest;
-  candidateSha: string;
-  candidateBytesDigest: VerificationActionKeyDigest;
-  operationSemanticDigest: VerificationActionKeyDigest;
-  normalizedArgv: readonly string[];
-  inventoryClosure: CodexDevelopmentHostedSutInventoryClosure;
-  physicalCommand: CodexDevelopmentHostedSutPhysicalCommandAuthorization;
-  executionEnvironment: CiVerificationExecutionEnvironment;
-  sandboxPolicyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST;
-  toolPolicy: Readonly<{
-    runtime: 'bun';
-    supervisor: '/usr/bin/unshare';
-    substrate: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.substrate;
-    outputTransport: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outputTransport;
-  }>;
-  providerOrigin: VerificationActionProviderOrigin;
-  authorizationDigest: VerificationActionKeyDigest;
-}>;
 
-type CodexDevelopmentHostedSutPhysicalCommandObservation = Readonly<{
-  commandPlanDigest: VerificationActionKeyDigest;
-  executionAuthorizationDigest: VerificationActionKeyDigest;
-  physicalCommandProjectionDigest: VerificationActionKeyDigest;
-}>;
 
-export type CodexDevelopmentHostedActionRawResult = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA;
-  executionAuthorizationDigest: VerificationActionKeyDigest;
-  command: CodexDevelopmentHostedSutPhysicalCommandObservation | null;
-  sandboxReceipt: CodexDevelopmentHostedSutSandboxReceipt;
-  startedAt: string;
-  finishedAt: string;
-  rawResultDigest: VerificationActionKeyDigest;
-}>;
 
-type CodexDevelopmentHostedSutDerivedCleanup = Readonly<{
-  status: 'passed' | 'failed' | 'not-required';
-  evidenceRefs: readonly string[];
-  diagnostic: string | null;
-}>;
 
-export type CodexDevelopmentHostedSutExecutionProof = Readonly<{
-  schema: typeof CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA;
-  authorization: CodexDevelopmentHostedSutExecutionAuthorization;
-  observation: CodexDevelopmentHostedActionRawResult;
-  externalRawResultDigest: VerificationActionKeyDigest;
-  proofDigest: VerificationActionKeyDigest;
-}>;
 
-export type CodexDevelopmentHostedSutTerminalProjection = Readonly<{
-  result: VerificationGateResult;
-  cleanup: CodexDevelopmentHostedSutDerivedCleanup;
-  proof: CodexDevelopmentHostedSutExecutionProof;
-}>;
 
-export function parseHostedSutLifecycle(value: unknown): CodexDevelopmentHostedSutProcessLifecycle {
+
+
+
+
+
+
+
+
+export function parseHostedSutLifecycle(value: unknown): HostedSutProcessLifecycle {
   const facts = exactObject(value, [
     'supervisorSpawned', 'supervisorClosed', 'supervisorCloseCode', 'supervisorSignal',
     'namespaceEstablished', 'candidateStarted', 'candidateUnitSettled', 'observationGap'
@@ -339,10 +206,10 @@ export function parseHostedSutLifecycle(value: unknown): CodexDevelopmentHostedS
       !/^SIG[A-Z0-9]+$/u.test(facts.supervisorSignal))) fail('process lifecycle supervisor signal is invalid.');
   if (facts.observationGap !== null && facts.observationGap !== 'unsupported-source' &&
       facts.observationGap !== 'observation-lost') fail('process lifecycle observation gap is invalid.');
-  return Object.freeze(facts as unknown as CodexDevelopmentHostedSutProcessLifecycle);
+  return Object.freeze(facts as unknown as HostedSutProcessLifecycle);
 }
 
-export function parseHostedSutCleanup(value: unknown): CodexDevelopmentHostedSutCleanupObservation {
+export function parseHostedSutCleanup(value: unknown): HostedSutCleanupObservation {
   const cleanup = exactObject(value, [
     'supervisorSpawned', 'supervisorClosed', 'exitCode', 'outputDigest'
   ], 'directory cleanup');
@@ -352,10 +219,10 @@ export function parseHostedSutCleanup(value: unknown): CodexDevelopmentHostedSut
   if (cleanup.exitCode !== null && (!Number.isSafeInteger(cleanup.exitCode) ||
       Number(cleanup.exitCode) < 0 || Number(cleanup.exitCode) > 255)) fail('cleanup exit code is invalid.');
   digest(cleanup.outputDigest, 'directory cleanup output');
-  return Object.freeze(cleanup as unknown as CodexDevelopmentHostedSutCleanupObservation);
+  return Object.freeze(cleanup as unknown as HostedSutCleanupObservation);
 }
 
-export function parseHostedSutCapabilityObservation(value: unknown): CodexDevelopmentHostedSutSandboxCapabilityObservation {
+export function parseHostedSutCapabilityObservation(value: unknown): HostedSutCapabilityObservation {
   const capability = exactObject(value, [
     'commandPlanDigest', 'lifecycle', 'exitCode', 'markerObserved', 'outputDigest', 'cleanup', 'diagnostic'
   ], 'sandbox capability observation');
@@ -371,12 +238,12 @@ export function parseHostedSutCapabilityObservation(value: unknown): CodexDevelo
   const capabilityCleanup = parseHostedSutCleanup(capability.cleanup);
   digest(capability.outputDigest, 'sandbox capability output');
   return Object.freeze({
-    ...(capability as unknown as CodexDevelopmentHostedSutSandboxCapabilityObservation),
+    ...(capability as unknown as HostedSutCapabilityObservation),
     lifecycle: capabilityLifecycle, cleanup: capabilityCleanup
   });
 }
 
-export function hostedSutCapabilityComplete(capability: CodexDevelopmentHostedSutSandboxCapabilityObservation): boolean {
+export function hostedSutCapabilityComplete(capability: HostedSutCapabilityObservation): boolean {
   return capability.commandPlanDigest !== null && hostedSutLifecycleComplete(capability.lifecycle) &&
     capability.exitCode === 0 && capability.markerObserved && hostedSutCleanupComplete(capability.cleanup) &&
     capability.diagnostic === null;
@@ -384,7 +251,7 @@ export function hostedSutCapabilityComplete(capability: CodexDevelopmentHostedSu
 
 export function CodexDevelopmentParseHostedSutSandboxReceipt(
   value: unknown
-): CodexDevelopmentHostedSutSandboxReceipt {
+): HostedSutSandboxReceipt<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const receipt = exactObject(value, [
     'schema', 'policyDigest', 'actionKey', 'capability', 'commandPlanDigest', 'resources',
     'authenticatedArchive', 'rootIsolation', 'execution', 'cleanup', 'diagnostic', 'receiptDigest'
@@ -465,15 +332,15 @@ export function CodexDevelopmentParseHostedSutSandboxReceipt(
   void ignored;
   if (receiptDigest !== canonicalDigest(withoutDigest)) fail('sandbox receipt digest mismatch.');
   return Object.freeze({
-    ...(receipt as unknown as CodexDevelopmentHostedSutSandboxReceipt),
+    ...(receipt as unknown as HostedSutSandboxReceipt<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>),
     capability,
-    authenticatedArchive: Object.freeze({ ...(archive as unknown as CodexDevelopmentHostedSutSandboxReceipt['authenticatedArchive']) }),
+    authenticatedArchive: Object.freeze({ ...(archive as unknown as HostedSutSandboxReceipt<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>['authenticatedArchive']) }),
     rootIsolation: Object.freeze({
-      ...(root as unknown as CodexDevelopmentHostedSutSandboxReceipt['rootIsolation']),
+      ...(root as unknown as HostedSutSandboxReceipt<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>['rootIsolation']),
       candidateEnvironmentNames: environmentNames
     }),
     execution: Object.freeze({
-      ...(execution as unknown as CodexDevelopmentHostedSutSandboxReceipt['execution']),
+      ...(execution as unknown as HostedSutSandboxReceipt<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>['execution']),
       lifecycle: executionLifecycle
     }),
     cleanup,
@@ -481,7 +348,7 @@ export function CodexDevelopmentParseHostedSutSandboxReceipt(
   });
 }
 
-function parseInventoryClosure(value: unknown): CodexDevelopmentHostedSutInventoryClosure {
+function parseInventoryClosure(value: unknown): HostedSutInventory {
   const closure = exactObject(value, [
     'archiveDigest', 'inventoryDigest', 'entryCount', 'totalFileBytes',
     'dependencyClosureDigest', 'gitBundleDigest'
@@ -541,7 +408,7 @@ function parseAuthorization(
     manifestPath: string;
     producer: VerificationActionProviderOrigin;
   }>
-): CodexDevelopmentHostedSutExecutionAuthorization {
+): HostedSutExecutionAuthorization<typeof CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION> {
   const authorization = exactObject(value, [
     'schema', 'resolutionDigest', 'ticketDigest', 'actionKey', 'candidateSha', 'candidateBytesDigest',
     'operationSemanticDigest', 'normalizedArgv', 'inventoryClosure', 'physicalCommand', 'executionEnvironment',
@@ -575,7 +442,8 @@ function parseAuthorization(
     fail('execution authorization tool policy is invalid.');
   }
   const executionEnvironment = authorization.executionEnvironment as CiVerificationExecutionEnvironment;
-  if (!canonicalEquals(executionEnvironment, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
+  const expectedExecutionEnvironment = resolveCiVerificationHostedExecutionEnvironment(plan.action.environment.providerRevision);
+  if (!canonicalEquals(executionEnvironment, expectedExecutionEnvironment)) {
     fail('execution authorization hosted environment is invalid.');
   }
   const parsed = Object.freeze({
@@ -589,7 +457,7 @@ function parseAuthorization(
     normalizedArgv,
     inventoryClosure: parseInventoryClosure(authorization.inventoryClosure),
     physicalCommand: expectedPhysicalCommand,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment: expectedExecutionEnvironment,
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     toolPolicy: Object.freeze({
       runtime: 'bun' as const,
@@ -625,9 +493,9 @@ export function CodexDevelopmentCreateHostedSutExecutionAuthorization(input: Rea
   candidateSha: string;
   candidateBytesDigest: VerificationActionKeyDigest;
   manifestPath: string;
-  inventoryClosure: CodexDevelopmentHostedSutInventoryClosure;
+  inventoryClosure: HostedSutInventory;
   producer: VerificationActionProviderOrigin;
-}>): CodexDevelopmentHostedSutExecutionAuthorization {
+}>): HostedSutExecutionAuthorization<typeof CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION> {
   const plan = parseVerificationActionPlan(encodeVerificationActionData(input.actionPlan));
   const operation = parseCiVerificationNormalizedOperation(input.normalizedOperation);
   const withoutDigest = Object.freeze({
@@ -646,7 +514,7 @@ export function CodexDevelopmentCreateHostedSutExecutionAuthorization(input: Rea
       normalizedOperation: operation,
       manifestPath: input.manifestPath
     }),
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment: resolveCiVerificationHostedExecutionEnvironment(plan.action.environment.providerRevision),
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     toolPolicy: Object.freeze({
       runtime: 'bun' as const,
@@ -670,9 +538,9 @@ export function CodexDevelopmentCreateHostedSutExecutionAuthorization(input: Rea
 }
 
 export function CodexDevelopmentFinalizeHostedActionRawResult(input: Omit<
-  CodexDevelopmentHostedActionRawResult,
+  HostedActionRawResult<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>,
   'schema' | 'rawResultDigest'
->): CodexDevelopmentHostedActionRawResult {
+>): HostedActionRawResult<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA,
     executionAuthorizationDigest: input.executionAuthorizationDigest,
@@ -686,7 +554,7 @@ export function CodexDevelopmentFinalizeHostedActionRawResult(input: Omit<
 
 export function CodexDevelopmentParseHostedActionRawResult(
   source: string
-): CodexDevelopmentHostedActionRawResult {
+): HostedActionRawResult<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const raw = exactObject(JSON.parse(source) as unknown, [
     'schema', 'executionAuthorizationDigest', 'command', 'sandboxReceipt',
     'startedAt', 'finishedAt', 'rawResultDigest'
@@ -737,10 +605,10 @@ export function CodexDevelopmentReduceHostedSutObservation(input: Readonly<{
   candidateBytesDigest: string;
   producer: VerificationActionProviderOrigin;
   manifestPath: string;
-  authorization: CodexDevelopmentHostedSutExecutionAuthorization;
-  observation: CodexDevelopmentHostedActionRawResult;
+  authorization: HostedSutExecutionAuthorization<typeof CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, typeof CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION>;
+  observation: HostedActionRawResult<typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA>;
   expectedRawResultDigest: string;
-}>): CodexDevelopmentHostedSutTerminalProjection {
+}>): HostedSutTerminalProjection<typeof CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA, import("../../action/contract/ci.ts").CiVerificationExecutionEnvironment, import("../../../../../assurance/verification/result/contract/result.ts").VerificationGateResult, typeof CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY, typeof import("./revision.ts").CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, typeof CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA, import("../../action/contract/provider.ts").VerificationActionProviderOrigin, typeof import("../../action/contract/environment.ts").CI_VERIFICATION_HOSTED_PROVIDER_REVISION, typeof CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA> {
   const operation = parseCiVerificationNormalizedOperation(input.normalizedOperation);
   const authorization = parseAuthorization(input.authorization, input);
   const observation = CodexDevelopmentParseHostedActionRawResult(
@@ -844,7 +712,7 @@ export function CodexDevelopmentReduceHostedSutObservation(input: Readonly<{
       filesystem: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.rootIsolation,
       capabilities: [authorization.sandboxPolicyDigest],
       toolchainRevision: authorization.executionEnvironment.toolchainRevision,
-      providerRevisions: [CI_VERIFICATION_HOSTED_PROVIDER_REVISION]
+      providerRevisions: [authorization.executionEnvironment.executionEnvironmentRevision]
     } : null,
     execution: executed ? {
       argv: [...authorization.normalizedArgv],
@@ -861,7 +729,7 @@ export function CodexDevelopmentReduceHostedSutObservation(input: Readonly<{
     ],
     diagnostic
   });
-  const cleanup: CodexDevelopmentHostedSutDerivedCleanup = status === 'invalidated'
+  const cleanup: HostedSutDerivedCleanup = status === 'invalidated'
     ? Object.freeze({ status: 'failed', evidenceRefs: Object.freeze([receiptRef]), diagnostic })
     : status === 'unsupported'
       ? Object.freeze({ status: 'not-required', evidenceRefs: Object.freeze([receiptRef]), diagnostic: null })

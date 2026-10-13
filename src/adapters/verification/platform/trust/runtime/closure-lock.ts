@@ -29,12 +29,13 @@ import {
   realpathSync
 } from 'node:fs';
 import path from 'node:path';
+import type { VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 
 import ts from 'typescript';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { compilerRoot } from "../../../../workspace-context.ts";
-import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan } from '../../action/contract/action.ts';
 import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
@@ -49,6 +50,22 @@ import {
 // ---------------------------------------------------------------------------
 
 const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
+
+// This protected compiler owns these two fixed executable resource relations.
+// Candidate declarations cannot extend this policy. Both helpers remain opaque
+// Python data during compilation; their actual bytes, not a TS parse, bind trust.
+const TCB_RUNTIME_RESOURCES = Object.freeze([
+  Object.freeze({
+    owner: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts',
+    path: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
+    specifier: './hosted-sut-supervisor.py'
+  }),
+  Object.freeze({
+    owner: 'src/adapters/runtime-state/physical/runtime/linux-verification-unit.ts',
+    path: 'src/adapters/runtime-state/physical/runtime/linux-verification-unit-helper.py',
+    specifier: './linux-verification-unit-helper.py'
+  })
+]);
 
 const TCB_REVIEWED_SUT_EDGES = new Set(
   SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges
@@ -80,6 +97,7 @@ const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
 const TCB_CLASSIFIED_EXTERNAL_IMPORTS = new Set([
   'bun',
   'node:child_process',
+  'node:https',
   'node:module',
   'node:worker_threads'
 ]);
@@ -109,7 +127,6 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts::function-declaration:startWatcher::Worker#1',
   'src/adapters/verification/platform/ci/verification-materialization.ts::function-declaration:inspectHostedActionArchiveMetadata::spawnSync#1',
   'src/adapters/verification/platform/ci/verification-materialization.ts::function-declaration:gitCandidateBytes::spawnSync#1',
-  'src/adapters/verification/platform/ci/verification-sut.ts::function-declaration:defaultHostedSutSandboxProcess::spawn#1',
   'src/adapters/verification/platform/ci/verification-cli.ts::function-declaration:hostedActionGhReadJson::spawnSync#1',
   'src/adapters/verification/platform/ci/verification-materialization.ts::function-declaration:runHostedMaterializerCommand::spawnSync#1',
   'src/adapters/self-hosting/control/agent/agent-operation-activation.ts::function-declaration:command::spawnSync#1',
@@ -119,14 +136,12 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts::function-declaration:runRecoveryGit::spawnSync#1',
   'src/adapters/providers/git-read/exact-blob.ts::function-declaration:runGit::spawnSync#1',
   'src/adapters/self-hosting/control/issues/issue-disposition-github.ts::function-declaration:gh::spawnSync#1',
-  'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeup::spawnSync#1',
-  'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1',
-  'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1',
   'src/adapters/verification/platform/ci/runtime/session-command.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
   'src/adapters/self-hosting/development/hooks/install.ts::function-declaration:gitText::spawnSync#1'
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([
+  'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:jsonRequest::globalThis.fetch#1',
   'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:withProductionSession::globalThis.fetch#1'
 ]);
 
@@ -177,7 +192,10 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
   'execPath',
   'exit',
   'exitCode',
+  'getegid',
   'geteuid',
+  'getgid',
+  'getuid',
   'kill',
   'once',
   'pid',
@@ -236,6 +254,7 @@ export function runtimeRelativeImportsFromSource(
   const bunProcessBindings = new Map<string, string>();
   const childProcessBindings = new Map<string, string>();
   const childProcessNamespaces = new Set<string>();
+  const httpsBindings = new Map<ts.Symbol, 'Agent' | 'request'>();
   const threadWorkerBindings = new Set<string>();
   const workerGlobalBindings = new Set<string>();
   const rejectUnmodeledLoader = (loader: string): never => {
@@ -246,13 +265,10 @@ export function runtimeRelativeImportsFromSource(
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const clause = statement.importClause;
+      // Under the canonical verbatimModuleSyntax profile, inline type bindings
+      // erase to import {}, preserving module evaluation. Only a statement-level
+      // type modifier removes the runtime dependency.
       if (clause?.isTypeOnly) continue;
-      if (
-        clause?.namedBindings
-        && ts.isNamedImports(clause.namedBindings)
-        && clause.name === undefined
-        && clause.namedBindings.elements.every((element) => element.isTypeOnly)
-      ) continue;
       const moduleSpecifier = statement.moduleSpecifier.text;
       const namedBindings = clause?.namedBindings;
       const namespaceBindings = [
@@ -296,6 +312,30 @@ export function runtimeRelativeImportsFromSource(
           }
           continue;
         }
+        if (moduleSpecifier === 'node:https') {
+          const edge = `${repositoryPath} -> ${moduleSpecifier}`;
+          if (!SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports.includes(edge)) {
+            rejectUnmodeledLoader(`unreviewed node:https importer ${repositoryPath}`);
+          }
+          if (namespaceBindings.length > 0 || runtimeNamedImports.length === 0) {
+            rejectUnmodeledLoader('node:https import without classified runtime bindings');
+          }
+          for (const element of runtimeNamedImports) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (element.propertyName !== undefined) {
+              rejectUnmodeledLoader('aliased node:https binding');
+            }
+            if (importedName !== 'Agent' && importedName !== 'request') {
+              rejectUnmodeledLoader(`unclassified node:https binding ${importedName}`);
+            }
+            const symbol = localSymbol(element.name)
+              ?? rejectUnmodeledLoader('node:https import without a lexical binding');
+            httpsBindings.set(symbol, importedName === 'Agent' ? 'Agent' : 'request');
+          }
+          reviewedExternalImports.add(edge);
+          observedExternalImports.add(moduleSpecifier);
+          continue;
+        }
         if (moduleSpecifier === 'node:worker_threads') {
           if (namespaceBindings.length > 0 || runtimeNamedImports.length === 0) {
             rejectUnmodeledLoader('node:worker_threads import without classified runtime bindings');
@@ -320,15 +360,11 @@ export function runtimeRelativeImportsFromSource(
       && statement.moduleSpecifier
       && ts.isStringLiteral(statement.moduleSpecifier)
     ) {
-      const hasRuntimeExport = !statement.exportClause
-        || !ts.isNamedExports(statement.exportClause)
-        || statement.exportClause.elements.some((element) => !element.isTypeOnly);
-      if (hasRuntimeExport) {
-        if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(statement.moduleSpecifier.text)) {
-          rejectUnmodeledLoader(`runtime ${statement.moduleSpecifier.text} re-export`);
-        }
-        specifiers.push(statement.moduleSpecifier.text);
+      // Empty and inline-type re-exports still evaluate the target module.
+      if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(statement.moduleSpecifier.text)) {
+        rejectUnmodeledLoader(`runtime ${statement.moduleSpecifier.text} re-export`);
       }
+      specifiers.push(statement.moduleSpecifier.text);
     }
   }
 
@@ -602,6 +638,37 @@ export function runtimeRelativeImportsFromSource(
   };
 
   function visitRuntimeLoaders(node: ts.Node): void {
+    if (
+      httpsBindings.size > 0
+      && ts.isIdentifier(node)
+      && !isImportBindingDeclaration(node)
+      && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
+    ) {
+      const symbol = localSymbol(node);
+      // Shorthand properties and local re-exports have their own public symbol.
+      // Resolve the value they expose so these forms cannot escape import review.
+      const reference = ts.isShorthandPropertyAssignment(node.parent)
+        ? lexicalChecker!.getShorthandAssignmentValueSymbol(node.parent)
+        : ts.isExportSpecifier(node.parent)
+          ? lexicalChecker!.getExportSpecifierLocalTargetSymbol(node.parent)
+          : symbol;
+      const httpsBinding = reference === undefined ? undefined : httpsBindings.get(reference);
+      if (httpsBinding === 'request') {
+        const invocation = node.parent;
+        if (ts.isCallExpression(invocation) && invocation.expression === node
+            && invocation.questionDotToken === undefined) {
+          reviewNetworkDispatch(invocation, 'node:https.request');
+        } else {
+          rejectUnmodeledLoader('indirect node:https request binding');
+        }
+      } else if (httpsBinding === 'Agent') {
+        if (!ts.isNewExpression(node.parent) || node.parent.expression !== node) {
+          rejectUnmodeledLoader('indirect node:https Agent binding');
+        }
+      }
+    }
+
     if (
       ts.isIdentifier(node)
       && node.text === 'fetch'
@@ -926,6 +993,59 @@ export function runtimeRelativeImportsFromSource(
   }
   ts.forEachChild(sourceFile, visitRuntimeLoaders);
 
+  // Python is not an ESM module or an arbitrary additional entrypoint. Only
+  // a fixed source-relative resource relation can enter this causal closure.
+  if (specifiers.some((specifier) => /\.py$/iu.test(specifier))) {
+    rejectUnmodeledLoader('Python ESM import');
+  }
+  const resource = TCB_RUNTIME_RESOURCES.find((value) => value.owner === repositoryPath);
+  if (resource !== undefined) {
+    const declarations = sourceFile.statements.flatMap((statement) =>
+      ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : []
+    ).filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'HELPER_PATH');
+    const declaration = declarations[0];
+    const initializer = declaration?.initializer;
+    if (declarations.length !== 1 || declaration === undefined || !ts.isIdentifier(declaration.name)
+        || !ts.isVariableDeclarationList(declaration.parent)
+        || (declaration.parent.flags & ts.NodeFlags.Const) === 0
+        || initializer === undefined || !ts.isCallExpression(initializer)
+        || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'fileURLToPath'
+        || initializer.arguments.length !== 1) {
+      return rejectUnmodeledLoader('reviewed runtime resource declaration');
+    }
+    const helperSymbol = localSymbol(declaration.name);
+    if (helperSymbol?.declarations?.length !== 1 || helperSymbol.declarations[0] !== declaration) {
+      rejectUnmodeledLoader('reviewed runtime resource binding');
+    }
+    const assertResourceBinding = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && node.text === 'HELPER_PATH' && localSymbol(node) !== helperSymbol) {
+        rejectUnmodeledLoader('shadowed reviewed runtime resource binding');
+      }
+      ts.forEachChild(node, assertResourceBinding);
+    };
+    ts.forEachChild(sourceFile, assertResourceBinding);
+    const resolver = localSymbol(initializer.expression)?.declarations;
+    const imported = resolver?.[0];
+    if (resolver?.length !== 1 || imported === undefined || !ts.isImportSpecifier(imported)
+        || imported.isTypeOnly || imported.propertyName !== undefined
+        || !ts.isNamedImports(imported.parent) || !ts.isImportClause(imported.parent.parent)
+        || imported.parent.parent.isTypeOnly || !ts.isImportDeclaration(imported.parent.parent.parent)
+        || !ts.isStringLiteral(imported.parent.parent.parent.moduleSpecifier)
+        || imported.parent.parent.parent.moduleSpecifier.text !== 'node:url') {
+      rejectUnmodeledLoader('reviewed runtime resource URL resolver');
+    }
+    const url = initializer.arguments[0];
+    if (url === undefined || !ts.isNewExpression(url) || !ts.isIdentifier(url.expression)
+        || url.expression.text !== 'URL' || isLocallyBoundIdentifier(url.expression)
+        || url.arguments?.length !== 2 || !ts.isStringLiteral(url.arguments[0]!)
+        || url.arguments[0]!.text !== resource.specifier
+        || !ts.isPropertyAccessExpression(url.arguments[1]!)
+        || url.arguments[1]!.name.text !== 'url' || !isImportMeta(url.arguments[1]!.expression)) {
+      rejectUnmodeledLoader('reviewed runtime resource source-relative URL');
+    }
+    specifiers.push(resource.specifier);
+  }
+
   return specifiers.filter((specifier) => {
     if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
     if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) {
@@ -1020,6 +1140,9 @@ function trustedRuntimeClosureAtCandidateRoot(
   const queue: string[] = [...entrypoints];
   while (queue.length > 0) {
     const current = queue.shift()!;
+    if (/\.py$/iu.test(current)) {
+      throw new Error(`TCB Python source is not a reviewed resource edge: ${current}.`);
+    }
     if (closure.has(current)) continue;
     closure.add(current);
     for (const specifier of runtimeRelativeImportsAtCandidateRoot(
@@ -1031,6 +1154,16 @@ function trustedRuntimeClosureAtCandidateRoot(
       reviewedNetworkDispatchers
     )) {
       const resolved = resolveRepositoryImportAtCandidateRoot(candidateRoot, current, specifier);
+      const resource = TCB_RUNTIME_RESOURCES.find((value) => value.path === resolved);
+      if (resource !== undefined) {
+        if (current !== resource.owner || specifier !== resource.specifier) {
+          throw new Error('TCB reviewed runtime resource has no reviewed source owner.');
+        }
+        // Resolution read these exact bytes through the original snapshot.
+        // Include the terminal in the identity without parsing it as TypeScript.
+        closure.add(resolved);
+        continue;
+      }
       const edge = `${current} -> ${resolved}`;
       if (TCB_REVIEWED_BOUNDARY_EDGES.has(edge)) {
         reviewedBoundaryEdges.add(edge);
@@ -1341,9 +1474,11 @@ function readTcbClosureCandidateModule(
   return Buffer.from(observation.bytes);
 }
 
+/** Finalize once and return analysis-only identities of every actual raw-byte read.
+ * A null digest records an observed absence; it never means an unread input. */
 export function finalizeTcbClosureCandidateSnapshot(
   snapshot: TcbClosureCandidateSnapshot
-): void {
+): Readonly<Record<string, string | null>> {
   const candidateRoot = resolveTcbClosureCandidateRoot({ candidateSnapshot: snapshot });
   for (const repositoryPath of [...candidateRoot.observations.keys()].sort()) {
     assertTcbClosureCandidateObservationCurrent(
@@ -1353,6 +1488,12 @@ export function finalizeTcbClosureCandidateSnapshot(
   }
   assertTcbClosureCandidateRootCurrent(candidateRoot);
   candidateRoot.finalized = true;
+  return Object.freeze(Object.fromEntries(
+    [...candidateRoot.observations.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([repositoryPath, observation]) => [
+        repositoryPath, observation.kind === 'missing' ? null : computeContentDigest(observation.bytes)
+      ])
+  ));
 }
 
 export function readTcbClosureCandidateFile(
@@ -1477,9 +1618,12 @@ function computeTcbClosureLockAtCandidateRoot(
     if (bytes === null) {
       throw new Error(`TCB closure module is missing or unreadable: ${modulePath}.`);
     }
-    const normalized = normalizeTextBytes(bytes);
-    moduleBlobs[modulePath] = computeGitBlobSha(normalized);
-    moduleContentDigests[modulePath] = computeContentDigest(normalized);
+    // Preserve the existing JS/TS text contract. The executed Python resource
+    // instead binds raw bytes, including encoding and newline differences.
+    const identityBytes = TCB_RUNTIME_RESOURCES.some((resource) => resource.path === modulePath)
+      ? bytes : normalizeTextBytes(bytes);
+    moduleBlobs[modulePath] = computeGitBlobSha(identityBytes);
+    moduleContentDigests[modulePath] = computeContentDigest(identityBytes);
   }
   const reviewedEdges = [...input.reviewedEdges].sort();
   const reviewedBoundaryEdges = [...input.reviewedBoundaryEdges].sort();
@@ -1685,7 +1829,7 @@ export function compileTcbClosureIdentity(
 const TCB_CLOSURE_ACTION_RESULT_SCHEMA =
   'sec-tcb-closure-action-result-v1' as const;
 const TCB_CLOSURE_ACTION_PRODUCER_REVISION =
-  'sec-tcb-closure-action-producer-v1' as const;
+  'sec-tcb-closure-action-producer-v3' as const;
 
 export interface TcbClosureActionResult {
   readonly schema: typeof TCB_CLOSURE_ACTION_RESULT_SCHEMA;
@@ -1825,6 +1969,11 @@ export function compileTcbClosureActionResult(input: Readonly<{
   upstreamResults?: readonly TcbClosureActionResult[];
 }>): TcbClosureActionResult {
   if (input.plan.action.actionKind !== 'tcb-closure-identity' ||
+      input.plan.action.producer.identity !== 'src/adapters/verification/platform/trust/runtime/closure-lock.ts' ||
+      input.plan.action.producer.revision !== TCB_CLOSURE_ACTION_PRODUCER_REVISION ||
+      input.plan.action.operation.identity !== 'compile-exact-tree-tcb-closure' ||
+      input.plan.action.operation.revision !== TCB_CLOSURE_ACTION_PRODUCER_REVISION ||
+      input.plan.action.environment.contractRevision !== TCB_CLOSURE_ACTION_PRODUCER_REVISION ||
       input.plan.action.resultSchemaRevision !== TCB_CLOSURE_ACTION_RESULT_SCHEMA ||
       input.plan.dependencies.some((dependency) => dependency.kind !== 'upstream')) {
     throw new Error('TCB closure Action plan is not one canonical derivation plan.');

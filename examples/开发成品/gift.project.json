@@ -1,0 +1,60 @@
+{
+  "schema": "gift.project/1",
+  "projectId": "gift-example:complete-deliverables",
+  "sourceScopes": [
+    {
+      "root": ".",
+      "kind": "semantic",
+      "include": [
+        "definitions.json"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "model",
+      "kind": "semantic",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "contracts",
+      "kind": "design",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "assets",
+      "kind": "asset",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": "fixture",
+      "kind": "design",
+      "editSource": {
+        "mode": "file"
+      }
+    },
+    {
+      "root": ".",
+      "kind": "design",
+      "include": [
+        "公开边界.d.ts"
+      ],
+      "editSource": {
+        "mode": "file"
+      }
+    }
+  ],
+  "modules": {
+    "example:deliverable-definitions": "definitions.json",
+    "example/spec/deliverable-details": "contracts/spec.json",
+    "example:deliverable:applications": "model/applications.json"
+  },
+  "targets": {}
+}

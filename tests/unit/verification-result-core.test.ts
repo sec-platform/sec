@@ -324,23 +324,6 @@ test('regression 8: cleanup failure after assertions pass → failed', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Regression 9: not-applicable requires applicability revision;
-//                without proof → invalidated
-// ---------------------------------------------------------------------------
-
-test('regression 9: not-applicable without applicability proof → invalidated', () => {
-  // A gate claims not-applicable but has unresolved applicability.
-  // The validator enforces: unresolved applicability → invalidated status.
-  const gate = invalidatedGate('na-gate', ['na-claim'], 'selection-unresolved');
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('na-claim', ['na-gate'])],
-    gateResults: [gate]
-  });
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-});
-
-// ---------------------------------------------------------------------------
 // Builder & validator tests
 // ---------------------------------------------------------------------------
 

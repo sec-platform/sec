@@ -1,12 +1,7 @@
 import type {
-  ProvenanceRegistryCountEntry,
   ProvenanceRegistryInspectView
 } from '../../application/provenance-registry-inspect.ts';
-import { formatFields, formatList } from './format-utils.ts';
-
-function formatCountEntries(entries: readonly ProvenanceRegistryCountEntry[]): string {
-  return formatList(entries.map((entry) => `${entry.id}=${entry.count}`));
-}
+import { formatFields, formatList, formatSummaryEntries } from './format-utils.ts';
 
 export function formatProvenanceRegistry(view: ProvenanceRegistryInspectView): string {
   const lines = [
@@ -17,9 +12,9 @@ export function formatProvenanceRegistry(view: ProvenanceRegistryInspectView): s
       `overrides=${view.overrideArtifactCount}`,
       `unverified=${view.unverifiedArtifactCount}`
     ]),
-    `Origins: ${formatCountEntries(view.originTypeCounts)}`,
-    `Registry sources: ${formatCountEntries(view.registrySourceCounts)}`,
-    `Generated passes: ${formatList([...view.generatedPasses])}`
+    `Origins: ${formatSummaryEntries(view.originTypeCounts)}`,
+    `Registry sources: ${formatSummaryEntries(view.registrySourceCounts)}`,
+    `Generated passes: ${formatList(view.generatedPasses)}`
   ];
   for (const artifact of view.samples) {
     lines.push(
@@ -27,7 +22,7 @@ export function formatProvenanceRegistry(view: ProvenanceRegistryInspectView): s
         `Artifact ${artifact.path}`,
         `origin=${artifact.originType}:${artifact.originId}`,
         `registry=${artifact.registrySourceId ?? 'none'}`,
-        `verifiedBy=${formatList([...artifact.verifiedBy])}`,
+        `verifiedBy=${formatList(artifact.verifiedBy)}`,
         `override=${artifact.overrideStatus}`
       ])
     );

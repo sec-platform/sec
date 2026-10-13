@@ -44,7 +44,7 @@ const loadLocalContainerEngineReadiness = memoizedModule(
 // These modules mix command-owned observation/effects with synchronous formatting.
 // Expose the memoized module boundary rather than converting their synchronous
 // projection helpers into Promise-returning public facades.
-export const loadDependencyEnvironmentDomain = memoizedModule(() => import('../../adapters/toolchain/dependencies/environment.ts'));
+export const loadDependencyEnvironmentDomain = memoizedModule(() => import('../toolchain/dependency-environment.ts'));
 export const loadProjectOverviewDomain = memoizedModule(() => import('./project-overview.ts'));
 export const loadReferenceCheckDomain = memoizedModule(() => import('../reference/check.ts'));
 export const loadTestBudgetDomain = memoizedModule(() => import('../../adapters/verification/platform/test-impact/contract/budget.ts'));

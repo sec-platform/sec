@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { buildImpactPropagation } from '../../src/compiler/semantic-impact/build-impact-propagation.ts';
 import {
@@ -10,6 +9,7 @@ import {
   IMPACT_PROPAGATION_RULES,
   type ImpactPropagationRule
 } from '../../src/compiler/semantic-impact/propagation-rules.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { SemanticEntity, SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
 import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../src/semantics/engineering-ir/fact-types.ts';
@@ -104,15 +104,15 @@ function propagate(
   return buildImpactPropagation({ delta, from, to });
 }
 
-function expectCompilerError(run: () => unknown, code: string): CompilerError {
+function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
-    return error as CompilerError;
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
+    return error as CodedFailure;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 function expectDeepFrozen(value: unknown): void {
@@ -173,7 +173,7 @@ test('entity merge-join covers add, remove, update, empty Fact Delta, and kind c
   expect(result.deltaRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
 
   const kindChanged = snapshot('d', [entity('entity:updated', 'state')]);
-  expectCompilerError(() => propagate(after, kindChanged), 'IMPACT-004');
+  expectCodedFailure(() => propagate(after, kindChanged), 'IMPACT-004');
 });
 
 test('Fact seeds preserve endpoint basis and traverse only definite endpoint graphs', () => {
@@ -299,7 +299,7 @@ test('propagation registry is total and rejects invalid executable edges', () =>
     ...wrongDirection.DEPENDS_ON as Extract<ImpactPropagationRule, { action: 'edge' }>,
     direction: 'subject-to-object'
   };
-  expectCompilerError(() => assertImpactPropagationRuleRegistry(wrongDirection), 'IMPACT-003');
+  expectCodedFailure(() => assertImpactPropagationRuleRegistry(wrongDirection), 'IMPACT-003');
 
   const duplicateVariant = structuredClone(IMPACT_PROPAGATION_RULES) as Record<
     SemanticPredicate,
@@ -309,7 +309,7 @@ test('propagation registry is total and rejects invalid executable edges', () =>
     ...duplicateVariant.REQUIRES as Extract<ImpactPropagationRule, { action: 'edge' }>,
     ruleVariantId: 'impact.depends-on.object-to-subject.v1'
   };
-  expectCompilerError(() => assertImpactPropagationRuleRegistry(duplicateVariant), 'IMPACT-003');
+  expectCodedFailure(() => assertImpactPropagationRuleRegistry(duplicateVariant), 'IMPACT-003');
 
 });
 
@@ -463,7 +463,7 @@ test('verification recommendations retain exact selectors and classify missing/n
   }));
 
   const invalidMapping = fact('fact:invalid-mapping', 'scenario:mapped', 'VERIFIED_BY', 'artifact:one');
-  expectCompilerError(
+  expectCodedFailure(
     () => propagate(
       snapshot('u', entities, [invalidMapping]),
       snapshot('v', entities.map((value) =>
@@ -481,7 +481,7 @@ test('diagnostic precedence separates endpoint, Fact Delta, and canonical payloa
   const to = context(after, 'tx:to');
   const delta = buildFactDelta(from, to);
 
-  expectCompilerError(
+  expectCodedFailure(
     () => buildImpactPropagation({
       delta: { ...delta, from: { ...delta.from, transactionId: 'tx:wrong' } },
       from,
@@ -491,7 +491,7 @@ test('diagnostic precedence separates endpoint, Fact Delta, and canonical payloa
   );
 
   const staleFrom = { ...from, semanticRevision: 'sha256:stale' };
-  expectCompilerError(
+  expectCodedFailure(
     () => buildImpactPropagation({
       delta: { ...delta, from: { ...delta.from, semanticRevision: staleFrom.semanticRevision } },
       from: staleFrom,
@@ -500,7 +500,7 @@ test('diagnostic precedence separates endpoint, Fact Delta, and canonical payloa
     'FACT-DELTA-001'
   );
 
-  expectCompilerError(
+  expectCodedFailure(
     () => buildImpactPropagation({
       delta: { ...delta, deltaRevision: sha256('tampered') },
       from,

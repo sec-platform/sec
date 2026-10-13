@@ -1,4 +1,26 @@
+import path from 'node:path';
+
 import { sha256 } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
+import {
+  assertSameNoFollowDirectoryIdentity,
+  type PhysicalDirectoryIdentity
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  decodeExactUtf8,
+  readOptionalRetainedOrdinaryLeaf,
+  retainOptionalDirectory
+} from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import {
+  currentSecRuntimePlatform,
+  resolveSecRuntimeCacheRoot,
+  secRuntimeStateEnvironment
+} from '../../runtime-state/workspace-state/layout.ts';
+import {
+  parseSecLinuxVerificationNativeRuntimeManifest,
+  SEC_LINUX_VERIFICATION_NATIVE_PROFILE,
+  type SecLinuxVerificationNativeRuntimeManifest
+} from './contract.ts';
 
 const ENVIRONMENT_MATERIALIZATION_SPEC_SCHEMA =
   'sec-environment-materialization-spec-v1' as const;
@@ -156,4 +178,109 @@ export function compileEnvironmentMaterializationPlan(input: Readonly<{
     reason
   });
   return Object.freeze({ ...body, planDigest: materializationDigest(body) });
+}
+
+
+declare const nativeRuntimeInputBrand: unique symbol;
+
+/** Retains transport identity only. The physical owner must copy and hash every
+ * accepted manifest entry into its private read-only root before executing it. */
+export interface SecLinuxVerificationNativeRuntimeInput {
+  readonly [nativeRuntimeInputBrand]: true;
+  readonly rootPath: string;
+  readonly platform: 'linux/amd64';
+  readonly manifestDigest: `sha256:${string}`;
+  readonly manifest: SecLinuxVerificationNativeRuntimeManifest;
+}
+
+export class SecLinuxVerificationNativeRuntimeInputError extends Error {
+  constructor(
+    readonly kind: 'native-runtime-inputs-unresolved' | 'native-runtime-inputs-missing'
+      | 'native-runtime-inputs-invalid',
+    message: string
+  ) {
+    super(message);
+    this.name = 'SecLinuxVerificationNativeRuntimeInputError';
+  }
+}
+
+const retainedNativeInputs = new WeakMap<SecLinuxVerificationNativeRuntimeInput, PhysicalDirectoryIdentity>();
+
+function acceptedNativeManifestDigest(): `sha256:${string}` {
+  const accepted = SEC_LINUX_VERIFICATION_NATIVE_PROFILE.acceptedContent;
+  if (accepted.status !== 'accepted') {
+    throw new SecLinuxVerificationNativeRuntimeInputError('native-runtime-inputs-unresolved', accepted.reason);
+  }
+  return accepted.manifestDigest;
+}
+
+export function resolveSecLinuxVerificationNativeRuntimeInput(input: Readonly<{
+  rootPath: string;
+  manifest: unknown;
+}>): SecLinuxVerificationNativeRuntimeInput {
+  // Never accept a caller-supplied expected digest, authority, or capability.
+  const acceptedDigest = acceptedNativeManifestDigest();
+  const manifest = parseSecLinuxVerificationNativeRuntimeManifest(input.manifest);
+  const manifestDigest = sha256(manifest) as `sha256:${string}`;
+  if (manifestDigest !== acceptedDigest) {
+    throw new SecLinuxVerificationNativeRuntimeInputError('native-runtime-inputs-invalid',
+      'Native runtime manifest does not match the original accepted content identity.');
+  }
+  if (!path.isAbsolute(input.rootPath) || path.resolve(input.rootPath) !== input.rootPath) {
+    throw new SecLinuxVerificationNativeRuntimeInputError('native-runtime-inputs-invalid',
+      'Native runtime transport root must be a canonical absolute directory.');
+  }
+  const root = retainOptionalDirectory(input.rootPath, 'native runtime transport root');
+  if (root === null) {
+    throw new SecLinuxVerificationNativeRuntimeInputError('native-runtime-inputs-missing',
+      'Accepted native runtime transport root is absent.');
+  }
+  const result = Object.freeze({
+    rootPath: root.path,
+    platform: manifest.platform,
+    manifestDigest,
+    manifest
+  }) as SecLinuxVerificationNativeRuntimeInput;
+  retainedNativeInputs.set(result, root);
+  return result;
+}
+
+export function requireSecLinuxVerificationNativeRuntimeInput(
+  input: SecLinuxVerificationNativeRuntimeInput
+): SecLinuxVerificationNativeRuntimeInput {
+  const root = retainedNativeInputs.get(input);
+  if (root === undefined || input.manifestDigest !== acceptedNativeManifestDigest()) {
+    throw new SecLinuxVerificationNativeRuntimeInputError('native-runtime-inputs-invalid',
+      'Native runtime input must be issued by the original materialization owner.');
+  }
+  assertSameNoFollowDirectoryIdentity(root, 'native runtime transport root');
+  return input;
+}
+
+/** Lookup only: this reader never installs packages, extracts archives, invokes
+ * lifecycle hooks, launches candidate code, or changes host security settings. */
+export function observeSecLinuxVerificationNativeRuntimeInput(input: Readonly<{
+  repositoryRoot: string;
+}>): SecLinuxVerificationNativeRuntimeInput {
+  const acceptedDigest = acceptedNativeManifestDigest();
+  const cacheRoot = resolveSecRuntimeCacheRoot({
+    platform: currentSecRuntimePlatform(),
+    environment: secRuntimeStateEnvironment(),
+    repositoryRoot: input.repositoryRoot
+  });
+  const generationPath = path.join(cacheRoot, 'native-verification', 'v1', acceptedDigest.slice(7));
+  const generation = retainOptionalDirectory(generationPath, 'accepted native runtime generation');
+  const bytes = generation === null ? null : readOptionalRetainedOrdinaryLeaf(
+    generation, 'manifest.json', { maximumBytes: 32 * 1024 * 1024 }
+  );
+  if (bytes === null) {
+    throw new SecLinuxVerificationNativeRuntimeInputError('native-runtime-inputs-missing',
+      'Accepted native runtime manifest is absent from its content-addressed cache generation.');
+  }
+  const manifest = parseExactJson(decodeExactUtf8(bytes, 'native runtime manifest'));
+  const result = resolveSecLinuxVerificationNativeRuntimeInput({
+    rootPath: path.join(generationPath, 'root'), manifest
+  });
+  assertSameNoFollowDirectoryIdentity(generation!, 'accepted native runtime generation');
+  return result;
 }

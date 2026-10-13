@@ -1,14 +1,27 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash, randomUUID } from 'node:crypto';
+import { readlinkSync } from 'node:fs';
 import path from 'node:path';
-import { rawSha256 } from '../../../../contracts/canonical.ts';
-import { readArtifactMember } from './artifact-member.ts';
+import { fileURLToPath } from 'node:url';
+import { canonicalEquals, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { parseExactJsonBytes } from '../../../../contracts/exact-json.ts';
+import { failureMessage } from '../../../../contracts/failure-inspection.ts';
+import { readArtifactMember, readArtifactMembers } from './artifact-member.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
-import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/native-abort.ts';
-import { ResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
+import { isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from '../../../../contracts/native-abort.ts';
+import { ResourceCompositeSettlementError, isResourceCompositeSettlementError, readResourceCompositeSettlementFailures, settleResources, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
+import type { HostedResumeEmitter } from '../../../../execution/verification/hosted.ts';
+import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, parseCiVerificationActionProviderEnvelope } from '../../../verification/platform/action/contract/ci.ts';
+import { verificationActionProviderStatusContext } from '../../../verification/platform/action/contract/provider.ts';
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import {
+  HOSTED_ARTIFACT_PROJECTION_MEMBERS, HOSTED_SOURCE_ARTIFACT_PROJECTION_MEMBERS, HostedArtifactProjectionDataError,
+  type HostedArtifactProjection, type HostedSourceArtifactProjection
+} from '../contract/hosted-artifact-projections.ts';
+import { HOSTED_RESUME_DISPATCH_EVENT, parseHostedResumeDispatchSignal } from '../contract/hosted-resume-dispatch.ts';
 import { currentGitHubCredentialStore } from '../credential-store.ts';
 import {
   GitHubCredentialUnavailableError,
@@ -18,16 +31,357 @@ import {
 import { normalizeGitHubRepositoryPermission } from '../repository-permission.ts';
 import { GITHUB_VERIFICATION_READ_QUERIES, isGitHubGraphQLSchemaFailure } from '../verification-queries.ts';
 
+import {
+  assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable, type PhysicalDirectoryIdentity,
+  type RetainedNoFollowOrdinaryFile
+} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { withAuthorityGitReadSession } from '../../git-read/authority.ts';
+import { SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST } from '../../linux-verification/contract.ts';
+import {
+  assertCiVerificationPerJobHostedWorkflowShape,
+  getCiVerificationPerJobHostedJobPolicy
+} from '../contract/hosted-job-policy.ts';
+import {
+  GITHUB_ACTIONS_OIDC_JWKS, verifyGitHubHostedJobSignedClaims,
+  type GitHubHostedJobSignedClaims
+} from './hosted-job-origin-jwt.ts';
+import { decodeAuthenticatedGitHubJobBinding, type AuthenticatedGitHubJobBinding } from './hosted-job-origin-response.ts';
+
+declare const authenticatedJobOriginBrand: unique symbol;
+/**
+ * Authenticated software job origin under the reviewed GitHub/VM-admin/launcher
+ * TCB. This is not hardware attestation or proof against credential forwarding.
+ * Candidate execution must remain inside the owner's isolated container path.
+ */
+export type AuthenticatedGitHubJobOrigin = Readonly<{ readonly [authenticatedJobOriginBrand]: true }>;
+export type AuthenticatedGitHubJobOriginObservation = AuthenticatedGitHubJobBinding & Readonly<{
+  deadlineAtUnixMs: number;
+  credentialExpiresAtUnixMs: number;
+  trustedDriverRoot: string;
+  driverBunExecutableDigest: typeof SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST;
+  workflowSourceDigest: `sha256:${string}`;
+  launcherSourceDigest: `sha256:${string}`;
+}>;
+
+export class AuthenticatedGitHubJobOriginUnavailableError extends Error {
+  readonly code = 'authenticated-github-job-origin-unavailable' as const;
+  constructor(readonly reason: 'context' | 'transport' | 'binding' | 'source' | 'expired' | 'closed') {
+    super(`Authenticated GitHub job origin unavailable (${reason}).`);
+  }
+}
+
+interface OriginRecord {
+  readonly repositoryRoot: string;
+  readonly root: PhysicalDirectoryIdentity;
+  readonly mountNamespace: string;
+  readonly executable: RetainedNoFollowOrdinaryFile;
+  readonly identityDigest: `sha256:${string}`;
+  readonly binding: AuthenticatedGitHubJobBinding;
+  readonly signal: AbortSignal;
+  readonly controller: AbortController;
+  readonly workflowSourceDigest: `sha256:${string}`;
+  readonly launcherSourceDigest: `sha256:${string}`;
+  readonly credentialExpiresAtUnixMs: number;
+  readonly deadlineTimer: ReturnType<typeof setTimeout>;
+  closed: boolean;
+}
+const issuedOrigins = new WeakMap<object, OriginRecord>();
+// Same-job reopen cannot reset the deadline. It is always derived from the
+// provider's original started_at plus the closed job policy, never Date.now().
+const admittedJobDeadlines = new Map<string, number>();
+const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
+
+function unavailable(reason: AuthenticatedGitHubJobOriginUnavailableError['reason']): never {
+  throw new AuthenticatedGitHubJobOriginUnavailableError(reason);
+}
+function object(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) unavailable('binding');
+  return value as Record<string, unknown>;
+}
+function selectedContext(): Readonly<{ repository: string; jobId: string; requestUrl: URL; requestToken: string }> {
+  // Selectors are not authority. The official signature and authenticated API
+  // binding below independently verify every identity used for issuance.
+  // Native fetch must not silently use a caller-selected proxy, CA or TLS
+  // override. An explicitly configured corporate transport needs its own
+  // qualified owner; it is not a fallback for this narrow managed-job lane.
+  if (process.platform !== 'linux' || process.arch !== 'x64') unavailable('context');
+  const forbidden = new Set(['http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+    'node_extra_ca_certs', 'node_tls_reject_unauthorized', 'node_use_env_proxy',
+    'ssl_cert_file', 'ssl_cert_dir', 'node_options', 'bun_options']);
+  if (Object.keys(process.env).some(key => forbidden.has(key.toLowerCase()) && process.env[key] !== undefined)) unavailable('context');
+  const repository = process.env.GITHUB_REPOSITORY;
+  const jobId = process.env.GITHUB_JOB;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  const requestUrlValue = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  if (typeof repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
+      || typeof jobId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(jobId)
+      || typeof requestToken !== 'string' || requestToken.length < 20 || requestToken.length > 16_384
+      || !/^[\x21-\x7e]+$/u.test(requestToken) || typeof requestUrlValue !== 'string'
+      || requestUrlValue.length > 8192) unavailable('context');
+  let requestUrl: URL;
+  try { requestUrl = new URL(requestUrlValue); } catch { unavailable('context'); }
+  if (requestUrl.protocol !== 'https:' || requestUrl.username !== '' || requestUrl.password !== ''
+      || requestUrl.port !== '' || requestUrl.hash !== ''
+      || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.actions\.githubusercontent\.com$/u.test(requestUrl.hostname)
+      || !/\/_apis\/distributedtask\/hubs\/Actions\/plans\/[^/]+\/jobs\/[^/]+\/idtoken$/u.test(requestUrl.pathname)) unavailable('context');
+  return Object.freeze({ repository, jobId, requestUrl, requestToken });
+}
+
+async function jsonRequest(url: URL, deadline: number, signal: AbortSignal, token?: string): Promise<unknown> {
+  // Fetch reads ambient transport selectors per request, including the second
+  // public JWKS request. Recheck rather than rely on a previous empty snapshot.
+  selectedContext();
+  const controller = new AbortController();
+  const linked = linkNativeAbortSignals(signal, controller.signal);
+  const remaining = Math.min(30_000, deadline - Date.now());
+  if (remaining <= 0) unavailable('expired');
+  const timer = setTimeout(() => controller.abort(), remaining);
+  try {
+    throwIfNativeAborted(linked);
+    const response = await globalThis.fetch(url, { method: 'GET', redirect: 'error', signal: linked,
+      headers: { Accept: 'application/json', ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }) } });
+    if (response.body === null) unavailable('transport');
+    return await withOwnedByteStreamReader(response.body, async read => {
+      if (response.status !== 200) unavailable('transport');
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        throwIfNativeAborted(linked);
+        const chunk = await read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > 128 * 1024) unavailable('transport');
+        chunks.push(new Uint8Array(chunk.value));
+      }
+      return parseExactJsonBytes(Buffer.concat(chunks, size), 'GitHub origin response',
+        { maximumInputBytes: 128 * 1024, maximumDepth: 8 });
+    }, linked);
+  } catch {
+    // Secret-bearing URLs, response bodies and native causes never escape.
+    unavailable(isNativeAborted(signal) ? 'closed' : Date.now() >= deadline ? 'expired' : 'transport');
+  } finally { clearTimeout(timer); }
+}
+
+async function signedClaims(deadline: number, signal: AbortSignal): Promise<GitHubHostedJobSignedClaims> {
+  const context = selectedContext();
+  const audience = `sec:hosted-job-origin:v1:${randomUUID()}`;
+  context.requestUrl.searchParams.set('audience', audience);
+  const requestedAtUnixMs = Date.now();
+  const tokenResponse = object(await jsonRequest(context.requestUrl, deadline, signal, context.requestToken));
+  if (typeof tokenResponse.value !== 'string') unavailable('transport');
+  const jwks = await jsonRequest(new URL(GITHUB_ACTIONS_OIDC_JWKS), deadline, signal);
+  try {
+    return verifyGitHubHostedJobSignedClaims({ token: tokenResponse.value, jwks, audience,
+      requestedAtUnixMs, observedAtUnixMs: Date.now() });
+  } catch { unavailable('binding'); }
+}
+
+async function jobs(capability: GitHubApiCapability, claims: GitHubHostedJobSignedClaims): Promise<readonly unknown[]> {
+  const pages: unknown[] = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const result = await executeGitHubApiOperation(capability,
+      { kind: 'verification-workflow-jobs', runId: claims.runId, runAttempt: claims.runAttempt, page });
+    pages.push(result);
+    const total = object(result).total_count;
+    if (!Number.isSafeInteger(total) || Number(total) < 1 || Number(total) > 200) unavailable('binding');
+    if (Number(total) <= page * 100) return Object.freeze(pages);
+  }
+  unavailable('binding');
+}
+
+async function blob(capability: GitHubApiCapability, sha: string, file: string): Promise<string> {
+  const value = object(await executeGitHubApiOperation(capability, { kind: 'verification-blob', ref: sha, path: file }));
+  if (value.type !== 'file' || value.path !== file || value.encoding !== 'base64'
+      || typeof value.content !== 'string' || value.content.length > 512 * 1024) unavailable('source');
+  const encoded = value.content.replace(/\n/gu, '');
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.toString('base64') !== encoded || value.size !== bytes.length || bytes.length > 256 * 1024) unavailable('source');
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { unavailable('source'); }
+}
+
+async function assertExactLoadedCheckout(repositoryRoot: string, binding: AuthenticatedGitHubJobBinding): Promise<void> {
+  // Source launcher only. A caller-selected copy cannot stand in for the code
+  // loaded into this process. Retention relies on the explicitly reviewed TCB,
+  // not on inotify pretending to exclude an arbitrary privileged host writer.
+  if (path.resolve(repositoryRoot) !== SOURCE_ROOT) unavailable('source');
+  await withAuthorityGitReadSession({ cwd: repositoryRoot, source: process.env, budget: {
+    deadlineMs: Math.min(30_000, binding.originalDeadlineAtUnixMs - Date.now()), maxProcesses: 3,
+    maxTotalArgumentBytes: 4096, maxStdinBytes: 1, maxStdoutBytes: 128 * 1024,
+    maxStderrBytes: 16 * 1024, maxRecords: 4096, maxRootObservedBytes: 128 * 1024 * 1024,
+    maxReopenRefreshes: 2, maxSettlementAttempts: 3, maxCommandStdoutBytes: 64 * 1024,
+    maxCommandStderrBytes: 8 * 1024, maxExecutableBytes: 64 * 1024 * 1024
+  } }, async git => {
+    for (const [argv, expected] of [
+      [['rev-parse', 'HEAD'], `${binding.trustedSourceSha}\n`],
+      [['rev-parse', 'HEAD^{tree}'], `${binding.trustedSourceTreeSha}\n`],
+      [['status', '--porcelain=v1', '--untracked-files=no'], '']
+    ] as const) {
+      const result = await git.run(argv);
+      if (result.kind !== 'completed' || result.result.code !== 0
+          || !Buffer.from(result.result.stdout).equals(Buffer.from(expected))) unavailable('source');
+    }
+  });
+}
+
+/** Official request + signature + canonical live API/source binding is the only issuer. */
+export async function openAuthenticatedGitHubJobOrigin(input: Readonly<{
+  repositoryRoot: string;
+  signal?: AbortSignal;
+}>): Promise<AuthenticatedGitHubJobOrigin> {
+  // Snapshot caller selectors once before the first await. A later mutation of
+  // its object cannot replace the checkout or cancellation lineage we retain.
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const parentSignal = input.signal;
+  const context = selectedContext();
+  const controller = new AbortController();
+  const signal = linkNativeAbortSignals(parentSignal, controller.signal);
+  const openingDeadline = Date.now() + 60_000;
+  const claims = await signedClaims(openingDeadline, signal);
+  if (claims.repository !== context.repository) unavailable('binding');
+  const selected = await withGitHubApiVerificationSession({ repositoryRoot,
+    repository: claims.repository, effect: 'verification-read', deadlineAtUnixMs: openingDeadline, signal,
+    operation: async capability => {
+      const observed = inspectGitHubApiCapability(capability);
+      if (observed.origin !== 'production' || observed.repository !== claims.repository
+          || observed.principal.transport !== 'github-actions-token'
+          || observed.principal.workflowSha !== claims.workflowSha || observed.principal.workflowRef !== claims.workflowRef) unavailable('binding');
+      const repository = await executeGitHubApiOperation(capability, { kind: 'repository' });
+      const defaultBranch = await executeGitHubApiOperation(capability, { kind: 'branch', branch: 'main' });
+      const run = await executeGitHubApiOperation(capability, { kind: 'workflow-run', runId: claims.runId });
+      const binding = decodeAuthenticatedGitHubJobBinding({ claims, jobId: context.jobId,
+        repository, defaultBranch, run, jobs: await jobs(capability, claims), observedAtUnixMs: Date.now() });
+      const workflowSource = await blob(capability, binding.workflowSha, binding.workflowPath);
+      const policy = assertCiVerificationPerJobHostedWorkflowShape(workflowSource, binding.policyJobId);
+      if (policy !== getCiVerificationPerJobHostedJobPolicy(binding.workflowPath, binding.policyJobId)
+          || policy.runtime.kind !== 'per-job-runtime') unavailable('source');
+      const launcherSource = await blob(capability, binding.workflowSha, policy.runtime.launcherPath);
+      return { binding, defaultBranch, workflowSourceDigest: rawSha256(workflowSource), launcherSourceDigest: rawSha256(launcherSource) };
+    } });
+  await assertExactLoadedCheckout(repositoryRoot, selected.binding);
+  throwIfNativeAborted(signal);
+  if (Date.now() >= claims.expiresAtUnixMs || Date.now() >= selected.binding.originalDeadlineAtUnixMs) unavailable('expired');
+  const deadlineKey = `${selected.binding.repositoryId}:${selected.binding.checkRunId}`;
+  const oldDeadline = admittedJobDeadlines.get(deadlineKey);
+  if (oldDeadline !== undefined && oldDeadline !== selected.binding.originalDeadlineAtUnixMs) unavailable('binding');
+  admittedJobDeadlines.set(deadlineKey, selected.binding.originalDeadlineAtUnixMs);
+  const root = inspectNoFollowDirectoryChain(repositoryRoot).target;
+  const origin = Object.freeze({}) as AuthenticatedGitHubJobOrigin;
+  const mountNamespace = readlinkSync('/proc/self/ns/mnt');
+  if (!/^mnt:\[[1-9][0-9]*\]$/u.test(mountNamespace)) unavailable('source');
+  const executable = retainCurrentProcessExecutable(3, 'Authenticated hosted bootstrap Bun');
+  try {
+    if (executable.digest().byteDigest !== SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST) unavailable('source');
+    const identityDigest = sha256({ schema: 'sec-authenticated-hosted-driver-scope-v1',
+      binding: selected.binding.identityDigest, driverBunExecutableDigest: SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+      sourceRoot: { device: root.device, inode: root.inode }, mountNamespace, processId: process.pid });
+    // Hashing/retaining the real executable can consume the remaining token
+    // lifetime. This is the final new-issuance fence, after every slow read.
+    throwIfNativeAborted(signal);
+    if (Date.now() >= claims.expiresAtUnixMs || Date.now() >= selected.binding.originalDeadlineAtUnixMs) unavailable('expired');
+    issuedOrigins.set(origin, { repositoryRoot, root, mountNamespace, executable, identityDigest, binding: selected.binding,
+      signal, controller, credentialExpiresAtUnixMs: claims.expiresAtUnixMs,
+      deadlineTimer: setTimeout(() => controller.abort(), selected.binding.originalDeadlineAtUnixMs - Date.now()),
+      workflowSourceDigest: selected.workflowSourceDigest, launcherSourceDigest: selected.launcherSourceDigest,
+      closed: false });
+  } catch (error) {
+    settleResources({ primary: { label: 'hosted-bootstrap-bun-admission', error },
+      cleanup: [{ label: 'hosted-bootstrap-bun', settle: () => executable.dispose() }] });
+    throw error;
+  }
+  try { assertAuthenticatedGitHubJobOriginCurrent(origin); } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'hosted-origin-admission', error },
+      cleanup: [{ label: 'hosted-origin', settle: () => closeAuthenticatedGitHubJobOrigin(origin) }] });
+    throw error;
+  }
+  return origin;
+}
+
+export function assertAuthenticatedGitHubJobOriginCurrent(origin: AuthenticatedGitHubJobOrigin): AuthenticatedGitHubJobOriginObservation {
+  const record = issuedOrigins.get(origin);
+  if (record === undefined) unavailable('binding');
+  if (record.closed || isNativeAborted(record.signal)) unavailable('closed');
+  const deadlineAtUnixMs = record.binding.originalDeadlineAtUnixMs;
+  if (Date.now() >= deadlineAtUnixMs) unavailable('expired');
+  try {
+    assertSameNoFollowDirectoryIdentity(record.root, 'authenticated hosted source root');
+    if (readlinkSync('/proc/self/ns/mnt') !== record.mountNamespace) unavailable('source');
+    record.executable.assertCurrent();
+  } catch {
+    record.closed = true;
+    clearTimeout(record.deadlineTimer);
+    record.controller.abort();
+    unavailable('source');
+  }
+  return Object.freeze({ ...record.binding, identityDigest: record.identityDigest,
+    deadlineAtUnixMs, credentialExpiresAtUnixMs: record.credentialExpiresAtUnixMs,
+    trustedDriverRoot: record.repositoryRoot, driverBunExecutableDigest: SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+    workflowSourceDigest: record.workflowSourceDigest, launcherSourceDigest: record.launcherSourceDigest });
+}
+
+/**
+ * Issuance-time JWT validity establishes this process-local authenticated
+ * scope. Its continuity then relies on the reviewed trusted launcher and
+ * retained source, with the original provider job deadline and cancellation.
+ * Bearer expiry cannot re-open, extend or recreate the scope. No serialized
+ * receipt, fresh nonce or secondary process restores this private record.
+ */
+export function getAuthenticatedGitHubJobOriginSignal(origin: AuthenticatedGitHubJobOrigin): AbortSignal {
+  assertAuthenticatedGitHubJobOriginCurrent(origin);
+  return issuedOrigins.get(origin)!.signal;
+}
+
+export async function closeAuthenticatedGitHubJobOrigin(origin: AuthenticatedGitHubJobOrigin): Promise<void> {
+  const record = issuedOrigins.get(origin);
+  if (record === undefined) unavailable('binding');
+  record.closed = true;
+  clearTimeout(record.deadlineTimer);
+  record.controller.abort();
+  record.executable.dispose();
+}
+
 export type GitHubApiEffect =
   | 'read'
   | 'ruleset-read'
   | 'verification-read'
   | 'verification-dispatch'
+  | 'verification-resume-dispatch'
+  | 'verification-action-provider'
   | 'status-write'
-  | 'issue-comment-write'
   | 'merge-write'
   | 'runner-admin'
   | 'branch-closeout-write';
+
+const RESUME_DISPATCH_ATTEMPTS = new WeakSet<object>();
+function observeActionProviderOrigin(origin: AuthenticatedGitHubJobOrigin) {
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  const phases: Readonly<Record<string, readonly string[]>> = {
+    'coordinate-verification-session': ['prepare-parent-plan', 'coordinate-session'],
+    'resolve-verification-action': ['resolve-hosted-action'],
+    'claim-verification-action': ['prepare-start-marker', 'claim-start'],
+    'assemble-verification-action-terminal': ['assemble-hosted-action-terminal', 'prepare-terminal-anchor', 'anchor-terminal'],
+    'receive-verification-session-resume': ['receive-verification-session-resume']
+  };
+  const workflow = observed.policyJobId === 'receive-verification-session-resume'
+    ? '.github/workflows/merge-gate.yml' : '.github/workflows/compiler-pr-validation.yml';
+  if (observed.workflowPath !== workflow || !phases[observed.policyJobId]?.includes(observed.phase)) {
+    throw new GitHubApiProviderError('Action provider transport requires its exact original job phase');
+  }
+  return observed;
+}
+export function observeAuthenticatedHostedResumeEmitter(origin: AuthenticatedGitHubJobOrigin): HostedResumeEmitter {
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  if (observed.workflowPath !== '.github/workflows/merge-gate.yml' || observed.policyJobId !== 'integrate'
+      || observed.role !== 'control' || observed.phase !== 'resume-verification-session'
+      || observed.stepName !== 'Resume canonical verification Session' || observed.runAttempt !== 1) {
+    throw new GitHubApiProviderError('Hosted resume requires the exact authenticated first-attempt receiver phase');
+  }
+  return Object.freeze({ repositoryId: observed.repositoryId, repository: observed.repository,
+    workflowPath: '.github/workflows/merge-gate.yml', workflowSha: observed.workflowSha,
+    runId: observed.runId, runAttempt: 1, jobId: observed.jobId, checkRunId: observed.checkRunId,
+    policyJobId: 'integrate', phase: 'resume-verification-session',
+    stepName: 'Resume canonical verification Session', stepNumber: observed.stepNumber });
+}
 
 export type GitHubApiTransport = (
   input: string | URL,
@@ -91,6 +445,8 @@ type GitHubApiRequestSession = {
   readonly repositoryRoot: string | null;
   capability: GitHubApiCapability | undefined;
   rulesetAuditorWorkflowIdentity?: NonNullable<ReturnType<typeof inspectGitHubActionsRulesetAuditorCredentialIdentity>>;
+  resumeOrigin?: AuthenticatedGitHubJobOrigin;
+  actionProviderOrigin?: AuthenticatedGitHubJobOrigin;
   readonly repository: string;
   readonly effect: GitHubApiEffect;
   readonly origin: 'production' | 'test';
@@ -108,8 +464,13 @@ type GitHubApiRequestSession = {
 };
 
 export type GitHubApiOperation =
-  | Readonly<{ kind: 'verification-workflow-run-attempt'; runId: string; runAttempt: number }>
+  | Readonly<{ kind: 'verification-source-artifact-inventory-page'; runId?: string; page: number }>
+  | Readonly<{ kind: 'verification-source-commit-status-page'; sha: string; page: number }>
+  | Readonly<{ kind: 'verification-source-artifact-archive'; artifactId: string; artifactName: string; runId: string;
+      archiveDigest: string | null; projection: HostedSourceArtifactProjection }>
   | Readonly<{ kind: 'verification-artifact-text'; artifactId: string; artifactName: string; runId: string; archiveDigest: string | null; fileName: string }>
+  | Readonly<{ kind: 'verification-artifact-members'; artifactId: string; artifactName: string; runId: string;
+      archiveDigest: string; projection: HostedArtifactProjection }>
   | Readonly<{ kind: 'verification-artifact-archive'; artifactId: string }>
   | Readonly<{ kind: 'verification-query'; document: string; variables: Readonly<Record<string, unknown>> }>
   | Readonly<{ kind: 'verification-pull-files'; pullRequestNumber: number; page: number }>
@@ -122,9 +483,18 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-artifact'; artifactId: string }>
   | Readonly<{ kind: 'verification-artifacts'; runId?: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-runs'; headSha: string; page: number }>
+  | Readonly<{ kind: 'verification-workflow-run-history'; workflowId: string; page: number }>
+  | Readonly<{ kind: 'verification-workflow-run-attempt'; runId: string; runAttempt: number }>
+  | Readonly<{ kind: 'verification-check-suite'; checkSuiteId: string }>
+  | Readonly<{ kind: 'verification-workflow'; workflowId: string }>
+  | Readonly<{ kind: 'verification-workflow-job'; jobId: string }>
   | Readonly<{ kind: 'verification-workflow-jobs'; runId: string; runAttempt: number; page: number }>
   | Readonly<{ kind: 'verification-repository-comments'; page: number }>
   | Readonly<{ kind: 'verification-dispatch'; request: Readonly<Record<string, unknown>> }>
+  | Readonly<{ kind: 'verification-resume-dispatch'; signalSource: string }>
+  | Readonly<{ kind: 'verification-action-dispatch'; envelope: ReturnType<typeof parseCiVerificationActionProviderEnvelope> }>
+  | Readonly<{ kind: 'verification-action-status'; actionKey: `sha256:${string}`; sha: string;
+      state: 'pending' | 'success' | 'failure' | 'error'; description: string; targetUrl: string }>
   | Readonly<{ kind: 'current-user' }>
   | Readonly<{ kind: 'repository' }>
   | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
@@ -147,8 +517,6 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue'; issueNumber: number }>
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
-  | Readonly<{ kind: 'update-issue-comment'; commentId: number; body: string }>
-  | Readonly<{ kind: 'delete-issue-comment'; commentId: number }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
   | Readonly<{ kind: 'open-pulls-page'; page: number }>
@@ -178,7 +546,7 @@ export type GitHubApiOperation =
 
 type CompiledGitHubApiRequest = Readonly<{
   kind: GitHubApiOperation['kind'];
-  method: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
+  method: 'DELETE' | 'GET' | 'POST' | 'PUT';
   path: string;
   body?: unknown;
 }>;
@@ -203,13 +571,21 @@ const DELETE_REF_CAS_MUTATION =
   'mutation($repositoryId:ID!,$name:GitRefname!,$beforeOid:GitObjectID!,$afterOid:GitObjectID!){updateRefs(input:{repositoryId:$repositoryId,refUpdates:[{name:$name,beforeOid:$beforeOid,afterOid:$afterOid,force:true}]}){clientMutationId}}';
 const ZERO_GIT_OID = '0000000000000000000000000000000000000000';
 
+const issuedGitHubApiProviderErrors = new WeakSet<object>();
+
 export class GitHubApiProviderError extends Error {
   readonly code: string = 'github-api-provider-unavailable';
 
   constructor(message: string, readonly statusCode: number | null = null) {
     super(message);
     this.name = 'GitHubApiProviderError';
+    issuedGitHubApiProviderErrors.add(this);
   }
+}
+
+/** Diagnostic identity only. Never traverses a caller's prototype chain. */
+export function isGitHubApiProviderError(value: unknown): value is GitHubApiProviderError {
+  return issuedGitHubApiProviderErrors.has(value as object);
 }
 
 export class GitHubApiGraphqlResponseError extends GitHubApiProviderError {
@@ -322,32 +698,33 @@ function compileOperation(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
-  if (effect === 'issue-comment-write'
-      && kind !== 'current-user'
-      && kind !== 'collaborator-permission'
-      && kind !== 'repository'
-      && kind !== 'issue-comments'
-      && kind !== 'issue-comment'
-      && kind !== 'create-issue-comment'
-      && kind !== 'update-issue-comment'
-      && kind !== 'delete-issue-comment') {
-    throw new GitHubApiProviderError(
-      'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
-    );
-  }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
-  if (kind.startsWith('verification-') && effect !== 'verification-read' && effect !== 'verification-dispatch') {
+  if (kind.startsWith('verification-') && effect !== 'verification-read' && effect !== 'verification-dispatch'
+      && effect !== 'verification-resume-dispatch' && effect !== 'verification-action-provider') {
     throw new GitHubApiProviderError('Verification operations require a verification session');
   }
   if (effect === 'verification-dispatch' && !['current-user', 'repository', 'collaborator-permission', 'verification-dispatch'].includes(kind)) {
     throw new GitHubApiProviderError('Verification dispatch permits only enrollment and exact dispatch');
+  }
+  if (effect === 'verification-resume-dispatch' && kind !== 'repository' && kind !== 'verification-resume-dispatch') {
+    throw new GitHubApiProviderError('Hosted resume authority permits only repository enrollment and one fixed signal');
+  }
+  if (effect === 'verification-action-provider' && !kind.startsWith('verification-')
+      && !['repository', 'workflow-run', 'collaborator-permission'].includes(kind)) {
+    throw new GitHubApiProviderError('Action provider permits only its closed read and effect family');
   }
   const positiveId = (value: string): string => {
     if (!/^[1-9][0-9]*$/u.test(value)) throw new GitHubApiProviderError('GitHub numeric identity is invalid');
     return value;
   };
   switch (kind) {
+    case 'verification-source-artifact-inventory-page':
+      if (effect !== 'verification-read' && effect !== 'verification-action-provider') throw new GitHubApiProviderError('Source inventory requires the original verification-read session');
+      return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'verification-source-commit-status-page':
+      if (effect !== 'verification-read' && effect !== 'verification-action-provider') throw new GitHubApiProviderError('Source status requires the original verification-read session');
+      return read(`/repos/${repo}/commits/${sha(operation.sha)}/statuses?per_page=100&page=${page(operation.page)}`);
     case 'verification-query': {
       const document = operation.document;
       if (!GITHUB_VERIFICATION_READ_QUERIES.includes(document)) throw new GitHubApiProviderError('Unknown verification GraphQL document');
@@ -389,12 +766,36 @@ function compileOperation(
     case 'verification-artifact': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}`);
     case 'verification-artifacts': return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-run-attempt': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}`);
+    case 'verification-check-suite': return read(`/repos/${repo}/check-suites/${positiveId(operation.checkSuiteId)}`);
+    case 'verification-workflow': return read(`/repos/${repo}/actions/workflows/${positiveId(operation.workflowId)}`);
+    case 'verification-workflow-job': return read(`/repos/${repo}/actions/jobs/${positiveId(operation.jobId)}`);
+    case 'verification-workflow-run-history': return read(`/repos/${repo}/actions/workflows/${positiveId(operation.workflowId)}/runs?per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-runs': return read(`/repos/${repo}/actions/runs?head_sha=${sha(operation.headSha)}&per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-jobs': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
     case 'verification-repository-comments': return read(`/repos/${repo}/issues/comments?per_page=100&sort=created&direction=desc&page=${page(operation.page)}`);
     case 'verification-dispatch': {
       if (effect !== 'verification-dispatch') throw new GitHubApiProviderError('Dispatch requires exact write authority');
       return read(`/repos/${repo}/dispatches`, { event_type:'sec-verify-session-v2', client_payload:{ payload:operation.request } });
+    }
+    case 'verification-resume-dispatch': {
+      if (effect !== 'verification-resume-dispatch') throw new GitHubApiProviderError('Hosted resume requires its exact effect authority');
+      return read(`/repos/${repo}/dispatches`, { event_type: HOSTED_RESUME_DISPATCH_EVENT,
+        client_payload: { payload: parseHostedResumeDispatchSignal(operation.signalSource) } });
+    }
+    case 'verification-action-dispatch': {
+      if (effect !== 'verification-action-provider') throw new GitHubApiProviderError('Action wake requires its dedicated transport authority');
+      return read(`/repos/${repo}/dispatches`, { event_type: CI_VERIFICATION_ACTION_DISPATCH_TYPE,
+        client_payload: { payload: parseCiVerificationActionProviderEnvelope(operation.envelope) } });
+    }
+    case 'verification-action-status': {
+      if (effect !== 'verification-action-provider' || !['pending', 'success', 'failure', 'error'].includes(operation.state)) {
+        throw new GitHubApiProviderError('Action status requires its dedicated transport authority');
+      }
+      return read(`/repos/${repo}/statuses/${sha(operation.sha)}`, {
+        state: operation.state, context: verificationActionProviderStatusContext(operation.actionKey),
+        description: boundedText(operation.description, 'Action status description', 140),
+        target_url: boundedText(operation.targetUrl, 'Action status target', 2048)
+      });
     }
     case 'current-user': return read('/user');
     case 'repository': return read(`/repos/${repo}`);
@@ -427,29 +828,10 @@ function compileOperation(
       return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
     case 'issue-comment':
       return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
-    case 'update-issue-comment':
-      if (effect !== 'issue-comment-write') {
-        throw new GitHubApiProviderError('GitHub API issue comment update requires issue-comment-write authority');
-      }
-      return Object.freeze({
-        kind,
-        method: 'PATCH',
-        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`,
-        body: Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
-      });
-    case 'delete-issue-comment':
-      if (effect !== 'issue-comment-write') {
-        throw new GitHubApiProviderError('GitHub API issue comment deletion requires issue-comment-write authority');
-      }
-      return Object.freeze({
-        kind,
-        method: 'DELETE',
-        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`
-      });
     case 'create-issue-comment':
-      if (effect !== 'branch-closeout-write' && effect !== 'issue-comment-write') {
+      if (effect !== 'branch-closeout-write') {
         throw new GitHubApiProviderError(
-          'GitHub API issue comment publication requires issue-comment-write or branch-closeout-write authority'
+          'GitHub API issue comment publication requires branch-closeout-write authority'
         );
       }
       return read(
@@ -610,7 +992,7 @@ export function assertGitHubApiCapability(
   const value = binding(capability);
   const effectSatisfied = requiredEffect === 'read'
     ? true
-    : value.effect === requiredEffect;
+    : value.effect === requiredEffect || (requiredEffect === 'verification-read' && value.effect === 'verification-action-provider');
   const userPrincipal = value.principal.transport === 'github-rest-token'
     ? value.principal
     : null;
@@ -620,9 +1002,6 @@ export function assertGitHubApiCapability(
         && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')
       || (requiredEffect === 'branch-closeout-write'
-        && userPrincipal?.permission !== 'admin'
-        && userPrincipal?.permission !== 'maintain')
-      || (requiredEffect === 'issue-comment-write'
         && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')) {
     throw new GitHubApiProviderError(
@@ -640,6 +1019,29 @@ function issueCapability(input: Readonly<{
   origin: 'production' | 'test';
 }>): GitHubApiCapability {
   repository(input.repository);
+  const resumeSession = requestSession.getStore();
+  const resumeEmitter = input.origin === 'production'
+    && input.effect === 'verification-resume-dispatch'
+    && resumeSession?.origin === 'production'
+    && resumeSession.repository === input.repository
+    && resumeSession.effect === input.effect
+    && resumeSession.resumeOrigin !== undefined
+    ? observeAuthenticatedHostedResumeEmitter(resumeSession.resumeOrigin)
+    : null;
+  const resumeWorkflowPrincipal = resumeEmitter !== null
+    && input.principal.transport === 'github-actions-token'
+    && input.principal.workflowRef === `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`
+    && input.principal.workflowSha === resumeEmitter.workflowSha;
+  const actionOrigin = input.origin === 'production' && input.effect === 'verification-action-provider'
+    && resumeSession?.origin === 'production' && resumeSession.repository === input.repository
+    && resumeSession.effect === input.effect && resumeSession.actionProviderOrigin !== undefined
+    ? observeActionProviderOrigin(resumeSession.actionProviderOrigin) : null;
+  const actionWorkflowPrincipal = actionOrigin !== null && input.principal.transport === 'github-actions-token'
+    && input.principal.workflowRef === `${actionOrigin.repository}/${actionOrigin.workflowPath}@refs/heads/main`
+    && input.principal.workflowSha === actionOrigin.workflowSha;
+  if (input.effect === 'verification-action-provider' && !actionWorkflowPrincipal) {
+    throw new GitHubApiProviderError('Action provider requires its genuine production workflow lineage');
+  }
   const userPrincipalValid = input.principal.transport === 'github-rest-token'
     && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/u.test(input.principal.login)
     && input.principal.nodeId.length > 0
@@ -651,9 +1053,11 @@ function issueCapability(input: Readonly<{
     && input.principal.nodeId === 'MDM6Qm90NDE4OTgyODI='
     && input.principal.userId === 41898282
     && input.principal.permission === 'workflow'
-    && (
+    && (actionWorkflowPrincipal || resumeWorkflowPrincipal ||
       (input.effect === 'verification-read' && [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
-        `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`].includes(input.principal.workflowRef)))
+        `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/trusted-bootstrap.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/compiler-release-validation.yml@refs/heads/main`].includes(input.principal.workflowRef)))
     && /^[0-9a-f]{40}$/u.test(input.principal.workflowSha);
   if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
       || (!userPrincipalValid && !workflowPrincipalValid)
@@ -684,17 +1088,13 @@ function issueCapability(input: Readonly<{
       );
     }
   }
-  if (input.effect === 'issue-comment-write'
-      && input.principal.transport === 'github-rest-token'
-      && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
-    throw new GitHubApiProviderError('GitHub API user comment write capability requires maintain/admin permission');
-  }
   if (input.principal.transport === 'github-actions-token') {
     const verificationRead = input.effect === 'verification-read' &&
       [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
-        ].includes(input.principal.workflowRef);
-    if (!verificationRead) {
+        `${input.repository}/.github/workflows/trusted-bootstrap.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/compiler-release-validation.yml@refs/heads/main`].includes(input.principal.workflowRef);
+    if (!verificationRead && !resumeWorkflowPrincipal && !actionWorkflowPrincipal) {
       throw new GitHubApiProviderError(
         'GitHub Actions workflow principal effect is not authorized by its exact workflow identity'
       );
@@ -766,6 +1166,7 @@ function createSession(input: Readonly<{
 }
 
 function remaining(session: GitHubApiRequestSession): number {
+  if (session.actionProviderOrigin !== undefined) observeActionProviderOrigin(session.actionProviderOrigin);
   if (session.responseSettlementFailures.length !== 0) {
     throw new GitHubApiProviderError('GitHub API response resources have unresolved settlement failures');
   }
@@ -829,11 +1230,11 @@ async function executeWithToken<T>(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let firstFailure: { error: unknown } | undefined;
   const captureFailure = (error: unknown): unknown => {
-    const failure = error instanceof GitHubApiProviderError || error instanceof ResourceCompositeSettlementError
+    const failure = isGitHubApiProviderError(error) || isResourceCompositeSettlementError(error)
       ? error
-      : new GitHubApiProviderError(
-        `GitHub API ${compiled.kind} transport unavailable: ${isNativeAborted(session.abortController.signal) ? 'operation deadline exceeded' : (compiled.kind.startsWith('verification-artifact')) ? 'artifact resource unavailable' : error instanceof Error ? error.message : String(error)}`
-      );
+      : Object.defineProperty(new GitHubApiProviderError(
+        `GitHub API ${compiled.kind} transport unavailable: ${isNativeAborted(session.abortController.signal) ? 'operation deadline exceeded' : (compiled.kind.startsWith('verification-artifact')) ? 'artifact resource unavailable' : failureMessage(error)}`
+      ), 'cause', { value: error, configurable: true });
     firstFailure ??= { error: failure };
     return failure;
   };
@@ -841,6 +1242,36 @@ async function executeWithToken<T>(
   // them. A deadline may reject its observer but must not debit inFlight early.
   const request = (async (): Promise<T> => {
     try {
+      if (session.effect === 'verification-action-provider') {
+        if (session.origin !== 'production' || session.actionProviderOrigin === undefined) throw new GitHubApiProviderError('Action transport lacks its original scope');
+        const current = observeActionProviderOrigin(session.actionProviderOrigin);
+        if (compiled.kind === 'verification-action-dispatch'
+            && current.phase !== 'coordinate-session' && current.phase !== 'receive-verification-session-resume') {
+          throw new GitHubApiProviderError('This Action phase cannot send a child wake');
+        }
+        if (compiled.kind === 'verification-action-status') {
+          const status = compiled.body as { state: string; target_url: string };
+          if ((status.state === 'pending' ? current.phase !== 'claim-start' : current.phase !== 'anchor-terminal')
+              || status.target_url !== `https://github.com/${current.repository}/actions/runs/${current.runId}/attempts/${current.runAttempt}`) {
+            throw new GitHubApiProviderError('Action status differs from its current producing phase');
+          }
+        }
+      }
+      if (compiled.kind === 'verification-resume-dispatch') {
+        const origin = session.resumeOrigin;
+        if (session.origin !== 'production' || origin === undefined || RESUME_DISPATCH_ATTEMPTS.has(origin)) {
+          throw new GitHubApiProviderError('Hosted resume requires its unused production job-origin scope');
+        }
+        const emitter = observeAuthenticatedHostedResumeEmitter(origin);
+        const payload = (compiled.body as { client_payload: { payload: { emitter: HostedResumeEmitter } } }).client_payload.payload;
+        if (session.repository !== emitter.repository || !canonicalEquals(payload.emitter, emitter)) {
+          throw new GitHubApiProviderError('Hosted resume signal emitter differs from its actual active job phase');
+        }
+        // An attempted POST remains an attempted effect even when transport or
+        // response settlement becomes unknown. The original CI wake owner joins
+        // the provider's phase-start tombstone instead of blindly trying again.
+        RESUME_DISPATCH_ATTEMPTS.add(origin);
+      }
       let response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
         redirect: (compiled.kind === 'verification-artifact-archive') ? 'manual' : 'error',
@@ -875,8 +1306,8 @@ async function executeWithToken<T>(
       }
       const acceptsDeleteNoContent = response.status === 204
         && response.ok
-        && ((compiled.method === 'DELETE' && (compiled.kind === 'delete-repository-runner'
-          || compiled.kind === 'delete-issue-comment')) || compiled.kind === 'verification-dispatch');
+        && ((compiled.method === 'DELETE' && compiled.kind === 'delete-repository-runner') || compiled.kind === 'verification-dispatch'
+          || compiled.kind === 'verification-resume-dispatch' || compiled.kind === 'verification-action-dispatch');
       if (response.body === null) {
         remaining(session);
         if (acceptsDeleteNoContent) return null as T;
@@ -928,10 +1359,15 @@ async function executeWithToken<T>(
             return Buffer.concat(chunks,length) as T;
           }
           const decoder = new TextDecoder('utf-8', { fatal: true });
+          const sourceResponseHasher = compiled.kind === 'verification-source-artifact-inventory-page'
+            || compiled.kind === 'verification-source-commit-status-page' ? createHash('sha256') : null;
           const chunks: string[] = [];
           for (;;) {
             const chunk = await read();
-            if (!chunk.done) recordResponseBytes(session, chunk.value.byteLength);
+            if (!chunk.done) {
+              recordResponseBytes(session, chunk.value.byteLength);
+              sourceResponseHasher?.update(chunk.value);
+            }
             remaining(session);
             if (chunk.done) break;
             chunks.push(decoder.decode(chunk.value, { stream: true }));
@@ -954,16 +1390,18 @@ async function executeWithToken<T>(
               throw new GitHubApiGraphqlResponseError(source,record?.errors);
             }
           }
+          if (sourceResponseHasher !== null) return Object.freeze({ value,
+            rawResponseDigest: `sha256:${sourceResponseHasher.digest('hex')}` }) as T;
           return value as T;
         } catch (error) { throw captureFailure(error); }
       }, session.abortController.signal);
     } catch (error) {
-      if (error instanceof ResourceCompositeSettlementError && (compiled.kind.startsWith('verification-artifact'))) {
-        const safe = new ResourceCompositeSettlementError(error.failures.map(failure => ({label:failure.label,
-          error:new GitHubApiProviderError('Artifact response settlement unavailable')})));
+      if (isResourceCompositeSettlementError(error) && (compiled.kind.startsWith('verification-artifact'))) {
+        const safe = new ResourceCompositeSettlementError(readResourceCompositeSettlementFailures(error).map(failure => ({label:failure.label,
+          error:Object.defineProperty(new GitHubApiProviderError('Artifact response settlement unavailable'), 'cause', { value: failure.error, configurable: true })})));
         session.responseSettlementFailures.push(safe); throw captureFailure(safe);
       }
-      if (error instanceof ResourceCompositeSettlementError) session.responseSettlementFailures.push(error);
+      if (isResourceCompositeSettlementError(error)) session.responseSettlementFailures.push(error);
       throw captureFailure(error);
     } finally {
       session.inFlight -= 1;
@@ -1003,6 +1441,15 @@ export async function executeGitHubApiOperation(
     const input = operation as Extract<GitHubApiOperation,{kind:'verification-artifact-text'}>;
     return await readGitHubArtifactText(capability,{artifactId:input.artifactId,artifactName:input.artifactName,
       runId:input.runId,archiveDigest:input.archiveDigest,fileName:input.fileName});
+  }
+  if (kind === 'verification-artifact-members') {
+    const input = operation as Extract<GitHubApiOperation, { kind: 'verification-artifact-members' }>;
+    return await readGitHubArtifactMembers(capability, { artifactId: input.artifactId, artifactName: input.artifactName,
+      runId: input.runId, archiveDigest: input.archiveDigest, projection: input.projection });
+  }
+  if (kind === 'verification-source-artifact-archive') {
+    const input = operation as Extract<GitHubApiOperation, { kind: 'verification-source-artifact-archive' }>;
+    return await readGitHubSourceArtifactArchive(capability, input);
   }
   if (kind !== 'delete-ref-cas') {
     const capturedOperation = Object.create(operation) as GitHubApiOperation;
@@ -1078,11 +1525,13 @@ export async function executeGitHubApiOperation(
 async function readVerifiedGitHubArtifactArchive(capability: GitHubApiCapability, input: Readonly<{
   artifactId: string; artifactName: string; runId: string;
   archiveDigest: string | null;
+  closedProjection?: true;
 }>): Promise<Readonly<{ archive: Uint8Array; session: GitHubApiRequestSession; providerArchiveDigest: string | null }>> {
   input = Object.freeze({...input});
   const value = binding(capability);
   const session = requestSession.getStore();
-  if (session?.capability !== capability || value.effect !== 'verification-read') {
+  if (session?.capability !== capability
+      || (value.effect !== 'verification-read' && value.effect !== 'verification-action-provider')) {
     throw new GitHubApiProviderError('Artifact read requires its live qualified session');
   }
   const raw = await executeGitHubApiOperation(capability,{kind: 'verification-artifact',artifactId:input.artifactId});
@@ -1093,11 +1542,17 @@ async function readVerifiedGitHubArtifactArchive(capability: GitHubApiCapability
       !Number.isSafeInteger(metadata.size_in_bytes) || metadata.size_in_bytes < 1 || metadata.size_in_bytes > MAX_RESPONSE_BYTES ||
       (input.archiveDigest !== null && metadata.digest !== input.archiveDigest) ||
       (metadata.digest !== null && metadata.digest !== undefined && !/^sha256:[0-9a-f]{64}$/u.test(metadata.digest))) {
-    throw new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
+    throw input.closedProjection === true
+      ? new HostedArtifactProjectionDataError('invalid', 'Artifact metadata drifted from the selected identity')
+      : new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
   }
   const archive = await executeGitHubApiOperation(capability,{kind: 'verification-artifact-archive',artifactId:input.artifactId});
   if (!(archive instanceof Uint8Array) || archive.byteLength !== metadata.size_in_bytes ||
-      (metadata.digest != null && rawSha256(archive) !== metadata.digest)) throw new GitHubApiProviderError('Artifact archive identity does not match metadata');
+      (metadata.digest != null && rawSha256(archive) !== metadata.digest)) {
+    throw input.closedProjection === true
+      ? new HostedArtifactProjectionDataError('invalid', 'Artifact archive identity does not match metadata')
+      : new GitHubApiProviderError('Artifact archive identity does not match metadata');
+  }
   return Object.freeze({ archive, session, providerArchiveDigest: metadata.digest ?? null });
 }
 
@@ -1108,7 +1563,45 @@ async function readGitHubArtifactText(capability: GitHubApiCapability, input: Re
   input = Object.freeze({ ...input });
   const { archive, session } = await readVerifiedGitHubArtifactArchive(capability, input);
   return await readArtifactMember({archive,fileName:input.fileName,signal:session.abortController.signal,
+    chargeDecodedBytes: bytes => { recordResponseBytes(session, bytes); },
     assertCurrent:() => { remaining(session); }});
+}
+
+async function readGitHubArtifactMembers(capability: GitHubApiCapability, input: Readonly<{
+  artifactId: string; artifactName: string; runId: string;
+  archiveDigest: string; projection: HostedArtifactProjection;
+}>): Promise<Readonly<Record<string, string>>> {
+  input = Object.freeze({ ...input });
+  if (typeof input.archiveDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(input.archiveDigest)
+      || !Object.hasOwn(HOSTED_ARTIFACT_PROJECTION_MEMBERS, input.projection)) {
+    throw new GitHubApiProviderError('Artifact projection requires a fixed member set and immutable archive digest');
+  }
+  const fileNames = HOSTED_ARTIFACT_PROJECTION_MEMBERS[input.projection];
+  const { archive, session } = await readVerifiedGitHubArtifactArchive(capability, { ...input, closedProjection: true });
+  const members = await readArtifactMembers({ archive, fileNames, signal: session.abortController.signal,
+    chargeDecodedBytes: bytes => { recordResponseBytes(session, bytes); },
+    assertCurrent: () => { remaining(session); } });
+  // One session retains both compressed response and cumulative decoded output
+  // costs; selecting another member does not reset its byte or time budget.
+  remaining(session);
+  return members;
+}
+
+async function readGitHubSourceArtifactArchive(capability: GitHubApiCapability, input: Readonly<{
+  artifactId: string; artifactName: string; runId: string; archiveDigest: string | null;
+  projection: HostedSourceArtifactProjection;
+}>) {
+  input = Object.freeze({ ...input });
+  if (!Object.hasOwn(HOSTED_SOURCE_ARTIFACT_PROJECTION_MEMBERS, input.projection)
+      || (input.archiveDigest !== null && !/^sha256:[0-9a-f]{64}$/u.test(input.archiveDigest))) {
+    throw new GitHubApiProviderError('Source artifact archive requires one closed source projection and exact digest or historical absence');
+  }
+  const { archive, session, providerArchiveDigest } = await readVerifiedGitHubArtifactArchive(capability, { ...input, closedProjection: true });
+  const files = await readArtifactMembers({ archive, fileNames: HOSTED_SOURCE_ARTIFACT_PROJECTION_MEMBERS[input.projection],
+    signal: session.abortController.signal, chargeDecodedBytes: bytes => { recordResponseBytes(session, bytes); },
+    assertCurrent: () => { remaining(session); } });
+  remaining(session);
+  return Object.freeze({ archiveBytes: archive, files, archiveDigest: rawSha256(archive), providerArchiveDigest });
 }
 
 export function currentGitHubApiCapability(
@@ -1182,6 +1675,22 @@ async function readProductionToken(repositoryRoot: string, session: GitHubApiReq
 
 async function readVerificationProductionToken(repositoryRoot: string, session: GitHubApiRequestSession): Promise<string> {
   const identity = inspectGitHubActionsVerificationCredentialIdentity(process.env, session.repository);
+  if (session.effect === 'verification-action-provider') {
+    if (session.actionProviderOrigin === undefined || identity === null) throw new GitHubApiProviderError('Action provider requires its exact workflow credential');
+    const observed = observeActionProviderOrigin(session.actionProviderOrigin);
+    if (identity.workflowSha !== observed.workflowSha
+        || identity.workflowRef !== `${observed.repository}/${observed.workflowPath}@refs/heads/main`) {
+      throw new GitHubApiProviderError('Action provider credential differs from its authenticated origin');
+    }
+  }
+  if (session.effect === 'verification-resume-dispatch') {
+    if (session.resumeOrigin === undefined || identity === null) throw new GitHubApiProviderError('Hosted resume requires its exact workflow credential');
+    const emitter = observeAuthenticatedHostedResumeEmitter(session.resumeOrigin);
+    if (identity.workflowSha !== emitter.workflowSha
+        || identity.workflowRef !== `${emitter.repository}/${emitter.workflowPath}@refs/heads/main`) {
+      throw new GitHubApiProviderError('Hosted resume workflow credential differs from its authenticated origin');
+    }
+  }
   if (identity === null) return await readProductionToken(repositoryRoot, session);
   if (currentGitHubCredentialStore(repositoryRoot) !== undefined) throw new GitHubApiProviderError('Multiple credential sources are selected');
   reserve(session, 0);
@@ -1256,7 +1765,7 @@ async function enroll(input: Readonly<{
   if (session.capability !== undefined) return session.capability;
   const token = await input.readToken(input.repositoryRoot, session);
   const verificationWorkflowIdentity = input.origin === 'production' &&
-    (input.effect === 'verification-read' || input.effect === 'verification-dispatch')
+    (input.effect === 'verification-read' || input.effect === 'verification-dispatch' || input.effect === 'verification-resume-dispatch' || input.effect === 'verification-action-provider')
     ? inspectGitHubActionsVerificationCredentialIdentity(process.env, input.repository) : null;
   const workflowIdentity = verificationWorkflowIdentity;
   if (workflowIdentity !== null) {
@@ -1270,7 +1779,21 @@ async function enroll(input: Readonly<{
         || (repositoryValue as Record<string, unknown>).full_name !== input.repository) {
       throw new GitHubApiProviderError('GitHub Actions token is not bound to this repository');
     }
-    if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read') throw new GitHubApiProviderError('Verification workflow credentials are read-only');
+    if (input.effect === 'verification-resume-dispatch'
+        && (session.resumeOrigin === undefined || String((repositoryValue as Record<string, unknown>).id)
+          !== observeAuthenticatedHostedResumeEmitter(session.resumeOrigin).repositoryId)) {
+      throw new GitHubApiProviderError('Hosted resume repository identity changed during enrollment');
+    }
+    if (input.effect === 'verification-action-provider'
+        && (session.actionProviderOrigin === undefined || String((repositoryValue as Record<string, unknown>).id)
+          !== observeActionProviderOrigin(session.actionProviderOrigin).repositoryId)) {
+      throw new GitHubApiProviderError('Action provider repository identity changed during enrollment');
+    }
+    if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read'
+        && !(input.effect === 'verification-resume-dispatch' && session.resumeOrigin !== undefined)
+        && !(input.effect === 'verification-action-provider' && session.actionProviderOrigin !== undefined)) {
+      throw new GitHubApiProviderError('Verification workflow credentials are read-only outside the authenticated resume phase');
+    }
     const capability = issueCapability({
       repository: input.repository,
       token,
@@ -1353,6 +1876,8 @@ async function runSession<T>(input: Readonly<{
   now?: () => number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  resumeOrigin?: AuthenticatedGitHubJobOrigin;
+  actionProviderOrigin?: AuthenticatedGitHubJobOrigin;
 }>): Promise<T> {
   const current = requestSession.getStore();
   if (current !== undefined) {
@@ -1378,6 +1903,14 @@ async function runSession<T>(input: Readonly<{
     }
     input.budget.sessionCount += 1;
   }
+  if (input.resumeOrigin !== undefined) {
+    if (input.origin !== 'production' || input.effect !== 'verification-resume-dispatch') throw new GitHubApiProviderError('Resume origin cannot grant another API effect');
+    observeAuthenticatedHostedResumeEmitter(input.resumeOrigin);
+  }
+  if (input.actionProviderOrigin !== undefined) {
+    if (input.origin !== 'production' || input.effect !== 'verification-action-provider') throw new GitHubApiProviderError('Action origin cannot grant another effect');
+    observeActionProviderOrigin(input.actionProviderOrigin);
+  }
   const session = createSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
@@ -1392,6 +1925,8 @@ async function runSession<T>(input: Readonly<{
         : Math.max(1, Math.ceil(input.budget.deadlineAt - input.budget.now()))
     )
   });
+  if (input.resumeOrigin !== undefined) session.resumeOrigin = input.resumeOrigin;
+  if (input.actionProviderOrigin !== undefined) session.actionProviderOrigin = input.actionProviderOrigin;
   const abort = () => session.abortController.abort();
   input.signal?.addEventListener('abort', abort);
   if (input.signal !== undefined && isNativeAborted(input.signal)) abort();
@@ -1414,9 +1949,12 @@ async function withProductionSession<T>(input: Readonly<{
   effect: GitHubApiEffect;
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
+  resumeOrigin?: AuthenticatedGitHubJobOrigin;
+  actionProviderOrigin?: AuthenticatedGitHubJobOrigin;
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
-  const verification = input.effect === 'verification-read' || input.effect === 'verification-dispatch';
+  const verification = input.effect === 'verification-read' || input.effect === 'verification-dispatch'
+    || input.effect === 'verification-resume-dispatch' || input.effect === 'verification-action-provider';
   return await runSession({
     ...input,
     origin: 'production',
@@ -1441,6 +1979,60 @@ export async function withGitHubApiVerificationSession<T>(input: Readonly<{
 }>): Promise<T> {
   if (input.effect !== 'verification-read' && input.effect !== 'verification-dispatch') throw new GitHubApiProviderError('Verification session effect is invalid');
   return await withProductionSession(input);
+}
+
+/** Transport authority only. The original native Action provider retains all
+ * domain admission and consumes this borrowed capability in its private scope. */
+export async function withGitHubApiVerificationActionProviderSession<T>(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  const origin = input.origin;
+  const operation = input.operation;
+  const observed = observeActionProviderOrigin(origin);
+  return await withProductionSession({ repositoryRoot: observed.trustedDriverRoot,
+    repository: observed.repository, effect: 'verification-action-provider', actionProviderOrigin: origin,
+    deadlineAtUnixMs: observed.originalDeadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin),
+    operation: async capability => {
+      observeActionProviderOrigin(origin);
+      const result = await operation(capability);
+      observeActionProviderOrigin(origin);
+      return result;
+    }
+  });
+}
+
+/**
+ * One fixed repository-dispatch signal from the authenticated receiver phase.
+ * CI owns the original human request, Action/cause validation and provider
+ * deduplication. There is no caller transport, endpoint, event selector, scope
+ * callback, or generally reusable workflow-token write capability here.
+ */
+export async function dispatchAuthenticatedHostedJobResume(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin;
+  signalSource: string;
+}>): Promise<Readonly<{ status: 'submitted'; signalDigest: `sha256:${string}` }>> {
+  const origin = input.origin;
+  const emitter = observeAuthenticatedHostedResumeEmitter(origin);
+  const signalSource = input.signalSource;
+  const signal = parseHostedResumeDispatchSignal(signalSource);
+  if (!canonicalEquals(signal.emitter, emitter) || RESUME_DISPATCH_ATTEMPTS.has(origin)) {
+    throw new GitHubApiProviderError('Hosted resume emitter differs or this origin already attempted dispatch');
+  }
+  const observed = assertAuthenticatedGitHubJobOriginCurrent(origin);
+  return await withProductionSession({ repositoryRoot: observed.trustedDriverRoot,
+    repository: observed.repository, effect: 'verification-resume-dispatch', resumeOrigin: origin,
+    deadlineAtUnixMs: observed.originalDeadlineAtUnixMs, signal: getAuthenticatedGitHubJobOriginSignal(origin),
+    operation: async capability => {
+      const credential = inspectGitHubApiCapability(capability);
+      if (credential.origin !== 'production' || credential.principal.transport !== 'github-actions-token'
+          || credential.principal.workflowSha !== emitter.workflowSha
+          || credential.principal.workflowRef !== `${emitter.repository}/${emitter.workflowPath}@refs/heads/main`) {
+        throw new GitHubApiProviderError('Hosted resume has no exact production workflow credential');
+      }
+      await executeGitHubApiOperation(capability, { kind: 'verification-resume-dispatch', signalSource });
+      return Object.freeze({ status: 'submitted' as const, signalDigest: signal.signalDigest });
+    } });
 }
 
 /** One closed read, borrowing an existing owner's exact session without exposing its capability.
@@ -1490,14 +2082,6 @@ export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'status-write' });
-}
-
-export async function withGitHubApiIssueCommentWriteSession<T>(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  operation: (capability: GitHubApiCapability) => Promise<T>;
-}>): Promise<T> {
-  return await withProductionSession({ ...input, effect: 'issue-comment-write' });
 }
 
 export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{

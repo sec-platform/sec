@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { settleWorkspaceEnvironment } from './environment-settlement.ts';
+import { settleWorkspaceEnvironmentOperation as settleWorkspaceEnvironment } from '../../../bootstrap/runtime-state/environment-settlement.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {

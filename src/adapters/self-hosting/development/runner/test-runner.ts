@@ -4,12 +4,14 @@ import path from 'node:path';
 import { affectedGitSelectionDigest, rebindAffectedGitSelectionSource, type IssuedAffectedGitSelectionSource } from '../../../verification/platform/test-impact/runtime/affected-git-source.ts';
 import { boundedAffectedBaseRef, completedGitCommand, createAffectedGitRevalidationLedger, exactRevision, observeGitSelectionState, reobserveAffectedGitSelectionState, sameGitSelectionObservation } from './affected-git-observation.ts';
 
+import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+
 import { deepFreeze, rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createAuthorityGitReadSession, type GitReadSession } from '../../../providers/git-read/runtime/session.ts';
 import {
@@ -26,9 +28,9 @@ import type { ProcessResourceSession } from '../../../runtime-state/physical/run
 import { secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
 import {
+  AffectedInventoryInputs,
+  buildAffectedTestInventory,
   classifyAffectedSelectionTrustBoundary,
-  CodexDevelopmentAffectedInventoryInputs,
-  CodexDevelopmentBuildAffectedTestInventory,
   defaultAffectedSelectionProjectionContext,
   isAffectedSelectionFailClosed,
   projectAffectedSelectionToVerificationGateResult
@@ -46,8 +48,8 @@ import { selectSlowTestRiskClosure } from '../../../verification/platform/test-i
 import { compilerRoot } from "../../../workspace-context.ts";
 import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
 import {
-  compileSecOperationDemandGraph,
-  type SecOperationKind
+  compileOperationDemandGraph,
+  type OperationKind
 } from '../../control/operation/demand.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
@@ -73,6 +75,7 @@ import {
 import {
   ensureOperationDependencies,
   reuseOperationDependencies,
+  type OperationDependencyBootstrapOptions,
   type OperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
 import {
@@ -105,7 +108,10 @@ import {
   admitTestSuiteExecutionPolicy,
   issueFastTestBatchExecutionPolicy,
   issueTestSuiteExecutionPolicy,
+  observeFastTestInvocationHost,
   withDefaultTestTimeout,
+  type FastTestBatchExecutionAdmission,
+  type FastTestInvocationHostObservation,
   type TestSuiteExecutionPolicy
 } from './test-execution-policy.ts';
 import {
@@ -585,16 +591,17 @@ type OperationDependencyContext = {
 };
 
 async function withOperationDependencies<T>(
-  operation: Exclude<SecOperationKind, 'dependency-setup' | 'work-selection-observe'>,
+  operation: Exclude<OperationKind, 'dependency-setup' | 'work-selection-observe'>,
   callback: (context: OperationDependencyContext) => Promise<T>,
-  prepared?: OperationDependencyBootstrapResult
+  prepared?: OperationDependencyBootstrapResult,
+  bootstrap: OperationDependencyBootstrapOptions = {}
 ): Promise<T> {
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation,
     terminalWorkIds: []
   });
   const dependencies = prepared === undefined
-    ? await ensureOperationDependencies(demandGraph)
+    ? await ensureOperationDependencies(demandGraph, bootstrap)
     : reuseOperationDependencies(prepared, demandGraph);
   return callback({
     binPath: path.join(dependencies.nodeModulesPath, '.bin'),
@@ -674,6 +681,11 @@ function boundedReceiptText(value: string, maximumBytes: number): string {
 
 type FastTestInvocationFailure =
   | {
+      readonly kind: 'environment-unsupported';
+      readonly invocation: FastTestInvocation;
+      readonly observation: FastTestInvocationHostObservation;
+    }
+  | {
       readonly kind: 'observed-command-failure';
       readonly invocation: FastTestInvocation;
       readonly observation: DevCommandObservation;
@@ -705,11 +717,26 @@ function emitFastTestFailureReceipt(
   failures: readonly FastTestInvocationFailure[]
 ): void {
   const receipt = {
-    schema: 'sec-fast-test-failure-receipt-v2',
+    schema: 'sec-fast-test-failure-receipt-v3',
     replayAuthority: 'none-diagnostic-only',
     queue,
     batchIndex,
     failures: failures.map((failure) => {
+      if (failure.kind === 'environment-unsupported') {
+        const plannedArgv = receiptArgv(['bun', ...failure.invocation.args]);
+        const result: Pick<VerificationGateResult, 'status' | 'reasonCode' | 'disposition'> = {
+          status: 'unsupported', reasonCode: 'platform-unsupported', disposition: 'not-executed'
+        };
+        return {
+          kind: failure.kind,
+          invocationId: failure.invocation.id,
+          selectedTestFiles: invocationTestFiles(failure.invocation),
+          plannedArgv: plannedArgv.argv,
+          plannedArgvTruncated: plannedArgv.truncated,
+          result,
+          hostObservation: failure.observation
+        };
+      }
       if (failure.kind === 'observer-rejected') {
         const plannedArgv = receiptArgv(['bun', ...failure.invocation.args]);
         return {
@@ -770,22 +797,33 @@ async function runFastTestExecutionWaves(
   invocationById: ReadonlyMap<string, FastTestInvocation>,
   env: NodeJS.ProcessEnv,
   invocationRuntime: TestInvocationRuntimeRoots | null,
-  childDeadlineAtUnixMs: number,
+  admission: FastTestBatchExecutionAdmission,
   supervisorTimeoutByInvocationId: ReadonlyMap<string, number>
 ): Promise<number> {
-  const dispatch = (invocation: FastTestInvocation) => {
-      const args = managedBunTestArgs(invocation.args);
-      const supervisorTimeoutMs = supervisorTimeoutByInvocationId.get(invocation.id);
-      if (supervisorTimeoutMs === undefined) {
-        throw new Error(`Fast test invocation has no admitted supervisor budget: ${invocation.id}`);
-      }
-      return runWithParentOwnedProcessTemp(invocationRuntime, env, invocation.id, (prepared) =>
-        runDevCommand('bun', args, prepared, {
-            observe: true,
-            timeoutMs: supervisorTimeoutMs,
-            deadlineAtUnixMs: childDeadlineAtUnixMs
-          })
-      );
+  type InvocationOutcome =
+    | Readonly<{ kind: 'environment-unsupported'; observation: FastTestInvocationHostObservation }>
+    | Readonly<{ kind: 'observed-command'; observation: DevCommandObservation }>;
+  let hasUnsupportedInvocation = false;
+  const dispatch = async (invocation: FastTestInvocation): Promise<InvocationOutcome> => {
+    const host = observeFastTestInvocationHost(admission, invocation.id);
+    if (host.unmetRequirements.length > 0) {
+      // Keep this selected invocation visible without manufacturing a child
+      // process result or acquiring its per-invocation physical temp resources.
+      return { kind: 'environment-unsupported', observation: host };
+    }
+    const args = managedBunTestArgs(invocation.args);
+    const supervisorTimeoutMs = supervisorTimeoutByInvocationId.get(invocation.id);
+    if (supervisorTimeoutMs === undefined) {
+      throw new Error(`Fast test invocation has no admitted supervisor budget: ${invocation.id}`);
+    }
+    const observation = await runWithParentOwnedProcessTemp(invocationRuntime, env, invocation.id, (prepared) =>
+      runDevCommand('bun', args, prepared, {
+        observe: true,
+        timeoutMs: supervisorTimeoutMs,
+        deadlineAtUnixMs: admission.childDeadlineAtUnixMs
+      })
+    );
+    return { kind: 'observed-command', observation };
   };
   for (let waveIndex = 0; waveIndex < executionWaves.length; waveIndex += 1) {
     const wave = executionWaves[waveIndex]!;
@@ -799,8 +837,24 @@ async function runFastTestExecutionWaves(
       detail: { invocations: invocations.map(({ id, queue }) => ({ id, queue })) }
     });
     const outcomes = await Promise.allSettled(invocations.map(dispatch));
-    if (!outcomes.some((outcome) => outcome.status === 'rejected'
-        || devCommandObservationExitCode(outcome.value) !== 0)) {
+    const failures = outcomes.flatMap(
+      (outcome, outcomeIndex): FastTestInvocationFailure[] => {
+        const invocation = invocations[outcomeIndex]!;
+        if (outcome.status === 'rejected') {
+          return [{
+            kind: 'observer-rejected', invocation,
+            error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
+          }];
+        }
+        if (outcome.value.kind === 'environment-unsupported') {
+          return [{ kind: 'environment-unsupported', invocation, observation: outcome.value.observation }];
+        }
+        return devCommandObservationExitCode(outcome.value.observation) === 0
+          ? []
+          : [{ kind: 'observed-command-failure', invocation, observation: outcome.value.observation }];
+      }
+    );
+    if (failures.length === 0) {
       reportDevExecutionProgress({
         command: 'test:fast', phase: `execution-wave.${waveIndex}`, state: 'complete',
         detail: { invocationCount: invocations.length }
@@ -811,33 +865,18 @@ async function runFastTestExecutionWaves(
       command: 'test:fast', phase: `execution-wave.${waveIndex}`, state: 'failed',
       detail: { invocationCount: invocations.length }
     });
-
-  const failures = outcomes.flatMap(
-    (outcome, outcomeIndex): FastTestInvocationFailure[] => {
-      const invocation = invocations[outcomeIndex]!;
-      if (outcome.status === 'rejected') {
-        return [{
-          kind: 'observer-rejected',
-          invocation,
-          error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
-        }];
-      }
-      return devCommandObservationExitCode(outcome.value) === 0
-        ? []
-        : [{ kind: 'observed-command-failure', invocation, observation: outcome.value }];
+    emitFastTestFailureReceipt(invocations[0]!.queue, waveIndex, failures);
+    const executionFailure = failures.find((failure) => failure.kind !== 'environment-unsupported');
+    // Actual command/observer failures retain settled-wave fail-fast behavior.
+    if (executionFailure?.kind === 'observer-rejected') return 1;
+    if (executionFailure?.kind === 'observed-command-failure') {
+      return devCommandObservationExitCode(executionFailure.observation);
     }
-  );
-  emitFastTestFailureReceipt(
-    invocations[0]!.queue,
-    waveIndex,
-    failures
-  );
-  const firstFailure = failures[0]!;
-  return firstFailure.kind === 'observer-rejected'
-    ? 1
-    : devCommandObservationExitCode(firstFailure.observation);
+    // An unsupported fixture is not a prerequisite failure for independent
+    // files. Continue them, but never clear this batch's incomplete result.
+    hasUnsupportedInvocation = true;
   }
-  return 0;
+  return hasUnsupportedInvocation ? 1 : 0;
 }
 
 function fastInvocationEnvironment(
@@ -894,8 +933,8 @@ function affectedTestSelection(
     ...currentFastFiles,
     ...getSlowTestFilesSync(budgetProjection)
   ]);
-  const inventory = CodexDevelopmentBuildAffectedTestInventory(
-    CodexDevelopmentAffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
+  const inventory = buildAffectedTestInventory(
+    AffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
     provider
   );
   // A changed fast-test source can introduce or remove a process-global
@@ -941,7 +980,7 @@ export interface ResolvedAffectedTestExecution {
   readonly projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence | null;
   /** Re-observes the same Git/source/provider identity before any effect. */
   readonly assertCurrent: () => Promise<boolean>;
-  readonly run: (preparedDependencies?: OperationDependencyBootstrapResult) => Promise<number>;
+  readonly run: (preparedDependencies?: OperationDependencyBootstrapResult, bootstrap?: OperationDependencyBootstrapOptions) => Promise<number>;
 }
 
 function affectedTestPlan(
@@ -1067,7 +1106,8 @@ function freezeAffectedTestPlan(plan: AffectedTestPlan): AffectedTestPlan {
 async function runAffectedTestPlan(
   plan: AffectedTestPlan,
   preparedDependencies?: OperationDependencyBootstrapResult,
-  executionSource?: TestBudgetExecutionSource
+  executionSource?: TestBudgetExecutionSource,
+  bootstrap: OperationDependencyBootstrapOptions = {}
 ): Promise<number> {
   if (!plan.resolved) {
     console.error(`Affected test ownership is unresolved for changed paths: ${plan.unresolvedPaths.join(', ')}`);
@@ -1098,7 +1138,7 @@ async function runAffectedTestPlan(
     const code = await runFastTestsForInventory(selectedFastTests, preparedDependencies, 'default', {
       commandId: 'test:affected:fast',
       ...(executionSource === undefined ? {} : { source: executionSource })
-    });
+    }, bootstrap);
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: selectedFastTests,
@@ -1111,7 +1151,7 @@ async function runAffectedTestPlan(
 
   if (selection.sourceChanged) {
     if (!plan.broadFallbackEnabled) {
-      // Issue #206: source changed but no fast tests selected and no fallback.
+      // Source changed but no fast tests were selected and no fallback exists.
       // This is a fail-closed trust boundary — the empty closure is NOT proof
       // of "no impact". Returning 0 here would be a false-green: it would let
       // CI treat "selector found nothing" as "change has no impact", masking
@@ -1130,7 +1170,7 @@ async function runAffectedTestPlan(
     const code = await runFastTestsForInventory([], preparedDependencies, 'default', {
       commandId: 'test:affected:fast',
       ...(executionSource === undefined ? {} : { source: executionSource })
-    });
+    }, bootstrap);
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: [],
@@ -1148,7 +1188,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   preparedGitSelection?: IssuedAffectedGitSelectionSource;
   expectedSelectionDigest?: `sha256:${string}`;
   dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   /** Borrowed process ledger owned by the surrounding repository fence. */
   processSession?: ProcessResourceSession;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
@@ -1390,17 +1430,17 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     plan,
     projectGenerationEvidence,
     assertCurrent,
-    run: async (preparedDependencies?: OperationDependencyBootstrapResult) => {
+    run: async (preparedDependencies?: OperationDependencyBootstrapResult, bootstrap?: OperationDependencyBootstrapOptions) => {
       // A plan already rejected by ownership/selection admission has no
       // runnable child or dependency effect. Preserve the typed fail-closed
       // result without spending another full source census on a boundary that
       // cannot authorize anything.
       if (!plan.resolved || isAffectedSelectionFailClosed(plan.selectionTrustBoundary)) {
-        return runAffectedTestPlan(plan, preparedDependencies);
+        return runAffectedTestPlan(plan, preparedDependencies, undefined, bootstrap);
       }
       // The fast-batch owner arms continuous repository observation before it
       // performs this last revalidation and before any child Effect.
-      return runAffectedTestPlan(plan, preparedDependencies, executionSource);
+      return runAffectedTestPlan(plan, preparedDependencies, executionSource, bootstrap);
     }
   });
 }
@@ -1409,8 +1449,9 @@ export async function runAffectedTests(
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
   args: string[] = [],
   options: Readonly<{
-    operation?: SecBoundSemanticOperation;
+    operation?: BoundSemanticOperation;
     processSession?: ProcessResourceSession;
+    dependencyBootstrap?: OperationDependencyBootstrapOptions;
   }> = {}
 ): Promise<number> {
   if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
@@ -1418,7 +1459,7 @@ export async function runAffectedTests(
     return 1;
   }
   if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
-    return runTests(args);
+    return runTests(args, { dependencyBootstrap: options.dependencyBootstrap });
   }
   const operation = options.operation ?? compileAffectedTestSelectionSemanticOperation({
     purpose: 'check-affected'
@@ -1452,28 +1493,28 @@ export async function runAffectedTests(
   }
   if (args.length === 1) {
     console.log(JSON.stringify(execution.plan, null, 2));
-    // Issue #206: --plan fails closed for any unresolved trust boundary, not
-    // just ownership-unresolved. This keeps `--plan` exit codes consistent
+    // --plan fails closed for any unresolved trust boundary, not just
+    // ownership-unresolved. This keeps `--plan` exit codes consistent
     // with the execution path so CI can branch on `--plan` alone.
     return affectedTestPlanExitCode(execution.plan);
   }
-  return execution.run();
+  return execution.run(undefined, options.dependencyBootstrap);
 }
 
 export async function runTests(
   args: string[] = [],
-  options: Readonly<{ omitSlowSuites?: boolean }> = {}
+  options: Readonly<{ omitSlowSuites?: boolean; dependencyBootstrap?: OperationDependencyBootstrapOptions }> = {}
 ): Promise<number> {
   const { selectors } = partitionBunTestArgs(args);
   if (selectors.length > 0) {
-    if (selectors.every(isFastTestFile)) return runFastTests(args);
-    if (selectors.every(isSlowTestFile)) return runSlowTests(args);
+    if (selectors.every(isFastTestFile)) return runFastTests(args, undefined, options.dependencyBootstrap);
+    if (selectors.every(isSlowTestFile)) return runSlowTests(args, options.dependencyBootstrap);
     console.error('Direct test selection must resolve entirely to exact fast or exact slow test files.');
     return 1;
   }
-  const fastExitCode = await runFastTestsForInventory(args, undefined, 'complete');
+  const fastExitCode = await runFastTestsForInventory(args, undefined, 'complete', undefined, options.dependencyBootstrap);
   if (fastExitCode !== 0 || options.omitSlowSuites) return fastExitCode;
-  return runSlowTests(args);
+  return runSlowTests(args, options.dependencyBootstrap);
 }
 
 export function isExactSlowTestRunnerSelection(args: string[]): boolean {
@@ -1492,7 +1533,8 @@ async function runFastTestsForInventory(
   executionBoundary: Readonly<{
     commandId: string;
     source?: TestBudgetExecutionSource;
-  }> = { commandId: 'test:fast' }
+  }> = { commandId: 'test:fast' },
+  bootstrap: OperationDependencyBootstrapOptions = {}
 ): Promise<number> {
   let exitCode = 1;
   const workspace = await prepareFastTestWorkspaceRun();
@@ -1574,7 +1616,7 @@ async function runFastTestsForInventory(
                 invocationById,
                 env,
                 invocationRuntime,
-                admission.childDeadlineAtUnixMs,
+                admission,
                 supervisorTimeoutByInvocationId
               );
             } finally {
@@ -1615,7 +1657,7 @@ async function runFastTestsForInventory(
         console.error(error instanceof Error ? error.message : String(error));
         exitCode = 1;
       }
-    }, preparedDependencies);
+    }, preparedDependencies, bootstrap);
   } catch (error) {
     hasPrimaryFailure = true;
     primaryFailure = error;
@@ -1664,15 +1706,16 @@ async function runFastTestsForInventory(
 
 export async function runFastTests(
   args: string[] = [],
-  preparedDependencies?: OperationDependencyBootstrapResult
+  preparedDependencies?: OperationDependencyBootstrapResult,
+  bootstrap: OperationDependencyBootstrapOptions = {}
 ): Promise<number> {
-  return runFastTestsForInventory(args, preparedDependencies);
+  return runFastTestsForInventory(args, preparedDependencies, 'default', undefined, bootstrap);
 }
 
-export async function runSlowTests(args: string[] = []): Promise<number> {
+export async function runSlowTests(args: string[] = [], bootstrap: OperationDependencyBootstrapOptions = {}): Promise<number> {
   try {
     return executePreparedSlowTestSuiteExecutions(
-      await prepareSlowTestSuiteExecutions(args),
+      await prepareSlowTestSuiteExecutions(args, bootstrap),
       'test:slow'
     );
   } catch (error) {
@@ -1695,7 +1738,8 @@ const preparedSlowTestExecutions = new WeakMap<
 
 /** Prepares dependencies once and derives one execution per unique canonical suite. */
 export async function prepareSlowTestSuiteExecutions(
-  args: string[] = []
+  args: string[] = [],
+  bootstrap: OperationDependencyBootstrapOptions = {}
 ): Promise<readonly PreparedSlowTestSuiteExecution[]> {
   const source = await issueCurrentTestBudgetExecutionSource();
   const { testInventory, budgetProjection } = source;
@@ -1726,10 +1770,10 @@ export async function prepareSlowTestSuiteExecutions(
     files.push(file);
     filesBySuite.set(selectedOwner[0]!, files);
   }
-  const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+  const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'test-slow',
     terminalWorkIds: []
-  }));
+  }), bootstrap);
   const environment = pathEnv(path.join(dependencies.nodeModulesPath, '.bin'));
   return Object.freeze(budgetProjection.slowSuites.flatMap((suite) => {
     const files = filesBySuite.get(suite.id);

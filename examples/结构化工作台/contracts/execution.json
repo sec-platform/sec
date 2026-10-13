@@ -1,112 +1,89 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/execution",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/execution",
   "namespace": "spec.execution",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:OwnedScope": {
       "kind": "req:enum-value",
       "name": "OwnedScope",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#OwnedScope"
-      }
+      "body": {}
     },
     "v:LoadedArtifact": {
       "kind": "req:enum-value",
       "name": "LoadedArtifact",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#LoadedArtifact"
-      }
+      "body": {}
     },
     "v:RuntimeGrant": {
       "kind": "req:enum-value",
       "name": "RuntimeGrant",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#RuntimeGrant"
-      }
+      "body": {}
     },
     "v:DeclaredEntries": {
       "kind": "req:enum-value",
       "name": "DeclaredEntries",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#DeclaredEntries"
-      }
+      "body": {}
     },
     "v:LazyCoverageExplicit": {
       "kind": "req:enum-value",
       "name": "LazyCoverageExplicit",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#LazyCoverageExplicit"
-      }
+      "body": {}
     },
     "v:ExactCandidate": {
       "kind": "req:enum-value",
       "name": "ExactCandidate",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#ExactCandidate"
-      }
+      "body": {}
     },
     "v:ExplicitCloseAndReconcile": {
       "kind": "req:enum-value",
       "name": "ExplicitCloseAndReconcile",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#ExplicitCloseAndReconcile"
-      }
+      "body": {}
     },
     "v:ArgumentVector": {
       "kind": "req:enum-value",
       "name": "ArgumentVector",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#ArgumentVector"
-      }
+      "body": {}
     },
     "v:StopScoped": {
       "kind": "req:enum-value",
       "name": "StopScoped",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#StopScoped"
-      }
+      "body": {}
     },
     "v:SeparateWithGaps": {
       "kind": "req:enum-value",
       "name": "SeparateWithGaps",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#SeparateWithGaps"
-      }
+      "body": {}
     },
     "v:NoDuplicateUncertainCommand": {
       "kind": "req:enum-value",
       "name": "NoDuplicateUncertainCommand",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#NoDuplicateUncertainCommand"
-      }
+      "body": {}
     },
     "v:Negotiated": {
       "kind": "req:enum-value",
       "name": "Negotiated",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#Negotiated"
-      }
+      "body": {}
     },
     "v:NoCasesNotPass": {
       "kind": "req:enum-value",
       "name": "NoCasesNotPass",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#NoCasesNotPass"
-      }
+      "body": {}
     },
     "v:OrderedNoUnknownReplay": {
       "kind": "req:enum-value",
       "name": "OrderedNoUnknownReplay",
-      "body": {
-        "nominalIdentity": "sec/spec/execution#OrderedNoUnknownReplay"
-      }
+      "body": {}
     },
     "r:Tasks": {
       "kind": "req:rule",
@@ -119,7 +96,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TaskSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TaskSet"
+                  }
+                }
               ]
             },
             "meaning": "构建/运行任务主体"
@@ -129,7 +111,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "任务输入"
@@ -139,7 +126,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#DeclaredEntries"
+                {
+                  "definitionId": "v:DeclaredEntries"
+                }
               ]
             },
             "meaning": "发现或声明的准确入口"
@@ -149,7 +138,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#ArgumentVector"
+                {
+                  "definitionId": "v:ArgumentVector"
+                }
               ]
             },
             "meaning": "参数向量，无隐式shell拼接"
@@ -159,7 +150,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#RuntimeGrant"
+                {
+                  "definitionId": "v:RuntimeGrant"
+                }
               ]
             },
             "meaning": "实际启动许可"
@@ -169,7 +162,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#OwnedScope"
+                {
+                  "definitionId": "v:OwnedScope"
+                }
               ]
             },
             "meaning": "启动、子任务、结果与退出有拥有者"
@@ -178,7 +173,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "execution.Tasks",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -195,7 +189,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TerminalSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TerminalSet"
+                  }
+                }
               ]
             },
             "meaning": "交互终端主体"
@@ -205,7 +204,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TaskSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TaskSet"
+                  }
+                }
               ]
             },
             "meaning": "实际进程集合"
@@ -215,7 +219,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#OrderedNoUnknownReplay"
+                {
+                  "definitionId": "v:OrderedNoUnknownReplay"
+                }
               ]
             },
             "meaning": "输入排队、短写和未知消费范围分别处理"
@@ -225,7 +231,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#SeparateWithGaps"
+                {
+                  "definitionId": "v:SeparateWithGaps"
+                }
               ]
             },
             "meaning": "stdout/stderr各自顺序，截断显式"
@@ -235,7 +243,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#ExplicitCloseAndReconcile"
+                {
+                  "definitionId": "v:ExplicitCloseAndReconcile"
+                }
               ]
             },
             "meaning": "EOF、signal、进程及子树退出分别结算"
@@ -244,7 +254,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "execution.Terminal",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -261,7 +270,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DebugSessionSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DebugSessionSet"
+                  }
+                }
               ]
             },
             "meaning": "调试会话"
@@ -271,7 +285,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TaskSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TaskSet"
+                  }
+                }
               ]
             },
             "meaning": "启动或附加目标"
@@ -281,7 +300,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "显示和来源对应"
@@ -291,7 +315,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#Negotiated"
+                {
+                  "definitionId": "v:Negotiated"
+                }
               ]
             },
             "meaning": "按真实驱动能力启用"
@@ -301,7 +327,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#LoadedArtifact"
+                {
+                  "definitionId": "v:LoadedArtifact"
+                }
               ]
             },
             "meaning": "来源跟随已加载制品，不是latest"
@@ -311,7 +339,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#StopScoped"
+                {
+                  "definitionId": "v:StopScoped"
+                }
               ]
             },
             "meaning": "栈和值句柄只对当前停点有效"
@@ -321,7 +351,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#NoDuplicateUncertainCommand"
+                {
+                  "definitionId": "v:NoDuplicateUncertainCommand"
+                }
               ]
             },
             "meaning": "同一接受的控制在响应未知时不能重复作用；实际驱动可用串行未决槽实现，不把槽本身当产品要求"
@@ -330,7 +362,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "execution.Debug",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -347,7 +378,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TestSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TestSet"
+                  }
+                }
               ]
             },
             "meaning": "案例和结果主体"
@@ -357,7 +393,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "TaskSet"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "TaskSet"
+                  }
+                }
               ]
             },
             "meaning": "真实运行"
@@ -367,7 +408,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "案例与工程来源"
@@ -377,7 +423,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#LazyCoverageExplicit"
+                {
+                  "definitionId": "v:LazyCoverageExplicit"
+                }
               ]
             },
             "meaning": "懒发现与完整范围不同，执行发现需许可"
@@ -387,7 +435,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#ExactCandidate"
+                {
+                  "definitionId": "v:ExactCandidate"
+                }
               ]
             },
             "meaning": "测试必须消费声明的候选及完整相关输入"
@@ -397,7 +447,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/execution#NoCasesNotPass"
+                {
+                  "definitionId": "v:NoCasesNotPass"
+                }
               ]
             },
             "meaning": "空、跳过、失败、中断、通过分开"
@@ -406,7 +458,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "execution.Tests",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -467,14 +518,6 @@
     },
     "Tests": {
       "definitionId": "r:Tests"
-    }
-  },
-  "extensions": {
-    "sec.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }
   }
 }

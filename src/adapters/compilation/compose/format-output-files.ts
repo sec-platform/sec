@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import prettier from 'prettier';
 
-import { CompilerError } from '../../../compiler/errors.ts';
 import { type CommitFence } from "../../../contracts/commit-fence.ts";
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { portableLogicalPathCollisionKey } from '../../../contracts/logical-path.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
@@ -36,7 +36,7 @@ export async function formatOutputFiles(
     const identity = portableLogicalPathCollisionKey(relativePath, 'Generated formatter path');
     const previous = pathsByIdentity.get(identity);
     if (previous !== undefined && previous !== relativePath) {
-      throw new CompilerError('COMPOSE-PATH-004',
+      throw new CodedFailure('COMPOSE-PATH-004',
         `Generated formatter paths alias one portable publication target: ${previous}, ${relativePath}`);
     }
     pathsByIdentity.set(identity, relativePath);
@@ -47,7 +47,7 @@ export async function formatOutputFiles(
     const fullPath = isCanonicalWorkspaceArtifactPath(relativePath)
       ? resolveWorkspaceArtifactPath(workspaceRoot, relativePath)
       : resolvePathInside(workspaceRoot, relativePath);
-    if (!fullPath) throw new CompilerError('COMPOSE-PATH-004',
+    if (!fullPath) throw new CodedFailure('COMPOSE-PATH-004',
       `Generated formatter path "${relativePath}" is outside the native workspace layout`);
     return Object.freeze({ relativePath, fullPath });
   });

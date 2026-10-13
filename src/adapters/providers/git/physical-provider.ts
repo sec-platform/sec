@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import type {
-  SecBoundSemanticOperation,
-  SecOperationDigest
+  BoundSemanticOperation,
+  OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResources } from '../../../execution/resource-settlement.ts';
 import {
@@ -37,29 +37,29 @@ type GitPhysicalProviderIdentity = Readonly<{
   readonly executableSize: number;
   readonly executableDigest: `sha256:${string}`;
   readonly workingDirectory: PhysicalDirectoryChain['target'];
-  readonly environmentDigest: SecOperationDigest;
-  readonly identityDigest: SecOperationDigest;
+  readonly environmentDigest: OperationDigest;
+  readonly identityDigest: OperationDigest;
 }>;
 
 export type GitPhysicalProviderCapability = Readonly<{
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly identity: GitPhysicalProviderIdentity;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
   readonly deadlineAtUnixMs: number;
 }>;
 
 export type GitPhysicalProviderReceipt = Readonly<{
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
   readonly processCount: number;
   readonly inputBytes: number;
   readonly outputBytes: number;
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 export type GitPhysicalProviderResolution =
@@ -94,7 +94,7 @@ export function isGitPhysicalProviderCapability(
 }
 
 function processRequirement(
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): Readonly<{ id: string }> | null {
   const requirements = operation.plan.execution.requirements.filter(
     ({ effectKinds }) => effectKinds.includes('process')
@@ -103,7 +103,7 @@ function processRequirement(
 }
 
 function operationBudget(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   resource: 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
   return operation.plan.execution.aggregateBudgets
@@ -113,7 +113,7 @@ function operationBudget(
 export function openGitPhysicalProvider(input: Readonly<{
   readonly cwd: string;
   readonly executablePath: string;
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly processSession: ProcessResourceSession;
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly environmentSource?: NodeJS.ProcessEnv;
@@ -181,7 +181,7 @@ export function openGitPhysicalProvider(input: Readonly<{
       input.environment ?? {},
       input.environmentSource
     );
-    const environmentDigest = sha256(environment) as SecOperationDigest;
+    const environmentDigest = sha256(environment) as OperationDigest;
     const withoutIdentityDigest = Object.freeze({
       executablePath,
       executablePhysical: executable.physical,
@@ -195,7 +195,7 @@ export function openGitPhysicalProvider(input: Readonly<{
       identityDigest: sha256({
         domain: 'external-capabilities.git.physical-provider',
         identity: withoutIdentityDigest
-      }) as SecOperationDigest
+      }) as OperationDigest
     });
     const capability = Object.freeze({
       cwd,
@@ -231,7 +231,7 @@ export function openGitPhysicalProvider(input: Readonly<{
 export function assertGitPhysicalProviderBindingInternal(
   capability: GitPhysicalProviderCapability,
   input: Readonly<{
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     processSession: ProcessResourceSession;
     cwd: string;
     environment: Readonly<Record<string, string>>;
@@ -355,7 +355,7 @@ export function closeGitPhysicalProvider(
     receiptDigest: sha256({
       domain: 'external-capabilities.git.physical-provider-receipt',
       receipt: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   ISSUED_GIT_PHYSICAL_PROVIDER_RECEIPTS.add(state.receipt);
   state.closed = true;

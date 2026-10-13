@@ -20,6 +20,7 @@ import { materializeTypeScriptExecutionGeneration } from '../../toolchain/typesc
 import {
   acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   acquireStagedIndexWorkspaceSourceSnapshot,
+  acquireStagedWorkspaceSourceSelection,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   compileVirtualWorkspaceSourceSnapshot,
@@ -27,7 +28,8 @@ import {
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence,
   projectWorkspaceTypeScriptProjectFactIdentity,
-  readBackStagedIndexWorkspaceSourceSnapshot
+  readBackStagedIndexWorkspaceSourceSnapshot,
+  readBackStagedWorkspaceSourceSelection
 } from './workspace-source-snapshot.ts';
 
 const temporaryRepositories: string[] = [];
@@ -173,6 +175,11 @@ test('staged index snapshot binds exact index bytes and blocks later index drift
     cwd: repositoryRoot,
     budget: GIT_READ_OPERATION_BUDGET
   }, async (session) => {
+    const candidateBase = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const selection = await acquireStagedWorkspaceSourceSelection({ session, candidateBase });
+    expect(selection.selectedPaths).toEqual([]);
+    await expect(readBackStagedWorkspaceSourceSelection({ ...selection }, session))
+      .rejects.toThrow('not owner-issued');
     const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session });
     expect(snapshot.physicalObservationReceipt?.kind).toBe('staged-index-observation');
     await writeFile(
@@ -181,6 +188,8 @@ test('staged index snapshot binds exact index bytes and blocks later index drift
     );
     git(repositoryRoot, ['add', 'src/example/value.ts']);
     await expect(readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session))
+      .rejects.toThrow('index changed before readback');
+    await expect(readBackStagedWorkspaceSourceSelection(selection, session))
       .rejects.toThrow('index changed before readback');
   });
 });
@@ -444,21 +453,9 @@ test('immutable execution generation isolates workspace mutation and retires its
   const dependencyFixture = await issueCompilerDependencyFixtureOperation({
     dependencies: { commander: '1.0.0' },
     dependencyRootPath,
-    devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' },
+    devDependencies: { typescript: '1.0.0' },
     lockfileBytes: 'fixture-lock\n',
     packages: [{ main: 'index.d.ts', name: 'commander', version: '1.0.0' }, {
-      main: 'dist/ts-morph-common.js',
-      name: '@ts-morph/common',
-      version: '1.0.0'
-    }, {
-      main: './script/mod.js',
-      name: 'code-block-writer',
-      version: '1.0.0'
-    }, {
-      main: 'dist/ts-morph.js',
-      name: 'ts-morph',
-      version: '1.0.0'
-    }, {
       main: './lib/typescript.js',
       name: 'typescript',
       version: '1.0.0'

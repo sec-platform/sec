@@ -49,7 +49,7 @@ for (const consumer of ['bind', 'context', 'remaining', 'wait'] as const) {
 test('bound controls contain no request, raw clock or effect capability', () => {
   const input = { lockTimeoutMs: 100, monotonicNowMs: () => 0,
     beforeCommit() {}, generatedStateLifecycle: {}, testMaterialization: {},
-    sharedDepsRoot: '/caller-owned' };
+    rematerialize: true };
   const controls = runtimeDependencyOperationControls(input);
   assert.deepEqual(Object.keys(controls).sort(), ['deadlineAtUnixMs', 'lockTimeoutMs', 'pollIntervalMs', 'signal']);
   for (const name of [...unownedFields, 'monotonicNowMs']) assert.equal(name in controls, false);
@@ -85,13 +85,13 @@ test('inherited and non-enumerable request controls stay outside the input bound
 test('extracting controls preserves the exact bound parent ledger and telemetry identity', () => {
   let now = 0;
   const parent = runtimeDependencyOperationOptions({ lockTimeoutMs: 100, monotonicNowMs: () => now,
-    sharedDepsRoot: '/owned-by-install' });
+    rematerialize: false });
   const context = runtimeDependencyOperationContext(parent);
   now = 30;
   const controls = runtimeDependencyOperationControls(parent);
   assert.equal(runtimeDependencyOperationContext(controls), context);
   assert.equal(runtimeDependencyOperationRemainingMs(controls, 'extract'), 70);
-  const reconstructed = runtimeDependencyOperationOptions({ ...controls, sharedDepsRoot: '/another-install-input' });
+  const reconstructed = runtimeDependencyOperationOptions({ ...controls, rematerialize: true });
   assert.equal(runtimeDependencyOperationContext(reconstructed), context);
   assert.equal(runtimeDependencyOperationRemainingMs(reconstructed, 'rebind'), 70);
 });
@@ -122,17 +122,16 @@ for (const canceller of ['parent', 'child'] as const) {
 
 test('coordinator excludes undeclared capabilities and preserves the true callback receiver', async () => {
   const capability = Object.freeze({ owner: 'install' });
-  const installRoot = process.cwd();
   let reads = 0, calls = 0;
   const raw = { lockTimeoutMs: 100, monotonicNowMs: () => 0,
-    sharedDepsRoot: installRoot, get customCapability() { reads += 1; return capability; },
-    async beforeCommit() { assert.equal(this, raw); assert.equal(this.sharedDepsRoot, '/changed'); calls += 1; } };
+    rematerialize: false, get customCapability() { reads += 1; return capability; },
+    async beforeCommit() { assert.equal(this, raw); assert.equal(this.rematerialize, true); calls += 1; } };
   const bound = runtimeDependencyOperationOptions(raw);
   assert.equal(reads, 0);
   // @ts-expect-error Coordinator inputs no longer forward arbitrary extensions.
   assert.equal(bound.customCapability, undefined);
-  assert.equal(bound.sharedDepsRoot, installRoot);
-  raw.sharedDepsRoot = '/changed';
+  assert.equal(bound.rematerialize, false);
+  raw.rematerialize = true;
   await runtimeDependencyOperationEffectFence(bound, 'fence');
   assert.equal(calls, 1); assert.equal(reads, 0); assert.ok(Object.isFrozen(bound));
 });

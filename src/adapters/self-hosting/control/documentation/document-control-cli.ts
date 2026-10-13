@@ -32,6 +32,8 @@ export interface DocumentControlPlaneStatusCliProjection {
   readonly github: Readonly<{
     status: unknown;
     reason?: unknown;
+    httpStatus?: number | null;
+    detailDigest?: `sha256:${string}`;
     openPullRequestNumbers?: readonly number[];
     openIssueCount?: number;
     reviewThreadPullRequestCount?: number;
@@ -59,6 +61,11 @@ export function projectDocumentControlPlaneStatusCli(
         && typeof github.reviewThreads === 'object'
       ? Object.keys(github.reviewThreads).length
       : undefined;
+  const httpStatus = github.httpStatus === null || (typeof github.httpStatus === 'number'
+    && Number.isInteger(github.httpStatus) && github.httpStatus >= 100 && github.httpStatus <= 599)
+    ? github.httpStatus : undefined;
+  const detailDigest = typeof github.detailDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(github.detailDigest)
+    ? github.detailDigest as `sha256:${string}` : undefined;
   return Object.freeze({
     schema: 'sec-document-control-plane-status-cli-projection-v1',
     resultDigest: rawSha256(JSON.stringify(resolved)),
@@ -67,6 +74,8 @@ export function projectDocumentControlPlaneStatusCli(
     github: Object.freeze({
       status: github.status,
       ...(github.reason === undefined ? {} : { reason: github.reason }),
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+      ...(detailDigest === undefined ? {} : { detailDigest }),
       ...(openPullRequests === undefined ? {} : {
         openPullRequestNumbers: Object.freeze(openPullRequests.flatMap((item) => (
           item !== null && typeof item === 'object' && !Array.isArray(item)

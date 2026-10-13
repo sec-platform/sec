@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { acquirePhysicalMutationLease, assertPhysicalMutationLeaseOwned, completePhysicalJournalMutationInitialization, completePhysicalJournalMutationRetirement, deletePhysicalJournalMutationFile, initializePhysicalJournalMutationResource, readPhysicalJournalMutationResource, type JournalRetirementInterruptionActor, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOptions } from '../physical/runtime/mutation-lease.ts';
-import { PhysicalNoFollowError, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, observeDurableCanonicalFileReplacement, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, type DurableCanonicalFilePublicationReceipt, type PhysicalDirectoryIdentity, type RetainedNoFollowOrdinaryFile } from '../physical/runtime/physical-no-follow.ts';
+import { acquirePhysicalMutationLease, assertPhysicalMutationLeaseOwned, completePhysicalJournalMutationRetirement, deletePhysicalJournalMutationFile, initializePhysicalJournalMutationResource, publishPhysicalJournalMutationInitialization, readPhysicalJournalMutationResource, type JournalRetirementInterruptionActor, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOptions } from '../physical/runtime/mutation-lease.ts';
+import { PhysicalNoFollowError, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, observeDurableCanonicalFileReplacement, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, type DurableCanonicalFilePublicationReceipt, type PhysicalDirectoryIdentity, type RetainedNoFollowOrdinaryFile } from '../physical/runtime/physical-no-follow.ts';
 
 interface RuntimeStateJournalReadBounds {
   readonly deadlineAtMonotonicMs: number;
@@ -50,7 +50,7 @@ export interface RuntimeStateJournalFileSystem {
 }
 
 
-type JournalPublicationCompletion = (receipt: DurableCanonicalFilePublicationReceipt) => void;
+type JournalPublicationCompletion = (bytes: Uint8Array) => DurableCanonicalFilePublicationReceipt;
 type JournalMutationOperation = <T>(
   filePath: string, operation: (completeFirstPublication: JournalPublicationCompletion) => T, creation?: 'create-absent-data'
 ) => T | null;
@@ -77,16 +77,25 @@ export interface PreparedRuntimeStateJournalMutation {
   retire(expectedText: string, actor?: JournalRetirementInterruptionActor): void;
   dispose(): void;
 }
-const journalMutationPreparers = new WeakMap<object, (
+const journalMutationPreparers = new WeakMap<object, Readonly<{ prepare: (
   filePath: string, creation?: 'create-absent-data'
-) => PreparedRuntimeStateJournalMutation | null>();
+) => PreparedRuntimeStateJournalMutation | null; assertCurrentRoot: (expectedRootPath: string) => void }>>();
+
+/** Checks the original issued filesystem and its retained root; paths do not issue qualification. */
+export function assertIssuedRuntimeJournalFileSystem(
+  fs: object, expectedRootPath: string
+): asserts fs is RuntimeStateJournalFileSystem {
+  const issued = journalMutationPreparers.get(fs);
+  if (issued === undefined || !journalMutationOwners.has(fs)) throw new Error('Journal filesystem is not issued by its native owner.');
+  issued.assertCurrentRoot(expectedRootPath);
+}
 
 export function prepareRuntimeStateJournalMutation(
   fs: RuntimeStateJournalFileSystem, filePath: string, creation?: 'create-absent-data'
 ): PreparedRuntimeStateJournalMutation | null {
   const prepare = journalMutationPreparers.get(fs);
   if (prepare === undefined) throw new Error('Journal filesystem has no issued preparation owner.');
-  return prepare(filePath, creation);
+  return prepare.prepare(filePath, creation);
 }
 
 const heldJournalMutations = new WeakMap<object, Map<string, PhysicalMutationLeaseHandle>>();
@@ -314,7 +323,7 @@ export function createRuntimeStateJournalFileSystem(
     const active = activeMutations.get(lockName);
     if (active !== undefined) {
       assertPhysicalMutationLeaseOwned(active);
-      return operation(receipt => completePhysicalJournalMutationInitialization(active, receipt));
+      return operation(bytes => publishPhysicalJournalMutationInitialization(active, bytes));
     }
     const prepared = prepareMutation(filePath, creation);
     if (prepared === null) return null;
@@ -323,7 +332,7 @@ export function createRuntimeStateJournalFileSystem(
     try {
       return prepared.run(() => {
         const lease = activeMutations.get(lockName)!;
-        return operation(receipt => completePhysicalJournalMutationInitialization(lease, receipt));
+        return operation(bytes => publishPhysicalJournalMutationInitialization(lease, bytes));
       });
     } catch (error) { primary = error; failed = true; throw error; }
     finally {
@@ -357,7 +366,7 @@ export function createRuntimeStateJournalFileSystem(
         const next = Buffer.from(`${current}${text}`, 'utf8');
         const retained = fileParent(filePath, true)!;
         const publication = { parent: retained.parent, name: retained.name, bytes: next, validate: exactBytes(next) };
-        if (absent) complete(publishExclusiveDurableCanonicalFile(publication));
+        if (absent) complete(next);
         else replaceDurableCanonicalFile(publication);
         return true;
       }, absent ? 'create-absent-data' : undefined) ?? false;
@@ -371,7 +380,7 @@ export function createRuntimeStateJournalFileSystem(
         const retained = fileParent(filePath, true)!;
         const bytes = Buffer.from(text, 'utf8');
         const publication = { parent: retained.parent, name: retained.name, bytes, validate: exactBytes(bytes) };
-        if (absent) complete(publishExclusiveDurableCanonicalFile(publication));
+        if (absent) complete(bytes);
         else replaceDurableCanonicalFile(publication);
         return true;
       }, absent ? 'create-absent-data' : undefined) ?? false;
@@ -424,10 +433,7 @@ export function createRuntimeStateJournalFileSystem(
         const retained = fileParent(filePath, true)!;
         const bytes = Buffer.from(text, 'utf8');
         try {
-          const receipt = publishExclusiveDurableCanonicalFile({
-            parent: retained.parent, name: retained.name, bytes, validate: () => undefined
-          });
-          complete(receipt);
+          const receipt = complete(bytes);
           return receipt.created;
         } catch (error) {
           if (error instanceof PhysicalNoFollowError
@@ -456,7 +462,7 @@ export function createRuntimeStateJournalFileSystem(
         const publication = {
           parent: retained.parent, name: retained.name, bytes, validate: exactBytes(bytes)
         };
-        if (creation !== undefined) complete(publishExclusiveDurableCanonicalFile(publication));
+        if (creation !== undefined) complete(bytes);
         else replaceDurableCanonicalFile(publication);
         return text;
       }, creation);
@@ -469,7 +475,7 @@ export function createRuntimeStateJournalFileSystem(
         const retained = fileParent(filePath, true)!;
         const bytes = Buffer.from(text, 'utf8');
         const publication = { parent: retained.parent, name: retained.name, bytes, validate: exactBytes(bytes) };
-        if (creation !== undefined) complete(publishExclusiveDurableCanonicalFile(publication));
+        if (creation !== undefined) complete(bytes);
         else replaceDurableCanonicalFile(publication);
       }, creation);
       if (replaced === null) throw new Error('Runtime State journal mutation is contended.');
@@ -497,6 +503,10 @@ export function createRuntimeStateJournalFileSystem(
   });
   heldJournalMutations.set(fileSystem, activeMutations);
   journalMutationOwners.set(fileSystem, withMutationLease);
-  journalMutationPreparers.set(fileSystem, prepareMutation);
+  journalMutationPreparers.set(fileSystem, Object.freeze({ prepare: prepareMutation,
+    assertCurrentRoot: (expectedRootPath: string) => {
+      if (path.resolve(expectedRootPath) !== rootPath) throw new Error('Issued journal filesystem belongs to a different canonical root.');
+      root();
+    } }));
   return fileSystem;
 }

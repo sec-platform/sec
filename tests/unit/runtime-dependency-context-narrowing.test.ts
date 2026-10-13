@@ -8,9 +8,9 @@ import {
   waitForRuntimeDependencyOperation as wait,
   type RuntimeDependencyInstallOptions
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
-const deadlineError = (error: unknown): boolean => error instanceof SecError && error.code === 'RUNTIME-DEPS-003';
+const deadlineError = (error: unknown): boolean => error instanceof CodedFailure && error.code === 'RUNTIME-DEPS-003';
 
 for (const canceled of ['parent', 'child'] as const) {
   test(`derived operations preserve cancellation from the ${canceled}`, () => {

@@ -1,32 +1,33 @@
 import { expect, test } from 'bun:test';
 
 import { compilerRoot } from "../../workspace-context.ts";
-import { compileSecRepositoryModuleGraph } from '../source-program-model/typescript.ts';
+import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
-  assertSecRepositoryModuleArchitectureBoundaries,
-  assertSecRepositoryModuleImportBoundaries,
-  assertSecRepositoryModuleSourceProgramBoundaries,
-  collectSecRepositoryModuleBoundaryViolations,
-  collectSecRepositoryModuleSourceProgramViolations,
-  compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleMembership,
-  compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor,
-  parseSecModuleDescriptorJson,
-  type SecModuleOperationRoleBinding
+  assertRepositoryModuleArchitectureBoundaries,
+  assertRepositoryModuleImportBoundaries,
+  assertRepositoryModuleSourceProgramBoundaries,
+  collectRepositoryModuleBoundaryViolations,
+  collectRepositoryModuleSourceProgramViolations,
+  compileRepositoryModuleArchitectureProjection,
+  compileRepositoryModuleMembership,
+  compileRepositoryModuleMembershipSnapshot,
+  compileRepositoryModuleTopologyProjection,
+  parseRepositoryModuleDescriptor,
+  parseRepositoryModuleDescriptorJson,
+  type RepositoryModuleOperationRoleBinding
 } from './contract.ts';
 
 function repositoryModuleTestDescriptor(
   root: string
-): ReturnType<typeof parseSecModuleDescriptor> {
-  return parseSecModuleDescriptor({
+): ReturnType<typeof parseRepositoryModuleDescriptor> {
+  return parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: []
   }, `${root}/module.json`);
 }
 
 test('repository module descriptors resolve unique physical roots and external entrypoints', () => {
-  const membership = compileSecRepositoryModuleMembership(compilerRoot);
+  const membership = compileRepositoryModuleMembership(compilerRoot);
 
   expect(new Set(membership.descriptors.map(({ moduleId }) => moduleId)).size)
     .toBe(membership.descriptors.length);
@@ -40,6 +41,58 @@ test('repository module descriptors resolve unique physical roots and external e
   }
 });
 
+test('stale descriptor operations remain violations with empty roles and owner-internal classification', () => {
+  const sourcePath = 'src/example/operation.ts';
+  const graph = compileSourceProgramRepositoryModuleGraph({
+    files: [sourcePath],
+    readSource: () => 'export function current(): void {}\n'
+  });
+  for (const ownerInternalOperations of [[], ['old']]) {
+    const descriptorPath = 'src/example/module.json';
+    const membership = compileRepositoryModuleMembershipSnapshot({
+      repositoryFiles: [descriptorPath, sourcePath],
+      descriptorSources: [{
+        descriptorPath,
+        source: JSON.stringify({
+          importGraph: 'runtime',
+          externalEntrypoints: [],
+          capabilityProviders: [{
+            capability: 'example.operation',
+            operations: ['old'],
+            ownerInternalOperations
+          }]
+        })
+      }]
+    });
+    const descriptor = membership.descriptors[0]!;
+    const facts = {
+      files: [],
+      entrypoints: [],
+      entrypointClosures: [],
+      descriptorOperationExports: [{
+        moduleId: descriptor.moduleId,
+        capability: 'example.operation',
+        operation: 'old',
+        scopePaths: [sourcePath],
+        resolutions: [{ status: 'absent' as const, entrypointPath: sourcePath }],
+        status: 'absent' as const
+      }]
+    };
+    expect(compileRepositoryModuleArchitectureProjection(graph, membership, facts)
+      .violations).toContainEqual(expect.objectContaining({
+        code: 'repository-descriptor-operation-export-absent',
+        to: 'example.operation:old'
+      }));
+    expect(compileRepositoryModuleArchitectureProjection(graph, membership, {
+      ...facts,
+      descriptorOperationExports: []
+    }).violations).toContainEqual(expect.objectContaining({
+      code: 'repository-descriptor-operation-export-unresolved',
+      to: 'example.operation:old'
+    }));
+  }
+});
+
 test('repository module descriptor parser rejects unknown fields and invalid paths', () => {
   const descriptor = {
     importGraph: 'runtime',
@@ -47,25 +100,25 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
   } as const;
   const descriptorPath = 'src/example/module.json';
 
-  expect(parseSecModuleDescriptor(descriptor, descriptorPath).root).toBe('src/example');
-  expect(() => parseSecModuleDescriptor({ ...descriptor, architectureRole: 'query' }, descriptorPath))
+  expect(parseRepositoryModuleDescriptor(descriptor, descriptorPath).root).toBe('src/example');
+  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'query' }, descriptorPath))
     .toThrow('architectureRole');
-  expect(() => parseSecModuleDescriptor({ ...descriptor, architectureRole: 'service' }, descriptorPath))
+  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'service' }, descriptorPath))
     .toThrow('architectureRole');
-  expect(() => parseSecModuleDescriptor({ ...descriptor, covered: true }, descriptorPath))
+  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, covered: true }, descriptorPath))
     .toThrow('unknown field');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     authorityRefs: ['system-architecture']
   }, descriptorPath)).toThrow('unknown field');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     externalEntrypoints: ['src/adapters/self-hosting/development/runner/cli.ts', 'src/adapters/self-hosting/development/runner/cli.ts']
   }, descriptorPath))
     .toThrow('entries must be unique');
-  expect(() => parseSecModuleDescriptor(descriptor, '../module.json'))
+  expect(() => parseRepositoryModuleDescriptor(descriptor, '../module.json'))
     .toThrow('descriptorPath');
-  expect(() => parseSecModuleDescriptorJson(
+  expect(() => parseRepositoryModuleDescriptorJson(
     '{"importGraph":"runtime","importGraph":"content","externalEntrypoints":[]}',
     descriptorPath
   )).toThrow('duplicate key');
@@ -105,27 +158,27 @@ test('repository module operation obligations are strict and bind declared publi
     operationObligations: [obligation]
   } as const;
 
-  expect(parseSecModuleDescriptor(descriptor, 'src/provider/module.json')
+  expect(parseRepositoryModuleDescriptor(descriptor, 'src/provider/module.json')
     .operationObligations).toEqual([obligation]);
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{ ...obligation, resources: undefined }]
   }, 'src/provider/module.json')).toThrow('resources: expected an object');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       evolution: { retirement: 'replacement-obligations-satisfied' }
     }]
   }, 'src/provider/module.json')).toThrow('expected exact keys');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       resources: { aggregateBudgets: [] }
     }]
   }, 'src/provider/module.json')).toThrow('expected between 1 and 16 entries');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
@@ -138,7 +191,7 @@ test('repository module operation obligations are strict and bind declared publi
   }, 'src/provider/module.json')).toThrow(
     'process Effect obligation must declare exactly one input-bytes ceiling'
   );
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
@@ -149,7 +202,7 @@ test('repository module operation obligations are strict and bind declared publi
       }
     }]
   }, 'src/provider/module.json')).toThrow('expected a canonical static aggregate ceiling');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
@@ -198,27 +251,27 @@ test('effectful provider exposure separates owner internals from operation-bound
     operationObligations: [obligation]
   } as const;
 
-  expect(parseSecModuleDescriptor(descriptor, 'src/provider/module.json')
+  expect(parseRepositoryModuleDescriptor(descriptor, 'src/provider/module.json')
     .capabilityProviders).toEqual([{ ...provider, operationRoles: [] }]);
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: []
   }, 'src/provider/module.json')).toThrow('requires an operation obligation');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       effect: { kinds: ['filesystem'], failureKinds: ['io-failed'], recovery: 'owner-intervention' }
     }]
   }, 'src/provider/module.json')).toThrow('omits an intrinsic provider effect');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       operation: { ...obligation.operation, operation: 'nativePrimitive' }
     }]
   }, 'src/provider/module.json')).toThrow('owner-internal operation');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...provider,
@@ -248,7 +301,7 @@ test('repository module capability roles bind exact operations and recovery addr
     }],
     operationObligations: []
   } as const;
-  expect(parseSecModuleDescriptor(descriptor, 'src/runtime-store/module.json')
+  expect(parseRepositoryModuleDescriptor(descriptor, 'src/runtime-store/module.json')
     .capabilityProviders[0]?.operationRoles).toEqual([{
       operation: 'append',
       role: 'durable-worker',
@@ -260,7 +313,7 @@ test('repository module capability roles bind exact operations and recovery addr
         semanticOperation: 'runtime.store-append'
       }
     }]);
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
@@ -273,7 +326,7 @@ test('repository module capability roles bind exact operations and recovery addr
       }]
     }]
   }, 'src/runtime-store/module.json')).toThrow('must be one declared provider operation');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
@@ -290,7 +343,7 @@ test('repository module capability roles bind exact operations and recovery addr
       }]
     }]
   }, 'src/runtime-store/module.json')).toThrow('only valid for a durable-worker');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
@@ -303,7 +356,7 @@ test('repository module capability roles bind exact operations and recovery addr
       }]
     }]
   }, 'src/runtime-store/module.json')).toThrow('is required for provider-settlement-issuer');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
@@ -320,7 +373,7 @@ test('repository module capability roles bind exact operations and recovery addr
       }]
     }]
   }, 'src/runtime-store/module.json')).toThrow('must bind the durable worker semantic operation');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
@@ -334,7 +387,7 @@ test('repository module capability roles bind exact operations and recovery addr
     }]
   }, 'src/runtime-store/module.json')).toThrow('has an invalid format');
 
-  expect(parseSecModuleDescriptor({
+  expect(parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: [],
     capabilityProviders: [{
@@ -373,9 +426,9 @@ test('repository module conflicts only exact provider settlement and readback re
     }],
     operationObligations: []
   } as const;
-  expect(parseSecModuleDescriptor(descriptor, 'src/runtime-provider/module.json')
+  expect(parseRepositoryModuleDescriptor(descriptor, 'src/runtime-provider/module.json')
     .capabilityProviders[0]?.operationRoles).toHaveLength(2);
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
@@ -385,7 +438,7 @@ test('repository module conflicts only exact provider settlement and readback re
       ]
     }]
   }, 'src/runtime-provider/module.json')).not.toThrow();
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       capability: 'runtime.provider-a',
@@ -428,10 +481,10 @@ test('repository architecture rejects omitted authority roles and same-owner iss
     recovery: null
   } as const;
   const compile = (
-    operationRoles: readonly SecModuleOperationRoleBinding[],
+    operationRoles: readonly RepositoryModuleOperationRoleBinding[],
     operations: readonly string[] = ['issueAttempt', 'issueBinding', 'issueGrant']
   ) => {
-    const descriptor = parseSecModuleDescriptor({
+    const descriptor = parseRepositoryModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: [],
       capabilityProviders: [{
@@ -441,11 +494,11 @@ test('repository architecture rejects omitted authority roles and same-owner iss
       }]
     }, 'src/authority/module.json');
     const files = ['src/authority/issuer.ts'];
-    const graph = compileSecRepositoryModuleGraph({
+    const graph = compileSourceProgramRepositoryModuleGraph({
       files: files,
       readSource: () => operations.map((name) => `export function ${name}(): void {}`).join('\n')
     });
-    return compileSecRepositoryModuleArchitectureProjection(graph, {
+    return compileRepositoryModuleArchitectureProjection(graph, {
       descriptors: [descriptor],
       graphRoots: ['src/authority'],
       moduleRoots: ['src/authority'],
@@ -484,11 +537,11 @@ test('repository architecture rejects omitted authority roles and same-owner iss
     detail: 'authority co-owns independent semantic operation roles for example.operation: attempt-issuer, binding-issuer, grant-issuer'
   }));
 
-  const role = (name: string, issuerRole: SecModuleOperationRoleBinding['role'], requirementId: string | null) => ({
+  const role = (name: string, issuerRole: RepositoryModuleOperationRoleBinding['role'], requirementId: string | null) => ({
     operation: name, role: issuerRole, semanticOperation: 'example.operation', requirementId, recovery: null
   });
   const requirementIdForRole = (
-    issuerRole: SecModuleOperationRoleBinding['role']
+    issuerRole: RepositoryModuleOperationRoleBinding['role']
   ): string | null => issuerRole === 'binding-issuer'
     || issuerRole === 'provider-settlement-issuer'
     || issuerRole === 'readback-issuer'
@@ -533,20 +586,20 @@ test('repository module causal relations bind semantic subjects to exact module 
     externalEntrypoints: [],
     causalRelations: [relation]
   } as const;
-  expect(parseSecModuleDescriptor(descriptor, 'src/semantics/repair/module.json')
+  expect(parseRepositoryModuleDescriptor(descriptor, 'src/semantics/repair/module.json')
     .causalRelations).toEqual([relation]);
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     causalRelations: [{
       ...relation,
       symbol: { ...relation.symbol, path: 'src/bootstrap/cli/register-commands.ts' }
     }]
   }, 'src/semantics/repair/module.json')).toThrow('must remain inside the declaring module root');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     causalRelations: [relation, relation]
   }, 'src/semantics/repair/module.json')).toThrow('relations must be unique');
-  expect(() => parseSecModuleDescriptor({
+  expect(() => parseRepositoryModuleDescriptor({
     ...descriptor,
     causalRelations: [{
       ...relation,
@@ -565,7 +618,7 @@ test('repository module compiler prevents production from importing test authori
     ['tests/unit/example-provider.ts', 'export const provider = true;']
   ]);
 
-  expect(() => compileSecRepositoryModuleGraph({
+  expect(() => compileSourceProgramRepositoryModuleGraph({
     files,
     readSource: (file) => sources.get(file) ?? null
   })).toThrow('production repository module imports test-only module');
@@ -580,14 +633,14 @@ test('repository module compiler does not infer visibility from directory names'
     ['src/consumer/index.ts', "export { effect } from '../provider/runtime/effect.ts';"],
     ['src/provider/runtime/effect.ts', 'export const effect = true;']
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => sources.get(file) ?? null
   });
   const consumer = repositoryModuleTestDescriptor('src/consumer');
   const provider = repositoryModuleTestDescriptor('src/provider');
 
-  expect(() => assertSecRepositoryModuleImportBoundaries(graph, {
+  expect(() => assertRepositoryModuleImportBoundaries(graph, {
     descriptors: [consumer, provider],
     graphRoots: ['src/consumer', 'src/provider'],
     moduleRoots: ['src/consumer', 'src/provider'],
@@ -609,12 +662,12 @@ test('edit-loop topology and full semantic architecture share one exact owner gr
     moduleRoots: ['src/alpha', 'src/beta'],
     moduleForPath: (file: string) => file.startsWith('src/alpha/') ? alpha : beta
   };
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => sources.get(file) ?? null
   });
-  const topology = compileSecRepositoryModuleTopologyProjection(graph, membership);
-  const architecture = compileSecRepositoryModuleArchitectureProjection(graph, membership, {
+  const topology = compileRepositoryModuleTopologyProjection(graph, membership);
+  const architecture = compileRepositoryModuleArchitectureProjection(graph, membership, {
     files: files.map((path) => ({
       path,
       moduleId: membership.moduleForPath(path).moduleId,
@@ -656,8 +709,8 @@ test('repository topology projects same-owner file cycles from the canonical gra
     moduleRoots: [descriptor.root],
     moduleForPath: () => descriptor
   };
-  const compile = (orderedFiles: readonly string[]) => compileSecRepositoryModuleTopologyProjection(
-    compileSecRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null }),
+  const compile = (orderedFiles: readonly string[]) => compileRepositoryModuleTopologyProjection(
+    compileSourceProgramRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null }),
     membership
   );
   const topology = compile(files);
@@ -706,7 +759,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
     moduleForPath: (file: string) => file.startsWith('src/consumer/') ? consumer : provider
   };
 
-  const publicGraph = compileSecRepositoryModuleGraph({
+  const publicGraph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => file === 'src/consumer/use.ts'
       ? "export type { Contract } from '../provider/contract.ts';"
@@ -714,9 +767,9 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
         ? 'export interface Contract { readonly value: string; }'
         : 'export const effect = true;'
   });
-  expect(() => assertSecRepositoryModuleImportBoundaries(publicGraph, membership)).not.toThrow();
+  expect(() => assertRepositoryModuleImportBoundaries(publicGraph, membership)).not.toThrow();
 
-  const aggregateGraph = compileSecRepositoryModuleGraph({
+  const aggregateGraph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => file === 'src/consumer/use.ts'
       ? "export type { Contract } from '../provider/public.ts';"
@@ -742,20 +795,20 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
     entrypointClosures: [],
     capabilities: []
   };
-  const aggregateProjection = compileSecRepositoryModuleArchitectureProjection(
+  const aggregateProjection = compileRepositoryModuleArchitectureProjection(
     aggregateGraph,
     membership,
     sourceProgramFacts
   );
   expect(aggregateProjection.aggregateFacadePaths).toEqual(['src/provider/public.ts']);
-  expect(() => assertSecRepositoryModuleArchitectureBoundaries(
+  expect(() => assertRepositoryModuleArchitectureBoundaries(
     aggregateGraph,
     membership,
     sourceProgramFacts
   ))
     .toThrow('[cross-package-aggregate-surface]');
 
-  const implementationGraph = compileSecRepositoryModuleGraph({
+  const implementationGraph = compileSourceProgramRepositoryModuleGraph({
     files: files,
     readSource: (file) => file === 'src/consumer/use.ts'
       ? "export { effect } from '../provider/runtime/effect.ts';"
@@ -763,7 +816,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
         ? 'export interface Contract { readonly value: string; }'
         : 'export const effect = true;'
   });
-  const implementationProjection = compileSecRepositoryModuleArchitectureProjection(
+  const implementationProjection = compileRepositoryModuleArchitectureProjection(
     implementationGraph,
     membership,
     sourceProgramFacts
@@ -773,21 +826,21 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
 });
 
 test('pre-dependency entrypoints cannot import an unavailable package', () => {
-  const descriptor = parseSecModuleDescriptor({
+  const descriptor = parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: ['src/bootstrap/cli.ts'],
     preDependencyBootstrap: true
   }, 'src/bootstrap/module.json');
-  const graph = compileSecRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "import 'unmaterialized-package';" });
-  expect(() => assertSecRepositoryModuleImportBoundaries(graph, {
+  const graph = compileSourceProgramRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "import 'unmaterialized-package';" });
+  expect(() => assertRepositoryModuleImportBoundaries(graph, {
     descriptors: [descriptor],
     graphRoots: ['src/bootstrap'],
     moduleRoots: ['src/bootstrap'],
     moduleForPath: () => descriptor
   })).toThrow('[pre-dependency-bootstrap-unavailable-package]');
 
-  const postBootstrapGraph = compileSecRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "void import('materialized-after-bootstrap');" });
-  expect(() => assertSecRepositoryModuleImportBoundaries(postBootstrapGraph, {
+  const postBootstrapGraph = compileSourceProgramRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "void import('materialized-after-bootstrap');" });
+  expect(() => assertRepositoryModuleImportBoundaries(postBootstrapGraph, {
     descriptors: [descriptor],
     graphRoots: ['src/bootstrap'],
     moduleRoots: ['src/bootstrap'],
@@ -797,9 +850,9 @@ test('pre-dependency entrypoints cannot import an unavailable package', () => {
 
 test('repository module admission rejects retired src/apps and src/modules roots', () => {
   for (const retiredRoot of ['src/apps', 'src/modules']) {
-    expect(() => compileSecRepositoryModuleGraph({ files: [`${retiredRoot}/legacy.ts`], readSource: () => 'export {};' })).toThrow('retired repository root');
+    expect(() => compileSourceProgramRepositoryModuleGraph({ files: [`${retiredRoot}/legacy.ts`], readSource: () => 'export {};' })).toThrow('retired repository root');
 
-    expect(() => parseSecModuleDescriptor({
+    expect(() => parseRepositoryModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: []
     }, `${retiredRoot}/module.json`)).toThrow('retired repository root');
@@ -809,7 +862,7 @@ test('repository module admission rejects retired src/apps and src/modules roots
 test('repository module boundary compiler does not turn internal path spelling into policy', () => {
   const consumer = repositoryModuleTestDescriptor('src/consumer');
   const provider = repositoryModuleTestDescriptor('src/provider');
-  const graph = compileSecRepositoryModuleGraph({ files: [
+  const graph = compileSourceProgramRepositoryModuleGraph({ files: [
     'src/consumer/index.ts',
     'src/provider/index.ts',
     'src/provider/internal/private.ts',
@@ -820,7 +873,7 @@ test('repository module boundary compiler does not turn internal path spelling i
       "import '../provider/operation.ts';"
     ].join('\n')
     : 'export {};' });
-  const violations = collectSecRepositoryModuleBoundaryViolations(graph, {
+  const violations = collectRepositoryModuleBoundaryViolations(graph, {
     descriptors: [consumer, provider],
     graphRoots: ['src'],
     moduleRoots: [consumer.root, provider.root],
@@ -842,7 +895,7 @@ test('repository module dependency cycles exclude test observation edges', () =>
       ? first
       : file.startsWith('src/second/') ? second : tests
   };
-  const observationGraph = compileSecRepositoryModuleGraph({ files: [
+  const observationGraph = compileSourceProgramRepositoryModuleGraph({ files: [
     'src/first/index.ts',
     'src/second/index.ts',
     'src/second/reverse.spec.ts',
@@ -854,13 +907,13 @@ test('repository module dependency cycles exclude test observation edges', () =>
       : file === 'src/second/reverse.spec.ts'
         ? "import '../first/index.ts';"
       : 'export {};' });
-  expect(collectSecRepositoryModuleBoundaryViolations(observationGraph, membership)
+  expect(collectRepositoryModuleBoundaryViolations(observationGraph, membership)
     .some(({ code }) => code === 'module-dependency-cycle')).toBe(false);
 
-  const productionCycleGraph = compileSecRepositoryModuleGraph({ files: ['src/first/index.ts', 'src/second/index.ts'], readSource: (file) => file === 'src/first/index.ts'
+  const productionCycleGraph = compileSourceProgramRepositoryModuleGraph({ files: ['src/first/index.ts', 'src/second/index.ts'], readSource: (file) => file === 'src/first/index.ts'
     ? "import '../second/index.ts';"
     : "import '../first/index.ts';" });
-  expect(collectSecRepositoryModuleBoundaryViolations(productionCycleGraph, membership)
+  expect(collectRepositoryModuleBoundaryViolations(productionCycleGraph, membership)
     .filter(({ code }) => code === 'module-dependency-cycle')).toHaveLength(1);
 });
 
@@ -890,8 +943,8 @@ test('repository architecture projects stable SCC witnesses, reciprocal pairs, a
     entrypointClosures: []
   };
   const compile = (orderedFiles: readonly string[]) => {
-    const graph = compileSecRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null });
-    return compileSecRepositoryModuleArchitectureProjection(graph, membership, facts);
+    const graph = compileSourceProgramRepositoryModuleGraph({ files: orderedFiles, readSource: (file) => sources.get(file) ?? null });
+    return compileRepositoryModuleArchitectureProjection(graph, membership, facts);
   };
   const projection = compile(files);
 
@@ -919,14 +972,14 @@ test('repository architecture derives one node responsibility and rejects revers
   const descriptors = [
     repositoryModuleTestDescriptor('src/contracts'),
     repositoryModuleTestDescriptor('src/computation'),
-    parseSecModuleDescriptor({
+    parseRepositoryModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: [],
       capabilityProviders: [{ capability: 'clock', operations: ['readClock'] }]
     }, 'src/capability/module.json'),
     repositoryModuleTestDescriptor('src/operation'),
     repositoryModuleTestDescriptor('src/workflow'),
-    parseSecModuleDescriptor({
+    parseRepositoryModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: ['src/entry/cli.ts']
     }, 'src/entry/module.json')
@@ -1018,8 +1071,8 @@ test('repository architecture derives one node responsibility and rejects revers
     }],
     capabilities: []
   };
-  const compile = (sourceForContract: string) => compileSecRepositoryModuleArchitectureProjection(
-    compileSecRepositoryModuleGraph({
+  const compile = (sourceForContract: string) => compileRepositoryModuleArchitectureProjection(
+    compileSourceProgramRepositoryModuleGraph({
       files: files,
       readSource: (file) => file === 'src/contracts/types.ts'
         ? sourceForContract : sources.get(file) ?? null
@@ -1037,7 +1090,10 @@ test('repository architecture derives one node responsibility and rejects revers
       ['src/operation/execute.ts', 'operation'],
       ['src/workflow/run.ts', 'workflow']
     ]);
-  expect(valid.violations).toEqual([]);
+  expect(valid.violations).toEqual([expect.objectContaining({
+    code: 'repository-descriptor-operation-export-unresolved',
+    to: 'clock:readClock'
+  })]);
 
   const reversed = compile("export { readClock } from '../capability/clock.ts';");
   expect(reversed.violations).toContainEqual(expect.objectContaining({
@@ -1048,12 +1104,12 @@ test('repository architecture derives one node responsibility and rejects revers
 });
 
 test('package role claims cannot change node responsibility authority', () => {
-  const descriptor = parseSecModuleDescriptor({
+  const descriptor = parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: [],
     capabilityProviders: [{ capability: 'example-provider', operations: ['run'] }]
   }, 'src/example/module.json');
-  const graph = compileSecRepositoryModuleGraph({ files: ['src/example/value.ts'], readSource: () => 'export const value = 1;' });
+  const graph = compileSourceProgramRepositoryModuleGraph({ files: ['src/example/value.ts'], readSource: () => 'export const value = 1;' });
   const facts = {
     files: [{
       path: 'src/example/value.ts',
@@ -1071,7 +1127,7 @@ test('package role claims cannot change node responsibility authority', () => {
       observationClass: 'observed' as const
     }]
   };
-  const projection = compileSecRepositoryModuleArchitectureProjection(graph, {
+  const projection = compileRepositoryModuleArchitectureProjection(graph, {
     descriptors: [descriptor],
     graphRoots: ['src/example'],
     moduleRoots: ['src/example'],
@@ -1084,12 +1140,15 @@ test('package role claims cannot change node responsibility authority', () => {
       reason: 'responsibility-evidence-unresolved'
     })
   ]);
-  expect(projection.violations).toEqual([]);
+  expect(projection.violations).toEqual([expect.objectContaining({
+    code: 'repository-descriptor-operation-export-unresolved',
+    to: 'example-provider:run'
+  })]);
 });
 
 test('source-program ownership excludes colocated tests and binds public entrypoints to descriptors', () => {
   const undeclared = repositoryModuleTestDescriptor('src/feature');
-  const declared = parseSecModuleDescriptor({
+  const declared = parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: ['src/feature/cli.ts']
   }, 'src/feature/module.json');
@@ -1123,7 +1182,7 @@ test('source-program ownership excludes colocated tests and binds public entrypo
     }))
   };
 
-  const violations = collectSecRepositoryModuleSourceProgramViolations(
+  const violations = collectRepositoryModuleSourceProgramViolations(
     facts,
     membershipFor(undeclared)
   );
@@ -1133,9 +1192,9 @@ test('source-program ownership excludes colocated tests and binds public entrypo
     .toHaveLength(entrypointKinds.length);
   expect(violations.some(({ from }) => from === 'src/unowned/service.test.ts')).toBe(false);
 
-  expect(() => assertSecRepositoryModuleSourceProgramBoundaries(facts, membershipFor(declared)))
+  expect(() => assertRepositoryModuleSourceProgramBoundaries(facts, membershipFor(declared)))
     .toThrow('[unowned-production-source]');
-  expect(() => assertSecRepositoryModuleSourceProgramBoundaries({
+  expect(() => assertRepositoryModuleSourceProgramBoundaries({
     ...facts,
     files: facts.files.filter(({ path }) => path !== 'src/unowned/service.ts')
   }, membershipFor(declared))).not.toThrow();
@@ -1143,7 +1202,7 @@ test('source-program ownership excludes colocated tests and binds public entrypo
 
 
 test('pre-dependency evaluation excludes erased type imports without exempting runtime imports', () => {
-  const descriptor = parseSecModuleDescriptor({
+  const descriptor = parseRepositoryModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: ['src/bootstrap/cli.ts'],
     preDependencyBootstrap: true
@@ -1154,27 +1213,27 @@ test('pre-dependency evaluation excludes erased type imports without exempting r
   };
   for (const source of [
     "import type { Shape } from 'unmaterialized-package'; export type View = Shape;",
-    "import { type Shape } from 'unmaterialized-package'; export type View = Shape;",
     "import type { Shape } from './lazy.ts'; export type View = Shape;"
   ]) {
-    const graph = compileSecRepositoryModuleGraph({
+    const graph = compileSourceProgramRepositoryModuleGraph({
       files: ['src/bootstrap/cli.ts', 'src/bootstrap/lazy.ts'],
       readSource: file => file.endsWith('/cli.ts') ? source
         : "import 'unmaterialized-package'; export interface Shape { readonly id: string; }"
     });
-    expect(collectSecRepositoryModuleBoundaryViolations(graph, membership)
+    expect(collectRepositoryModuleBoundaryViolations(graph, membership)
       .filter(({ code }) => code === 'pre-dependency-bootstrap-unavailable-package')).toEqual([]);
   }
   for (const source of [
+    "import { type Shape } from 'unmaterialized-package'; export type View = Shape;",
     "import { value, type Shape } from 'unmaterialized-package'; console.log(value);",
     "import { value } from './lazy.ts'; console.log(value);"
   ]) {
-    const graph = compileSecRepositoryModuleGraph({
+    const graph = compileSourceProgramRepositoryModuleGraph({
       files: ['src/bootstrap/cli.ts', 'src/bootstrap/lazy.ts'],
       readSource: file => file.endsWith('/cli.ts') ? source
         : "import 'unmaterialized-package'; export const value = 1;"
     });
-    expect(collectSecRepositoryModuleBoundaryViolations(graph, membership))
+    expect(collectRepositoryModuleBoundaryViolations(graph, membership))
       .toContainEqual(expect.objectContaining({ code: 'pre-dependency-bootstrap-unavailable-package' }));
   }
 });

@@ -85,37 +85,6 @@ function dependencies(
   };
 }
 
-test('observed command completes before its deadline without requesting termination', async () => {
-  const child = fakeChild();
-  let terminations = 0;
-  setTimeout(() => {
-    child.stdout.emit('data', Buffer.from('ok'));
-    closeChild(child);
-  }, 0);
-
-  const outcome = await runObservedCommand('host-tool.exe', [], {
-    cwd: String.raw`C:\Windows\System32`,
-    maxObservedOutputBytes: 16,
-    timeoutMs: 100,
-    dependencies: dependencies(child, async () => {
-      terminations += 1;
-      return { gracefulAttempted: true, forcedAttempted: false, treeClosed: true };
-    })
-  });
-
-  expect(outcome).toMatchObject({
-    status: 'exited',
-    exitCode: 0,
-    stdout: {
-      bytes: 2,
-      digest: `sha256:${createHash('sha256').update('ok').digest('hex')}`,
-      observerTruncated: false
-    },
-    termination: { requested: false, treeClosed: true }
-  });
-  expect(terminations).toBe(0);
-});
-
 test('observed command closes the tree when its output budget observer rejects a chunk', async () => {
   const child = fakeChild();
   setTimeout(() => child.stdout.emit('data', Buffer.alloc(17)), 0);

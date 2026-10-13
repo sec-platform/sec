@@ -30,7 +30,6 @@
     "src/adapters/toolchain/typescript/canary.ts!",
     "tests/fixtures/repository-compilation-cache-worker.ts!",
     "tests/fixtures/typecheck-command-startup.ts",
-    "tests/helpers/fail-if-main-health-gh-runs.ts",
     "tests/helpers/hook-runtime-runner.ts",
     "tests/unit/worktree-physical-closeout-crash-fixture.ts"
   ],

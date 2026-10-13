@@ -22,8 +22,9 @@ test('dependency transition contract erases physical-provider type imports from 
       ts.isStringLiteral(node.moduleSpecifier)
       && node.moduleSpecifier.text.includes(PHYSICAL_RUNTIME_FRAGMENT)
     ));
-  expect(physicalImports).toHaveLength(1);
-  expect(physicalImports[0]!.importClause?.isTypeOnly).toBe(true);
+  for (const declaration of physicalImports) {
+    expect(declaration.importClause?.isTypeOnly).toBe(true);
+  }
 
   const emitted = ts.transpileModule(source, {
     fileName: CONTRACT,

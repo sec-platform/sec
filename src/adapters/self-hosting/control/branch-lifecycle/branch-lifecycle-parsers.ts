@@ -1,14 +1,9 @@
 import { compareCodeUnits } from '../../../../contracts/canonical.ts';
+import type { BranchCloseoutReceiptCommentCandidate, BranchPullRequestObservation, BranchRefObservation } from '../../../../execution/verification/branch-closeout.ts';
 import {
   BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER
 } from './branch-closeout-receipt.ts';
-import {
-  assertGitBranchName,
-  assertGitSha,
-  type BranchCloseoutReceiptCommentCandidate,
-  type BranchPullRequestObservation,
-  type BranchRefObservation
-} from './branch-lifecycle-contract.ts';
+import { assertGitBranchName, assertGitSha } from './branch-lifecycle-contract.ts';
 
 function stableSortRefs(entries: BranchRefObservation[]): BranchRefObservation[] {
   return entries.sort((left, right) => compareCodeUnits(left.branch, right.branch));

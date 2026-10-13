@@ -1,60 +1,60 @@
 import path from 'node:path';
 
 import {
-  assertSecDomainReadbackReceipt,
-  assertSecOwnerTerminalJoinReceipt,
-  assertSecProviderSettlementReceipt,
-  assertSecRecoveredRetryAdmission,
-  assertSecRecoveredRetryAdmissionForSuccessor,
-  assertSecSemanticOperationProjection,
-  consumeSecRecoveredRetryAdmission,
-  type SecBoundSemanticOperation,
-  type SecDomainReadbackReceipt,
-  type SecOwnerTerminalJoinReceipt,
-  type SecProviderSettlementReceipt,
-  type SecRecoveredPredecessorAttemptReference,
-  type SecRecoveredRetryAdmission
+  assertDomainReadbackReceipt,
+  assertOwnerTerminalJoinReceipt,
+  assertProviderSettlementReceipt,
+  assertRecoveredRetryAdmission,
+  assertRecoveredRetryAdmissionForSuccessor,
+  assertSemanticOperationProjection,
+  consumeRecoveredRetryAdmission,
+  type BoundSemanticOperation,
+  type DomainReadbackReceipt,
+  type OwnerTerminalJoinReceipt,
+  type ProviderSettlementReceipt,
+  type RecoveredPredecessorAttemptReference,
+  type RecoveredRetryAdmission
 } from '../../../../execution/operation/semantic.ts';
 import {
   RuntimeStateJournalReadError,
   type RuntimeStateJournalFileSystem
 } from '../journal-filesystem.ts';
 import {
-  SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES,
-  SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+  DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES,
+  DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
   encodeDurableExecutionRecord,
   observeDurableExecutionJournal,
   parseDurableExecutionJournal,
   sealDurableExecutionRecordForInternalWriter,
-  type SecDurableAttemptResolutionKind,
-  type SecDurableExecutionAttemptStartRecord,
-  type SecDurableExecutionDigest,
-  type SecDurableExecutionJournalObservation,
-  type SecDurableExecutionRecord
+  type DurableAttemptResolutionKind,
+  type DurableExecutionAttemptStartRecord,
+  type DurableExecutionDigest,
+  type DurableExecutionJournalObservation,
+  type DurableExecutionRecord
 } from './contract.ts';
 
-type SecDurableExecutionStoreFailureKind =
+type DurableExecutionStoreFailureKind =
   | 'absent'
   | 'conflict'
   | 'identity-mismatch'
   | 'deadline-exhausted'
   | 'resource-exhausted';
 
-class SecDurableExecutionStoreError extends Error {
-  readonly kind: SecDurableExecutionStoreFailureKind;
+class DurableExecutionStoreError extends Error {
+  readonly kind: DurableExecutionStoreFailureKind;
 
-  constructor(kind: SecDurableExecutionStoreFailureKind, message: string) {
+  constructor(kind: DurableExecutionStoreFailureKind, message: string) {
     super(`Durable local execution store ${message}`);
-    this.name = 'SecDurableExecutionStoreError';
+    this.name = 'DurableExecutionStoreError';
     this.kind = kind;
   }
 }
 
-export interface SecDurableExecutionJournalIdentity {
-  readonly operationKeyDigest: SecDurableExecutionDigest;
+export interface DurableExecutionJournalIdentity {
+  readonly operationKeyDigest: DurableExecutionDigest;
 }
 
-export interface SecDurableExecutionStoreLimits {
+export interface DurableExecutionStoreLimits {
   readonly deadlineAtMonotonicMs: number;
   readonly maximumRecords: number;
   readonly maximumStateBytes: number;
@@ -75,9 +75,9 @@ const LIMIT_CEILINGS = Object.freeze({
  * domain callers from copying or recomputing OperationKey/run lineage fields.
  */
 export function durableExecutionJournalIdentity(
-  operation: SecBoundSemanticOperation
-): SecDurableExecutionJournalIdentity {
-  assertSecSemanticOperationProjection(operation);
+  operation: BoundSemanticOperation
+): DurableExecutionJournalIdentity {
+  assertSemanticOperationProjection(operation);
   return Object.freeze({
     operationKeyDigest: operation.plan.identity.identityDigest
   });
@@ -89,11 +89,11 @@ export function durableExecutionJournalIdentity(
  * decides the domain outcome represented by a later readback.
  */
 export function durableExecutionPredecessorAttemptReference(
-  observation: SecDurableExecutionJournalObservation
-): SecRecoveredPredecessorAttemptReference {
+  observation: DurableExecutionJournalObservation
+): RecoveredPredecessorAttemptReference {
   const attempt = observation.activeAttempt;
   if (attempt === null) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'conflict', 'predecessor projection requires one unresolved active attempt.'
     );
   }
@@ -112,8 +112,8 @@ export function durableExecutionPredecessorAttemptReference(
 export function createDurableExecutionStore(input: Readonly<{
   fileSystem: RuntimeStateJournalFileSystem;
   journalRoot: string;
-  limits: SecDurableExecutionStoreLimits;
-}>): SecDurableExecutionStore {
+  limits: DurableExecutionStoreLimits;
+}>): DurableExecutionStore {
   const writer = createStoreCore(input);
   return Object.freeze({ read: writer.read });
 }
@@ -121,12 +121,12 @@ export function createDurableExecutionStore(input: Readonly<{
 export function createDurableExecutionWriter(input: Readonly<{
   fileSystem: RuntimeStateJournalFileSystem;
   journalRoot: string;
-  limits: SecDurableExecutionStoreLimits;
-}>): SecDurableExecutionWriter {
+  limits: DurableExecutionStoreLimits;
+}>): DurableExecutionWriter {
   const core = createStoreCore(input);
   return Object.freeze({
     read: core.read,
-    createIntent(operation: SecBoundSemanticOperation) {
+    createIntent(operation: BoundSemanticOperation) {
       return core.createIntent({
         ...durableExecutionJournalIdentity(operation),
         intentReferenceDigest: operation.plan.identity.intentDigest,
@@ -135,19 +135,19 @@ export function createDurableExecutionWriter(input: Readonly<{
       });
     },
     appendInitialAttemptStart(
-      operation: SecBoundSemanticOperation,
-      workerIdentityDigest: SecDurableExecutionDigest
+      operation: BoundSemanticOperation,
+      workerIdentityDigest: DurableExecutionDigest
     ) {
       return core.appendAttemptStart(
         initialAttemptStartInput(operation, workerIdentityDigest)
       );
     },
     appendRecoveredRetryAttemptStart(
-      recoveryOperation: SecBoundSemanticOperation,
-      successorOperation: SecBoundSemanticOperation,
-      workerIdentityDigest: SecDurableExecutionDigest,
-      retryAdmission: SecRecoveredRetryAdmission,
-      currentPhysicalEpochDigest: SecDurableExecutionDigest
+      recoveryOperation: BoundSemanticOperation,
+      successorOperation: BoundSemanticOperation,
+      workerIdentityDigest: DurableExecutionDigest,
+      retryAdmission: RecoveredRetryAdmission,
+      currentPhysicalEpochDigest: DurableExecutionDigest
     ) {
       const start = recoveredRetryAttemptStartInput(
         successorOperation,
@@ -159,7 +159,7 @@ export function createDurableExecutionWriter(input: Readonly<{
         retryAdmissionResolutionInput(recoveryOperation, retryAdmission),
         start
       );
-      consumeSecRecoveredRetryAdmission(
+      consumeRecoveredRetryAdmission(
         retryAdmission,
         successorOperation,
         currentPhysicalEpochDigest
@@ -167,22 +167,22 @@ export function createDurableExecutionWriter(input: Readonly<{
       return observation;
     },
     appendProviderSettlement(
-      operation: SecBoundSemanticOperation,
-      receipt: SecProviderSettlementReceipt
+      operation: BoundSemanticOperation,
+      receipt: ProviderSettlementReceipt
     ) {
       return core.appendProviderSettlementReference(
         providerSettlementReferenceInput(operation, receipt)
       );
     },
     appendLostHandle(
-      operation: SecBoundSemanticOperation,
-      receipt: SecProviderSettlementReceipt
+      operation: BoundSemanticOperation,
+      receipt: ProviderSettlementReceipt
     ) {
       return core.appendLostHandleReference(lostHandleReferenceInput(operation, receipt));
     },
     appendDomainReadback(
-      operation: SecBoundSemanticOperation,
-      receipt: SecDomainReadbackReceipt
+      operation: BoundSemanticOperation,
+      receipt: DomainReadbackReceipt
     ) {
       if (receipt.recoveryMode === 'recovered') {
         const current = core.read(durableExecutionJournalIdentity(operation));
@@ -200,13 +200,13 @@ export function createDurableExecutionWriter(input: Readonly<{
       return core.appendDomainReadbackReference(domainReadbackReferenceInput(operation, receipt));
     },
     appendOwnerTerminalResolution(
-      operation: SecBoundSemanticOperation,
-      receipt: SecOwnerTerminalJoinReceipt
+      operation: BoundSemanticOperation,
+      receipt: OwnerTerminalJoinReceipt
     ) {
-      assertSecOwnerTerminalJoinReceipt(receipt);
+      assertOwnerTerminalJoinReceipt(receipt);
       const current = core.read(durableExecutionJournalIdentity(operation));
       if (current?.activeAttempt === null || current?.activeAttempt === undefined) {
-        throw new SecDurableExecutionStoreError(
+        throw new DurableExecutionStoreError(
           'conflict', 'owner terminal resolution requires one active predecessor attempt.'
         );
       }
@@ -220,12 +220,12 @@ export function createDurableExecutionWriter(input: Readonly<{
 }
 
 function assertRecoveredPredecessorCoordinates(
-  observation: SecDurableExecutionJournalObservation | null,
-  expected: SecRecoveredPredecessorAttemptReference,
+  observation: DurableExecutionJournalObservation | null,
+  expected: RecoveredPredecessorAttemptReference,
   comparePredecessorAuthority = true
 ): void {
   if (observation === null) {
-    throw new SecDurableExecutionStoreError('absent', 'recovered predecessor journal is absent.');
+    throw new DurableExecutionStoreError('absent', 'recovered predecessor journal is absent.');
   }
   const actual = durableExecutionPredecessorAttemptReference(observation);
   const sameAuthority = !comparePredecessorAuthority
@@ -238,28 +238,28 @@ function assertRecoveredPredecessorCoordinates(
       || actual.attemptNonceDigest !== expected.attemptNonceDigest
       || actual.deadlineAtUnixMs !== expected.deadlineAtUnixMs
       || !sameAuthority) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch', 'recovery authority does not bind the exact durable predecessor attempt.'
     );
   }
 }
 
-type CreateIntentInput = SecDurableExecutionJournalIdentity & Readonly<{
-  intentReferenceDigest: SecDurableExecutionDigest;
-  executionPlanReferenceDigest: SecDurableExecutionDigest;
+type CreateIntentInput = DurableExecutionJournalIdentity & Readonly<{
+  intentReferenceDigest: DurableExecutionDigest;
+  executionPlanReferenceDigest: DurableExecutionDigest;
   deadlineAtUnixMs: number;
 }>;
-type AppendAttemptStartInput = SecDurableExecutionJournalIdentity & Readonly<{
-  runIdDigest: SecDurableExecutionDigest | null;
-  resumeEpochDigest: SecDurableExecutionDigest | null;
-  attemptNonceDigest: SecDurableExecutionDigest;
-  boundAttemptDigest: SecDurableExecutionDigest;
-  workerIdentityDigest: SecDurableExecutionDigest;
-  authorityGrantReferenceDigest: SecDurableExecutionDigest;
-  providerBindingSetReferenceDigest: SecDurableExecutionDigest;
-  executionPlanReferenceDigest: SecDurableExecutionDigest;
+type AppendAttemptStartInput = DurableExecutionJournalIdentity & Readonly<{
+  runIdDigest: DurableExecutionDigest | null;
+  resumeEpochDigest: DurableExecutionDigest | null;
+  attemptNonceDigest: DurableExecutionDigest;
+  boundAttemptDigest: DurableExecutionDigest;
+  workerIdentityDigest: DurableExecutionDigest;
+  authorityGrantReferenceDigest: DurableExecutionDigest;
+  providerBindingSetReferenceDigest: DurableExecutionDigest;
+  executionPlanReferenceDigest: DurableExecutionDigest;
   deadlineAtUnixMs: number;
-  retryAdmissionReferenceDigest: SecDurableExecutionDigest | null;
+  retryAdmissionReferenceDigest: DurableExecutionDigest | null;
 }>;
 
 /**
@@ -268,13 +268,13 @@ type AppendAttemptStartInput = SecDurableExecutionJournalIdentity & Readonly<{
  * check runs before any journal mutation.
  */
 function projectAttemptStartInput(
-  operation: SecBoundSemanticOperation,
-  workerIdentityDigest: SecDurableExecutionDigest,
-  retryAdmissionReferenceDigest: SecDurableExecutionDigest | null
+  operation: BoundSemanticOperation,
+  workerIdentityDigest: DurableExecutionDigest,
+  retryAdmissionReferenceDigest: DurableExecutionDigest | null
 ): AppendAttemptStartInput {
   const identity = durableExecutionJournalIdentity(operation);
   if (operation.plan.attempt.deadlineAtUnixMs <= Date.now()) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'deadline-exhausted',
       'attempt deadline is exhausted before durable single-flight claim.'
     );
@@ -297,20 +297,20 @@ function projectAttemptStartInput(
 }
 
 function initialAttemptStartInput(
-  operation: SecBoundSemanticOperation,
-  workerIdentityDigest: SecDurableExecutionDigest
+  operation: BoundSemanticOperation,
+  workerIdentityDigest: DurableExecutionDigest
 ): AppendAttemptStartInput {
   return projectAttemptStartInput(operation, workerIdentityDigest, null);
 }
 
 function recoveredRetryAttemptStartInput(
-  operation: SecBoundSemanticOperation,
-  workerIdentityDigest: SecDurableExecutionDigest,
-  retryAdmission: SecRecoveredRetryAdmission,
-  currentPhysicalEpochDigest: SecDurableExecutionDigest
+  operation: BoundSemanticOperation,
+  workerIdentityDigest: DurableExecutionDigest,
+  retryAdmission: RecoveredRetryAdmission,
+  currentPhysicalEpochDigest: DurableExecutionDigest
 ): AppendAttemptStartInput {
-  assertSecRecoveredRetryAdmission(retryAdmission);
-  assertSecRecoveredRetryAdmissionForSuccessor(
+  assertRecoveredRetryAdmission(retryAdmission);
+  assertRecoveredRetryAdmissionForSuccessor(
     retryAdmission,
     operation,
     currentPhysicalEpochDigest
@@ -321,40 +321,40 @@ function recoveredRetryAttemptStartInput(
     retryAdmission.retryAdmissionDigest
   );
 }
-type AppendProviderSettlementInput = SecDurableExecutionJournalIdentity & Readonly<{
-  attemptNonceDigest: SecDurableExecutionDigest;
+type AppendProviderSettlementInput = DurableExecutionJournalIdentity & Readonly<{
+  attemptNonceDigest: DurableExecutionDigest;
   requirementId: string;
-  providerBindingDigest: SecDurableExecutionDigest;
-  providerReceiptDigest: SecDurableExecutionDigest;
+  providerBindingDigest: DurableExecutionDigest;
+  providerReceiptDigest: DurableExecutionDigest;
 }>;
-type AppendDomainReadbackInput = SecDurableExecutionJournalIdentity & Readonly<{
-  attemptNonceDigest: SecDurableExecutionDigest;
-  readbackContractDigest: SecDurableExecutionDigest;
-  domainReadbackReceiptDigest: SecDurableExecutionDigest;
+type AppendDomainReadbackInput = DurableExecutionJournalIdentity & Readonly<{
+  attemptNonceDigest: DurableExecutionDigest;
+  readbackContractDigest: DurableExecutionDigest;
+  domainReadbackReceiptDigest: DurableExecutionDigest;
 }>;
-type AppendLostHandleInput = SecDurableExecutionJournalIdentity & Readonly<{
-  attemptNonceDigest: SecDurableExecutionDigest;
-  lostHandleReferenceDigest: SecDurableExecutionDigest;
+type AppendLostHandleInput = DurableExecutionJournalIdentity & Readonly<{
+  attemptNonceDigest: DurableExecutionDigest;
+  lostHandleReferenceDigest: DurableExecutionDigest;
 }>;
-type AppendAttemptResolutionInput = SecDurableExecutionJournalIdentity & Readonly<{
-  attemptNonceDigest: SecDurableExecutionDigest;
-  resolutionKind: SecDurableAttemptResolutionKind;
-  resolutionReferenceDigest: SecDurableExecutionDigest;
-  domainReadbackReceiptDigest: SecDurableExecutionDigest;
+type AppendAttemptResolutionInput = DurableExecutionJournalIdentity & Readonly<{
+  attemptNonceDigest: DurableExecutionDigest;
+  resolutionKind: DurableAttemptResolutionKind;
+  resolutionReferenceDigest: DurableExecutionDigest;
+  domainReadbackReceiptDigest: DurableExecutionDigest;
 }>;
 
 function ownerTerminalResolutionInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecOwnerTerminalJoinReceipt,
-  activeAttemptNonceDigest: SecDurableExecutionDigest
+  operation: BoundSemanticOperation,
+  receipt: OwnerTerminalJoinReceipt,
+  activeAttemptNonceDigest: DurableExecutionDigest
 ): AppendAttemptResolutionInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecOwnerTerminalJoinReceipt(receipt);
+  assertOwnerTerminalJoinReceipt(receipt);
   if (receipt.operationIdentityDigest !== identity.operationKeyDigest
       || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || receipt.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
       || receipt.boundAttemptDigest !== operation.boundAttemptDigest) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch',
       'owner terminal receipt does not bind the exact operation attempt.'
     );
@@ -369,15 +369,15 @@ function ownerTerminalResolutionInput(
 }
 
 function providerSettlementReferenceInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecProviderSettlementReceipt
+  operation: BoundSemanticOperation,
+  receipt: ProviderSettlementReceipt
 ): AppendProviderSettlementInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecProviderSettlementReceipt(receipt);
+  assertProviderSettlementReceipt(receipt);
   if (receipt.operationIdentityDigest !== identity.operationKeyDigest
       || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || receipt.boundAttemptDigest !== operation.boundAttemptDigest) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch',
       'provider settlement receipt does not bind the exact operation attempt.'
     );
@@ -392,16 +392,16 @@ function providerSettlementReferenceInput(
 }
 
 function domainReadbackReferenceInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecDomainReadbackReceipt
+  operation: BoundSemanticOperation,
+  receipt: DomainReadbackReceipt
 ): AppendDomainReadbackInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecDomainReadbackReceipt(receipt);
+  assertDomainReadbackReceipt(receipt);
   if (receipt.operationIdentityDigest !== identity.operationKeyDigest
       || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || receipt.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
       || receipt.boundAttemptDigest !== operation.boundAttemptDigest) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch',
       'domain readback receipt does not bind the exact operation attempt.'
     );
@@ -417,12 +417,12 @@ function domainReadbackReferenceInput(
 }
 
 function lostHandleReferenceInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecProviderSettlementReceipt
+  operation: BoundSemanticOperation,
+  receipt: ProviderSettlementReceipt
 ): AppendLostHandleInput {
   const settlement = providerSettlementReferenceInput(operation, receipt);
   if (receipt.physicalDisposition !== 'unknown') {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch',
       'lost handle requires an exact provider-issued unknown physical settlement.'
     );
@@ -435,18 +435,18 @@ function lostHandleReferenceInput(
 }
 
 function retryAdmissionResolutionInput(
-  operation: SecBoundSemanticOperation,
-  admission: SecRecoveredRetryAdmission
+  operation: BoundSemanticOperation,
+  admission: RecoveredRetryAdmission
 ): AppendAttemptResolutionInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecRecoveredRetryAdmission(admission);
+  assertRecoveredRetryAdmission(admission);
   if (admission.operationIdentityDigest !== identity.operationKeyDigest
       || admission.previousExecutionPlanDigest !== operation.plan.execution.executionPlanDigest
       || admission.previousBindingSetIdentityDigest !== operation.bindingSetIdentityDigest
       || admission.recoveryBoundAttemptDigest !== operation.boundAttemptDigest
       || admission.recoveryAuthorityGrantDigest !== operation.plan.attempt.authorityGrantDigest
       || admission.recoveryResumeEpochDigest !== operation.plan.attempt.resumeEpochDigest) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch',
       'retry admission does not bind the exact recovered operation attempt.'
     );
@@ -460,67 +460,67 @@ function retryAdmissionResolutionInput(
   });
 }
 
-export interface SecDurableExecutionStore {
+export interface DurableExecutionStore {
   /** Reads durable observations. The result is never execution or replay authority. */
-  read(identity: SecDurableExecutionJournalIdentity): SecDurableExecutionJournalObservation | null;
+  read(identity: DurableExecutionJournalIdentity): DurableExecutionJournalObservation | null;
 }
 
-export interface SecDurableExecutionWriter extends SecDurableExecutionStore {
-  createIntent(operation: SecBoundSemanticOperation): SecDurableExecutionJournalObservation;
+export interface DurableExecutionWriter extends DurableExecutionStore {
+  createIntent(operation: BoundSemanticOperation): DurableExecutionJournalObservation;
   appendInitialAttemptStart(
-    operation: SecBoundSemanticOperation,
-    workerIdentityDigest: SecDurableExecutionDigest
-  ): SecDurableExecutionJournalObservation;
+    operation: BoundSemanticOperation,
+    workerIdentityDigest: DurableExecutionDigest
+  ): DurableExecutionJournalObservation;
   appendRecoveredRetryAttemptStart(
-    recoveryOperation: SecBoundSemanticOperation,
-    successorOperation: SecBoundSemanticOperation,
-    workerIdentityDigest: SecDurableExecutionDigest,
-    retryAdmission: SecRecoveredRetryAdmission,
-    currentPhysicalEpochDigest: SecDurableExecutionDigest
-  ): SecDurableExecutionJournalObservation;
+    recoveryOperation: BoundSemanticOperation,
+    successorOperation: BoundSemanticOperation,
+    workerIdentityDigest: DurableExecutionDigest,
+    retryAdmission: RecoveredRetryAdmission,
+    currentPhysicalEpochDigest: DurableExecutionDigest
+  ): DurableExecutionJournalObservation;
   appendProviderSettlement(
-    operation: SecBoundSemanticOperation,
-    receipt: SecProviderSettlementReceipt
-  ): SecDurableExecutionJournalObservation;
+    operation: BoundSemanticOperation,
+    receipt: ProviderSettlementReceipt
+  ): DurableExecutionJournalObservation;
   appendLostHandle(
-    operation: SecBoundSemanticOperation,
-    receipt: SecProviderSettlementReceipt
-  ): SecDurableExecutionJournalObservation;
+    operation: BoundSemanticOperation,
+    receipt: ProviderSettlementReceipt
+  ): DurableExecutionJournalObservation;
   appendDomainReadback(
-    operation: SecBoundSemanticOperation,
-    receipt: SecDomainReadbackReceipt
-  ): SecDurableExecutionJournalObservation;
+    operation: BoundSemanticOperation,
+    receipt: DomainReadbackReceipt
+  ): DurableExecutionJournalObservation;
   appendOwnerTerminalResolution(
-    operation: SecBoundSemanticOperation,
-    receipt: SecOwnerTerminalJoinReceipt
-  ): SecDurableExecutionJournalObservation;
+    operation: BoundSemanticOperation,
+    receipt: OwnerTerminalJoinReceipt
+  ): DurableExecutionJournalObservation;
 }
 
-interface DurableExecutionStoreCore extends SecDurableExecutionStore {
-  createIntent(input: CreateIntentInput): SecDurableExecutionJournalObservation;
-  appendAttemptStart(input: AppendAttemptStartInput): SecDurableExecutionJournalObservation;
+interface DurableExecutionStoreCore extends DurableExecutionStore {
+  createIntent(input: CreateIntentInput): DurableExecutionJournalObservation;
+  appendAttemptStart(input: AppendAttemptStartInput): DurableExecutionJournalObservation;
   appendRecoveredRetryAttemptStart(
     resolution: AppendAttemptResolutionInput,
     start: AppendAttemptStartInput
-  ): SecDurableExecutionJournalObservation;
-  appendProviderSettlementReference(input: AppendProviderSettlementInput): SecDurableExecutionJournalObservation;
-  appendDomainReadbackReference(input: AppendDomainReadbackInput): SecDurableExecutionJournalObservation;
-  appendLostHandleReference(input: AppendLostHandleInput): SecDurableExecutionJournalObservation;
-  appendAttemptResolution(input: AppendAttemptResolutionInput): SecDurableExecutionJournalObservation;
+  ): DurableExecutionJournalObservation;
+  appendProviderSettlementReference(input: AppendProviderSettlementInput): DurableExecutionJournalObservation;
+  appendDomainReadbackReference(input: AppendDomainReadbackInput): DurableExecutionJournalObservation;
+  appendLostHandleReference(input: AppendLostHandleInput): DurableExecutionJournalObservation;
+  appendAttemptResolution(input: AppendAttemptResolutionInput): DurableExecutionJournalObservation;
 }
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
-function canonicalDigest(value: string, label: string): SecDurableExecutionDigest {
+function canonicalDigest(value: string, label: string): DurableExecutionDigest {
   if (!DIGEST_PATTERN.test(value)) {
-    throw new SecDurableExecutionStoreError('identity-mismatch', `${label} is not canonical.`);
+    throw new DurableExecutionStoreError('identity-mismatch', `${label} is not canonical.`);
   }
-  return value as SecDurableExecutionDigest;
+  return value as DurableExecutionDigest;
 }
 
-function normalizeLimits(input: SecDurableExecutionStoreLimits): SecDurableExecutionStoreLimits {
+function normalizeLimits(input: DurableExecutionStoreLimits): DurableExecutionStoreLimits {
   if (!Number.isFinite(input.deadlineAtMonotonicMs) || input.deadlineAtMonotonicMs <= performance.now()) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'deadline-exhausted',
       'deadlineAtMonotonicMs must be one unexpired finite absolute monotonic deadline.'
     );
@@ -534,7 +534,7 @@ function normalizeLimits(input: SecDurableExecutionStoreLimits): SecDurableExecu
     const value = input[key];
     const minimum = key === 'maximumProviderSettlementsPerAttempt' ? 0 : 1;
     if (!Number.isSafeInteger(value) || value < minimum || value > LIMIT_CEILINGS[key]) {
-      throw new SecDurableExecutionStoreError(
+      throw new DurableExecutionStoreError(
         'resource-exhausted',
         `${key} must be a safe integer within its canonical ceiling ${LIMIT_CEILINGS[key]}.`
       );
@@ -543,19 +543,19 @@ function normalizeLimits(input: SecDurableExecutionStoreLimits): SecDurableExecu
   return Object.freeze({ ...input });
 }
 
-function assertDeadline(limits: SecDurableExecutionStoreLimits): void {
+function assertDeadline(limits: DurableExecutionStoreLimits): void {
   if (performance.now() >= limits.deadlineAtMonotonicMs) {
-    throw new SecDurableExecutionStoreError('deadline-exhausted', 'operation deadline is exhausted.');
+    throw new DurableExecutionStoreError('deadline-exhausted', 'operation deadline is exhausted.');
   }
 }
 
-function attemptCount(observation: SecDurableExecutionJournalObservation): number {
+function attemptCount(observation: DurableExecutionJournalObservation): number {
   return observation.records.filter(({ kind }) => kind === 'attempt-start').length;
 }
 
 function limitsMatchIntent(
-  observation: SecDurableExecutionJournalObservation,
-  limits: SecDurableExecutionStoreLimits
+  observation: DurableExecutionJournalObservation,
+  limits: DurableExecutionStoreLimits
 ): boolean {
   const intent = observation.intent;
   return intent.maximumRecords === limits.maximumRecords
@@ -565,8 +565,8 @@ function limitsMatchIntent(
 }
 
 function reservedClosureRecords(
-  observation: SecDurableExecutionJournalObservation,
-  limits: SecDurableExecutionStoreLimits
+  observation: DurableExecutionJournalObservation,
+  limits: DurableExecutionStoreLimits
 ): number {
   const active = observation.activeAttempt;
   if (active === null) return 0;
@@ -574,7 +574,7 @@ function reservedClosureRecords(
     ? limits.maximumProviderSettlementsPerAttempt - active.providerSettlements.length
     : 0;
   if (remainingProviders < 0) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'resource-exhausted',
       'active attempt exceeds its provider settlement reservation.'
     );
@@ -586,8 +586,8 @@ function reservedClosureRecords(
 }
 
 function assertCumulativeLimits(
-  observation: SecDurableExecutionJournalObservation,
-  limits: SecDurableExecutionStoreLimits,
+  observation: DurableExecutionJournalObservation,
+  limits: DurableExecutionStoreLimits,
   exactStateBytes: number,
   reserveSettlementClosure: boolean
 ): void {
@@ -597,11 +597,11 @@ function assertCumulativeLimits(
     : 0;
   const recordsWithReservation = observation.records.length + reservedRecords;
   const bytesWithReservation = exactStateBytes
-    + reservedRecords * (SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES + 1);
+    + reservedRecords * (DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES + 1);
   if (recordsWithReservation > limits.maximumRecords
       || bytesWithReservation > limits.maximumStateBytes
       || attemptCount(observation) > limits.maximumAttempts) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'resource-exhausted',
       'journal cannot reserve its complete bounded attempt-settlement closure.'
     );
@@ -610,7 +610,7 @@ function assertCumulativeLimits(
 
 function identityPath(
   journalRoot: string,
-  identity: SecDurableExecutionJournalIdentity
+  identity: DurableExecutionJournalIdentity
 ): string {
   const operationKey = canonicalDigest(identity.operationKeyDigest, 'operationKeyDigest').slice(7);
   return path.join(journalRoot, `${operationKey}.jsonl`);
@@ -623,19 +623,19 @@ function pathInside(candidate: string, parent: string): boolean {
 }
 
 function sameIdentity(
-  observation: SecDurableExecutionJournalObservation,
-  identity: SecDurableExecutionJournalIdentity
+  observation: DurableExecutionJournalObservation,
+  identity: DurableExecutionJournalIdentity
 ): boolean {
   return observation.intent.operationKeyDigest === identity.operationKeyDigest;
 }
 
-function commonRecord<Kind extends Exclude<SecDurableExecutionRecord['kind'], 'intent'>>(
-  observation: SecDurableExecutionJournalObservation,
+function commonRecord<Kind extends Exclude<DurableExecutionRecord['kind'], 'intent'>>(
+  observation: DurableExecutionJournalObservation,
   kind: Kind
 ) {
   const previous = observation.records.at(-1)!;
   return {
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind,
     sequence: observation.records.length,
     operationKeyDigest: observation.intent.operationKeyDigest,
@@ -644,7 +644,7 @@ function commonRecord<Kind extends Exclude<SecDurableExecutionRecord['kind'], 'i
 }
 
 function sameAttemptStart(
-  record: SecDurableExecutionAttemptStartRecord,
+  record: DurableExecutionAttemptStartRecord,
   input: AppendAttemptStartInput
 ): boolean {
   return record.attemptNonceDigest === input.attemptNonceDigest
@@ -662,20 +662,20 @@ function sameAttemptStart(
 function createStoreCore(input: Readonly<{
   fileSystem: RuntimeStateJournalFileSystem;
   journalRoot: string;
-  limits: SecDurableExecutionStoreLimits;
+  limits: DurableExecutionStoreLimits;
 }>): DurableExecutionStoreCore {
   const journalRoot = path.resolve(input.journalRoot);
   const limits = normalizeLimits(input.limits);
   if (!path.isAbsolute(input.journalRoot) || !pathInside(journalRoot, input.fileSystem.rootPath)) {
-    throw new SecDurableExecutionStoreError(
+    throw new DurableExecutionStoreError(
       'identity-mismatch',
       'journal root must be an absolute descendant of the retained Runtime State root.'
     );
   }
   const readState = (
-    identity: SecDurableExecutionJournalIdentity
+    identity: DurableExecutionJournalIdentity
   ): Readonly<{
-    observation: SecDurableExecutionJournalObservation;
+    observation: DurableExecutionJournalObservation;
     source: string;
   }> | null => {
     assertDeadline(limits);
@@ -688,7 +688,7 @@ function createStoreCore(input: Readonly<{
       });
     } catch (error) {
       if (error instanceof RuntimeStateJournalReadError) {
-        throw new SecDurableExecutionStoreError(
+        throw new DurableExecutionStoreError(
           error.kind === 'deadline-exhausted' ? 'deadline-exhausted' : 'resource-exhausted',
           error.message
         );
@@ -698,13 +698,13 @@ function createStoreCore(input: Readonly<{
     if (source === null) return null;
     const observation = parseDurableExecutionJournal(source);
     if (!sameIdentity(observation, identity)) {
-      throw new SecDurableExecutionStoreError(
+      throw new DurableExecutionStoreError(
         'identity-mismatch',
         'journal bytes do not match their OperationKey address.'
       );
     }
     if (!limitsMatchIntent(observation, limits)) {
-      throw new SecDurableExecutionStoreError(
+      throw new DurableExecutionStoreError(
         'identity-mismatch',
         'journal limits differ from their immutable operation intent.'
       );
@@ -714,28 +714,28 @@ function createStoreCore(input: Readonly<{
   };
 
   const read = (
-    identity: SecDurableExecutionJournalIdentity
-  ): SecDurableExecutionJournalObservation | null => readState(identity)?.observation ?? null;
+    identity: DurableExecutionJournalIdentity
+  ): DurableExecutionJournalObservation | null => readState(identity)?.observation ?? null;
 
   const required = (
-    identity: SecDurableExecutionJournalIdentity
-  ): SecDurableExecutionJournalObservation => {
+    identity: DurableExecutionJournalIdentity
+  ): DurableExecutionJournalObservation => {
     const state = readState(identity);
     if (state === null) {
-      throw new SecDurableExecutionStoreError('absent', 'journal intent is absent.');
+      throw new DurableExecutionStoreError('absent', 'journal intent is absent.');
     }
     return state.observation;
   };
 
   const append = (
-    identity: SecDurableExecutionJournalIdentity,
-    build: (current: SecDurableExecutionJournalObservation) => SecDurableExecutionRecord,
-    equivalent: (record: SecDurableExecutionRecord) => boolean
-  ): SecDurableExecutionJournalObservation => {
+    identity: DurableExecutionJournalIdentity,
+    build: (current: DurableExecutionJournalObservation) => DurableExecutionRecord,
+    equivalent: (record: DurableExecutionRecord) => boolean
+  ): DurableExecutionJournalObservation => {
     assertDeadline(limits);
     const currentState = readState(identity);
     if (currentState === null) {
-      throw new SecDurableExecutionStoreError('absent', 'journal intent is absent.');
+      throw new DurableExecutionStoreError('absent', 'journal intent is absent.');
     }
     const current = currentState.observation;
     const existing = current.records.find(equivalent);
@@ -754,16 +754,16 @@ function createStoreCore(input: Readonly<{
     if (input.fileSystem.appendFsyncCas(journalPath, currentState.source, appended)) return next;
     const concurrent = required(identity);
     if (concurrent.records.some(equivalent)) return concurrent;
-    throw new SecDurableExecutionStoreError('conflict', 'journal changed during CAS append.');
+    throw new DurableExecutionStoreError('conflict', 'journal changed during CAS append.');
   };
 
   return Object.freeze({
     read,
-    createIntent(intentInput: CreateIntentInput): SecDurableExecutionJournalObservation {
+    createIntent(intentInput: CreateIntentInput): DurableExecutionJournalObservation {
       const journalPath = identityPath(journalRoot, intentInput);
       assertDeadline(limits);
       const intent = sealDurableExecutionRecordForInternalWriter({
-        schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+        schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
         kind: 'intent',
         sequence: 0,
         operationKeyDigest: canonicalDigest(intentInput.operationKeyDigest, 'operationKeyDigest'),
@@ -790,9 +790,9 @@ function createStoreCore(input: Readonly<{
       }
       const current = required(intentInput);
       if (current.intent.recordDigest === intent.recordDigest) return current;
-      throw new SecDurableExecutionStoreError('conflict', 'OperationKey already binds another intent.');
+      throw new DurableExecutionStoreError('conflict', 'OperationKey already binds another intent.');
     },
-    appendAttemptStart(attemptInput: AppendAttemptStartInput): SecDurableExecutionJournalObservation {
+    appendAttemptStart(attemptInput: AppendAttemptStartInput): DurableExecutionJournalObservation {
       return append(attemptInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'attempt-start'),
         runIdDigest: attemptInput.runIdDigest === null
@@ -821,11 +821,11 @@ function createStoreCore(input: Readonly<{
     appendRecoveredRetryAttemptStart(
       resolutionInput: AppendAttemptResolutionInput,
       attemptInput: AppendAttemptStartInput
-    ): SecDurableExecutionJournalObservation {
+    ): DurableExecutionJournalObservation {
       assertDeadline(limits);
       const currentState = readState(resolutionInput);
       if (currentState === null) {
-        throw new SecDurableExecutionStoreError('absent', 'journal intent is absent.');
+        throw new DurableExecutionStoreError('absent', 'journal intent is absent.');
       }
       const current = currentState.observation;
       const activeAttempt = current.activeAttempt;
@@ -834,7 +834,7 @@ function createStoreCore(input: Readonly<{
           || activeAttempt.domainReadback?.domainReadbackReceiptDigest
             !== resolutionInput.domainReadbackReceiptDigest
           || attemptInput.operationKeyDigest !== resolutionInput.operationKeyDigest) {
-        throw new SecDurableExecutionStoreError(
+        throw new DurableExecutionStoreError(
           'identity-mismatch',
           'atomic retry transition does not bind the active predecessor and exact readback.'
         );
@@ -890,13 +890,13 @@ function createStoreCore(input: Readonly<{
             === resolutionInput.resolutionReferenceDigest) {
         return concurrent;
       }
-      throw new SecDurableExecutionStoreError(
+      throw new DurableExecutionStoreError(
         'conflict', 'journal changed during atomic retry transition.'
       );
     },
     appendProviderSettlementReference(
       settlementInput: AppendProviderSettlementInput
-    ): SecDurableExecutionJournalObservation {
+    ): DurableExecutionJournalObservation {
       return append(settlementInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'provider-settlement-reference'),
         attemptNonceDigest: canonicalDigest(settlementInput.attemptNonceDigest, 'attemptNonceDigest'),
@@ -913,7 +913,7 @@ function createStoreCore(input: Readonly<{
     },
     appendDomainReadbackReference(
       readbackInput: AppendDomainReadbackInput
-    ): SecDurableExecutionJournalObservation {
+    ): DurableExecutionJournalObservation {
       return append(readbackInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'domain-readback-reference'),
         attemptNonceDigest: canonicalDigest(readbackInput.attemptNonceDigest, 'attemptNonceDigest'),
@@ -928,7 +928,7 @@ function createStoreCore(input: Readonly<{
     },
     appendLostHandleReference(
       lostHandleInput: AppendLostHandleInput
-    ): SecDurableExecutionJournalObservation {
+    ): DurableExecutionJournalObservation {
       return append(lostHandleInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'lost-handle-reference'),
         attemptNonceDigest: canonicalDigest(
@@ -941,17 +941,17 @@ function createStoreCore(input: Readonly<{
     },
     appendAttemptResolution(
       resolutionInput: AppendAttemptResolutionInput
-    ): SecDurableExecutionJournalObservation {
+    ): DurableExecutionJournalObservation {
       return append(resolutionInput, (current) => {
         const attempt = current.activeAttempt;
         if (attempt === null
             || attempt.start.attemptNonceDigest !== resolutionInput.attemptNonceDigest) {
-          throw new SecDurableExecutionStoreError(
+          throw new DurableExecutionStoreError(
             'conflict', 'attempt resolution does not target the active attempt.');
         }
         if (attempt.domainReadback?.domainReadbackReceiptDigest
             !== resolutionInput.domainReadbackReceiptDigest) {
-          throw new SecDurableExecutionStoreError(
+          throw new DurableExecutionStoreError(
             'identity-mismatch',
             'attempt resolution does not bind the exact observed domain readback receipt.'
           );

@@ -1,8 +1,8 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { SemanticFact, SemanticValueObject } from '../../semantics/engineering-ir/fact-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
 import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewEdge, type ViewNode } from '../../semantics/projection/types.ts';
-import { CompilerError } from '../errors.ts';
 import { indexValidatedEngineeringIR } from '../ir/index-engineering-ir.ts';
 import {
   buildProvenanceOverlay,
@@ -28,7 +28,7 @@ function transitionValue(fact: SemanticFact): SemanticValueObject | null {
 export function projectStateView(snapshot: ValidatedEngineeringIRSnapshot, subjectId: string): SemanticView {
   const index = indexValidatedEngineeringIR(snapshot);
   const subject = index.entityById.get(subjectId);
-  if (!subject) throw new CompilerError('VIEW-STATE-001', `Unknown state view subject "${subjectId}"`);
+  if (!subject) throw new CodedFailure('VIEW-STATE-001', `Unknown state view subject "${subjectId}"`);
 
   const stateIds = subject.kind === 'state'
     ? [subject.id]
@@ -42,7 +42,7 @@ export function projectStateView(snapshot: ValidatedEngineeringIRSnapshot, subje
       : [];
 
   if (stateIds.length === 0) {
-    throw new CompilerError('VIEW-STATE-002', `Subject "${subjectId}" does not identify or own semantic state`);
+    throw new CodedFailure('VIEW-STATE-002', `Subject "${subjectId}" does not identify or own semantic state`);
   }
 
   const nodes = new Map<string, ViewNode>();

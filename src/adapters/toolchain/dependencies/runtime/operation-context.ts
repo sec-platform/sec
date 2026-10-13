@@ -1,8 +1,7 @@
-import path from 'node:path';
 import type { CommitFence } from "../../../../contracts/commit-fence.ts";
-import { SecError } from '../../../../contracts/failure.ts';
-import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
-import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
+import { CodedFailure } from '../../../../contracts/failure.ts';
+import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../../../../execution/dependency-install-request.ts';
+import type { RuntimeDependencyLifecycleFactory, RuntimeDependencyLifecycleInput } from "../../../../execution/generated-state/dependency-lifecycle.ts";
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
 ;
 
@@ -36,7 +35,6 @@ export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
 /** Internal environment supplied by dependency orchestration, never public input. */
 interface RuntimeDependencyEnvironmentInput {
   now?: () => string;
-  sharedDepsRoot?: string;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -67,7 +65,9 @@ export interface RuntimeDependencyFaultInjectionInput {
  * use controls, effect input or a selected lifecycle projection instead. */
 export interface RuntimeDependencyInstallOptions extends RuntimeDependencyInstallRequest,
   RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput,
-  RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {}
+  RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {
+  readonly generatedStateLifecycleFactory?: RuntimeDependencyLifecycleFactory;
+}
 
 /** Closed coordinator view. A generic input may contain application data, but
  * those extra keys are no longer forwarded as implicit execution capabilities.
@@ -78,9 +78,9 @@ export type RuntimeDependencyOperationOptions = Readonly<Omit<RuntimeDependencyI
 const issuedOperationOptions = new WeakSet<object>();
 const boundOperationMethods = new WeakSet<object>();
 const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
-  'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'installMode',
+  'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'generatedStateLifecycleFactory', 'installMode',
   'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
-  'sharedDepsRoot', 'signal', 'sleep',
+  'signal', 'sleep',
   'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
   'testCompilerPublishPlatform', 'testCompilerRename', 'testInstallLockDelete',
   'testInstallLockDeletePlatform', 'testMaterialization', 'testProjectProjectionHook'
@@ -121,7 +121,7 @@ function assertNoUnownedParentBoundAccessors(
     guard(input);
   }
   if (unownedAccessor !== undefined) {
-    throw new SecError(
+    throw new CodedFailure(
       'RUNTIME-DEPS-003',
       'Parent-bound runtime dependency options contain an unowned executable accessor'
     );
@@ -136,7 +136,7 @@ function bindOperationMethod<F extends (...args: never[]) => unknown>(
   value: F | undefined, receiver: object, label: string
 ): F | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== 'function') throw new SecError('RUNTIME-DEPS-003', `${label} must be callable`);
+  if (typeof value !== 'function') throw new CodedFailure('RUNTIME-DEPS-003', `${label} must be callable`);
   if (boundOperationMethods.has(value)) return value;
   const bound = ((...args: Parameters<F>) => Reflect.apply(value, receiver, args)) as F;
   boundOperationMethods.add(bound);
@@ -151,7 +151,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   options: T
 ): RuntimeDependencyOperationOptions {
   if (options === null || typeof options !== 'object') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency options must be an object');
+    throw new CodedFailure('RUNTIME-DEPS-003', 'Runtime dependency options must be an object');
   }
   if (issuedOperationOptions.has(options)) {
     // Re-sample the checked clock and propagate cancellation as before; effects
@@ -161,7 +161,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
       return options as T & RuntimeDependencyOperationOptions;
     }
   }
-  const cwd = process.cwd();
   const guard = captureRuntimeDependencyBindingGuard(options);
   const controlsInput = captureRuntimeDependencyControlInput(options);
   assertNoUnownedParentBoundAccessors(options, controlsInput, guard);
@@ -170,8 +169,13 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const rematerialize = ownOption(options, 'rematerialize');
   const now = ownOption(options, 'now');
   const sleep = ownOption(options, 'sleep');
-  const sharedDepsRoot = ownOption(options, 'sharedDepsRoot');
   const generatedStateLifecycle = ownOption(options, 'generatedStateLifecycle');
+  const factory = ownOption(options, 'generatedStateLifecycleFactory');
+  const createProducerSession = factory?.forWorkspace;
+  if (factory !== undefined && typeof createProducerSession !== 'function') throw new CodedFailure('RUNTIME-DEPS-003', 'Generated-state producer session factory is not callable.');
+  const generatedStateLifecycleFactory = factory === undefined ? undefined : Object.freeze({
+    forWorkspace: (workspaceRoot: string) => Reflect.apply(createProducerSession!, factory, [workspaceRoot])
+  });
   const testCompilerPublishPlatform = ownOption(options, 'testCompilerPublishPlatform');
   const testCompilerPublishHook = ownOption(options, 'testCompilerPublishHook');
   const testProjectProjectionHook = ownOption(options, 'testProjectProjectionHook');
@@ -181,9 +185,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const testCompilerRename = ownOption(options, 'testCompilerRename');
   const testMaterialization = ownOption(options, 'testMaterialization');
   guard(options);
-  if (sharedDepsRoot !== undefined && typeof sharedDepsRoot !== 'string') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency shared root must be a path string');
-  }
   // Reuse the request owner's boolean/mode/fence grammar. Do not maintain a
   // second coercion policy at the internal coordinator boundary.
   const request = Object.freeze({
@@ -207,8 +208,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   guard(options);
   const captured: RuntimeDependencyOperationOptions = Object.freeze({
     ...request, ...methods, ...controls, monotonicNowMs,
-    sharedDepsRoot: sharedDepsRoot === undefined ? undefined : path.resolve(cwd, sharedDepsRoot),
-    generatedStateLifecycle, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
+    generatedStateLifecycle, generatedStateLifecycleFactory, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
   } satisfies Record<keyof RuntimeDependencyInstallOptions, unknown>);
   issuedOperationOptions.add(captured);
   return captured;

@@ -1,9 +1,9 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
-  SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
-  SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON,
-  SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE
+  WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+  WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
+  WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON,
+  WINDOWS_CONTROL_CLI_SESSION_SURFACE
 } from '../contract/environment.ts';
 import {
   WindowsControlCliInstalledAdoptionError,
@@ -45,7 +45,7 @@ type WindowsControlCliSessionResolutionReason =
   | 'unsupported-architecture'
   | 'session-request-invalid'
   | 'working-directory-binding-drift'
-  | typeof SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
+  | typeof WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
   | 'installed-executable-ambiguous'
   | 'installed-executable-manifest-mismatch'
   | 'installed-loader-closure-unproven'
@@ -104,7 +104,7 @@ type WindowsControlCliTerminalReceipt = Readonly<{
 
 interface WindowsControlCliLiveSession {
   readonly schema: typeof WINDOWS_CONTROL_CLI_SESSION_SCHEMA;
-  readonly surface: typeof SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE;
+  readonly surface: typeof WINDOWS_CONTROL_CLI_SESSION_SURFACE;
   readonly profileId: string;
   readonly specDigest: `sha256:${string}`;
   readonly providerRevision: `sha256:${string}`;
@@ -160,8 +160,8 @@ function detailDigest(
   return sha256({
     schema: WINDOWS_CONTROL_CLI_SESSION_SCHEMA,
     providerRevision: WINDOWS_CONTROL_CLI_SESSION_PROVIDER_REVISION,
-    profileId: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
-    specDigest: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
+    profileId: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
+    specDigest: WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
     platform,
     architecture,
     reason,
@@ -197,7 +197,7 @@ function sessionDeadline(
 ): SessionDeadline {
   const deadlineAtUnixMs = Math.min(
     request.deadlineAtUnixMs,
-    startedAtUnixMs + SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.resourceContract.maxSessionDurationMs
+    startedAtUnixMs + WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.resourceContract.maxSessionDurationMs
   );
   const deadlineAtMonotonicMs = startedAtMonotonicMs
     + Math.max(0, deadlineAtUnixMs - startedAtUnixMs);
@@ -228,7 +228,7 @@ function initialObservation(
 }
 
 function sessionBudget(request: WindowsControlCliSessionRequest): WindowsControlCliPhysicalBudget {
-  const contract = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.resourceContract;
+  const contract = WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.resourceContract;
   return Object.freeze({
     maxSessionDurationMs: Math.min(
       contract.maxSessionDurationMs,
@@ -272,8 +272,8 @@ function createLiveSession(
       status,
       reason: invalidReason,
       providerRevision: adoption.providerRevision,
-      profileId: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
-      specDigest: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
+      profileId: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
+      specDigest: WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
       lifecycle: 'disposed' as const,
       observation
     });
@@ -285,9 +285,9 @@ function createLiveSession(
 
   const session: WindowsControlCliLiveSession = {
     schema: WINDOWS_CONTROL_CLI_SESSION_SCHEMA,
-    surface: SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE,
-    profileId: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
-    specDigest: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
+    surface: WINDOWS_CONTROL_CLI_SESSION_SURFACE,
+    profileId: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
+    specDigest: WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
     providerRevision: adoption.providerRevision,
     get lifecycleState() { return lifecycleState; },
     get observation() { return observation; },
@@ -347,13 +347,13 @@ export function resolveWindowsControlCliSession(
   const deadline = sessionDeadline(request, startedAtUnixMs, startedAtMonotonicMs);
   try {
     const adoption = adoptInstalledWindowsControlCli({
-      spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+      spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
       workingDirectory: request.workingDirectoryPathHint,
       deadline,
       budget: {
         maxRootObservedBytes: Math.min(
           request.maxRootObservedBytes,
-          SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.adoptionContract.physicalClosure.maxObservedBytes
+          WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.adoptionContract.physicalClosure.maxObservedBytes
         ),
         maxExecutableObservedBytes: request.maxExecutableObservedBytes,
         maxRecords: request.maxRecords

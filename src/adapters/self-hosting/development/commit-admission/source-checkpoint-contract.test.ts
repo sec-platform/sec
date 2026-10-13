@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import type { GitReadSession } from '../../../providers/git-read/runtime/session.ts';
 import { resolveSourceCheckpointStatusFromSession } from '../../control/documentation/document-control-source-checkpoint.ts';
+import { assertDevelopmentSourceCheckpointToolRoot } from './source-checkpoint.ts';
 
 import {
   assertDevelopmentSourceCheckpointCandidateIdentity,
@@ -25,12 +27,22 @@ const args = [
   '--owned-path', 'src/two.ts', '--owned-path', 'src/one.ts'
 ];
 
+test.skipIf(process.platform !== 'win32')('trusted tool root accepts Git Windows separators but rejects a different checkout', () => {
+  const nativeRoot = path.resolve('C:/Users/owner/worktrees/main-tools/sec');
+  const gitRoot = 'C:/Users/owner/worktrees/main-tools/sec';
+  expect(nativeRoot).not.toBe(gitRoot);
+  expect(() => assertDevelopmentSourceCheckpointToolRoot(gitRoot, nativeRoot)).not.toThrow();
+  expect(() => assertDevelopmentSourceCheckpointToolRoot(
+    'C:/Users/owner/worktrees/other-tools/sec', nativeRoot
+  )).toThrow('exact repository root');
+});
+
 test('source checkpoint command narrows the original commit entrypoint to one exact candidate', () => {
   expect(decodeDevelopmentCommitCommand(args, '/trusted')).toEqual({
-    repositoryRoot: '/candidate', message: 'checkpoint', sourceCheckpoint: request
+    repositoryRoot: path.resolve('/candidate'), message: 'checkpoint', sourceCheckpoint: request
   });
   expect(decodeDevelopmentCommitCommand(['ordinary commit'], '/candidate')).toEqual({
-    repositoryRoot: '/candidate', message: 'ordinary commit'
+    repositoryRoot: path.resolve('/candidate'), message: 'ordinary commit'
   });
   expect(Object.isFrozen(validateDevelopmentSourceCheckpointRequest(request).ownedPaths)).toBe(true);
 });

@@ -11,7 +11,6 @@ import {
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   packageArtifactLauncherScript,
   parseCompilerPackageEntrypointBinding,
-  resolveCompilerCliEntrypoint,
   resolveCompilerRuntimeLayout,
   resolveCompilerRuntimeResources,
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH
@@ -58,7 +57,6 @@ describe('compiler runtime layout', () => {
         sourceEntrypointRelativePath: FIXTURE_ENTRYPOINT.source
       });
       expect(Object.isFrozen(layout)).toBe(true);
-      expect(resolveCompilerCliEntrypoint(layout)).toBe(layout.cliEntrypointPath);
       expect(resolveCompilerRuntimeResources(layout)).toEqual({
         composeTemplates: path.join(
           packageRoot,
@@ -99,7 +97,6 @@ describe('compiler runtime layout', () => {
         runtimeAssetRoot,
         sourceEntrypointRelativePath: null
       });
-      expect(resolveCompilerCliEntrypoint(layout)).toBe(modulePath);
       expect(Object.isFrozen(resolveCompilerRuntimeResources(layout))).toBe(true);
     } finally {
       await rm(packageRoot, { force: true, recursive: true });

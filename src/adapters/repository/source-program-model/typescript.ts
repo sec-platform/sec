@@ -12,11 +12,11 @@ export type {
   TypeScriptDiagnosticSnapshot as SourceProgramTypeScriptDiagnosticSnapshot
 } from './typescript-diagnostics.ts';
 export {
-  observeDurableWorkerInput as observeSourceProgramDurableWorkerInput, observeTypeScriptRename as observeSourceProgramTypeScriptRename, observeTypeScriptSyntax as observeSourceProgramTypeScriptSyntax, resolveTypeScriptModuleExport as resolveSourceProgramTypeScriptModuleExport, currentExactReturnProvenances as sourceProgramCurrentExactReturnProvenances, typeScriptExactFactGenerationReceipt as sourceProgramTypeScriptExactFactGenerationReceipt, identifierInitializer as sourceProgramTypeScriptIdentifierInitializer, identifierIsAmbientGlobal as sourceProgramTypeScriptIdentifierIsAmbientGlobal,
+  observeTypeScriptDescriptorOperationExports as observeSourceProgramDescriptorOperationExports, observeDurableWorkerInput as observeSourceProgramDurableWorkerInput, observeTypeScriptRename as observeSourceProgramTypeScriptRename, observeTypeScriptSyntax as observeSourceProgramTypeScriptSyntax, resolveTypeScriptModuleExport as resolveSourceProgramTypeScriptModuleExport, currentExactReturnProvenances as sourceProgramCurrentExactReturnProvenances, typeScriptExactFactGenerationReceipt as sourceProgramTypeScriptExactFactGenerationReceipt, identifierInitializer as sourceProgramTypeScriptIdentifierInitializer, identifierIsAmbientGlobal as sourceProgramTypeScriptIdentifierIsAmbientGlobal,
   identifierResolvesToImport as sourceProgramTypeScriptIdentifierResolvesToImport, currentTypeScriptRequiredApiClosure as sourceProgramTypeScriptRequiredApiClosure, typeScriptSourceFile as sourceProgramTypeScriptSourceFile
 } from './typescript-exact-facts.ts';
 export type {
-  DurableWorkerInputObservation as SourceProgramDurableWorkerInputObservation, TypeScriptExactFactGenerationReceipt as SourceProgramTypeScriptExactFactGenerationReceipt,
+  TypeScriptDescriptorOperationExportObservation as SourceProgramDescriptorOperationExportObservation, DurableWorkerInputObservation as SourceProgramDurableWorkerInputObservation, TypeScriptExactFactGenerationReceipt as SourceProgramTypeScriptExactFactGenerationReceipt,
   TypeScriptModuleExportResolution as SourceProgramTypeScriptModuleExportResolution, TypeScriptSyntaxObservation as SourceProgramTypeScriptSyntaxObservation
 } from './typescript-exact-facts.ts';
 export {
@@ -37,12 +37,6 @@ export {
 export {
   isCompiledTypeScriptModel as isCompiledTypeScriptSourceProgramModel, workspaceSnapshotIdentityForTypeScriptModel as workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript-model-assembly.ts';
-export {
-  compileSecRepositoryModuleGraph
-} from './typescript-module-graph.ts';
-export type {
-  SecRepositoryModuleGraphInput as CompileTypeScriptRepositoryModuleGraphInput
-} from './typescript-module-graph.ts';
 export {
   observeTypeScriptPerformanceForTests as observeTypeScriptSourceProgramPerformanceForTests
 } from './typescript-performance.ts';

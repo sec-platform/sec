@@ -29,7 +29,6 @@ type SemanticMutationSourceRejection = Extract<
   { readonly status: 'rejected' }
 >;
 
-/** @internal Shared Compiler authority seam; not part of the public facade. */
 interface SemanticMutationResolvedSourceAuthority {
   readonly sourceKind: 'workspace-authoring';
   readonly ownerId: string;
@@ -41,8 +40,7 @@ interface SemanticMutationResolvedSourceAuthority {
   readonly loadedContract: LoadedSemanticContract;
 }
 
-/** @internal Shared Compiler authority seam; not part of the public facade. */
-export type SemanticMutationSourceAuthorityResolution =
+type SemanticMutationSourceAuthorityResolution =
   | { readonly status: 'resolved'; readonly authority: SemanticMutationResolvedSourceAuthority }
   | SemanticMutationSourceRejection;
 
@@ -152,8 +150,7 @@ function reject(message: string, details?: Readonly<Record<string, unknown>>): S
   };
 }
 
-/** @internal Shared by the trusted authorization ingress and the existing source resolver. */
-export function resolveSemanticMutationSourceAuthority(
+function resolveSemanticMutationSourceAuthority(
   request: NormalizedSemanticMutationRequest,
   base: FactDeltaEndpointContext,
   authorization: SemanticMutationAuthorizationContext,

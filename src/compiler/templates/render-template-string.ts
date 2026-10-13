@@ -1,4 +1,4 @@
-import { CompilerError } from '../errors.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 
 const TEMPLATE_CONTEXT_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const TEMPLATE_PLACEHOLDER = /__([A-Za-z_][A-Za-z0-9_]*)__/gu;
@@ -13,7 +13,7 @@ type TemplateContextValue = string | number | boolean;
 type TemplateContext = Readonly<Record<string, TemplateContextValue>>;
 
 function fail(code: string, message: string, details: Record<string, unknown> = {}): never {
-  throw new CompilerError(code, message, details);
+  throw new CodedFailure(code, message, details);
 }
 
 function assertInputBound(content: string): void {

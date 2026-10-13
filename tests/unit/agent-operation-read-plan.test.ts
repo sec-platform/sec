@@ -1,33 +1,33 @@
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecOperationReadPlan,
-  parseSecOperationReadPlan,
-  projectSecSkillEnvelopeFromOperationReadPlan,
-  resolveSecMaintainerMutationV1,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInput
+  compileOperationReadPlan,
+  OPERATION_READ_PLAN_INPUT_SCHEMA,
+  parseOperationReadPlan,
+  projectSkillApplicabilityEnvelopeFromOperationReadPlan,
+  resolveMaintainerMutation,
+  type OperationReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
-  compileSecTaskCapsule,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigest,
-  type SecTaskCapsulePlanningContext
+  compileTaskCapsule,
+  TASK_CAPSULE_INPUT_SCHEMA,
+  type AgentContentDigest,
+  type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
-const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
+const digest = (character: string): AgentContentDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
-  return compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+function capsule(planningContext: TaskCapsulePlanningContext): OperationReadPlanInput['taskCapsule'] {
+  return compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346',
     planningContext
   });
 }
 
-function input(): SecOperationReadPlanInput {
+function input(): OperationReadPlanInput {
   return {
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    schema: OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
       operationId: 'issue-346-read-plan',
       role: 'worker',
@@ -125,9 +125,9 @@ function input(): SecOperationReadPlanInput {
 }
 
 test('Read Plan compiles deterministically while referencing rather than redefining Task Capsule', () => {
-  const first = compileSecOperationReadPlan(input());
+  const first = compileOperationReadPlan(input());
   const source = input();
-  const second = compileSecOperationReadPlan({
+  const second = compileOperationReadPlan({
     ...source,
     taskCapsule: {
       ...source.taskCapsule,
@@ -153,7 +153,7 @@ test('Read Plan compiles deterministically while referencing rather than redefin
 
 test('conditional reads require an explicit bidirectional frontier', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     unresolvedFrontier: []
   })).toThrow(/not admitted by frontier/u);
@@ -161,7 +161,7 @@ test('conditional reads require an explicit bidirectional frontier', () => {
 
 test('one operation context rejects duplicate source refs even under different ids', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     conditionalRefs: [{
       ...malformed.conditionalRefs[0]!,
@@ -172,11 +172,11 @@ test('one operation context rejects duplicate source refs even under different i
 
 test('read refs stay inside Capsule scope and mandatory deny sources cannot be removed', () => {
   const source = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...source,
     requiredRefs: [{ ...source.requiredRefs[0]!, ref: 'README.md' }]
   })).toThrow(/outside the Capsule read proposal/u);
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...source,
     forbiddenSources: source.forbiddenSources.filter((value) => value !== 'assistant-memory')
   })).toThrow(/omits mandatory baseline source/u);
@@ -184,7 +184,7 @@ test('read refs stay inside Capsule scope and mandatory deny sources cannot be r
 
 test('read receipt binds planned owner revision reason and bytes', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     readReceipts: [{ ...malformed.readReceipts[0]!, owner: 'wrong-owner' }]
   })).toThrow(/planned owner, revision, and reason/u);
@@ -192,7 +192,7 @@ test('read receipt binds planned owner revision reason and bytes', () => {
 
 test('retired documentation clause projections cannot re-enter the read contract', () => {
   const source = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...source,
     requiredRefs: [{
       ...source.requiredRefs[0]!,
@@ -202,12 +202,12 @@ test('retired documentation clause projections cannot re-enter the read contract
 });
 
 test('plan parser rejects tampering and Skill projection carries exact upstream capsule identity', () => {
-  const plan = compileSecOperationReadPlan(input());
-  const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
+  const plan = compileOperationReadPlan(input());
+  const envelope = projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan);
   expect(envelope.taskCapsuleRef).toBe(plan.taskCapsule.ref);
   expect(envelope.taskCapsuleDigest).toBe(plan.taskCapsule.digest);
   expect(envelope.taskCapsuleRevision).toBe(plan.taskCapsule.revision);
-  expect(() => parseSecOperationReadPlan({
+  expect(() => parseOperationReadPlan({
     ...plan,
     readPlanDigest: digest('f')
   })).toThrow(/readPlanDigest mismatch/u);
@@ -215,7 +215,7 @@ test('plan parser rejects tampering and Skill projection carries exact upstream 
 
 test('zero Skill-body budget rejects selectable candidates', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     maxSkillBodies: 0
   })).toThrow(/skillCandidateIds must be empty/u);
@@ -224,20 +224,20 @@ test('zero Skill-body budget rejects selectable candidates', () => {
 test('Skill registry validates Capsule guidance candidates without owning Capsule identity', () => {
   const source = input();
   const planningContext = source.taskCapsule.planningContext;
-  const plan = compileSecOperationReadPlan({
+  const plan = compileOperationReadPlan({
     ...source,
     taskCapsule: capsule({
       ...planningContext,
       skillCandidateIds: ['candidate-defined-skill']
     })
   });
-  expect(() => projectSecSkillEnvelopeFromOperationReadPlan(plan))
+  expect(() => projectSkillApplicabilityEnvelopeFromOperationReadPlan(plan))
     .toThrow(/not in the trusted Skill registry/u);
 });
 
 test('Task Capsule digest binds all planning content and scope proposal rejects escape', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     taskCapsule: {
       ...malformed.taskCapsule,
@@ -246,7 +246,7 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
   })).toThrow(/complete planning content/u);
 
   const planningContext = malformed.taskCapsule.planningContext;
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     taskCapsule: capsule({
       ...planningContext,
@@ -259,7 +259,7 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
     })
   })).toThrow(/overlaps forbidden/u);
 
-  expect(() => compileSecOperationReadPlan({
+  expect(() => compileOperationReadPlan({
     ...malformed,
     taskCapsule: capsule({
       ...planningContext,
@@ -273,7 +273,7 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
 });
 
 test('maintainer mutation accepts current state or returns typed conflict without resurrection', () => {
-  expect(resolveSecMaintainerMutationV1({
+  expect(resolveMaintainerMutation({
     resourceKind: 'external-worktree',
     snapshotRevision: 'old',
     currentRevision: 'maintainer-new',
@@ -286,7 +286,7 @@ test('maintainer mutation accepts current state or returns typed conflict withou
     oldObservationStale: true,
     effectDisposition: 'no-effect'
   });
-  expect(resolveSecMaintainerMutationV1({
+  expect(resolveMaintainerMutation({
     resourceKind: 'external-worktree',
     snapshotRevision: 'old',
     currentRevision: 'maintainer-new',
@@ -297,7 +297,7 @@ test('maintainer mutation accepts current state or returns typed conflict withou
 });
 
 test('protected root rejects operation-owned CAS while explicit restore remains separate', () => {
-  const blocked = resolveSecMaintainerMutationV1({
+  const blocked = resolveMaintainerMutation({
     resourceKind: 'protected-interactive-root',
     snapshotRevision: 'old',
     currentRevision: 'current',
@@ -310,7 +310,7 @@ test('protected root rejects operation-owned CAS while explicit restore remains 
     effectDisposition: 'separate-verified-executor-required',
     reasonCode: 'protected-root-outside-candidate-authority'
   });
-  expect(resolveSecMaintainerMutationV1({
+  expect(resolveMaintainerMutation({
     resourceKind: 'protected-interactive-root',
     snapshotRevision: 'old',
     currentRevision: 'current',

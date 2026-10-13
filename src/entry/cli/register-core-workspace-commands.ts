@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import type { RegistryManifestResolution, RegistrySourceResolution } from '../../contracts/registry-source.ts';
 import { addJsonFlags, jsonOpts } from './command-options.ts';
 import { commandValue } from './command-value.ts';
 import { VERIFICATION_LANE_OPTION } from './verification-lane-option.ts';
@@ -18,13 +19,17 @@ export interface CoreWorkspaceCommandOperations {
   readonly init: (workspaceRoot: string) => Promise<unknown>;
   readonly add: (workspaceRoot: string, blockId: string) => Promise<Readonly<{
     changed: boolean;
-    selectedBlock: Readonly<{ id: string; version: string; registrySourceId: string; registryKind: string }>;
+    selectedBlock: Readonly<{ id: string; version: string; registrySourceId: string; registryKind: string; registryResolution?: RegistrySourceResolution }>;
   }>>;
-  readonly resolve: (workspaceRoot: string) => Promise<Readonly<{ lock: Readonly<{ resolvedBlocks: readonly unknown[] }> }>>;
+  readonly resolve: (workspaceRoot: string) => Promise<Readonly<{ lock: Readonly<{ resolvedBlocks: readonly unknown[] }>; registryResolutions?: readonly RegistryManifestResolution[] }>>;
   readonly compose: (workspaceRoot: string, request: ComposeRequest) => Promise<unknown>;
   readonly verify: (workspaceRoot: string, request: VerificationRequest) => Promise<Readonly<{
     report: Readonly<{ summary: Readonly<{ status: string; requestedLane: string }> }>;
   }>>;
+}
+
+function formatRegistryResolution(blockId: string, sourceId: string, version: string, resolution: RegistrySourceResolution): string {
+  return `Registry ${blockId}: ${sourceId}@${version} selected by ${resolution.policy}; shadowed: ${resolution.shadowed.map(source => `${source.registrySourceId}@${source.version} (${source.registryLocation}:${source.registryPath})`).join(', ')}`;
 }
 
 /** Entry owns grammar, capture and result presentation for single-execution workspace commands. */
@@ -46,7 +51,11 @@ export function registerCoreWorkspaceCommands(program: Command, operations: Core
     execute: (root, blockId) => add(root, blockId),
     view: (result) => commandValue(result, (value) => {
       const selected = value.selectedBlock;
-      return `${value.changed ? 'Added' : 'Selected'} block ${selected.id}@${selected.version} from ${selected.registrySourceId} (${selected.registryKind})`;
+      return [
+        `${value.changed ? 'Added' : 'Selected'} block ${selected.id}@${selected.version} from ${selected.registrySourceId} (${selected.registryKind})`,
+        ...(selected.registryResolution ? [formatRegistryResolution(selected.id,
+          selected.registrySourceId, selected.version, selected.registryResolution)] : [])
+      ].join('\n');
     })
   });
 
@@ -54,7 +63,11 @@ export function registerCoreWorkspaceCommands(program: Command, operations: Core
     decode: () => ({ request: undefined, output: textOutput }),
     progress: { text: 'Resolving block dependencies', run: progress },
     execute: (root) => resolve(root),
-    view: (result) => commandValue(result, (value) => `Resolved ${value.lock.resolvedBlocks.length} blocks`)
+    view: (result) => commandValue(result, (value) => [
+      `Resolved ${value.lock.resolvedBlocks.length} blocks`,
+      ...(value.registryResolutions ?? []).map(({ blockId, selected, resolution }) =>
+        formatRegistryResolution(blockId, selected.registrySourceId, selected.version, resolution))
+    ].join('\n'))
   });
 
   registerWorkspaceAction(program.command('compose')

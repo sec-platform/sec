@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import type { SemanticContract } from '../../src/semantics/definitions/types.ts';
 
@@ -41,8 +41,8 @@ function expectContractError(input: SemanticContract, code: string): void {
   try {
     normalizeSemanticContract(input);
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
     return;
   }
   throw new Error(`Expected semantic contract validation failure ${code}`);

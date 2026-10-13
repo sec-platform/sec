@@ -448,11 +448,13 @@ test('CLI exposes project overview as text summary and reports missing governanc
   const workspaceRoot = await getSharedOverviewWorkspace();
   await expectCliText(workspaceRoot, ['overview'], ['Project overview', 'Workspace:', 'Verification:', 'Graph:', 'Views:', 'Next:']);
 
-  // 复制共享 workspace 的一份副本来测试"缺失产物"路径（避免污染共享状态）
+  // Only lock and graph are consumed before the missing provenance error.
   await withTempWorkspace(async (tempRoot) => {
-    await fs.cp(workspaceRoot, tempRoot, { recursive: true });
-    const provenancePath = resolveWorkspaceArtifactPath(tempRoot, CI_ARTIFACT_FILES.provenance);
-    await fs.rm(provenancePath);
+    for (const artifact of [CI_ARTIFACT_FILES.graphLock, CI_ARTIFACT_FILES.explainGraph]) {
+      const target = resolveWorkspaceArtifactPath(tempRoot, artifact);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.copyFile(resolveWorkspaceArtifactPath(workspaceRoot, artifact), target);
+    }
     const missingArtifactResult = await runCliInProcess(tempRoot, ['overview']);
     expect(missingArtifactResult.code).toBe(1);
     expect(missingArtifactResult.stdout).toBe('');

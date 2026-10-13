@@ -1,6 +1,6 @@
-# SEC 文档
+# Gift 文档
 
-<a id="sec-文档先选择问题再进入完整机制"></a>
+<a id="gift-文档先选择问题再进入完整机制"></a>
 
 先确定产品范围与系统边界，再按问题进入子系统。本文只负责导航，完整定义、字段、算法与失败条件由各主题的唯一正文维护。
 
@@ -39,20 +39,30 @@
 
 长期产品决定从[决定与理由](决策/README.md)进入；具体机制的采用、拒绝、平台限制和重开条件保存在各自正文，不另建第二份决定台账。仓库执行接合可直达：
 
-- [GitHub 凭证与异步传输的方案、替代与测试入口](开发/AI协作/规则装载与任务恢复.md#github-credential-transport-decision)
-- [严格零写观察与测试进程的反例、采用边界和待验证方案](开发/AI协作/规则装载与任务恢复.md#repository-observation-runtime-decisions)
-- [受信原生检查复用的暂缓理由与较小接合条件](开发/AI协作/规则装载与任务恢复.md#repository-native-typecheck-reuse-decision)
-- [文档冻结的原生 Git 采用与手工树框架退出](开发/AI协作/规则装载与任务恢复.md#repository-freeze-native-index-decision)
-- [基线事实缓存的消费者、权威与成本裁决](开发/测试发现与执行.md#source-transition-baseline-cache-decision)
-- [已保存测试条件评估的查询边界与待资格接合](开发/测试发现与执行.md#source-transition-artifact-query-decision)
+- [GitHub 凭证与异步传输的方案、替代与测试入口](开发/仓库维护/验证与传输边界.md#github-credential-transport-decision)
+- [严格零写观察与测试进程的反例、采用边界和待验证方案](开发/仓库维护/验证与传输边界.md#repository-observation-runtime-decisions)
+- [受信原生检查复用的暂缓理由与较小接合条件](开发/仓库维护/验证与传输边界.md#repository-native-typecheck-reuse-decision)
+- [文档冻结的原生 Git 采用与手工树框架退出](开发/仓库维护/Git冻结与资源退役.md#repository-freeze-native-index-decision)
+- [基线事实缓存的消费者、权威与成本裁决](开发/仓库维护/验证与传输边界.md#source-transition-baseline-cache-decision)
+- [已保存测试条件评估的查询边界与待资格接合](开发/仓库维护/验证与传输边界.md#source-transition-artifact-query-decision)
 - [仓库设计查看的入口选择、暂缓与关系缺口](开发/AI协作/上下文取得与任务投影.md#repository-design-view-decision)
 
 “采用”是设计决定，“候选／待验证”不是已具备能力；运行证据与发布状态按准确对象另查。
-工程执行中的设计、实现、验证、审查、提交／集成与恢复怎样选择规则和Skill，见[工程行为路由及实际接合边界](开发/AI协作/规则装载与任务恢复.md#engineering-behavior-routing)；客户端角色配置不自行签发权限或证明规则已装载。
+工程执行中的设计、实现、验证、审查、提交／集成与恢复怎样选择规则和Skill，见[工程行为路由及实际接合边界](开发/仓库维护/工作身份与续接.md#engineering-behavior-routing)；客户端角色配置不自行签发权限或证明规则已装载。
 
 ## 最终作者面与完整控制的快速入口
 
-需要回答“开发者最终编辑什么、**到底可以设置哪些工程事实**、哪些细节可以省略但不能丢、自动选择如何解释、原生配置由谁维护”时，按同一事实链读取：[结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) → [完整开发设定面](作者/需求关系与能力边界.md#developer-decision-surface) → [作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) → [Auto/Pin/Forbid/Profile与scope](作者/组合/稀疏控制与目标限定.md#developer-control-ux) → [有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) → [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) → [DeveloperDecisionView](开发/编辑审查与客户端.md#developer-decision-view) → [All Decisions](作者/成品/工作台交互与共同状态.md#workbench-all-decisions)。这些页面分别拥有持久作者结构、决策目录、信息保全、控制合成、原生配置和客户端投影；本入口不复制字段表，也不建立另一套Property IR、UniversalConfig或“最终UX真源”。
+按当前问题进入拥有定义的正文；修改跨越责任边界时，再沿其中的引用核对消费者。
+
+| 要回答的问题 | 定义与下一步 |
+|---|---|
+| 开发者最终编辑什么，怎样保留同一个作者对象？ | [结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) |
+| 可以设置哪些工程事实，省略的细节从哪里来？ | [完整开发设定面](作者/需求关系与能力边界.md#developer-decision-surface)与[作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) |
+| 怎样自动选择、固定、禁止或限定目标？ | [Auto/Pin/Forbid/Profile与scope](作者/组合/稀疏控制与目标限定.md#developer-control-ux)，再看[有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) |
+| 原生配置由谁维护，怎样与作者选择接合？ | [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) |
+| 客户端怎样解释全部有效决定？ | [DeveloperDecisionView](开发/编辑审查与客户端.md#developer-decision-view)与[All Decisions](作者/成品/工作台交互与共同状态.md#workbench-all-decisions) |
+
+这些页面分别拥有持久作者结构、决策目录、信息保全、控制合成、原生配置和客户端投影；本入口只导航，不复制字段或建立另一套配置模型。
 
 ## 全域工程的发现入口
 

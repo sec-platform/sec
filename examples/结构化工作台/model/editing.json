@@ -1,21 +1,21 @@
 {
-  "schema": "sec.author-module/1",
+  "schema": "gift.author-module/1",
   "moduleId": "studio:editing",
   "namespace": "studio.editing",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
   "imports": {
     "ide": {
       "mode": "workspace",
-      "moduleId": "sec/spec/ide"
+      "moduleId": "gift/spec/ide"
     },
     "editing": {
       "mode": "workspace",
-      "moduleId": "sec/spec/editing"
+      "moduleId": "gift/spec/editing"
     }
   },
   "definitions": {

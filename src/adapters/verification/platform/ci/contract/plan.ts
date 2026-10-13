@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { CiVerificationGatePhase } from '../../../../../execution/verification/action.ts';
 
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
@@ -7,7 +8,7 @@ import {
   isDocumentationVerificationInputPath,
   type DocumentationVerificationBaseline
 } from '../../../../self-hosting/control/documentation/active.ts';
-import { sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationGatePhase, type CiVerificationGateStep } from '../../action/contract/ci.ts';
+import { sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationGateStep } from '../../action/contract/ci.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';

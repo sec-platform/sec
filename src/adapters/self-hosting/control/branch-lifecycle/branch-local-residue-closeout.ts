@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import {
   assertWorkspaceWriteLease,
@@ -80,6 +80,8 @@ const AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v1
 const RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v1' as const;
 const RETAINED_AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v2' as const;
 const RETAINED_RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v2' as const;
+const SUCCESSOR_AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v3' as const;
+const SUCCESSOR_RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v3' as const;
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 const MERGED_PULL_REQUEST_LIMIT = 1_000;
@@ -89,10 +91,10 @@ const LOCAL_REF_EFFECT_CONTRACT = sha256({
   owner: 'control.branch-lifecycle',
   operation: 'merged-local-residue-ref-delete',
   effect: 'one-exact-local-ref-batch-with-common-directory-lease'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const LOCAL_REF_EFFECT_PROVIDER = sha256({
   owner: 'external-capabilities.git', provider: 'physical-provider'
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 type Digest = `sha256:${string}`;
 
@@ -195,6 +197,7 @@ interface RetainedEntry {
   readonly basis: 'native-ancestor' | 'identical-tree' | 'reviewed-supersession';
   readonly review: RetainedReviewBinding | null;
   readonly recovery: RecoveryBinding;
+  readonly successor?: Readonly<{ ref: string; expectedHeadSha: string }>;
 }
 
 interface RetainedReviewBinding {
@@ -213,13 +216,22 @@ type RetainedReviewObserver = (input: Readonly<{
 }>) => Promise<ClosedSupersessionEvidence>;
 
 interface RetainedAuthorization extends Omit<LocalBranchResidueAuthorization, 'schema' | 'entries'> {
-  readonly schema: typeof RETAINED_AUTHORIZATION_SCHEMA;
+  readonly schema: typeof RETAINED_AUTHORIZATION_SCHEMA | typeof SUCCESSOR_AUTHORIZATION_SCHEMA;
   readonly entries: readonly RetainedEntry[];
 }
 
 interface RetainedReceipt extends Omit<LocalBranchResidueReceipt, 'schema' | 'entries'> {
-  readonly schema: typeof RETAINED_RECEIPT_SCHEMA;
+  readonly schema: typeof RETAINED_RECEIPT_SCHEMA | typeof SUCCESSOR_RECEIPT_SCHEMA;
   readonly entries: readonly RetainedEntry[];
+  readonly authorization?: RetainedAuthorization;
+}
+
+export class RetainedReceiptAuthorityUnknownError extends Error {
+  readonly code = 'retained-receipt-authority-unknown' as const;
+  constructor() {
+    super('Orphan retained v2 receipt lacks authorized physical and remote context; recovery retained.');
+    this.name = 'RetainedReceiptAuthorityUnknownError';
+  }
 }
 
 interface CommandResult {
@@ -964,11 +976,25 @@ function exactRecord(value: unknown, keys: readonly string[], label: string): Re
   return value as Record<string, unknown>;
 }
 
-function parseRetainedEntries(value: unknown): readonly RetainedEntry[] {
+function parseSuccessor(value: unknown): Readonly<{ ref: string; expectedHeadSha: string }> {
+  const record = exactRecord(value, ['ref', 'expectedHeadSha'], 'Retained successor');
+  if (typeof record.ref !== 'string' || !record.ref.startsWith('refs/heads/')
+      || typeof record.expectedHeadSha !== 'string') {
+    throw new Error('Retained successor must bind a full branch ref and exact OID.');
+  }
+  assertGitBranchName(record.ref.slice('refs/heads/'.length), 'retained successor ref');
+  assertGitSha(record.expectedHeadSha, 'retained successor head');
+  return Object.freeze({ ref: record.ref, expectedHeadSha: record.expectedHeadSha });
+}
+
+function parseRetainedEntries(value: unknown, successorVersion = false): readonly RetainedEntry[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error('Retained entries are absent.');
   const entries = value.map((candidate, index) => {
+    const hasSuccessor = successorVersion && candidate !== null && typeof candidate === 'object'
+      && Object.hasOwn(candidate, 'successor');
     const record = exactRecord(candidate, [
-      'branch', 'headSha', 'sourceTreeSha', 'anchorSha', 'anchorTreeSha', 'basis', 'review', 'recovery'
+      'branch', 'headSha', 'sourceTreeSha', 'anchorSha', 'anchorTreeSha', 'basis', 'review', 'recovery',
+      ...(hasSuccessor ? ['successor'] : [])
     ], `Retained entry ${index}`);
     const recoveryRecord = exactRecord(record.recovery, [
       'path', 'digest', 'device', 'inode', 'checksumDevice', 'checksumInode'
@@ -1009,6 +1035,7 @@ function parseRetainedEntries(value: unknown): readonly RetainedEntry[] {
       anchorTreeSha: String(record.anchorTreeSha),
       basis: record.basis as RetainedEntry['basis'],
       review,
+      ...(hasSuccessor ? { successor: parseSuccessor(record.successor) } : {}),
       recovery: {
         path: String(recoveryRecord.path),
         digest: String(recoveryRecord.digest) as Digest,
@@ -1027,6 +1054,10 @@ function parseRetainedEntries(value: unknown): readonly RetainedEntry[] {
     if (entry.basis !== 'native-ancestor' && entry.basis !== 'identical-tree'
         && entry.basis !== 'reviewed-supersession') {
       throw new Error('Retained basis is invalid.');
+    }
+    if (entry.successor !== undefined && (entry.basis !== 'native-ancestor'
+        || entry.anchorSha !== entry.successor.expectedHeadSha)) {
+      throw new Error('Explicit successor requires native ancestry to its exact anchor.');
     }
     if ([entry.recovery.device, entry.recovery.inode,
       entry.recovery.checksumDevice, entry.recovery.checksumInode]
@@ -1048,9 +1079,11 @@ function parseRetainedAuthorization(source: Uint8Array): RetainedAuthorization {
     'repositoryPhysical', 'commonDirPhysical', 'recoveryRootPhysical',
     'remoteMainSha', 'defaultBranch', 'entries', 'authorizedAt', 'authorizationDigest'
   ], 'Retained authorization');
-  if (record.schema !== RETAINED_AUTHORIZATION_SCHEMA) throw new Error('Retained authorization schema differs.');
+  if (record.schema !== RETAINED_AUTHORIZATION_SCHEMA && record.schema !== SUCCESSOR_AUTHORIZATION_SCHEMA) {
+    throw new Error('Retained authorization schema differs.');
+  }
   const parsed: RetainedAuthorization = {
-    schema: RETAINED_AUTHORIZATION_SCHEMA,
+    schema: record.schema,
     repository: String(record.repository),
     repositoryRoot: String(record.repositoryRoot),
     commonDir: String(record.commonDir),
@@ -1061,7 +1094,7 @@ function parseRetainedAuthorization(source: Uint8Array): RetainedAuthorization {
     recoveryRootPhysical: parsePhysicalDirectoryBinding(record.recoveryRootPhysical, 'recovery root'),
     remoteMainSha: String(record.remoteMainSha),
     defaultBranch: String(record.defaultBranch),
-    entries: parseRetainedEntries(record.entries),
+    entries: parseRetainedEntries(record.entries, record.schema === SUCCESSOR_AUTHORIZATION_SCHEMA),
     operationId: String(record.operationId) as Digest,
     authorizedAt: String(record.authorizedAt),
     authorizationDigest: String(record.authorizationDigest) as Digest
@@ -1071,6 +1104,10 @@ function parseRetainedAuthorization(source: Uint8Array): RetainedAuthorization {
   assertGitSha(parsed.remoteMainSha, 'retained remote main');
   assertGitBranchName(parsed.remote, 'retained remote');
   assertGitBranchName(parsed.defaultBranch, 'retained default branch');
+  if (parsed.schema === SUCCESSOR_AUTHORIZATION_SCHEMA
+      && !parsed.entries.some(({ successor }) => successor !== undefined)) {
+    throw new Error('Retained v3 authorization must bind an explicit successor.');
+  }
   if (!path.isAbsolute(parsed.repositoryRoot) || !path.isAbsolute(parsed.commonDir)
       || Number.isNaN(Date.parse(parsed.authorizedAt))) {
     throw new Error('Retained authorization identity is invalid.');
@@ -1086,12 +1123,13 @@ function parseRetainedAuthorization(source: Uint8Array): RetainedAuthorization {
 
 function createRetainedReceipt(authorization: RetainedAuthorization, now: () => Date): RetainedReceipt {
   const material = {
-    schema: RETAINED_RECEIPT_SCHEMA,
+    schema: SUCCESSOR_RECEIPT_SCHEMA,
     operationId: authorization.operationId,
     authorizationDigest: authorization.authorizationDigest,
     repository: authorization.repository,
     remoteMainSha: authorization.remoteMainSha,
     entries: authorization.entries,
+    authorization,
     effect: 'delete-exact-transaction' as const,
     completedAt: now().toISOString()
   };
@@ -1100,20 +1138,24 @@ function createRetainedReceipt(authorization: RetainedAuthorization, now: () => 
 
 function parseRetainedReceipt(source: Uint8Array): RetainedReceipt {
   const text = Buffer.from(source).toString('utf8');
-  const record = exactRecord(JSON.parse(text) as unknown, [
+  const value: unknown = JSON.parse(text);
+  const v3 = value !== null && typeof value === 'object'
+    && (value as Record<string, unknown>).schema === SUCCESSOR_RECEIPT_SCHEMA;
+  const record = exactRecord(value, [
     'schema', 'operationId', 'authorizationDigest', 'repository', 'remoteMainSha',
-    'entries', 'effect', 'completedAt', 'receiptDigest'
+    'entries', 'effect', 'completedAt', 'receiptDigest', ...(v3 ? ['authorization'] : [])
   ], 'Retained receipt');
-  if (record.schema !== RETAINED_RECEIPT_SCHEMA || record.effect !== 'delete-exact-transaction') {
+  if ((!v3 && record.schema !== RETAINED_RECEIPT_SCHEMA) || record.effect !== 'delete-exact-transaction') {
     throw new Error('Retained receipt schema or effect differs.');
   }
   const parsed: RetainedReceipt = {
-    schema: RETAINED_RECEIPT_SCHEMA,
+    schema: v3 ? SUCCESSOR_RECEIPT_SCHEMA : RETAINED_RECEIPT_SCHEMA,
     operationId: String(record.operationId) as Digest,
     authorizationDigest: String(record.authorizationDigest) as Digest,
     repository: String(record.repository),
     remoteMainSha: String(record.remoteMainSha),
-    entries: parseRetainedEntries(record.entries),
+    entries: parseRetainedEntries(record.entries, v3),
+    ...(v3 ? { authorization: parseRetainedAuthorization(Buffer.from(canonicalSource(record.authorization))) } : {}),
     effect: 'delete-exact-transaction',
     completedAt: String(record.completedAt),
     receiptDigest: String(record.receiptDigest) as Digest
@@ -1127,7 +1169,21 @@ function parseRetainedReceipt(source: Uint8Array): RetainedReceipt {
   if (receiptDigest !== digest(material) || text !== canonicalSource(parsed)) {
     throw new Error('Retained receipt digest or canonical bytes differ.');
   }
+  if (parsed.authorization !== undefined) assertRetainedReceiptMatchesAuthorization(parsed, parsed.authorization);
   return Object.freeze(parsed);
+}
+
+function assertRetainedReceiptMatchesAuthorization(receipt: RetainedReceipt,
+  authorization: RetainedAuthorization): void {
+  if (receipt.operationId !== authorization.operationId
+      || receipt.authorizationDigest !== authorization.authorizationDigest
+      || receipt.repository !== authorization.repository
+      || receipt.remoteMainSha !== authorization.remoteMainSha
+      || canonicalSource(receipt.entries) !== canonicalSource(authorization.entries)
+      || (receipt.authorization !== undefined
+        && canonicalSource(receipt.authorization) !== canonicalSource(authorization))) {
+    throw new Error('Retained receipt differs from authorization.');
+  }
 }
 
 function publishCanonical<T>(input: Readonly<{
@@ -1195,8 +1251,8 @@ function scanLocalBranchResidueOperations(
   for (const name of names) {
     const bytes = store.read(name);
     if (bytes === null) throw new Error(`Authorization disappeared during recovery scan: ${name}`);
-    if ((JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema
-        === RETAINED_AUTHORIZATION_SCHEMA) continue;
+    const schema = (JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema;
+    if (schema === RETAINED_AUTHORIZATION_SCHEMA || schema === SUCCESSOR_AUTHORIZATION_SCHEMA) continue;
     const authorization = parseAuthorization(bytes);
     const expectedNames = operationNames(authorization.operationId);
     if (name !== expectedNames.authorization) {
@@ -1233,8 +1289,8 @@ function scanRetainedOperations(store: BranchRecoveryStore): ScannedRetainedOper
     .filter((candidate) => candidate.endsWith('.authorization.json'))) {
     const bytes = store.read(name);
     if (bytes === null) throw new Error(`Retained authorization disappeared: ${name}`);
-    if ((JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema
-        !== RETAINED_AUTHORIZATION_SCHEMA) continue;
+    const schema = (JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema;
+    if (schema !== RETAINED_AUTHORIZATION_SCHEMA && schema !== SUCCESSOR_AUTHORIZATION_SCHEMA) continue;
     const authorization = parseRetainedAuthorization(bytes);
     const names = operationNames(authorization.operationId);
     if (name !== names.authorization) throw new Error('Retained authorization filename differs.');
@@ -1243,15 +1299,38 @@ function scanRetainedOperations(store: BranchRecoveryStore): ScannedRetainedOper
       pending.push(authorization);
       continue;
     }
-    const receipt = parseRetainedReceipt(receiptBytes);
-    if (receipt.operationId !== authorization.operationId
-        || receipt.authorizationDigest !== authorization.authorizationDigest
-        || receipt.repository !== authorization.repository
-        || receipt.remoteMainSha !== authorization.remoteMainSha
-        || canonicalSource(receipt.entries) !== canonicalSource(authorization.entries)) {
-      throw new Error('Retained receipt differs from authorization.');
+    let receipt = parseRetainedReceipt(receiptBytes);
+    assertRetainedReceiptMatchesAuthorization(receipt, authorization);
+    const terminalName = `${names.authorization.slice(0, -'.authorization.json'.length)}.terminal.receipt.json`;
+    const terminalBytes = store.read(terminalName);
+    if (terminalBytes !== null) {
+      const terminal = parseRetainedReceipt(terminalBytes);
+      if (terminal.schema !== SUCCESSOR_RECEIPT_SCHEMA) throw new Error('Retained terminal carrier must be v3.');
+      assertRetainedReceiptMatchesAuthorization(terminal, authorization);
+      receipt = terminal;
     }
-    completed.push(Object.freeze({ authorization, receipt, names }));
+    completed.push(Object.freeze({ authorization, receipt,
+      names: terminalBytes === null ? names : { ...names, receipt: terminalName } }));
+  }
+  for (const name of store.listOwnedFiles('sec-local-branch-residue-')
+    .filter((candidate) => candidate.endsWith('.receipt.json'))) {
+    const bytes = store.read(name);
+    if (bytes === null) throw new Error(`Retained receipt disappeared: ${name}`);
+    const schema = (JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema;
+    if (schema !== RETAINED_RECEIPT_SCHEMA && schema !== SUCCESSOR_RECEIPT_SCHEMA) continue;
+    const receipt = parseRetainedReceipt(bytes);
+    const names = operationNames(receipt.operationId);
+    const terminalName = `${names.authorization.slice(0, -'.authorization.json'.length)}.terminal.receipt.json`;
+    if (name !== names.receipt && !(receipt.schema === SUCCESSOR_RECEIPT_SCHEMA && name === terminalName)) {
+      throw new Error('Retained receipt filename differs.');
+    }
+    if (store.read(names.authorization) !== null) continue;
+    if (receipt.authorization === undefined) {
+      if (store.read(terminalName) !== null) continue;
+      throw new RetainedReceiptAuthorityUnknownError();
+    }
+    completed.push(Object.freeze({ authorization: receipt.authorization, receipt,
+      names: { ...names, receipt: name } }));
   }
   if (pending.length > 1) throw new Error('Multiple pending retained operations require reconciliation.');
   return Object.freeze({ pending: pending[0] ?? null, completed: Object.freeze(completed) });
@@ -1261,14 +1340,25 @@ function safeRecoverySegment(branch: string): string {
   return branch.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80);
 }
 
+type RecoveryFileObservation = NonNullable<ReturnType<BranchRecoveryStore['inspectFile']>>;
+
+function retainRecoveryFile(store: BranchRecoveryStore, name: string,
+  expectedBytes: Uint8Array): RecoveryFileObservation {
+  const observed = store.inspectFile(name);
+  if (observed === null || observed.bytes === null
+      || !Buffer.from(observed.bytes).equals(Buffer.from(expectedBytes))) {
+    throw new Error(`Recovery file differs from its validated preimage: ${name}`);
+  }
+  return observed;
+}
+
 function removeOwnedRecoveryFile(
   store: BranchRecoveryStore,
   name: string,
+  expected: RecoveryFileObservation,
   retired: string[]
 ): void {
-  const observed = store.inspectFile(name);
-  if (observed === null) return;
-  store.removeExact(name, observed);
+  store.removeExact(name, expected);
   retired.push(path.join(store.root.path, name));
 }
 
@@ -1276,11 +1366,14 @@ function retireRecoveryBundleFamily(input: Readonly<{
   store: BranchRecoveryStore;
   bundleName: string;
   expectedDigest: Digest;
-  validatedSidecars: readonly string[];
+  validatedSidecars: ReadonlyMap<string, RecoveryFileObservation>;
+  validatedBundle?: RecoveryFileObservation;
   retired: string[];
-}>): void {
+  recovery?: RecoveryBinding;
+  afterRetireFile?: (name: string) => void;
+}>): () => void {
   const checksumName = `${input.bundleName}.sha256`;
-  const allowedSidecars = new Set([checksumName, ...input.validatedSidecars]);
+  const allowedSidecars = new Set([checksumName, ...input.validatedSidecars.keys()]);
   const family = input.store.listOwnedFiles(`${input.bundleName}.`);
   const unknown = family.find((name) => !allowedSidecars.has(name));
   if (unknown !== undefined) {
@@ -1295,28 +1388,82 @@ function retireRecoveryBundleFamily(input: Readonly<{
       || !Buffer.from(checksum.bytes).equals(expectedChecksum))) {
     throw new Error(`Recovery checksum differs before terminal retirement: ${checksumName}`);
   }
-  const bundle = input.store.inspectFile(input.bundleName);
-  if (bundle === null) {
-    for (const name of [...family]
-      .sort((left, right) => right.localeCompare(left))) {
-      removeOwnedRecoveryFile(input.store, name, input.retired);
-    }
-    return;
+  if (checksum !== null && input.recovery !== undefined
+      && (checksum.device !== input.recovery.checksumDevice || checksum.inode !== input.recovery.checksumInode)) {
+    throw new Error(`Recovery checksum physical identity changed: ${checksumName}`);
   }
-  if (bundle.bytes === null || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
-      !== input.expectedDigest) {
+  const bundle = input.store.inspectFile(input.bundleName);
+  if (bundle !== null && (bundle.bytes === null || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
+      !== input.expectedDigest)) {
     throw new Error(`Recovery bundle differs before terminal retirement: ${input.bundleName}`);
   }
-  if (checksum === null) {
-    throw new Error(`Recovery checksum differs before terminal retirement: ${checksumName}`);
+  if (bundle !== null && input.recovery !== undefined
+      && (bundle.device !== input.recovery.device || bundle.inode !== input.recovery.inode)) {
+    throw new Error(`Recovery bundle physical identity changed: ${input.bundleName}`);
   }
+  if (input.validatedBundle !== undefined && (bundle === null || bundle.device !== input.validatedBundle.device
+      || bundle.inode !== input.validatedBundle.inode || input.validatedBundle.bytes === null
+      || bundle.bytes === null || !Buffer.from(bundle.bytes).equals(Buffer.from(input.validatedBundle.bytes)))) {
+    throw new Error(`Validated recovery bundle changed before retirement: ${input.bundleName}`);
+  }
+  const validated = new Map<string, RecoveryFileObservation | null>(input.validatedSidecars);
+  validated.set(checksumName, checksum);
+  validated.set(input.bundleName, input.validatedBundle ?? bundle);
+  const removed = new Set<string>();
+  const assertFamilyState = (): void => {
+    for (const name of input.store.listOwnedFiles(`${input.bundleName}.`)) {
+      if (!allowedSidecars.has(name)) {
+        throw new Error(`Recovery bundle family contains unvalidated evidence: ${name}`);
+      }
+    }
+    for (const [name, expected] of validated) {
+      const current = input.store.inspectFile(name);
+      if (expected === null || removed.has(name)) {
+        if (current !== null) throw new Error(`Retired or initially absent recovery file reappeared: ${name}`);
+      } else if (current === null || current.bytes === null || expected.bytes === null
+          || current.device !== expected.device || current.inode !== expected.inode
+          || !Buffer.from(current.bytes).equals(Buffer.from(expected.bytes))) {
+        throw new Error(`Branch recovery file changed before retirement: ${name}`);
+      }
+    }
+  };
+  const assertRetired = (): void => {
+    assertFamilyState();
+    if ([...validated].some(([name, expected]) => expected !== null && !removed.has(name))) {
+      throw new Error(`Recovery family retirement is incomplete: ${input.bundleName}`);
+    }
+  };
+  const remove = (name: string): void => {
+    assertFamilyState();
+    const expected = validated.get(name);
+    if (expected === undefined) throw new Error(`Recovery file lacks a validated preimage: ${name}`);
+    if (expected !== null) {
+      removeOwnedRecoveryFile(input.store, name, expected, input.retired);
+      removed.add(name);
+      input.afterRetireFile?.(name);
+    }
+    assertFamilyState();
+  };
+  assertFamilyState();
+  const terminalReceipts = [...family].filter((candidate) => candidate.endsWith('.receipt.json'));
   for (const name of [...family]
-    .filter((candidate) => candidate !== checksumName)
+    .filter((candidate) => candidate !== checksumName && !terminalReceipts.includes(candidate))
     .sort((left, right) => right.localeCompare(left))) {
-    removeOwnedRecoveryFile(input.store, name, input.retired);
+    remove(name);
   }
-  removeOwnedRecoveryFile(input.store, checksumName, input.retired);
-  removeOwnedRecoveryFile(input.store, input.bundleName, input.retired);
+  if (terminalReceipts.length === 0) {
+    // With no independent terminal carrier, keep the discoverable bundle last.
+    remove(checksumName);
+    remove(input.bundleName);
+  } else {
+    remove(input.bundleName);
+    remove(checksumName);
+    // Completed receipts independently retain the operation's terminal binding.
+    // Retire journals and recovery material before retiring these last carriers.
+    for (const name of terminalReceipts.sort()) remove(name);
+  }
+  assertRetired();
+  return assertRetired;
 }
 
 function retireSupersededBranchCloseoutBundles(input: Readonly<{
@@ -1324,14 +1471,22 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
   repository: string;
   entry: AuthorizationEntry;
   retired: string[];
-}>): void {
+  afterRetireFile?: (name: string) => void;
+}>): readonly (() => void)[] {
+  const readbacks: Array<() => void> = [];
   const prefix = `sec-branch-closeout-${safeRecoverySegment(input.entry.branch)}-`;
-  for (const name of [...input.store.listOwnedFiles(prefix)]
-    .filter((candidate) => candidate.endsWith('.bundle'))) {
+  const bundleNames = new Set(input.store.listOwnedFiles(prefix).flatMap((candidate) => {
+    if (candidate.endsWith('.bundle')) return [candidate];
+    const separator = candidate.lastIndexOf('.bundle.');
+    return separator < 0 ? [] : [candidate.slice(0, separator + '.bundle'.length)];
+  }));
+  for (const name of [...bundleNames].sort()) {
     const bundle = input.store.inspectFile(name);
-    if (bundle === null || bundle.bytes === null) continue;
-    const digest = `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}` as Digest;
-    if (digest !== input.entry.recovery.digest) continue;
+    if (bundle !== null) {
+      if (bundle.bytes === null) throw new Error(`Duplicate recovery bundle is unreadable: ${name}`);
+      const digest = `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}` as Digest;
+      if (digest !== input.entry.recovery.digest) continue;
+    }
     const family = input.store.listOwnedFiles(`${name}.`);
     const assertPreparationBinding = (preparation: Readonly<{
       repository: Readonly<{ fullName: string }>;
@@ -1364,29 +1519,32 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
         throw new Error(`Duplicate branch-closeout operation differs from its recovery family: ${candidate}`);
       }
     };
-    const validatedSidecars: string[] = [];
+    const validatedSidecars = new Map<string, RecoveryFileObservation>();
     const preparationName = `${name}.preparation.json`;
-    const preparationBytes = input.store.read(preparationName);
+    const preparationFile = input.store.inspectFile(preparationName);
+    const preparationBytes = preparationFile?.bytes ?? null;
     const preparation = preparationBytes === null
       ? null
       : parsePreparedBranchCloseoutEnvelope(Buffer.from(preparationBytes).toString('utf8'));
     if (preparation !== null) {
       assertPreparationBinding(preparation.preparation, 'preparation');
-      validatedSidecars.push(preparationName);
+      validatedSidecars.set(preparationName, preparationFile!);
     }
     const receiptName = `${name}.receipt.json`;
-    const receiptBytes = input.store.read(receiptName);
+    const receiptFile = input.store.inspectFile(receiptName);
+    const receiptBytes = receiptFile?.bytes ?? null;
     const branchReceipt = receiptBytes === null
       ? null
       : parseBranchCloseoutReceipt(Buffer.from(receiptBytes).toString('utf8'));
     if (branchReceipt !== null) {
       assertPreparationBinding(branchReceipt.preparation, 'receipt');
-      validatedSidecars.push(receiptName);
+      validatedSidecars.set(receiptName, receiptFile!);
     }
     const operationJournals = family.filter((candidate) => (
       candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.journal.json')
     )).map((candidate) => {
-      const bytes = input.store.read(candidate);
+      const observed = input.store.inspectFile(candidate);
+      const bytes = observed?.bytes ?? null;
       if (bytes === null) throw new Error(`Duplicate branch-closeout journal disappeared: ${candidate}`);
       const journal = parseBranchCloseoutOperationJournal(Buffer.from(bytes).toString('utf8'));
       const expectedName = `${name}.closeout-${journal.binding.closeoutOperationId.slice('sha256:'.length)}.journal.json`;
@@ -1394,13 +1552,14 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
         throw new Error(`Duplicate branch-closeout journal filename differs from its operation: ${candidate}`);
       }
       assertOperationBinding(journal.binding, candidate);
-      validatedSidecars.push(candidate);
+      validatedSidecars.set(candidate, observed!);
       return journal;
     });
     const terminalReceipts = family.filter((candidate) => (
       candidate.startsWith(`${name}.closeout-`) && candidate.endsWith('.receipt.json')
     )).map((candidate) => {
-      const bytes = input.store.read(candidate);
+      const observed = input.store.inspectFile(candidate);
+      const bytes = observed?.bytes ?? null;
       if (bytes === null) throw new Error(`Duplicate branch-closeout receipt disappeared: ${candidate}`);
       const receipt = parseBranchCloseoutOperationReceipt(Buffer.from(bytes).toString('utf8'));
       const expectedName = `${name}.closeout-${receipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`;
@@ -1409,7 +1568,7 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       }
       assertOperationBinding(receipt.binding, candidate);
       assertPreparationBinding(receipt.receipt.preparation, 'operation receipt');
-      validatedSidecars.push(candidate);
+      validatedSidecars.set(candidate, observed!);
       return receipt;
     });
     const terminalReceiptsByOperation = new Map(terminalReceipts.map((receipt) => (
@@ -1433,45 +1592,58 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
       || branchReceipt !== null
       || operationJournals.length > 0
       || terminalReceipts.length > 0;
-    if (hasLifecycleEvidence && !hasTerminal) continue;
-    retireRecoveryBundleFamily({
+    if ((hasLifecycleEvidence || bundle === null) && !hasTerminal) continue;
+    readbacks.push(retireRecoveryBundleFamily({
       store: input.store,
       bundleName: name,
       expectedDigest: input.entry.recovery.digest,
       validatedSidecars,
-      retired: input.retired
-    });
+      validatedBundle: bundle ?? undefined,
+      retired: input.retired,
+      afterRetireFile: input.afterRetireFile
+    }));
   }
+  return Object.freeze(readbacks);
 }
 
 function retireCompletedLocalBranchResidueOperation(input: Readonly<{
   store: BranchRecoveryStore;
   completed: ScannedLocalBranchResidueOperations['completed'][number];
+  afterRetireFile?: (name: string) => void;
 }>): readonly string[] {
   const { authorization, receipt, names } = input.completed;
   assertReceiptMatchesAuthorization(receipt, authorization);
+  const authorizationFile = retainRecoveryFile(input.store, names.authorization,
+    Buffer.from(canonicalSource(authorization)));
+  const receiptFile = retainRecoveryFile(input.store, names.receipt,
+    Buffer.from(canonicalSource(receipt)));
   const retired: string[] = [];
+  const familyReadbacks: Array<() => void> = [];
   for (const entry of authorization.entries) {
     const localBundleName = path.basename(entry.recovery.path);
     if (entry.recovery.path !== path.join(input.store.root.path, localBundleName)) {
       throw new Error(`Completed recovery path escaped its canonical owner: ${entry.branch}`);
     }
-    retireSupersededBranchCloseoutBundles({
+    familyReadbacks.push(...retireSupersededBranchCloseoutBundles({
       store: input.store,
       repository: authorization.repository,
       entry,
-      retired
-    });
-    retireRecoveryBundleFamily({
+      retired,
+      afterRetireFile: input.afterRetireFile
+    }));
+    familyReadbacks.push(retireRecoveryBundleFamily({
       store: input.store,
       bundleName: localBundleName,
       expectedDigest: entry.recovery.digest,
-      validatedSidecars: Object.freeze([]),
+      recovery: entry.recovery,
+      validatedSidecars: new Map(),
       retired
-    });
+    }));
   }
-  removeOwnedRecoveryFile(input.store, names.authorization, retired);
-  removeOwnedRecoveryFile(input.store, names.receipt, retired);
+  for (const readback of familyReadbacks) readback();
+  removeOwnedRecoveryFile(input.store, names.authorization, authorizationFile, retired);
+  for (const readback of familyReadbacks) readback();
+  removeOwnedRecoveryFile(input.store, names.receipt, receiptFile, retired);
   return Object.freeze(retired);
 }
 
@@ -1485,12 +1657,20 @@ async function retireOrphanCompletedReceipts(input: Readonly<{
     .filter((candidate) => candidate.endsWith('.receipt.json'))
     .filter((candidate) => input.store.read(
       candidate.replace(/\.receipt\.json$/u, '.authorization.json')
-    ) === null);
+    ) === null)
+    .filter((name) => {
+      const observed = input.store.inspectFile(name);
+      const bytes = observed?.bytes ?? null;
+      if (bytes === null) throw new Error(`Receipt disappeared: ${name}`);
+      const schema = (JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema;
+      return schema !== RETAINED_RECEIPT_SCHEMA && schema !== SUCCESSOR_RECEIPT_SCHEMA;
+    });
   if (receiptNames.length === 0) return Object.freeze([]);
   return withWorkspaceWriteLease(input.repositoryRoot, undefined, async (lease) => {
     await assertWorkspaceWriteLease(input.repositoryRoot, lease);
     const orphanReceipts = receiptNames.map((name) => {
-      const bytes = input.store.read(name);
+      const observed = input.store.inspectFile(name);
+      const bytes = observed?.bytes ?? null;
       if (bytes === null) throw new Error(`Orphan local branch residue receipt disappeared: ${name}`);
       const receipt = parseReceipt(bytes);
       const expected = operationNames(receipt.operationId);
@@ -1509,7 +1689,7 @@ async function retireOrphanCompletedReceipts(input: Readonly<{
           throw new Error(`Orphan local branch residue receipt PR URL differs: ${name}`);
         }
       }
-      return Object.freeze({ name, receipt });
+      return Object.freeze({ name, receipt, observed: observed! });
     });
     const readLocalRefs = async (label: string): Promise<Readonly<Record<string, string>>> =>
       parseLocalRefs(await requireText(input.run, 'git', [
@@ -1540,12 +1720,12 @@ async function retireOrphanCompletedReceipts(input: Readonly<{
     assertRefsAbsent(await readLocalRefs('orphan receipt effect-boundary local-ref readback'), 'effect boundary');
     await assertWorkspaceWriteLease(input.repositoryRoot, lease);
     const retired: string[] = [];
-    for (const { name, receipt } of orphanReceipts) {
+    for (const { name, receipt, observed } of orphanReceipts) {
       const expected = operationNames(receipt.operationId);
       if (input.store.read(expected.authorization) !== null) {
         throw new Error(`Orphan local branch residue authorization reappeared at effect boundary: ${expected.authorization}`);
       }
-      removeOwnedRecoveryFile(input.store, name, retired);
+      removeOwnedRecoveryFile(input.store, name, observed, retired);
     }
     return Object.freeze(retired);
   });
@@ -1667,6 +1847,7 @@ async function retireCompletedLocalBranchResidueOperations(input: Readonly<{
   store: BranchRecoveryStore;
   observation: LocalBranchResidueObservation;
   completed: ScannedLocalBranchResidueOperations['completed'];
+  afterRetireFile?: (name: string) => void;
 }>): Promise<Readonly<{ branches: readonly string[]; files: readonly string[] }>> {
   const branches: string[] = [];
   const files: string[] = [];
@@ -1694,7 +1875,8 @@ async function retireCompletedLocalBranchResidueOperations(input: Readonly<{
     );
     files.push(...retireCompletedLocalBranchResidueOperation({
       store: input.store,
-      completed
+      completed,
+      afterRetireFile: input.afterRetireFile
     }));
     branches.push(...completed.authorization.entries.map(({ branch }) => branch));
   }
@@ -1735,13 +1917,13 @@ function assertAuthorizedObservation(
 }
 
 function compileLocalRefEffectOperation(operationId: Digest) {
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.merged-local-residue-ref-delete',
-    intentDigest: operationId as SecOperationDigest,
+    intentDigest: operationId as OperationDigest,
     decisionDigest: LOCAL_REF_EFFECT_CONTRACT,
     deadlineAtUnixMs: Date.now() + LOCAL_REF_EFFECT_DURATION_MS,
-    attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: operationId as SecOperationDigest
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: operationId as OperationDigest
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: LOCAL_REF_EFFECT_DURATION_MS },
@@ -1761,7 +1943,7 @@ function compileLocalRefEffectOperation(operationId: Digest) {
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: LOCAL_REF_EFFECT_REQUIREMENT,
     contractDigest: LOCAL_REF_EFFECT_CONTRACT,
     providerIdentityDigest: LOCAL_REF_EFFECT_PROVIDER
@@ -1829,7 +2011,7 @@ async function deleteExactTransaction(
   const operation = compileLocalRefEffectOperation(operationId);
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: LOCAL_REF_EFFECT_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -1996,6 +2178,7 @@ async function planRetainedNativeEntries(input: Readonly<{
   targets: readonly Readonly<{
     branch: string;
     expectedHeadSha: string;
+    successor?: Readonly<{ ref: string; expectedHeadSha: string }>;
     review?: Readonly<{ pullRequestNumber: number; commentId: number }>;
   }>[];
   observeReview?: RetainedReviewObserver;
@@ -2006,7 +2189,6 @@ async function planRetainedNativeEntries(input: Readonly<{
 }>> {
   const { run, repositoryRoot, observation } = input;
   const mainSha = remoteMainSha(observation);
-  const mainTreeSha = await retainedTree(run, repositoryRoot, mainSha);
   const eligible: Omit<RetainedEntry, 'recovery'>[] = [];
   const protectedBranches: string[] = [];
   const unresolvedBranches: string[] = [];
@@ -2014,7 +2196,7 @@ async function planRetainedNativeEntries(input: Readonly<{
   if (new Set(targets.map(({ branch }) => branch)).size !== targets.length) {
     throw new Error('Duplicate retained target branch.');
   }
-  for (const { branch, expectedHeadSha: headSha, review: requestedReview } of targets) {
+  for (const { branch, expectedHeadSha: headSha, review: requestedReview, successor: requestedSuccessor } of targets) {
     assertGitBranchName(branch, 'retained branch');
     assertGitSha(headSha, 'retained head');
     if (branch === observation.defaultBranch || observation.localRefs[branch] !== headSha) {
@@ -2027,6 +2209,21 @@ async function planRetainedNativeEntries(input: Readonly<{
       throw new Error(`Retained target has a remote ref: ${branch}.`);
     }
     const sourceTreeSha = await retainedTree(run, repositoryRoot, headSha);
+    if (requestedSuccessor !== undefined) {
+      const successor = parseSuccessor(requestedSuccessor);
+      if (requestedReview !== undefined) throw new Error('Explicit successor does not accept reviewed supersession.');
+      if (observation.remoteRefs[successor.ref.slice('refs/heads/'.length)] !== successor.expectedHeadSha) {
+        throw new Error(`Retained successor exact remote ref is absent or changed: ${successor.ref}.`);
+      }
+      const anchorTreeSha = await retainedTree(run, repositoryRoot, successor.expectedHeadSha);
+      if (!await retainedAncestor(run, repositoryRoot, headSha, successor.expectedHeadSha)) {
+        throw new Error(`Retained source is absent from exact successor: ${branch}.`);
+      }
+      eligible.push(Object.freeze({ branch, headSha, sourceTreeSha,
+        anchorSha: successor.expectedHeadSha, anchorTreeSha, basis: 'native-ancestor', review: null, successor }));
+      continue;
+    }
+    const mainTreeSha = await retainedTree(run, repositoryRoot, mainSha);
     let basis: RetainedEntry['basis'];
     let review: RetainedReviewBinding | null = null;
     let anchorSha = mainSha;
@@ -2103,6 +2300,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   retainedTargets?: readonly Readonly<{
     branch: string;
     expectedHeadSha: string;
+    successor?: Readonly<{ ref: string; expectedHeadSha: string }>;
     review?: Readonly<{ pullRequestNumber: number; commentId: number }>;
   }>[];
   observeReview?: RetainedReviewObserver;
@@ -2114,6 +2312,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     afterReadback?: () => void;
     beforeReceipt?: () => void;
     afterReceipt?: () => void;
+    afterRetireFile?: (name: string) => void;
   }>;
 }>): Promise<Readonly<{
   schema: 'sec-local-branch-residue-closeout-result-v2';
@@ -2298,7 +2497,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       provider,
       store,
       observation: current,
-      completed: [completed]
+      completed: [completed],
+      afterRetireFile: input.faults?.afterRetireFile
     });
     const recoveryRootRetired = retireRecoveryRoot && store.retireIfEmpty();
     const finalWorktreeEvidenceGc = initialWorktreeEvidenceGc.retained.some(
@@ -2322,10 +2522,18 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     });
   };
 
-  const assertRetainedLive = async (authorization: RetainedAuthorization,
-    observation: LocalBranchResidueObservation): Promise<'present' | 'absent'> => {
+  const assertRetainedPreservation = async (authorization: RetainedAuthorization,
+    observation: LocalBranchResidueObservation, terminal: boolean): Promise<void> => {
+    const currentUrl = await requireText(run, 'git', ['remote', 'get-url', authorization.remote],
+      repositoryRoot, 'retained remote URL readback');
+    const currentProvider = await observeRepositoryProvider(run, repositoryRoot, repository);
+    assertAuthorizationIdentity({ authorization, repository, repositoryRoot,
+      commonDir, remote, remoteUrl: currentUrl, provider: currentProvider, store });
     if (observation.defaultBranch !== authorization.defaultBranch
-        || remoteMainSha(observation) !== authorization.remoteMainSha) {
+        || (authorization.entries.some(({ successor }) => successor === undefined)
+          && (terminal
+            ? !await retainedAncestor(run, repositoryRoot, authorization.remoteMainSha, remoteMainSha(observation))
+            : remoteMainSha(observation) !== authorization.remoteMainSha))) {
       throw new Error('Remote default branch changed after retained authorization.');
     }
     for (const entry of authorization.entries) {
@@ -2333,10 +2541,26 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
           || observation.worktreeBranches.includes(entry.branch)) {
         throw new Error(`Retained branch acquired remote ref or worktree: ${entry.branch}.`);
       }
-      if (!await retainedAncestor(run, repositoryRoot, entry.anchorSha, authorization.remoteMainSha)) {
-        throw new Error(`Retained anchor is absent from exact main: ${entry.branch}.`);
+      const destination = entry.successor === undefined
+        ? remoteMainSha(observation)
+        : observation.remoteRefs[entry.successor.ref.slice('refs/heads/'.length)];
+      if (destination === undefined || (entry.successor !== undefined
+          && (terminal
+            ? !await retainedAncestor(run, repositoryRoot, entry.successor.expectedHeadSha, destination)
+            : destination !== entry.successor.expectedHeadSha))
+          || !await retainedAncestor(run, repositoryRoot, entry.anchorSha, destination)) {
+        throw new Error(`Retained preservation ref is absent or changed: ${entry.branch}.`);
       }
+      // Unknown advertised commits are never promoted to preservation evidence.
+      await retainedTree(run, repositoryRoot, destination);
       await assertRetainedEvidence(run, repositoryRoot, entry, repository, input.observeReview);
+    }
+  };
+
+  const assertRetainedLive = async (authorization: RetainedAuthorization,
+    observation: LocalBranchResidueObservation): Promise<'present' | 'absent'> => {
+    await assertRetainedPreservation(authorization, observation, false);
+    for (const entry of authorization.entries) {
       await verifyRecovery(run, repositoryRoot, store, entry);
     }
     return authorizedLocalState(authorization, observation);
@@ -2344,30 +2568,111 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
 
   const retireRetained = async (
     completed: ScannedRetainedOperations['completed'][number]
-  ): Promise<readonly string[]> => {
+  ): Promise<readonly string[]> => withOrderedRepositoryLeases(repositoryRoot, commonDir,
+    async (lease, coordinatedLease) => {
     const { authorization, names } = completed;
-    assertAuthorizationIdentity({ authorization, repository, repositoryRoot,
-      commonDir, remote, remoteUrl, provider, store });
-    const observation = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
-    if (authorizedLocalState(authorization, observation) !== 'absent'
-        || !await retainedAncestor(run, repositoryRoot,
-          authorization.remoteMainSha, remoteMainSha(observation))) {
-      throw new Error('Completed retained refs reappeared or main lost absorption.');
+    assertRetainedReceiptMatchesAuthorization(completed.receipt, authorization);
+    const legacyName = operationNames(authorization.operationId).receipt;
+    const authorityFiles = new Map<string, ReturnType<BranchRecoveryStore['inspectFile']>>();
+    const retiredAuthority = new Set<string>();
+    const familyReadbacks: Array<() => void> = [];
+    const retainAuthorityFile = (name: string, value: unknown, required: boolean): void => {
+      const observed = store.inspectFile(name);
+      if ((observed === null && required) || (observed !== null
+          && (observed.bytes === null || !Buffer.from(observed.bytes).equals(Buffer.from(canonicalSource(value)))))) {
+        throw new Error(`Retained authority bytes changed before retirement: ${name}`);
+      }
+      authorityFiles.set(name, observed);
+    };
+    retainAuthorityFile(names.authorization, authorization, false);
+    retainAuthorityFile(names.receipt, completed.receipt, true);
+    if (legacyName !== names.receipt) {
+      const legacyBytes = store.read(legacyName);
+      if (legacyBytes !== null) {
+        const legacy = parseRetainedReceipt(legacyBytes);
+        if (legacy.schema !== RETAINED_RECEIPT_SCHEMA) throw new Error('Retained legacy carrier schema differs.');
+        assertRetainedReceiptMatchesAuthorization(legacy, authorization);
+        retainAuthorityFile(legacyName, legacy, true);
+      } else authorityFiles.set(legacyName, null);
     }
+    const assertAuthorityFiles = (): void => {
+      for (const [name, expected] of authorityFiles) {
+        const current = store.inspectFile(name);
+        if (retiredAuthority.has(name) || expected === null) {
+          if (current !== null) throw new Error(`Retained authority reappeared during retirement: ${name}`);
+        } else if (current === null || current.bytes === null || expected.bytes === null
+            || current.device !== expected.device || current.inode !== expected.inode
+            || !Buffer.from(current.bytes).equals(Buffer.from(expected.bytes))) {
+          throw new Error(`Retained authority bytes or physical identity changed during retirement: ${name}`);
+        }
+      }
+    };
+    const verifyTerminal = async (): Promise<void> => {
+      await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+      await assertWorkspaceWriteLease(repositoryRoot, lease);
+      const observation = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      assertRecoverySeparatedFromWorktrees(store, observation);
+      await assertRetainedPreservation(authorization, observation, true);
+      if (authorizedLocalState(authorization, observation) !== 'absent') {
+        throw new Error('Completed retained refs reappeared.');
+      }
+      const familyPrefix = names.authorization.slice(0, -'.authorization.json'.length);
+      const known = new Set([names.authorization, names.receipt,
+        operationNames(authorization.operationId).receipt, `${familyPrefix}.terminal.receipt.json`]);
+      for (const name of store.listOwnedFiles(`${familyPrefix}.`)) {
+        if (!known.has(name)) throw new Error(`Retained operation has unvalidated sidecar: ${name}`);
+      }
+      assertAuthorityFiles();
+      for (const readback of familyReadbacks) readback();
+    };
+    await verifyTerminal();
+    // Old v2 receipts cannot independently retain the authorization's physical
+    // and remote context. Publish a v3 terminal carrier before retiring either.
+    const terminalName = completed.receipt.schema === RETAINED_RECEIPT_SCHEMA
+      ? `${names.authorization.slice(0, -'.authorization.json'.length)}.terminal.receipt.json`
+      : names.receipt;
+    if (completed.receipt.schema === RETAINED_RECEIPT_SCHEMA) {
+      const carrier = publishCanonical({ store, name: terminalName,
+        value: createRetainedReceipt(authorization, () => new Date(completed.receipt.completedAt)),
+        parse: parseRetainedReceipt });
+      retainAuthorityFile(terminalName, carrier, true);
+    }
+    await verifyTerminal();
     const retired: string[] = [];
     for (const entry of authorization.entries) {
-      if (!await retainedAncestor(run, repositoryRoot, entry.anchorSha, remoteMainSha(observation))) {
-        throw new Error(`Retained anchor disappeared: ${entry.branch}.`);
+      const bundleName = path.basename(entry.recovery.path);
+      if (entry.recovery.path !== path.join(store.root.path, bundleName)) {
+        throw new Error('Retained terminal recovery escaped its physical owner.');
       }
-      await assertRetainedEvidence(run, repositoryRoot, entry, repository, input.observeReview);
-      assertRecoveryBytes(store, entry);
-      retireRecoveryBundleFamily({ store, bundleName: path.basename(entry.recovery.path),
-        expectedDigest: entry.recovery.digest, validatedSidecars: [], retired });
+      familyReadbacks.push(retireRecoveryBundleFamily({ store, bundleName: path.basename(entry.recovery.path),
+        expectedDigest: entry.recovery.digest, validatedSidecars: new Map(), retired,
+        recovery: entry.recovery, afterRetireFile: (name) => {
+          input.faults?.afterRetireFile?.(name);
+          assertAuthorityFiles();
+        } }));
     }
-    removeOwnedRecoveryFile(store, names.receipt, retired);
-    removeOwnedRecoveryFile(store, names.authorization, retired);
+    const retireAuthorityFile = (name: string): void => {
+      assertAuthorityFiles();
+      for (const readback of familyReadbacks) readback();
+      const observed = authorityFiles.get(name);
+      if (observed !== undefined && observed !== null) {
+        store.removeExact(name, observed);
+        retired.push(path.join(store.root.path, name));
+        retiredAuthority.add(name);
+        input.faults?.afterRetireFile?.(name);
+      }
+    };
+    await verifyTerminal();
+    retireAuthorityFile(names.authorization);
+    if (terminalName !== legacyName) {
+      retireAuthorityFile(legacyName);
+    }
+    await verifyTerminal();
+    retireAuthorityFile(terminalName);
+    assertAuthorityFiles();
+    for (const readback of familyReadbacks) readback();
     return Object.freeze(retired);
-  };
+  });
 
   const settleRetained = async (authorization: RetainedAuthorization,
     publishAuthorization: boolean,
@@ -2412,6 +2717,11 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         throw new Error('Development commit journal ref state changed at the atomic closeout boundary.');
       }
       let refReceipt: GitLocalRefDeleteBatchReceipt | null = null;
+      const finalBoundary = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      if (await assertRetainedLive(authorization, finalBoundary) !== state) {
+        throw new Error('Retained local state changed after journal preparation.');
+      }
+      store.assertPhysicallyDisjointFrom(finalBoundary.worktreeRoots);
       if (state === 'present') {
         refReceipt = await deleteExactTransaction(repositoryRoot, commonDir, coordinatedLease,
           authorization.operationId, authorization.entries);
@@ -2432,6 +2742,13 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       input.faults?.afterReadback?.();
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
       input.faults?.beforeReceipt?.();
+      const terminalObservation = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      assertRecoverySeparatedFromWorktrees(store, terminalObservation);
+      await assertRetainedPreservation(authorization, terminalObservation, true);
+      if (authorizedLocalState(authorization, terminalObservation) !== 'absent') {
+        throw new Error('Retained local ref reappeared before terminal receipt.');
+      }
+      for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
       const receipt = publishCanonical({ store, name: names.receipt,
         value: createRetainedReceipt(authorization, now), parse: parseRetainedReceipt });
       if (receipt.authorizationDigest !== authorization.authorizationDigest) {
@@ -2485,7 +2802,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       provider,
       store,
       observation: current,
-      completed: scanned.completed
+      completed: scanned.completed,
+      afterRetireFile: input.faults?.afterRetireFile
     });
     retiredBefore = Object.freeze({
       branches: completedRetirement.branches,
@@ -2505,6 +2823,15 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       files: Object.freeze([...retiredBefore.files, ...retiredFiles])
     });
   }
+  const completedHeads = new Map([...scanned.completed, ...retained.completed]
+    .flatMap(({ authorization }) => authorization.entries.map(({ branch, headSha }) => [branch, headSha] as const)));
+  const remainingTargets = input.retainedTargets?.filter((target) => {
+    if (!retiredBefore.branches.includes(target.branch)) return true;
+    if (completedHeads.get(target.branch) !== target.expectedHeadSha) {
+      throw new Error(`Retained continuation selection differs from its completed head: ${target.branch}.`);
+    }
+    return false;
+  });
   const pending = scanned.pending;
   if (pending !== null) {
     assertAuthorizationIdentity({
@@ -2541,12 +2868,12 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   assertRecoverySeparatedFromWorktrees(store, first);
   const plan = planMergedLocalBranchResidueCloseout(first);
   if (plan.eligible.length === 0 || (input.retainedTargets?.length ?? 0) > 0) {
-    const native = input.retainedTargets === undefined || input.retainedTargets.length === 0
+    const native = remainingTargets === undefined || remainingTargets.length === 0
       ? { eligible: [] as readonly Omit<RetainedEntry, 'recovery'>[],
           protectedBranches: plan.protectedBranches,
           unresolvedBranches: plan.unresolvedBranches }
       : await planRetainedNativeEntries({ run, repositoryRoot, repository, observation: first,
-          targets: input.retainedTargets, observeReview: input.observeReview });
+          targets: remainingTargets, observeReview: input.observeReview });
     const eligible = native.eligible.filter(({ branch }) => !retiredBefore.branches.includes(branch));
     if (eligible.length > 0) {
       const entries = Object.freeze(await Promise.all(eligible.map(async (entry) => Object.freeze({
@@ -2554,7 +2881,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         recovery: await createRecovery(run, repositoryRoot, store, entry)
       }))));
       const material = Object.freeze({
-        schema: RETAINED_AUTHORIZATION_SCHEMA,
+        schema: entries.some(({ successor }) => successor !== undefined)
+          ? SUCCESSOR_AUTHORIZATION_SCHEMA : RETAINED_AUTHORIZATION_SCHEMA,
         repository, repositoryRoot, commonDir, remote, remoteUrl,
         repositoryPhysical: bindPhysicalDirectory(repositoryPhysical),
         commonDirPhysical: bindPhysicalDirectory(commonDirPhysical),

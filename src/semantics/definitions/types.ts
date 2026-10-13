@@ -1,3 +1,11 @@
+/**
+ * v1 identities are literal non-empty trimmed components without colon or NUL.
+ * Entity and field components additionally exclude dot (the field-target separator).
+ * Imports/references use alias::id and entity.field; no escaping or guessed migration.
+ * Previously accidentally accepted ambiguous strings are rejected; labels, types,
+ * paths and business state values do not inherit this machine-identity grammar.
+ * Runtime enforcement is owned by identity-components.ts.
+ */
 export const SEMANTIC_CONTRACT_FORMAT_VERSION = '1' as const;
 
 export const SEMANTIC_EFFECT_KINDS = [

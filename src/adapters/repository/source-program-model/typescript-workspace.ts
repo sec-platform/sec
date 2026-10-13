@@ -16,7 +16,7 @@ import type {
   SourceProgramSpan
 } from './contract.ts';
 import {
-  resolveSecRepositoryModuleImportCandidates
+  resolveRepositoryModuleImportCandidates
 } from './module-graph.ts';
 import type {
   TypeScriptSourceProgramFileIdentity
@@ -128,7 +128,7 @@ class TypeScriptSourceProgramWorkspace {
         this.#checkpoint('program-materialization');
         const containingRepositoryPath = this.#repositoryPath(containingFile);
         if (containingRepositoryPath !== null && moduleName.startsWith('.')) {
-          const targetPath = resolveSecRepositoryModuleImportCandidates(
+          const targetPath = resolveRepositoryModuleImportCandidates(
             containingRepositoryPath,
             moduleName
           ).find((candidate) => this.#files.has(candidate));

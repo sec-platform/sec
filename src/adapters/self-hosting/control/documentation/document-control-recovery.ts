@@ -18,13 +18,13 @@ import {
 import {
   ActivePointerPath,
   byteDigest,
-  type CodexDevelopmentFreezeFault,
-  type CodexDevelopmentFreezeResult,
   CurrentStatePath,
   decodeUtf8,
+  type FreezeFault,
   type FreezeJournal,
   type FreezeJournalPhase,
   FreezeJournalRelativePath,
+  type FreezeResult,
   fromBase64,
   parseFreezeJournal,
   renderFreezeJournal,
@@ -32,15 +32,15 @@ import {
 } from './document-control-journal-codec.ts';
 import { createReadOnlyResolverGit, readControlTreeBlobs } from './document-control-observation.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentClassifyInitiallyAbsentEntryTuple,
-  CodexDevelopmentClassifyTerminalRetirementPrefix,
-  type CodexDevelopmentDocumentControlRecoveryTargetKey,
-  type CodexDevelopmentInitiallyAbsentTupleEntry,
-  type CodexDevelopmentInitiallyAbsentTuplePlatform,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingPlan
+  assertControlPlaneBinding,
+  classifyInitiallyAbsentEntryTuple,
+  classifyTerminalRetirementPrefix,
+  type DocumentControlRecoveryTargetKey,
+  type InitiallyAbsentTupleEntry,
+  type InitiallyAbsentTuplePlatform,
+  parseActivePointer,
+  parseCurrentStateSpec,
+  parseRollingPlan
 } from './document-control-plane-contract.ts';
 import {
   type AnchoredObjectIdentity,
@@ -86,7 +86,7 @@ import {
 async function writeAtomicCas(input: {
   repositoryRoot: string;
   filePath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   pre: Buffer;
   next: Buffer;
   label: string;
@@ -132,7 +132,7 @@ export async function writeFreezeJournal(
   expectedPreBytes: Buffer | null,
   journal: FreezeJournal,
   durability: FreezeDurabilityOptions,
-  faultAfter?: CodexDevelopmentFreezeFault
+  faultAfter?: FreezeFault
 ): Promise<Buffer> {
   const transactionRoot = await resolveFreezeTransactionRoot(repositoryRoot, durability);
   const journalPath = path.join(repositoryRoot, FreezeJournalRelativePath);
@@ -150,13 +150,13 @@ export async function writeFreezeJournal(
       durability
     });
   } else {
-    const preQuarantineFault: Readonly<Partial<Record<FreezeJournalPhase, CodexDevelopmentFreezeFault>>> = {
+    const preQuarantineFault: Readonly<Partial<Record<FreezeJournalPhase, FreezeFault>>> = {
       'index-published': 'after-journal-index-published-pre-quarantine',
       'pointer-published': 'after-journal-pointer-published-pre-quarantine',
       'rolling-published': 'after-journal-rolling-published-pre-quarantine',
       terminal: 'after-journal-terminal-pre-quarantine'
     };
-    const nextInstallFault: Readonly<Partial<Record<FreezeJournalPhase, CodexDevelopmentFreezeFault>>> = {
+    const nextInstallFault: Readonly<Partial<Record<FreezeJournalPhase, FreezeFault>>> = {
       'index-published': 'after-journal-index-published-next-install',
       terminal: 'after-journal-terminal-next-install'
     };
@@ -364,7 +364,7 @@ async function readJournalRecoveryEntry(
 function initialJournalTupleEntryAdapter(
   entry: AnchoredJournalEntry | null,
   nextBytes: Buffer
-): CodexDevelopmentInitiallyAbsentTupleEntry {
+): InitiallyAbsentTupleEntry {
   return initialTupleEntryAdapter(
     entry === null
       ? Object.freeze({ bytes: null, identity: null })
@@ -435,8 +435,8 @@ async function inspectJournalTransitionRecovery(input: {
     if (quarantine !== null || retiredPre !== null) {
       throw new Error('Initially-absent freeze journal recovery has unexpected PRE artifacts; preserving them.');
     }
-    const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-      platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+    const initialResolution = classifyInitiallyAbsentEntryTuple({
+      platform: process.platform as InitiallyAbsentTuplePlatform,
       tuple: Object.freeze({
         target: initialJournalTupleEntryAdapter(input.canonicalEntry, input.nextBytes),
         next: initialJournalTupleEntryAdapter(input.nextEntry, input.nextBytes),
@@ -525,7 +525,7 @@ function freezeJournalPhaseIndex(phase: FreezeJournalPhase): number {
 function freezeEntryRecoveryNames(input: {
   artifactRoot: string;
   operationId: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
 }): FreezeEntryRecoveryNames {
   const name = (suffix: FreezeEntryRecoverySuffix): string => path.basename(entryRecoveryPath({
     ...input,
@@ -590,7 +590,7 @@ function createFreezeEntryRecoveryCensusPlan(input: {
   }
 
   const addProjectionRecovery = (
-    targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey,
+    targetKey: DocumentControlRecoveryTargetKey,
     pre: Buffer,
     next: Buffer,
     label: string
@@ -717,8 +717,8 @@ async function assertFreezeEntryRecoveryCensus(input: {
   };
   if (initialPreparedBytes !== null) {
     const initialRetiredNext = entries.get(input.plan.initialRetiredNext) ?? null;
-    const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-      platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+    const initialResolution = classifyInitiallyAbsentEntryTuple({
+      platform: process.platform as InitiallyAbsentTuplePlatform,
       tuple: Object.freeze({
         target: initialJournalTupleEntryAdapter(preparedCanonicalEntry, initialPreparedBytes),
         next: initialJournalTupleEntryAdapter(preparedNextEntry, initialPreparedBytes),
@@ -913,7 +913,7 @@ async function assertTerminalRetirementPrefix(input: {
       throw new Error(`${entry.label} has unknown bytes and is preserved.`);
     }
   }
-  const classification = CodexDevelopmentClassifyTerminalRetirementPrefix(presence);
+  const classification = classifyTerminalRetirementPrefix(presence);
   if (classification.status === 'invalid') {
     throw new Error('Terminal retirement residue topology is not one exact canonical deletion prefix; preserving it.');
   }
@@ -1138,8 +1138,8 @@ export async function readFreezeJournalSnapshot(
           path.basename(initialRetiredNextPath),
           'Freeze journal initial retired NEXT entry'
         );
-        const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-          platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+        const initialResolution = classifyInitiallyAbsentEntryTuple({
+          platform: process.platform as InitiallyAbsentTuplePlatform,
           tuple: Object.freeze({
             target: initialJournalTupleEntryAdapter(canonicalEntry, canonicalEntry!.bytes),
             next: initialJournalTupleEntryAdapter(null, canonicalEntry!.bytes),
@@ -1202,7 +1202,7 @@ export async function restoreFreezeJournalDurability(
   }
 }
 
-export function maybeFault(actual: CodexDevelopmentFreezeFault | undefined, expected: CodexDevelopmentFreezeFault): void {
+export function maybeFault(actual: FreezeFault | undefined, expected: FreezeFault): void {
   if (actual === expected) throw new Error(`Injected document control freeze fault: ${expected}.`);
 }
 
@@ -1274,10 +1274,10 @@ export async function advanceFreezeJournal(input: {
   repositoryRoot: string;
   journal: FreezeJournal;
   journalBytes: Buffer;
-  faultAfter?: CodexDevelopmentFreezeFault;
+  faultAfter?: FreezeFault;
   durability: FreezeDurabilityOptions;
   deferTerminalRetirement?: () => void;
-}): Promise<CodexDevelopmentFreezeResult> {
+}): Promise<FreezeResult> {
   let journal = input.journal;
   let journalBytes = input.journalBytes;
   const indexPaths = await resolveIndexPaths(input.repositoryRoot, true);
@@ -1402,10 +1402,10 @@ export async function advanceFreezeJournal(input: {
       label: 'Freeze successor retired manifest'
     });
   }
-  const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerBytes, 'Freeze pointer NEXT'));
-  const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingBytes, 'Freeze rolling-plan NEXT'));
-  CodexDevelopmentAssertControlPlaneBinding({
-    spec: CodexDevelopmentParseCurrentStateSpec(readback.stateSource),
+  const pointer = parseActivePointer(decodeUtf8(pointerBytes, 'Freeze pointer NEXT'));
+  const rolling = parseRollingPlan(decodeUtf8(rollingBytes, 'Freeze rolling-plan NEXT'));
+  assertControlPlaneBinding({
+    spec: parseCurrentStateSpec(readback.stateSource),
     pointer
   });
   if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')
@@ -1459,7 +1459,7 @@ export async function verifyTerminalFreezeJournal(input: {
   manifestPath: string;
   manifestDigest: `sha256:${string}`;
   reviewedOn: string;
-}): Promise<CodexDevelopmentFreezeResult> {
+}): Promise<FreezeResult> {
   const journal = input.snapshot.journal;
   if (!input.snapshot.canonicalPresent || journal.phase !== 'terminal'
       || (input.snapshot.recovery !== null && input.snapshot.recovery.completionMode !== 'complete')) {
@@ -1549,10 +1549,10 @@ export async function verifyTerminalFreezeJournal(input: {
 
   const stateSource = terminalBlobs.get(CurrentStatePath);
   if (stateSource === undefined) throw new Error('Terminal freeze current-state spec is absent from the candidate tree.');
-  const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerNext, 'Terminal freeze pointer NEXT'));
-  const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingNext, 'Terminal freeze rolling-plan NEXT'));
-  CodexDevelopmentAssertControlPlaneBinding({
-    spec: CodexDevelopmentParseCurrentStateSpec(decodeUtf8(stateSource, 'Terminal freeze current-state spec')),
+  const pointer = parseActivePointer(decodeUtf8(pointerNext, 'Terminal freeze pointer NEXT'));
+  const rolling = parseRollingPlan(decodeUtf8(rollingNext, 'Terminal freeze rolling-plan NEXT'));
+  assertControlPlaneBinding({
+    spec: parseCurrentStateSpec(decodeUtf8(stateSource, 'Terminal freeze current-state spec')),
     pointer
   });
   if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')

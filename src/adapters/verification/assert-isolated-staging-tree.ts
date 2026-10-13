@@ -1,8 +1,8 @@
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { CompilerError } from '../../compiler/errors.ts';
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
 import { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, inspectWorkspaceWriteLease, withWorkspaceWriteLeaseControlPlaneQuiesced, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../runtime-state/physical/runtime/process.ts';
@@ -48,7 +48,7 @@ const INVALID_FILE_ATTRIBUTES = 0xffff_ffff;
 const ISOLATION_SCAN_CONCURRENCY = 64;
 
 function isolationFailure(message: string, relativePath: string): never {
-  throw new CompilerError('VERIFY-ISOLATION-001', message, { relativePath });
+  throw new CodedFailure('VERIFY-ISOLATION-001', message, { relativePath });
 }
 
 async function proveFilesystemOperation<T>(
@@ -58,8 +58,8 @@ async function proveFilesystemOperation<T>(
   try {
     return await action();
   } catch (error) {
-    if (error instanceof CompilerError) throw error;
-    throw new CompilerError(
+    if (error instanceof CodedFailure) throw error;
+    throw new CodedFailure(
       'VERIFY-ISOLATION-001',
       'Isolated staging tree boundary could not be proven',
       {
@@ -339,8 +339,8 @@ async function assertIsolatedStagingTreeInternal(
       await inspect();
     }
   } catch (error) {
-    if (error instanceof CompilerError) throw error;
-    throw new CompilerError(
+    if (error instanceof CodedFailure) throw error;
+    throw new CodedFailure(
       'VERIFY-ISOLATION-001',
       'Isolated staging tree boundary could not be proven',
       { errorCode: error instanceof Error && 'code' in error ? String(error.code) : 'UNKNOWN' }

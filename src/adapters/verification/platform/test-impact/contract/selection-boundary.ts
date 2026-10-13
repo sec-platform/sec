@@ -93,7 +93,7 @@ export function classifyAffectedSelectionTrustBoundary(
       : 'unresolved-selection';
   }
   // Source changed but no fast tests selected and no broad fallback.
-  // This is the core Issue #206 false-green scenario: fail closed.
+  // This is the core empty-selection false-green scenario: fail closed.
   if (input.sourceChanged
     && input.selectedFastTestCount === 0
     && !input.broadFallbackEnabled) {

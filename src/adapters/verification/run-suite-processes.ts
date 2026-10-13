@@ -9,20 +9,20 @@ import {
 import { captureFastSuiteProcessInput, type FastSuiteProcessInput } from './fast-suite-input.ts';
 import { FAST_SUITE_WORKER_SOURCE } from './fast-suite-worker.ts';
 
-import { CompilerError } from '../../compiler/errors.ts';
 import { sha256 } from '../../contracts/canonical.ts';
 import type { CommitFence } from '../../contracts/commit-fence.ts';
 import { parseExactJson } from '../../contracts/exact-json.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
-import { issueSecOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { settleResources, settleResourcesAsync } from '../../execution/resource-settlement.ts';
 import {
@@ -121,7 +121,7 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
   try {
     source = new TextDecoder('utf-8', { fatal: true }).decode(stdout);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-006',
       `Test file "${file}" child output is not exact UTF-8`,
       {},
@@ -130,7 +130,7 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
   }
   const matching = source.split(/\r?\n/u).filter((line) => line.includes(nonce));
   if (matching.length !== 1) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-006',
       `Test file "${file}" did not produce one exact terminal receipt`,
       { matchingReceiptLines: matching.length }
@@ -140,7 +140,7 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
   try {
     parsed = parseExactJson(matching[0]!, 'Fast suite terminal receipt', undefined, 3);
   } catch (error) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-006',
       `Test file "${file}" terminal receipt is invalid`,
       {},
@@ -148,15 +148,15 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
     );
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new CompilerError('VERIFY-BUILD-006', `Test file "${file}" terminal receipt is not an object`);
+    throw new CodedFailure('VERIFY-BUILD-006', `Test file "${file}" terminal receipt is not an object`);
   }
   const record = parsed as Record<string, unknown>;
   if (record.schema !== FAST_SUITE_WORKER_RESULT_SCHEMA || record.nonce !== nonce) {
-    throw new CompilerError('VERIFY-BUILD-006', `Test file "${file}" terminal receipt identity is invalid`);
+    throw new CodedFailure('VERIFY-BUILD-006', `Test file "${file}" terminal receipt identity is invalid`);
   }
   if (record.status === 'passed') {
     if (Object.keys(record).sort().join(',') !== 'nonce,schema,status') {
-      throw new CompilerError('VERIFY-BUILD-006', `Test file "${file}" passed receipt has extra fields`);
+      throw new CodedFailure('VERIFY-BUILD-006', `Test file "${file}" passed receipt has extra fields`);
     }
     return Object.freeze({ status: 'passed' });
   }
@@ -167,7 +167,7 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
           && record.failureKind !== 'suite-failure')
         || typeof record.failure !== 'string'
         || record.failure.length > 4096) {
-      throw new CompilerError('VERIFY-BUILD-006', `Test file "${file}" failed receipt is invalid`);
+      throw new CodedFailure('VERIFY-BUILD-006', `Test file "${file}" failed receipt is invalid`);
     }
     return Object.freeze({
       status: 'failed',
@@ -175,14 +175,14 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
       failure: record.failure
     });
   }
-  throw new CompilerError('VERIFY-BUILD-006', `Test file "${file}" terminal status is invalid`);
+  throw new CodedFailure('VERIFY-BUILD-006', `Test file "${file}" terminal status is invalid`);
 }
 
 function compileFastSuiteOperation(input: Readonly<{
   environment: NodeJS.ProcessEnv;
   file: CapturedSuite;
-  providerIdentityDigest: SecOperationDigest;
-}>): SecBoundSemanticOperation {
+  providerIdentityDigest: OperationDigest;
+}>): BoundSemanticOperation {
   const deadlineAtUnixMs = Date.now() + FAST_SUITE_PROCESS_MAX_DURATION_MS;
   const contractDigest = sha256({
     domain: 'verification.fast-suite-process.contract-v1',
@@ -190,18 +190,18 @@ function compileFastSuiteOperation(input: Readonly<{
     inputBytes: FAST_SUITE_PROCESS_MAX_INPUT_BYTES,
     outputBytes: FAST_SUITE_PROCESS_MAX_STDOUT_BYTES + FAST_SUITE_PROCESS_MAX_STDERR_BYTES,
     processes: FAST_SUITE_PROCESS_MAX_NATIVE_RESOURCES
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: FAST_SUITE_PROCESS_OPERATION,
     intentDigest: sha256({
       domain: 'verification.fast-suite-process.intent-v1',
       file: input.file.relativePath,
       environment: input.environment,
       providerIdentityDigest: input.providerIdentityDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -228,7 +228,7 @@ function compileFastSuiteOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: FAST_SUITE_PROCESS_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -299,7 +299,7 @@ async function runOneSuite(input: Readonly<{
   boundary: ReturnType<typeof issueRetainedCommandBoundary>;
   environment: NodeJS.ProcessEnv;
   file: CapturedSuite;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   signal?: AbortSignal;
   commitFence?: CommitFence;
   sealedGeneration: boolean;
@@ -310,7 +310,7 @@ async function runOneSuite(input: Readonly<{
     ? path.dirname(temporaryDirectory)
     : null;
   if (input.sealedGeneration && (typeof writableRoot !== 'string' || !path.isAbsolute(writableRoot))) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-006',
       'Sealed fast suite execution requires one absolute writable temporary root'
     );
@@ -323,7 +323,7 @@ async function runOneSuite(input: Readonly<{
     writableRoot
   })}\n`, 'utf8');
   if (commandInput.byteLength > FAST_SUITE_PROCESS_MAX_INPUT_BYTES) {
-    throw new CompilerError('VERIFY-BUILD-006', 'Fast suite worker input exceeds its process budget');
+    throw new CodedFailure('VERIFY-BUILD-006', 'Fast suite worker input exceeds its process budget');
   }
   const operation = compileFastSuiteOperation({
     environment: input.environment,
@@ -332,7 +332,7 @@ async function runOneSuite(input: Readonly<{
   });
   const session = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: FAST_SUITE_PROCESS_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -411,7 +411,7 @@ async function runOneSuite(input: Readonly<{
   const terminal = parseTerminal(runResult.result.stdout, nonce, input.file.originalLabel);
   if (terminal.status === 'passed') {
     if (runResult.result.code !== 0) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'VERIFY-BUILD-006',
         `Test file "${input.file.originalLabel}" passed receipt disagrees with child exit`
       );
@@ -419,25 +419,25 @@ async function runOneSuite(input: Readonly<{
     return;
   }
   if (runResult.result.code === 0) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-006',
       `Test file "${input.file.originalLabel}" failed receipt disagrees with child exit`
     );
   }
   if (terminal.failureKind === 'sandbox-unavailable') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-006',
       `Test file "${input.file.originalLabel}" sealed execution sandbox is unavailable`,
       { failure: terminal.failure }
     );
   }
   if (terminal.failureKind === 'missing-export') {
-    throw new CompilerError(
+    throw new CodedFailure(
       'VERIFY-BUILD-002',
       `Test file "${input.file.originalLabel}" must export runSuite()`
     );
   }
-  throw new CompilerError(
+  throw new CodedFailure(
     'VERIFY-BUILD-007',
     `Test file "${input.file.originalLabel}" failed in its bounded child process`,
     { failure: terminal.failure }
@@ -511,7 +511,7 @@ export async function runSuiteProcesses(
             kind: 'sealed-generation',
             inputDigest: exactGeneration.inputDigest
           }
-    }) as SecOperationDigest;
+    }) as OperationDigest;
     boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
 
     for (const file of files) {

@@ -1,4 +1,4 @@
-import * as environment from './application/dependency-environment.ts';
+import * as environment from './runtime/environment-status.ts';
 export { getDependencyFreshness } from './application/dependency-freshness.ts';
 
 export type {
@@ -10,7 +10,7 @@ export type {
   DoctorCheck,
   DoctorCheckStatus,
   DoctorReport
-} from './application/dependency-environment.ts';
+} from './runtime/environment-status.ts';
 
 export async function getDependencyEnvironmentStatus(
   workspaceRoot = process.cwd()
@@ -22,23 +22,4 @@ export async function getDoctorReport(
   workspaceRoot = process.cwd()
 ): Promise<environment.DoctorReport> {
   return environment.getDoctorReport(workspaceRoot);
-}
-
-export async function warmupDependencyEnvironment(
-  workspaceRoot = process.cwd()
-): Promise<environment.DependencyEnvironmentStatus> {
-  return environment.warmupDependencyEnvironment(workspaceRoot);
-}
-
-export async function relinkProjectDependencies(
-  workspaceRoot = process.cwd()
-): Promise<environment.DependencyEnvironmentStatus> {
-  return environment.relinkProjectDependencies(workspaceRoot);
-}
-
-export async function cleanDependencyEnvironment(
-  workspaceRoot: string,
-  clean: environment.DependencyCleanOptions
-): Promise<string[]> {
-  return environment.cleanDependencyEnvironment(workspaceRoot, clean);
 }

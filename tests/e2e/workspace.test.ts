@@ -33,20 +33,14 @@ function nativeWorkspaceDirectories(paths: WorkspacePathsSnapshot): string[] {
 
 async function expectDirectoriesExist(directories: readonly string[]): Promise<void> {
   for (const directory of directories) {
-    await expect(fs.stat(directory)).resolves.toBeTruthy();
+    const entry = await fs.stat(directory);
+    expect(entry.isDirectory(), `Expected workspace directory: ${directory}`).toBe(true);
   }
 }
 
-test('CLI accepts init commands', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
-  });
-}, 180000);
 test('CLI init creates the native workspace roots', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
-
+    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
     const paths = getWorkspacePaths(workspaceRoot);
     await expectDirectoriesExist(nativeWorkspaceDirectories(paths));
   });
@@ -58,7 +52,7 @@ test('CLI defaults verification to the fast lane', async () => {
 }, 180000);
 test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
+    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
     await installPrivateBannerBlock(workspaceRoot);
     const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
     const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
@@ -70,7 +64,7 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
     );
     await expect(fs.readFile(workspaceConfigPath, 'utf8')).resolves.toContain('private/banner-basic');
 
-    await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 4 blocks\n');
+    await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 1 blocks\n');
     const lock = await readJson<WorkspaceLockSnapshot>(lockPath);
     expect(lock.resolvedBlocks.find((block) => block.id === 'private/banner-basic')).toMatchObject({
       registrySourceId: 'private',

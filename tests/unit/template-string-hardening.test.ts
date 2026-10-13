@@ -1,11 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { renderTemplateString } from '../../src/compiler/templates/render-template-string.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const code = (expected: string) => (error: unknown): boolean =>
-  error instanceof CompilerError && error.code === expected;
+  error instanceof CodedFailure && error.code === expected;
 
 test('template expansion enforces its byte bound before allocating the expanded result', () => {
   // This would expand to over one gigabyte if String.replace ran to completion.

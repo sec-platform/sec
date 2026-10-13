@@ -230,6 +230,12 @@ test('noncanonical candidate fails with a clean index', async () => {
       candidateCommit
     });
     expect(outcome.terminal?.status).toBe('failed');
+    git(root, ['update-ref', 'refs/remotes/origin/main', baseCommit]);
+    await withAuthorityGitReadSession({ cwd: root, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+      const { checkStagedCandidateImportNormalization } = await import('./runtime.ts');
+      expect((await checkStagedCandidateImportNormalization({ session })).status)
+        .toBe('needs-import-transform');
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -382,13 +388,17 @@ test('candidate configuration is immutable when the working tree config drifts',
   }
 });
 
-test('staged candidate terminal issues an opaque normalization-only admission', async () => {
+test('empty staged selection issues opaque not-applicable admission before reading unrelated source blobs', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-staged-'));
   try {
     git(root, ['init', '--quiet']);
     git(root, ['config', 'user.email', 'tests@example.com']);
     git(root, ['config', 'user.name', 'SEC Tests']);
-    const baseCommit = await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
+    await commitFixture(root, 'export function normalize(): void {}\n', 'staged-base');
+    await writeFile(path.join(root, 'src', 'unselected.ts'), Buffer.from([0xff, 0xfe]));
+    git(root, ['add', 'src/unselected.ts']);
+    git(root, ['commit', '--quiet', '-m', 'unrelated invalid UTF-8 source']);
+    const baseCommit = git(root, ['rev-parse', 'HEAD']);
     await writeFile(path.join(root, 'note.txt'), 'staged candidate\n');
     git(root, ['add', 'note.txt']);
     await withAuthorityGitReadOperation({
@@ -404,14 +414,19 @@ test('staged candidate terminal issues an opaque normalization-only admission', 
         gitOperation,
         candidateBase: baseCommit
       });
-      if (result.outcome.terminal === null) {
-        throw new Error(`Staged normalization did not settle: ${JSON.stringify(result.outcome)}`);
-      }
-      expect(result.outcome.terminal?.status).toBe('passed');
+      expect(result.outcome.state).toBe('not-applicable');
+      expect(result.outcome.terminal).toBeNull();
+      expect(result.outcome.actionKey).toBeNull();
+      expect(result.admission?.applicability).toBe('not-applicable');
       expect(result.admission).not.toBeNull();
       expect(requireCandidateNormalizationAdmissionReceipt(result.admission)).toBe(result.admission!);
       expect(() => requireCandidateNormalizationAdmissionReceipt({ ...result.admission! }))
         .toThrow('not owner-issued');
+    });
+    await withAuthorityGitReadSession({ cwd: root, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+      const { checkStagedCandidateImportNormalization } = await import('./runtime.ts');
+      expect(await checkStagedCandidateImportNormalization({ session, candidateBase: baseCommit }))
+        .toMatchObject({ status: 'canonical', files: [] });
     });
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -1,35 +1,34 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/vcs",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/vcs",
   "namespace": "spec.vcs",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:CandidateAndPreconditions": {
       "kind": "req:enum-value",
       "name": "CandidateAndPreconditions",
-      "body": {
-        "nominalIdentity": "sec/spec/vcs#CandidateAndPreconditions"
-      }
+      "body": {}
     },
     "v:Explicit": {
       "kind": "req:enum-value",
       "name": "Explicit",
-      "body": {
-        "nominalIdentity": "sec/spec/vcs#Explicit"
-      }
+      "body": {}
     },
     "v:WorktreeIndexCommitSeparate": {
       "kind": "req:enum-value",
       "name": "WorktreeIndexCommitSeparate",
-      "body": {
-        "nominalIdentity": "sec/spec/vcs#WorktreeIndexCommitSeparate"
-      }
+      "body": {}
     },
     "r:Integration": {
       "kind": "req:rule",
@@ -42,7 +41,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "VersionIntegration"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "VersionIntegration"
+                  }
+                }
               ]
             },
             "meaning": "版本集成主体"
@@ -52,7 +56,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "工作区真实内容"
@@ -62,7 +71,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/vcs#WorktreeIndexCommitSeparate"
+                {
+                  "definitionId": "v:WorktreeIndexCommitSeparate"
+                }
               ]
             },
             "meaning": "工作树/暂存/提交分开"
@@ -72,7 +83,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/vcs#Explicit"
+                {
+                  "definitionId": "v:Explicit"
+                }
               ]
             },
             "meaning": "本次选定完整差异，不自动全暂存"
@@ -82,7 +95,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/vcs#CandidateAndPreconditions"
+                {
+                  "definitionId": "v:CandidateAndPreconditions"
+                }
               ]
             },
             "meaning": "合并候选及预期头固定"
@@ -91,7 +106,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "vcs.Integration",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -110,14 +124,6 @@
     },
     "Integration": {
       "definitionId": "r:Integration"
-    }
-  },
-  "extensions": {
-    "sec.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }
   }
 }

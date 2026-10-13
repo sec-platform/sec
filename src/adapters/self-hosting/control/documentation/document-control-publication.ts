@@ -15,16 +15,16 @@ import {
   retainNoFollowFileTransaction,
   scanNoFollowDirectoryDirectMetadata
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { byteDigest, type CodexDevelopmentDurabilityEvent } from './document-control-journal-codec.ts';
+import { byteDigest, type DurabilityEvent } from './document-control-journal-codec.ts';
 import {
-  CodexDevelopmentAssertInitiallyAbsentEntryTransition,
-  CodexDevelopmentClassifyInitiallyAbsentEntryTuple,
-  CodexDevelopmentDocumentControlRecoveryEntryStem,
-  type CodexDevelopmentDocumentControlRecoveryTargetKey,
-  type CodexDevelopmentInitiallyAbsentTupleEdge,
-  type CodexDevelopmentInitiallyAbsentTupleEntry,
-  type CodexDevelopmentInitiallyAbsentTuplePlatform,
-  type CodexDevelopmentInitiallyAbsentTupleState
+  assertInitiallyAbsentEntryTransition,
+  classifyInitiallyAbsentEntryTuple,
+  documentControlRecoveryEntryStem,
+  type DocumentControlRecoveryTargetKey,
+  type InitiallyAbsentTupleEdge,
+  type InitiallyAbsentTupleEntry,
+  type InitiallyAbsentTuplePlatform,
+  type InitiallyAbsentTupleState
 } from './document-control-plane-contract.ts';
 
 /**
@@ -53,11 +53,11 @@ export function sameAnchoredObjectIdentity(
   return left.device === right.device && left.inode === right.inode;
 }
 
-export type CodexDevelopmentDurabilityObserver = (
-  event: CodexDevelopmentDurabilityEvent
+export type DurabilityObserver = (
+  event: DurabilityEvent
 ) => Promise<void> | void;
 
-export class CodexDevelopmentDurabilityBarrierError extends Error {
+export class DurabilityBarrierError extends Error {
   readonly code = 'DOCUMENT-CONTROL-DURABILITY-001' as const;
   readonly operation: 'file-flush' | 'parent-directory-barrier';
   readonly targetPath: string;
@@ -71,13 +71,13 @@ export class CodexDevelopmentDurabilityBarrierError extends Error {
       `Document control ${input.operation} is unsupported or failed for ${input.targetPath}.`,
       { cause: input.cause }
     );
-    this.name = 'CodexDevelopmentDurabilityBarrierError';
+    this.name = 'DurabilityBarrierError';
     this.operation = input.operation;
     this.targetPath = input.targetPath;
   }
 }
 
-export class CodexDevelopmentUnsafeAnchoredPathError extends Error {
+export class UnsafeAnchoredPathError extends Error {
   readonly code = 'DOCUMENT-CONTROL-UNSAFE-PATH-001' as const;
   readonly targetPath: string;
   readonly reparseTag: number | null;
@@ -92,25 +92,25 @@ export class CodexDevelopmentUnsafeAnchoredPathError extends Error {
       `${input.label} must not traverse or target a symbolic link, junction, or reparse point.`,
       input.cause === undefined ? undefined : { cause: input.cause }
     );
-    this.name = 'CodexDevelopmentUnsafeAnchoredPathError';
+    this.name = 'UnsafeAnchoredPathError';
     this.targetPath = input.targetPath;
     this.reparseTag = input.reparseTag ?? null;
   }
 }
 
-export class CodexDevelopmentUnsupportedAnchoredPathEffectError extends Error {
+export class UnsupportedAnchoredPathEffectError extends Error {
   readonly code = 'DOCUMENT-CONTROL-POSIX-CAPABILITY-001' as const;
   readonly capability: string;
 
   constructor(capability: string) {
     super(`Anchored document-control POSIX effects require the ${capability} capability.`);
-    this.name = 'CodexDevelopmentUnsupportedAnchoredPathEffectError';
+    this.name = 'UnsupportedAnchoredPathEffectError';
     this.capability = capability;
   }
 }
 
 export interface FreezeDurabilityOptions {
-  readonly observer?: CodexDevelopmentDurabilityObserver;
+  readonly observer?: DurabilityObserver;
   /** Internal deterministic test seam. Production always uses the platform barrier. */
   readonly parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
   /** Internal deterministic test seam invoked only after rename source/parent anchors are open. */
@@ -172,7 +172,7 @@ export function pathComparisonValue(candidate: string): string {
 function assertPathContained(root: string, candidate: string, label: string): void {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new CodexDevelopmentUnsafeAnchoredPathError({ label, targetPath: candidate });
+    throw new UnsafeAnchoredPathError({ label, targetPath: candidate });
   }
 }
 
@@ -184,7 +184,7 @@ function transactionRelativePath(boundaryRoot: string, candidatePath: string, la
   assertPathContained(boundaryRoot, candidatePath, label);
   const relative = path.relative(path.resolve(boundaryRoot), path.resolve(candidatePath));
   if (relative.length === 0) {
-    throw new CodexDevelopmentUnsafeAnchoredPathError({ label, targetPath: candidatePath });
+    throw new UnsafeAnchoredPathError({ label, targetPath: candidatePath });
   }
   return relative;
 }
@@ -194,26 +194,26 @@ export function mapDocumentPhysicalError(error: unknown, input: Readonly<{
   targetPath: string;
   operation?: 'file-flush' | 'parent-directory-barrier';
 }>): never {
-  if (error instanceof CodexDevelopmentDurabilityBarrierError
-      || error instanceof CodexDevelopmentUnsafeAnchoredPathError
-      || error instanceof CodexDevelopmentUnsupportedAnchoredPathEffectError) throw error;
+  if (error instanceof DurabilityBarrierError
+      || error instanceof UnsafeAnchoredPathError
+      || error instanceof UnsupportedAnchoredPathEffectError) throw error;
   if (error instanceof PhysicalNoFollowError) {
     if (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
       throw Object.assign(new Error(`${input.label} is absent.`, { cause: error }), { code: 'ENOENT' });
     }
     if (error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' && input.operation !== undefined) {
-      throw new CodexDevelopmentDurabilityBarrierError({
+      throw new DurabilityBarrierError({
         operation: input.operation,
         targetPath: input.targetPath,
         cause: error
       });
     }
     if (error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
-      throw new CodexDevelopmentUnsupportedAnchoredPathEffectError(error.code);
+      throw new UnsupportedAnchoredPathEffectError(error.code);
     }
     if (error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
         || error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED') {
-      throw new CodexDevelopmentUnsafeAnchoredPathError({
+      throw new UnsafeAnchoredPathError({
         label: input.label,
         targetPath: input.targetPath,
         cause: error
@@ -295,7 +295,7 @@ export async function ensureSafeDirectory(input: {
           try {
             input.durability?.beforeCreatedParentBarrier?.(event);
           } catch (error) {
-            throw new CodexDevelopmentDurabilityBarrierError({
+            throw new DurabilityBarrierError({
               operation: 'parent-directory-barrier',
               targetPath: event.parentPath,
               cause: error
@@ -409,7 +409,7 @@ async function withRetainedPhysicalTransaction<T>(
               try {
                 await durability.parentDirectoryBarrier?.(event.parentPath);
               } catch (error) {
-                throw new CodexDevelopmentDurabilityBarrierError({
+                throw new DurabilityBarrierError({
                   operation: 'parent-directory-barrier',
                   targetPath: event.parentPath,
                   cause: error
@@ -598,7 +598,7 @@ async function durableRename(input: {
   retained?: RetainedPublishObjectAuthority;
 }): Promise<void> {
   if (input.replaceExisting !== false) {
-    throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('retained no-replace rename');
+    throw new UnsupportedAnchoredPathEffectError('retained no-replace rename');
   }
   const run = async (authority: RetainedPublishObjectAuthority): Promise<void> => {
     assertRetainedPublishAuthority({
@@ -708,10 +708,10 @@ export async function resolveRecoverableRepositoryFile(
 export function entryRecoveryPath(input: {
   artifactRoot: string;
   operationId: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   suffix: 'pre' | 'retired-pre' | 'retired-next';
 }): string {
-  const stem = CodexDevelopmentDocumentControlRecoveryEntryStem({
+  const stem = documentControlRecoveryEntryStem({
     operationId: input.operationId,
     targetKey: input.targetKey
   });
@@ -868,7 +868,7 @@ type PublishTupleClassifierSource = Readonly<{
   boundaryRoot: string;
   artifactRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   nextPath: string;
   pre: Buffer;
   next: Buffer;
@@ -1016,7 +1016,7 @@ export async function publishEntryNoReplaceCas(input: {
   boundaryRoot: string;
   artifactRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   nextPath: string;
   pre: Buffer;
   next: Buffer;
@@ -1268,11 +1268,11 @@ export function atomicCasNextPath(filePath: string, operationId: string): string
 }
 
 interface InitiallyAbsentEntryResolution {
-  readonly state: CodexDevelopmentInitiallyAbsentTupleState;
+  readonly state: InitiallyAbsentTupleState;
   readonly tuple: Readonly<{
-    target: CodexDevelopmentInitiallyAbsentTupleEntry;
-    next: CodexDevelopmentInitiallyAbsentTupleEntry;
-    retiredNext: CodexDevelopmentInitiallyAbsentTupleEntry;
+    target: InitiallyAbsentTupleEntry;
+    next: InitiallyAbsentTupleEntry;
+    retiredNext: InitiallyAbsentTupleEntry;
   }>;
   readonly target: PublishEntryObservation;
   readonly next: PublishEntryObservation;
@@ -1291,7 +1291,7 @@ type InitiallyAbsentTupleClassifierInput = Readonly<{
 export function initialTupleEntryAdapter(
   entry: PublishEntryObservation,
   next: Buffer
-): CodexDevelopmentInitiallyAbsentTupleEntry {
+): InitiallyAbsentTupleEntry {
   const identity = entry.identity === null
     ? null
     : typeof entry.identity === 'string'
@@ -1313,8 +1313,8 @@ function initialTupleResolutionAdapter(input: Readonly<{
     next: initialTupleEntryAdapter(input.nextEntry, input.next),
     retiredNext: initialTupleEntryAdapter(input.retiredNext, input.next)
   });
-  const resolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-    platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+  const resolution = classifyInitiallyAbsentEntryTuple({
+    platform: process.platform as InitiallyAbsentTuplePlatform,
     tuple
   });
   if (resolution.status === 'invalid') {
@@ -1405,11 +1405,11 @@ async function withRetainedInitiallyAbsentEntryTuple<T>(
 function assertInitiallyAbsentTransitionFromContract(
   predecessor: InitiallyAbsentEntryResolution,
   successor: InitiallyAbsentEntryResolution,
-  expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdge,
+  expectedEdge: InitiallyAbsentTupleEdge,
   label: string
 ): void {
-  const resolution = CodexDevelopmentAssertInitiallyAbsentEntryTransition({
-    platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+  const resolution = assertInitiallyAbsentEntryTransition({
+    platform: process.platform as InitiallyAbsentTuplePlatform,
     predecessor: predecessor.tuple,
     successor: successor.tuple,
     expectedEdge
@@ -1422,7 +1422,7 @@ function assertInitiallyAbsentTransitionFromContract(
 export async function publishInitiallyAbsentEntryNoReplace(input: {
   boundaryRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   nextPath: string;
   next: Buffer;
   label: string;
@@ -1452,7 +1452,7 @@ export async function publishInitiallyAbsentEntryNoReplace(input: {
   }, input.durability);
   const assertSuccessor = async (
     predecessor: InitiallyAbsentEntryResolution,
-    expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdge
+    expectedEdge: InitiallyAbsentTupleEdge
   ): Promise<void> => {
     const successor = await observeInitiallyAbsentEntryTuple(classifier);
     assertInitiallyAbsentTransitionFromContract(predecessor, successor, expectedEdge, input.label);

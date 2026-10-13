@@ -13,6 +13,7 @@ import {
   unlinkSync
 } from 'node:fs';
 import path from 'node:path';
+import type { BranchCloseoutAttempt, BranchLifecycleInventory, BranchRecoveryAuthority } from '../../../../execution/verification/branch-closeout.ts';
 
 import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type NoFollowDirectoryTreeEntry, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
@@ -25,10 +26,7 @@ import {
 import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
-  assertGitSha,
-  type BranchCloseoutAttempt,
-  type BranchLifecycleInventory,
-  type BranchRecoveryAuthority
+  assertGitSha
 } from './branch-lifecycle-contract.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;

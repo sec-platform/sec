@@ -1,9 +1,9 @@
 /** Operation and resource lifetime for VerificationSession's local native Git work. */
 import { sha256 } from '../../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext, type SecOperationDigest
+  bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext, type OperationDigest
 } from '../../../../../execution/operation/semantic.ts';
 import { settleResources, settleResourcesAsync } from '../../../../../execution/resource-settlement.ts';
 import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../../../providers/git/environment.ts';
@@ -16,18 +16,18 @@ import { assertProcessResourceSessionReceipt, openProcessResourceSession } from 
 import { resolveExecutableLocator } from '../../../../runtime-state/physical/runtime/process.ts';
 
 const REQUIREMENT = 'verification-session.local-worktree.git';
-const CONTRACT = sha256({ operation: REQUIREMENT, scope: 'exact-local-detached-candidate' }) as SecOperationDigest;
-const PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: REQUIREMENT }) as SecOperationDigest;
+const CONTRACT = sha256({ operation: REQUIREMENT, scope: 'exact-local-detached-candidate' }) as OperationDigest;
+const PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: REQUIREMENT }) as OperationDigest;
 
 export type SessionLocalRepository = Omit<LocalGitRepository, 'close'> & Readonly<{ release(): Promise<void> }>;
 
 export function openSessionLocalRepository(root: string, maximumProcesses: number): SessionLocalRepository {
   if (!Number.isSafeInteger(maximumProcesses) || maximumProcesses < 1) throw new Error('Local Git process budget is invalid.');
   const duration = 60 * 60 * 1000;
-  const plan = compileSecSemanticOperationPlan({
-    operation: REQUIREMENT, intentDigest: sha256({ root, maximumProcesses }) as SecOperationDigest,
+  const plan = compileSemanticOperationPlan({
+    operation: REQUIREMENT, intentDigest: sha256({ root, maximumProcesses }) as OperationDigest,
     decisionDigest: CONTRACT, deadlineAtUnixMs: Date.now() + duration,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: duration }, { resource: 'processes', maximum: maximumProcesses },
       { resource: 'input-bytes', maximum: 0 },
@@ -37,11 +37,11 @@ export function openSessionLocalRepository(root: string, maximumProcesses: numbe
       failureKinds: ['provider.cancelled', 'provider.deadline-exhausted', 'provider.drift',
         'provider.execution-failed', 'provider.unavailable', 'provider.unverified'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT, contractDigest: CONTRACT, providerIdentityDigest: PROVIDER
   })]);
   const processes = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation, requirementId: REQUIREMENT,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let provider: GitPhysicalProviderCapability | undefined;
   let repository: LocalGitRepository | undefined;

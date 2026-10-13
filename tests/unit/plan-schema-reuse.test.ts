@@ -1,9 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { SUPPORTED_STACK, type PlanFile } from '../../src/compiler/contract.ts';
-import { AppModeSchema, PackageManagerSchema, PlanAppSchema, PlanRegistrySourceSchema } from '../../src/compiler/contract/plan-schema.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
-import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../src/contracts/registry-source.ts';
 const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
   officialPath: 'catalog/registry/official',
   privatePath: 'model/blocks/private'
@@ -38,16 +36,6 @@ test('null scalar defaults remain distinct from null containers', () => {
   assert.equal(plan.registry.sources[0]?.kind, 'private'); assert.equal(plan.registry.sources[0]?.location, 'workspace');
   for (const invalid of [{ app: null }, { registry: null }, { registry: { sources: null } }, { blocks: null }, { acceptance: null }]) {
     assert.throws(() => normalize({ ...input(), ...invalid }));
-  }
-});
-
-test('one structural source defines accepted package/mode and registry values', () => {
-  for (const packageManager of PackageManagerSchema.options) for (const mode of AppModeSchema.options) {
-    const plan = normalize({ app: { ...input().app, packageManager, mode } });
-    assert.deepEqual(PlanAppSchema.parse(plan.app), plan.app); validatePlan(plan);
-  }
-  for (const kind of REGISTRY_KINDS) for (const location of REGISTRY_LOCATIONS) {
-    assert.equal(PlanRegistrySourceSchema.safeParse({ id: 'registry', kind, location, path: 'registry' }).success, true);
   }
 });
 

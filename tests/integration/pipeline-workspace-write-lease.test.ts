@@ -181,8 +181,7 @@ test('the pipeline lease monitor aborts a long-running isolated child when the s
   }, 'engineering-compiler-pipeline-lease-monitor-');
 }, 120000);
 
-test('an aborted live command terminates both the direct Windows child and its descendant tree', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('an aborted live command terminates both the direct Windows child and its descendant tree', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const parentReady = path.join(workspaceRoot, 'parent-ready');
     const parentPulse = path.join(workspaceRoot, 'parent-pulse');

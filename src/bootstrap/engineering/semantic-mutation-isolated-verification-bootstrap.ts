@@ -11,9 +11,6 @@ import {
   publishSemanticMutationIsolatedProgressCheckpoint,
   SemanticMutationIsolatedProgressPublicationError
 } from '../../adapters/verification/isolation/isolated-verification-child-progress.ts';
-import {
-  withSemanticMutationIsolatedPhaseTelemetry
-} from '../../adapters/verification/isolation/isolated-verification-phase-telemetry.ts';
 import { readProjectBaseline } from '../../adapters/workspace/project-baseline.ts';
 import { runSemanticMutationIsolatedVerifyAll } from '../../application/semantic-mutation-isolated-runner.ts';
 import {
@@ -53,24 +50,20 @@ async function executeSemanticMutationIsolatedVerification(
     compileVerifyAll: async observer => {
       const isolatedVerificationCapability =
         mintIsolatedVerificationCapability(stagingWorkspaceRoot);
-      return withSemanticMutationIsolatedPhaseTelemetry(
-        stagingWorkspaceRoot,
-        'compile-workspace',
-        async () => await compileWorkspace(stagingWorkspaceRoot, {
-          source: 'api',
-          from: 'resolve',
-          through: 'verify',
-          isolatedVerificationCapability,
-          onEvent: event => {
-            if (event.type === 'execution-boundary' && event.boundary) {
-              observer.onExecutionBoundary(event.boundary);
-            } else if (event.type === 'transaction-start') {
-              observer.onTransactionStart();
-            }
-          },
-          verificationLane: 'all'
-        })
-      );
+      return compileWorkspace(stagingWorkspaceRoot, {
+        source: 'api',
+        from: 'resolve',
+        through: 'verify',
+        isolatedVerificationCapability,
+        onEvent: event => {
+          if (event.type === 'execution-boundary' && event.boundary) {
+            observer.onExecutionBoundary(event.boundary);
+          } else if (event.type === 'transaction-start') {
+            observer.onTransactionStart();
+          }
+        },
+        verificationLane: 'all'
+      });
     },
     hasProjectBaseline: async () => Boolean(await readProjectBaseline(stagingWorkspaceRoot)),
     isProgressPublicationError: error =>

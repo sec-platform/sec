@@ -7,12 +7,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { GitHubCheckObservation, GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation } from '../../../../providers/github-api/contract.ts';
+import type { GitHubCheckObservation, SessionDigest } from '../../../../../execution/verification/session.ts';
+import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation } from '../../../../providers/github-api/contract.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
-
-
-export type SessionDigest = `sha256:${string}`;
 
 export interface GitHubReviewObservation {
   id: string;

@@ -1,4 +1,5 @@
 import { uniqueSorted } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
 import {
   createUpgradePreview,
@@ -9,7 +10,6 @@ import {
   type UpgradePreview
 } from '../../semantics/upgrade/upgrade-artifact.ts';
 import type { LockFile, PlanFile, UpgradeMigration } from '../contract.ts';
-import { CompilerError } from '../errors.ts';
 import { migrationManifestDetails } from './failure.ts';
 import {
   compileUpgradeMigrationOperation,
@@ -29,26 +29,26 @@ export function assertUpgradeAllowed(
   matchesVersionRange: UpgradeVersionRangeMatcher
 ): void {
   if (currentVersion === targetVersion) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-NOOP-001',
       `Block is already at version "${targetVersion}"`
     );
   }
   if (acceptedRanges.length === 0) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-BLOCKED-001',
       `Target version "${targetVersion}" does not support automatic upgrade`
     );
   }
   if (!acceptedRanges.some((range) => matchesVersionRange(currentVersion, range))) {
-    throw new CompilerError(
+    throw new CodedFailure(
       'UPGRADE-BLOCKED-002',
       `Target version "${targetVersion}" does not accept upgrade from "${currentVersion}"`
     );
   }
   for (const migration of migrations) {
     if (!migration.entry) {
-      throw new CompilerError(
+      throw new CodedFailure(
         'UPGRADE-MIGRATION-001',
         `Migration "${migration.id}" is missing entry`,
         migrationManifestDetails(migration)

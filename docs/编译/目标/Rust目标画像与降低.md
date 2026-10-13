@@ -1,6 +1,6 @@
 # Rust目标画像与降低
 
-> **范围**：Rust 已进入当前通用目标语言计划；TypeScript 仍先行。本篇闭合 Rust 目标的设计边界，不表示后端、工具链、Cargo、ABI、调试或运行符合性已经实现，也不授权迁写 SEC 核心。
+> **范围**：Rust 已进入当前通用目标语言计划；TypeScript 仍先行。本篇闭合 Rust 目标的设计边界，不表示后端、工具链、Cargo、ABI、调试或运行符合性已经实现，也不授权迁写 Gift 核心。
 
 本篇是 [目标组织](README.md)、[原生能力映射](../原生映射/README.md) 和 [原生与跨语言编译](../内核/原生与跨语言编译.md) 在 Rust 输出上的具体消费。作者语义、对象/资源/数值/原子规则仍由其原 owner 拥有；这里固定怎样选择实际 Rust 工具链、怎样降低已绑定语义、怎样组成 crate/产物以及怎样保留诊断与再次修改。Rust 的缺失或额外能力不能反向修改原 Requirement，目标能够表达某种写法也不证明本次 MethodSpec、依赖或运行环境已经合格。
 
@@ -14,7 +14,7 @@
 4. 用实际 rustc/Cargo/链接器取得所请求级别的证据；
 5. 保存目标源码及来源映射；若允许目标编辑，再沿既有 EditCorrespondence 回源。
 
-Rust 是目标语言，不是新的 SEC 语义真源。已有 Rust 原生作者区域继续保持其 own source 与真实语言解释；如果它已经满足本次根，可直接绑定/重导出，不生成同义 Rust 副本。外部 C/C++、Wasm、GPU 或系统库仍只是明确依赖或原生边界，不因为 Rust 目标存在就变成“纯 Rust 实现”。
+Rust 是目标语言，不是新的 Gift 语义真源。已有 Rust 原生作者区域继续保持其 own source 与真实语言解释；如果它已经满足本次根，可直接绑定/重导出，不生成同义 Rust 副本。外部 C/C++、Wasm、GPU 或系统库仍只是明确依赖或原生边界，不因为 Rust 目标存在就变成“纯 Rust 实现”。
 
 ## 2. 请求画像与解析后的精确绑定
 
@@ -85,7 +85,7 @@ workspace 只在多根真实共享代码、配置或依赖时建立；单库不�
 | F32/F64 | `f32/f64` | 动态舍入、扩展精度、代数优化见数值画像 |
 | Text | `String`、`&str` 或其他已选编码边界 | 拥有/借用、UTF 合法性、FFI/bytes |
 | Bytes | `Vec<u8>`、`&[u8]`、固定数组或实际 buffer 类型 | 地址稳定、零拷贝、共享内存 |
-| 固定数组 | `[T; N]`（当目标可表达） | 复杂 const 表达式可先由 SEC 具体化；不能冒领开放原生泛型 |
+| 固定数组 | `[T; N]`（当目标可表达） | 复杂 const 表达式可先由 Gift 具体化；不能冒领开放原生泛型 |
 | List/Sequence | `Vec<T>` 或明确容器 | allocator、no_std、稳定地址及外部接口 |
 | Record | `struct` | field visibility、layout、repr、非字节字段 |
 | Sum/Variant | `enum` | wire tag、FFI representation、unknown variant |
@@ -100,7 +100,7 @@ workspace 只在多根真实共享代码、配置或依赖时建立；单库不�
 
 ## 5. 所有权、借用、初始化与清理
 
-Rust lowering 只在 SEC 已有所有权/寿命事实足以证明时生成安全引用。无法证明全局别名不存在时选择拥有复制、受管句柄、锁/guard、raw/unsafe 适配或准确 Unsupported，不能先造 `&mut T` 再运行检查。
+Rust lowering 只在 Gift 已有所有权/寿命事实足以证明时生成安全引用。无法证明全局别名不存在时选择拥有复制、受管句柄、锁/guard、raw/unsafe 适配或准确 Unsupported，不能先造 `&mut T` 再运行检查。
 
 - **Own**：移动后旧绑定不再可用；若源语义要求 moved-from 对象继续存在，使用已选 transfer/adapter，不把 Rust move 冒充 C++ move constructor；
 - **Borrow**：生命周期来源于真实 owner/调用边界，不能跨越异步挂起、线程迁移或模块卸载而失去前提；
@@ -129,22 +129,22 @@ Rust lowering 只在 SEC 已有所有权/寿命事实足以证明时生成安全
 
 Rust 原生泛型只在它真实表达所需接口时保留。目标选择按[四种导出边界](../原生映射/采用与导出边界.md)区分：
 
-1. **可继续实例化的 SEC 定义**：交付定义与工具依赖，下游仍由 SEC 处理；
+1. **可继续实例化的 Gift 定义**：交付定义与工具依赖，下游仍由 Gift 处理；
 2. **Rust 原生泛型**：生成可由 rustc 对未来参数继续实例化的合法泛型；
-3. **有限实例集合**：SEC 已经单态化为具体 Rust 成员；
+3. **有限实例集合**：Gift 已经单态化为具体 Rust 成员；
 4. **动态字典/对象接口**：运行时选择，承担实际间接调用、元数据与资源成本。
 
-参数包、复杂 const 表达式、specialization 和静态反射可在 SEC 编译期消去，再输出普通 Rust。消去后仍可观察的布局、地址、错误、分配、原子与公开 API 差异必须保留。不能因为若干已知 T 成功生成就声称任意下游 T 获得同形 Rust 泛型 API。
+参数包、复杂 const 表达式、specialization 和静态反射可在 Gift 编译期消去，再输出普通 Rust。消去后仍可观察的布局、地址、错误、分配、原子与公开 API 差异必须保留。不能因为若干已知 T 成功生成就声称任意下游 T 获得同形 Rust 泛型 API。
 
-Rust `const fn`/const generic 的实际可用范围由固定 toolchain 能力确定；需要 SEC compile-only 的元方法不必强迫 rustc 也支持同一元程序。运行时不需要的反射元数据不进入产物。
+Rust `const fn`/const generic 的实际可用范围由固定 toolchain 能力确定；需要 Gift compile-only 的元方法不必强迫 rustc 也支持同一元程序。运行时不需要的反射元数据不进入产物。
 
 ## 8. 模块、可见性、名字与源码结构
 
 默认一个语义 module 对应稳定、可维护的 Rust module 区域；生成器可为循环声明、公开 API、私有 helper 与目标布局选择更合适的文件边界，但不能改变公共路径而无迁移说明。
 
 - public boundary 使用 `pub` / `pub(crate)` / private 等实际 Rust 可见性；
-- SEC 的现实授权、秘密和运行 permission 不由 Rust visibility 代替；
-- 保留作者明确公共名字；机械 helper 采用确定性且冲突安全的名字，不向用户 API 强加 `sec_` 前缀；
+- Gift 的现实授权、秘密和运行 permission 不由 Rust visibility 代替；
+- 保留作者明确公共名字；机械 helper 采用确定性且冲突安全的名字，不向用户 API 强加 `gift_` 前缀；
 - 关键字、Unicode 与 filesystem portability 由目标命名规则解决；
 - module re-export 只有在无语义差额时直接使用；需要适配才生成 wrapper；
 - 原生 Rust hand-written 区域不因同名被生成器接管。
@@ -165,6 +165,21 @@ Cargo 是常规 Rust 工程的默认成熟构建/依赖供给，但不是语义 
 **build.rs 与 proc-macro：** 它们是可执行构建供给，不是纯数据依赖。源码/二进制、环境、文件、网络、工具与输出必须进入实际输入/Effect 边界；没有许可不能在类型检查里偷偷执行。仅消费其声明结果不等于把执行权交给任意依赖。
 
 **编译闭包：** Cargo/rustc、标准库、target support、linker、system/native libs、generated sources 和必要配置全部在目标成员/工具输入中。构建目录缓存不是作者源，也不进入发行包除非真实消费者需要。
+
+<a id="rust-dependency-realization"></a>
+## 9A. Rust 业务库的能力绑定、feature 解析与生成消费
+
+Rust 后端不承担“看到某个业务词就挑最流行 crate”的职责。进入本页以前，resolver 已经按[实现选择与依赖冻结](../实现选择与设计搜索.md#dependency-resolution-freeze)把能力需求解析为精确 Provider/Dependency Binding；本页只负责把该绑定合法地投影为 Rust crate graph、Cargo manifest、源码调用与必要 adapter。
+
+对每个被选 crate，目标绑定至少能解析：package identity/source、精确 version/commit/content、启用/禁用 features、default-features 决定、target-specific 条件、公开 API 合同 revision、许可/安全资格、build.rs/proc-macro/native-link effect、no_std/std 前提以及本次实际消费的 symbols/capabilities。Cargo 自己解析得到的 feature unification、平台条件和 lock 结果属于真实 Provider 事实；Gift 不另写一套看似相同但可能分歧的 Cargo 求解器。
+
+生成器消费的是**能力映射**而不是字符串模板。例如同一个“HTTP client”能力可以由不同 crate 实现；Binding 固定后，adapter/method 决定构造 client、错误映射、async runtime、TLS、取消和资源关闭。后端不得只因 crate API 改名就在 printer 中猜另一函数；映射失配使该 Provider/Method 不合格并回到 resolver/Needs。一个成熟 crate 已经完整承担算法时，Gift 生成最小调用和适配代码，不复制其内部算法；只有相交差额需要本地产生代码。
+
+依赖贡献由各 UseBinding 汇入一个 crate/workspace 级 composition：相同 package source/version 的 feature 要按 Cargo 真实规则联合，互斥/不兼容语义在组合阶段失败或隔离为不同可合法共存的 package identity；不能让最后写 manifest 的 method 覆盖前者。不同目标根若要求不相容依赖，可以形成不同 crate/workspace/构建根，不能为了“一个 Cargo.toml”降低业务合同。
+
+build.rs、proc-macro 与 native dependency 都是可执行/外部供给。它们可以是成熟代码复用路径，但必须通过实际构建 Effect、供应链和可重现输入管理；不能因为“别人已有完美代码”就把未知脚本升级为纯编译数据。对于只需库 API 的普通业务，优先直接复用合格 crate；对于需要修改/学习候选实现的开发任务，可以把其源码作为有来源的外部/原生资产读取和比较，但不会因此复制成 Gift 作者真源或自动获得商业再分发许可。
+
+该设计允许将“库怎么写最好”的大部分实现知识交给成熟生态，同时保持 Gift 对选择理由、版本、feature、行为差额和目标适配的控制。它不承诺存在一个对所有业务永远最优的 crate，也不允许网络搜索结果直接进入可重现生成。
 
 ## 10. rustc/Cargo 诊断与 SourceMap
 
@@ -231,11 +246,11 @@ Rust 根的成员按[完整产物](成员布局与完整产物.md)组织，典�
 - 可执行/库产物（当任务要求构建）；
 - 调试信息、测试、benchmark 仅在相应任务需要时加入。
 
-SEC 内部控制数据库、全部证据图和未请求测试不自动进入用户发行。反之，应用实际需要的 runtime/native 资源不能因为“不是 Rust 源码”被漏掉。
+Gift 内部控制数据库、全部证据图和未请求测试不自动进入用户发行。反之，应用实际需要的 runtime/native 资源不能因为“不是 Rust 源码”被漏掉。
 
 ## 15. 受管目标编辑与再次修改
 
-生成 Rust 是可读、可调试的目标，不等于所有 Rust 修改都可逆回 SEC 作者源。
+生成 Rust 是可读、可调试的目标，不等于所有 Rust 修改都可逆回 Gift 作者源。
 
 - 无语义差额的字面量/局部表达式/明确参数修改可由 EditCorrespondence 转回原作者位置；
 - helper 展开、多处共享定义、特化、所有权/借用重构、ABI/unsafe 区域等只有存在唯一/受管逆映射时自动回源；

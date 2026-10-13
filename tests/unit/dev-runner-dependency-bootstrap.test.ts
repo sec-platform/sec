@@ -5,7 +5,7 @@ import { afterEach, beforeAll, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
+import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 import {
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation
@@ -130,7 +130,7 @@ test.skipIf(
   || CROSS_PROCESS_READY_MARKER === undefined
   || CROSS_PROCESS_RESULT === undefined
 )('dependency bootstrap child consumes one durable materialization Action', async () => {
-  const result = await ensureOperationDependencies(compileSecOperationDemandGraph({
+  const result = await ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'typecheck',
     terminalWorkIds: []
   }), {
@@ -241,7 +241,7 @@ test(
 for (const source of ['existing', 'installed'] as const) {
   test(`dependency bootstrap exposes the manifest-bound compiler tree (${source})`, async () => {
     const hookRoots: string[] = [];
-    const result = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    const result = await ensureOperationDependencies(compileOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: 'always'
@@ -267,7 +267,7 @@ for (const source of ['existing', 'installed'] as const) {
 for (const source of ['existing', 'installed'] as const) {
   test(`warmed hook policy only closes hooks after compiler installation (${source})`, async () => {
     const hookRoots: string[] = [];
-    await ensureOperationDependencies(compileSecOperationDemandGraph({
+    await ensureOperationDependencies(compileOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: 'if-installed'
@@ -285,7 +285,7 @@ for (const source of ['existing', 'installed'] as const) {
 for (const source of ['existing', 'installed'] as const) {
   test(`active Git hook execution never recursively installs hooks (${source})`, async () => {
     const hookRoots: string[] = [];
-    await ensureOperationDependencies(compileSecOperationDemandGraph({
+    await ensureOperationDependencies(compileOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: 'never'
@@ -302,7 +302,7 @@ for (const source of ['existing', 'installed'] as const) {
 
 test('operation demand materializes only the compiler dependency capability', async () => {
   const calls: string[] = [];
-  const result = await ensureOperationDependencies(compileSecOperationDemandGraph({
+  const result = await ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'test-fast',
     terminalWorkIds: []
   }), isolatedBootstrapOptions({
@@ -324,14 +324,14 @@ test('operation demand materializes only the compiler dependency capability', as
 });
 
 test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
-  await expect(ensureOperationDependencies(compileSecOperationDemandGraph({
+  await expect(ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: []
 }))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
 });
 
 test('one process-local materialization is reusable only for a covered demand closure', async () => {
-  const fastGraph = compileSecOperationDemandGraph({
+  const fastGraph = compileOperationDemandGraph({
     operation: 'test-fast',
     terminalWorkIds: []
   });
@@ -345,7 +345,7 @@ test('one process-local materialization is reusable only for a covered demand cl
   )).toThrow('was not materialized by this process');
   expect(await handoffDevRunnerToFreshProcess(result)).toBeNull();
   expect(reuseOperationDependencies(result, fastGraph)).toBe(result);
-  expect(() => reuseOperationDependencies(result, compileSecOperationDemandGraph({
+  expect(() => reuseOperationDependencies(result, compileOperationDemandGraph({
     operation: 'dependency-setup',
     terminalWorkIds: [],
     hookPolicy: 'always'
@@ -373,31 +373,6 @@ test('dependency generation transitions require one exact fresh-process handoff'
   expect(() => createDependencyFreshProcessHandoff(transitioned, {
     [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: `sha256:${'c'.repeat(64)}`
   })).toThrow('attempted more than one fresh-process transition');
-});
-
-test('check --affected --plan performs zero dependency materialization or fresh-process handoff', async () => {
-  const calls: string[] = [];
-  const exitCode = await runCheckAffectedCommand(['--plan'], {
-    runPlan: async () => {
-      calls.push('plan');
-      return 0;
-    },
-    ensureDependencies: async () => {
-      calls.push('dependency-effect');
-      throw new Error('plan crossed dependency admission');
-    },
-    handoff: async () => {
-      calls.push('handoff-effect');
-      throw new Error('plan crossed handoff admission');
-    },
-    runExecution: async () => {
-      calls.push('execution');
-      throw new Error('plan crossed execution admission');
-    }
-  });
-
-  expect(exitCode).toBe(0);
-  expect(calls).toEqual(['plan']);
 });
 
 test.serial('check --affected --plan full call chain is non-persistent and uses the canonical trust exit', async () => {

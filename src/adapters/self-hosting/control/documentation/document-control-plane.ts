@@ -26,16 +26,16 @@ import {
 } from './document-control-index.ts';
 import {
   ActivePointerPath,
-  type CodexDevelopmentFreezeFault,
-  type CodexDevelopmentFreezeResult,
+  type FreezeFault,
+  type FreezeResult,
   RollingPlanPath
 } from './document-control-journal-codec.ts';
 import {
   assertFreezeReadOwnerCurrent,
-  CodexDevelopmentDocumentControlCliAdmissionError,
   createReadOnlyResolverGit,
   currentDocumentControlGitReadSession,
   DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET,
+  DocumentControlCliAdmissionError,
   documentControlCliFailure,
   ExternalCommandTimeoutMs,
   isDocumentControlHostCliTestSession,
@@ -45,13 +45,13 @@ import {
   withDocumentControlFreezeReadSession
 } from './document-control-observation.ts';
 import {
-  type CodexDevelopmentActiveWorkPackageResolution,
-  CodexDevelopmentClassifyFreezeConvergence,
-  type CodexDevelopmentDefaultRefState
+  type ActiveWorkPackageResolution,
+  classifyFreezeConvergence,
+  type DefaultRefState
 } from './document-control-plane-contract.ts';
 import {
   assertRegularRepositoryFile,
-  type CodexDevelopmentDurabilityObserver,
+  type DurabilityObserver,
   type FreezeDurabilityOptions,
   readOptionalSafeRegularFile,
   readSafeRegularFile,
@@ -87,18 +87,16 @@ import { resolveLiveControlPlane } from './document-control-status.ts';
  * Do not add a registry or a second tree builder to reconnect these roles.
  */
 
-export {
-  CodexDevelopmentDocumentControlCliAdmissionError, createDocumentControlRoutingTestActorForTests, observeDocumentControlWorkRouting, withDocumentControlHostCliTestSessionV1, type CodexDevelopmentDocumentControlCliAdmissionReason, type CodexDevelopmentDocumentControlCliAdmissionStatus, type CodexDevelopmentDocumentControlCliOperation, type DocumentControlRoutingTestActor
-} from './document-control-observation.ts';
+export { createDocumentControlRoutingTestActorForTests, DocumentControlCliAdmissionError, observeDocumentControlWorkRouting, withDocumentControlHostCliTestSession, type DocumentControlCliAdmissionReason, type DocumentControlCliAdmissionStatus, type DocumentControlCliOperation, type DocumentControlRoutingTestActor } from './document-control-observation.ts';
 
 export {
-  type CodexDevelopmentDurabilityEvent, type CodexDevelopmentDurabilityStage, type CodexDevelopmentFreezeFault, type CodexDevelopmentFreezeResult
+  type DurabilityEvent, type DurabilityStage, type FreezeFault, type FreezeResult
 } from './document-control-journal-codec.ts';
 
 export {
-  CodexDevelopmentDurabilityBarrierError,
-  CodexDevelopmentUnsafeAnchoredPathError,
-  CodexDevelopmentUnsupportedAnchoredPathEffectError, type CodexDevelopmentDurabilityObserver
+  DurabilityBarrierError,
+  UnsafeAnchoredPathError,
+  UnsupportedAnchoredPathEffectError, type DurabilityObserver
 } from './document-control-publication.ts';
 
 export { observeActiveWorkPackage, resolveLiveControlPlane } from './document-control-status.ts';
@@ -123,11 +121,11 @@ type FreezeDocumentControlPlaneInput = {
   reviewedOn: string;
   /** Author one untrusted tracking:none successor projection without activation authority. */
   proposalOnly?: boolean;
-  faultAfter?: CodexDevelopmentFreezeFault;
+  faultAfter?: FreezeFault;
   /** Internal test seam after writer settlement and before terminal re-admission. */
   beforeTerminalRetirement?: (writer: FreezeWriterSettlementObservation) => Promise<void> | void;
   /** Internal deterministic contract-test observer for rename durability ordering. */
-  durabilityObserver?: CodexDevelopmentDurabilityObserver;
+  durabilityObserver?: DurabilityObserver;
   /** Internal deterministic contract-test seam for an unsupported directory barrier. */
   parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
   /** Internal deterministic contract-test seam before the post-admission local stability fence. */
@@ -157,7 +155,7 @@ async function runFreezeOwner(input: FreezeDocumentControlPlaneInput, options: R
   deadlineAtUnixMs: number;
   requiredTerminalOperationId?: string;
   beforeWriter?: () => Promise<void>;
-}>): Promise<Readonly<{ result: CodexDevelopmentFreezeResult; deferred: boolean; writer: FreezeWriterSettlementObservation }>> {
+}>): Promise<Readonly<{ result: FreezeResult; deferred: boolean; writer: FreezeWriterSettlementObservation }>> {
   input = Object.freeze({ ...input });
   const cwd = path.resolve(input.cwd);
   // A distinct old terminal responsibility may finish before this new request.
@@ -212,7 +210,7 @@ async function freezeDocumentControlPlaneWithSession(
     priorTerminalRetired?: () => void;
     forbidAnotherPriorTerminal?: boolean;
   }> = {}
-): Promise<CodexDevelopmentFreezeResult> {
+): Promise<FreezeResult> {
   assertCanonicalManifestPath(input.manifestPath);
   assertReviewedOn(input.reviewedOn);
   const repositoryRoot = requireCommand(
@@ -418,7 +416,7 @@ async function freezeDocumentControlPlaneWithSession(
     );
     const retirementSatisfied = projection.retiredManifestPath === null
       || !snapshot.indexPaths.includes(projection.retiredManifestPath);
-    const convergence = CodexDevelopmentClassifyFreezeConvergence({
+    const convergence = classifyFreezeConvergence({
       targetManifestMatches: indexedTargetManifest !== undefined
         && indexedTargetManifest.equals(manifestBytes),
       pointerMatches: pointerPre.equals(pointerNext),
@@ -463,7 +461,7 @@ async function freezeDocumentControlPlaneWithSession(
         : [projection.retiredManifestPath]
     });
     const operation = createFreezeOperation(built.treeSha, built.bytes);
-    const builtConvergence = CodexDevelopmentClassifyFreezeConvergence({
+    const builtConvergence = classifyFreezeConvergence({
       candidateTreeMatches: built.treeSha === snapshot.treeSha,
       targetManifestMatches: true,
       pointerMatches: pointerWorktree.equals(pointerNext),
@@ -530,10 +528,10 @@ async function freezeDocumentControlPlaneWithSession(
 
 async function completeDeferredTerminalFreeze(
   input: FreezeDocumentControlPlaneInput,
-  expected: CodexDevelopmentFreezeResult,
+  expected: FreezeResult,
   deadlineAtUnixMs: number,
   writer: FreezeWriterSettlementObservation
-): Promise<CodexDevelopmentFreezeResult> {
+): Promise<FreezeResult> {
   // The terminal journal is a durable boundary. Its retirement has its own
   // bounded owner session and re-observes all authority under the workspace
   // lease; no process allowance is silently renewed inside the writer phase.
@@ -558,7 +556,7 @@ async function completeDeferredTerminalFreeze(
  */
 export async function freezeDocumentControlPlane(
   input: FreezeDocumentControlPlaneInput
-): Promise<CodexDevelopmentFreezeResult> {
+): Promise<FreezeResult> {
   if (isDocumentControlHostCliTestSession()
       || currentDocumentControlGitReadSession() !== undefined) {
     return freezeDocumentControlPlaneWithSession(input);
@@ -568,7 +566,7 @@ export async function freezeDocumentControlPlane(
     const { result, deferred, writer } = await runFreezeOwner(input, { deadlineAtUnixMs });
     return deferred ? await completeDeferredTerminalFreeze(input, result, deadlineAtUnixMs, writer) : result;
   } catch (error) {
-    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
+    if (error instanceof DocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
       throw documentControlCliFailure(
         'git',
@@ -600,9 +598,9 @@ async function runDocumentControlPlaneCliArguments(argv: string[]): Promise<void
       ? resolved
       : projectDocumentControlPlaneStatusCli(resolved);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-    const repository = resolved.repository as { defaultRefState: CodexDevelopmentDefaultRefState };
+    const repository = resolved.repository as { defaultRefState: DefaultRefState };
     const github = resolved.github as { status: string };
-    const active = resolved.activeWorkPackage as CodexDevelopmentActiveWorkPackageResolution;
+    const active = resolved.activeWorkPackage as ActiveWorkPackageResolution;
     if (
       repository.defaultRefState !== 'fresh'
       || github.status !== 'resolved'

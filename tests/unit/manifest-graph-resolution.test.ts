@@ -49,6 +49,20 @@ test('repeated equal explicit entries coalesce but preserve the chosen object', 
   assert.deepEqual(ids(result.entries), ['block/a']); assert.equal(result.entries[0], a);
 });
 
+test('a catalog cannot replace a captured explicit revision with different same-version content', () => {
+  const selected = entry('block/a'), changed = structuredClone(selected);
+  changed.manifest.provides = ['changed/service'];
+  assert.throws(() => resolve([selected], [changed]), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
+});
+
+test('equal catalog mirrors and different versions do not replace the captured explicit selection', () => {
+  const selected = entry('block/a'), mirror = structuredClone(selected);
+  mirror.registrySourceId = 'mirror'; mirror.manifestPath = '/mirror/block.manifest.yaml';
+  assert.equal(resolve([selected], [mirror]).entries[0], selected);
+  const newer = structuredClone(mirror); newer.manifest.version = '2.0.0'; newer.manifest.provides = ['new/service'];
+  assert.equal(resolve([selected], [newer]).entries[0], selected);
+});
+
 test('one provider repeating a declaration is not two ambiguous implementations', () => {
   const a = entry('block/a', ['service', 'service']), b = entry('block/b', [], ['service', 'service']);
   assert.deepEqual(ids(resolve([a], [a, b]).entries), ['block/b', 'block/a']);

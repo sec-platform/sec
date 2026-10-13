@@ -1,7 +1,7 @@
+import { CodedFailure } from '../contracts/failure.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir/validated-types.ts';
 import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan } from '../semantics/generation/types.ts';
 import type { SemanticViewSet } from '../semantics/projection/types.ts';
-import { CompilerError } from './errors.ts';
 import type { BuildEngineeringIRInput } from './ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from './ir/validate-engineering-ir.ts';
 import { buildSemanticViewSet } from './projection/build-semantic-view-set.ts';
@@ -27,7 +27,7 @@ function deriveSemanticGeneratorDeclarations(input: BuildEngineeringIRInput): Se
     const block = blocks.get(entry.blockId);
     const manifestPath = entry.manifestPath ?? block?.manifestPath;
     if (block === undefined || typeof manifestPath !== 'string' || manifestPath.length === 0) {
-      throw new CompilerError('GENERATOR-DECLARATION-001', `Generator source for "${entry.blockId}" lacks its selected block or manifest path`);
+      throw new CodedFailure('GENERATOR-DECLARATION-001', `Generator source for "${entry.blockId}" lacks its selected block or manifest path`);
     }
     return {
       blockId: entry.blockId, manifestPath, declaration: structuredClone(declaration),

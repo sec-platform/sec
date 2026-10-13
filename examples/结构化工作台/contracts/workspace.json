@@ -1,98 +1,79 @@
 {
-  "schema": "sec.author-module/1",
-  "moduleId": "sec/spec/workspace",
+  "schema": "gift.author-module/1",
+  "moduleId": "gift/spec/workspace",
   "namespace": "spec.workspace",
   "dialects": {
     "req": {
-      "languageId": "sec.requirement-structure",
+      "languageId": "gift.requirement-structure",
       "constraint": "1"
     }
   },
-  "imports": {},
+  "imports": {
+    "subjects": {
+      "mode": "workspace",
+      "moduleId": "gift/spec/ide"
+    }
+  },
   "definitions": {
     "v:RecoverDraftNotReplayEffects": {
       "kind": "req:enum-value",
       "name": "RecoverDraftNotReplayEffects",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#RecoverDraftNotReplayEffects"
-      }
+      "body": {}
     },
     "v:OpenEmptySuppressesDisk": {
       "kind": "req:enum-value",
       "name": "OpenEmptySuppressesDisk",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#OpenEmptySuppressesDisk"
-      }
+      "body": {}
     },
     "v:RuntimeGrant": {
       "kind": "req:enum-value",
       "name": "RuntimeGrant",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#RuntimeGrant"
-      }
+      "body": {}
     },
     "v:PreserveDrafts": {
       "kind": "req:enum-value",
       "name": "PreserveDrafts",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#PreserveDrafts"
-      }
+      "body": {}
     },
     "v:Move": {
       "kind": "req:enum-value",
       "name": "Move",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#Move"
-      }
+      "body": {}
     },
     "v:Read": {
       "kind": "req:enum-value",
       "name": "Read",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#Read"
-      }
+      "body": {}
     },
     "v:ProviderIdentity": {
       "kind": "req:enum-value",
       "name": "ProviderIdentity",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#ProviderIdentity"
-      }
+      "body": {}
     },
     "v:Many": {
       "kind": "req:enum-value",
       "name": "Many",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#Many"
-      }
+      "body": {}
     },
     "v:ExplicitMembership": {
       "kind": "req:enum-value",
       "name": "ExplicitMembership",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#ExplicitMembership"
-      }
+      "body": {}
     },
     "v:Delete": {
       "kind": "req:enum-value",
       "name": "Delete",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#Delete"
-      }
+      "body": {}
     },
     "v:Create": {
       "kind": "req:enum-value",
       "name": "Create",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#Create"
-      }
+      "body": {}
     },
     "v:OpenModelWins": {
       "kind": "req:enum-value",
       "name": "OpenModelWins",
-      "body": {
-        "nominalIdentity": "sec/spec/workspace#OpenModelWins"
-      }
+      "body": {}
     },
     "r:Roots": {
       "kind": "req:rule",
@@ -105,7 +86,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "根集合的主体身份"
@@ -115,7 +101,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#Many"
+                {
+                  "definitionId": "v:Many"
+                }
               ]
             },
             "meaning": "允许零个或多个根；未打开根不算失败"
@@ -125,7 +113,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#ProviderIdentity"
+                {
+                  "definitionId": "v:ProviderIdentity"
+                }
               ]
             },
             "meaning": "按提供者的规范资源身份，显示路径不定义相等"
@@ -135,7 +125,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#ExplicitMembership"
+                {
+                  "definitionId": "v:ExplicitMembership"
+                }
               ]
             },
             "meaning": "嵌套根的归属选择显式，不按扫描先后隐式抢占"
@@ -144,7 +136,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Roots",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -161,7 +152,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "同一工作区主体"
@@ -173,10 +169,18 @@
               "element": {
                 "kind": "enum",
                 "allowed": [
-                  "sec/spec/workspace#Read",
-                  "sec/spec/workspace#Create",
-                  "sec/spec/workspace#Move",
-                  "sec/spec/workspace#Delete"
+                  {
+                    "definitionId": "v:Read"
+                  },
+                  {
+                    "definitionId": "v:Create"
+                  },
+                  {
+                    "definitionId": "v:Move"
+                  },
+                  {
+                    "definitionId": "v:Delete"
+                  }
                 ]
               }
             },
@@ -187,7 +191,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#PreserveDrafts"
+                {
+                  "definitionId": "v:PreserveDrafts"
+                }
               ]
             },
             "meaning": "相交未保存内容必须保留或明确冲突"
@@ -197,7 +203,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#RuntimeGrant"
+                {
+                  "definitionId": "v:RuntimeGrant"
+                }
               ]
             },
             "meaning": "产品在每次作用处检查实际许可，不是此声明给予许可"
@@ -206,7 +214,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Files",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -223,7 +230,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "Workspace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "Workspace"
+                  }
+                }
               ]
             },
             "meaning": "捕获的工作区主体"
@@ -233,7 +245,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "此工作区采用的开放文档集合"
@@ -243,7 +260,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#OpenModelWins"
+                {
+                  "definitionId": "v:OpenModelWins"
+                }
               ]
             },
             "meaning": "已打开模型对该资源权威于旧磁盘内容"
@@ -253,7 +272,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#OpenEmptySuppressesDisk"
+                {
+                  "definitionId": "v:OpenEmptySuppressesDisk"
+                }
               ]
             },
             "meaning": "打开模型零命中或空内容也抑制旧磁盘结果"
@@ -262,7 +283,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Snapshot",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -279,7 +299,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "DocumentSpace"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "DocumentSpace"
+                  }
+                }
               ]
             },
             "meaning": "可恢复草稿主体"
@@ -289,7 +314,12 @@
             "type": {
               "kind": "subject",
               "subjectKinds": [
-                "EditHistory"
+                {
+                  "decl": {
+                    "import": "subjects",
+                    "export": "EditHistory"
+                  }
+                }
               ]
             },
             "meaning": "与草稿绑定的编辑历史"
@@ -299,7 +329,9 @@
             "type": {
               "kind": "enum",
               "allowed": [
-                "sec/spec/workspace#RecoverDraftNotReplayEffects"
+                {
+                  "definitionId": "v:RecoverDraftNotReplayEffects"
+                }
               ]
             },
             "meaning": "恢复内容与历史不重放外部执行"
@@ -308,7 +340,6 @@
         "semantics": {
           "source": "../../../docs/作者/需求规则与供给合同.md",
           "section": "workspace.Recovery",
-          "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
           "scope": "完整相应章节，包括正常行为、失败、帧、进展、实现责任；不是仅按字段可解析便获得执行含义"
         },
         "implementation": "unbound"
@@ -363,14 +394,6 @@
     },
     "Recovery": {
       "definitionId": "r:Recovery"
-    }
-  },
-  "extensions": {
-    "sec.documentation-derived/1": {
-      "source": "../../../docs/作者/需求规则与供给合同.md",
-      "sha256": "51c9b9fa0349a5432b091da71d09756c03c59997b24fe4328233b2a13fd91261",
-      "editable": false,
-      "note": "本份是固定文档的设计字段索引，不是已发布语义实现；正文含义未由可执行读取器交付。"
     }
   }
 }

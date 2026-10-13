@@ -22,7 +22,7 @@ import {
   sourceProgramSurfaceForPath
 } from './contract.ts';
 import {
-  resolveSecRepositoryModuleImportCandidates
+  resolveRepositoryModuleImportCandidates
 } from './module-graph.ts';
 import {
   compileTypeScriptRequiredApiClosure
@@ -380,7 +380,7 @@ export function compileTypeScriptModelInternal(
 
   const resolveModulePath = (sourcePath: string, specifier: string): string | null =>
     specifier.startsWith('.')
-      ? resolveSecRepositoryModuleImportCandidates(sourcePath, specifier)
+      ? resolveRepositoryModuleImportCandidates(sourcePath, specifier)
           .find((candidate) => filesByPath.has(candidate)) ?? null
       : null;
   sourceProgramCompilationCheckpoint(input.operation, 'return-provenance', 'start');

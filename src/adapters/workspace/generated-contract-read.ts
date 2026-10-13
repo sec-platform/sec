@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { isCiContractArtifactPath } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { getErrorCode } from '../../compiler/errors.ts';
+import { getErrorCode } from '../../contracts/failure-inspection.ts';
 import { readJson } from '../filesystem/files.ts';
 import { resolveWorkspaceArtifactPath } from '../workspace-context.ts';
 import { readLockFile } from './lock.ts';

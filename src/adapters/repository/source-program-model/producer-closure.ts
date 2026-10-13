@@ -109,7 +109,15 @@ function compileOperationProducerClosure(
     .filter(({ status }) => status === 'resolved')
     .map(({ entrypointPath }) => entrypointPath)
     .sort(compareCodeUnits);
-  if (operationEntrypoints.length !== 1) {
+  // A descriptor-declared operation that no entrypoint resolves as a runtime
+  // value is an unresolved export surface, not an ambiguous one.
+  if (operationEntrypoints.length === 0) {
+    throw new SourceProgramOperationProducerClosureError(
+      'entrypoint-export-unresolved',
+      `${owner.moduleId}:${operation.operation}`
+    );
+  }
+  if (operationEntrypoints.length > 1) {
     throw new SourceProgramOperationProducerClosureError(
       'entrypoint-not-unique',
       `${owner.moduleId}:${operation.operation}`
@@ -118,6 +126,7 @@ function compileOperationProducerClosure(
 
   const reachable = new Set<string>([descriptorPath]);
   const frontier = [...operationEntrypoints];
+  const unresolvedReachable: string[] = [];
   while (frontier.length > 0) {
     const repositoryPath = frontier.pop()!;
     if (reachable.has(repositoryPath)) continue;
@@ -128,18 +137,18 @@ function compileOperationProducerClosure(
         repositoryPath
       );
     }
-    if (snapshot.moduleGraph.unresolvedFiles.includes(repositoryPath)) {
-      throw new SourceProgramOperationProducerClosureError(
-        'reachable-graph-unresolved',
-        repositoryPath
-      );
-    }
     reachable.add(repositoryPath);
+    if (snapshot.moduleGraph.unresolvedFiles.includes(repositoryPath)) {
+      unresolvedReachable.push(repositoryPath);
+    }
     for (const dependency of snapshot.moduleGraph.directRuntimeDependencies(repositoryPath)) {
       if (!reachable.has(dependency)) frontier.push(dependency);
     }
   }
 
+  // An unbindable loader resource inside the reachable graph is the specific
+  // cause of its file's unresolvedness and is reported as such; remaining
+  // unresolvedness is a closed-graph failure.
   const unresolvedLoaders = [
     ...typeScriptModel.unknowns
       .filter(({ code, path }) => reachable.has(path)
@@ -156,6 +165,12 @@ function compileOperationProducerClosure(
     throw new SourceProgramOperationProducerClosureError(
       'reachable-loader-resource-unresolved',
       unresolvedLoaders.join(',')
+    );
+  }
+  if (unresolvedReachable.length > 0) {
+    throw new SourceProgramOperationProducerClosureError(
+      'reachable-graph-unresolved',
+      unresolvedReachable.sort(compareCodeUnits).join(',')
     );
   }
 

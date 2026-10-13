@@ -1,20 +1,20 @@
 import { expect, test } from 'bun:test';
 
 import {
-  CodexDevelopmentActivateMainHealthRepairRollingPlan,
-  CodexDevelopmentAssertPriorFreezeProjection,
-  CodexDevelopmentAssertRollingMachineBaseBinding,
-  CodexDevelopmentAssertStablePlanRollingBinding,
-  CodexDevelopmentCreateFreezeProjection,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan,
-  CodexDevelopmentProjectStatusContinuation,
-  CodexDevelopmentPromoteRollingPlan,
-  CodexDevelopmentRenderActivePointer,
-  CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
-  CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
+  activateMainHealthRepairRollingPlan,
+  assertPriorFreezeProjection,
+  assertRollingMachineBaseBinding,
+  assertStablePlanRollingBinding,
+  createFreezeProjection,
+  parseActivePointer,
+  parseCurrentStateSpec,
+  parseRollingMachineProjection,
+  parseRollingPlan,
+  projectStatusContinuation,
+  promoteRollingPlan,
+  renderActivePointer,
+  renderCommittedCandidateReplanRollingPlan,
+  requiresCommittedCandidateProjectionRefresh
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
@@ -22,10 +22,10 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
-  compileSecWorkRollingProposalProjection,
-  compileSecWorkRollingTransitionProjection,
-  parseSecWorkRollingMachineProjection,
-  renderSecWorkRollingTransitionPlan
+  compileWorkRollingProposalProjection,
+  compileWorkRollingTransitionProjection,
+  parseWorkRollingMachineProjection,
+  renderWorkRollingTransitionPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
@@ -113,25 +113,25 @@ function stablePlanBindingFixture(tracking = 'issue-1') {
     bytes,
     projectionInput,
     binding: { manifest, manifestPath, manifestDigest, exactMain, exactMainTree,
-      projection: compileSecWorkRollingTransitionProjection(projectionInput) }
+      projection: compileWorkRollingTransitionProjection(projectionInput) }
   };
 }
 
 test('stable plan bytes bind independently to each exact candidate base without minting authority', () => {
   const { bytes, projectionInput, binding } = stablePlanBindingFixture();
   for (const [main, tree] of [[exactMain, exactMainTree], ['e'.repeat(40), 'f'.repeat(40)]]) {
-    const projection = compileSecWorkRollingTransitionProjection({
+    const projection = compileWorkRollingTransitionProjection({
       ...projectionInput, exactMain: main!, exactMainTree: tree!
     });
-    expect(CodexDevelopmentAssertStablePlanRollingBinding({
+    expect(assertStablePlanRollingBinding({
       ...binding, projection, exactMain: main!, exactMainTree: tree!
     })).toBeUndefined();
     expect(String(binding.manifestDigest)).toBe(CodexDevelopmentWorkPackageManifestDigest(bytes));
   }
   const proposal = stablePlanBindingFixture('none');
-  expect(CodexDevelopmentAssertStablePlanRollingBinding({
+  expect(assertStablePlanRollingBinding({
     ...proposal.binding,
-    projection: compileSecWorkRollingProposalProjection({
+    projection: compileWorkRollingProposalProjection({
       ...proposal.projectionInput,
       active: { ...proposal.projectionInput.active, tracking: 'none' }
     })
@@ -140,25 +140,25 @@ test('stable plan bytes bind independently to each exact candidate base without 
 
 test('stable plan binding rejects absent projections and stale base, tree, manifest or scope identity', () => {
   const { bytes, binding, projectionInput } = stablePlanBindingFixture();
-  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, projection: null }))
+  expect(() => assertStablePlanRollingBinding({ ...binding, projection: null }))
     .toThrow('requires a digest-bound rolling machine projection');
-  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, exactMain: 'e'.repeat(40) }))
+  expect(() => assertStablePlanRollingBinding({ ...binding, exactMain: 'e'.repeat(40) }))
     .toThrow('exact live default revision');
-  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, exactMainTree: 'f'.repeat(40) }))
+  expect(() => assertStablePlanRollingBinding({ ...binding, exactMainTree: 'f'.repeat(40) }))
     .toThrow('exact live default tree');
   for (const active of [
     { ...projectionInput.active, packageId: 'other-v3', manifestPath: 'config/repository/work-packages/other-v3.md' },
     { ...projectionInput.active, tracking: 'issue-2' }
   ]) {
-    expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
-      ...binding, projection: compileSecWorkRollingTransitionProjection({ ...projectionInput, active })
+    expect(() => assertStablePlanRollingBinding({
+      ...binding, projection: compileWorkRollingTransitionProjection({ ...projectionInput, active })
     })).toThrow('rolling machine active identity');
   }
-  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+  expect(() => assertStablePlanRollingBinding({
     ...binding, manifestPath: 'config/repository/work-packages/other-v3.md'
   })).toThrow('rolling machine manifest binding');
   const changedBytes = Buffer.concat([bytes, Buffer.from('\nAcceptance clarification.\n')]);
-  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+  expect(() => assertStablePlanRollingBinding({
     ...binding,
     manifest: CodexDevelopmentParseCurrentWorkPackageManifest(changedBytes.toString('utf8')),
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(changedBytes) as `sha256:${string}`
@@ -179,19 +179,19 @@ test('ordinary selection projection binds stable plan base and active identity; 
       decisionStatus: 'eligible'
     }))
   };
-  const projection = parseSecWorkRollingMachineProjection(JSON.stringify({
+  const projection = parseWorkRollingMachineProjection(JSON.stringify({
     ...selected, projectionDigest: sha256(selected)
   }));
-  expect(CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, projection })).toBeUndefined();
-  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+  expect(assertStablePlanRollingBinding({ ...binding, projection })).toBeUndefined();
+  expect(() => assertStablePlanRollingBinding({
     ...binding, projection, exactMain: 'e'.repeat(40)
   })).toThrow('exact live default revision');
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
     proposalManifest(activePackageId, 'issue-1').toString('utf8')
   );
-  expect(CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, manifest, projection: null }))
+  expect(assertStablePlanRollingBinding({ ...binding, manifest, projection: null }))
     .toBeUndefined();
-  expect(CodexDevelopmentAssertStablePlanRollingBinding({
+  expect(assertStablePlanRollingBinding({
     ...binding, manifest, projection, exactMain: 'e'.repeat(40)
   })).toBeUndefined();
   expect(CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, exactMain)).toBe(true);
@@ -202,7 +202,7 @@ test('proposal-only freeze renders one authority-free tracking:none successor', 
   const proposalPackageId = 'private-sandbox-python-runtime-transition';
   const currentManifest = proposalManifest(activePackageId, 'issue-1');
   const targetManifest = proposalManifest(proposalPackageId, 'none');
-  const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
+  const spec = parseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
@@ -215,7 +215,7 @@ stableFacts:
     catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
-  const currentPointerSource = CodexDevelopmentRenderActivePointer({
+  const currentPointerSource = renderActivePointer({
     spec,
     manifestPath: `config/repository/work-packages/${activePackageId}.md`,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest) as `sha256:${string}`,
@@ -236,29 +236,29 @@ stableFacts:
     currentResolution: { state: 'none', reason: 'matching-default-blob' } as const,
     defaultManifestBytes: currentManifest
   };
-  const projection = CodexDevelopmentCreateFreezeProjection({ ...common, proposalOnly });
+  const projection = createFreezeProjection({ ...common, proposalOnly });
   const stableV3Bytes = Buffer.from(targetManifest.toString('utf8')
     .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
     .replace(`base: '${exactMain}'\n`, ''), 'utf8');
   for (const [baseSha, baseTreeSha] of [[exactMain, exactMainTree], ['c'.repeat(40), 'd'.repeat(40)]]) {
-    const v3 = CodexDevelopmentCreateFreezeProjection({
+    const v3 = createFreezeProjection({
       ...common, proposalOnly, manifestBytes: stableV3Bytes, baseSha: baseSha!, baseTreeSha: baseTreeSha!
     });
     expect(v3.manifestDigest).toBe(CodexDevelopmentWorkPackageManifestDigest(stableV3Bytes) as `sha256:${string}`);
-    expect(CodexDevelopmentParseRollingMachineProjection(v3.rollingPlanSource)).toMatchObject({
+    expect(parseRollingMachineProjection(v3.rollingPlanSource)).toMatchObject({
       exactMain: baseSha, exactMainTree: baseTreeSha, authority: 'none'
     });
-    expect(() => CodexDevelopmentAssertRollingMachineBaseBinding({
-      projection: CodexDevelopmentParseRollingMachineProjection(v3.rollingPlanSource)!,
+    expect(() => assertRollingMachineBaseBinding({
+      projection: parseRollingMachineProjection(v3.rollingPlanSource)!,
       exactMain: baseSha!, exactMainTree: 'e'.repeat(40)
     })).toThrow('does not bind the exact live default tree');
   }
 
   expect(projection.authoringDisposition).toBe('proposal-only');
   expect(projection.retiredManifestPath).toBe(`config/repository/work-packages/${activePackageId}.md`);
-  expect(CodexDevelopmentParseRollingPlan(projection.rollingPlanSource).activePackageId)
+  expect(parseRollingPlan(projection.rollingPlanSource).activePackageId)
     .toBe(proposalPackageId);
-  expect(CodexDevelopmentParseRollingMachineProjection(projection.rollingPlanSource)).toMatchObject({
+  expect(parseRollingMachineProjection(projection.rollingPlanSource)).toMatchObject({
     schema: 'sec-work-rolling-proposal-projection-v1',
     exactMain,
     exactMainTree,
@@ -271,16 +271,16 @@ stableFacts:
     },
     candidates: [...candidates]
   });
-  expect(() => CodexDevelopmentParseRollingMachineProjection(
+  expect(() => parseRollingMachineProjection(
     projection.rollingPlanSource.replace('"authority": "none"', '"authority": "activation"')
   )).toThrow('authority none');
-  expect(() => CodexDevelopmentAssertRollingMachineBaseBinding({
-    projection: CodexDevelopmentParseRollingMachineProjection(projection.rollingPlanSource)!,
+  expect(() => assertRollingMachineBaseBinding({
+    projection: parseRollingMachineProjection(projection.rollingPlanSource)!,
     exactMain,
     exactMainTree: 'c'.repeat(40)
   })).toThrow('does not bind the exact live default tree');
 
-  expect(() => CodexDevelopmentCreateFreezeProjection({
+  expect(() => createFreezeProjection({
     ...common,
     proposalOnly: { ...proposalOnly, currentResolution: {
       state: 'active',
@@ -288,33 +288,33 @@ stableFacts:
       manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest)
     } }
   })).toThrow('byte-exact on the live default');
-  expect(() => CodexDevelopmentCreateFreezeProjection({
+  expect(() => createFreezeProjection({
     ...common,
     manifestBytes: proposalManifest(proposalPackageId, 'issue-2'),
     proposalOnly
   })).toThrow('target tracking must be none');
-  expect(() => CodexDevelopmentCreateFreezeProjection({
+  expect(() => createFreezeProjection({
     ...common,
     proposalOnly,
     workSelectionProjection: { receipt: {} as never }
   })).toThrow('forbids selection, repair, and replan');
-  expect(() => CodexDevelopmentCreateFreezeProjection({
+  expect(() => createFreezeProjection({
     ...common,
     proposalOnly,
     requestedRollingPlanSource: legacyRollingPlanSource()
   })).toThrow('forbids caller-authored rolling-plan bytes');
-  expect(() => CodexDevelopmentCreateFreezeProjection({
+  expect(() => createFreezeProjection({
     ...common,
     manifestBytes: proposalManifest(proposalPackageId, 'none', 'f'.repeat(40)),
     proposalOnly
   })).toThrow('base must equal the exact live default revision');
-  expect(() => CodexDevelopmentCreateFreezeProjection(common))
+  expect(() => createFreezeProjection(common))
     .toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
 });
 
 test('MainHealth topology is compiled and rendered atomically instead of slicing prior Markdown', () => {
   const repairPackageId = 'main-health-repair-v1';
-  const rendered = CodexDevelopmentActivateMainHealthRepairRollingPlan({
+  const rendered = activateMainHealthRepairRollingPlan({
     source: legacyRollingPlanSource(),
     packageId: repairPackageId,
     manifestPath: `config/repository/work-packages/${repairPackageId}.md`,
@@ -328,11 +328,11 @@ test('MainHealth topology is compiled and rendered atomically instead of slicing
     publishedActivePackageId: activePackageId,
     reviewedOn: '2026-08-21'
   });
-  expect(CodexDevelopmentParseRollingPlan(rendered)).toEqual({
+  expect(parseRollingPlan(rendered)).toEqual({
     activePackageId: repairPackageId,
     candidatePackageIds: [...candidates]
   });
-  expect(CodexDevelopmentParseRollingMachineProjection(rendered)).toMatchObject({
+  expect(parseRollingMachineProjection(rendered)).toMatchObject({
     schema: 'sec-work-rolling-transition-projection-v1',
     exactMain,
     exactMainTree,
@@ -345,7 +345,7 @@ test('MainHealth topology is compiled and rendered atomically instead of slicing
 });
 
 test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
-  const projection = compileSecWorkRollingTransitionProjection({
+  const projection = compileWorkRollingTransitionProjection({
     exactMain,
     exactMainTree,
     authority: {
@@ -364,8 +364,8 @@ test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
     },
     candidates
   });
-  const source = renderSecWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-21' });
-  expect(() => CodexDevelopmentPromoteRollingPlan({
+  const source = renderWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-21' });
+  expect(() => promoteRollingPlan({
     source,
     packageId: candidates[0]
   })).toThrow('require the canonical WorkDecision or transition renderer');
@@ -398,7 +398,7 @@ tests:
 
 # Prior machine projection
 `, 'utf8');
-  const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
+  const spec = parseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
@@ -414,7 +414,7 @@ stableFacts:
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     targetManifest
   ) as `sha256:${string}`;
-  const pointerSource = CodexDevelopmentRenderActivePointer({
+  const pointerSource = renderActivePointer({
     spec,
     manifestPath: targetManifestPath,
     manifestDigest,
@@ -428,8 +428,8 @@ stableFacts:
     sourcePointerRevision: rawSha256('source-pointer'),
     sourceRollingRevision: rawSha256('source-rolling')
   };
-  const immutable = renderSecWorkRollingTransitionPlan({
-    projection: compileSecWorkRollingTransitionProjection({
+  const immutable = renderWorkRollingTransitionPlan({
+    projection: compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority,
@@ -443,8 +443,8 @@ stableFacts:
     }),
     reviewedOn: '2026-08-21'
   });
-  const successor = renderSecWorkRollingTransitionPlan({
-    projection: compileSecWorkRollingTransitionProjection({
+  const successor = renderWorkRollingTransitionPlan({
+    projection: compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority,
@@ -458,7 +458,7 @@ stableFacts:
     }),
     reviewedOn: '2026-08-21'
   });
-  expect(() => CodexDevelopmentAssertPriorFreezeProjection({
+  expect(() => assertPriorFreezeProjection({
     spec,
     immutableRollingPlanSource: immutable,
     pointerSource,
@@ -467,8 +467,8 @@ stableFacts:
     manifestBytes: targetManifest
   })).not.toThrow();
 
-  const reordered = renderSecWorkRollingTransitionPlan({
-    projection: compileSecWorkRollingTransitionProjection({
+  const reordered = renderWorkRollingTransitionPlan({
+    projection: compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority,
@@ -482,7 +482,7 @@ stableFacts:
     }),
     reviewedOn: '2026-08-21'
   });
-  expect(() => CodexDevelopmentAssertPriorFreezeProjection({
+  expect(() => assertPriorFreezeProjection({
     spec,
     immutableRollingPlanSource: immutable,
     pointerSource,
@@ -522,7 +522,7 @@ matchingDefaultBlob: none
     sourcePointerRevision: rawSha256(pointerSource),
     sourceRollingRevision: rawSha256(legacyRollingPlanSource())
   };
-  const rendered = CodexDevelopmentRenderCommittedCandidateReplanRollingPlan({
+  const rendered = renderCommittedCandidateReplanRollingPlan({
     currentPointerSource: pointerSource,
     currentRollingPlanSource: legacyRollingPlanSource(),
     currentManifestBytes: sourceManifest,
@@ -535,7 +535,7 @@ matchingDefaultBlob: none
     exactMainTree,
     reviewedOn: '2026-08-21'
   });
-  const projection = CodexDevelopmentParseRollingMachineProjection(rendered)!;
+  const projection = parseRollingMachineProjection(rendered)!;
   expect(projection).toMatchObject({
     exactMain,
     exactMainTree,
@@ -543,7 +543,7 @@ matchingDefaultBlob: none
     active: { packageId: activePackageId, tracking: 'issue-1' }
   });
   expect(rendered).not.toContain('Legacy prose');
-  expect(() => CodexDevelopmentRenderCommittedCandidateReplanRollingPlan({
+  expect(() => renderCommittedCandidateReplanRollingPlan({
     currentPointerSource: pointerSource,
     currentRollingPlanSource: `${legacyRollingPlanSource()}drift`,
     currentManifestBytes: sourceManifest,
@@ -556,17 +556,17 @@ matchingDefaultBlob: none
     exactMainTree,
     reviewedOn: '2026-08-21'
   })).toThrow('does not bind the immutable source bytes');
-  CodexDevelopmentAssertRollingMachineBaseBinding({
+  assertRollingMachineBaseBinding({
     projection,
     exactMain,
     exactMainTree
   });
-  expect(() => CodexDevelopmentAssertRollingMachineBaseBinding({
+  expect(() => assertRollingMachineBaseBinding({
     projection,
     exactMain: 'e'.repeat(40),
     exactMainTree
   })).toThrow('exact live default revision');
-  expect(() => CodexDevelopmentAssertRollingMachineBaseBinding({
+  expect(() => assertRollingMachineBaseBinding({
     projection,
     exactMain,
     exactMainTree: 'f'.repeat(40)
@@ -632,7 +632,7 @@ matchingDefaultBlob: none
     sourcePointerRevision: rawSha256(pointerSource),
     sourceRollingRevision: rawSha256(legacyRollingPlanSource())
   };
-  const spec = CodexDevelopmentParseCurrentStateSpec(`schema: sec-current-state-live-v1
+  const spec = parseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
   command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
@@ -645,7 +645,7 @@ stableFacts:
     catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
-  const result = CodexDevelopmentCreateFreezeProjection({
+  const result = createFreezeProjection({
     spec,
     currentPointerSource: pointerSource,
     currentRollingPlanSource: legacyRollingPlanSource(),
@@ -658,7 +658,7 @@ stableFacts:
     reviewedOn: '2026-08-21'
   });
   expect(result.retiredManifestPath).toBeNull();
-  expect(CodexDevelopmentParseRollingMachineProjection(result.rollingPlanSource)).toMatchObject({
+  expect(parseRollingMachineProjection(result.rollingPlanSource)).toMatchObject({
     authority,
     active: {
       packageId: activePackageId,
@@ -675,7 +675,7 @@ stableFacts:
     sourcePointerRevision: rawSha256(result.pointerSource),
     sourceRollingRevision: rawSha256(result.rollingPlanSource)
   };
-  const refreshed = CodexDevelopmentCreateFreezeProjection({
+  const refreshed = createFreezeProjection({
     spec,
     currentPointerSource: result.pointerSource,
     currentRollingPlanSource: result.rollingPlanSource,
@@ -688,7 +688,7 @@ stableFacts:
     reviewedOn: '2026-08-21'
   });
   expect(refreshed.retiredManifestPath).toBeNull();
-  expect(CodexDevelopmentParseRollingMachineProjection(refreshed.rollingPlanSource)).toMatchObject({
+  expect(parseRollingMachineProjection(refreshed.rollingPlanSource)).toMatchObject({
     authority: refreshedAuthority,
     active: { manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest) }
   });
@@ -697,7 +697,7 @@ stableFacts:
     sourcePointerRevision: rawSha256(pointerSource),
     sourceRollingRevision: rawSha256(result.rollingPlanSource)
   };
-  const repairedDerivedDigest = CodexDevelopmentCreateFreezeProjection({
+  const repairedDerivedDigest = createFreezeProjection({
     spec,
     currentPointerSource: pointerSource,
     currentRollingPlanSource: result.rollingPlanSource,
@@ -709,12 +709,12 @@ stableFacts:
     baseTreeSha: exactMainTree,
     reviewedOn: '2026-08-21'
   });
-  expect(CodexDevelopmentParseActivePointer(repairedDerivedDigest.pointerSource).manifestDigest)
+  expect(parseActivePointer(repairedDerivedDigest.pointerSource).manifestDigest)
     .toBe(CodexDevelopmentWorkPackageManifestDigest(targetManifest) as `sha256:${string}`);
-  expect(CodexDevelopmentParseRollingMachineProjection(
+  expect(parseRollingMachineProjection(
     repairedDerivedDigest.rollingPlanSource
   )).toMatchObject({ authority: staleDerivedDigestAuthority });
-  const refreshedProjection = CodexDevelopmentParseRollingMachineProjection(
+  const refreshedProjection = parseRollingMachineProjection(
     refreshed.rollingPlanSource
   );
   const permittedProjectionDeltaPaths = new Set([
@@ -728,7 +728,7 @@ stableFacts:
     manifestPath,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest) as `sha256:${string}`
   };
-  expect(CodexDevelopmentRequiresCommittedCandidateProjectionRefresh({
+  expect(requiresCommittedCandidateProjectionRefresh({
     projection: refreshedProjection,
     exactMain,
     exactMainTree,
@@ -736,7 +736,7 @@ stableFacts:
     sourceTreeDeltaPaths: [...permittedProjectionDeltaPaths],
     permittedProjectionDeltaPaths
   })).toBe(false);
-  expect(CodexDevelopmentRequiresCommittedCandidateProjectionRefresh({
+  expect(requiresCommittedCandidateProjectionRefresh({
     projection: refreshedProjection,
     exactMain,
     exactMainTree,
@@ -744,7 +744,7 @@ stableFacts:
     sourceTreeDeltaPaths: ['src/compiler/changed.ts'],
     permittedProjectionDeltaPaths
   })).toBe(true);
-  expect(() => CodexDevelopmentCreateFreezeProjection({
+  expect(() => createFreezeProjection({
     spec,
     currentPointerSource: pointerSource,
     currentRollingPlanSource: legacyRollingPlanSource(),
@@ -761,7 +761,7 @@ stableFacts:
 
 test('heading drift is rejected against the digest-bound machine topology', () => {
   const repairPackageId = 'main-health-repair-v1';
-  const rendered = CodexDevelopmentActivateMainHealthRepairRollingPlan({
+  const rendered = activateMainHealthRepairRollingPlan({
     source: legacyRollingPlanSource(),
     packageId: repairPackageId,
     manifestPath: `config/repository/work-packages/${repairPackageId}.md`,
@@ -775,7 +775,7 @@ test('heading drift is rejected against the digest-bound machine topology', () =
     publishedActivePackageId: activePackageId,
     reviewedOn: '2026-08-21'
   });
-  expect(() => CodexDevelopmentParseRollingPlan(rendered.replace(
+  expect(() => parseRollingPlan(rendered.replace(
     `### 1. ${candidates[0]}`,
     '### 1. drifted-candidate-v1'
   ))).toThrow('headings do not equal the digest-bound machine projection');
@@ -796,12 +796,12 @@ function statusContinuationFixture() {
 }
 
 test('status continuation retains unknown owner admission across ordinary Git states', () => {
-  const clean = CodexDevelopmentProjectStatusContinuation(statusContinuationFixture());
+  const clean = projectStatusContinuation(statusContinuationFixture());
   expect(clean.next).toEqual({
     owner: 'work-selection', action: 'observe-work-decision', reason: 'matching-default-blob',
     requiredInputs: ['current-work-decision', 'operation-intent']
   });
-  const dirty = CodexDevelopmentProjectStatusContinuation({
+  const dirty = projectStatusContinuation({
     ...statusContinuationFixture(),
     changes: [
       { index: 'A', worktree: 'M', path: 'src/changed.ts', originalPath: null },
@@ -833,7 +833,7 @@ test('status continuation preserves journal request and prioritizes races over r
     manifestPath: 'config/repository/work-packages/recovery.md', reviewedOn: '2026-10-01',
     baseSha: exactMain, candidateTreeSha: exactMainTree, proposalOnly: true, phase: 'terminal'
   };
-  const recovery = CodexDevelopmentProjectStatusContinuation({
+  const recovery = projectStatusContinuation({
     ...statusContinuationFixture(), changes: null, journal
   });
   expect(recovery.next).toMatchObject({
@@ -845,7 +845,7 @@ test('status continuation preserves journal request and prioritizes races over r
     ]
   });
   expect(recovery.changes).toEqual({ state: 'unobserved', records: null });
-  const raced = CodexDevelopmentProjectStatusContinuation({
+  const raced = projectStatusContinuation({
     ...statusContinuationFixture(), journal,
     activeWorkPackage: { state: 'unresolved', reason: 'activation-observation-raced' }
   });
@@ -857,12 +857,12 @@ test('status continuation preserves journal request and prioritizes races over r
 
 test('status continuation routes stale and invalid control facts to their existing owners', () => {
   for (const defaultRefState of ['stale', 'unavailable'] as const) {
-    const result = CodexDevelopmentProjectStatusContinuation({ ...statusContinuationFixture(), defaultRefState });
+    const result = projectStatusContinuation({ ...statusContinuationFixture(), defaultRefState });
     expect(result.next).toEqual({
       owner: 'repository-orientation', action: 'refresh-observation', reason: `default-ref-${defaultRefState}`
     });
   }
-  const invalid = CodexDevelopmentProjectStatusContinuation({
+  const invalid = projectStatusContinuation({
     ...statusContinuationFixture(),
     activeWorkPackage: { state: 'invalid', reason: 'candidate-manifest-absent' }
   });

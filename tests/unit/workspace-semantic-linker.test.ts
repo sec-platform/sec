@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { linkWorkspaceSemanticContracts } from '../../src/semantics/definitions/link.ts';
 import { normalizeSemanticContract } from '../../src/semantics/definitions/normalize.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../src/semantics/definitions/types.ts';
@@ -132,15 +132,15 @@ function input(semanticContracts = [providerContract(), consumerContract()]): Bu
   };
 }
 
-function expectCompilerError(run: () => unknown, code: string): CompilerError {
+function expectCodedFailure(run: () => unknown, code: string): CodedFailure {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(CompilerError);
-    expect((error as CompilerError).code).toBe(code);
-    return error as CompilerError;
+    expect(error).toBeInstanceOf(CodedFailure);
+    expect((error as CodedFailure).code).toBe(code);
+    return error as CodedFailure;
   }
-  throw new Error(`Expected CompilerError ${code}`);
+  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test('explicit imports link cross-Block responsibility, data, operation, and policy Facts', () => {
@@ -258,11 +258,11 @@ test('same-name Semantic and Verification Policies do not link without verifiedB
 test('linker emits deterministic diagnostics for namespace, import, reference, and policy failures', () => {
   const duplicateNamespace = consumerContract();
   duplicateNamespace.contract.namespace = 'tenant';
-  const duplicateDiagnostic = expectCompilerError(
+  const duplicateDiagnostic = expectCodedFailure(
     () => buildEngineeringIR(input([providerContract(), duplicateNamespace])),
     'SEMANTIC-LINK-001'
   );
-  const reversedDuplicateDiagnostic = expectCompilerError(
+  const reversedDuplicateDiagnostic = expectCodedFailure(
     () => buildEngineeringIR(input([duplicateNamespace, providerContract()])),
     'SEMANTIC-LINK-001'
   );
@@ -276,35 +276,35 @@ test('linker emits deterministic diagnostics for namespace, import, reference, a
 
   const ambiguousAlias = consumerContract();
   ambiguousAlias.contract.imports!.push({ alias: 'tenant', namespace: 'tenant', contractId: 'tenant-core' });
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([providerContract(), ambiguousAlias])),
     'SEMANTIC-LINK-002'
   );
 
   const unresolvedImport = consumerContract();
   unresolvedImport.contract.imports![0]!.contractId = 'missing-contract';
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([providerContract(), unresolvedImport])),
     'SEMANTIC-LINK-003'
   );
 
   const unresolvedReference = consumerContract();
   unresolvedReference.contract.responsibilities[0]!.dependsOn = ['tenant::MissingResponsibility'];
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([providerContract(), unresolvedReference])),
     'SEMANTIC-LINK-004'
   );
 
   const selfImport = providerContract();
   selfImport.contract.imports = [{ alias: 'self', namespace: 'tenant', contractId: 'tenant-core' }];
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([selfImport, consumerContract()])),
     'SEMANTIC-LINK-005'
   );
 
   const crossOwner = consumerContract();
   crossOwner.contract.responsibilities[0]!.implements = ['tenant::enforceTenantScope'];
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([providerContract(), crossOwner])),
     'SEMANTIC-LINK-005'
   );
@@ -312,14 +312,14 @@ test('linker emits deterministic diagnostics for namespace, import, reference, a
   const qualifiedOperationOwner = consumerContract();
   qualifiedOperationOwner.contract.operations[0]!.responsibility = 'tenant::TenantScopeGuard';
   qualifiedOperationOwner.contract = normalizeSemanticContract(qualifiedOperationOwner.contract);
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([providerContract(), qualifiedOperationOwner])),
     'SEMANTIC-LINK-005'
   );
 
   const missingVerificationPolicy = providerContract();
   missingVerificationPolicy.contract.policies[0]!.verifiedBy = ['missing-verification-policy'];
-  expectCompilerError(
+  expectCodedFailure(
     () => buildEngineeringIR(input([missingVerificationPolicy, consumerContract()])),
     'SEMANTIC-LINK-006'
   );
@@ -347,7 +347,7 @@ test('field indexes do not survive source edits or leak between namespaces', () 
   provider.contract.entities[0]!.fields[0]!.id = 'newTenantId';
   provider.contract.responsibilities[0]!.owns = ['TenantContext.newTenantId'];
   provider.contract.operations[0]!.reads = ['TenantContext.newTenantId'];
-  const error = expectCompilerError(
+  const error = expectCodedFailure(
     () => linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']),
     'SEMANTIC-LINK-004'
   );
@@ -357,5 +357,5 @@ test('field indexes do not survive source edits or leak between namespaces', () 
   expect(linked.find((entry) => entry.contract.namespace === 'ticket')!.contract.operations[0]!.reads)
     .toEqual(['ticket::Ticket.tenantId', 'tenant::TenantContext.newTenantId']);
   consumer.contract.operations[0]!.reads = ['Ticket.newTenantId'];
-  expectCompilerError(() => linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']), 'SEMANTIC-LINK-004');
+  expectCodedFailure(() => linkWorkspaceSemanticContracts([provider, consumer], ['tenant-scope-required']), 'SEMANTIC-LINK-004');
 });

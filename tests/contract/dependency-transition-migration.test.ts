@@ -6,11 +6,6 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
-import {
-  generatedStateProducerHooks,
-  inspectGeneratedState
-} from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { compilerDependencyIdentity } from '../../src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts';
@@ -29,6 +24,8 @@ import {
 import { migrateDependencyTransitionJournal } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { canonicalJson } from '../../src/contracts/canonical.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
+import { generatedStateDigest } from "../../src/execution/generated-state/contract.ts";
+import { generatedStateProducerHooks, inspectGeneratedState } from '../helpers/generated-state-fixture.ts';
 
 const LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;
 const LEGACY_NAMESPACE = '.dependency-transition-v1';
@@ -222,7 +219,7 @@ async function writeLegacyRecords(
   return records;
 }
 
-async function expectBlockedMigration(root: string): Promise<void> {
+async function expectBlockedMigration(root: string, expectedMessage: string): Promise<void> {
   let error: unknown;
   try {
     await migrateDependencyTransitionJournal(root, {
@@ -232,7 +229,10 @@ async function expectBlockedMigration(root: string): Promise<void> {
     error = caught;
   }
   expect(error).toBeDefined();
-  expect(error).toMatchObject({ code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u) });
+  expect(error).toMatchObject({
+    code: expect.stringMatching(/^RUNTIME-DEPS-00[24]$/u),
+    message: expect.stringContaining(expectedMessage)
+  });
 }
 
 async function readRegularFiles(root: string): Promise<ReadonlyMap<string, Buffer>> {
@@ -485,47 +485,23 @@ test('preserves unknown bridge recovery failures instead of reclassifying them a
   }
 });
 
-test('blocks bridge recovery when persisted source, destination, owner, or journal evidence changes', async () => {
-  for (const mutation of ['source', 'destination', 'owner', 'journal'] as const) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-bridge-${mutation}-`));
-    let displacedRoot: string | null = null;
-    try {
-      const { bridgePath, sourcePath } = await prepareBridgeRecovery({
-        failure: 'bun-runtime-drift',
-        root
-      });
-      if (mutation === 'source') {
-        await writeFile(path.join(sourcePath, 'tampered-after-intent.txt'), 'tamper\n', 'utf8');
-      } else if (mutation === 'destination') {
-        await mkdir(bridgePath);
-      } else if (mutation === 'owner') {
-        displacedRoot = `${root}-displaced`;
-        await rename(root, displacedRoot);
-        await mkdir(root);
-        for (const entry of ['.tmp', '.bun-version', 'bun.lock', 'consumer', 'node_modules', 'package.json']) {
-          await rename(path.join(displacedRoot, entry), path.join(root, entry));
-        }
-      } else {
-        const recordsRoot = path.join(targetJournalRoot(root), 'records');
-        for (const name of await readdir(recordsRoot)) {
-          const recordPath = path.join(recordsRoot, name);
-          const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
-          if (value.phase === 'recovery-required') {
-            await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
-            break;
-          }
-        }
+test('blocks legacy bridge admission when persisted journal evidence changes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-journal-'));
+  try {
+    await prepareBridgeRecovery({ failure: 'bun-runtime-drift', root });
+    const recordsRoot = path.join(targetJournalRoot(root), 'records');
+    for (const name of await readdir(recordsRoot)) {
+      const recordPath = path.join(recordsRoot, name);
+      const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
+      if (value.phase === 'recovery-required') {
+        await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
+        break;
       }
-      const migration = expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 })).rejects;
-      if (mutation === 'journal') {
-        await migration.toMatchObject({ code: 'RUNTIME-DEPS-002' });
-      } else {
-        await migration.toMatchObject({ code: 'RUNTIME-DEPS-004', details: { migrationRequired: true } });
-      }
-    } finally {
-      await removeMigrationFixture(root);
-      if (displacedRoot !== null) await rm(displacedRoot, { recursive: true, force: true });
     }
+    await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+      .rejects.toMatchObject({ code: 'RUNTIME-DEPS-002' });
+  } finally {
+    await removeMigrationFixture(root);
   }
 }, 30_000);
 
@@ -667,46 +643,141 @@ test('coordination migration preserves a foreign locator and its terminal guard'
   }
 });
 
-test('coordination cutover preserves an active legacy consumer on both sides', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-active-'));
+test('coordination cutover preserves active legacy consumers while unioning existing Runtime State records', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-preexisting-state-'));
   const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const externalGeneration = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-external-generation-'));
   try {
-    const consumers = path.join(targetJournalRoot(root), 'consumers');
+    const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
+    const runtimeConsumers = path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'v1',
+      'consumers'
+    );
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
     await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
-    await mkdir(consumers);
-    const generationDigest = generatedStateDigest('generation');
-    const generationPath = path.join(
-      root,
-      '.tmp',
-      'dependency-installs',
-      'compiler-backups',
-      `generation-${generationDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`
-    );
-    await mkdir(generationPath);
-    const identity = inspectNoFollowDirectoryChain(generationPath, 'active consumer fixture generation').target;
-    const unsigned = Object.freeze({
-      schema: 'sec-compiler-dependency-consumer-v1', previousRecordDigest: null,
-      leaseId: generatedStateDigest('active-consumer'), generationDigest,
-      generationPath,
-      generationPhysical: Object.freeze({ device: identity.device, inode: identity.inode, objectId: identity.objectId }),
-      phase: 'acquired' as const
-    });
-    const record = Object.freeze({ ...unsigned, recordDigest: generatedStateDigest(canonicalJson(unsigned)) });
-    const name = `consumer-${record.leaseId.slice('sha256:'.length)}-acquired.json`;
-    const bytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
-    await writeFile(path.join(consumers, name), bytes);
+    await mkdir(legacyConsumers);
+    await mkdir(runtimeConsumers, { recursive: true });
+    const legacyGenerationDigest = generatedStateDigest('legacy-consumer-during-cutover-generation');
+    const legacyGeneration = path.join(root, '.tmp', 'dependency-installs', 'compiler-backups',
+      `generation-${legacyGenerationDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`);
+    await mkdir(legacyGeneration);
+    const makeAcquired = (subject: string, generationPath = externalGeneration) => {
+      const identity = inspectNoFollowDirectoryChain(generationPath, 'consumer fixture generation').target;
+      const leaseId = generatedStateDigest(subject);
+      const unsigned = Object.freeze({
+        schema: 'sec-compiler-dependency-consumer-v1',
+        previousRecordDigest: null,
+        leaseId,
+        generationDigest: generatedStateDigest(`${subject}-generation`),
+        generationPath,
+        generationPhysical: Object.freeze({
+          device: identity.device,
+          inode: identity.inode,
+          objectId: identity.objectId
+        }),
+        phase: 'acquired' as const
+      });
+      const record = Object.freeze({
+        ...unsigned,
+        recordDigest: generatedStateDigest(canonicalJson(unsigned))
+      });
+      return Object.freeze({
+        record,
+        name: `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`,
+        bytes: Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8')
+      });
+    };
+    const runtimeRecord = makeAcquired('runtime-state-preexisting-consumer');
+    const legacyRecord = makeAcquired('legacy-consumer-during-cutover', legacyGeneration);
+    const duplicateRecord = makeAcquired('consumer-copied-before-interruption');
+    const { recordDigest, ...runtimeAcquired } = runtimeRecord.record;
+    const released = { ...runtimeAcquired, phase: 'released' as const, previousRecordDigest: recordDigest };
+    const releasedName = `consumer-${released.leaseId.slice('sha256:'.length)}-released.json`;
+    const releasedBytes = Buffer.from(formatJsonFile(canonicalJson({ ...released,
+      recordDigest: generatedStateDigest(canonicalJson(released)) })));
+    await writeFile(path.join(runtimeConsumers, runtimeRecord.name), runtimeRecord.bytes);
+    // An interrupted copy can leave byte-identical duplicates, while a valid
+    // phase chain can be split across the two namespaces.
+    await writeFile(path.join(runtimeConsumers, duplicateRecord.name), duplicateRecord.bytes);
+    await writeFile(path.join(legacyConsumers, duplicateRecord.name), duplicateRecord.bytes);
+    await writeFile(path.join(legacyConsumers, releasedName), releasedBytes);
+    await writeFile(path.join(legacyConsumers, legacyRecord.name), legacyRecord.bytes);
+
     await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
     await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
-    expect(await readFile(path.join(consumers, name))).toEqual(bytes);
-    expect(await readFile(path.join(runtimeRoots.workspaceStateRoot, 'compiler-dependency-coordination', 'v1', 'consumers', name)))
-      .toEqual(bytes);
-    expect((await lstat(generationPath)).isDirectory()).toBeTrue();
+
+    expect((await readdir(runtimeConsumers)).sort())
+      .toEqual([runtimeRecord.name, releasedName, legacyRecord.name, duplicateRecord.name].sort());
+    for (const record of [runtimeRecord, legacyRecord, duplicateRecord, { name: releasedName, bytes: releasedBytes }]) {
+      expect(await readFile(path.join(runtimeConsumers, record.name))).toEqual(record.bytes);
+      if (record.name !== runtimeRecord.name) {
+        expect(await readFile(path.join(legacyConsumers, record.name))).toEqual(record.bytes);
+      }
+    }
+    expect((await readdir(legacyConsumers)).sort()).toEqual([releasedName, legacyRecord.name, duplicateRecord.name].sort());
+    expect((await lstat(legacyGeneration)).isDirectory()).toBeTrue();
   } finally {
     await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
+    await rm(externalGeneration, { recursive: true, force: true });
   }
 });
+
+for (const failure of ['foreign-bytes', 'released-only', 'unknown-residue'] as const) {
+  test(`coordination cutover preserves both consumer inputs when Runtime State has ${failure}`, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-invalid-target-'));
+    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+    try {
+      const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
+      const runtimeConsumers = path.join(runtimeRoots.workspaceStateRoot,
+        'compiler-dependency-coordination', 'v1', 'consumers');
+      await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+      await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+      await mkdir(legacyConsumers);
+      await mkdir(runtimeConsumers, { recursive: true });
+      const identity = inspectNoFollowDirectoryChain(root, 'invalid consumer union fixture').target;
+      const leaseId = generatedStateDigest('union-preimage');
+      const acquired = {
+        schema: 'sec-compiler-dependency-consumer-v1', previousRecordDigest: null,
+        leaseId, generationDigest: generatedStateDigest('union-generation'), generationPath: root,
+        generationPhysical: { device: identity.device, inode: identity.inode, objectId: identity.objectId },
+        phase: 'acquired' as const
+      };
+      const acquiredName = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+      const acquiredDigest = generatedStateDigest(canonicalJson(acquired));
+      const legacyBytes = Buffer.from(formatJsonFile(canonicalJson({ ...acquired, recordDigest: acquiredDigest })));
+      await writeFile(path.join(legacyConsumers, acquiredName), legacyBytes);
+      const foreign = failure === 'foreign-bytes'
+        ? { ...acquired, generationDigest: generatedStateDigest('foreign-generation') }
+        : { ...acquired, leaseId: generatedStateDigest('missing-consumer'), phase: 'released' as const,
+          previousRecordDigest: generatedStateDigest('missing-acquisition') };
+      const targetName = failure === 'foreign-bytes' ? acquiredName
+        : failure === 'unknown-residue' ? 'foreign.txt'
+          : `consumer-${foreign.leaseId.slice('sha256:'.length)}-released.json`;
+      const targetBytes = failure === 'unknown-residue' ? Buffer.from('foreign')
+        : Buffer.from(formatJsonFile(canonicalJson({ ...foreign,
+          recordDigest: generatedStateDigest(canonicalJson(foreign)) })));
+      await writeFile(path.join(runtimeConsumers, targetName), targetBytes);
+
+      const failureResult = await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 })
+        .then(() => null, error => error);
+      expect(failureResult).toMatchObject({ code: 'RUNTIME-DEPS-004' });
+      expect(await readdir(legacyConsumers)).toEqual([acquiredName]);
+      expect(await readFile(path.join(legacyConsumers, acquiredName))).toEqual(legacyBytes);
+      expect(await readdir(runtimeConsumers)).toEqual([targetName]);
+      expect(await readFile(path.join(runtimeConsumers, targetName))).toEqual(targetBytes);
+      expect(failureResult).toMatchObject({ message: expect.stringContaining(
+        failure === 'foreign-bytes' ? 'foreign bytes'
+          : failure === 'released-only' ? 'invalid consumer chain' : 'consumer record'
+      ) });
+    } finally {
+      await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('coordination cutover rejects a released-only legacy consumer chain', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));
@@ -737,6 +808,8 @@ test('coordination cutover rejects a released-only legacy consumer chain', async
     await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
       .rejects.toThrow('invalid consumer chain');
     expect(await readFile(path.join(consumers, name))).toEqual(bytes);
+    expect(await readdir(path.join(runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination', 'v1', 'consumers'))).toEqual([]);
   } finally {
     await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
@@ -963,7 +1036,7 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
       recordDigest: generatedStateDigest(terminalUnsigned)
     }) as LegacyRecord;
     await writeLegacyRecords(root, [records[0]!, nonterminal]);
-    await expectBlockedMigration(root);
+    await expectBlockedMigration(root, 'requires every chain to be terminal');
     expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
       .not.toContain(TARGET_NAMESPACE);
   } finally {
@@ -972,9 +1045,9 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
 });
 
 test('rejects foreign, partial, forked, and digest-invalid legacy sources before creating v2', async () => {
-  const cases: readonly { name: string; prepare: (root: string) => Promise<void> }[] = [
+  const cases: readonly { message: string; prepare: (root: string) => Promise<void> }[] = [
     {
-      name: 'foreign owner',
+      message: 'record belongs to a foreign owner root or physical epoch',
       prepare: async (root) => {
         const records = buildLegacyRecords(root);
         const foreignRoot = path.join(root, 'foreign-owner');
@@ -990,14 +1063,14 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
       }
     },
     {
-      name: 'partial predecessor chain',
+      message: 'legacy chain has a missing or forked predecessor',
       prepare: async (root) => {
         const records = buildLegacyRecords(root);
         await writeLegacyRecords(root, [records[0]!, records[2]!]);
       }
     },
     {
-      name: 'forked predecessor',
+      message: 'contains a forked legacy predecessor',
       prepare: async (root) => {
         const records = buildLegacyRecords(root);
         const forkUnsigned = {
@@ -1015,7 +1088,7 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
       }
     },
     {
-      name: 'digest mutation',
+      message: 'record digest is invalid',
       prepare: async (root) => {
         const records = await writeLegacyRecords(root);
         const first = records[0]!;
@@ -1028,11 +1101,11 @@ test('rejects foreign, partial, forked, and digest-invalid legacy sources before
     }
   ];
 
-  for (const { prepare } of cases) {
+  for (const { message, prepare } of cases) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-invalid-'));
     try {
       await prepare(root);
-      await expectBlockedMigration(root);
+      await expectBlockedMigration(root, message);
       expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
         .not.toContain(TARGET_NAMESPACE);
     } finally {

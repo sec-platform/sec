@@ -1,10 +1,9 @@
 import type { Command } from 'commander';
 import { TEXT_BYTE_ANOMALIES, TEXT_BYTE_CLASSIFICATIONS, type TextByteClassification } from '../../adapters/runtime-state/text-byte-census.ts';
 import { buildBenchmarkTaskCatalog } from '../../adapters/verification/platform/benchmark/catalog.ts';
-import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
+import { platformCommand } from '../../adapters/verification/platform/platform-command.ts';
 import { assertReferenceCheckClean } from '../../application/reference-check.ts';
 import { admitTextByteCensusThreshold, projectTextByteCensusReport, textByteCensusThresholdMatched } from '../../application/text-byte-census.ts';
-import { projectWorktreeSettlementReceipt } from '../../application/worktree-settlement.ts';
 import {
   bindDependencyCommandHandlers,
   registerDependencyCommands
@@ -33,7 +32,7 @@ import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudg
 import { registerInspectionCommands } from './register-inspection-commands.ts';
 import { registerWorkspaceCommands } from './register-workspace-commands.ts';
 
-type DependencyEnvironmentModule = typeof import('../../adapters/toolchain/dependencies/environment.ts');
+type DependencyEnvironmentModule = typeof import('../toolchain/dependency-environment.ts');
 
 export type DependencyEnvironmentCommandDomain = Pick<
   DependencyEnvironmentModule,
@@ -161,7 +160,7 @@ export function registerCommands(
       const value = await runSettlement(workspaceRoot, { fix });
       return {
         value,
-        text: formatWorktreeSettlement(projectWorktreeSettlementReceipt(value)),
+        text: formatWorktreeSettlement(value),
         status: value.status,
         successful: value.status === 'settled'
       };

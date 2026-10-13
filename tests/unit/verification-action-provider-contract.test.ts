@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import type { VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 
-import type { VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
+
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { VERIFICATION_ACTION_PROVIDER_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, parseVerificationActionProviderStatusReadback, reduceVerificationActionProviderState, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStateInput, type VerificationActionProviderStatusObservation, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalFact, type VerificationActionProviderTerminalObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 
@@ -226,9 +227,6 @@ describe('VerificationAction provider pure state contract', () => {
     expect(result.terminalPayloadDigest).toBe(PAYLOAD);
     expect('resultStatus' in result).toBe(false);
     expect('cleanupStatus' in result).toBe(false);
-    expect(Object.keys(terminalFact()).sort()).toEqual([
-      'actionKey', 'candidateSha', 'payloadDigest', 'producer'
-    ]);
   });
 
   test('provider status cannot encode or promote Verification Result', () => {

@@ -1,10 +1,10 @@
 import path from 'node:path';
 
 import type { LockFile, ManifestEntry, PlanFile } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import type { BuildEngineeringIRInput } from '../../compiler/ir/build-engineering-ir.ts';
 import { prepareManifestResolution } from '../../compiler/resolve/resolve-plan.ts';
 import { canonicalEquals, uniqueSorted } from '../../contracts/canonical.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { posixPath } from '../../contracts/relative-path.ts';
 import type { SemanticGeneratorDeclaration } from '../../semantics/generation/types.ts';
 import type { SemanticMutationLoadedSourceCandidate } from '../../semantics/mutation/types.ts';
@@ -32,7 +32,7 @@ export interface WorkspaceEngineeringIRBuildInput {
 
 function assertPlanLockSelectionCompatible(plan: PlanFile, lock: LockFile): void {
   const incompatible = (detail: string): never => {
-    throw new CompilerError('WORKSPACE-INPUT-001', `Workspace Plan/Lock selection is inconsistent: ${detail}`);
+    throw new CodedFailure('WORKSPACE-INPUT-001', `Workspace Plan/Lock selection is inconsistent: ${detail}`);
   };
   if (plan.app.id !== lock.app.id || plan.app.name !== lock.app.name
       || plan.app.stack !== lock.app.stack || plan.app.mode !== lock.app.mode) {
@@ -79,7 +79,7 @@ async function captureWorkspaceEngineeringIRBuildInput(
   );
   if (!canonicalEquals(comparableBlocks(resolvedSelection.resolvedBlocks), comparableBlocks(lock.resolvedBlocks))
       || !canonicalEquals(resolvedSelection.resolvedCapabilities, lock.resolvedCapabilities)) {
-    throw new CompilerError('WORKSPACE-INPUT-001',
+    throw new CodedFailure('WORKSPACE-INPUT-001',
       'Workspace Plan/Lock selection is inconsistent: resolved block closure changed');
   }
 
@@ -152,7 +152,7 @@ export async function loadWorkspaceEngineeringIRBuildInput(
   const first = await captureWorkspaceEngineeringIRBuildInput(workspaceRoot);
   const second = await captureWorkspaceEngineeringIRBuildInput(workspaceRoot);
   if (!canonicalEquals(first, second)) {
-    throw new CompilerError('WORKSPACE-INPUT-001',
+    throw new CodedFailure('WORKSPACE-INPUT-001',
       'Workspace engineering input changed during source capture');
   }
   const { plan: _plan, ...input } = first;

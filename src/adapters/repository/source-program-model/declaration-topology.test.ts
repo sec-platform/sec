@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { compileSourceProgramDeclarationTopology } from './declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
@@ -13,7 +13,7 @@ function compileFixture(sources: Readonly<Record<string, string>>) {
     source,
     contentDigest: rawSha256(source)
   }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{
       descriptorPath,

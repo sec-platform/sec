@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
 
 import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import {
@@ -26,8 +27,9 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import {
+  RetainedReceiptAuthorityUnknownError,
   executeMergedLocalBranchResidueCloseout,
   parseMergedPullRequestHeads,
   parseRepositoryProviderObservation,
@@ -299,6 +301,361 @@ function completedDuplicateOperationReceipt(input: Readonly<{
     receipt
   });
 }
+
+function createSuccessorFixture(label: string) {
+  const fixture = createEffectFixture(label);
+  git(fixture.repositoryRoot, ['checkout', '-b', 'codex/source']);
+  writeFileSync(path.join(fixture.repositoryRoot, 'source-only.txt'), 'preserved outside main\n');
+  git(fixture.repositoryRoot, ['add', 'source-only.txt']);
+  git(fixture.repositoryRoot, ['commit', '-m', 'source outside main']);
+  const sourceSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+  git(fixture.repositoryRoot, ['checkout', '-b', 'codex/successor']);
+  writeFileSync(path.join(fixture.repositoryRoot, 'successor.txt'), 'successor\n');
+  git(fixture.repositoryRoot, ['add', 'successor.txt']);
+  git(fixture.repositoryRoot, ['commit', '-m', 'preserving successor']);
+  const successorSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+  git(fixture.repositoryRoot, ['checkout', 'main']);
+  const remoteHeads: Record<string, string> = { main: fixture.mainSha, 'codex/successor': successorSha };
+  const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+    if (command === 'gh' && args[0] === 'pr') {
+      return { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) };
+    }
+    if (command === 'git' && args.includes('ls-remote')) {
+      return { status: 0, stdout: Buffer.from(Object.entries(remoteHeads)
+        .map(([branch, head]) => `${head}\trefs/heads/${branch}\n`).join('')), stderr: Buffer.alloc(0) };
+    }
+    return fixture.run(command, args, cwd, input);
+  };
+  return { ...fixture, sourceSha, successorSha, remoteHeads, run,
+    retainedTargets: [{ branch: 'codex/source', expectedHeadSha: sourceSha,
+      successor: { ref: 'refs/heads/codex/successor', expectedHeadSha: successorSha } }] };
+}
+
+test('explicit remote successor preserves a source absent from main and resumes its durable v3 selection', async () => {
+  const fixture = createSuccessorFixture('successor-resume');
+  try {
+    expect(spawnSync('git', ['merge-base', '--is-ancestor', fixture.sourceSha, fixture.mainSha],
+      { cwd: fixture.repositoryRoot, windowsHide: true }).status).toBe(1);
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture,
+      faults: { afterAuthorization: () => { throw new Error('selected-successor'); } }
+    })).rejects.toThrow('selected-successor');
+    const name = readdirSync(fixture.recoveryRoot).find((entry) => entry.endsWith('.authorization.json'))!;
+    const authorization = JSON.parse(readFileSync(path.join(fixture.recoveryRoot, name), 'utf8'));
+    expect(authorization.schema).toBe('sec-local-branch-residue-closeout-authorization-v3');
+    expect(authorization.entries[0].successor).toEqual(fixture.retainedTargets[0]!.successor);
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run
+    });
+    expect(result.settled).toEqual(['codex/source']);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/codex/source')).toBeFalse();
+    for (const ref of ['main', 'release', 'fix/example', 'codex/successor']) {
+      expect(refExists(fixture.repositoryRoot, `refs/heads/${ref}`)).toBeTrue();
+    }
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('explicit successor drift at the effect boundary keeps the source and complete recovery', async () => {
+  const fixture = createSuccessorFixture('successor-effect-drift');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+      afterAuthorization: () => { fixture.remoteHeads['codex/successor'] = fixture.mainSha; }
+    } })).rejects.toThrow('preservation ref is absent or changed');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/codex/source')).toBeTrue();
+    const files = readdirSync(fixture.recoveryRoot);
+    expect(files.filter((name) => name.endsWith('.bundle'))).toHaveLength(1);
+    expect(files.filter((name) => name.endsWith('.bundle.sha256'))).toHaveLength(1);
+    expect(files.filter((name) => name.endsWith('.authorization.json'))).toHaveLength(1);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+for (const cut of ['bundle', 'checksum', 'authorization'] as const) {
+  test(`terminal successor retirement resumes after the actual ${cut} removal without another ref effect`, async () => {
+    const fixture = createSuccessorFixture(`successor-retire-${cut}`);
+    let deletes = 0;
+    try {
+      await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+        afterDelete: () => { deletes += 1; },
+        afterRetireFile: (name) => {
+          if ((cut === 'bundle' && name.endsWith('.bundle'))
+              || (cut === 'checksum' && name.endsWith('.bundle.sha256'))
+              || (cut === 'authorization' && name.endsWith('.authorization.json'))) {
+            expect(existsSync(path.join(fixture.recoveryRoot, name))).toBeFalse();
+            throw new Error(`retired-${cut}`);
+          }
+        }
+      } })).rejects.toThrow(`retired-${cut}`);
+      expect(deletes).toBe(1);
+      const receiptName = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.receipt.json'))!;
+      const receipt = JSON.parse(readFileSync(path.join(fixture.recoveryRoot, receiptName), 'utf8'));
+      expect(receipt.schema).toBe('sec-local-branch-residue-closeout-receipt-v3');
+      expect(receipt.authorization.entries[0].successor.ref).toBe('refs/heads/codex/successor');
+      const resumed = await executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run,
+        retainedTargets: cut === 'checksum' ? fixture.retainedTargets : undefined,
+        faults: { afterDelete: () => { throw new Error('duplicate ref effect'); } }
+      });
+      expect(resumed.settled).toEqual(['codex/source']);
+      expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+    } finally { fixture.dispose(); }
+  }, 45_000);
+}
+
+for (const obstacle of ['unknown-sidecar', 'ref-recreated', 'successor-lost', 'URL-changed'] as const) {
+  test(`orphan retained terminal receipt preserves recovery when ${obstacle}`, async () => {
+    const fixture = createSuccessorFixture(`successor-orphan-${obstacle}`);
+    try {
+      await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+        afterRetireFile: (name) => {
+          if (name.endsWith('.authorization.json')) throw new Error('orphan-ready');
+        }
+      } })).rejects.toThrow('orphan-ready');
+      const receiptName = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.receipt.json'))!;
+      if (obstacle === 'unknown-sidecar') {
+        writeFileSync(path.join(fixture.recoveryRoot, receiptName.replace('.receipt.json', '.unknown')), '{}');
+      } else if (obstacle === 'ref-recreated') {
+        git(fixture.repositoryRoot, ['branch', 'codex/source', fixture.sourceSha]);
+      } else if (obstacle === 'successor-lost') {
+        fixture.remoteHeads['codex/successor'] = fixture.mainSha;
+      } else {
+        git(fixture.repositoryRoot, ['remote', 'set-url', 'origin', 'git@github.com:sec-platform/sec.git']);
+      }
+      await expect(executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run
+      })).rejects.toThrow();
+      expect(existsSync(path.join(fixture.recoveryRoot, receiptName))).toBeTrue();
+    } finally { fixture.dispose(); }
+  }, 45_000);
+}
+
+test('terminal successor receipt accepts a same-ref fast forward retaining the authorized OID', async () => {
+  const fixture = createSuccessorFixture('successor-terminal-ff');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+      afterReceipt: () => { throw new Error('terminal-ready'); }
+    } })).rejects.toThrow('terminal-ready');
+    git(fixture.repositoryRoot, ['checkout', 'codex/successor']);
+    writeFileSync(path.join(fixture.repositoryRoot, 'later.txt'), 'later\n');
+    git(fixture.repositoryRoot, ['add', 'later.txt']);
+    git(fixture.repositoryRoot, ['commit', '-m', 'successor fast forward']);
+    fixture.remoteHeads['codex/successor'] = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryRoot, ['checkout', 'main']);
+    const resumed = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run
+    });
+    expect(resumed.settled).toEqual(['codex/source']);
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('legacy retained v2 terminal receipt gains an independent carrier before authorization retirement', async () => {
+  const fixture = createEffectFixture('legacy-v2-terminal-carrier');
+  const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) =>
+    command === 'gh' && args[0] === 'pr'
+      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+      : fixture.run(command, args, cwd, input);
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
+      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
+      faults: { afterReceipt: () => { throw new Error('v2-terminal-ready'); } }
+    })).rejects.toThrow('v2-terminal-ready');
+    const receiptName = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.receipt.json'))!;
+    const { receiptDigest: _receiptDigest, authorization, ...material } = JSON.parse(
+      readFileSync(path.join(fixture.recoveryRoot, receiptName), 'utf8'));
+    expect(authorization.schema).toBe('sec-local-branch-residue-closeout-authorization-v2');
+    material.schema = 'sec-local-branch-residue-closeout-receipt-v2';
+    writeFileSync(path.join(fixture.recoveryRoot, receiptName), `${JSON.stringify({
+      ...material, receiptDigest: branchLifecycleDigest(material)
+    }, null, 2)}\n`);
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
+      faults: { afterRetireFile: (name) => {
+        if (name.endsWith('.authorization.json')) throw new Error('v2-authority-retired');
+      } }
+    })).rejects.toThrow('v2-authority-retired');
+    const carrierName = readdirSync(fixture.recoveryRoot)
+      .find((name) => name.endsWith('.terminal.receipt.json'))!;
+    expect(JSON.parse(readFileSync(path.join(fixture.recoveryRoot, carrierName), 'utf8'))
+      .authorization).toEqual(authorization);
+    const resumed = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
+      faults: { afterDelete: () => { throw new Error('repeated legacy delete'); } }
+    });
+    expect(resumed.settled).toEqual(['fix/example']);
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('legacy orphan v2 receipt remains a typed unknown instead of inventing authority', async () => {
+  const fixture = createEffectFixture('legacy-v2-orphan-unknown');
+  const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) =>
+    command === 'gh' && args[0] === 'pr'
+      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+      : fixture.run(command, args, cwd, input);
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
+      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
+      faults: { afterReceipt: () => { throw new Error('legacy-ready'); } }
+    })).rejects.toThrow('legacy-ready');
+    const authorizationName = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.authorization.json'))!;
+    const receiptName = authorizationName.replace('.authorization.json', '.receipt.json');
+    const { receiptDigest: _receiptDigest, authorization: _authorization, ...material } = JSON.parse(
+      readFileSync(path.join(fixture.recoveryRoot, receiptName), 'utf8'));
+    material.schema = 'sec-local-branch-residue-closeout-receipt-v2';
+    writeFileSync(path.join(fixture.recoveryRoot, receiptName), `${JSON.stringify({
+      ...material, receiptDigest: branchLifecycleDigest(material)
+    }, null, 2)}\n`);
+    rmSync(path.join(fixture.recoveryRoot, authorizationName));
+    const before = readdirSync(fixture.recoveryRoot).sort();
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run
+    })).rejects.toBeInstanceOf(RetainedReceiptAuthorityUnknownError);
+    expect(readdirSync(fixture.recoveryRoot).sort()).toEqual(before);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('pending successor operation still requires its complete recovery bundle and checksum', async () => {
+  const fixture = createSuccessorFixture('pending-successor-checksum');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+      afterAuthorization: () => { throw new Error('pending-ready'); }
+    } })).rejects.toThrow('pending-ready');
+    const checksum = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.bundle.sha256'))!;
+    rmSync(path.join(fixture.recoveryRoot, checksum));
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run
+    })).rejects.toThrow('Recovery checksum changed');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/codex/source')).toBeTrue();
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+for (const drift of ['successor-lost', 'ref-recreated'] as const) {
+  test(`retained terminal issuance rejects ${drift} after the local ref readback`, async () => {
+    const fixture = createSuccessorFixture(`successor-terminal-issuance-${drift}`);
+    try {
+      await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+        afterReadback: () => {
+          if (drift === 'successor-lost') fixture.remoteHeads['codex/successor'] = fixture.mainSha;
+          else git(fixture.repositoryRoot, ['branch', 'codex/source', fixture.sourceSha]);
+        }
+      } })).rejects.toThrow();
+      const files = readdirSync(fixture.recoveryRoot);
+      expect(files.filter((name) => name.endsWith('.receipt.json'))).toEqual([]);
+      expect(files.filter((name) => name.endsWith('.authorization.json'))).toHaveLength(1);
+      expect(files.filter((name) => name.endsWith('.bundle'))).toHaveLength(1);
+      expect(files.filter((name) => name.endsWith('.bundle.sha256'))).toHaveLength(1);
+    } finally { fixture.dispose(); }
+  }, 45_000);
+}
+
+for (const replaced of ['receipt', 'authorization'] as const) {
+  test(`terminal retirement preserves substituted ${replaced} bytes after bundle retirement`, async () => {
+    const fixture = createSuccessorFixture(`successor-substituted-${replaced}`);
+    let changedPath = '';
+    try {
+      await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+        afterRetireFile: (name) => {
+          if (name.endsWith('.bundle')) {
+            const target = readdirSync(fixture.recoveryRoot)
+              .find((candidate) => candidate.endsWith(`.${replaced}.json`))!;
+            changedPath = path.join(fixture.recoveryRoot, target);
+            writeFileSync(changedPath, 'foreign bytes\n');
+          }
+        }
+      } })).rejects.toThrow('Retained authority bytes or physical identity changed');
+      expect(readFileSync(changedPath, 'utf8')).toBe('foreign bytes\n');
+      const files = readdirSync(fixture.recoveryRoot);
+      expect(files.filter((name) => name.endsWith('.authorization.json'))).toHaveLength(1);
+      expect(files.filter((name) => name.endsWith('.receipt.json'))).toHaveLength(1);
+      expect(files.filter((name) => name.endsWith('.bundle.sha256'))).toHaveLength(1);
+    } finally { fixture.dispose(); }
+  }, 45_000);
+}
+
+test('terminal retirement keeps a checksum substituted after the actual bundle deletion', async () => {
+  const fixture = createSuccessorFixture('successor-substituted-checksum');
+  let checksumPath = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+      afterRetireFile: (name) => {
+        if (name.endsWith('.bundle')) {
+          checksumPath = path.join(fixture.recoveryRoot, `${name}.sha256`);
+          writeFileSync(checksumPath, 'foreign checksum bytes\n');
+        }
+      }
+    } })).rejects.toThrow('Branch recovery file changed before retirement');
+    expect(readFileSync(checksumPath, 'utf8')).toBe('foreign checksum bytes\n');
+    const files = readdirSync(fixture.recoveryRoot);
+    expect(files.filter((name) => name.endsWith('.authorization.json'))).toHaveLength(1);
+    expect(files.filter((name) => name.endsWith('.receipt.json'))).toHaveLength(1);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('terminal retirement preserves an initially absent checksum that reappears', async () => {
+  const fixture = createSuccessorFixture('successor-absent-checksum-recreated');
+  let checksumPath = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture,
+      faults: { afterReceipt: () => { throw new Error('terminal-before-retirement'); } }
+    })).rejects.toThrow('terminal-before-retirement');
+    const bundleName = readdirSync(fixture.recoveryRoot).find(name => name.endsWith('.bundle'))!;
+    checksumPath = path.join(fixture.recoveryRoot, `${bundleName}.sha256`);
+    rmSync(checksumPath);
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run,
+      faults: { afterRetireFile: name => {
+        if (name === bundleName) writeFileSync(checksumPath, 'recreated checksum\n');
+      } }
+    })).rejects.toThrow('Retired or initially absent recovery file reappeared');
+    expect(readFileSync(checksumPath, 'utf8')).toBe('recreated checksum\n');
+    expect(readdirSync(fixture.recoveryRoot).filter(name => name.endsWith('.receipt.json'))).toHaveLength(1);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('terminal retirement keeps its last receipt when a retired bundle reappears', async () => {
+  const fixture = createSuccessorFixture('successor-retired-bundle-recreated');
+  let bundlePath = '';
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({ ...fixture, faults: {
+      afterRetireFile: name => {
+        if (name.endsWith('.bundle')) bundlePath = path.join(fixture.recoveryRoot, name);
+        if (name.endsWith('.authorization.json')) writeFileSync(bundlePath, 'recreated bundle\n');
+      }
+    } })).rejects.toThrow('Retired or initially absent recovery file reappeared');
+    expect(readFileSync(bundlePath, 'utf8')).toBe('recreated bundle\n');
+    expect(readdirSync(fixture.recoveryRoot).filter(name => name.endsWith('.authorization.json'))).toHaveLength(0);
+    expect(readdirSync(fixture.recoveryRoot).filter(name => name.endsWith('.receipt.json'))).toHaveLength(1);
+  } finally { fixture.dispose(); }
+}, 45_000);
+
+test('merged orphan receipt retirement rejects bytes substituted during preservation observation', async () => {
+  const fixture = createEffectFixture('merged-orphan-substituted-receipt');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run: fixture.run,
+      faults: { afterReceipt: () => { throw new Error('merged-orphan-ready'); } }
+    })).rejects.toThrow('merged-orphan-ready');
+    const authorizationName = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.authorization.json'))!;
+    const receiptPath = path.join(fixture.recoveryRoot, authorizationName.replace('.authorization.json', '.receipt.json'));
+    rmSync(path.join(fixture.recoveryRoot, authorizationName));
+    let replaced = false;
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      const result = fixture.run(command, args, cwd, input);
+      if (!replaced && command === 'git' && args[0] === 'merge-base') {
+        writeFileSync(receiptPath, 'foreign receipt bytes\n');
+        replaced = true;
+      }
+      return result;
+    };
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run
+    })).rejects.toThrow('Branch recovery file changed before retirement');
+    expect(replaced).toBeTrue();
+    expect(readFileSync(receiptPath, 'utf8')).toBe('foreign receipt bytes\n');
+  } finally { fixture.dispose(); }
+}, 45_000);
 
 function merged(branch = 'fix/example', headSha = HEAD) {
   return {
@@ -887,8 +1244,13 @@ test('a divergent retained target stays unresolved without owner-issued review e
   }
 }, 30_000);
 
-test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
+for (const cut of [null, 'preparation', 'first-journal', 'last-journal', 'bundle', 'checksum',
+  'first-receipt', 'last-receipt'] as const) {
+test(`terminal settlement resumes duplicate family retirement after ${cut ?? 'no interruption'}`, async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');
+  let duplicateName = '';
+  let journalRemovals = 0;
+  let receiptRemovals = 0;
   try {
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
@@ -903,7 +1265,7 @@ test('terminal settlement removes the duplicate branch-closeout bundle family', 
             readFileSync(path.join(fixture.recoveryRoot, authorizationName), 'utf8')
           ) as { entries: Array<{ recovery: { path: string } }> };
           const original = readFileSync(authorization.entries[0]!.recovery.path);
-          const duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
+          duplicateName = `sec-branch-closeout-fix-example-1-1-${fixture.headSha.slice(0, 12)}.bundle`;
           writeFileSync(path.join(fixture.recoveryRoot, duplicateName), original);
           const digest = createHash('sha256').update(original).digest('hex');
           writeFileSync(
@@ -931,32 +1293,82 @@ test('terminal settlement removes the duplicate branch-closeout bundle family', 
               envelopeDigest: branchLifecycleDigest(preparationMaterial)
             }, null, 2)}\n`
           );
-          writeFileSync(
-            path.join(
-              fixture.recoveryRoot,
-              `${duplicateName}.closeout-${operationReceipt.binding.closeoutOperationId.slice('sha256:'.length)}.receipt.json`
-            ),
-            `${JSON.stringify(operationReceipt, null, 2)}\n`
-          );
+          const secondReceipt = completedDuplicateOperationReceipt({
+            repositoryRoot: fixture.repositoryRoot,
+            headSha: fixture.headSha,
+            mainSha: fixture.mainSha,
+            recoveryPath: path.join(fixture.recoveryRoot, duplicateName),
+            recoveryDigest: `sha256:${digest}`,
+            consumptionOperationId: 'second-completed-attempt'
+          });
+          for (const terminal of [operationReceipt, secondReceipt]) {
+            const operationName = `${duplicateName}.closeout-${terminal.binding.closeoutOperationId.slice('sha256:'.length)}`;
+            const journal = createBranchCloseoutOperationJournal({
+              binding: terminal.binding,
+              writerId: 'duplicate-family-test',
+              remote: terminal.remote,
+              local: terminal.local,
+              prune: terminal.prune,
+              terminalReceiptDigest: terminal.receipt.receiptDigest
+            });
+            writeFileSync(path.join(fixture.recoveryRoot, `${operationName}.journal.json`),
+              `${JSON.stringify(journal, null, 2)}\n`);
+            writeFileSync(path.join(fixture.recoveryRoot, `${operationName}.receipt.json`),
+              `${JSON.stringify(terminal, null, 2)}\n`);
+          }
           throw new Error('fault:duplicate-ready');
         }
       }
     })).rejects.toThrow('fault:duplicate-ready');
 
+    if (cut !== null) {
+      await expect(executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot,
+        recoveryRoot: fixture.recoveryRoot,
+        run: fixture.run,
+        faults: { afterRetireFile: name => {
+          if (!name.startsWith(duplicateName)) return;
+          if (name.endsWith('.journal.json')) journalRemovals++;
+          if (name.endsWith('.receipt.json')) receiptRemovals++;
+          const reached = cut === 'preparation' ? name.endsWith('.preparation.json')
+            : cut === 'first-journal' ? journalRemovals === 1
+            : cut === 'last-journal' ? journalRemovals === 2
+            : cut === 'bundle' ? name === duplicateName
+            : cut === 'checksum' ? name === `${duplicateName}.sha256`
+            : cut === 'first-receipt' ? receiptRemovals === 1
+            : receiptRemovals === 2;
+          if (reached) throw new Error(`cut-after-${cut}`);
+        } }
+      })).rejects.toThrow(`cut-after-${cut}`);
+      expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+      // The parent terminal carrier survives every interrupted prefix.
+      expect(readdirSync(fixture.recoveryRoot).some(name => name.startsWith('sec-local-branch-residue-')
+        && name.endsWith('.receipt.json'))).toBeTrue();
+      if (cut === 'bundle' || cut === 'checksum' || cut === 'first-receipt') {
+        expect(existsSync(path.join(fixture.recoveryRoot, duplicateName))).toBeFalse();
+        expect(readdirSync(fixture.recoveryRoot).some(name => name.startsWith(duplicateName)
+          && name.endsWith('.receipt.json'))).toBeTrue();
+      }
+    }
     const result = await executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
-      now: () => new Date('2026-08-22T00:01:00.000Z')
+      now: () => new Date('2026-08-22T00:01:00.000Z'),
+      faults: cut === null ? undefined
+        : { afterDelete: () => { throw new Error('ref deletion was replayed'); } }
     });
     expect(result.settled).toEqual(['fix/example']);
     expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
-    expect(result.retiredRecoveryFiles.some((file) => file.includes('sec-branch-closeout-fix-example')))
-      .toBeTrue();
+    if (cut !== 'last-receipt') {
+      expect(result.retiredRecoveryFiles.some((file) => file.includes('sec-branch-closeout-fix-example')))
+        .toBeTrue();
+    }
   } finally {
     fixture.dispose();
   }
 }, 30_000);
+}
 
 test('completed duplicate attempt cannot retire a newer pending operation in the same family', async () => {
   const fixture = createEffectFixture('duplicate-pending-operation');

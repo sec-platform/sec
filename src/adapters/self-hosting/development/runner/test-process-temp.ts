@@ -624,7 +624,7 @@ function parseIdentity(value: unknown): PhysicalDirectoryIdentity | null {
 }
 
 /** Child-side adoption performs no delete Effect; cleanup stays with the direct parent supervisor. */
-export function consumeTestProcessTempAssignmentV1(input: Readonly<{
+export function consumeTestProcessTempAssignment(input: Readonly<{
   environment: NodeJS.ProcessEnv;
   pathBudget?: 'canonical-test-runtime';
 }>): TestProcessTempRoot | null {
@@ -1036,7 +1036,7 @@ function recoverDeadRuntimeInvocationLeases(input: Readonly<{
  * State and Runtime Cache. Runtime State owns only the workspace-scoped lease;
  * the OS temporary root remains disposable data.
  */
-export async function createTestProcessTempRootV1(input: Readonly<{
+export async function createTestProcessTempRoot(input: Readonly<{
   repositoryRoot: string;
   hostTempRoot: string;
   environment: NodeJS.ProcessEnv;
@@ -1391,7 +1391,7 @@ export async function prepareTestInvocationRuntime(input: Readonly<{
         && input.environment[TEST_PROCESS_TEMP_ASSIGNMENT_ENV] === undefined) {
       assertPlannedTestProcessTempPathBudget(input.hostTempRoot);
     }
-    const assigned = consumeTestProcessTempAssignmentV1({
+    const assigned = consumeTestProcessTempAssignment({
       environment: input.environment,
       ...(enforceCanonicalPathBudget ? { pathBudget: 'canonical-test-runtime' as const } : {})
     });
