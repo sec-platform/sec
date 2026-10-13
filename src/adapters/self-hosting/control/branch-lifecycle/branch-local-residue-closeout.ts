@@ -108,12 +108,15 @@ export interface MergedPullRequestHead {
   readonly url: string;
 }
 
-export interface LocalBranchResidueObservation {
+interface GitBranchResidueObservation {
   readonly defaultBranch: string;
   readonly localRefs: Readonly<Record<string, string>>;
   readonly remoteRefs: Readonly<Record<string, string>>;
   readonly worktreeBranches: readonly string[];
   readonly worktreeRoots: readonly string[];
+}
+
+export interface LocalBranchResidueObservation extends GitBranchResidueObservation {
   readonly mergedPullRequests: readonly MergedPullRequestHead[];
 }
 
@@ -655,12 +658,12 @@ async function verifyRecovery(
   await verifyBundleBytes(run, repositoryRoot, entry, bytes, 'Recovery bundle live');
 }
 
-async function observe(
+async function observeGitBranches(
   run: CommandRunner,
   repositoryRoot: string,
   repository: string,
   defaultBranch: string
-): Promise<LocalBranchResidueObservation> {
+): Promise<GitBranchResidueObservation> {
   const remoteObservation = createBranchLifecycleGitHubRemoteObservation(
     repository,
     process.env
@@ -678,7 +681,19 @@ async function observe(
       'ls-remote', '--heads', remoteObservation.repositoryUrl
     ], repositoryRoot, 'remote branch observation', undefined, remoteObservation.environment)),
     worktreeBranches: parseWorktreeBranches(worktrees),
-    worktreeRoots: parseWorktreeRoots(worktrees),
+    worktreeRoots: parseWorktreeRoots(worktrees)
+  });
+}
+
+async function observe(
+  run: CommandRunner,
+  repositoryRoot: string,
+  repository: string,
+  defaultBranch: string
+): Promise<LocalBranchResidueObservation> {
+  const branches = await observeGitBranches(run, repositoryRoot, repository, defaultBranch);
+  return Object.freeze({
+    ...branches,
     mergedPullRequests: parseMergedPullRequestHeads(await requireText(run, 'gh', [
       'pr', 'list', '--repo', repository, '--state', 'merged', '--limit',
       String(MERGED_PULL_REQUEST_LIMIT), '--json',
@@ -687,7 +702,7 @@ async function observe(
   });
 }
 
-function remoteMainSha(observation: LocalBranchResidueObservation): string {
+function remoteMainSha(observation: GitBranchResidueObservation): string {
   const value = observation.remoteRefs[observation.defaultBranch];
   if (value === undefined) throw new Error('Remote default branch is absent.');
   return value;
@@ -1749,7 +1764,7 @@ function pathInside(candidate: string, root: string): boolean {
 
 function assertRecoverySeparatedFromWorktrees(
   store: BranchRecoveryStore,
-  observation: LocalBranchResidueObservation
+  observation: GitBranchResidueObservation
 ): void {
   for (const worktree of observation.worktreeRoots) {
     if (pathInside(store.root.path, worktree) || pathInside(worktree, store.root.path)) {
@@ -1823,7 +1838,7 @@ function assertAuthorizationIdentity(input: Readonly<{
 
 function authorizedLocalState(
   authorization: LocalBranchResidueAuthorization | RetainedAuthorization,
-  observation: LocalBranchResidueObservation
+  observation: GitBranchResidueObservation
 ): 'present' | 'absent' {
   const states = authorization.entries.map((entry) => {
     const current = observation.localRefs[entry.branch];
@@ -2174,7 +2189,8 @@ async function planRetainedNativeEntries(input: Readonly<{
   run: CommandRunner;
   repositoryRoot: string;
   repository: string;
-  observation: LocalBranchResidueObservation;
+  observation: GitBranchResidueObservation;
+  mergedPullRequests?: readonly MergedPullRequestHead[];
   targets: readonly Readonly<{
     branch: string;
     expectedHeadSha: string;
@@ -2228,7 +2244,10 @@ async function planRetainedNativeEntries(input: Readonly<{
     let review: RetainedReviewBinding | null = null;
     let anchorSha = mainSha;
     let anchorTreeSha = mainTreeSha;
-    const mergedAnchors = observation.mergedPullRequests.filter((pullRequest) => (
+    if (input.mergedPullRequests === undefined) {
+      throw new Error('Retained target without a successor requires merged pull request observation.');
+    }
+    const mergedAnchors = input.mergedPullRequests.filter((pullRequest) => (
       pullRequest.headBranch === branch && pullRequest.headSha === headSha
       && pullRequest.baseBranch === observation.defaultBranch
     ));
@@ -2523,7 +2542,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   };
 
   const assertRetainedPreservation = async (authorization: RetainedAuthorization,
-    observation: LocalBranchResidueObservation, terminal: boolean): Promise<void> => {
+    observation: GitBranchResidueObservation, terminal: boolean): Promise<void> => {
     const currentUrl = await requireText(run, 'git', ['remote', 'get-url', authorization.remote],
       repositoryRoot, 'retained remote URL readback');
     const currentProvider = await observeRepositoryProvider(run, repositoryRoot, repository);
@@ -2558,7 +2577,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   };
 
   const assertRetainedLive = async (authorization: RetainedAuthorization,
-    observation: LocalBranchResidueObservation): Promise<'present' | 'absent'> => {
+    observation: GitBranchResidueObservation): Promise<'present' | 'absent'> => {
     await assertRetainedPreservation(authorization, observation, false);
     for (const entry of authorization.entries) {
       await verifyRecovery(run, repositoryRoot, store, entry);
@@ -2610,7 +2629,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     const verifyTerminal = async (): Promise<void> => {
       await assertWorkspaceWriteLease(commonDir, coordinatedLease);
       await assertWorkspaceWriteLease(repositoryRoot, lease);
-      const observation = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      const observation = await observeGitBranches(run, repositoryRoot, repository, authorization.defaultBranch);
       assertRecoverySeparatedFromWorktrees(store, observation);
       await assertRetainedPreservation(authorization, observation, true);
       if (authorizedLocalState(authorization, observation) !== 'absent') {
@@ -2683,7 +2702,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       const currentProvider = await observeRepositoryProvider(run, repositoryRoot, repository);
       assertAuthorizationIdentity({ authorization, repository, repositoryRoot,
         commonDir, remote, remoteUrl, provider: currentProvider, store });
-      const current = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      const current = await observeGitBranches(run, repositoryRoot, repository, authorization.defaultBranch);
       assertRecoverySeparatedFromWorktrees(store, current);
       const state = await assertRetainedLive(authorization, current);
       if (publishAuthorization) {
@@ -2697,7 +2716,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         throw new Error('Retained authorization bytes changed at effect boundary.');
       }
       await assertWorkspaceWriteLease(repositoryRoot, lease);
-      const boundary = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      const boundary = await observeGitBranches(run, repositoryRoot, repository, authorization.defaultBranch);
       if (await assertRetainedLive(authorization, boundary) !== state) {
         throw new Error('Retained local state changed at effect boundary.');
       }
@@ -2717,7 +2736,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         throw new Error('Development commit journal ref state changed at the atomic closeout boundary.');
       }
       let refReceipt: GitLocalRefDeleteBatchReceipt | null = null;
-      const finalBoundary = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      const finalBoundary = await observeGitBranches(run, repositoryRoot, repository, authorization.defaultBranch);
       if (await assertRetainedLive(authorization, finalBoundary) !== state) {
         throw new Error('Retained local state changed after journal preparation.');
       }
@@ -2742,7 +2761,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       input.faults?.afterReadback?.();
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
       input.faults?.beforeReceipt?.();
-      const terminalObservation = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+      const terminalObservation = await observeGitBranches(run, repositoryRoot, repository, authorization.defaultBranch);
       assertRecoverySeparatedFromWorktrees(store, terminalObservation);
       await assertRetainedPreservation(authorization, terminalObservation, true);
       if (authorizedLocalState(authorization, terminalObservation) !== 'absent') {
@@ -2864,16 +2883,39 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     });
   }
 
-  const first = await observe(run, repositoryRoot, repository, provider.defaultBranch);
+  if (remainingTargets === undefined && retiredBefore.branches.length > 0) {
+    const finalWorktreeEvidenceGc = initialWorktreeEvidenceGc.retained.some(
+      ({ reason }) => reason === 'branch-live'
+    ) ? await gcCompletedWorktreePhysicalCloseoutEvidence(repositoryRoot) : initialWorktreeEvidenceGc;
+    return Object.freeze({
+      schema: 'sec-local-branch-residue-closeout-result-v2',
+      settled: retiredBefore.branches, protectedBranches: Object.freeze([]),
+      unresolvedBranches: Object.freeze([]), authorizationPath: null, receiptPath: null,
+      retiredRecoveryFiles: retiredBefore.files,
+      recoveryRootRetired: retireRecoveryRoot && store.retireIfEmpty(),
+      worktreeEvidenceGc: mergeWorktreeEvidenceGc(initialWorktreeEvidenceGc, finalWorktreeEvidenceGc)
+    });
+  }
+
+  const selection = remainingTargets !== undefined
+      && remainingTargets.every(({ successor }) => successor !== undefined)
+    ? { kind: 'successor-only' as const,
+        observation: await observeGitBranches(run, repositoryRoot, repository, provider.defaultBranch) }
+    : { kind: 'with-merged-prs' as const,
+        observation: await observe(run, repositoryRoot, repository, provider.defaultBranch) };
+  const first = selection.observation;
   assertRecoverySeparatedFromWorktrees(store, first);
-  const plan = planMergedLocalBranchResidueCloseout(first);
-  if (plan.eligible.length === 0 || (input.retainedTargets?.length ?? 0) > 0) {
+  const plan = selection.kind === 'with-merged-prs'
+    ? planMergedLocalBranchResidueCloseout(selection.observation) : null;
+  if (plan === null || plan.eligible.length === 0 || input.retainedTargets !== undefined) {
     const native = remainingTargets === undefined || remainingTargets.length === 0
       ? { eligible: [] as readonly Omit<RetainedEntry, 'recovery'>[],
-          protectedBranches: plan.protectedBranches,
-          unresolvedBranches: plan.unresolvedBranches }
+          protectedBranches: plan?.protectedBranches ?? Object.freeze([]),
+          unresolvedBranches: plan?.unresolvedBranches ?? Object.freeze([]) }
       : await planRetainedNativeEntries({ run, repositoryRoot, repository, observation: first,
-          targets: remainingTargets, observeReview: input.observeReview });
+          targets: remainingTargets, observeReview: input.observeReview,
+          mergedPullRequests: selection.kind === 'with-merged-prs'
+            ? selection.observation.mergedPullRequests : undefined });
     const eligible = native.eligible.filter(({ branch }) => !retiredBefore.branches.includes(branch));
     if (eligible.length > 0) {
       const entries = Object.freeze(await Promise.all(eligible.map(async (entry) => Object.freeze({

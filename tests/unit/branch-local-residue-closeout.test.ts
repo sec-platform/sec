@@ -318,7 +318,7 @@ function createSuccessorFixture(label: string) {
   const remoteHeads: Record<string, string> = { main: fixture.mainSha, 'codex/successor': successorSha };
   const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
     if (command === 'gh' && args[0] === 'pr') {
-      return { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) };
+      throw new Error('Merged PR observation is unavailable for the independent successor route.');
     }
     if (command === 'git' && args.includes('ls-remote')) {
       return { status: 0, stdout: Buffer.from(Object.entries(remoteHeads)
