@@ -117,7 +117,6 @@ export async function materializeRetainedTypeScriptExecutionGeneration(
         return inFlightRetirement;
       }
     });
-    await generation.assertCurrent();
     return generation;
   } catch (error) {
     const failures: unknown[] = [error];

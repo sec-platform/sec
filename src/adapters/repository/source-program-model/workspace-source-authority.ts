@@ -50,6 +50,11 @@ const stagedWorkspaceSourceSelectionBrand: unique symbol = Symbol(
 );
 
 const issuedStagedWorkspaceSourceSelections = new WeakSet<object>();
+const stagedSelectionObservations = new WeakMap<object, Readonly<{
+  index: StagedIndexObservation;
+  providerIdentityDigest: string;
+  repositoryRootIdentityDigest: string;
+}>>();
 
 export type WorkspaceSourceSnapshotSubject =
   | Readonly<{
@@ -134,7 +139,7 @@ export type AcquireStagedIndexSnapshotInput = Readonly<{
 export interface StagedSourceSelection {
   readonly [stagedWorkspaceSourceSelectionBrand]: true;
   readonly candidateBase: string;
-  readonly snapshotSubjectDigest: `sha256:${string}`;
+  readonly indexSubjectDigest: `sha256:${string}`;
   readonly selectedPaths: readonly string[];
   readonly selectionDigest: `sha256:${string}`;
 }
@@ -926,6 +931,26 @@ export async function selectStagedSnapshot(input: Readonly<{
   if (provenance.kind !== 'staged-index-observation') {
     throw new Error('Staged workspace source selection requires staged-index provenance');
   }
+  const selection = await acquireStagedSourceSelection(input);
+  await readBackStagedIndexSnapshot(input.snapshot, input.session);
+  requireStagedSourceSelection(selection, input.snapshot);
+  return selection;
+}
+
+/** Index membership and diff are sufficient to establish an empty operation
+ * selection. No source blob or compiler project is acquired on this path. */
+export async function acquireStagedSourceSelection(input: Readonly<{
+  session: GitReadSession;
+  candidateBase?: string;
+}>): Promise<StagedSourceSelection> {
+  assertProductionGitReadSession(input.session);
+  const session = input.session;
+  if (session.failure !== null || session.providerIdentity === null
+      || session.workingDirectoryIdentity == null
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Staged source selection requires a current production Git session');
+  }
+  const index = await observeStagedIndex(session);
   const suppliedBase = input.candidateBase;
   if (suppliedBase !== undefined && !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(suppliedBase)) {
     throw new Error('Candidate import base must be one full Git object ID');
@@ -952,10 +977,13 @@ export async function selectStagedSnapshot(input: Readonly<{
   if (input.session.consumeRecords(selectedPaths.length) !== null) {
     throw new Error('Staged candidate import surface exceeded the Git session record budget');
   }
-  await readBackStagedIndexSnapshot(input.snapshot, input.session);
   const unsigned = Object.freeze({
     candidateBase,
-    snapshotSubjectDigest: input.snapshot.subjectDigest,
+    indexSubjectDigest: sha256({
+      indexIdentityDigest: index.identityDigest,
+      providerIdentityDigest: sha256(session.providerIdentity),
+      repositoryRootIdentityDigest: sha256(session.workingDirectoryIdentity)
+    }) as `sha256:${string}`,
     selectedPaths
   });
   const selection = Object.freeze({
@@ -964,7 +992,36 @@ export async function selectStagedSnapshot(input: Readonly<{
     selectionDigest: sha256(unsigned) as `sha256:${string}`
   });
   issuedStagedWorkspaceSourceSelections.add(selection);
+  stagedSelectionObservations.set(selection, Object.freeze({
+    index,
+    providerIdentityDigest: sha256(session.providerIdentity),
+    repositoryRootIdentityDigest: sha256(session.workingDirectoryIdentity)
+  }));
+  await readBackStagedSourceSelection(selection, session);
   return selection;
+}
+
+export async function readBackStagedSourceSelection(
+  selection: StagedSourceSelection,
+  session: GitReadSession
+): Promise<`sha256:${string}`> {
+  const observation = stagedSelectionObservations.get(selection);
+  if (!issuedStagedWorkspaceSourceSelections.has(selection) || observation === undefined) {
+    throw new Error('Staged workspace source selection is not owner-issued');
+  }
+  assertProductionGitReadSession(session);
+  if (session.failure !== null || session.providerIdentity === null
+      || session.workingDirectoryIdentity == null
+      || sha256(session.providerIdentity) !== observation.providerIdentityDigest
+      || sha256(session.workingDirectoryIdentity) !== observation.repositoryRootIdentityDigest
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Staged source selection provider changed before readback');
+  }
+  const current = await observeStagedIndex(session);
+  if (current.identityDigest !== observation.index.identityDigest) {
+    throw new Error('Staged source selection index changed before readback');
+  }
+  return selection.selectionDigest;
 }
 
 export function requireStagedSourceSelection(
@@ -975,12 +1032,17 @@ export function requireStagedSourceSelection(
     throw new Error('Staged workspace source selection is not owner-issued');
   }
   assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  const observation = stagedSelectionObservations.get(selection);
+  const provenance = snapshot.subject.provenance;
   const unsigned = Object.freeze({
     candidateBase: selection.candidateBase,
-    snapshotSubjectDigest: selection.snapshotSubjectDigest,
+    indexSubjectDigest: selection.indexSubjectDigest,
     selectedPaths: selection.selectedPaths
   });
-  if (selection.snapshotSubjectDigest !== snapshot.subjectDigest
+  if (observation === undefined || provenance.kind !== 'staged-index-observation'
+      || provenance.identityDigest !== observation.index.identityDigest
+      || provenance.providerIdentityDigest !== observation.providerIdentityDigest
+      || provenance.repositoryRootIdentityDigest !== observation.repositoryRootIdentityDigest
       || selection.selectionDigest !== sha256(unsigned)) {
     throw new Error('Staged workspace source selection differs from its exact snapshot');
   }

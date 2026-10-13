@@ -147,6 +147,7 @@ function compileCommitIntent(input: Readonly<{
       signing: input.contract.signing,
       hooks: input.contract.hooks,
       normalizationSubjectDigest: input.normalization.subjectDigest,
+      normalizationApplicability: input.normalization.applicability,
       normalizationActionKey: input.normalization.actionKey,
       normalizationTerminalResultDigest: input.normalization.terminalResultDigest
     }) as OperationDigest,

@@ -322,6 +322,5 @@ export async function materializeTypeScriptExecutionGeneration(
     }
   });
   issuedTypeScriptExecutionGenerations.add(generation);
-  await generation.assertCurrent();
   return generation;
 }
