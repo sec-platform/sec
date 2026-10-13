@@ -1293,12 +1293,11 @@ export async function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<
     if (!(error instanceof Error && 'code' in error &&
         (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
   }
-  mkdirSync(trustedInputDirectory, { recursive: false });
+  await materializeGitCandidateCheckoutTransport(checkout);
   const dependencyClosurePath = path.resolve(trustedInputDirectory, 'dependency-closure.json');
   writeHostedActionJson(dependencyClosurePath, dependencyClosure);
   const baseDependencyClosureDigest = hostedActionFileDigest(dependencyClosurePath);
   const gitBundlePath = path.resolve(trustedInputDirectory, 'candidate.bundle');
-  await materializeGitCandidateCheckoutTransport(checkout);
   const authenticatedGitClosureDigest = hostedActionFileDigest(gitBundlePath);
   const preparedCandidateArchive = path.resolve(outputDirectory, 'prepared-candidate.tar');
   try {

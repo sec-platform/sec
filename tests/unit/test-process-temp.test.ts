@@ -24,11 +24,12 @@ import {
   scanNoFollowDirectoryTreeInventory
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
-import type { FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { DEFAULT_TEST_TIMEOUT_MS, type FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   consumeTestProcessTempAssignment,
   createTestInvocationRuntimeRoots,
   createTestProcessTempRoot,
+  disposeRetainedTestInvocationRuntime,
   prepareTestInvocationRuntime,
   testInvocationRuntimeIsolationModeForPlatform,
   TestProcessTempLifecycleError
@@ -70,6 +71,82 @@ test('test invocation runtime advertises only platforms with retained physical a
   expect(testInvocationRuntimeIsolationModeForPlatform('linux')).toBe('retained');
   expect(testInvocationRuntimeIsolationModeForPlatform('darwin')).toBe('unavailable');
 });
+
+for (const drift of ['none', 'binding', 'identity', 'cache-absent', 'tmp-absent', 'leases-absent', 'empty-state'] as const) {
+  test.skipIf(process.platform !== 'win32')(`explicit disposable invocation discard preserves unknown history and rejects ${drift} drift`, async () => {
+    const root = generation('sec-invocation-discard-');
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const environment = { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') };
+    mkdirSync(repositoryRoot);
+    mkdirSync(hostTempRoot);
+    // The original producer really creates these retained objects. The child
+    // exiting does not certify its descendants or the historical attempt;
+    // the subsequent callback authorizes disposal of this fixture today.
+    const producer = new URL('../../src/adapters/self-hosting/development/runner/test-process-temp.ts', import.meta.url).href;
+    const child = spawnSync(process.execPath, ['--eval', `
+      const { createTestInvocationRuntimeRoots } = await import(${JSON.stringify(producer)});
+      const invocation = await createTestInvocationRuntimeRoots(${JSON.stringify({ repositoryRoot, hostTempRoot, environment })});
+      const temporary = invocation.prepareProcessTemp({});
+      console.log(JSON.stringify({ stateRoot: invocation.stateRoot, cacheRoot: invocation.cacheRoot, ...temporary }));
+    `], { encoding: 'utf8', timeout: DEFAULT_TEST_TIMEOUT_MS, windowsHide: true });
+    if (child.status !== 0) throw new Error(`Discard fixture producer failed: ${child.stderr}`, { cause: child.error });
+    const temporary = JSON.parse(child.stdout.trim());
+    const invocation = { stateRoot: temporary.stateRoot as string, cacheRoot: temporary.cacheRoot as string };
+    writeFileSync(path.join(temporary.tempRoot, 'fixture.txt'), 'disposable fixture');
+    const containerPath = path.dirname(temporary.processRoot);
+    const bindingPath = path.join(invocation.stateRoot, 'temp-parent-binding.json');
+    const bindingBytes = readFileSync(bindingPath);
+    const binding = JSON.parse(bindingBytes.toString('utf8'));
+    const leaseParent = inspectNoFollowDirectoryChain(resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment }).testProcessTempLeaseRoot,
+      'Discard fixture lease parent').target;
+    const lease = (prefix: string) => {
+      const name = readdirSync(leaseParent.path).find(name => name.startsWith(prefix) && name.endsWith('.lease'))!;
+      const entry = inspectNoFollowOrdinaryFileEntry(leaseParent, name)!;
+      const bytes = Buffer.from(entry.bytes!);
+      return { name, bytes, device: entry.device, inode: entry.inode, owner: JSON.parse(bytes.toString('utf8')).activeOwner };
+    };
+    const selection: Parameters<typeof disposeRetainedTestInvocationRuntime>[0]['selection'] = {
+      invocationDigest: binding.invocationDigest, ownerDigest: binding.ownerDigest, bindingBytes,
+      state: inspectNoFollowDirectoryChain(invocation.stateRoot, 'Discard fixture State').target,
+      cache: inspectNoFollowDirectoryChain(invocation.cacheRoot, 'Discard fixture Cache').target,
+      container: inspectNoFollowDirectoryChain(containerPath, 'Discard fixture TMP').target,
+      runtimeLease: lease('runtime-'), invocationLease: lease('invocation-')
+    };
+    try {
+      if (drift === 'binding') writeFileSync(bindingPath, Buffer.concat([bindingBytes, Buffer.from(' ')]));
+      const selected = drift === 'identity' ? { ...selection, container: {
+        ...selection.container!, inode: `${selection.container!.inode}0`
+      } } : drift === 'cache-absent' ? { ...selection, cache: null }
+        : drift === 'tmp-absent' ? { ...selection, container: null }
+          : drift === 'empty-state' ? { ...selection, cache: null, container: null } : selection;
+      if (drift === 'cache-absent') rmSync(invocation.cacheRoot, { recursive: true });
+      if (drift === 'tmp-absent') rmSync(containerPath, { recursive: true });
+      if (drift === 'empty-state') {
+        rmSync(containerPath, { recursive: true });
+        rmSync(invocation.cacheRoot, { recursive: true });
+        rmSync(bindingPath);
+      }
+      if (drift === 'leases-absent' || drift === 'empty-state') for (const original of [selection.runtimeLease, selection.invocationLease]) {
+        rmSync(path.join(leaseParent.path, original.name));
+      }
+      const discard = () => disposeRetainedTestInvocationRuntime({ repositoryRoot, environment, selection: selected,
+        reviewDiscard: async () => ({ disposition: 'discard', reference: 'explicit fixture disposal by its test author' }) });
+      if (drift === 'none' || drift === 'cache-absent' || drift === 'tmp-absent' || drift === 'leases-absent' || drift === 'empty-state') {
+        expect(await discard()).toEqual({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
+        if (drift === 'empty-state') expect(await discard()).toEqual({ retentionReleased: true, historicalAttempt: 'UNVERIFIED' });
+        for (const directory of [containerPath, invocation.cacheRoot, invocation.stateRoot]) expect(existsSync(directory)).toBe(false);
+        for (const original of [selection.runtimeLease, selection.invocationLease]) expect(existsSync(path.join(leaseParent.path, original.name))).toBe(false);
+      } else {
+        await expect(discard()).rejects.toThrow();
+        expect(readFileSync(path.join(temporary.tempRoot, 'fixture.txt'), 'utf8')).toBe('disposable fixture');
+        for (const original of [selection.runtimeLease, selection.invocationLease]) expect(readFileSync(path.join(leaseParent.path, original.name))).toEqual(Buffer.from(original.bytes));
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, DEFAULT_TEST_TIMEOUT_MS);
+}
 
 test('test invocation runtime rejects a reconstructed fast-batch deadline before physical effects', async () => {
   const root = generation('sec-invocation-runtime-forged-budget-');

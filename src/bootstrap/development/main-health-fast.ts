@@ -4,14 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { assertGitCandidateBundleCurrent, assertGitCandidateBundleReceipt, closeGitCandidateBundle, createGitCandidateBundle, type GitCandidateBundle } from '../../adapters/providers/git-bundle/runtime.ts';
 import { assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, prepareLinuxVerificationUnitSession, type LinuxVerificationUnitSession } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
 import { MainHealthHostRuntimePreparationError, prepareMainHealthHostRuntime, retireMainHealthHostRuntime, type MainHealthHostRuntime } from '../../adapters/runtime-state/physical/runtime/main-health-host-runtime.ts';
-import { createExclusiveNoFollowDirectory, inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, type PhysicalDirectoryIdentity } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createExclusiveNoFollowDirectory, inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createTrustedRuntimeNativeMainHealthInvocation } from '../../adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { assertCompilerDependencyReadGenerationRetirementReceipt, observeCompilerDependencyExecutionGenerationAuthority, retainCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../adapters/toolchain/dependencies/runtime.ts';
 import { compilerRuntimeLayout } from '../../adapters/toolchain/runtime/layout.ts';
 import { sha256 } from '../../contracts/canonical.ts';
+import { failureMessage, getErrorCode, inspectFailureValue } from '../../contracts/failure-inspection.ts';
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../execution/operation/semantic.ts';
-import { settleResourcesAsync } from '../../execution/resource-settlement.ts';
+import { isResourceCompositeSettlementError, readResourceCompositeSettlementFailures, settleResourcesAsync } from '../../execution/resource-settlement.ts';
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const MAIN_HEALTH_FAST_COMMAND = 'bun run test -- --scope fast';
@@ -109,7 +110,7 @@ async function run(): Promise<number> {
     { label: 'MainHealth owned temporary retirement', settle: () => {
       if (!terminal || !dependenciesRetired || !bundleRetired || !runtimeRetired) throw new Error('MainHealth original resources remain unresolved; preserve owned temporary root: ' + (temporary?.path ?? 'not-created'));
       if (temporary !== undefined) retireNoFollowDirectoryTree({ root: temporary, parent: inspectNoFollowDirectoryChain('/tmp').target,
-        inventory: scanNoFollowDirectoryTreeInventory(temporary, { deadlineAtMs: performance.now() + Math.max(1, deadlineAtUnixMs - Date.now()), maximumBytes: 4_294_967_296, maximumEntries: 200_000 }),
+        inventory: scanNoFollowDirectoryTreeMetadata(temporary, { deadlineAtMs: performance.now() + Math.max(1, deadlineAtUnixMs - Date.now()), maximumEntries: 200_000, includePermissionMode: true }),
         restoreOwnerPermissions: true, deadlineAtMonotonicMs: performance.now() + Math.max(1, deadlineAtUnixMs - Date.now()) });
     } }
   ] });
@@ -119,5 +120,12 @@ async function run(): Promise<number> {
 
 if (import.meta.main) {
   try { process.exitCode = await run(); }
-  catch (error) { console.error(error); process.exitCode = 1; }
+  catch (error) {
+    const failures = isResourceCompositeSettlementError(error)
+      ? readResourceCompositeSettlementFailures(error) : [{ label: 'MainHealth immutable fast entry', error }];
+    console.error(inspectFailureValue(failures.map(failure => ({
+      label: failure.label, code: getErrorCode(failure.error), message: failureMessage(failure.error).slice(0, 2048)
+    }))));
+    process.exitCode = 1;
+  }
 }
