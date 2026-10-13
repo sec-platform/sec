@@ -51,11 +51,27 @@ const MAIN_HEALTH_RUNTIME_BINARIES = Object.freeze([
 const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"', 'node_host="$3"',
   'mkdir -p "$root/tmp" "$root/tool/bin"', ...linuxRuntimeToolCopyScript('independent-files'),
   ...MAIN_HEALTH_RUNTIME_BINARIES.map(runtimePath => `copy_runtime ${runtimePath} ${runtimePath}`),
+  // Native addons consume the installed glibc ABI family beyond the libraries
+  // linked by the tool executables. The host package manager owns that closure.
+  'glibc_inventory="$root/tmp/glibc-runtime-inventory"',
+  '/usr/bin/dpkg-query -L libc6:amd64 > "$glibc_inventory"',
+  'glibc_libraries=0',
+  'while IFS= read -r library; do',
+  '  case "$library" in /*.so|/*.so.*)',
+  '    [ -f "$library" ]',
+  '    resolved_library="$(/usr/bin/realpath -e -- "$library")"',
+  '    copy_runtime "$resolved_library" "$library"',
+  '    glibc_libraries=$((glibc_libraries + 1))',
+  '    ;; esac',
+  'done < "$glibc_inventory"',
+  '[ "$glibc_libraries" -gt 0 ]',
+  '/usr/bin/rm -- "$glibc_inventory"',
   'mkdir -p "$root/usr/share/git-core"',
   '/usr/bin/cp -R -L --preserve=mode,timestamps -- /usr/share/git-core/templates "$root/usr/share/git-core/templates"',
   'copy_runtime "$bun_host" "/usr/local/bin/bun"',
   '/usr/bin/rm -- "$root/tool/bin/node"',
-  'copy_runtime "$node_host" "/tool/bin/node"',
+  'copy_runtime "$node_host" "/usr/local/bin/node"',
+  '/usr/bin/ln -s ../../usr/local/bin/node "$root/tool/bin/node"',
   'rmdir "$root/tmp"', 'chmod -R go-w -- "$root"'].join('\n');
 const CONTRACT = sha256({ requirement: REQUIREMENT, script: SCRIPT, transport: 'actual-host-bytes-not-native-accepted-content' });
 const ENVIRONMENT = Object.freeze({ PATH: '/usr/bin:/bin', HOME: '/', LANG: 'C', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' });
@@ -164,7 +180,8 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
     });
     const manifest: MainHealthHostRuntimeManifest = Object.freeze({ schema: 'sec-main-health-host-runtime-manifest-v1', platform: 'linux/amd64', files: Object.freeze(files) });
     if (!['usr/local/bin/bun', 'tool/bin/bun'].every(name => files.some(entry => entry.path === name && entry.type === 'file' && entry.digest === bunDigest))
-        || !files.some(entry => entry.path === 'tool/bin/node' && entry.type === 'file' && entry.digest === nodeDigest)
+        || !files.some(entry => entry.path === 'usr/local/bin/node' && entry.type === 'file' && entry.digest === nodeDigest)
+        || !files.some(entry => entry.path === 'tool/bin/node' && entry.type === 'symlink' && entry.target === '../../usr/local/bin/node')
         || await read(['rev-parse', '--verify', 'HEAD^{commit}']) !== head || await read(['rev-parse', '--verify', 'HEAD^{tree}']) !== tree
         || await read(['status', '--porcelain=v1', '--untracked-files=all']) !== '') throw new Error('MainHealth source or runtime executable snapshot changed.');
     const generation = sha256(observed);

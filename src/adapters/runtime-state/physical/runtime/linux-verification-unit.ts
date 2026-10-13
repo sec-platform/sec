@@ -114,7 +114,7 @@ const RECOVERY_CONTROL_PROCESSES = 32;
 const NATIVE_CONTROL_OUTPUT_BYTES = 262144;
 // One settlement failure plus four tool teardowns, one drain, three stream
 // closes and three retained pidfd closes can all fail independently.
-const NATIVE_CLEANUP_FAILURE_LIMIT = 13;
+const NATIVE_CLEANUP_FAILURE_LIMIT = 14;
 
 function nativeFailureTransportBound(maximumStderrBytes: number): number {
   return Math.ceil((maximumStderrBytes + NATIVE_CLEANUP_FAILURE_LIMIT * NATIVE_CONTROL_OUTPUT_BYTES) * 4 / 3) + 128 * 1024;

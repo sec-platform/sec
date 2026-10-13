@@ -118,7 +118,7 @@ export async function buildProjectBaseTemplate(workspaceRoot: string): Promise<W
   json(packageJsonPath, {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
-      'test:fast': 'node --test --experimental-test-isolation=none',
+      'test:fast': 'node --test --experimental-test-isolation=none tests/fast.test.ts',
       'test:unit': 'bun test tests/runtime/unit',
       'verify:runtime:full': 'bun run test:unit',
       'verify:runtime': 'bun run verify:runtime:full',

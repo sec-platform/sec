@@ -20,6 +20,44 @@ spec.loader.exec_module(helper)
 
 class NativeRecoveryIntegration(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and Path('/proc/1/comm').read_text().strip() == 'systemd', 'requires root and the real systemd manager')
+    def test_namespace_init_reaps_adopted_children_and_preserves_main_status(self):
+        workload = r'''
+import os,sys,time
+assert os.getppid()==1
+deadline=time.monotonic()+15
+for iteration in range(300):
+    reader,writer=os.pipe()
+    child=os.fork()
+    if child==0:
+        os.close(reader)
+        grandchild=os.fork()
+        if grandchild==0:
+            while os.getppid()!=1:
+                if time.monotonic()>=deadline: os._exit(90)
+                time.sleep(.001)
+            os.write(writer,str(os.getpid()).encode());os.close(writer);os._exit(0)
+        os._exit(0)
+    os.close(writer)
+    _,status=os.waitpid(child,0)
+    assert status==0
+    adopted=int(os.read(reader,32));os.close(reader)
+    while os.path.exists('/proc/'+str(adopted)):
+        if time.monotonic()>=deadline: raise RuntimeError('adopted-child-not-reaped:'+str(adopted))
+        time.sleep(.001)
+print('reaped:300',flush=True)
+sys.exit(23)
+'''
+        for source, expected, stdout in [(workload, 23, b'reaped:300\n'),
+                                         ('import os,signal;os.kill(os.getpid(),signal.SIGKILL)', 137, b'')]:
+            with self.subTest(exitCode=expected):
+                program = helper.NAMESPACE_INIT_PROGRAM + '\nnamespace_init(' + repr([sys.executable, '-I', '-S', '-c', source]) + ')\n'
+                completed = subprocess.run(['/usr/bin/unshare', '--fork', '--pid', '--mount-proc', '--kill-child=KILL', '--',
+                                            sys.executable, '-I', '-S', '-u', '-c', program],
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, env=helper.FIXED_ENV)
+                self.assertEqual(completed.returncode, expected, completed.stderr.decode(errors='replace'))
+                self.assertEqual(completed.stdout, stdout, completed.stderr.decode(errors='replace'))
+
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and Path('/proc/1/comm').read_text().strip() == 'systemd', 'requires root and the real systemd manager')
     def test_original_control_and_unobserved_workload_are_recovered(self):
         namespace = Path(tempfile.mkdtemp(prefix='sec-native-recovery-integration-'))
         info = namespace.stat()
@@ -165,11 +203,24 @@ class RuntimeCopyPermissions(unittest.TestCase):
                 self.assertGreaterEqual(snapshot['bytesFree'], snapshot['bytesAvailable'])
                 self.assertGreaterEqual(snapshot['inodesTotal'], snapshot['inodesFree'])
                 self.assertGreaterEqual(snapshot['inodesFree'], snapshot['inodesAvailable'])
+                (root / 'retained' / 'pids.current').write_bytes(b'7\n')
+                (root / 'retained' / 'pids.events').write_bytes(b'max 3\n')
+                (root / 'retained' / 'memory.current').write_bytes(b'1' * 4097)
+                (temporary / 'pids.current').write_bytes(b'999\n')
+                resources = helper.cgroup_resource_snapshot(fd, '/original-unit')
+                self.assertEqual(resources['inode'], str(original.st_ino))
+                self.assertEqual(resources['pids.current'], '7\n')
+                self.assertEqual(resources['pids.events'], 'max 3\n')
+                self.assertIn('cgroup-diagnostic-read-bound', resources['memory.current']['unavailable'])
+                self.assertIn('unavailable', resources['memory.events'])
             finally:
                 os.close(fd)
             with self.assertRaises(OSError) as closed:
                 helper.temporary_filesystem_snapshot(fd)
             self.assertEqual(closed.exception.errno, errno.EBADF)
+            unavailable = helper.cgroup_resource_snapshot(fd, '/original-unit')
+            self.assertIn('identityUnavailable', unavailable)
+            self.assertTrue(all('unavailable' in unavailable[name] for name in ['pids.current', 'pids.events', 'memory.current', 'memory.events']))
 
     def test_recovery_removes_only_original_fixed_empty_objects(self):
         with tempfile.TemporaryDirectory() as directory:

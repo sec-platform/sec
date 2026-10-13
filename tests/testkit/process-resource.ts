@@ -9,7 +9,7 @@ import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   runRetainedCommand,
-  type CommandResult,
+  type RetainedCommandResult,
   type RunRetainedCommandOptions
 } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import type { VerificationActionProcessExecutionContext } from '../../src/adapters/verification/platform/action/runner.ts';
@@ -26,7 +26,7 @@ export async function runRetainedBunTestCommand(
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
   } = {}
-): Promise<CommandResult> {
+): Promise<RetainedCommandResult> {
   const { cwd: workingDirectory = process.cwd(), ...runOptions } = options;
   const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Test executable');
   let cwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;

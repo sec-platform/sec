@@ -609,6 +609,49 @@ def git_identity(request, trusted, candidate, deadline):
 
 # This program runs in the final unit namespace/UID before the workload is admitted.
 # It has no caller-supplied source or command interpreter. The root SUT path is fixed.
+NAMESPACE_INIT_PROGRAM = r'''
+import os, signal
+def namespace_init(argv):
+    main_pid, terminating = 0, 0
+    main_pidfd = None
+    signals = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+    def forward(number, frame):
+        nonlocal terminating
+        terminating = terminating or number
+        if main_pidfd is not None:
+            try: signal.pidfd_send_signal(main_pidfd, number)
+            except ProcessLookupError: pass
+    for number in signals: signal.signal(number, forward)
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+    pending = set(signal.sigpending()).intersection(signals)
+    if terminating or pending:
+        os._exit(128 + (terminating or min(pending)))
+    read_gate, write_gate = os.pipe2(os.O_CLOEXEC)
+    main_pid = os.fork()
+    if main_pid == 0:
+        os.close(write_gate)
+        for number in signals: signal.signal(number, signal.SIG_DFL)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        allowed = os.read(read_gate, 1)
+        os.close(read_gate)
+        if allowed != b'1': os._exit(125)
+        os.execv(argv[0], argv)
+    os.close(read_gate)
+    main_pidfd = os.pidfd_open(main_pid, 0)
+    signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+    try:
+        if not terminating: os.write(write_gate, b'1')
+    except BrokenPipeError: pass
+    finally: os.close(write_gate)
+    while True:
+        try: child, status = os.waitpid(-1, 0)
+        except InterruptedError: continue
+        if child == main_pid:
+            # Exit closes the retained pidfd without replacing the main status.
+            if os.WIFEXITED(status): os._exit(os.WEXITSTATUS(status))
+            if os.WIFSIGNALED(status): os._exit(128 + os.WTERMSIG(status))
+'''
+
 LAUNCH_SHIM = r'''
 import ctypes, errno, json, os, sys, time
 with open('/proc/self/status', 'r') as stream:
@@ -665,8 +708,7 @@ elif invocation['kind']=='lifecycle-canary':
 else:
     if os.getuid()!=65532: raise RuntimeError('nonroot-workload')
     argv=['/usr/local/bin/bun']+invocation['argv']
-os.execv(argv[0],argv)
-'''
+''' + NAMESPACE_INIT_PROGRAM + '\nnamespace_init(argv)\n'
 
 # Only this fixed root program crosses the original mount namespace boundary.
 # Foreign proc FDs are identity/input capabilities, never manager mount targets.
@@ -1004,6 +1046,8 @@ def observe_start(request, properties, root, cwd, manager, control=None, retaine
     for file, expected in [('cpu.max', b'200000 100000'), ('memory.max', b'4294967296'), ('pids.max', b'256')]:
         if bounded_read(group + '/' + file, 4096).strip() != expected:
             raise Unavailable('unit-resource-readback')
+    if retained_temporary is not None:
+        retained_temporary.append(nofollow_directory(group))
     if manager != manager_identity():
         raise Unavailable('manager-replaced')
     return {'name': name, 'invocationId': properties['InvocationID'], 'managerBootId': manager['boot'],
@@ -1039,6 +1083,25 @@ def temporary_filesystem_snapshot(fd):
     return {'device': str(identity.st_dev), 'inode': str(identity.st_ino),
             'bytesTotal': state.f_blocks * block, 'bytesFree': state.f_bfree * block, 'bytesAvailable': state.f_bavail * block,
             'inodesTotal': state.f_files, 'inodesFree': state.f_ffree, 'inodesAvailable': state.f_favail}
+
+
+def cgroup_resource_snapshot(fd, path):
+    snapshot = {'path': path}
+    try:
+        identity = os.fstat(fd)
+        snapshot.update({'device': str(identity.st_dev), 'inode': str(identity.st_ino)})
+    except OSError as error:
+        snapshot['identityUnavailable'] = str(error)
+    for name in ['pids.current', 'pids.events', 'memory.current', 'memory.events']:
+        try:
+            file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            with os.fdopen(file, 'rb', buffering=0) as stream:
+                value = stream.read(4097)
+            if len(value) > 4096: raise Unavailable('cgroup-diagnostic-read-bound')
+            snapshot[name] = value.decode('ascii')
+        except BaseException as error:
+            snapshot[name] = {'unavailable': str(error)}
+    return snapshot
 
 
 def settle_unit(request, unit, description, deadline):
@@ -1268,6 +1331,11 @@ def launch_unit(request, recovery, root, control, output, deadline, control_dead
                 failure.args = (str(failure) + '\nRetained invocation /tmp filesystem snapshot: ' + canonical(temporary_filesystem_snapshot(retained_temporary[0])).decode(),)
             except BaseException as diagnostic_error:
                 failure.args = (str(failure) + '\nRetained invocation /tmp snapshot unavailable: ' + str(diagnostic_error),)
+        if len(retained_temporary) > 1:
+            try:
+                failure.args = (str(failure) + '\nRetained invocation cgroup resource snapshot: ' + canonical(cgroup_resource_snapshot(retained_temporary[1], unit['cgroupPath'] if unit is not None else properties['ControlGroup'])).decode(),)
+            except BaseException as diagnostic_error:
+                failure.args = (str(failure) + '\nRetained invocation cgroup snapshot unavailable: ' + str(diagnostic_error),)
         if unit is not None and recovery.value['phase'] != 'unit-settled' and not failure.cleanup_failures:
             try:
                 settle_unit(request, unit, description, control_deadline)

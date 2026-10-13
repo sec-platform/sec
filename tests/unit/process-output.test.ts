@@ -184,7 +184,7 @@ test.skipIf(process.platform !== 'linux')(
           'process.stdout.write(fs.readFileSync("/proc/self/fd/16/value.txt", "utf8"));'
         ].join('\n')
       ], RETAINED_TEST_COMMAND_BUDGET);
-      expect(result).toEqual({ code: 0, stdout: 'first\nsecond\n', stderr: '' });
+      expect(result).toEqual({ code: 0, stdout: 'first\nsecond\n', stderr: '', terminal: { exitCode: 0, signal: null } });
     } finally {
       second.dispose();
       first.dispose();
@@ -218,7 +218,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
       input: new Uint8Array([0, 1, 255]),
       maxStdinBytes: 3
     });
-    expect(bytes).toEqual({ code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '' });
+    expect(bytes).toEqual({ code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '', terminal: { exitCode: 0, signal: null } });
     retained.assertCurrent();
     retainedWorkingDirectory.assertCurrent();
   } finally {

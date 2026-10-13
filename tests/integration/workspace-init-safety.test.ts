@@ -774,10 +774,11 @@ test.skipIf(process.platform === 'win32')('native publication process death pres
       console.log('interrupted-settled');
     }
   `;
-  const { code, stderr } = await runRetainedBunTestCommand(
+  const { terminal } = await runRetainedBunTestCommand(
     ['--no-env-file', '-e', script(true)], { timeoutMs: 180_000, envMode: 'inherit' }
   );
-  expect(code, stderr).toBe(137);
+  expect(terminal.signal).toBe('SIGKILL');
+  expect(terminal.exitCode).toBeNull();
   const recordPath = path.join(root, '.sec/workspace-create.json');
   const planPath = path.join(root, 'sec.yaml');
   const record = await fs.readFile(recordPath);

@@ -71,6 +71,15 @@ export interface ByteCommandResult {
   stderr: string;
 }
 
+/** Original native terminal facts; the legacy numeric code is a projection. */
+export type RetainedCommandTerminal = Readonly<Pick<ObservedCommandOutcome, 'exitCode' | 'signal'>>;
+export interface RetainedCommandResult extends CommandResult {
+  readonly terminal: RetainedCommandTerminal;
+}
+export interface RetainedByteCommandResult extends ByteCommandResult {
+  readonly terminal: RetainedCommandTerminal;
+}
+
 export interface RunCommandOptions {
   admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
   beforeSpawn?: CommitFence;
@@ -671,7 +680,7 @@ export function runRetainedCommand(
   options: RunRetainedCommandOptions,
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<CommandResult> {
+): Promise<RetainedCommandResult> {
   return runRetainedCommandCapture(boundary, args, options, 'text', nativeResourceLedger);
 }
 
@@ -681,7 +690,7 @@ export function runRetainedCommandBytes(
   options: RunRetainedCommandOptions,
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<ByteCommandResult> {
+): Promise<RetainedByteCommandResult> {
   return runRetainedCommandCapture(boundary, args, options, 'bytes', nativeResourceLedger);
 }
 
@@ -713,21 +722,21 @@ function runRetainedCommandCapture(
   options: RunRetainedCommandOptions,
   stdoutMode: 'text',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<CommandResult>;
+): Promise<RetainedCommandResult>;
 function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'bytes',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<ByteCommandResult>;
+): Promise<RetainedByteCommandResult>;
 async function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'bytes' | 'text',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<ByteCommandResult | CommandResult> {
+): Promise<RetainedByteCommandResult | RetainedCommandResult> {
   if (options.maxStdinBytes !== undefined
       && (!Number.isSafeInteger(options.maxStdinBytes) || options.maxStdinBytes < 0)) {
     throw new Error('maxStdinBytes must be a non-negative safe integer');
@@ -907,7 +916,8 @@ async function runRetainedCommandCapture(
   }
   const stdout = Buffer.concat(stdoutChunks);
   const stderr = Buffer.concat(stderrChunks).toString('utf8');
+  const terminal = Object.freeze({ exitCode: outcome.exitCode, signal: outcome.signal });
   return stdoutMode === 'bytes'
-    ? { code: outcome.exitCode ?? 1, stdout: new Uint8Array(stdout), stderr }
-    : { code: outcome.exitCode ?? 1, stdout: stdout.toString('utf8'), stderr };
+    ? { code: outcome.exitCode ?? 1, stdout: new Uint8Array(stdout), stderr, terminal }
+    : { code: outcome.exitCode ?? 1, stdout: stdout.toString('utf8'), stderr, terminal };
 }
