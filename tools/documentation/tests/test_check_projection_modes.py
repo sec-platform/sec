@@ -2,10 +2,12 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
 import check_docs
+import build_html
 import check_design
 import source_inventory as s
 from .test_check_documentation_identity import declaration
@@ -46,6 +48,12 @@ class ProjectionModes(TestCase):
         self.assertNotEqual(check_docs.verify(self.root)['source_set_sha256'], before)
         for name in s.PROJECTION_PATHS:
             self.assertEqual((self.root / name).read_bytes(), b'\xffbroken derived bytes')
+        (self.root / 'README.md').write_text('# Reader root marker\n', encoding='utf-8')
+        args = SimpleNamespace(sealed=False, diagrams='source', diagram_cache=None,
+                               max_file_bytes=1_000_000, max_total_bytes=2_000_000)
+        captured = build_html.capture(self.root, args)
+        self.assertTrue(s.PROJECTION_PATHS.isdisjoint(captured))
+        self.assertEqual(captured['docs/产品/产品要求与工作约束.md'], self.authority.read_bytes())
 
     def test_sealed_check_requires_both_exact_projections(self):
         with self.assertRaisesRegex(ValueError, 'sealed .*missing'):
