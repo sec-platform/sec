@@ -39,15 +39,58 @@ control=h.original_control(r,d); record=h.RecoveryRecord(r,'run',control)
 try:
     for leaf in ['rootfs','control','output']:
         path=record.path+'/'+leaf; os.mkdir(path,0o755); h.mount('tmpfs',path,'tmpfs',2|4,'size=1M,mode=0755')
-    subprocess.Popen([sys.executable,'-I','-S','-c','import time;time.sleep(45)'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,close_fds=True,start_new_session=True,env=h.FIXED_ENV)
     token='sec-native-recovery-test:'+os.urandom(32).hex()
     record.update({**record.value,'phase':'unit-starting','activeUnitName':r['unitName'],'description':token,'manager':h.manager_identity(),'unit':None})
     args=['/usr/bin/systemd-run','--quiet','--no-ask-password','--unit='+r['unitName'],'--service-type=exec','--remain-after-exit',
           '--property=Description='+token,'--property=BindsTo='+control['name'],'--property=After='+control['name'],
           '--property=CollectMode=inactive-or-failed','--property=SuccessExitStatus='+' '.join(map(str,range(256))),
           '--property=KillMode=control-group','--property=RuntimeMaxSec=45s','--',sys.executable,'-I','-S','-c','import time;time.sleep(45)']
+    streams=h.BoundedStreams(record,{'maxStdoutBytes':4096,'maxStderrBytes':4096})
+    early_name='sec-native-'+h.sha((r['unitName']+':early-exit').encode())[7:39]+'.service'
+    early_request={**r,'unitName':early_name}
+    record.update({**record.value,'activeUnitName':early_name})
+    gate_fd=h.nofollow_directory(record.path+'/control')
+    gate='/proc/'+str(os.getpid())+'/fd/'+str(gate_fd)+'/early-admit'
+    early_code=('import sys,time;gate='+repr(gate)+';deadline='+repr(r['deadlineAtUnixMs']/1000)
+                +'\nwhile True:\n'
+                +'    try:\n'
+                +'        with open(gate,"rb") as stream: admitted=stream.read(64)\n'
+                +'    except FileNotFoundError:\n'
+                +'        if time.time()>=deadline: sys.exit(91)\n'
+                +'        time.sleep(.01);continue\n'
+                +'    if admitted!=b"allow-native-early-exit": sys.exit(92)\n'
+                +'    break\n'
+                +'sys.stderr.write("fixture early failure\\n");sys.exit(23)')
+    early=args[:-1]+[early_code]
+    early[early.index('--unit='+r['unitName'])]='--unit='+early_name
+    early.insert(early.index('--'),'--property=StandardError=file:'+record.path+'/stderr')
+    code,out,err=h.run_tool(early,d)
+    if code: raise RuntimeError('native-test-early-exec-failed')
+    properties=h.unit_readback(early_name,d)
+    if properties['MainPID']=='0': raise RuntimeError('native-test-initial-alive-not-observed')
+    unit=h.accepted_unit(early_name,properties,token,h.manager_identity())
+    record.update({**record.value,'phase':'unit-accepted','unit':unit})
+    h.write_bytes(gate+'.pending',b'allow-native-early-exit',0o400)
+    os.rename('early-admit.pending','early-admit',src_dir_fd=gate_fd,dst_dir_fd=gate_fd)
+    pidfds=[]
+    try: h.wait_preflight_ready(early_request,record,properties,unit,token,streams,d,d,pidfds)
+    except h.Unavailable as error:
+        if 'native-preflight-exited' not in str(error) or 'ExecMainStatus=23' not in str(error) or 'fixture early failure\\n' not in str(error): raise
+    else: raise RuntimeError('native-test-early-failure-was-accepted')
+    finally:
+        streams.close()
+        for fd in pidfds: os.close(fd)
+        os.unlink('early-admit',dir_fd=gate_fd)
+        os.close(gate_fd)
+    for leaf in ['stdout','stderr']: os.unlink(record.path+'/'+leaf)
+    subprocess.Popen([sys.executable,'-I','-S','-c','import time;time.sleep(45)'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,close_fds=True,start_new_session=True,env=h.FIXED_ENV)
+    record.update({**record.value,'phase':'unit-starting','activeUnitName':r['unitName'],'unit':None})
     code,out,err=h.run_tool(args,d)
     if code: raise RuntimeError('native-test-workload-start-failed')
+    active=h.unit_readback(r['unitName'],d)
+    try: h.accepted_unit(r['unitName'],active,token+'-foreign',h.manager_identity())
+    except h.Unavailable: pass
+    else: raise RuntimeError('native-test-live-identity-conflict-accepted')
     print('original-helper-failed-with-owned-resources',flush=True)
 finally: record.close()
 sys.exit(1)
