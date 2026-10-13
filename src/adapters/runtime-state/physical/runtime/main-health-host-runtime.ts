@@ -51,6 +51,8 @@ const MAIN_HEALTH_RUNTIME_BINARIES = Object.freeze([
 const SCRIPT = ['set -euo pipefail', 'root="$1"', 'bun_host="$2"',
   'mkdir -p "$root/tmp" "$root/tool/bin"', ...linuxRuntimeToolCopyScript('independent-files'),
   ...MAIN_HEALTH_RUNTIME_BINARIES.map(runtimePath => `copy_runtime ${runtimePath} ${runtimePath}`),
+  'mkdir -p "$root/usr/share/git-core"',
+  '/usr/bin/cp -R -L --preserve=mode,timestamps -- /usr/share/git-core/templates "$root/usr/share/git-core/templates"',
   'copy_runtime "$bun_host" "/usr/local/bin/bun"',
   'rmdir "$root/tmp"', 'chmod -R go-w -- "$root"'].join('\n');
 const CONTRACT = sha256({ requirement: REQUIREMENT, script: SCRIPT, transport: 'actual-host-bytes-not-native-accepted-content' });
@@ -117,7 +119,9 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
     const gitBoundary = issueRetainedCommandBoundary({ executable: git, workingDirectory: cwd });
     const read = async (args: readonly string[]): Promise<string> => {
       const value = await session.run(gitBoundary, ['--no-replace-objects', ...args], { envMode: 'replace', env: ENVIRONMENT, maxStdoutBytes: 65536, maxStderrBytes: 65536 });
-      if (value.result.code !== 0) throw new Error('MainHealth source preflight failed.');
+      if (value.result.code !== 0) throw new Error('MainHealth source preflight failed: ' + JSON.stringify({
+        exitCode: value.result.code, stdoutBase64: Buffer.from(value.result.stdout).toString('base64'),
+        stderrBase64: Buffer.from(value.result.stderr).toString('base64') }));
       return Buffer.from(value.result.stdout).toString('utf8').trim();
     };
     const head = await read(['rev-parse', '--verify', 'HEAD^{commit}']);
@@ -128,7 +132,9 @@ export async function prepareMainHealthHostRuntime(input: Readonly<{
     const copied = await session.run(boundary, ['-ceu', SCRIPT, 'sec-main-health-host-runtime', root.path, bun.childPath], {
       envMode: 'replace', env: ENVIRONMENT, maxStdoutBytes: 65536, maxStderrBytes: 65536,
       beforeSpawn: async () => { bun.assertCurrent(); cwd.assertCurrent(); } });
-    if (copied.result.code !== 0) throw new Error('MainHealth existing tool snapshot failed: ' + Buffer.from(copied.result.stderr).toString('utf8').slice(-4096));
+    if (copied.result.code !== 0) throw new Error('MainHealth existing tool snapshot failed: ' + JSON.stringify({
+      exitCode: copied.result.code, stdoutBase64: Buffer.from(copied.result.stdout).toString('base64'),
+      stderrBase64: Buffer.from(copied.result.stderr).toString('base64') }));
     const observed = inventory();
     bun.assertCurrent();
     const bunDigest = bun.digest().byteDigest;
