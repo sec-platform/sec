@@ -110,7 +110,10 @@ for (const mode of ['empty-adopted', 'main-adopted', 'nonempty-unconsumed', 'anc
             withAuthorityGitReadSession: (input, execute) => withOriginalSession(input, session =>
               execute({ ...session, run: async args => {
                 if (args[0] !== 'ls-remote') return session.run(args);
-                // Only the remote endpoint is replaced; real Git resolves the independently retained bare ref.
+                // Admit through the real provider grammar before replacing only its network endpoint.
+                const { gitReadCommandIsObservation } = await import(${modulePath('../../src/adapters/providers/git-read/runtime/read-command.ts')});
+                assert.equal(gitReadCommandIsObservation(args), true);
+                // Real Git resolves the independently retained bare ref.
                 assert.deepEqual(args, ['ls-remote', '--exit-code', 'origin', 'refs/pull/1/head']);
                 carrierReads++;
                 if (carrierBehavior === 'missing') carrierUpdate(null);

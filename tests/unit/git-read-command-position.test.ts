@@ -44,6 +44,16 @@ test('incomplete and unrecognized global options still fail closed', () => {
   assert.equal(allowed(['--version', 'status']), false);
 });
 
+test('historical transport can observe only an exact pull head alongside existing branch refs', () => {
+  assert.equal(allowed(['ls-remote', '--exit-code', 'origin', 'refs/pull/573/head']), true);
+  assert.equal(allowed(['ls-remote', 'origin', 'refs/heads/main']), true);
+  for (const ref of ['refs/pull/0/head', 'refs/pull/01/head', 'refs/pull/573/merge',
+    'refs/pull/*/head', 'refs/pull/573/head*', 'refs/pull/573/head/other', 'refs/tags/main']) {
+    assert.equal(allowed(['ls-remote', '--exit-code', 'origin', ref]), false, ref);
+  }
+  assert.equal(allowed(['ls-remote', '--exit-code', 'origin', 'refs/pull/573/head', 'refs/heads/main']), false);
+});
+
 test('ordinary read forms retain their previous independent protocol vectors', () => {
   for (const args of [
     ['status', '--porcelain=v1', '-z'], ['cat-file', '--batch'], ['ls-files', '--stage', '-z'],
