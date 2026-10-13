@@ -2873,6 +2873,14 @@ export type RepositoryAuditWorkerDiagnostic = Readonly<{
   resources: ProcessResourceSessionReceipt | null;
 }>;
 
+const repositoryAuditWorkerFailureOutput = new WeakMap<RepositoryAuditWorkerDiagnostic, RetainedCommandTransportError>();
+
+/** Explicit in-process diagnostic read. Bytes are bounded by the original
+ * capture; this neither publishes them nor proves successful settlement. */
+export function readRepositoryAuditWorkerCapturedOutput(diagnostic: RepositoryAuditWorkerDiagnostic) {
+  return repositoryAuditWorkerFailureOutput.get(diagnostic)?.readCapturedOutput() ?? null;
+}
+
 export type RepositoryAuditWorkerExecution =
   | Readonly<{
       status: 'completed';
@@ -2981,7 +2989,12 @@ export function compileRepositoryAuditWorkerDiagnostic(
           )) ?? null
       : null;
   const stage = stageError?.stage ?? 'settlement';
-  const classifiedError = stageError?.cause ?? error;
+  const classifiedError = stageError?.cause ?? (
+    error instanceof PhysicalResourceCompositeSettlementError
+      ? error.failures.map(({ error: failure }) => failure)
+          .find((failure) => failure instanceof RetainedCommandTransportError) ?? error
+      : error
+  );
   const transport = classifiedError instanceof RetainedCommandTransportError
     ? classifiedError.outcome
     : null;
@@ -3031,7 +3044,7 @@ export function compileRepositoryAuditWorkerDiagnostic(
         detail: failure instanceof Error ? failure.message : String(failure)
       }))
     : error instanceof Error ? error.message : String(error);
-  return Object.freeze({
+  const diagnostic: RepositoryAuditWorkerDiagnostic = Object.freeze({
     kind: 'repository-audit-worker-diagnostic',
     authority: 'none-diagnostic-only',
     status: 'denied',
@@ -3054,6 +3067,10 @@ export function compileRepositoryAuditWorkerDiagnostic(
     }),
     resources
   });
+  if (classifiedError instanceof RetainedCommandTransportError) {
+    repositoryAuditWorkerFailureOutput.set(diagnostic, classifiedError);
+  }
+  return diagnostic;
 }
 
 export async function executeSupervisedWorkingTreeSourceProgramAudit(
@@ -3492,7 +3509,7 @@ export function requireSettledSourceProgramTransitionAssessment(result:
         childCloseObserved: process.childCloseObserved,
         streamsDrained: process.streamsDrained, treeClosed: process.treeClosed
       }
-    })}`);
+    })}`, { cause: diagnostic });
   }
   if (result.transitionAssessment === undefined) {
     throw new Error('Adopted Source transition completed without a transition assessment');

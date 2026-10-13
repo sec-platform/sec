@@ -3,6 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
+import { rawSha256 } from '../../../../contracts/canonical.ts';
 import type { CommitFence } from '../../../../contracts/commit-fence.ts';
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import type { IndependentProviderProcessCapability } from './independent-provider-process.ts';
@@ -149,6 +151,24 @@ export type RunRetainedCommandOptions = Omit<
   terminationGraceMs?: number;
 }>;
 
+export type RetainedCommandCapturedStream = Readonly<{
+  bytes: Uint8Array;
+  capturedDigest: `sha256:${string}`;
+  completeness: 'complete' | 'partial';
+}>;
+
+export type RetainedCommandCapturedOutput = Readonly<{
+  stdout: RetainedCommandCapturedStream;
+  stderr: RetainedCommandCapturedStream;
+}>;
+
+// Failure output is diagnostic data, never a successful run result or a
+// serializable Error property. Only the capture owner can associate bytes.
+const retainedCommandFailureOutput = new WeakMap<RetainedCommandTransportError, Readonly<{
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}>>();
+
 export class RetainedCommandTransportError extends Error {
   constructor(
     message: string,
@@ -156,6 +176,24 @@ export class RetainedCommandTransportError extends Error {
   ) {
     super(message);
     this.name = 'RetainedCommandTransportErrorV1';
+  }
+
+  readCapturedOutput(): RetainedCommandCapturedOutput | null {
+    const captured = retainedCommandFailureOutput.get(this);
+    if (captured === undefined) return null;
+    const read = (stream: 'stdout' | 'stderr'): RetainedCommandCapturedStream => {
+      const bytes = snapshotByteView(captured[stream], 'Retained failure output');
+      const capturedDigest = rawSha256(bytes);
+      const observed = this.outcome[stream];
+      return Object.freeze({
+        bytes, capturedDigest,
+        completeness: this.outcome.termination.streamsDrained
+          && !observed.observerTruncated
+          && bytes.byteLength === observed.bytes
+          && capturedDigest === observed.digest ? 'complete' : 'partial'
+      });
+    };
+    return Object.freeze({ stdout: read('stdout'), stderr: read('stderr') });
   }
 }
 
@@ -650,12 +688,13 @@ export function runRetainedCommandBytes(
 function retainedCommandTransportError(
   command: string,
   outcome: ObservedCommandOutcome,
+  captured: Readonly<{ stdout: Uint8Array; stderr: Uint8Array }>,
   cause?: Error
 ): RetainedCommandTransportError {
   const spawnDetail = outcome.spawnFailure === undefined
     ? ''
     : `; phase=${outcome.spawnFailure.phase}; systemCode=${outcome.spawnFailure.systemCode}`;
-  return new RetainedCommandTransportError(
+  const error = new RetainedCommandTransportError(
     cause?.message ?? (
       `Retained command "${command}" did not settle successfully: `
       + `${outcome.status}; childClose=${outcome.termination.childCloseObserved}; `
@@ -664,6 +703,8 @@ function retainedCommandTransportError(
     ),
     outcome
   );
+  retainedCommandFailureOutput.set(error, captured);
+  return error;
 }
 
 function runRetainedCommandCaptureV1(
@@ -860,7 +901,9 @@ async function runRetainedCommandCaptureV1(
     callerAborted ? new Error(`Retained command "${command}" was aborted`) : undefined
   );
   if (outcome.status !== 'exited' || !outcome.termination.treeClosed || failure !== undefined) {
-    throw retainedCommandTransportError(command, outcome, failure);
+    throw retainedCommandTransportError(command, outcome, {
+      stdout: Buffer.concat(stdoutChunks), stderr: Buffer.concat(stderrChunks)
+    }, failure);
   }
   const stdout = Buffer.concat(stdoutChunks);
   const stderr = Buffer.concat(stderrChunks).toString('utf8');

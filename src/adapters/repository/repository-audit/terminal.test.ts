@@ -38,6 +38,7 @@ test('repository audit diagnostic preserves lost-handle settlement as denial', (
     streamsDrained: true,
     treeClosed: false
   }));
+  expect(error.readCapturedOutput()).toBeNull();
 });
 
 test('repository audit diagnostic distinguishes aggregate output exhaustion', () => {
@@ -97,6 +98,7 @@ test('source transition wrapper preserves safe owner denial details without raw 
   try { requireSettledSourceProgramTransitionAssessment({ status: 'denied', diagnostic }); }
   catch (error) { caught = error; }
   expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).cause).toBe(diagnostic);
   const message = (caught as Error).message;
   const fields = JSON.parse(message.slice(message.indexOf('{')));
   expect(fields).toEqual(expect.objectContaining({ status: 'denied', reason: 'protocol-invalid',
