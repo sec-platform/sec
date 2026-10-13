@@ -1433,9 +1433,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies from the frozen lock
+      - name: Prepare the owned compiler dependency generation
         id: install
-        run: bun install --frozen-lockfile
+        run: bun run deps:ensure
 
       - name: Reject import organization drift
         id: imports-check

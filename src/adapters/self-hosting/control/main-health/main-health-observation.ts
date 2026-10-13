@@ -168,7 +168,7 @@ export function createTrustedRuntimeMainHealthReceipt(input: Readonly<{
   observedAt: string;
 }>): TrustedRuntimeMainHealthReceipt {
   if (TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length !== 5
-      || CI_MAIN_HEALTH_COMMANDS[0] !== 'bun install --frozen-lockfile'
+      || CI_MAIN_HEALTH_COMMANDS[0] !== 'bun run deps:ensure'
       || input.actionResults.length !== TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length) {
     throw new Error('MainHealth trusted-runtime canonical command closure is invalid.');
   }
