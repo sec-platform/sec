@@ -5600,7 +5600,7 @@ async function assertCompilerDependencyRetainedContent(
       throw new CodedFailure('RUNTIME-DEPS-004', `Compiler dependency content input differs: ${name}`);
     }
   }
-  const modules = inspectNoFollowDirectoryChild(content.target, 'node_modules', 'Compiler dependency content modules');
+  const modules = inspectNoFollowDirectoryLeaf(content.target, 'node_modules', 'Compiler dependency content modules');
   if (modules === null) throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency content modules are absent');
   await generation.assertAuthorityCurrent();
   generation.assertCurrent();
