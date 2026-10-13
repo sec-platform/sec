@@ -21,7 +21,7 @@ import {
   type AuthenticatedGitHubJobOrigin
 } from '../../adapters/providers/github-api/hosted-job-origin.ts';
 import { observeSecLinuxVerificationNativeRuntimeInput, requireSecLinuxVerificationNativeRuntimeInput } from '../../adapters/providers/linux-verification/materialization.ts';
-import { assertLinuxVerificationUnitHostSupported, assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, getLinuxVerificationUnitRecovery, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, prepareLinuxVerificationUnitSession, recoverLinuxVerificationUnitSession, type LinuxVerificationUnitRecovery, type LinuxVerificationUnitResult, type LinuxVerificationUnitSession, type LinuxVerificationUnitSessionSettlement } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
+import { assertLinuxVerificationUnitHostSupported, assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, getLinuxVerificationUnitRecovery, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, prepareLinuxVerificationUnitSession, recoverOwnedLinuxVerificationUnit, type LinuxVerificationUnitRecovery, type LinuxVerificationUnitResult, type LinuxVerificationUnitSession, type LinuxVerificationUnitSessionSettlement } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
 import type { RetainedNoFollowOrdinaryFile } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   appendExistingNoFollowOrdinaryFile, assertSameNoFollowDirectoryIdentity, createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, PhysicalNoFollowError
@@ -89,7 +89,7 @@ import { parseHostedVerificationCommand } from '../../entry/verification-session
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
   bindSemanticOperation, compileCapabilityBinding, compileProviderSettlementSet, compileSemanticOperationPlan,
-  issueSemanticOperationAttemptContext, type BoundSemanticOperation, type OperationDigest
+  issueSemanticOperationAttemptContext, type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { settleResourcesAsync } from '../../execution/resource-settlement.ts';
 import { worktreePhysicalCloseoutOperations } from '../runtime-state/worktree-closeout.ts';
@@ -522,45 +522,6 @@ class HostedSutRecoveryRequiredError extends AggregateError {
   }
 }
 
-async function recoverHostedSutOwnedUnit(recovery: LinuxVerificationUnitRecovery,
-  originalOperation: BoundSemanticOperation): Promise<void> {
-  const requirement = { id: LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
-    contractDigest: LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
-    effectKinds: ['process', 'filesystem', 'provider', 'persistent-state'] as const,
-    failureKinds: ['hosted-sut.recovery-unknown'] };
-  // Cleanup after a workload deadline uses the still-owned physical capability,
-  // not an expired job origin or a new attempt at candidate execution.
-  const deadlineAtUnixMs = Date.now() + LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS[0]!.maximum;
-  const operation = bindSemanticOperation(compileSemanticOperationPlan({
-    operation: 'verification.linux-native-unit-recovery',
-    intentDigest: sha256({ originalOperationIdentityDigest: recovery.originalOperationIdentityDigest,
-      originalBoundAttemptDigest: recovery.originalBoundAttemptDigest, inputDigest: recovery.inputDigest }) as OperationDigest,
-    decisionDigest: requirement.contractDigest, deadlineAtUnixMs,
-    aggregateBudgets: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS,
-    requirements: [requirement], attempt: issueSemanticOperationAttemptContext({
-      authorityGrantDigest: recovery.originalOperationIdentityDigest,
-      runIdDigest: recovery.originalBoundAttemptDigest })
-  }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
-    providerIdentityDigest: recovery.providerIdentityDigest })]);
-  const settled = await recoverLinuxVerificationUnitSession(recovery, { operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: requirement.id,
-      resourceCeilings: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, absoluteDeadlineAtUnixMs: deadlineAtUnixMs }) });
-  // The cleanup attempt cannot stand in for settlement of the original native
-  // requirement. Both receipts must bind their distinct retained operations.
-  compileProviderSettlementSet(operation, [settled.providerSettlement]);
-  compileProviderSettlementSet(originalOperation, [settled.originalProviderSettlement]);
-  if (settled.status !== 'settled' || settled.transportRetired !== true
-      || originalOperation.plan.identity.identityDigest !== recovery.originalOperationIdentityDigest
-      || originalOperation.boundAttemptDigest !== recovery.originalBoundAttemptDigest
-      || settled.originalOperationIdentityDigest !== recovery.originalOperationIdentityDigest
-      || settled.originalBoundAttemptDigest !== recovery.originalBoundAttemptDigest
-      || settled.recoveryOperationIdentityDigest !== operation.plan.identity.identityDigest
-      || settled.providerSettlement.physicalDisposition !== 'settled'
-      || settled.originalProviderSettlement.physicalDisposition === 'unknown') {
-    throw new Error('Hosted native recovery did not settle its exact original physical scope.');
-  }
-}
-
 type HostedSutResolution = ReturnType<typeof CodexDevelopmentParseHostedActionResolution>;
 
 /** All origin credentials remain in this parent. Physical results and sources
@@ -725,7 +686,7 @@ async function executeNativeHostedSut(origin: AuthenticatedGitHubJobOrigin, inpu
         pending = (async () => {
           if (!unitRecovered) {
             if (operation === undefined) throw new Error('Hosted SUT recovery lost its original operation object.');
-            await recoverHostedSutOwnedUnit(unitRecovery, operation); unitRecovered = true;
+            await recoverOwnedLinuxVerificationUnit(unitRecovery, operation); unitRecovered = true;
           }
           await releaseSources();
         })();

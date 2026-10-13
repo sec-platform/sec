@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertGitCandidateBundleCurrent, assertGitCandidateBundleReceipt, closeGitCandidateBundle, createGitCandidateBundle, type GitCandidateBundle } from '../../adapters/providers/git-bundle/runtime.ts';
-import { assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, LinuxVerificationUnitRecoveryRequiredError, prepareLinuxVerificationUnitSession, recoverLinuxVerificationUnitSession, type LinuxVerificationUnitSession } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
+import { assertLinuxVerificationUnitResult, bindLinuxVerificationUnitSession, closeLinuxVerificationUnitSession, executeLinuxVerificationUnit, LINUX_VERIFICATION_UNIT_CONTRACT_DIGEST, LINUX_VERIFICATION_UNIT_REQUIREMENT_ID, LINUX_VERIFICATION_UNIT_RESOURCE_CEILINGS, LinuxVerificationUnitRecoveryRequiredError, prepareLinuxVerificationUnitSession, recoverOwnedLinuxVerificationUnit, type LinuxVerificationUnitSession } from '../../adapters/runtime-state/physical/runtime/linux-verification-unit.ts';
 import { MainHealthHostRuntimePreparationError, prepareMainHealthHostRuntime, retireMainHealthHostRuntime, type MainHealthHostRuntime } from '../../adapters/runtime-state/physical/runtime/main-health-host-runtime.ts';
 import { createExclusiveNoFollowDirectory, inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createTrustedRuntimeNativeMainHealthInvocation } from '../../adapters/self-hosting/control/main-health/main-health-observation.ts';
@@ -11,7 +11,7 @@ import { compilerRuntimeLayout } from '../../adapters/toolchain/runtime/layout.t
 import { sha256 } from '../../contracts/canonical.ts';
 import { failureMessage, getErrorCode, inspectFailureValue } from '../../contracts/failure-inspection.ts';
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
-import { bindSemanticOperation, compileCapabilityBinding, compileProviderSettlementSet, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type BoundSemanticOperation, type OperationDigest } from '../../execution/operation/semantic.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type BoundSemanticOperation, type OperationDigest } from '../../execution/operation/semantic.ts';
 import { isResourceCompositeSettlementError, readResourceCompositeSettlementFailures, settleResourcesAsync } from '../../execution/resource-settlement.ts';
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -103,35 +103,7 @@ async function run(): Promise<number> {
         catch (error) {
           if (!(error instanceof LinuxVerificationUnitRecoveryRequiredError) || originalOperation === undefined) throw error;
           recoveredFailure = error;
-          const recovery = error.recovery;
-          const requirement = { id: LINUX_VERIFICATION_UNIT_RECOVERY_REQUIREMENT_ID,
-            contractDigest: LINUX_VERIFICATION_UNIT_RECOVERY_CONTRACT_DIGEST,
-            effectKinds: ['process', 'filesystem', 'provider', 'persistent-state'] as const,
-            failureKinds: ['main-health.recovery-unknown'] };
-          // Cleanup uses its existing allowance; it cannot renew the failed workload.
-          const recoveryDeadline = Date.now() + LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS[0]!.maximum;
-          const operation = bindSemanticOperation(compileSemanticOperationPlan({ operation: requirement.id,
-            intentDigest: sha256({ originalOperationIdentityDigest: recovery.originalOperationIdentityDigest,
-              originalBoundAttemptDigest: recovery.originalBoundAttemptDigest, inputDigest: recovery.inputDigest }) as OperationDigest,
-            decisionDigest: requirement.contractDigest, deadlineAtUnixMs: recoveryDeadline,
-            aggregateBudgets: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, requirements: [requirement],
-            attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: recovery.originalOperationIdentityDigest,
-              runIdDigest: recovery.originalBoundAttemptDigest })
-          }), [compileCapabilityBinding({ requirementId: requirement.id, contractDigest: requirement.contractDigest,
-            providerIdentityDigest: recovery.providerIdentityDigest })]);
-          const settled = await recoverLinuxVerificationUnitSession(recovery, { operation,
-            requirementBindingContext: issueOperationRequirementBindingContext({ operation, requirementId: requirement.id,
-              resourceCeilings: LINUX_VERIFICATION_UNIT_RECOVERY_RESOURCE_CEILINGS, absoluteDeadlineAtUnixMs: recoveryDeadline }) });
-          compileProviderSettlementSet(operation, [settled.providerSettlement]);
-          compileProviderSettlementSet(originalOperation, [settled.originalProviderSettlement]);
-          if (settled.status !== 'settled' || settled.transportRetired !== true
-              || settled.originalOperationIdentityDigest !== originalOperation.plan.identity.identityDigest
-              || settled.originalBoundAttemptDigest !== originalOperation.boundAttemptDigest
-              || settled.recoveryOperationIdentityDigest !== operation.plan.identity.identityDigest
-              || settled.providerSettlement.physicalDisposition !== 'settled'
-              || settled.originalProviderSettlement.physicalDisposition !== 'settled') {
-            throw new Error('MainHealth native recovery did not settle its original physical scope.');
-          }
+          await recoverOwnedLinuxVerificationUnit(error.recovery, originalOperation);
         }
       }
       terminal = true;

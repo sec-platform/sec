@@ -224,15 +224,15 @@ interface RetainedAuthorization extends Omit<LocalBranchResidueAuthorization, 's
 }
 
 interface RetainedReceipt extends Omit<LocalBranchResidueReceipt, 'schema' | 'entries'> {
-  readonly schema: typeof RETAINED_RECEIPT_SCHEMA | typeof SUCCESSOR_RECEIPT_SCHEMA;
+  readonly schema: typeof SUCCESSOR_RECEIPT_SCHEMA;
   readonly entries: readonly RetainedEntry[];
-  readonly authorization?: RetainedAuthorization;
+  readonly authorization: RetainedAuthorization;
 }
 
 export class RetainedReceiptAuthorityUnknownError extends Error {
   readonly code = 'retained-receipt-authority-unknown' as const;
   constructor() {
-    super('Orphan retained v2 receipt lacks authorized physical and remote context; recovery retained.');
+    super('Retired retained v2 receipt cannot authorize current recovery; original evidence retained.');
     this.name = 'RetainedReceiptAuthorityUnknownError';
   }
 }
@@ -1154,23 +1154,25 @@ function createRetainedReceipt(authorization: RetainedAuthorization, now: () => 
 function parseRetainedReceipt(source: Uint8Array): RetainedReceipt {
   const text = Buffer.from(source).toString('utf8');
   const value: unknown = JSON.parse(text);
-  const v3 = value !== null && typeof value === 'object'
-    && (value as Record<string, unknown>).schema === SUCCESSOR_RECEIPT_SCHEMA;
+  if (value !== null && typeof value === 'object'
+      && (value as Record<string, unknown>).schema === RETAINED_RECEIPT_SCHEMA) {
+    throw new RetainedReceiptAuthorityUnknownError();
+  }
   const record = exactRecord(value, [
     'schema', 'operationId', 'authorizationDigest', 'repository', 'remoteMainSha',
-    'entries', 'effect', 'completedAt', 'receiptDigest', ...(v3 ? ['authorization'] : [])
+    'entries', 'effect', 'completedAt', 'receiptDigest', 'authorization'
   ], 'Retained receipt');
-  if ((!v3 && record.schema !== RETAINED_RECEIPT_SCHEMA) || record.effect !== 'delete-exact-transaction') {
+  if (record.schema !== SUCCESSOR_RECEIPT_SCHEMA || record.effect !== 'delete-exact-transaction') {
     throw new Error('Retained receipt schema or effect differs.');
   }
   const parsed: RetainedReceipt = {
-    schema: v3 ? SUCCESSOR_RECEIPT_SCHEMA : RETAINED_RECEIPT_SCHEMA,
+    schema: SUCCESSOR_RECEIPT_SCHEMA,
     operationId: String(record.operationId) as Digest,
     authorizationDigest: String(record.authorizationDigest) as Digest,
     repository: String(record.repository),
     remoteMainSha: String(record.remoteMainSha),
-    entries: parseRetainedEntries(record.entries, v3),
-    ...(v3 ? { authorization: parseRetainedAuthorization(Buffer.from(canonicalSource(record.authorization))) } : {}),
+    entries: parseRetainedEntries(record.entries, true),
+    authorization: parseRetainedAuthorization(Buffer.from(canonicalSource(record.authorization))),
     effect: 'delete-exact-transaction',
     completedAt: String(record.completedAt),
     receiptDigest: String(record.receiptDigest) as Digest
@@ -1184,7 +1186,7 @@ function parseRetainedReceipt(source: Uint8Array): RetainedReceipt {
   if (receiptDigest !== digest(material) || text !== canonicalSource(parsed)) {
     throw new Error('Retained receipt digest or canonical bytes differ.');
   }
-  if (parsed.authorization !== undefined) assertRetainedReceiptMatchesAuthorization(parsed, parsed.authorization);
+  assertRetainedReceiptMatchesAuthorization(parsed, parsed.authorization);
   return Object.freeze(parsed);
 }
 
@@ -1195,8 +1197,7 @@ function assertRetainedReceiptMatchesAuthorization(receipt: RetainedReceipt,
       || receipt.repository !== authorization.repository
       || receipt.remoteMainSha !== authorization.remoteMainSha
       || canonicalSource(receipt.entries) !== canonicalSource(authorization.entries)
-      || (receipt.authorization !== undefined
-        && canonicalSource(receipt.authorization) !== canonicalSource(authorization))) {
+      || canonicalSource(receipt.authorization) !== canonicalSource(authorization)) {
     throw new Error('Retained receipt differs from authorization.');
   }
 }
@@ -1309,23 +1310,20 @@ function scanRetainedOperations(store: BranchRecoveryStore): ScannedRetainedOper
     const authorization = parseRetainedAuthorization(bytes);
     const names = operationNames(authorization.operationId);
     if (name !== names.authorization) throw new Error('Retained authorization filename differs.');
+    const familyPrefix = names.authorization.slice(0, -'.authorization.json'.length);
+    for (const sidecar of store.listOwnedFiles(`${familyPrefix}.`)) {
+      if (sidecar !== names.authorization && sidecar !== names.receipt) {
+        throw new Error(`Retained operation has unvalidated sidecar: ${sidecar}`);
+      }
+    }
     const receiptBytes = store.read(names.receipt);
     if (receiptBytes === null) {
       pending.push(authorization);
       continue;
     }
-    let receipt = parseRetainedReceipt(receiptBytes);
+    const receipt = parseRetainedReceipt(receiptBytes);
     assertRetainedReceiptMatchesAuthorization(receipt, authorization);
-    const terminalName = `${names.authorization.slice(0, -'.authorization.json'.length)}.terminal.receipt.json`;
-    const terminalBytes = store.read(terminalName);
-    if (terminalBytes !== null) {
-      const terminal = parseRetainedReceipt(terminalBytes);
-      if (terminal.schema !== SUCCESSOR_RECEIPT_SCHEMA) throw new Error('Retained terminal carrier must be v3.');
-      assertRetainedReceiptMatchesAuthorization(terminal, authorization);
-      receipt = terminal;
-    }
-    completed.push(Object.freeze({ authorization, receipt,
-      names: terminalBytes === null ? names : { ...names, receipt: terminalName } }));
+    completed.push(Object.freeze({ authorization, receipt, names }));
   }
   for (const name of store.listOwnedFiles('sec-local-branch-residue-')
     .filter((candidate) => candidate.endsWith('.receipt.json'))) {
@@ -1335,15 +1333,10 @@ function scanRetainedOperations(store: BranchRecoveryStore): ScannedRetainedOper
     if (schema !== RETAINED_RECEIPT_SCHEMA && schema !== SUCCESSOR_RECEIPT_SCHEMA) continue;
     const receipt = parseRetainedReceipt(bytes);
     const names = operationNames(receipt.operationId);
-    const terminalName = `${names.authorization.slice(0, -'.authorization.json'.length)}.terminal.receipt.json`;
-    if (name !== names.receipt && !(receipt.schema === SUCCESSOR_RECEIPT_SCHEMA && name === terminalName)) {
+    if (name !== names.receipt) {
       throw new Error('Retained receipt filename differs.');
     }
     if (store.read(names.authorization) !== null) continue;
-    if (receipt.authorization === undefined) {
-      if (store.read(terminalName) !== null) continue;
-      throw new RetainedReceiptAuthorityUnknownError();
-    }
     completed.push(Object.freeze({ authorization: receipt.authorization, receipt,
       names: { ...names, receipt: name } }));
   }
@@ -2591,7 +2584,6 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     async (lease, coordinatedLease) => {
     const { authorization, names } = completed;
     assertRetainedReceiptMatchesAuthorization(completed.receipt, authorization);
-    const legacyName = operationNames(authorization.operationId).receipt;
     const authorityFiles = new Map<string, ReturnType<BranchRecoveryStore['inspectFile']>>();
     const retiredAuthority = new Set<string>();
     const familyReadbacks: Array<() => void> = [];
@@ -2605,15 +2597,6 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     };
     retainAuthorityFile(names.authorization, authorization, false);
     retainAuthorityFile(names.receipt, completed.receipt, true);
-    if (legacyName !== names.receipt) {
-      const legacyBytes = store.read(legacyName);
-      if (legacyBytes !== null) {
-        const legacy = parseRetainedReceipt(legacyBytes);
-        if (legacy.schema !== RETAINED_RECEIPT_SCHEMA) throw new Error('Retained legacy carrier schema differs.');
-        assertRetainedReceiptMatchesAuthorization(legacy, authorization);
-        retainAuthorityFile(legacyName, legacy, true);
-      } else authorityFiles.set(legacyName, null);
-    }
     const assertAuthorityFiles = (): void => {
       for (const [name, expected] of authorityFiles) {
         const current = store.inspectFile(name);
@@ -2636,26 +2619,13 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         throw new Error('Completed retained refs reappeared.');
       }
       const familyPrefix = names.authorization.slice(0, -'.authorization.json'.length);
-      const known = new Set([names.authorization, names.receipt,
-        operationNames(authorization.operationId).receipt, `${familyPrefix}.terminal.receipt.json`]);
+      const known = new Set([names.authorization, names.receipt]);
       for (const name of store.listOwnedFiles(`${familyPrefix}.`)) {
         if (!known.has(name)) throw new Error(`Retained operation has unvalidated sidecar: ${name}`);
       }
       assertAuthorityFiles();
       for (const readback of familyReadbacks) readback();
     };
-    await verifyTerminal();
-    // Old v2 receipts cannot independently retain the authorization's physical
-    // and remote context. Publish a v3 terminal carrier before retiring either.
-    const terminalName = completed.receipt.schema === RETAINED_RECEIPT_SCHEMA
-      ? `${names.authorization.slice(0, -'.authorization.json'.length)}.terminal.receipt.json`
-      : names.receipt;
-    if (completed.receipt.schema === RETAINED_RECEIPT_SCHEMA) {
-      const carrier = publishCanonical({ store, name: terminalName,
-        value: createRetainedReceipt(authorization, () => new Date(completed.receipt.completedAt)),
-        parse: parseRetainedReceipt });
-      retainAuthorityFile(terminalName, carrier, true);
-    }
     await verifyTerminal();
     const retired: string[] = [];
     for (const entry of authorization.entries) {
@@ -2683,11 +2653,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     };
     await verifyTerminal();
     retireAuthorityFile(names.authorization);
-    if (terminalName !== legacyName) {
-      retireAuthorityFile(legacyName);
-    }
     await verifyTerminal();
-    retireAuthorityFile(terminalName);
+    retireAuthorityFile(names.receipt);
     assertAuthorityFiles();
     for (const readback of familyReadbacks) readback();
     return Object.freeze(retired);

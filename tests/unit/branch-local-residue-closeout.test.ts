@@ -448,46 +448,7 @@ test('terminal successor receipt accepts a same-ref fast forward retaining the a
   } finally { fixture.dispose(); }
 }, 45_000);
 
-test('legacy retained v2 terminal receipt gains an independent carrier before authorization retirement', async () => {
-  const fixture = createEffectFixture('legacy-v2-terminal-carrier');
-  const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) =>
-    command === 'gh' && args[0] === 'pr'
-      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
-      : fixture.run(command, args, cwd, input);
-  try {
-    await expect(executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
-      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
-      faults: { afterReceipt: () => { throw new Error('v2-terminal-ready'); } }
-    })).rejects.toThrow('v2-terminal-ready');
-    const receiptName = readdirSync(fixture.recoveryRoot).find((name) => name.endsWith('.receipt.json'))!;
-    const { receiptDigest: _receiptDigest, authorization, ...material } = JSON.parse(
-      readFileSync(path.join(fixture.recoveryRoot, receiptName), 'utf8'));
-    expect(authorization.schema).toBe('sec-local-branch-residue-closeout-authorization-v2');
-    material.schema = 'sec-local-branch-residue-closeout-receipt-v2';
-    writeFileSync(path.join(fixture.recoveryRoot, receiptName), `${JSON.stringify({
-      ...material, receiptDigest: branchLifecycleDigest(material)
-    }, null, 2)}\n`);
-    await expect(executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
-      faults: { afterRetireFile: (name) => {
-        if (name.endsWith('.authorization.json')) throw new Error('v2-authority-retired');
-      } }
-    })).rejects.toThrow('v2-authority-retired');
-    const carrierName = readdirSync(fixture.recoveryRoot)
-      .find((name) => name.endsWith('.terminal.receipt.json'))!;
-    expect(JSON.parse(readFileSync(path.join(fixture.recoveryRoot, carrierName), 'utf8'))
-      .authorization).toEqual(authorization);
-    const resumed = await executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run,
-      faults: { afterDelete: () => { throw new Error('repeated legacy delete'); } }
-    });
-    expect(resumed.settled).toEqual(['fix/example']);
-    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
-  } finally { fixture.dispose(); }
-}, 45_000);
-
-test('legacy orphan v2 receipt remains a typed unknown instead of inventing authority', async () => {
+test('retired v2 receipt is a typed unknown and preserves original refs and recovery', async () => {
   const fixture = createEffectFixture('legacy-v2-orphan-unknown');
   const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) =>
     command === 'gh' && args[0] === 'pr'
@@ -507,12 +468,17 @@ test('legacy orphan v2 receipt remains a typed unknown instead of inventing auth
     writeFileSync(path.join(fixture.recoveryRoot, receiptName), `${JSON.stringify({
       ...material, receiptDigest: branchLifecycleDigest(material)
     }, null, 2)}\n`);
-    rmSync(path.join(fixture.recoveryRoot, authorizationName));
+    git(fixture.repositoryRoot, ['branch', 'fix/example', fixture.headSha]);
     const before = readdirSync(fixture.recoveryRoot).sort();
+    const receiptBefore = readFileSync(path.join(fixture.recoveryRoot, receiptName));
+    const authorizationBefore = readFileSync(path.join(fixture.recoveryRoot, authorizationName));
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot, run
     })).rejects.toBeInstanceOf(RetainedReceiptAuthorityUnknownError);
     expect(readdirSync(fixture.recoveryRoot).sort()).toEqual(before);
+    expect(readFileSync(path.join(fixture.recoveryRoot, receiptName))).toEqual(receiptBefore);
+    expect(readFileSync(path.join(fixture.recoveryRoot, authorizationName))).toEqual(authorizationBefore);
+    expect(git(fixture.repositoryRoot, ['rev-parse', 'refs/heads/fix/example'])).toBe(fixture.headSha);
   } finally { fixture.dispose(); }
 }, 45_000);
 
