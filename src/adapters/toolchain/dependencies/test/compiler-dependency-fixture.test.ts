@@ -10,6 +10,7 @@ import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../.
 import * as physical from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import * as bootBoundary from '../../../runtime-state/physical/runtime/windows-kernel-boot.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { recoverObsoleteCompilerDependencyConsumers } from '../../../self-hosting/development/dependencies/obsolete-consumer-recovery.ts';
 
 import { advanceDependencyTransition, beginDependencyTransition, compilerTransitionBackupPath } from '../runtime/dependency-transition/operation.ts';
 import { COMPILER_DEPS_BINDING_FILE } from '../runtime/materialization-binding.ts';
@@ -21,7 +22,6 @@ import {
   assertRetainedCompilerDependencyReadGeneration,
   observeCompilerDependencyExecutionGenerationAuthority,
   projectCompilerDepsReadyState,
-  recoverObsoleteCompilerDependencyConsumers,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   type RetainedCompilerDependencyExecutionGeneration

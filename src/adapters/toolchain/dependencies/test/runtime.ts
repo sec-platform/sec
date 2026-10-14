@@ -7,6 +7,7 @@ import { generatedStateProducerHooks } from '../../../../../tests/helpers/genera
 import { ensureProjectDependencyOperation } from '../../../../bootstrap/toolchain/dependency-operation.ts';
 import type { DependencyProjectLifecycleAdmission } from '../../../../execution/dependency-materialization.ts';
 import type { CommandResult } from '../../../runtime-state/physical/runtime/process.ts';
+import { resolveDevelopmentCompilerDependencyOwner } from '../../../self-hosting/development/dependencies/operation.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import {
   type RuntimeDependencyInstallOptions as InternalRuntimeDependencyInstallOptions
@@ -62,8 +63,10 @@ export async function ensureCompilerDepsReady(
   options: RuntimeDependencyTestInstallOptions = {},
   compilerDependencyRoot?: string
 ): Promise<dependencyRuntime.CompilerDepsReadyState> {
+  // These fault-injection cases exercise the shared transition owner. Keep
+  // explicit development maintenance outside the operation under test.
   return dependencyRuntime.ensureCompilerDepsReady(
-    testInstallOptions(options),
+    { ...testInstallOptions(options), resolveCompilerDependencyOwner: resolveDevelopmentCompilerDependencyOwner },
     compilerDependencyRoot
   );
 }

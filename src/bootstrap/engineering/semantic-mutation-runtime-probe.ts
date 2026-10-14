@@ -1,11 +1,12 @@
 import { assertWorkspaceWriteLease } from '../../adapters/filesystem/write-lease.ts';
+import { observeCompilerDependencyExecutionGenerationAuthority } from '../../adapters/toolchain/dependencies/runtime.ts';
 import { assertIsolatedStagingTree } from '../../adapters/verification/assert-isolated-staging-tree.ts';
 import { probeSemanticMutationIsolatedRuntimeCapability } from '../../adapters/verification/run-semantic-mutation-isolated-child.ts';
 import type { SemanticMutationIsolationCapabilityProbeFactory } from '../../adapters/verification/semantic-mutation-planning-adapter.ts';
 import { compilerRoot } from '../../adapters/workspace-context.ts';
 import { probePreparedSemanticMutationRuntime } from '../../application/semantic-mutation-runtime-probe.ts';
+import { CodedFailure } from '../../contracts/failure.ts';
 import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
-import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 
 export const DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE:
   SemanticMutationIsolationCapabilityProbeFactory = request =>
@@ -18,9 +19,10 @@ export const DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE:
         }
         await assertIsolatedStagingTree(stagingWorkspaceRoot);
       },
-      ensureCompilerReady: () => createDependencyOperation({
-        workspaceRoot: request.workspaceRoot,
-        workspaceWriteLease: request.workspaceWriteLease
-      }).ensureCompilerDepsReady({}, compilerRoot),
+      async ensureCompilerReady() {
+        if (await observeCompilerDependencyExecutionGenerationAuthority({}, compilerRoot) === null) {
+          throw new CodedFailure('RUNTIME-DEPS-004', 'Prepared compiler dependency source is unavailable for the runtime probe');
+        }
+      },
       probeRuntime: probeSemanticMutationIsolatedRuntimeCapability
     });

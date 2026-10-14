@@ -14,6 +14,7 @@ import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertCompilerDependencySourceScope } from '../dependency-storage-layout.ts';
 import {
   type RuntimeDependencyEffectFenceInput,
   runtimeDependencyEffectFenceOptions,
@@ -434,6 +435,16 @@ export async function beginDependencyTransition(input: Readonly<{
     input.sourceGeneration.ownerRoot,
     'Dependency transition source-generation owner root'
   ).target;
+  const stageCarriesSource = (input.kind === 'compiler-generation' ||
+    input.kind === 'compiler-local-locator') && stage?.kind === 'directory';
+  // A staged publication binds the real source object below; its final name
+  // must still be absent until the durable transition owns the rename.
+  assertCompilerDependencySourceScope(input.sourceGeneration.ownerRoot,
+    stageCarriesSource
+      ? input.kind === 'compiler-local-locator'
+        ? path.dirname(path.dirname(input.sourceGeneration.sourcePath))
+        : path.dirname(input.sourceGeneration.sourcePath)
+      : input.sourceGeneration.sourcePath);
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(sourceOwner),
     input.sourceGeneration.ownerRootPhysical
@@ -443,8 +454,6 @@ export async function beginDependencyTransition(input: Readonly<{
       'Dependency transition source-generation owner physical identity is foreign or stale'
     );
   }
-  const stageCarriesSource = (input.kind === 'compiler-generation' ||
-    input.kind === 'compiler-local-locator') && stage?.kind === 'directory';
   if (stageCarriesSource) {
     if (stage!.physical === null || !sameGeneratedStateIdentity(
       stage!.physical,
@@ -624,11 +633,28 @@ export function assertTransitionBackupSelector(
   const backupParent = path.join(
     transition.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups'
   );
-  if (path.dirname(transition.backup.path) !== backupParent ||
-      !/^(?:generation|node_modules|locator-preimage|runtime|project-preimage)-[0-9a-f]{16,64}$/u.test(path.basename(transition.backup.path))) {
+  const generationParent = dependencyTransitionNamespacePaths(transition.ownerRoot).generationRoot;
+  const backupPath = transition.backup.path;
+  const isWorkspaceBackup = path.dirname(backupPath) === backupParent &&
+    /^(?:generation|node_modules|locator-preimage|runtime|project-preimage)-[0-9a-f]{16,64}$/u.test(path.basename(backupPath));
+  const isFlatCacheGeneration = transition.kind === 'compiler-local-locator' &&
+    path.dirname(backupPath) === generationParent &&
+    /^generation-[0-9a-f]{24}$/u.test(path.basename(backupPath));
+  const isCachePackageGeneration = transition.kind === 'compiler-local-locator' &&
+    path.basename(backupPath) === 'node_modules' &&
+    path.dirname(path.dirname(backupPath)) === generationParent &&
+    /^generation-[0-9a-f]{24}$/u.test(path.basename(path.dirname(backupPath)));
+  if (!isWorkspaceBackup && !isFlatCacheGeneration && !isCachePackageGeneration) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency transition backup path is outside its canonical selector');
   }
-  if (expectedPath !== undefined && path.resolve(transition.backup.path) !== path.resolve(expectedPath)) {
+  const originalGenerationPath = path.join(backupParent,
+    `generation-${transition.sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`);
+  const originalFlatCacheGenerationPath = path.join(generationParent,
+    `generation-${transition.sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`);
+  const preservedLegacyGeneration = transition.kind === 'compiler-local-locator' &&
+    (backupPath === originalGenerationPath || backupPath === originalFlatCacheGenerationPath) && expectedPath !== undefined &&
+    path.resolve(expectedPath) === compilerTransitionBackupPath(transition.ownerRoot, 'generation', transition.sourceGeneration);
+  if (expectedPath !== undefined && path.resolve(transition.backup.path) !== path.resolve(expectedPath) && !preservedLegacyGeneration) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency transition backup path is not the operation-derived slot');
   }
 }
@@ -639,10 +665,11 @@ export function compilerTransitionBackupPath(
   sourceGeneration: RuntimeDependencySourceGeneration
 ): string {
   const namespace = dependencyTransitionNamespacePaths(path.resolve(ownerRoot));
-  return path.join(
-    namespace.backupRoot,
+  const generationPath = path.join(
+    prefix === 'generation' ? namespace.generationRoot : namespace.backupRoot,
     `${prefix}-${sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
   );
+  return prefix === 'generation' ? path.join(generationPath, 'node_modules') : generationPath;
 }
 
 export function projectTransitionBackupPath(

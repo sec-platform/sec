@@ -96,29 +96,104 @@ CodeQL projection、真实 review submission、inline finding/thread、人工裁
 
 依赖缓存的丢弃与可执行内容认证分开：清理在同一协调租约内，每个尚未写入的判定阶段只读取一次严格 consumer census，覆盖同一物理目录的全部 epoch；旧记录退役后，GC 重新读取新状态，不跨写入复用旧 census。原恢复意图只补已经终结的历史 generation 身份，不计入当前借用。以原记录或原 consumer-zero 绑定 generation，以原 publisher proof 恢复权限，再按元数据清单逐对象原生删除并回读。删除不重算包内容哈希、不重新签发 source generation，也不要求目标程序或业务代码参与。缺少原身份、未知借用、目标漂移及链接越界仍阻断；缓存损坏本身不应迫使删除操作先重新证明缓存内容正确。
 
-**职责与存放目标。** 仓库开发工具位于 `src/adapters/self-hosting/development/`，开发入口位于 `src/bootstrap/development/`；产品编译器只消费准备好的依赖及真实使用所需的借用。普通依赖准备优先使用包管理器原生用户缓存；只有真实隔离执行需要独立代际时才保留受管副本，目标位置为用户缓存目录，仓库只保留标准使用入口。恢复意图只承担未完成作用，放原用户级状态目录，完成后退役。此目标不声称已把当前工作区内的副本和 `project-runtime.ts` 中的仓库职责全部迁出，也不授权清理其他项目共享的包管理器缓存。
+**职责与存放。** 仓库开发工具位于 `src/adapters/self-hosting/development/`，开发入口位于 `src/bootstrap/development/`；工程归属选择、准备与迁移决策、旧借用管理恢复及工作树入口退役由该开发侧承担。产品路径只观察准备好的依赖、取得真实使用借用、发布自己的目标工程依赖投影和释放本次借用；缺准备返回明确错误，不隐式安装编译器依赖、不接管仓库历史恢复或顺带清理全库。跨产品和开发共用的内容绑定、物理代际、借用记录与投影事务仍由 toolchain 和原生运行能力承担，不复制签发者或经产品 facade 回调开发管理器。
+
+普通安装使用包管理器原生用户缓存。必须隔离、只读执行和保留借用的副本，存于既有 Runtime Cache 的物理工作区分区 `workspaces/v1/<workspaceLocatorKey>/compiler-dependencies/`：`generations/` 保存正式代际，`stages/` 保存未发布物化。该键由真实工程物理身份派生，不按路径名称猜同一工程。转换日志、publisher proof、消费者与零消费者凭据、stage/恢复意图放既有 Runtime State 分区；它们承担在途恢复及作用前像，不能随内容缓存任意丢弃。工作区只保留标准 `node_modules` 使用入口；普通目录前像因同卷原对象重命名而暂存在原工程的回滚根，完成后准确退役。回滚根为空时只表示没有回滚材料，不要求为表示空状态重新制造目录内容。
+
+工程资格 owner 与内容的物理父目录分别处理。`ownerRoot`、`ownerRootPhysical` 绑定真实工程输入责任；`sourcePath`、`physical`、`bindingDigest`、`treeDigest`、`treeEntryCount` 与 `epoch` 绑定实际代际。源可以位于工程内，或位于该真实工程派生的准确用户缓存分区；外部源必须经原生不跟随目录链、缓存/工程物理分离及当前对象身份检查，字符串前缀不是准入。跨工作树消费由原记录中的工程 owner 与真实物理身份定位，不能从缓存 hash 目录倒推工程，也不能把缓存目录复制一套 manifest 冒充工程真源。环境改变不重写旧记录中的绝对路径或物理身份；缺少当前存放准入时保留原对象并报告迁移需要。
 
 <!-- mermaid:id=cache_boundary -->
 ```mermaid
 flowchart LR
-  dev["仓库开发命令"]
+  inputs["真实工程：manifest、lock、运行工具身份"]
+  dev["仓库开发：归属选择、准备、迁移及清理决策"]
+  shared["共同依赖能力：内容绑定、物理代际、借用与投影事务"]
   pkg["包管理器原生用户缓存"]
-  cache["必要隔离副本：目标为用户缓存目录"]
+  stage["用户缓存：未发布 stages"]
+  cache["用户缓存：已验证只读 generations"]
   locator["仓库 node_modules：使用入口"]
-  compiler["产品编译器：读取准备好的依赖"]
-  gc["开发工具清理：不读业务源码"]
+  compiler["产品：只观察已准备源、借用和发布本目标投影"]
+  release["本次借用真实释放：不顺带全库 GC"]
+  gc["开发维护：自己的旧代际及历史记录"]
   native["OS 文件身份、权限与删除"]
-  intent["用户级恢复意图：未完成作用"]
-  dev -->|按锁文件准备| pkg
-  pkg -->|常规物化| locator
-  pkg -->|仅必要隔离执行| cache
-  cache -->|选择性发布| locator
-  locator -->|读取与必要借用| compiler
+  state["用户状态：journal、proof、consumers、zero 与未完意图"]
+  rollback["工程同卷：普通目录原像，仅转换期间保留"]
+  inputs -->|固定资格与输入前像| dev
+  dev -->|显式准备，许可不安装时只复制| shared
+  pkg -->|允许安装时供给| stage
+  cache -->|不安装的准确副本源| stage
+  shared -->|预算、取消与原生能力| stage
+  stage -->|完整验证、新物理身份及证明| cache
+  cache -->|准确入口发布| locator
+  locator -->|只读观察及真实借用| compiler
+  compiler -->|finally| release
+  shared -->|原意图与原对象绑定| state
+  shared -->|普通目录切换前同卷保全| rollback
   dev -->|选择自己的过期副本| gc
+  gc -->|核所有 epoch 借用及活动入口| state
   gc -->|准确目标与删除| native
-  gc -->|只保留必要续接| intent
-  native -->|完成后退役| intent
+  rollback -->|转换终态及无借用后| native
+  release -->|原生释放凭据及 durable release| state
+  native -->|真实缺席回读后退出原责任| state
 ```
+
+**迁移与失败。** 控制目录迁移保持原 record、proof、consumer 字节及它们指向的原物理对象；先由原 rollover owner 在旧物理 namespace 恢复并核实轮换终态，再在用户状态分区内复制到未发布 sibling，完整核原结构与字节后同卷发布。旧轮换回执按原字节承接到 `legacy-rollovers`，保留原路径与物理绑定供追溯；新 namespace 的活动 `rollovers` 独立起链，不能把旧回执当作新物理目录的作用权限。stage 仍由其原 owner 先结算；未知对象、漂移或未完成恢复阻断相交迁移。正式缓存迁移产生新的物理对象、epoch 和 publisher proof：保留旧入口可用，借用准确旧源，复制到用户缓存 stage，验证输入/包/运行闭包和真实对象，发布新 generation，再沿原 locator transition 切换入口。跨工作树先保留真实 Git membership 并准备 owner 新代，再固定 consumer 的准确旧入口与新源借用执行替换；旧源仍被其他调用借用时也能切换，不能靠递归重观察或先删除旧源触发替换。最终释放原借用，GC 重新观察全部 epoch 的活借用及活动入口，再退役旧内容和原 namespace。原源码与其他工程的包管理器缓存不参与清理。
+
+缓存内每代采用 `generations/generation-<epoch 前 24 位>/node_modules`；入口指向实际 `node_modules` 子目录。Node/Bun 的包依赖查找依赖这一原生层次，不能把包直接平铺在 `generation-*` 后依赖仓库祖先偶然提供解析路径。原 journal 先固定准确新源与目标，再分配空 generation 容器；中断由原意图恢复，未完成意图不能因目录为空而删除。GC 仅在原 consumer-zero 与源真实缺席成立后，按准确派生位置及当前原生对象身份删除空容器；存在未知内容时保留并报告。原历史平铺代继续按原记录恢复和退役，不改写身份。
+
+<!-- mermaid:id=dependency_cache_migration -->
+```mermaid
+flowchart TB
+  request["开发入口：固定工程、输入、许可、总预算及取消"]
+  admit["取得原协调租约；核入口、原状态和物理前像"]
+  control["原 owner 恢复并核实 rollover 终态；原字节承接 state，旧回执归档、新活动链独立"]
+  hold["取得准确旧源的真实只读借用；入口继续可用"]
+  copy["用户 cache stage：原生有界复制；每阶段输入与 Effect fence"]
+  qualify["核内容绑定、包及运行闭包；读取新 physical，签发新 epoch"]
+  journal["原 locator journal 固定新代、stage 与旧入口前像"]
+  generation["原意图后分配 generation 容器；同卷发布 node_modules；新对象只读证明"]
+  kind{"旧入口类型"}
+  directory["普通目录：同卷 rollback；原 physical 与原 zero，保留原恢复依据"]
+  link["链接：准确前像及生命周期退役，不删除其目标"]
+  publish["发布新 node_modules 入口；实际 target、binding 及生命周期回读"]
+  terminal["原 transition 完成，stage 意图按真实缺席退出"]
+  release["finally 释放源借用、目录能力与租约；主错误和释放错误都保留"]
+  pending["原 journal/stage 意图保留；真实报告已发生作用及未完成项"]
+  collect["原总预算内取得维护租约：全部 epoch 无活借用、排除活动对象"]
+  failed["返回真实失败及资源未释放责任，保留原未完意图"]
+  old["原 proof 恢复权限；删除旧对象；原 zero + 源缺席后删除空容器及已承接控制副本"]
+  done["新入口有效、旧对象及未完迁移材料真实缺席"]
+  owner{"旧源属于当前工程？"}
+  primary["保留真实 Git membership；准备其 owner 新缓存代"]
+  replace["固定 consumer 旧入口能力与 owner 新源借用；原 locator journal 准确替换"]
+  request --> admit --> owner
+  owner -->|是| control --> hold --> copy --> qualify --> journal --> generation --> kind
+  owner -->|否| primary --> replace --> terminal
+  primary -->|owner 准备失败或 membership 变化| pending
+  replace -->|前像漂移或发布中断| pending
+  kind -->|directory| directory --> publish
+  kind -->|link| link --> publish
+  kind -->|absent| publish
+  publish --> terminal --> release
+  control -->|复制中断：正式 reader 不读 sibling| pending
+  hold -->|缺证明或身份变化| pending
+  copy -->|错误、容量、预算或取消| pending
+  qualify -->|内容或资格不符| pending
+  journal -->|发布或耐久性未知| pending
+  generation -->|部分作用| pending
+  directory -->|移动或原权限恢复失败| pending
+  link -->|前像或生命周期变化| pending
+  publish -->|入口作用未知或回读失败| pending
+  terminal -->|stage 退出失败| pending
+  pending --> release
+  release -->|主作用与释放均成功| collect --> old --> done
+  release -->|任一失败| failed
+  collect -->|有借用、活动目标或前像漂移| pending
+  old -->|部分删除或缺席未成立| pending
+  failed -.->|条件修复后，同原意图、新租约及预算| admit
+```
+
+stage 由其原持久意图及原生对象身份管理。用户缓存 stage 不登记成工作区内的相对 generated-state 路径；历史工作区 stage 的原登记及退役责任仍按原合同处理。Linux 普通目录回滚消费原 transition、确定的同卷 rollback 路径、原 consumer-zero 与真实 rename 后身份；Windows 已存在的 sealed relocation 仍由原生 ACL 前像与原证明续接。两者都不能用新代 epoch 冒充旧代，也不能事后重算旧内容来填补丢失的原身份。
 
 **历史记录恢复与删除路径。** 下图展开前述恢复合同；分支表示实际判定和残留，未决对象不能因图中存在后续箭头而取得删除资格。普通已结算缓存直接从协调租约与 census 进入，不强制经历历史未知记录的宿主重启。
 

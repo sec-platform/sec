@@ -11,7 +11,7 @@ import { generatedStateDomainProviderMaterialDigest } from '../../../execution/g
 import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
 import type { GeneratedStateWorktreeRetirementProvider } from "../../../execution/generated-state/lifecycle-port.ts";
 import { consumeGeneratedStateWorktreeRetirementEffectAuthority } from '../../../execution/generated-state/provider-effect.ts';
-import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../toolchain/dependencies/test/runtime.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../self-hosting/development/dependencies/locator-retirement.ts';
 import { runCommandBytes } from '../physical/runtime/process.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
 import { assertGeneratedStateCleanupContinuationReceipt, assertGeneratedStateDisposalReceipt, assertGeneratedStateRetirementObservation, assertGeneratedStateWorktreeRetirementEffectStart } from './lifecycle-evidence.ts';

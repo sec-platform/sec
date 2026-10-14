@@ -1,4 +1,5 @@
 import { createGeneratedStateRegistrationMutationBackend } from '../../src/adapters/runtime-state/generated-state/registration-store.ts';
+import { compilerDependencyStoragePaths } from '../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
 import { generatedStateDigest } from '../../src/execution/generated-state/contract.ts';
 import {
   CodedFailure,
@@ -619,12 +620,7 @@ describe('compiler dependency installation', () => {
       // Remove the independent stage/lifecycle owner while leaving the
       // compiler-generation journal prepared. The unchanged preimage is not
       // enough to manufacture a rollback receipt from journal bytes alone.
-      const stageIntentsPath = path.join(
-        tempRoot,
-        '.tmp',
-        'dependency-installs',
-        '.compiler-stage-intents-v1'
-      );
+      const stageIntentsPath = compilerDependencyStoragePaths(tempRoot).stageIntentRoot;
       const parkedStageIntentsPath = `${stageIntentsPath}.fixture-parked`;
       await fs.rename(stageIntentsPath, parkedStageIntentsPath);
       let recoveryInstalls = 0;

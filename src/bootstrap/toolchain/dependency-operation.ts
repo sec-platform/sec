@@ -1,7 +1,9 @@
 import path from 'node:path';
 import type { WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
 import type { RetainedNoFollowProvenDirectoryGeneration } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { linkedWorktreeDependencyOwnerRoot } from '../../adapters/toolchain/dependencies/runtime/linked-worktree-owner.ts';
+import { linkedWorktreeDependencyOwnerRoot } from '../../adapters/self-hosting/development/dependencies/linked-worktree-owner.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../adapters/self-hosting/development/dependencies/locator-retirement.ts';
+import { ensureDevelopmentCompilerDependencies } from '../../adapters/self-hosting/development/dependencies/operation.ts';
 import { runtimeDependencyOperationContext, runtimeDependencyOperationOptions } from '../../adapters/toolchain/dependencies/runtime/operation-context.ts';
 import * as native from '../../adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import { RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES, RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES } from '../../adapters/toolchain/dependencies/runtime/source-generation.ts';
@@ -44,7 +46,7 @@ export function createDependencyOperation(input: Readonly<{ workspaceRoot: strin
       const environment = stateRoot === null ? input.environment : Object.freeze({ ...(input.environment ?? process.env), SEC_STATE_HOME: stateRoot });
       const session = createGeneratedStateRegistrationBootstrap({ workspaceRoot: root, environment, cleanupOperation,
         ...(root === workspaceRoot ? { reentrantToken: input.workspaceWriteLease } : {}),
-        worktreeRetirementProviders: [native.compilerDependencyLocatorWorktreeRetirementProvider] }).createProducerHooks(root);
+        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider] }).createProducerHooks(root);
       sessions.set(root, session); return session;
     } });
     return runtimeDependencyOperationOptions({ ...controls, generatedStateLifecycleFactory: factory }) as
@@ -71,7 +73,7 @@ export function createDependencyOperation(input: Readonly<{ workspaceRoot: strin
     } });
   return Object.freeze({
     generatedStateOwner,
-    ensureCompilerDepsReady: (request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) => native.ensureCompilerDepsReady(bind(request), root),
+    ensureCompilerDepsReady: (request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) => ensureDevelopmentCompilerDependencies(bind(request), root),
     ensureCompilerDepsReadyFromRetainedContent: (content: RetainedNoFollowProvenDirectoryGeneration,
       request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) =>
       native.ensureCompilerDepsReadyFromRetainedContent(content, bind(request), root),
@@ -98,7 +100,6 @@ export async function ensureProjectDependencyOperation(projectRoot:string, optio
       readCanonicalPaths: native.observeProjectCanonicalDependencyPaths,
       readRuntimeSpec: native.readProjectDependencyRuntimeSpec,
       observeCompilerReady: () => native.observeProjectCompilerDependencySource(operationOptions),
-      ensureCompilerReady: () => native.ensureCompilerDepsReady(operationOptions, compilerRoot),
       readSourceGeneration: (binding, ownerRoot, sourcePath) => native.readProjectDependencySourceGeneration(binding, ownerRoot, sourcePath, operationOptions),
       verifyIsolatedSource: native.verifyIsolatedProjectDependencySource,
       publishTarget: source => {

@@ -21,6 +21,7 @@ import {
   settleRepositoryChangeObserver
 } from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../src/adapters/self-hosting/development/dependencies/locator-retirement.ts';
 import { loadRuntimeDependencySpec, RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
 import { transitionAbsentSlot } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
@@ -41,7 +42,6 @@ import {
 } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
-  compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady,
   migrateDependencyTransitionJournal,

@@ -1,3 +1,8 @@
+import { compilerDependencyStoragePaths } from '../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
+import {
+  collectCompilerDependencyCacheGarbage, ensureCompilerDepsReadyFromGeneration,
+  publishCompilerDependencyCacheCopy, replaceCompilerDependencyLocatorFromGeneration
+} from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import {
   EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS,
   EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
@@ -50,6 +55,63 @@ import {
 } from './compiler-dependency-installation.ts';
 
 describe('compiler dependency installation', () => {
+  effectfulTest(test,
+    'cache cutover preserves a borrowed predecessor until the consumer explicitly switches',
+    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
+      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
+    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-cache-cutover-', async (ownerRoot, ownerOperation) => {
+      await writeCompilerDependencyRoot(ownerRoot);
+      const source = await ensureCompilerDepsReady({ ...ownerOperation, materialize: async (_args, command) => {
+        await installCompilerDependencyFixture(command.cwd, 'cache-cutover');
+        const modules = path.join(command.cwd, 'node_modules');
+        await fs.mkdir(path.join(modules, 'cache-fixture-leaf'));
+        await fs.writeFile(path.join(modules, 'cache-fixture-leaf', 'package.json'),
+          JSON.stringify({ name: 'cache-fixture-leaf', version: '1.0.0', type: 'module', main: './index.js' }));
+        await fs.writeFile(path.join(modules, 'cache-fixture-leaf', 'index.js'), 'export const marker = "native-package-resolution";\n');
+        await fs.writeFile(path.join(modules, 'commander', 'package.json'), JSON.stringify({ name: 'commander',
+          version: '1.0.0', type: 'module', main: './index.js', dependencies: { 'cache-fixture-leaf': '1.0.0' } }));
+        await fs.writeFile(path.join(modules, 'commander', 'index.js'), 'export { marker } from "cache-fixture-leaf";\n');
+        return { code: 0, stdout: 'ok', stderr: '' };
+      } }, ownerRoot);
+      const oldPath = await fs.realpath(source.nodeModulesPath);
+      const maintenance = { deadlineAtUnixMs: ownerOperation.deadlineAtUnixMs, signal: ownerOperation.signal,
+        generatedStateLifecycleFactory: { forWorkspace: (root: string) => {
+          if (path.resolve(root) !== path.resolve(ownerRoot)) throw new Error('Unexpected maintenance owner');
+          return ownerOperation.generatedStateLifecycle;
+        } } };
+      await withCompilerTestConsumer(effectful, 'sec-cdep-cache-consumer-', async (consumerRoot, operation) => {
+        await writeCompilerDependencyRoot(consumerRoot);
+        const consumer = await ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority,
+          operation, consumerRoot);
+        const original = await retainCompilerDependencyReadGeneration(consumer.executionGenerationAuthority,
+          { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal });
+        let replacement;
+        try {
+          const publisher = await retainCompilerDependencyReadGeneration(source.executionGenerationAuthority,
+            { deadlineAtUnixMs: ownerOperation.deadlineAtUnixMs, signal: ownerOperation.signal });
+          try {
+            replacement = await publishCompilerDependencyCacheCopy(source.executionGenerationAuthority,
+              publisher, { ...ownerOperation, installMode: 'offline-copy-only' }, ownerRoot);
+          } finally { await publisher.retire(); }
+          await collectCompilerDependencyCacheGarbage(ownerRoot, maintenance);
+          expect((await fs.lstat(oldPath)).isDirectory()).toBeTrue();
+          await original.assertAuthorityCurrent();
+          const switched = await replaceCompilerDependencyLocatorFromGeneration(consumer.executionGenerationAuthority,
+            replacement.executionGenerationAuthority, operation, consumerRoot);
+          expect(await fs.realpath(switched.nodeModulesPath)).toBe(await fs.realpath(replacement.nodeModulesPath));
+          expect(await fs.realpath(switched.nodeModulesPath)).not.toBe(oldPath);
+          const loaded = await import(path.join(switched.nodeModulesPath, 'commander', 'index.js'));
+          expect(loaded.marker).toBe('native-package-resolution');
+          const terminal = await dependencyTransitions.readDependencyTransition(consumerRoot, operation);
+          expect(terminal?.phase).toBe('complete');
+          expect(terminal?.sourceGeneration.epoch).toBe(replacement.sourceGeneration!.epoch);
+          expect((await fs.lstat(oldPath)).isDirectory()).toBeTrue();
+        } finally { await original.retire(); }
+        await collectCompilerDependencyCacheGarbage(ownerRoot, maintenance);
+        await expect(fs.lstat(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      });
+    }));
+
   effectfulTest(test,
     'retained dependency content is requalified through the public owner without an installer',
     { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
@@ -510,13 +572,7 @@ describe('compiler dependency installation', () => {
       }, ownerRoot);
       const bridgePath = path.join(consumerRoot, 'node_modules');
       const generationPath = path.join(ownerRoot, 'node_modules');
-      const ownerProofRoot = path.join(
-        ownerRoot,
-        '.tmp',
-        'dependency-installs',
-        'compiler-backups',
-        'read-only-generations'
-      );
+      const ownerProofRoot = compilerDependencyStoragePaths(ownerRoot).proofRoot;
       const ownerProofNames = await fs.readdir(ownerProofRoot);
       expect(ownerProofNames).toHaveLength(1);
       const ownerProofPath = path.join(ownerProofRoot, ownerProofNames[0]!);
@@ -597,13 +653,7 @@ describe('compiler dependency installation', () => {
         }, consumerRoot)).rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
         expect((await fs.lstat(generationPhysicalPath, { bigint: true })).ctimeNs)
           .toBe(generationBefore.ctimeNs);
-        await expect(fs.lstat(path.join(
-          consumerRoot,
-          '.tmp',
-          'dependency-installs',
-          'compiler-backups',
-          'read-only-generations'
-        ))).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(fs.readdir(compilerDependencyStoragePaths(consumerRoot).proofRoot)).resolves.toEqual([]);
       } finally {
         await fs.rename(parkedOwnerProofPath, ownerProofPath);
       }
@@ -855,12 +905,7 @@ describe('compiler dependency installation', () => {
         signal: effectful.operationSignal,
         beforeCommit: async () => {
           if (mutated) return;
-          const backupRoot = path.join(
-            tempRoot,
-            '.tmp',
-            'dependency-installs',
-            'compiler-backups'
-          );
+          const backupRoot = compilerDependencyStoragePaths(tempRoot).generationRoot;
           let names: string[];
           try {
             names = await fs.readdir(backupRoot);
@@ -873,6 +918,7 @@ describe('compiler dependency installation', () => {
           const target = path.join(
             backupRoot,
             generationName,
+            'node_modules',
             'typescript',
             'lib',
             'typescript.js'
@@ -903,13 +949,7 @@ describe('compiler dependency installation', () => {
       expect(mutated).toBeTrue();
       expect(mutatedPath).not.toBeNull();
       expect((await fs.lstat(mutatedPath!)).mode & 0o222).not.toBe(0);
-      await expect(fs.readdir(path.join(
-        tempRoot,
-        '.tmp',
-        'dependency-installs',
-        'compiler-backups',
-        'read-only-generations'
-      ))).resolves.toEqual([]);
+      await expect(fs.readdir(compilerDependencyStoragePaths(tempRoot).proofRoot)).resolves.toEqual([]);
     });
   });
 
@@ -925,13 +965,7 @@ describe('compiler dependency installation', () => {
         'engineering-compiler-proof-publication-denied-',
         async (tempRoot, lifecycle) => {
           await writeCompilerDependencyRoot(tempRoot);
-          const proofRoot = path.join(
-            tempRoot,
-            '.tmp',
-            'dependency-installs',
-            'compiler-backups',
-            'read-only-generations'
-          );
+          const proofRoot = compilerDependencyStoragePaths(tempRoot).proofRoot;
           let denied = false;
           let proofRootMode: number | undefined;
           let sealedPayloadPath: string | undefined;
@@ -946,7 +980,7 @@ describe('compiler dependency installation', () => {
               try {
                 [proofEntries, generationEntries] = await Promise.all([
                   fs.readdir(proofRoot),
-                  fs.readdir(path.dirname(proofRoot))
+                  fs.readdir(compilerDependencyStoragePaths(tempRoot).generationRoot)
                 ]);
               } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
@@ -956,8 +990,9 @@ describe('compiler dependency installation', () => {
               const generationName = generationEntries.find(name => name.startsWith('generation-'));
               if (generationName === undefined) return;
               const payloadPath = path.join(
-                path.dirname(proofRoot),
+                compilerDependencyStoragePaths(tempRoot).generationRoot,
                 generationName,
+                'node_modules',
                 'typescript',
                 'lib',
                 'typescript.js'

@@ -13,7 +13,7 @@ import {
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath
 } from '../../../runtime-state/worktree-closeout-contract.ts';
-import { sameHostPath } from './host-path.ts';
+import { sameHostPath } from '../../../toolchain/dependencies/runtime/host-path.ts';
 
 /**
  * Git owns worktree membership; this boundary retains the native registry
@@ -29,7 +29,7 @@ interface RetainedGitControlFile {
   assertCurrent(): void;
 }
 
-interface LinkedWorktreeDependencyOwnerAuthority {
+export interface LinkedWorktreeDependencyOwnerAuthority {
   readonly consumerRoot: string;
   readonly ownerRoot: string;
   assertCurrent(): void;

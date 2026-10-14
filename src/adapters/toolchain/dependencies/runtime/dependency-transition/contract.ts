@@ -123,6 +123,9 @@ export const DEPENDENCY_TRANSITION_SCHEMA = 'sec-dependency-transition-journal-v
 export interface DependencyTransitionNamespace {
   readonly ownerRoot: PhysicalDirectoryIdentity;
   readonly backupRoot: PhysicalDirectoryIdentity;
+  readonly generationRoot: PhysicalDirectoryIdentity;
+  readonly proofRoot: PhysicalDirectoryIdentity | null;
+  readonly legacyRelocationsRoot: PhysicalDirectoryIdentity | null;
   readonly journalRoot: PhysicalDirectoryIdentity;
   readonly recordsRoot: PhysicalDirectoryIdentity;
   readonly rolloversRoot: PhysicalDirectoryIdentity | null;

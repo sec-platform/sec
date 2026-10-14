@@ -92,12 +92,6 @@ export function isCanonicalRuntimeDependencySourceGeneration(
   }) === value.epoch;
 }
 
-function isCanonicalDescendantPath(ownerRoot: string, candidate: string): boolean {
-  const relative = path.relative(ownerRoot, candidate);
-  return relative.length > 0 && relative !== '..' && !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative);
-}
-
 export function parseDependencyTransitionRecord(
   bytes: Uint8Array,
   expectedName?: string
@@ -142,7 +136,12 @@ export function parseDependencyTransitionRecord(
         (record.stageRoot.kind !== 'directory' && record.stageRoot.kind !== 'absent')
       )) ||
       (record.backup !== null && path.dirname(record.backup.path) !==
-        path.join(record.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups'))) {
+        path.join(record.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups') &&
+        !(record.kind === 'compiler-local-locator' && (
+          /^generation-[0-9a-f]{24}$/u.test(path.basename(record.backup.path)) ||
+          (path.basename(record.backup.path) === 'node_modules' &&
+           /^generation-[0-9a-f]{24}$/u.test(path.basename(path.dirname(record.backup.path))))
+        )))) {
     throw new CodedFailure('RUNTIME-DEPS-002', 'Dependency transition journal topology is noncanonical');
   }
   if (record.kind === 'compiler-bridge' && (
@@ -151,7 +150,6 @@ export function parseDependencyTransitionRecord(
     record.stageRoot !== null ||
     record.backup !== null ||
     record.sourceGeneration.ownerRoot !== record.ownerRoot ||
-    !isCanonicalDescendantPath(record.ownerRoot, record.sourceGeneration.sourcePath) ||
     path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
   )) {
     throw new CodedFailure('RUNTIME-DEPS-002', 'Compiler bridge transition journal topology is noncanonical');
@@ -164,10 +162,6 @@ export function parseDependencyTransitionRecord(
     path.dirname(record.destination.path) !== record.ownerRoot ||
     path.basename(record.destination.path) !== 'node_modules' ||
     record.sourceGeneration.ownerRoot === record.ownerRoot ||
-    !isCanonicalDescendantPath(
-      record.sourceGeneration.ownerRoot,
-      record.sourceGeneration.sourcePath
-    ) ||
     path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
   )) {
     throw new CodedFailure('RUNTIME-DEPS-002', 'Project runtime bridge transition journal topology is noncanonical');

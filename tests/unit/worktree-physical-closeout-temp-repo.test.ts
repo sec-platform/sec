@@ -40,9 +40,9 @@ import {
   prepareTrustedWorktreePhysicalCloseout,
   prepareWorktreePhysicalCloseout
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../src/adapters/self-hosting/development/dependencies/locator-retirement.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
-  compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady,
   retireSettledCompilerDependencyStageIntents
@@ -1076,7 +1076,8 @@ test('dependency owner retires settled compiler staging intents in a linked work
       },
       generatedStateLifecycle: lifecycle
     }, value.target);
-    const intents = path.join(value.target, '.tmp', 'dependency-installs', '.compiler-stage-intents-v1');
+    const { compilerDependencyStoragePaths } = await import('../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts');
+    const intents = compilerDependencyStoragePaths(value.target).stageIntentRoot;
     expect(readdirSync(intents).filter((name) => name.endsWith('.json')).length).toBeGreaterThan(0);
     const originalName = readdirSync(intents).find((name) => name.endsWith('-settled.json'));
     expect(originalName).toBeString();

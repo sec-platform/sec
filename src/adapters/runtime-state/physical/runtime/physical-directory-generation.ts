@@ -47,6 +47,7 @@ import {
 import { physicalError, sameIdentity } from './physical-no-follow-shared.ts';
 import {
   openWindowsReadOnlyTreeGeneration,
+  readWindowsReadOnlyTreeGenerationProofProjection,
   retireWindowsReadOnlyTreeGeneration,
   sealExistingWindowsReadOnlyTreeAuthority,
   sealWindowsReadOnlyTreeGeneration,
@@ -208,6 +209,28 @@ function parseLinuxProvenGenerationProof(text: string): LinuxProvenGenerationPro
     );
   }
   return parsed;
+}
+
+/**
+ * Observe only the original canonical bytes and bound digest. No live path
+ * is opened, no generation capability is issued and no deletion permission
+ * or completion is implied. Consumers still need the original zero receipt,
+ * its complete native physical identity and independent native absence.
+ * Windows proof stat fields cannot reconstruct a complete FILE_ID_INFO;
+ * therefore this cross-platform projection intentionally exposes no identity.
+ */
+export function readNoFollowProvenDirectoryGenerationProof(proofText: string): Readonly<{
+  binding: ProvenDirectoryGenerationBinding;
+  rootPath: string;
+  proofDigest: `sha256:${string}`;
+}> {
+  if (process.platform === 'win32') return readWindowsReadOnlyTreeGenerationProofProjection(proofText);
+  if (process.platform === 'linux') {
+    const proof = parseLinuxProvenGenerationProof(proofText);
+    return Object.freeze({ binding: proof.binding, rootPath: proof.rootPath, proofDigest: proof.proofDigest });
+  }
+  throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+    'Generation proof observation is unavailable on this platform.');
 }
 
 function sameProvenGenerationBinding(

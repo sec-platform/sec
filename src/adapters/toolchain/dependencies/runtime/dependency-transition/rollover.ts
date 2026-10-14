@@ -16,6 +16,7 @@ import {
   assertSameNoFollowDirectoryIdentity,
   createExclusiveNoFollowDirectory,
   deleteRetainedNoFollowEntry,
+  inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
   type PhysicalDirectoryIdentity,
@@ -267,27 +268,27 @@ function inspectDependencyTransitionRolloverNamespace(
   try {
     const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Dependency transition rollover owner root').target;
     const paths = dependencyTransitionNamespacePaths(owner.path);
-    const backupRoot = inspectNoFollowDirectoryChain(
-      paths.backupRoot,
-      'Dependency transition rollover backup root'
-    ).target;
-    const journalRoot = inspectNoFollowDirectoryChain(
-      paths.journalRoot,
-      'Dependency transition rollover journal root'
-    ).target;
+    // Recovery must be able to reach the original physical namespace before
+    // storage migration. A backed-up rollover may temporarily have no records
+    // directory, so the ordinary ledger inspector is deliberately not used.
+    const external = inspectExactNoFollowDirectoryPresence(paths.journalRoot,
+      'Dependency transition rollover journal root');
+    const journalRoot = external.state === 'present' ? external.directory.target
+      : inspectNoFollowDirectoryChain(path.join(paths.backupRoot, '.dependency-transition-v2'),
+        'Legacy dependency transition rollover journal root').target;
+    const rolloversPath = path.join(journalRoot.path, 'rollovers');
     const rolloversRoot = inspectNoFollowDirectoryChain(
-      paths.rolloversRoot,
+      rolloversPath,
       'Dependency transition rollover namespace'
     ).target;
-    if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-        paths.rolloversRoot !== rolloversRoot.path) {
+    if (rolloversPath !== rolloversRoot.path) {
       throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency transition rollover namespace path normalization changed');
     }
     return Object.freeze({
       ownerRoot: owner,
       journalRoot,
       rolloversRoot,
-      recordsRootPath: paths.recordsRoot
+      recordsRootPath: path.join(journalRoot.path, 'records')
     });
   } catch (error) {
     if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
@@ -1379,6 +1380,32 @@ export async function recoverDependencyTransitionRollover(
     await writeDependencyTransitionRolloverIntentPhase(namespace, updated, options);
   }
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover recovery readback');
+}
+
+/** Settle the old physical owner before copying its control bytes. Completed
+ * receipts are historical evidence, not authority over the copied records
+ * directory; storage migration archives them unchanged and starts a fresh
+ * rollover chain in the new namespace. */
+export async function settleDependencyTransitionRolloverForStorageMigration(
+  ownerRoot: string,
+  inputOptions: RuntimeDependencyEffectFenceInput
+): Promise<void> {
+  const options = runtimeDependencyEffectFenceOptions(inputOptions);
+  await recoverDependencyTransitionRollover(ownerRoot, options);
+  const observation = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
+  if (observation === null) return;
+  if (observation.active !== null) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency rollover remains active before storage migration');
+  }
+  if (observation.latestComplete !== null) {
+    assertPublishedRolloverCheckpointCurrent(observation.namespace, observation.latestComplete,
+      dependencyTransitionRecordBytes(observation.latestComplete.checkpoint));
+  }
+  const records = inspectNoFollowDirectoryChain(observation.namespace.recordsRootPath,
+    'Dependency rollover storage migration records').target;
+  readDependencyTransitionRecordSet(records, path.resolve(ownerRoot), runtimeDependencyOperationContext(options),
+    'Dependency rollover storage migration ledger');
+  runtimeDependencyOperationRemainingMs(options, 'Dependency rollover storage migration settlement readback');
 }
 
 function assertDependencyTransitionRolloverLedgerBinding(
