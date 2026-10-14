@@ -486,9 +486,42 @@ test('immutable execution generation isolates workspace mutation and retires its
       expect(evidence.projectInput.externalSourceFacts.some(({ kind, path: sourcePath }) => (
         kind === 'dependency-generation' && sourcePath.startsWith('commander/')
       ))).toBe(true);
+      for (const rejection of ['cancelled', 'deadline', 'foreign-evidence']) {
+        const rejectedDependency = await retainCompilerDependencyExecutionGeneration(
+          dependencyGeneration.executionGenerationAuthority,
+          { deadlineAtUnixMs: Date.now() + 30_000 }
+        );
+        let releases = 0;
+        const rejectedInput = {
+          deadlineAtUnixMs: rejection === 'deadline' ? Date.now() - 1 : Date.now() + 30_000,
+          dependencyGeneration: {
+            physicalGeneration: rejectedDependency.physicalGeneration,
+            generationDigest: rejectedDependency.generationDigest,
+            retire: async () => { releases += 1; await rejectedDependency.retire(); }
+          },
+          dependencyLocatorPath: dependencyGeneration.nodeModulesPath,
+          generationParent: inspectNoFollowDirectoryChain(generationParentPath).target,
+          ...(rejection === 'cancelled' ? { signal: AbortSignal.abort() } : {})
+        };
+        await expect(materializeTypeScriptExecutionGeneration(
+          rejection === 'foreign-evidence' ? { ...evidence } : evidence,
+          rejectedInput
+        )).rejects.toThrow(rejection === 'cancelled' ? 'cancelled' : rejection === 'deadline' ? 'deadline' : 'not issued');
+        expect(releases).toBe(1);
+        expect(await readdir(generationParentPath)).toEqual([]);
+      }
+      let dependencyRetirementAttempts = 0;
       const generation = await materializeTypeScriptExecutionGeneration(evidence, {
         deadlineAtUnixMs: Date.now() + 30_000,
-        dependencyGeneration: retainedDependencyGeneration,
+        dependencyGeneration: {
+          physicalGeneration: retainedDependencyGeneration.physicalGeneration,
+          generationDigest: retainedDependencyGeneration.generationDigest,
+          retire: async () => {
+            dependencyRetirementAttempts += 1;
+            if (dependencyRetirementAttempts === 1) throw new Error('dependency release temporarily unavailable');
+            await retainedDependencyGeneration.retire();
+          }
+        },
         dependencyLocatorPath: dependencyGeneration.nodeModulesPath,
         generationParent: inspectNoFollowDirectoryChain(generationParentPath).target
       });
@@ -517,7 +550,11 @@ test('immutable execution generation isolates workspace mutation and retires its
           .rejects.toBeDefined();
         await generation.assertCurrent();
       } finally {
-        await generation.retire();
+        await expect(generation.retire()).rejects.toThrow('preserved physical residue');
+        expect(await lstat(generationRoot).then(() => true, () => false)).toBe(false);
+        const receipt = await generation.retire();
+        expect(await generation.retire()).toBe(receipt);
+        expect(dependencyRetirementAttempts).toBe(2);
       }
       expect(await lstat(generationRoot).then(() => true, () => false)).toBe(false);
       await expect(generation.assertCurrent()).rejects.toThrow('retired');

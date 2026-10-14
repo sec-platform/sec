@@ -3,10 +3,11 @@ import { lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 
 import { digest } from '../../../../contracts/canonical.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import * as physical from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 
 import { advanceDependencyTransition, beginDependencyTransition, compilerTransitionBackupPath } from '../runtime/dependency-transition/operation.ts';
@@ -65,6 +66,61 @@ function fixtureDescriptor(dependencyRootPath: string) {
     }]
   } as const;
 }
+
+test('failed consumer publication or readback releases the original admitted generation', async () => {
+  const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-consumer-admission-failure-'));
+  const dependencyRoot = path.join(ownerRoot, 'dependencies');
+  const operation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(dependencyRoot));
+  try {
+    const ready = await settleCompilerDependencyFixtureOperation(operation);
+    // Publish the immutable proof once before exercising read-only admission.
+    const initial = await retainCompilerDependencyExecutionGeneration(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
+    await initial.retire();
+    for (const retain of [retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration]) {
+      for (const boundary of ['publication', 'readback'] as const) {
+        const failure = new Error(`original-consumer-${boundary}-failure`);
+        let observedRoot: string | undefined;
+        let observedName: string | undefined;
+        let injected = false;
+        const publish = physical.publishExclusiveDurableCanonicalFile;
+        const inspect = physical.inspectNoFollowOrdinaryFileEntry;
+        const spy = boundary === 'publication'
+          ? spyOn(physical, 'publishExclusiveDurableCanonicalFile').mockImplementation(input => {
+            const result = publish(input);
+            if (!injected && input.name.endsWith('-acquired.json')) {
+              injected = true;
+              observedRoot = input.parent.path;
+              observedName = input.name;
+              throw failure; // The actual publication survived the lost response.
+            }
+            return result;
+          })
+          : spyOn(physical, 'inspectNoFollowOrdinaryFileEntry').mockImplementation((parent, name, ...rest) => {
+            const result = inspect(parent, name, ...rest);
+            if (!injected && name.endsWith('-acquired.json')) {
+              injected = true;
+              observedRoot = parent.path;
+              observedName = name;
+              throw failure;
+            }
+            return result;
+          });
+        try {
+          await expect(retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 })).rejects.toBe(failure);
+        } finally { spy.mockRestore(); }
+        expect(injected).toBe(true);
+        expect(observedRoot).toBeDefined();
+        expect((await readdir(observedRoot!)).includes(observedName!)).toBe(false);
+        const next = await retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
+        await next.retire();
+      }
+    }
+  } finally {
+    await retireCompilerDependencyFixtureOperation(operation);
+    await removeFixtureRuntimeState(dependencyRoot);
+    await rm(ownerRoot, { recursive: true, force: true });
+  }
+}, 90_000);
 
 async function removeFixtureRuntimeState(dependencyRoot: string): Promise<void> {
   if (!existsSync(dependencyRoot)) return;

@@ -191,6 +191,7 @@ export async function materializeTypeScriptExecutionGeneration(
   evidence: WorkspaceTypeScriptProjectGenerationEvidence,
   input: MaterializeTypeScriptExecutionGenerationInput
 ): Promise<TypeScriptExecutionGeneration> {
+  const dependencyGeneration = input.dependencyGeneration;
   const assertOperationActive = (label: string): void => {
     if (input.signal?.aborted === true) {
       throw new Error(`TypeScript execution generation ${label} was cancelled`);
@@ -200,11 +201,10 @@ export async function materializeTypeScriptExecutionGeneration(
       throw new Error(`TypeScript execution generation ${label} exhausted its operation deadline`);
     }
   };
-  assertOperationActive('admission');
-  assertWorkspaceTypeScriptProjectGenerationEvidence(evidence);
-  const dependencyGeneration = input.dependencyGeneration;
   let physical: RetainedTypeScriptExecutionGeneration;
   try {
+    assertOperationActive('admission');
+    assertWorkspaceTypeScriptProjectGenerationEvidence(evidence);
     dependencyGeneration.physicalGeneration.assertCurrent();
     await dependencyGeneration.physicalGeneration.assertAuthorityCurrent();
     if (evidence.projectInput.dependencyGenerationDigest !== dependencyGeneration.generationDigest) {
@@ -274,6 +274,8 @@ export async function materializeTypeScriptExecutionGeneration(
   }
   let retired = false;
   let retirement: Promise<TypeScriptExecutionGenerationCleanupReceipt> | null = null;
+  let physicalReceipt: TypeScriptExecutionGenerationCleanupReceipt | undefined;
+  let dependencyRetired = false;
   const generation: TypeScriptExecutionGeneration = Object.freeze({
     [typeScriptExecutionGenerationBrand]: true as const,
     dependencyDirectory: physical.dependencyDirectory,
@@ -290,17 +292,21 @@ export async function materializeTypeScriptExecutionGeneration(
       if (retirement !== null) return retirement;
       retired = true;
       retirement = (async () => {
-        let physicalReceipt: TypeScriptExecutionGenerationCleanupReceipt | undefined;
         const retirementFailures: unknown[] = [];
-        try {
-          physicalReceipt = await physical.retire();
-        } catch (error) {
-          retirementFailures.push(error);
+        if (physicalReceipt === undefined) {
+          try {
+            physicalReceipt = await physical.retire();
+          } catch (error) {
+            retirementFailures.push(error);
+          }
         }
-        try {
-          await dependencyGeneration.retire();
-        } catch (error) {
-          retirementFailures.push(error);
+        if (!dependencyRetired) {
+          try {
+            await dependencyGeneration.retire();
+            dependencyRetired = true;
+          } catch (error) {
+            retirementFailures.push(error);
+          }
         }
         const retirementFailure = retirementFailures.length === 0
           ? undefined
@@ -317,7 +323,10 @@ export async function materializeTypeScriptExecutionGeneration(
           );
         }
         return physicalReceipt;
-      })();
+      })().catch(error => {
+        retirement = null;
+        throw error;
+      });
       return retirement;
     }
   });
