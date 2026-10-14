@@ -393,16 +393,20 @@ class NodeMermaidRenderer:
         except BuildError as error:raise DiagramError(str(error)) from error
     def __exit__(self,kind=None,primary=None,trace=None):
         if not self.process:return
-        errors=[]
+        errors=[];stdin_close_attempted=False
         try:
             if self.process.poll()is None:
                 result=self.exchange({'action':'close'})
                 if result.get('closed')is not True:raise BuildError('Node close acknowledgement missing')
+                # No more commands follow terminal ack. Release our write end
+                # before waiting: Node's input stream otherwise keeps its loop alive.
+                stdin_close_attempted=True;self.process.stdin.close()
             code=self.process.wait(timeout=min(self.args.timeout,10))
             if code!=0:raise BuildError('Node renderer exited with '+str(code))
         except BaseException as error:errors.append(('Node/browser close',error))
         finally:
             for name,stream in (('Node stdin',self.process.stdin),('Node stdout',self.process.stdout)):
+                if name=='Node stdin' and stdin_close_attempted:continue
                 if stream:
                     try:stream.close()
                     except BaseException as error:errors.append((name,error))

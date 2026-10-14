@@ -129,6 +129,18 @@ class Modes(unittest.TestCase):
    with self.assertRaises(b.BuildError)as caught:renderer.__enter__()
   self.assertIn('startup failed',str(caught.exception));self.assertIn('close failed',str(caught.exception))
   process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
+ def test_node_terminal_ack_releases_command_stream_before_waiting_for_exit(self):
+  renderer=b.NodeMermaidRenderer(argparse.Namespace(timeout=1));process=unittest.mock.Mock()
+  process.poll.return_value=None;renderer.process=process;closed=False
+  def release():
+   nonlocal closed
+   closed=True
+  def exited(**kwargs):
+   if not closed:raise b.subprocess.TimeoutExpired('Node waiting for command-stream EOF',1)
+   return 0
+  process.stdin.close.side_effect=release;process.wait.side_effect=exited
+  with patch.object(renderer,'exchange',return_value={'closed':True}):renderer.__exit__()
+  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
  def test_fatal_renderer_failure_stops_before_next_diagram_and_preserves_html(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->C\n```\n')
   calls=[]
