@@ -603,6 +603,8 @@ function prepareLinuxTreeRetirementPermissionRecovery(
 export function retireNoFollowDirectoryTree(input: Readonly<{
   deadlineAtMonotonicMs: number;
   inventory: readonly NoFollowDirectoryTreeInventoryEntry[];
+  /** Exact original control bytes for every inventoried ordinary file; omitted for metadata-only cache retirement. */
+  expectedFileBytes?: ReadonlyMap<string, Uint8Array>;
   parent: PhysicalDirectoryIdentity;
   /** Opt-in retained-fd permission recovery for an operation-owned POSIX snapshot. */
   restoreOwnerPermissions?: boolean;
@@ -613,6 +615,21 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
   }
   if (input.restoreOwnerPermissions !== undefined && typeof input.restoreOwnerPermissions !== 'boolean') {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement permission option is invalid.');
+  }
+  let expectedFileBytes: ReadonlyMap<string, Uint8Array> | undefined;
+  if (input.expectedFileBytes !== undefined) {
+    const files = new Set(input.inventory.filter(({ kind }) => kind === 'file').map(({ relativePath }) => relativePath));
+    const retainedBytes = new Map(input.expectedFileBytes);
+    if (retainedBytes.size !== files.size || [...retainedBytes].some(([relativePath, bytes]) =>
+      !files.has(relativePath) || !(bytes instanceof Uint8Array))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement byte preimages must exactly cover its ordinary files.');
+    }
+    expectedFileBytes = new Map([...retainedBytes].map(([relativePath, bytes]) => [relativePath, Uint8Array.from(bytes)]));
+    if (process.platform === 'linux' && files.size > 0) {
+      // The existing POSIX byte-CAS primitive requires a direct-resource native
+      // exclusion. A directory inventory cannot manufacture that capability.
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow tree byte-CAS retirement requires native namespace exclusion on Linux.');
+    }
   }
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'No-follow tree retirement parent').target;
   const root = assertSameNoFollowDirectoryIdentity(input.root, 'No-follow tree retirement root').target;
@@ -657,6 +674,8 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
         device: entry.device,
         inode: entry.inode,
         ...(entry.linkTarget === null ? {} : { expectedLinkTarget: entry.linkTarget }),
+        ...(entry.kind === 'file' && expectedFileBytes !== undefined
+          ? { expectedFileBytes: expectedFileBytes.get(entry.relativePath)! } : {}),
         ancestorDirectories
       });
     }

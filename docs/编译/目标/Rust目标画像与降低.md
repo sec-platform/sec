@@ -73,6 +73,21 @@ RustTargetBinding {
 
 workspace 只在多根真实共享代码、配置或依赖时建立；单库不为“工程化”强制生成多 crate。crate/package 名从公开产品名、稳定语义身份和目标命名规则确定；关键字碰撞使用 Rust 合法 escaping/重命名，不能因 printer 顺序产生漂移。
 
+```mermaid
+flowchart TD
+  requirement["Rust 根的作者、Requirement、UseBinding 与真实公共接口"] --> resolve["解析精确工具内容、edition、triple、crate、std、panic、cfg 及依赖"]
+  resolve --> capabilities["核实际 ABI、Atomic、SIMD、运行库及资源能力"]
+  capabilities --> shape["只生成所选 lib、bin、staticlib、cdylib 或设备形态"]
+  shape --> lowering["P5–P7 消费固定语义；直接复用合格原生区域，不重复算法"]
+  lowering --> members["完整 Rust 源、必要 manifest/锁、资产及来源"]
+  members --> checks["按请求取得 emit、type、link、behavior 及专门证据"]
+  resolve -->|未取得| needs["NeedsToolchain、NeedsDependency 或 UnknownTargetCapability"]
+  capabilities -->|硬要求无法保持| unsupported["TargetUnsupported 或 InterfaceMismatch"]
+  checks -->|真实工具或符合性失败| failed["BuildFailed、LinkFailed 或 ConformanceFailed"]
+  needs --> choice["允许替代重新解析 Binding；不暗换 nightly、shim、锁、堆或 std"]
+  unsupported --> choice
+```
+
 ## 4. 类型和值的 lowering
 
 目标类型选择消费已经固定的中立类型、UseBinding、表示与公开接口要求。优先使用最简单的标准 Rust 表达；不能用目标方便性改变值域、失败、身份或布局。
@@ -110,6 +125,24 @@ Rust lowering 只在 Gift 已有所有权/寿命事实足以证明时生成安�
 - **fallible close**：显式 Result/close operation；Drop 不冒充异步、可失败或远端结算完成。
 
 `unsafe` 不是目标能力兜底。只有已选方法确需且具有具体安全前提时生成最小 unsafe region，并把其前提、来源与验证消费保留下来；普通 lowering 不因为性能偏好转入 unsafe。
+
+```mermaid
+flowchart TD
+  facts["真实 Own、Borrow、地址、线程及调用边界事实"] --> refs{"安全引用前提可建立？"}
+  refs -->|是| safe["生成对应引用，寿命不跨过无资格挂起或卸载"]
+  refs -->|否| alternate["选择合格复制、句柄、guard、最小 unsafe 适配或准确拒绝"]
+  safe --> init["最终存储上建立有效对象；记录已初始化部分"]
+  alternate --> init
+  init --> live["按固定 receiver、实参、转换和错误合同调用"]
+  live --> move{"所有权成功转移？"}
+  move -->|是| transferred["清除源清理责任，新 owner 接续"]
+  move -->|否| retained["原 owner 继续持有"]
+  transferred --> cleanup["唯一 Drop/作用域或显式 guard；不双析构"]
+  retained --> cleanup
+  init -->|部分失败| partial["仅清理真实已初始化字段"]
+  partial --> cleanup
+  cleanup --> close["可失败或异步 close 显式结算；丢弃 Future 不证明外部停止"]
+```
 
 ## 6. 调用、控制、错误与异步
 
@@ -180,6 +213,21 @@ Rust 后端不承担“看到某个业务词就挑最流行 crate”的职责。
 build.rs、proc-macro 与 native dependency 都是可执行/外部供给。它们可以是成熟代码复用路径，但必须通过实际构建 Effect、供应链和可重现输入管理；不能因为“别人已有完美代码”就把未知脚本升级为纯编译数据。对于只需库 API 的普通业务，优先直接复用合格 crate；对于需要修改/学习候选实现的开发任务，可以把其源码作为有来源的外部/原生资产读取和比较，但不会因此复制成 Gift 作者真源或自动获得商业再分发许可。
 
 该设计允许将“库怎么写最好”的大部分实现知识交给成熟生态，同时保持 Gift 对选择理由、版本、feature、行为差额和目标适配的控制。它不承诺存在一个对所有业务永远最优的 crate，也不允许网络搜索结果直接进入可重现生成。
+
+```mermaid
+flowchart TD
+  bindings["各 UseBinding 已选精确 crate 与能力映射"] --> graph["固定 source/version、features、target 条件及 API 合同"]
+  graph --> cargo["消费 Cargo 真实 feature unification、平台条件及 lock 结果"]
+  cargo --> compose{"crate/workspace 组合相容？"}
+  compose -->|是| manifest["单一组合者形成 manifest 与真实调用/适配"]
+  compose -->|否| split["准确失败或合法分离构建根，不让最后 writer 覆盖"]
+  manifest --> executable{"依赖含 build.rs、proc-macro 或 native-link？"}
+  executable -->|是| effect["实际执行准入、供应链、环境、文件、网络与工具输入闭合"]
+  executable -->|否| closure["封闭 rustc/Cargo、std、target、linker 及配置输入"]
+  effect --> closure
+  closure --> result["实际构建及完整成员；缓存不作唯一事实源"]
+  graph -->|缺供给| needs["返回 Needs；获准取得后形成新固定输入，不在 printer 联网"]
+```
 
 ## 10. rustc/Cargo 诊断与 SourceMap
 
@@ -261,6 +309,21 @@ Gift 内部控制数据库、全部证据图和未请求测试不自动进入用
 Rustfmt/target formatter 只作用于生成/拥有区域；格式变化不提升为作者语义变化。
 
 ## 16. 缓存、增量与重建
+
+```mermaid
+flowchart TD
+  artifact["准确生成源、toolchain、target、crate/member 与生成修订"] --> diagnostic["分别接收 rustc、Cargo、linker 与运行诊断"]
+  diagnostic --> map["多对多目标字节范围映射到作者及生成来源"]
+  map --> precision{"真实映射精度"}
+  precision -->|足够| exact["返回实际源范围；helper 保留目标及生成来源"]
+  precision -->|不足| coarse["降到真实 module/function/target source，不猜最近符号"]
+  artifact --> edit["目标草稿及原 EditCorrespondence"]
+  edit --> reversible{"属于有唯一受管逆映射的编辑？"}
+  reversible -->|是| candidate["形成作者候选，正常采用后再生成并比较"]
+  reversible -->|否| preserve["保留目标草稿及选择，不形成第二真源"]
+  preserve -->|明确接管区域| ownership["转移写权，生成器停止覆盖"]
+  artifact --> changed["工具、feature、ABI、策略或构建输入改变：只失效真实消费闭包"]
+```
 
 缓存键消费真实语义/工具输入：作者闭包、UseBinding、RustTargetBinding、依赖 Resolution、目标成员及必要环境。路径、机器临时目录、Cargo target 缓存位置不作为语义身份；但 toolchain、target、features、build script/proc-macro inputs 等不可漏掉。
 

@@ -1,5 +1,5 @@
 import type { WorktreePhysicalCloseoutOperations } from '../../adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
-import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../adapters/toolchain/dependencies/runtime.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../adapters/self-hosting/development/dependencies/locator-retirement.ts';
 import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 import { createGeneratedStateRegistrationBootstrap } from './generated-state.ts';
 

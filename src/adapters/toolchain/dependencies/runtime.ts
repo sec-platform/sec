@@ -39,8 +39,6 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
 }
 
 export const dependencyAuthorityPaths = runtime.dependencyAuthorityPaths;
-export const compilerDependencyLocatorWorktreeRetirementProvider =
-  runtime.compilerDependencyLocatorWorktreeRetirementProvider;
 
 /** Owner-issued closeout for terminal compiler staging journals. */
 export async function retireSettledCompilerDependencyStageIntents(

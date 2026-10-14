@@ -389,6 +389,9 @@ export function inspectLegacyDependencyTransitionNamespace(
   return Object.freeze({
     ownerRoot: owner,
     backupRoot,
+    generationRoot: backupRoot,
+    proofRoot: inspectNoFollowDirectoryLeaf(backupRoot, 'read-only-generations', 'Legacy dependency publisher proof root'),
+    legacyRelocationsRoot: inspectNoFollowDirectoryLeaf(backupRoot, 'legacy-relocations', 'Legacy dependency relocation root'),
     journalRoot,
     recordsRoot,
     rolloversRoot: null
@@ -557,7 +560,7 @@ export async function readDependencyTransitionMigrationIntents(
     options
   );
   for (const name of names) {
-    if (name === 'current.json' || name === 'records' || name === 'rollovers' || name === 'consumers' ||
+    if (name === 'current.json' || name === 'records' || name === 'rollovers' || name === 'legacy-rollovers' || name === 'consumers' ||
         /^migration-[0-9a-f]{64}-(?:prepared|complete)\.json$/u.test(name)) {
       continue;
     }

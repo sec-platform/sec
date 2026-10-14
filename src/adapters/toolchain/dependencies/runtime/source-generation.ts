@@ -13,6 +13,7 @@ import {
   type ProvenDirectoryGenerationBinding,
   type RetainedNoFollowProvenDirectoryGeneration
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertCompilerDependencySourceScope, compilerDependencySourcePathIsInScope } from './dependency-storage-layout.ts';
 import {
   generatedStatePhysicalIdentity,
   isSha256Digest,
@@ -100,7 +101,7 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
   );
   const ownerRoot = path.resolve(input.ownerRoot);
   const sourcePath = path.resolve(input.sourcePath);
-  if (!sourcePathIsWithinOwner(ownerRoot, sourcePath)) {
+  if (!compilerDependencySourcePathIsInScope(ownerRoot, sourcePath)) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Runtime dependency proven source is outside its owner topology');
   }
   const owner = inspectNoFollowDirectoryChain(
@@ -112,10 +113,7 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
     'Runtime dependency proven source generation'
   );
   const ownerRootPhysical = generatedStatePhysicalIdentity(owner.target);
-  if (![...source.ancestors, source.target].some((entry) =>
-    sameGeneratedStateIdentity(generatedStatePhysicalIdentity(entry), ownerRootPhysical))) {
-    throw new CodedFailure('RUNTIME-DEPS-004', 'Runtime dependency proven source has no physical owner ancestry');
-  }
+  assertCompilerDependencySourceScope(ownerRoot, sourcePath);
   const physical = generatedStatePhysicalIdentity(source.target);
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(input.generation.root),
@@ -196,12 +194,6 @@ function runtimeDependencySourceGenerationBounds(
   return Object.freeze({ maximumBytes, maximumEntries });
 }
 
-function sourcePathIsWithinOwner(ownerRoot: string, sourcePath: string): boolean {
-  const relative = path.relative(ownerRoot, sourcePath);
-  return relative === '' ||
-    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
 export function runtimeDependencyTreeIdentity(
   treeInventory: readonly Readonly<{
     relativePath: string;
@@ -256,13 +248,7 @@ async function runtimeDependencySourceGenerationInternal(
     'Runtime dependency source generation'
   );
   const ownerRootPhysical = generatedStatePhysicalIdentity(owner.target);
-  if (![...source.ancestors, source.target].some((entry) =>
-    sameGeneratedStateIdentity(generatedStatePhysicalIdentity(entry), ownerRootPhysical))) {
-    throw new CodedFailure(
-      'RUNTIME-DEPS-004',
-      'Runtime dependency source generation has no physical owner ancestry'
-    );
-  }
+  assertCompilerDependencySourceScope(ownerRoot, sourcePath);
   const physical = generatedStatePhysicalIdentity(source.target);
   const treeInventory = measureRuntimeDependencyOperationPhase(options, 'source-scan', () =>
     scanNoFollowDirectoryTreeInventory(source.target, {
@@ -332,7 +318,7 @@ export async function runtimeDependencySourceGeneration(
   const { ownerRoot: rawOwnerRoot, sourcePath: rawSourcePath, binding, options: rawOptions } = input;
   const ownerRoot = path.resolve(cwd, rawOwnerRoot);
   const sourcePath = path.resolve(cwd, rawSourcePath);
-  if (!sourcePathIsWithinOwner(ownerRoot, sourcePath)) {
+  if (!compilerDependencySourcePathIsInScope(ownerRoot, sourcePath)) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Runtime dependency source generation is outside its owner topology');
   }
   const bounds = requestedBounds === undefined

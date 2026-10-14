@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import path from 'node:path';
+import { compilerDependencyStoragePaths } from '../../../toolchain/dependencies/runtime/dependency-storage-layout.ts';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import type { GeneratedStateWorktreeRetirement } from '../../../../execution/generated-state/contract.ts';
@@ -788,7 +789,7 @@ export async function prepareWorktreePhysicalCloseout(
   return withWorkspaceWriteLease(repository.commonDir, undefined, async (commonLease) => {
   await assertCoordinatedRepository(repository, commonLease);
   await assertWorktreeCloseoutAdmissionBeforeGeneratedState(input);
-  const stageIntentRoot = path.join(input.targetPath, '.tmp', 'dependency-installs', '.compiler-stage-intents-v1');
+  const stageIntentRoot = compilerDependencyStoragePaths(input.targetPath).stageIntentRoot;
   if (physicalPresence(stageIntentRoot, 'Compiler dependency stage intent root') !== null) {
     const receipt = await operations.retireSettledCompilerDependencyStageIntents(input.targetPath);
     if (receipt.terminal !== 'absent' || receipt.ownerRoot !== path.resolve(input.targetPath)) {

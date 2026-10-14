@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -12,6 +13,7 @@ import { formatJsonFile } from "../../../../../contracts/json-text.ts";
 import {
   generatedStateDigest
 } from '../../../../../execution/generated-state/contract.ts';
+import { withAcquiredResource } from '../../../../../execution/resource-settlement.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   createNoFollowOrdinaryDirectoryChain,
@@ -24,10 +26,14 @@ import {
   PhysicalNoFollowError,
   publishExclusiveDurableCanonicalFile,
   readNoFollowOrdinaryFile,
+  relocateRetainedNoFollowDirectoryAcrossParents,
   replaceDurableCanonicalFile,
   scanNoFollowDirectoryTree,
   type PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
+import { acquireSecRuntimeStatePhysicalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
+import { compilerDependencyStoragePaths } from '../dependency-storage-layout.ts';
 import {
   runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationEffectFence,
@@ -35,7 +41,7 @@ import {
 } from '../operation-context.ts';
 import {
   assertRuntimeDependencyOperationActive,
-  runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs,
+  runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs,
   type RuntimeDependencyOperationContext,
   type RuntimeDependencyOperationControlInput
 } from '../operation-controls.ts';
@@ -68,18 +74,110 @@ export const DEPENDENCY_COMMAND_OUTPUT_BYTES_CAPACITY = 64 * 1024 * 1024;
 
 export function dependencyTransitionNamespacePaths(ownerRoot: string): Readonly<{
   backupRoot: string;
+  generationRoot: string;
+  proofRoot: string;
+  legacyRelocationsRoot: string;
+  stageParent: string;
+  stageIntentRoot: string;
   journalRoot: string;
   recordsRoot: string;
   rolloversRoot: string;
 }> {
-  const backupRoot = path.join(ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups');
-  const journalRoot = path.join(backupRoot, '.dependency-transition-v2');
+  const storage = compilerDependencyStoragePaths(ownerRoot);
+  const backupRoot = storage.legacyBackupRoot;
+  const journalRoot = storage.journalRoot;
   return Object.freeze({
     backupRoot,
+    generationRoot: storage.generationRoot,
+    proofRoot: storage.proofRoot,
+    legacyRelocationsRoot: storage.legacyRelocationsRoot,
+    stageParent: storage.stageParent,
+    stageIntentRoot: storage.stageIntentRoot,
     journalRoot,
     recordsRoot: path.join(journalRoot, 'records'),
     rolloversRoot: path.join(journalRoot, 'rollovers')
   });
+}
+
+/**
+ * Resume a byte-identical copy in an unpublished sibling. Readers never
+ * consume this sibling; only the complete, verified tree is atomically
+ * renamed to the canonical state location. Existing partial entries are
+ * accepted only when they equal the retained original bytes. Unknown entries
+ * or collisions are preserved and rejected, never cleared by a path guess.
+ */
+async function migrateDependencyControlDirectory(
+  sourcePath: string,
+  destinationPath: string,
+  input: RuntimeDependencyEffectFenceInput,
+  archiveCompletedRollovers = false
+): Promise<void> {
+  const options = runtimeDependencyEffectFenceOptions(input);
+  const sourcePresence = inspectExactNoFollowDirectoryPresence(sourcePath, 'Legacy dependency control source');
+  if (sourcePresence.state === 'absent') return;
+  if (inspectExactNoFollowDirectoryPresence(destinationPath, 'Dependency control destination').state === 'present') return;
+  const source = sourcePresence.directory.target;
+  const context = runtimeDependencyOperationContext(options);
+  const entries = scanNoFollowDirectoryTree(source, {
+    deadlineAtMs: context.deadlineAtMonotonicMs,
+    maximumEntries: DEPENDENCY_TRANSITION_RECORD_CAPACITY * 4,
+    maximumBytes: DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY,
+    signal: context.signal
+  });
+  // The original rollover owner has settled and authenticated this history.
+  // Preserve its bytes and original physical bindings as an archive, never as
+  // live receipts for the newly copied records directory.
+  const projectedPath = (relativePath: string) => archiveCompletedRollovers &&
+    (relativePath === 'rollovers' || relativePath.startsWith('rollovers/'))
+    ? `legacy-rollovers${relativePath.slice('rollovers'.length)}` : relativePath;
+  if (archiveCompletedRollovers && entries.some(entry => entry.relativePath === 'legacy-rollovers' ||
+      entry.relativePath.startsWith('legacy-rollovers/'))) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Legacy dependency journal contains a conflicting rollover archive; original state is preserved');
+  }
+  if (entries.some(entry => entry.kind !== 'file' && entry.kind !== 'directory')) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Legacy dependency control contains a link or unsupported object; original state is preserved');
+  }
+  const parent = inspectNoFollowDirectoryChain(path.dirname(destinationPath), 'Dependency control publication parent').target;
+  const name = path.basename(destinationPath);
+  await runtimeDependencyOperationEffectFence(options, 'Dependency control migration staging');
+  const stage = createNoFollowOrdinaryDirectoryChain(parent, [`.${name}-migration`]);
+  for (const entry of entries) {
+    runtimeDependencyOperationRemainingMs(options, 'Dependency control migration copy');
+    await runtimeDependencyOperationEffectFence(options, 'Dependency control original-byte copy');
+    const segments = projectedPath(entry.relativePath).split('/');
+    const leaf = segments.pop()!;
+    const targetParent = createNoFollowOrdinaryDirectoryChain(stage, segments);
+    if (entry.kind === 'directory') {
+      createNoFollowOrdinaryDirectoryChain(targetParent, [leaf]);
+    } else {
+      if (entry.bytes === null) throw new CodedFailure('RUNTIME-DEPS-004', 'Legacy dependency control file disappeared');
+      const expected = entry.bytes;
+      if (entry.relativePath.startsWith('records/')) {
+        parseDependencyTransitionRecord(expected, leaf);
+      }
+      writeDurableTransitionFile(targetParent, leaf, expected, candidate => {
+        if (!Buffer.from(candidate).equals(Buffer.from(expected))) {
+          throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency control migration bytes differ from their original');
+        }
+      }, true);
+    }
+  }
+  const copied = scanNoFollowDirectoryTree(stage, {
+    deadlineAtMs: context.deadlineAtMonotonicMs,
+    maximumEntries: DEPENDENCY_TRANSITION_RECORD_CAPACITY * 4,
+    maximumBytes: DEPENDENCY_TRANSITION_RECORD_BYTES_CAPACITY,
+    signal: context.signal
+  });
+  const digest = (tree: typeof entries) => generatedStateDigest(tree.map(entry => ({
+    path: entry.relativePath, kind: entry.kind,
+    bytes: entry.bytes === null ? null : createHash('sha256').update(entry.bytes).digest('hex')
+  })).sort((left, right) => compareCodeUnits(left.path, right.path)));
+  if (digest(copied) !== digest(entries.map(entry => ({ ...entry, relativePath: projectedPath(entry.relativePath) })))) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Dependency control migration staging has foreign or incomplete content');
+  }
+  assertSameNoFollowDirectoryIdentity(source, 'Legacy dependency control source publication readback');
+  await runtimeDependencyOperationEffectFence(options, 'Dependency control migration atomic publication');
+  relocateRetainedNoFollowDirectoryAcrossParents({ directory: stage, destinationParent: parent, tombstoneName: name });
 }
 
 export function writeDurableTransitionFile(
@@ -134,17 +232,48 @@ export async function ensureDependencyTransitionNamespace(
   const backupRoot = createNoFollowOrdinaryDirectoryChain(owner, [
     '.tmp', 'dependency-installs', 'compiler-backups'
   ]);
-  const journalRoot = createNoFollowOrdinaryDirectoryChain(backupRoot, [
-    '.dependency-transition-v2'
-  ]);
-  const recordsRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['records']);
-  const rolloversRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['rollovers']);
-  if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-    paths.recordsRoot !== recordsRoot.path || paths.rolloversRoot !== rolloversRoot.path) {
-    throw new CodedFailure('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
+  const oldIntents = inspectNoFollowDirectoryLeaf(inspectNoFollowDirectoryChain(path.dirname(backupRoot.path), 'Legacy compiler staging parent').target,
+    '.compiler-stage-intents-v1', 'Legacy compiler stage intents');
+  if (oldIntents !== null && (await readNoFollowDirectNames(oldIntents, 'Legacy compiler stage intent migration', DEPENDENCY_TRANSITION_RECORD_CAPACITY, options)).length !== 0) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Legacy compiler stage intents require original owner recovery before namespace migration', { migrationRequired: true });
   }
-  runtimeDependencyOperationRemainingMs(options, 'Dependency transition namespace creation readback');
-  return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
+  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: owner.path });
+  return withAcquiredResource({
+    acquire: () => acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot: owner.path, stateRoot: roots.stateRoot, cacheRoot: roots.cacheRoot,
+      requiredDirectories: [paths.generationRoot, paths.stageParent, paths.stageIntentRoot,
+        path.dirname(paths.journalRoot)],
+      deadlineAtUnixMs: runtimeDependencyOperationContext(options).deadlineAtUnixMs
+    }),
+    release: authority => authority.release(),
+    operationLabel: 'dependency storage namespace creation',
+    resourceLabel: 'dependency storage physical authority',
+    use: async authority => {
+      await authority.assertCurrent();
+      const storage = compilerDependencyStoragePaths(owner.path);
+      if (inspectExactNoFollowDirectoryPresence(paths.journalRoot, 'Dependency journal migration destination').state === 'absent' &&
+          inspectExactNoFollowDirectoryPresence(storage.legacyJournalRoot, 'Legacy dependency journal migration source').state === 'present') {
+        // Import lazily at the effect seam: rollover already consumes the
+        // store's primitive readers/writers and must not acquire a second lease.
+        const { settleDependencyTransitionRolloverForStorageMigration } = await import('./rollover.ts');
+        await settleDependencyTransitionRolloverForStorageMigration(owner.path, options);
+      }
+      await migrateDependencyControlDirectory(storage.legacyJournalRoot, paths.journalRoot, options, true);
+      await migrateDependencyControlDirectory(path.join(backupRoot.path, 'read-only-generations'), paths.proofRoot, options);
+      await migrateDependencyControlDirectory(path.join(backupRoot.path, 'legacy-relocations'), paths.legacyRelocationsRoot, options);
+      await runtimeDependencyOperationEffectFence(options, 'Dependency transition external namespace publication');
+      const parent = authority.directory(path.dirname(paths.journalRoot));
+      const journalRoot = createNoFollowOrdinaryDirectoryChain(parent, [path.basename(paths.journalRoot)]);
+      const proofRoot = createNoFollowOrdinaryDirectoryChain(parent, [path.basename(paths.proofRoot)]);
+      const legacyRelocationsRoot = createNoFollowOrdinaryDirectoryChain(parent, [path.basename(paths.legacyRelocationsRoot)]);
+      const recordsRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['records']);
+      const rolloversRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['rollovers']);
+      runtimeDependencyOperationRemainingMs(options, 'Dependency transition namespace creation readback');
+      return Object.freeze({ ownerRoot: owner, backupRoot,
+        generationRoot: authority.directory(paths.generationRoot), proofRoot, legacyRelocationsRoot,
+        journalRoot, recordsRoot, rolloversRoot });
+    }
+  });
 }
 
 export function inspectDependencyTransitionNamespace(
@@ -165,7 +294,9 @@ export function inspectDependencyTransitionNamespace(
     parent = child;
   }
   const backupRoot = parent;
-  const journalRoot = inspectNoFollowDirectoryLeaf(backupRoot, '.dependency-transition-v2', 'Dependency transition journal root');
+  const external = inspectExactNoFollowDirectoryPresence(paths.journalRoot, 'Dependency transition journal root');
+  const journalRoot = external.state === 'present' ? external.directory.target
+    : inspectNoFollowDirectoryLeaf(backupRoot, '.dependency-transition-v2', 'Legacy dependency transition journal root');
   if (journalRoot === null) return null;
   const recordsRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'records', 'Dependency transition records root');
   if (recordsRoot === null) {
@@ -173,11 +304,21 @@ export function inspectDependencyTransitionNamespace(
   }
   // Older journals legitimately predate the optional rollover namespace.
   const rolloversRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'rollovers', 'Dependency transition rollovers root');
-  if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
-      paths.recordsRoot !== recordsRoot.path || (rolloversRoot !== null && paths.rolloversRoot !== rolloversRoot.path)) {
+  if (paths.backupRoot !== backupRoot.path ||
+      path.join(journalRoot.path, 'records') !== recordsRoot.path ||
+      (rolloversRoot !== null && path.join(journalRoot.path, 'rollovers') !== rolloversRoot.path)) {
     throw new CodedFailure('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
   }
-  return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
+  const generationPresence = inspectExactNoFollowDirectoryPresence(paths.generationRoot, 'Dependency generation cache root');
+  const proofPresence = inspectExactNoFollowDirectoryPresence(paths.proofRoot, 'Dependency publisher proof root');
+  const proofRoot = proofPresence.state === 'present' ? proofPresence.directory.target
+    : inspectNoFollowDirectoryLeaf(backupRoot, 'read-only-generations', 'Legacy dependency publisher proof root');
+  const relocationPresence = inspectExactNoFollowDirectoryPresence(paths.legacyRelocationsRoot, 'Dependency legacy relocation state root');
+  const legacyRelocationsRoot = relocationPresence.state === 'present' ? relocationPresence.directory.target
+    : inspectNoFollowDirectoryLeaf(backupRoot, 'legacy-relocations', 'Legacy dependency relocation root');
+  return Object.freeze({ ownerRoot: owner, backupRoot,
+    generationRoot: generationPresence.state === 'present' ? generationPresence.directory.target : backupRoot,
+    proofRoot, legacyRelocationsRoot, journalRoot, recordsRoot, rolloversRoot });
 }
 export async function readNoFollowDirectNames(
   directory: PhysicalDirectoryIdentity,

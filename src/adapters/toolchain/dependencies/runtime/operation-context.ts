@@ -2,6 +2,9 @@ import type { CommitFence } from "../../../../contracts/commit-fence.ts";
 import { CodedFailure } from '../../../../contracts/failure.ts';
 import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../../../../execution/dependency-install-request.ts';
 import type { RuntimeDependencyLifecycleFactory, RuntimeDependencyLifecycleInput } from "../../../../execution/generated-state/dependency-lifecycle.ts";
+import type { CompilerDependencyIdentity } from './compiler-materialization-input.ts';
+import type { RuntimeDependencySourceGeneration } from './dependency-transition/contract.ts';
+import type { CompilerDepsBinding } from './materialization-binding.ts';
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
 ;
 
@@ -67,6 +70,15 @@ export interface RuntimeDependencyInstallOptions extends RuntimeDependencyInstal
   RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput,
   RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {
   readonly generatedStateLifecycleFactory?: RuntimeDependencyLifecycleFactory;
+  readonly resolveCompilerDependencyOwner?: (input: Readonly<{
+    consumerRoot: string;
+    consumerIdentity: CompilerDependencyIdentity;
+    options: RuntimeDependencyOperationOptions;
+  }>) => Promise<Readonly<{
+    binding: CompilerDepsBinding;
+    nodeModulesPath: string;
+    sourceGeneration: RuntimeDependencySourceGeneration;
+  }> | null>;
 }
 
 /** Closed coordinator view. A generic input may contain application data, but
@@ -80,7 +92,7 @@ const boundOperationMethods = new WeakSet<object>();
 const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
   'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'generatedStateLifecycleFactory', 'installMode',
   'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
-  'signal', 'sleep',
+  'signal', 'sleep', 'resolveCompilerDependencyOwner',
   'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
   'testCompilerPublishPlatform', 'testCompilerRename', 'testInstallLockDelete',
   'testInstallLockDeletePlatform', 'testMaterialization', 'testProjectProjectionHook'
@@ -184,6 +196,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const testInstallLockDeletePlatform = ownOption(options, 'testInstallLockDeletePlatform');
   const testCompilerRename = ownOption(options, 'testCompilerRename');
   const testMaterialization = ownOption(options, 'testMaterialization');
+  const resolveCompilerDependencyOwner = ownOption(options, 'resolveCompilerDependencyOwner');
   guard(options);
   // Reuse the request owner's boolean/mode/fence grammar. Do not maintain a
   // second coercion policy at the internal coordinator boundary.
@@ -208,7 +221,8 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   guard(options);
   const captured: RuntimeDependencyOperationOptions = Object.freeze({
     ...request, ...methods, ...controls, monotonicNowMs,
-    generatedStateLifecycle, generatedStateLifecycleFactory, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
+    generatedStateLifecycle, generatedStateLifecycleFactory, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization,
+    resolveCompilerDependencyOwner: bindOperationMethod(resolveCompilerDependencyOwner, options, 'Compiler dependency source-owner selection')
   } satisfies Record<keyof RuntimeDependencyInstallOptions, unknown>);
   issuedOperationOptions.add(captured);
   return captured;

@@ -5,6 +5,7 @@ import { createGeneratedStateCleanupOperationSession } from '../../../../executi
 
 import { generatedStateProducerHooks } from '../../../../../tests/helpers/generated-state-fixture.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../../self-hosting/development/dependencies/locator-retirement.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationContext,
@@ -18,7 +19,6 @@ import type {
 } from '../runtime/project-runtime.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
-  compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
   ensureCompilerDepsReady,
   ensureCompilerDepsReadyFromGeneration

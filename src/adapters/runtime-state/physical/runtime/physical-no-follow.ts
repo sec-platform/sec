@@ -35,6 +35,7 @@ export {
 
 export {
   materializeRetainedNoFollowProvenDirectoryGeneration,
+  readNoFollowProvenDirectoryGenerationProof,
   reopenRetainedNoFollowProvenDirectoryGeneration, retainNoFollowSealedDirectoryGeneration, retireNoFollowProvenDirectoryGeneration
 } from './physical-directory-generation.ts';
 export {

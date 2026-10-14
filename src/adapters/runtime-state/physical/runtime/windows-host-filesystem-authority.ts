@@ -970,6 +970,26 @@ export function assertWindowsReadOnlyTreeGenerationProofForTests(text: string): 
   void parseGenerationProof(text);
 }
 
+/**
+ * Original canonical proof bytes only. This grants no native capability,
+ * observes no live path and proves neither retirement nor physical absence.
+ * The saved stat identity is intentionally omitted: Windows stat dev/ino
+ * lose native FILE_ID_INFO bits (including volume identity), so no complete
+ * native device/inode/objectId can be reconstructed from this proof alone.
+ */
+export function readWindowsReadOnlyTreeGenerationProofProjection(text: string): Readonly<{
+  binding: WindowsReadOnlyTreeGenerationBinding;
+  rootPath: string;
+  proofDigest: `sha256:${string}`;
+}> {
+  const proof = parseGenerationProof(text);
+  return Object.freeze({
+    binding: proof.binding,
+    rootPath: proof.rootPath,
+    proofDigest: proof.proofDigest
+  });
+}
+
 function sameGenerationBinding(
   left: WindowsReadOnlyTreeGenerationBinding,
   right: WindowsReadOnlyTreeGenerationBinding
