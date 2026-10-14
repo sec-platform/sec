@@ -125,6 +125,9 @@ flowchart LR
 <!-- mermaid:id=legacy_retirement -->
 ```mermaid
 flowchart TB
+  subgraph attempt["一次有界尝试：任何步骤失败、超时或取消都走统一失败出口"]
+  scope["取得原协调租约与准确目录能力；deadline、取消及 Effect fence 约束作用"]
+  prior["入租约先续接原 zero 已证明的历史终态压缩"]
   saved["严格解析原意图：记录摘要、owner 与目录身份"]
   boot["BootId 与最新 Kernel-Boot 27 v1 完整启动记录双严格前进"]
   census["原协调租约内：恢复前一次全 epoch 严格 census"]
@@ -138,9 +141,14 @@ flowchart TB
   metadata["元数据清单：路径、类型、对象与链接，不读包内容"]
   remove["原生逐对象删除：核父子身份，不跟随 reparse"]
   absent["回读全部目标目录缺席"]
-  done["最后删除原恢复意图：完成"]
+  done["全部目录缺席后删除原恢复意图"]
   keep["发现新借用或活动目标：保留"]
-  pending["失败保留原意图及剩余对象"]
+  end
+  pending["保留未完作用的原意图及剩余对象"]
+  release["finally：真实释放已取得的租约与目录能力，保留主错误及释放错误"]
+  outcome["主作用与资源释放都成功才返回 completed；否则报告真实错误与已发生终态"]
+  scope --> prior
+  prior --> saved
   saved -->|续接| boot
   boot -->|真实边界成立| census
   census -->|无新借用| identity
@@ -157,14 +165,12 @@ flowchart TB
   metadata -->|不认证包内容| remove
   remove -->|删除返回| absent
   absent -->|全部物理缺席| done
-  boot -->|缺证| pending
-  identity -->|漂移| pending
-  records -->|前像变化或失败| pending
-  compact -->|部分删除或失败| pending
-  proof -->|原生失败| pending
-  remove -->|部分删除或失败| pending
-  absent -->|仍有残留| pending
-  pending -->|失效前提修复后同操作续接| boot
+  done --> release
+  release --> outcome
+  attempt -->|任一步骤错误、缺证、漂移、超时或取消| pending
+  keep --> pending
+  pending --> release
+  outcome -.->|未完作用条件已修复：同意图、新租约及预算续接| scope
 ```
 
 图中的实际控制分别由 `recoverObsoleteCompilerDependencyConsumers`（意图、启动边界、写前前像及最终退役）、`readCompilerDependencyConsumerCensus`（严格链校验与阶段内复用）、`collectReleasedCompilerDependencyGenerations`（全 epoch 活借用、历史身份、zero 与物理 GC）、`settleCompilerDependencyConsumerCompactionIntents`（持有父目录的字节 CAS）、`retireNoFollowProvenDirectoryGeneration`（原证明和 ACL 前像）及 `retireNoFollowDirectoryTree`（原生逐对象删除）承担。图不签发删除权限，也不把已有 zero 当作无条件删除许可；续接仍重新核当前借用、活动目标和物理前像。
