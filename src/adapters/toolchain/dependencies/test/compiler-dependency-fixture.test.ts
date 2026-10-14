@@ -8,9 +8,11 @@ import { expect, spyOn, test } from 'bun:test';
 import { digest } from '../../../../contracts/canonical.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import * as physical from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import * as bootBoundary from '../../../runtime-state/physical/runtime/windows-kernel-boot.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 
 import { advanceDependencyTransition, beginDependencyTransition, compilerTransitionBackupPath } from '../runtime/dependency-transition/operation.ts';
+import { COMPILER_DEPS_BINDING_FILE } from '../runtime/materialization-binding.ts';
 import { runtimeDependencyOperationOptions } from '../runtime/operation-context.ts';
 import { readRuntimeDependencyOperationTelemetry } from '../runtime/operation-telemetry.ts';
 import {
@@ -19,6 +21,7 @@ import {
   assertRetainedCompilerDependencyReadGeneration,
   observeCompilerDependencyExecutionGenerationAuthority,
   projectCompilerDepsReadyState,
+  recoverObsoleteCompilerDependencyConsumers,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   type RetainedCompilerDependencyExecutionGeneration
@@ -66,6 +69,65 @@ function fixtureDescriptor(dependencyRootPath: string) {
     }]
   } as const;
 }
+
+test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')('obsolete consumer recovery requires a later full boot and resumes interrupted retirement', async () => {
+  const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-consumer-recovery-'));
+  const dependencyRoot = path.join(ownerRoot, 'dependencies');
+  const operation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(dependencyRoot));
+  const currentBoot = bootBoundary.observeWindowsKernelBootBoundary();
+  let retained: RetainedCompilerDependencyExecutionGeneration | undefined;
+  let physicallyRetired = false;
+  try {
+    const first = await settleCompilerDependencyFixtureOperation(operation);
+    retained = await retainCompilerDependencyExecutionGeneration(first.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
+    const oldPath = retained.physicalGeneration.root.path;
+    await expect(recoverObsoleteCompilerDependencyConsumers(dependencyRoot, [oldPath])).rejects.toThrow('active or foreign');
+    await rematerializeCompilerDependencyFixtureOperation(operation, 'fixture-lock-v2\n');
+    const prepared = await recoverObsoleteCompilerDependencyConsumers(dependencyRoot, [oldPath]);
+    expect(prepared.state).toBe('requires-host-restart');
+    expect(prepared.acquisitions).toBe(1);
+    expect(await recoverObsoleteCompilerDependencyConsumers(dependencyRoot)).toEqual(prepared);
+    expect((await lstat(oldPath)).isDirectory()).toBe(true);
+    // Retire the real capability before simulating the protocol's successor
+    // input. This test does not prove that a real host restart occurred.
+    await retained.physicalGeneration.retire();
+    physicallyRetired = true;
+    const bootSpy = spyOn(bootBoundary, 'observeWindowsKernelBootBoundary').mockReturnValue({
+      sequence: currentBoot.sequence + 1,
+      fullBootEventRecordId: (BigInt(currentBoot.fullBootEventRecordId) + 1n).toString()
+    });
+    const retireTree = physical.retireNoFollowDirectoryTree;
+    let injected = false;
+    const retireSpy = spyOn(physical, 'retireNoFollowDirectoryTree').mockImplementation(input => {
+      if (!injected && input.root.path === oldPath) {
+        injected = true;
+        const entry = input.inventory.find(candidate => candidate.relativePath === COMPILER_DEPS_BINDING_FILE);
+        if (entry === undefined) throw new Error('recovery fixture binding is absent');
+        physical.deleteRetainedNoFollowEntry({ root: input.root, ...entry, ancestorDirectories: [] });
+        throw new Error('recovery physical retirement interrupted');
+      }
+      return retireTree(input);
+    });
+    try {
+      await expect(recoverObsoleteCompilerDependencyConsumers(dependencyRoot)).rejects.toThrow('interrupted');
+      expect(injected).toBe(true);
+      expect(await lstat(prepared.recoveryPath!).then(() => true, () => false)).toBe(true);
+      retireSpy.mockRestore();
+      const completed = await recoverObsoleteCompilerDependencyConsumers(dependencyRoot);
+      expect(completed.state).toBe('completed');
+      expect(await lstat(oldPath).then(() => true, () => false)).toBe(false);
+      expect(await lstat(prepared.recoveryPath!).then(() => true, () => false)).toBe(false);
+    } finally {
+      retireSpy.mockRestore();
+      bootSpy.mockRestore();
+    }
+  } finally {
+    if (retained !== undefined && !physicallyRetired) await retained.retire();
+    await retireCompilerDependencyFixtureOperation(operation);
+    await removeFixtureRuntimeState(dependencyRoot);
+    await rm(ownerRoot, { recursive: true, force: true });
+  }
+}, 90_000);
 
 test('failed consumer publication or readback releases the original admitted generation', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-consumer-admission-failure-'));
