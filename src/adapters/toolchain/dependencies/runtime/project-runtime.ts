@@ -8506,7 +8506,8 @@ async function compilerDependencyConsumerRoot(
 
 async function acquireCompilerDependencyConsumer(
   sourceGeneration: RuntimeDependencySourceGeneration,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationOptions,
+  retainPending: (record: CompilerDependencyConsumerRecord) => void
 ): Promise<CompilerDependencyConsumerRecord> {
   const consumers = await compilerDependencyConsumerRoot(options);
   const leaseId = generatedStateDigest(Object.freeze({
@@ -8526,6 +8527,9 @@ async function acquireCompilerDependencyConsumer(
   });
   const name = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
   const recordBytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
+  // Retain the exact publication subject before crossing the Effect boundary.
+  // A thrown publication/readback does not prove that the record is absent.
+  retainPending(record);
   await runtimeDependencyOperationEffectFence(options, 'Compiler dependency consumer acquisition');
   publishExclusiveDurableCanonicalFile({
     parent: consumers,
@@ -8539,6 +8543,27 @@ async function acquireCompilerDependencyConsumer(
     throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency consumer acquisition failed readback');
   }
   return record;
+}
+
+async function settleFailedCompilerDependencyConsumerAdmission(
+  root: string,
+  generation: RetainedNoFollowProvenDirectoryGeneration,
+  acquired: CompilerDependencyConsumerRecord | undefined
+): Promise<void> {
+  const physicalReceipt = await generation.retire();
+  assertPhysicalGenerationRetirementReceipt(physicalReceipt);
+  if (acquired === undefined) return;
+  await withCompilerDependencyCoordinationLease(root, { lockTimeoutMs: 30_000 }, async options => {
+    const consumers = await compilerDependencyConsumerRoot(options);
+    const name = `consumer-${acquired.leaseId.slice('sha256:'.length)}-acquired.json`;
+    const observed = inspectNoFollowOrdinaryFileEntry(consumers, name);
+    if (observed === null) return; // The original publication did not survive.
+    if (observed.bytes === null || parseCompilerDependencyConsumerRecord(observed.bytes, name).recordDigest !== acquired.recordDigest) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Failed compiler dependency admission has a foreign acquisition record');
+    }
+    await releaseCompilerDependencyConsumerUnderLease(acquired, physicalReceipt, options);
+    await settleCompilerDependencyConsumerCompactionIntents(consumers, options);
+  });
 }
 
 async function releaseCompilerDependencyConsumerUnderLease(
@@ -10093,6 +10118,7 @@ export async function retainCompilerDependencyExecutionGeneration(
     input.deadlineAtUnixMs - Date.now()
   ));
   let pendingGeneration: RetainedNoFollowProvenDirectoryGeneration | undefined;
+  let pendingAcquired: CompilerDependencyConsumerRecord | undefined;
   const admitted = await withCompilerDependencyCoordinationLease(
     record.sourceGeneration.ownerRoot,
     { deadlineAtUnixMs: input.deadlineAtUnixMs, lockTimeoutMs, signal: input.signal },
@@ -10126,18 +10152,19 @@ export async function retainCompilerDependencyExecutionGeneration(
       await materialized.generation.assertAuthorityCurrent();
       const acquired = await acquireCompilerDependencyConsumer(
         record.sourceGeneration,
-        options
+        options,
+        pending => { pendingAcquired = pending; }
       );
       return Object.freeze({ acquired, generation: materialized.generation });
     }
   ).catch(async (error) => {
     if (pendingGeneration === undefined) throw error;
     try {
-      await pendingGeneration.retire();
+      await settleFailedCompilerDependencyConsumerAdmission(record.sourceGeneration.ownerRoot, pendingGeneration, pendingAcquired);
     } catch (retirementError) {
       throw new AggregateError(
         [error, retirementError],
-        'Compiler dependency execution generation admission and physical settlement both failed'
+        'Compiler dependency execution generation admission and original settlement both failed'
       );
     }
     throw error;
@@ -10150,7 +10177,9 @@ export async function retainCompilerDependencyExecutionGeneration(
     try {
       const physicalReceipt = await materialized.generation.retire();
       await releaseCompilerDependencyConsumer(record.sourceGeneration.ownerRoot, admitted.acquired, physicalReceipt);
-    } catch { /* durable acquisition residue preserves the authority failure */ }
+    } catch (settlementError) {
+      throw new AggregateError([error, settlementError], 'Compiler dependency execution authority readback and original settlement both failed');
+    }
     throw error;
   }
   let physicalRetirement: PhysicalGenerationRetirementReceipt | null = null;
@@ -10201,9 +10230,9 @@ export async function retainCompilerDependencyExecutionGeneration(
 
 /**
  * Reopens an already-published, owner-proven compiler dependency generation
- * for one read-only consumer. Unlike execution retention, this operation does
- * not acquire the compiler transition lease or publish consumer ledger state;
- * absence of the existing publisher proof is therefore an unavailable read,
+ * for one read-only consumer. Admission holds the original coordination lease
+ * and publishes a consumer record; it does not seal or materialize a generation.
+ * Absence of the existing publisher proof is therefore an unavailable read,
  * never permission to seal, repair, install or materialize dependency state.
  */
 export async function retainCompilerDependencyReadGeneration(
@@ -10241,6 +10270,7 @@ export async function retainCompilerDependencyReadGeneration(
     }
   };
   let pendingGeneration: RetainedNoFollowProvenDirectoryGeneration | undefined;
+  let pendingAcquired: CompilerDependencyConsumerRecord | undefined;
   let admitted: Readonly<{
     acquired: CompilerDependencyConsumerRecord;
     generation: RetainedNoFollowProvenDirectoryGeneration;
@@ -10331,7 +10361,8 @@ export async function retainCompilerDependencyReadGeneration(
         );
         const acquired = await acquireCompilerDependencyConsumer(
           expected.sourceGeneration,
-          lockedOptions
+          lockedOptions,
+          pending => { pendingAcquired = pending; }
         );
         return Object.freeze({ acquired, generation: reopened.generation, sourceRoot });
       }
@@ -10340,11 +10371,11 @@ export async function retainCompilerDependencyReadGeneration(
   } catch (error) {
     if (pendingGeneration !== undefined) {
       try {
-        await pendingGeneration.retire();
+        await settleFailedCompilerDependencyConsumerAdmission(expected.sourceGeneration.ownerRoot, pendingGeneration, pendingAcquired);
       } catch (retirementError) {
         throw new AggregateError(
           [error, retirementError],
-          'Compiler dependency read generation admission and physical settlement both failed'
+          'Compiler dependency read generation admission and original settlement both failed'
         );
       }
     }
