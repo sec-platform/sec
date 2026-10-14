@@ -644,7 +644,7 @@ export async function reopenRetainedNoFollowProvenDirectoryGeneration(input: Rea
  * cannot supply replacement modes, ACLs, entry paths or a structural session.
  */
 export async function retireNoFollowProvenDirectoryGeneration(input: Readonly<{
-  binding: ProvenDirectoryGenerationBinding;
+  binding: ProvenDirectoryGenerationBinding | Pick<ProvenDirectoryGenerationBinding, 'generationDigest'>;
   deadlineAtUnixMs: number;
   proofText: string;
   root: PhysicalDirectoryIdentity;
@@ -653,6 +653,9 @@ export async function retireNoFollowProvenDirectoryGeneration(input: Readonly<{
   if (input.signal?.aborted === true || !Number.isSafeInteger(input.deadlineAtUnixMs)
       || Date.now() >= input.deadlineAtUnixMs) {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Proven generation retirement expired.');
+  }
+  if ('treeEntryCount' in input.binding && !('treeDigest' in input.binding)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Proven generation retirement binding is partial.');
   }
   const currentRoot = assertSameNoFollowDirectoryIdentity(
     input.root,
@@ -667,7 +670,8 @@ export async function retireNoFollowProvenDirectoryGeneration(input: Readonly<{
     );
   } else if (process.platform === 'linux') {
     const proof = parseLinuxProvenGenerationProof(input.proofText);
-    if (!sameProvenGenerationBinding(proof.binding, input.binding)
+    if (proof.binding.generationDigest !== input.binding.generationDigest
+        || !sameProvenGenerationBinding(proof.binding, 'treeDigest' in input.binding ? input.binding : proof.binding)
         || path.resolve(proof.rootPath) !== path.resolve(currentRoot.path)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation retirement binding changed.');
     }

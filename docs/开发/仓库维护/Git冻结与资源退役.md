@@ -94,6 +94,67 @@ CodeQL projection、真实 review submission、inline finding/thread、人工裁
 
 恢复在原协调租约下先核全量新借用、活动 locator、owner 和物理身份；新增借用或漂移保留对象并阻断。合格的旧代次恢复直接退役原记录，不伪造正常 released 或旧 capability 的退休回执；之后复用原 consumer-zero、publisher proof 和物理 GC。恢复意图覆盖部分记录删除与物理清理中断，只有三个责任——记录退役、目录缺席回读及恢复意图自身删除——全部成立才完成；它不扩展为进程台账、常驻清理器或永久备份。无新借用且其余准入成立时，重启后调用同一函数即可续接，无须再指定目录。
 
+依赖缓存的丢弃与可执行内容认证分开：清理在同一协调租约内读取一次严格 consumer census，覆盖同一物理目录的全部 epoch；以原记录或原 consumer-zero 绑定 generation，以原 publisher proof 恢复权限，再按元数据清单逐对象原生删除并回读。删除不重算包内容哈希、不重新签发 source generation，也不要求目标程序或业务代码参与。缺少原身份、未知借用、目标漂移及链接越界仍阻断；缓存损坏本身不应迫使删除操作先重新证明缓存内容正确。
+
+**职责与存放目标。** 仓库开发工具位于 `src/adapters/self-hosting/development/`，开发入口位于 `src/bootstrap/development/`；产品编译器只消费准备好的依赖及真实使用所需的借用。普通依赖准备优先使用包管理器原生用户缓存；只有真实隔离执行需要独立代际时才保留受管副本，目标位置为用户缓存目录，仓库只保留标准使用入口。恢复意图只承担未完成作用，放原用户级状态目录，完成后退役。此目标不声称已把当前工作区内的副本和 `project-runtime.ts` 中的仓库职责全部迁出，也不授权清理其他项目共享的包管理器缓存。
+
+<!-- mermaid:id=cache_boundary -->
+```mermaid
+flowchart LR
+  dev["仓库开发命令"]
+  pkg["包管理器原生用户缓存"]
+  cache["必要隔离副本：目标为用户缓存目录"]
+  locator["仓库 node_modules：使用入口"]
+  compiler["产品编译器：读取准备好的依赖"]
+  gc["开发工具清理：不读业务源码"]
+  native["OS 文件身份、权限与删除"]
+  intent["用户级恢复意图：未完成作用"]
+  dev -->|按锁文件准备| pkg
+  pkg -->|常规物化| locator
+  pkg -->|仅必要隔离执行| cache
+  cache -->|选择性发布| locator
+  locator -->|读取与必要借用| compiler
+  dev -->|选择自己的过期副本| gc
+  gc -->|准确目标与删除| native
+  gc -->|只保留必要续接| intent
+  native -->|完成后退役| intent
+```
+
+**历史记录恢复与删除路径。** 下图展开前述恢复合同；分支表示实际判定和残留，未决对象不能因图中存在后续箭头而取得删除资格。普通已结算缓存直接从协调租约与 census 进入，不强制经历历史未知记录的宿主重启。
+
+<!-- mermaid:id=legacy_retirement -->
+```mermaid
+flowchart TB
+  saved["原恢复意图：准确旧记录与物理目录"]
+  boot["原生完整启动边界严格前进"]
+  census["协调租约内一次读取全部 epoch 占用"]
+  identity["确认非活动目标及准确物理身份"]
+  zero["退役旧记录并保存原 consumer-zero"]
+  proof["原 publisher proof 恢复删除权限"]
+  metadata["只读文件身份与链接元数据"]
+  remove["原生逐对象删除"]
+  absent["回读全部目标目录缺席"]
+  done["删除恢复意图：完成"]
+  keep["发现新借用或活动目标：保留"]
+  pending["失败保留原意图及剩余对象"]
+  saved -->|续接| boot
+  boot -->|真实边界成立| census
+  census -->|无新借用| identity
+  census -->|存在新借用或活动入口| keep
+  identity -->|全部前像正确| zero
+  zero -->|不伪造 released| proof
+  proof -->|权限已恢复| metadata
+  metadata -->|不认证包内容| remove
+  remove -->|删除返回| absent
+  absent -->|全部物理缺席| done
+  boot -->|缺证| pending
+  identity -->|漂移| pending
+  proof -->|原生失败| pending
+  remove -->|部分删除或失败| pending
+  absent -->|仍有残留| pending
+  pending -->|失效前提修复后同操作续接| boot
+```
+
 本地 `refs/heads/*` 删除由唯一 Git 物理 owner 执行：branch-lifecycle 与托管验证的消费者先取得准确内容与恢复准入，并在作用前持久化 bundle、authorization 或对应 journal；作用时持有共享 Git common-dir 的协调租约，复查工作树绑定与准确旧 OID，再用原生 `update-ref` 旧 OID 比对事务删除，独立回读 ref 与工作树后签发结果。消费者的进程、输入和输出预算必须由该物理 owner 的实际事务上限与准确输入测量签发；同时需要 repository-root 租约时，先取得 common-dir，再取得 repository-root，并把同一个 common-dir token 传给物理删除，避免相反锁顺序。已被工作树绑定、前像漂移、租约失效或回读不确定时保留 ref 与恢复责任，不能把远端删除或进程退出解释为本地结算。协调租约排除参加该协议的 Gift writer；Git 的 ref 事务不能把任意外部原生 Git 的 worktree 绑定纳入同一原子操作，外部竞态若使终态不明则保留证据并报告 outcome unknown，不签发完成。
 
 已合并分支的 closeout inventory 另绑定本次 operation 的准确 PR 编号、head branch、head SHA 与 base branch。普通发现仍按物理分支及 open PR 选择相关对象；作用前、作用后及恢复回读由原 inventory owner 按编号重新向 Provider 读取这个目标，即使本地与远端 ref 都已缺席，也保留终态所需的准确 merged 见证。列表与准确回读重复或矛盾、仓库／head／状态漂移、观察不可用或原有列表额度耗尽均阻断完成；选择器仅限定观察对象，不签发删除或完成权限，也不允许复用旧 PR JSON 代替新回读。
