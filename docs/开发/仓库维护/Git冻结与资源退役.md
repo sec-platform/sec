@@ -94,7 +94,7 @@ CodeQL projection、真实 review submission、inline finding/thread、人工裁
 
 恢复在原协调租约下先核全量新借用、活动 locator、owner 和物理身份；新增借用或漂移保留对象并阻断。合格的旧代次恢复直接退役原记录，不伪造正常 released 或旧 capability 的退休回执；之后复用原 consumer-zero、publisher proof 和物理 GC。恢复意图覆盖部分记录删除与物理清理中断，只有三个责任——记录退役、目录缺席回读及恢复意图自身删除——全部成立才完成；它不扩展为进程台账、常驻清理器或永久备份。无新借用且其余准入成立时，重启后调用同一函数即可续接，无须再指定目录。
 
-依赖缓存的丢弃与可执行内容认证分开：清理在同一协调租约内读取一次严格 consumer census，覆盖同一物理目录的全部 epoch；以原记录或原 consumer-zero 绑定 generation，以原 publisher proof 恢复权限，再按元数据清单逐对象原生删除并回读。删除不重算包内容哈希、不重新签发 source generation，也不要求目标程序或业务代码参与。缺少原身份、未知借用、目标漂移及链接越界仍阻断；缓存损坏本身不应迫使删除操作先重新证明缓存内容正确。
+依赖缓存的丢弃与可执行内容认证分开：清理在同一协调租约内，每个尚未写入的判定阶段只读取一次严格 consumer census，覆盖同一物理目录的全部 epoch；旧记录退役后，GC 重新读取新状态，不跨写入复用旧 census。原恢复意图只补已经终结的历史 generation 身份，不计入当前借用。以原记录或原 consumer-zero 绑定 generation，以原 publisher proof 恢复权限，再按元数据清单逐对象原生删除并回读。删除不重算包内容哈希、不重新签发 source generation，也不要求目标程序或业务代码参与。缺少原身份、未知借用、目标漂移及链接越界仍阻断；缓存损坏本身不应迫使删除操作先重新证明缓存内容正确。
 
 **职责与存放目标。** 仓库开发工具位于 `src/adapters/self-hosting/development/`，开发入口位于 `src/bootstrap/development/`；产品编译器只消费准备好的依赖及真实使用所需的借用。普通依赖准备优先使用包管理器原生用户缓存；只有真实隔离执行需要独立代际时才保留受管副本，目标位置为用户缓存目录，仓库只保留标准使用入口。恢复意图只承担未完成作用，放原用户级状态目录，完成后退役。此目标不声称已把当前工作区内的副本和 `project-runtime.ts` 中的仓库职责全部迁出，也不授权清理其他项目共享的包管理器缓存。
 
@@ -125,35 +125,49 @@ flowchart LR
 <!-- mermaid:id=legacy_retirement -->
 ```mermaid
 flowchart TB
-  saved["原恢复意图：准确旧记录与物理目录"]
-  boot["原生完整启动边界严格前进"]
-  census["协调租约内一次读取全部 epoch 占用"]
-  identity["确认非活动目标及准确物理身份"]
-  zero["退役旧记录并保存原 consumer-zero"]
-  proof["原 publisher proof 恢复删除权限"]
-  metadata["只读文件身份与链接元数据"]
-  remove["原生逐对象删除"]
+  saved["严格解析原意图：记录摘要、owner 与目录身份"]
+  boot["BootId 与最新 Kernel-Boot 27 v1 完整启动记录双严格前进"]
+  census["原协调租约内：恢复前一次全 epoch 严格 census"]
+  identity["按路径及 physical 分组：排除活动入口、核全部前像"]
+  records["逐条即时核原 digest、epoch、physical，再退役旧记录"]
+  fresh["记录已变：GC 重新 census，仍保护同物理目录的全部 epoch"]
+  ready{"原 consumer-zero 已存在且 publisher proof 已退役？"}
+  zero["用原记录或原意图绑定历史身份，持久化 consumer-zero"]
+  compact["终态记录复用已持有父目录：字节及身份 CAS；released 先于 acquired"]
+  proof["严格原 proof：generation 摘要、原生对象身份及 ACL 前像恢复"]
+  metadata["元数据清单：路径、类型、对象与链接，不读包内容"]
+  remove["原生逐对象删除：核父子身份，不跟随 reparse"]
   absent["回读全部目标目录缺席"]
-  done["删除恢复意图：完成"]
+  done["最后删除原恢复意图：完成"]
   keep["发现新借用或活动目标：保留"]
   pending["失败保留原意图及剩余对象"]
   saved -->|续接| boot
   boot -->|真实边界成立| census
   census -->|无新借用| identity
   census -->|存在新借用或活动入口| keep
-  identity -->|全部前像正确| zero
-  zero -->|不伪造 released| proof
+  identity -->|全部前像正确| records
+  records -->|不伪造 released| fresh
+  fresh -->|没有任何 epoch 的活借用| ready
+  fresh -->|发现活借用| keep
+  ready -->|是：续接剩余删除| metadata
+  ready -->|否| zero
+  zero --> compact
+  compact --> proof
   proof -->|权限已恢复| metadata
   metadata -->|不认证包内容| remove
   remove -->|删除返回| absent
   absent -->|全部物理缺席| done
   boot -->|缺证| pending
   identity -->|漂移| pending
+  records -->|前像变化或失败| pending
+  compact -->|部分删除或失败| pending
   proof -->|原生失败| pending
   remove -->|部分删除或失败| pending
   absent -->|仍有残留| pending
   pending -->|失效前提修复后同操作续接| boot
 ```
+
+图中的实际控制分别由 `recoverObsoleteCompilerDependencyConsumers`（意图、启动边界、写前前像及最终退役）、`readCompilerDependencyConsumerCensus`（严格链校验与阶段内复用）、`collectReleasedCompilerDependencyGenerations`（全 epoch 活借用、历史身份、zero 与物理 GC）、`settleCompilerDependencyConsumerCompactionIntents`（持有父目录的字节 CAS）、`retireNoFollowProvenDirectoryGeneration`（原证明和 ACL 前像）及 `retireNoFollowDirectoryTree`（原生逐对象删除）承担。图不签发删除权限，也不把已有 zero 当作无条件删除许可；续接仍重新核当前借用、活动目标和物理前像。
 
 本地 `refs/heads/*` 删除由唯一 Git 物理 owner 执行：branch-lifecycle 与托管验证的消费者先取得准确内容与恢复准入，并在作用前持久化 bundle、authorization 或对应 journal；作用时持有共享 Git common-dir 的协调租约，复查工作树绑定与准确旧 OID，再用原生 `update-ref` 旧 OID 比对事务删除，独立回读 ref 与工作树后签发结果。消费者的进程、输入和输出预算必须由该物理 owner 的实际事务上限与准确输入测量签发；同时需要 repository-root 租约时，先取得 common-dir，再取得 repository-root，并把同一个 common-dir token 传给物理删除，避免相反锁顺序。已被工作树绑定、前像漂移、租约失效或回读不确定时保留 ref 与恢复责任，不能把远端删除或进程退出解释为本地结算。协调租约排除参加该协议的 Gift writer；Git 的 ref 事务不能把任意外部原生 Git 的 worktree 绑定纳入同一原子操作，外部竞态若使终态不明则保留证据并报告 outcome unknown，不签发完成。
 
