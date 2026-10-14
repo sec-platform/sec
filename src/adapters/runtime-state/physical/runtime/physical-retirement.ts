@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { assertSameNoFollowDirectoryIdentity } from './physical-directory-chain.ts';
 import { inspectNoFollowDirectoryLeaf } from './physical-directory-entry.ts';
-import { directoryTreeEntryPosixOwnership } from './physical-directory-tree-observation.ts';
+import { directoryTreeEntryPosixOwnership, scanNoFollowDirectoryTreeMetadata } from './physical-directory-tree-observation.ts';
 import { assertExclusiveFileGuardResource } from './physical-exclusive-guard.ts';
 import {
   PhysicalNoFollowError,
@@ -33,6 +33,8 @@ import {
   linuxOpenRetainedAbsoluteDirectory,
   linuxOpenRoot,
   linuxReadRetainedLinkTarget,
+  linuxReleaseExclusiveFileGuard,
+  linuxTryExclusiveFileGuard,
   readLinuxRetainedFile,
   readWindowsRetainedFile,
   requireLinuxLibc,
@@ -57,6 +59,20 @@ import {
 
 /** Exact entry and tree retirement with access-failure observation. */
 
+interface RetainedTreeRetirementGuard { readonly kind: 'retained-tree-retirement-guard'; }
+const treeRetirementGuards = new WeakMap<RetainedTreeRetirementGuard, Readonly<{
+  root: PhysicalDirectoryIdentity;
+  assertCurrent(): void;
+}>>();
+
+function assertTreeRetirementGuard(guard: RetainedTreeRetirementGuard, root: PhysicalDirectoryIdentity): void {
+  const admitted = treeRetirementGuards.get(guard);
+  if (admitted === undefined || admitted.root.path !== root.path || !sameIdentity(admitted.root, root)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Tree retirement guard was not issued for this exact root.');
+  }
+  admitted.assertCurrent();
+}
+
 export function deleteRetainedNoFollowEntry(input: {
   readonly root: PhysicalDirectoryIdentity;
   readonly relativePath: string;
@@ -68,6 +84,8 @@ export function deleteRetainedNoFollowEntry(input: {
   readonly expectedFileBytes?: Uint8Array;
   /** Live same-resource native exclusion; only cooperative namespace effects are covered. */
   readonly resourceGuard?: RetainedExclusiveFileGuard;
+  /** Private native tree-retirement scope; never an anchor-file guard. */
+  readonly treeGuard?: RetainedTreeRetirementGuard;
   readonly ancestorDirectories: readonly Readonly<{
     relativePath: string;
     device: string;
@@ -96,6 +114,7 @@ export function deleteRetainedNoFollowEntry(input: {
     }
     assertExclusiveFileGuardResource(input.resourceGuard, root, leaf);
   }
+  if (input.treeGuard !== undefined) assertTreeRetirementGuard(input.treeGuard, root);
   if (process.platform === 'win32') {
     const rootHandle = windowsOpenDirectory(root.path, 'Retained deletion root');
     const descendantHandles: bigint[] = [];
@@ -294,7 +313,7 @@ export function deleteRetainedNoFollowEntry(input: {
   if (process.platform !== 'linux') {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained destructive deletion backend is unavailable on this platform.');
   }
-  if (input.expectedFileBytes !== undefined && input.resourceGuard === undefined) {
+  if (input.expectedFileBytes !== undefined && input.resourceGuard === undefined && input.treeGuard === undefined) {
     // POSIX unlinkat removes a name, not the inspected file descriptor.
     // Without an owner-issued namespace exclusion, read-then-unlink cannot
     // promise byte-CAS against an uncooperative rename or in-place writer.
@@ -347,7 +366,8 @@ export function deleteRetainedNoFollowEntry(input: {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion link target changed.');
     }
     if (input.expectedFileBytes !== undefined) {
-      assertExclusiveFileGuardResource(input.resourceGuard!, root, leaf);
+      if (input.treeGuard !== undefined) assertTreeRetirementGuard(input.treeGuard, root);
+      else assertExclusiveFileGuardResource(input.resourceGuard!, root, leaf);
       const bytes = readLinuxRetainedFile(leafFd, 'Retained guarded deletion exact bytes', input.expectedFileBytes.byteLength);
       if (!Buffer.from(bytes).equals(input.expectedFileBytes)) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained guarded deletion bytes changed.');
@@ -361,7 +381,8 @@ export function deleteRetainedNoFollowEntry(input: {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained guarded deletion named identity changed.');
         }
       } finally { closeSync(namedFd); }
-      assertExclusiveFileGuardResource(input.resourceGuard!, root, leaf);
+      if (input.treeGuard !== undefined) assertTreeRetirementGuard(input.treeGuard, root);
+      else assertExclusiveFileGuardResource(input.resourceGuard!, root, leaf);
     }
     if (requireLinuxLibc().symbols.unlinkat(parentFd, Buffer.from(`${leaf}\0`, 'utf8'), input.kind === 'directory' ? LINUX_AT_REMOVEDIR : 0) !== 0) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `Retained unlinkat failed (errno ${linuxErrno()}).`);
@@ -377,6 +398,7 @@ export function deleteRetainedNoFollowEntry(input: {
       if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
     }
     if (input.resourceGuard !== undefined) assertExclusiveFileGuardResource(input.resourceGuard, root, leaf);
+    if (input.treeGuard !== undefined) assertTreeRetirementGuard(input.treeGuard, root);
     const retainedRootAfter = linuxIdentity(retainedRootFd, root.path);
     if (!sameIdentity(root, retainedRootAfter)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion root changed during unlinkat.');
@@ -458,7 +480,8 @@ interface LinuxTreeRetirementPermissionRecovery {
 function prepareLinuxTreeRetirementPermissionRecovery(
   expectedRoot: PhysicalDirectoryIdentity,
   inventory: readonly NoFollowDirectoryTreeInventoryEntry[],
-  assertRecoveryBudget: () => void
+  assertRecoveryBudget: () => void,
+  retirementGuard?: RetainedTreeRetirementGuard
 ): LinuxTreeRetirementPermissionRecovery {
   const effectiveUserId = typeof process.geteuid === 'function'
     ? BigInt(process.geteuid())
@@ -475,6 +498,7 @@ function prepareLinuxTreeRetirementPermissionRecovery(
   );
   const openedDirectories: number[] = [];
   const directoryFds = new Map<string, number>([['', retainedRoot.directoryFd]]);
+  const absentDirectories = new Set<string>();
   const retainedModes: Array<Readonly<{ fd: number; mode: number }>> = [];
   const closeAll = (): void => {
     const descriptors = [
@@ -506,13 +530,27 @@ function prepareLinuxTreeRetirementPermissionRecovery(
     });
     for (const entry of orderedDirectories) {
       assertRecoveryBudget();
+      if (retirementGuard !== undefined) assertTreeRetirementGuard(retirementGuard, expectedRoot);
       const parts = entry.relativePath.split('/');
       const name = parts.pop()!;
       const parentFd = directoryFds.get(parts.join('/'));
       if (parentFd === undefined) {
+        if (retirementGuard !== undefined && absentDirectories.has(parts.join('/'))) {
+          absentDirectories.add(entry.relativePath);
+          continue;
+        }
         throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement permission inventory is incomplete.');
       }
-      const fd = linuxOpenAt(parentFd, name, 'No-follow tree retirement permission directory');
+      let fd: number;
+      try {
+        fd = linuxOpenAt(parentFd, name, 'No-follow tree retirement permission directory');
+      } catch (error) {
+        if (retirementGuard === undefined || !(error instanceof PhysicalNoFollowError) ||
+            error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
+        assertTreeRetirementGuard(retirementGuard, expectedRoot);
+        absentDirectories.add(entry.relativePath);
+        continue;
+      }
       openedDirectories.push(fd);
       const current = fstatSync(fd, { bigint: true });
       const ownership = directoryTreeEntryPosixOwnership(entry);
@@ -529,7 +567,9 @@ function prepareLinuxTreeRetirementPermissionRecovery(
       retainedModes.push(Object.freeze({ fd, mode: entry.permissionMode }));
     }
   } catch (error) {
-    try { closeAll(); } catch { /* no permission mutation occurred; retain the admission failure */ }
+    try { closeAll(); } catch (settlement) {
+      throw new AggregateError([error, settlement], 'Tree permission admission and descriptor release both failed.');
+    }
     throw error;
   }
 
@@ -546,10 +586,12 @@ function prepareLinuxTreeRetirementPermissionRecovery(
       }
     }
   } catch (error) {
+    const failures: unknown[] = [error];
     for (const retained of [...retainedModes].reverse()) {
-      try { fchmodSync(retained.fd, retained.mode); } catch { /* retain the primary permission failure */ }
+      try { fchmodSync(retained.fd, retained.mode); } catch (settlement) { failures.push(settlement); }
     }
-    try { closeAll(); } catch { /* retain the primary permission failure */ }
+    try { closeAll(); } catch (settlement) { failures.push(settlement); }
+    if (failures.length > 1) throw new AggregateError(failures, 'Tree permission preparation, restoration or descriptor release failed.');
     throw error;
   }
 
@@ -625,17 +667,16 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement byte preimages must exactly cover its ordinary files.');
     }
     expectedFileBytes = new Map([...retainedBytes].map(([relativePath, bytes]) => [relativePath, Uint8Array.from(bytes)]));
-    if (process.platform === 'linux' && files.size > 0) {
-      // The existing POSIX byte-CAS primitive requires a direct-resource native
-      // exclusion. A directory inventory cannot manufacture that capability.
-      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow tree byte-CAS retirement requires native namespace exclusion on Linux.');
-    }
   }
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'No-follow tree retirement parent').target;
-  const root = assertSameNoFollowDirectoryIdentity(input.root, 'No-follow tree retirement root').target;
-  if (path.dirname(root.path) !== parent.path) {
+  const strictLinux = process.platform === 'linux' && expectedFileBytes !== undefined;
+  if (path.dirname(input.root.path) !== parent.path) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement root is not a direct child of its parent.');
   }
+  if (strictLinux && inspectNoFollowDirectoryLeaf(parent, path.basename(input.root.path), 'Tree retirement recovery root') === null) {
+    return Object.freeze({ entryCount: input.inventory.length, root: input.root, status: 'physically-absent' as const });
+  }
+  const root = assertSameNoFollowDirectoryIdentity(input.root, 'No-follow tree retirement root').target;
   const assertRecoveryBudget = (): void => {
     if (performance.now() >= input.deadlineAtMonotonicMs) {
       throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow tree retirement recovery deadline exceeded.');
@@ -651,12 +692,19 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
     if (right.kind === 'directory' && left.kind !== 'directory') return -1;
     return right.relativePath.localeCompare(left.relativePath);
   });
-  const permissionRecovery = input.restoreOwnerPermissions === true && process.platform === 'linux'
-    ? prepareLinuxTreeRetirementPermissionRecovery(root, input.inventory, assertRecoveryBudget)
-    : null;
+  const exclusion = strictLinux ? retainLinuxTreeRetirementGuard(parent, root) : null;
+  let permissionRecovery: ReturnType<typeof prepareLinuxTreeRetirementPermissionRecovery> | null = null;
+  let primaryFailure: unknown;
   try {
+    permissionRecovery = input.restoreOwnerPermissions === true && process.platform === 'linux'
+      ? prepareLinuxTreeRetirementPermissionRecovery(root, input.inventory, assertRecoveryBudget, exclusion?.guard) : null;
+    const present = strictLinux
+      ? validateLinuxTreeRetirementPreimage(root, input.inventory, expectedFileBytes!, input.deadlineAtMonotonicMs,
+        assertRecoveryBudget, exclusion!.guard)
+      : null;
     for (const entry of ordered) {
       assertRecoveryBudget();
+      if (present !== null && !present.has(entry.relativePath)) continue;
       const parts = entry.relativePath.split('/');
       parts.pop();
       const ancestorDirectories = parts.map((_, index) => {
@@ -676,10 +724,12 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
         ...(entry.linkTarget === null ? {} : { expectedLinkTarget: entry.linkTarget }),
         ...(entry.kind === 'file' && expectedFileBytes !== undefined
           ? { expectedFileBytes: expectedFileBytes.get(entry.relativePath)! } : {}),
+        ...(exclusion === null ? {} : { treeGuard: exclusion.guard }),
         ancestorDirectories
       });
     }
     assertRecoveryBudget();
+    exclusion?.assertCurrent();
     deleteRetainedNoFollowEntry({
       root: parent,
       relativePath: path.basename(root.path),
@@ -695,9 +745,107 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
     permissionRecovery?.settle(true);
     return Object.freeze({ entryCount: ordered.length, root, status: 'physically-absent' as const });
   } catch (error) {
-    try { permissionRecovery?.settle(false); } catch { /* retain the primary retirement failure */ }
+    primaryFailure = error;
+    try { permissionRecovery?.settle(false); } catch (settlement) {
+      primaryFailure = new AggregateError([error, settlement], 'Tree retirement and permission recovery both failed.');
+      throw primaryFailure;
+    }
+    throw error;
+  } finally {
+    try { exclusion?.dispose(); } catch (settlement) {
+      if (primaryFailure !== undefined) throw new AggregateError([primaryFailure, settlement], 'Tree retirement and native exclusion settlement both failed.');
+      throw settlement;
+    }
+  }
+}
+
+/** No new anchor: flock is retained on the exact directory being retired.
+ * The owning coordinator must stop new writers; this is cooperative native
+ * namespace exclusion, not protection against unrelated raw POSIX writes. */
+function retainLinuxTreeRetirementGuard(parent: PhysicalDirectoryIdentity, root: PhysicalDirectoryIdentity) {
+  const retained = linuxOpenRetainedAbsoluteDirectory(root.path, 'Tree retirement exclusion');
+  let acquired = false;
+  let closed = false;
+  const guard: RetainedTreeRetirementGuard = Object.freeze({ kind: 'retained-tree-retirement-guard' });
+  const assertCurrent = (): void => {
+    if (closed || !acquired) throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Tree retirement exclusion is not held.');
+    if (!sameIdentity(root, linuxIdentity(retained.directoryFd, root.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Tree retirement retained root identity changed.');
+    }
+    assertSameNoFollowDirectoryIdentity(parent, 'Tree retirement exclusion parent');
+    assertSameNoFollowDirectoryIdentity(root, 'Tree retirement exclusion named root');
+  };
+  const dispose = (): void => {
+    if (closed) return;
+    closed = true;
+    treeRetirementGuards.delete(guard);
+    const failures: unknown[] = [];
+    if (acquired) try { linuxReleaseExclusiveFileGuard(retained.directoryFd, 'Tree retirement exclusion'); } catch (error) { failures.push(error); }
+    for (const fd of new Set([retained.directoryFd, retained.filesystemRootFd])) {
+      try { closeSync(fd); } catch (error) { failures.push(error); }
+    }
+    if (failures.length > 0) throw new AggregateError(failures, 'Tree retirement exclusion release failed.');
+  };
+  try {
+    if (!sameIdentity(root, linuxIdentity(retained.directoryFd, root.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Tree retirement exclusion root changed before acquisition.');
+    }
+    acquired = linuxTryExclusiveFileGuard(retained.directoryFd, 'Tree retirement exclusion');
+    if (!acquired) throw physicalError('PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT', 'Tree retirement has another native coordinator.');
+    assertCurrent();
+    treeRetirementGuards.set(guard, Object.freeze({ root, assertCurrent }));
+    return Object.freeze({ guard, assertCurrent, dispose });
+  } catch (error) {
+    try { dispose(); } catch (settlement) { throw new AggregateError([error, settlement], 'Tree exclusion admission and release both failed.'); }
     throw error;
   }
+}
+
+function validateLinuxTreeRetirementPreimage(root: PhysicalDirectoryIdentity,
+  inventory: readonly NoFollowDirectoryTreeInventoryEntry[], expected: ReadonlyMap<string, Uint8Array>,
+  deadlineAtMonotonicMs: number, assertBudget: () => void, guard: RetainedTreeRetirementGuard): ReadonlySet<string> {
+  assertBudget();
+  assertTreeRetirementGuard(guard, root);
+  const originals = new Map(inventory.map(entry => [entry.relativePath, entry]));
+  if (originals.size !== inventory.length) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Tree retirement inventory contains duplicate paths.');
+  const current = scanNoFollowDirectoryTreeMetadata(root, {
+    deadlineAtMs: deadlineAtMonotonicMs, maximumEntries: inventory.length + 1
+  });
+  const present = new Set<string>();
+  for (const entry of current) {
+    assertBudget();
+    assertTreeRetirementGuard(guard, root);
+    const original = originals.get(entry.relativePath);
+    if (original === undefined || original.kind !== entry.kind || original.device !== entry.device || original.inode !== entry.inode
+        || original.linkTarget !== entry.linkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Tree retirement contains a replacement or unowned entry.');
+    }
+    present.add(entry.relativePath);
+    if (entry.kind !== 'file') continue;
+    const opened = linuxOpenRetainedAbsoluteDirectory(path.dirname(path.join(root.path, entry.relativePath)), 'Tree retirement byte preflight parent');
+    let fd: number | null = null;
+    let primary: unknown;
+    try {
+      fd = linuxOpenReadableLeafAt(opened.directoryFd, path.basename(entry.relativePath), 'Tree retirement byte preflight');
+      const stat = fstatSync(fd, { bigint: true });
+      const bytes = expected.get(entry.relativePath)!;
+      if (!stat.isFile() || stat.nlink !== 1n || stat.size !== BigInt(bytes.byteLength) || String(stat.dev) !== entry.device || String(stat.ino) !== entry.inode ||
+          !Buffer.from(readLinuxRetainedFile(fd, 'Tree retirement byte preflight', bytes.byteLength)).equals(bytes)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Tree retirement original file bytes or identity changed.');
+      }
+    } catch (error) {
+      primary = error;
+      throw error;
+    } finally {
+      const failures: unknown[] = [];
+      for (const descriptor of new Set([fd, opened.directoryFd, opened.filesystemRootFd])) {
+        if (descriptor !== null) try { closeSync(descriptor); } catch (error) { failures.push(error); }
+      }
+      if (failures.length > 0) throw new AggregateError(primary === undefined ? failures : [primary, ...failures], 'Tree retirement preflight resources did not settle.');
+    }
+  }
+  assertTreeRetirementGuard(guard, root);
+  return present;
 }
 
 /**

@@ -195,6 +195,37 @@ flowchart TB
 
 stage 由其原持久意图及原生对象身份管理。用户缓存 stage 不登记成工作区内的相对 generated-state 路径；历史工作区 stage 的原登记及退役责任仍按原合同处理。Linux 普通目录回滚消费原 transition、确定的同卷 rollback 路径、原 consumer-zero 与真实 rename 后身份；Windows 已存在的 sealed relocation 仍由原生 ACL 前像与原证明续接。两者都不能用新代 epoch 冒充旧代，也不能事后重算旧内容来填补丢失的原身份。
 
+**原控制副本的严格删除。** 原协调 owner 先停止新的相交写者，并证明原控制字节已由用户 State 承接；原 inventory、目录物理身份和每个普通文件的原字节继续作为删除前像。Linux 在待退役目录本身保留真实 fd 和原生 `flock`，由私有签发者绑定 tree guard；每个原 leaf 删除消费该 guard，不能伪造或借用另一个 anchor-file guard。此排他覆盖同一内核内遵守原协调协议的写者，不声称能拦截任意原生外部程序的写入。Windows 继续使用原生 retained handle 与字节前像路径。
+
+删除前完整核对当前剩余树：只能是原 inventory 中身份相同的子集，所有仍存文件保持原字节，未知项、同字节替换对象、链接目标漂移或根身份漂移均拒绝。原清单内身份及目标均一致的链接只删除其目录项，不跟随目标。需要恢复目录权限时，原观察必须显式取得 mode、UID、GID（`includePermissionMode:true`）；普通内容清单不能代替原权限前像。权限恢复只处理仍存且身份相同的原目录；确已缺席的原项可跳过。随后沿原 retained ancestor 链逐项比较、删除、刷新父目录并回读缺席；部分删除后用原前像和新恢复预算续接，不重算原身份、不扩大原 timeout。根已缺席时取得真实缺席观察。无论成功、失败或中断都释放原锁和 fd，主错误、权限恢复及释放错误均保留；最终缺席成立之前不删除仍有消费者的恢复依据。
+
+<!-- mermaid:id=strict_control_retirement -->
+```mermaid
+flowchart TD
+  owner["原协调 owner：停止新写者，核 State 已承接原字节与删除资格"] --> original["固定原 root/parent physical、inventory、普通文件原 bytes、恢复预算；权限恢复须原 mode/UID/GID 观察"]
+  original --> named{"原 parent 下的 root 状态"}
+  named -->|真实缺席| absent["回读原 selector 缺席；不伪造借用释放"]
+  named -->|原身份仍存| retain["Linux 保留原目录 fd + native flock；私有 tree guard，核 parent/root 前后身份"]
+  named -->|替换或未知| refuse["拒绝相交作用，保留对象与原恢复责任"]
+  retain -->|争用或身份漂移| admission_cleanup["签发者关闭本次已取得 fd/锁；准入错误与释放错误合并"]
+  admission_cleanup --> refuse
+  retain --> modes["必要时恢复仍存原目录权限；原 missing 项跳过"]
+  modes -->|权限准备或恢复失败| failed
+  modes --> preflight["完整剩余树须原 identity 子集；所有剩余文件原 bytes 一致"]
+  preflight -->|extra、替换、byte 漂移| failed["保留主错误与原前像；不开始删除"]
+  preflight --> leaves["原 leaf 消费真实 tree guard；核 retained fd/named identity/bytes，unlinkat + fsync + absence"]
+  leaves -->|预算、中断、作用失败| partial["记录真实部分作用；原 inventory/bytes 供后续恢复"]
+  leaves --> root["删除原空 root，并回读实际缺席"]
+  root -->|删除或回读失败| partial
+  root --> release["finally native unlock + 关闭全部原 fd；权限恢复/释放错误与主错误合并"]
+  failed --> release
+  partial --> release
+  release -->|全部成立| absent
+  release -->|任一未完成| pending["返回准确失败及残留；保留恢复依据"]
+  pending -.->|原 owner 重新准入，新预算，原前像| original
+  absent --> retire["原消费者已退出后退役恢复材料；真实缺席回读"]
+```
+
 **历史记录恢复与删除路径。** 下图展开前述恢复合同；分支表示实际判定和残留，未决对象不能因图中存在后续箭头而取得删除资格。普通已结算缓存直接从协调租约与 census 进入，不强制经历历史未知记录的宿主重启。
 
 <!-- mermaid:id=legacy_retirement -->

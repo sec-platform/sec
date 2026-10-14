@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Small documentation-tool tests. No browser installation or product execution."""
 from __future__ import annotations
-import base64,contextlib,hashlib,io,json,sys,tempfile,unittest,zlib
+import argparse,base64,contextlib,hashlib,io,json,sys,tempfile,unittest,zlib
 from pathlib import Path
 from unittest.mock import patch
 sys.dont_write_bytecode=True
@@ -89,6 +89,76 @@ class Modes(unittest.TestCase):
  def test_cache_mode_reproducible(self):self.cache();self.run_();x=self.out.read_bytes();self.run_('--replace');self.assertEqual(x,self.out.read_bytes())
  def test_diagram_callback_rejected_before_cache(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n click A callback\n```\n');self.bad('--diagrams','browser')
+ def test_required_failure_preserves_successful_cache_and_resumes_only_missing_sources(self):
+  (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->C\n```\n')
+  cache=self.home/'progress.json';engine_file=self.home/'engine.js';engine_file.write_text('fixture only')
+  calls=[];outer=self
+  class Engine:
+   def __init__(self,args):self.info={'engine_sha256':'fixture'};self.process=type('Process',(),{'is_alive':lambda self:True})()
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def render(self,source,ident):
+    calls.append(source)
+    if 'B-->C'in source:raise b.DiagramError('independent fixture syntax failure')
+    return outer.svg
+  args=('--diagrams','required','--mermaid-js',str(engine_file),'--diagram-cache',str(cache))
+  self.out.write_bytes(b'old')
+  environment={'cross_run_reuse':True,'fixture_environment':'fixed'}
+  with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value=environment):
+   with self.assertRaises(b.BuildError):self.run_('--replace',*args)
+  self.assertEqual(self.out.read_bytes(),b'old');self.assertEqual(len(json.loads(cache.read_bytes())['entries']),1)
+  calls.clear()
+  (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->D\n```\n')
+  with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value=environment):result=self.run_('--replace',*args)
+  self.assertEqual(len(calls),1);self.assertIn('B-->D',calls[0])
+  self.assertEqual((result['cached'],result['rendered_this_build'],result['pending']),(1,1,0))
+ def test_worker_close_error_is_consumed_and_combined_with_primary(self):
+  primary=b.BuildError('render failed');worker=b.IsolatedRenderer(argparse.Namespace(timeout=1))
+  worker.process=unittest.mock.Mock();worker.process.is_alive.return_value=True
+  worker.pipe=unittest.mock.Mock();worker.pipe.poll.return_value=True
+  worker.pipe.recv.return_value=('error','browser close failed')
+  with patch.object(worker,'_stop_tree') as stop:
+   with self.assertRaises(b.BuildError)as caught:worker.__exit__(type(primary),primary,None)
+  self.assertIn('render failed',str(caught.exception));self.assertIn('browser close failed',str(caught.exception))
+  self.assertTrue(stop.called);worker.pipe.close.assert_called_once()
+ def test_node_startup_and_close_errors_both_survive(self):
+  args=argparse.Namespace(node='fixture',playwright_module='fixture',mermaid_js='fixture',browser=None,
+                          allow_no_sandbox=False,timeout=1,font_family='fixture',engine_label='fixture')
+  renderer=b.NodeMermaidRenderer(args);process=unittest.mock.Mock();process.poll.return_value=None
+  with patch.object(b.subprocess,'Popen',return_value=process),patch.object(renderer,'exchange',side_effect=[b.BuildError('startup failed'),b.BuildError('close failed')]):
+   with self.assertRaises(b.BuildError)as caught:renderer.__enter__()
+  self.assertIn('startup failed',str(caught.exception));self.assertIn('close failed',str(caught.exception))
+  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
+ def test_node_terminal_ack_releases_command_stream_before_waiting_for_exit(self):
+  renderer=b.NodeMermaidRenderer(argparse.Namespace(timeout=1));process=unittest.mock.Mock()
+  process.poll.return_value=None;renderer.process=process;closed=False
+  def release():
+   nonlocal closed
+   closed=True
+  def exited(**kwargs):
+   if not closed:raise b.subprocess.TimeoutExpired('Node waiting for command-stream EOF',1)
+   return 0
+  process.stdin.close.side_effect=release;process.wait.side_effect=exited
+  with patch.object(renderer,'exchange',return_value={'closed':True}):renderer.__exit__()
+  process.stdin.close.assert_called_once();process.stdout.close.assert_called_once()
+ def test_fatal_renderer_failure_stops_before_next_diagram_and_preserves_html(self):
+  (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->C\n```\n')
+  calls=[]
+  class Engine:
+   def __init__(self,args):self.info={}
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def render(self,source,ident):calls.append(source);raise b.BuildError('timeout remains in flight')
+  with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value={'cross_run_reuse':False}):
+   self.bad('--diagrams','required','--mermaid-js','fixture')
+  self.assertEqual(len(calls),1)
+ def test_required_cache_rejects_entry_renderer_identity_mismatch(self):
+  cache=self.cache();cache['renderer']['cross_run_reuse']=True
+  path=self.root/'.documentation/figures.json';path.write_text(json.dumps(cache))
+  book=argparse.Namespace(diagrams=[{'sha256':b.sha(self.source.encode()),'id':'figure','path':'fixture'}],svg={})
+  args=argparse.Namespace(diagram_cache=str(path))
+  with self.assertRaisesRegex(b.BuildError,'renderer identity mismatch'):
+   b.read_diagram_cache(self.root,{},args,book,expected_renderer=cache['renderer'])
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
