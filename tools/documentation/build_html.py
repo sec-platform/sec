@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build a self-contained, source-backed Gift reading edition. Never edits its input.
+"""Build a self-contained, source-backed Gift reading edition. Source documents stay read-only;
+explicit derived-cache publication is separate.
 
 Default: current working tree, exact current diagram cache, no headless browser.
 Use --diagrams browser to refresh in a normal local browser; --diagrams required
@@ -9,7 +10,7 @@ Use --diagrams source for an explicitly labelled text-only reading edition.
 from __future__ import annotations
 import argparse, base64, collections, hashlib, html, importlib.metadata, json, os
 from pathlib import Path
-import re, sys, tempfile, multiprocessing, signal, subprocess, zlib
+import re, sys, tempfile, multiprocessing, signal, subprocess, zlib, platform, shutil
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote, quote
 sys.dont_write_bytecode = True
@@ -27,6 +28,64 @@ CSS = r'''
 JS = """(()=>{const x=document.getElementById('sec-nav-filter');if(!x)return;x.addEventListener('input',()=>{const q=x.value.trim().toLocaleLowerCase();for(const n of document.querySelectorAll('[data-nav-item]'))n.hidden=q&&!n.textContent.toLocaleLowerCase().includes(q);});})();"""
 
 class BuildError(Exception): pass
+class DiagramError(BuildError):
+    """A deterministic source/safe-SVG rejection; the rendering context remains usable."""
+
+def renderer_settlement(primary,errors):
+    if errors:
+        causes=([f'operation: {type(primary).__name__}: {primary}'] if primary else [])
+        causes.extend(f'{name}: {type(error).__name__}: {error}' for name,error in errors)
+        raise BuildError('Renderer settlement failed; '+'; '.join(causes)) from primary
+
+def renderer_environment(args):
+    """Bounded mature OS font inventory; inability to identify it disables cross-run reuse."""
+    here=Path(__file__)
+    identity={'implementation_sha256':sha(here.read_bytes()+here.with_name('mermaid_node_renderer.cjs').read_bytes()),
+              'os':platform.platform(),'configuration_sha256':sha(canon(mermaid_config(args,'source-hash-seed')))}
+    try:
+        if not args.browser:raise BuildError('Explicit browser executable required for environment reuse')
+        browser=Path(args.browser).resolve()
+        identity['browser_executable']={'path':str(browser),'sha256':sha(browser.read_bytes())}
+        paths=set();font_config=[]
+        if os.name=='nt':
+            import winreg
+            system=Path(os.environ['WINDIR'])/'Fonts'
+            user=Path(os.environ['LOCALAPPDATA'])/'Microsoft/Windows/Fonts'
+            for root in (system,user):
+                if root.exists():paths.update(p.resolve() for p in root.iterdir() if p.suffix.lower()in('.ttf','.otf','.ttc','.fon','.fnt'))
+            for hive,label,base in ((winreg.HKEY_LOCAL_MACHINE,'machine',system),(winreg.HKEY_CURRENT_USER,'user',user)):
+                for keyname in (r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts',r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontSubstitutes',r'SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink'):
+                    try:key=winreg.OpenKey(hive,keyname)
+                    except FileNotFoundError:continue
+                    with key:
+                        for index in range(winreg.QueryInfoKey(key)[1]):
+                            name,value,kind=winreg.EnumValue(key,index);font_config.append([label,keyname,name,value,kind])
+                            if keyname.endswith('\\Fonts') and isinstance(value,str):
+                                candidate=Path(os.path.expandvars(value));paths.add((candidate if candidate.is_absolute() else base/candidate).resolve())
+        else:
+            executable=shutil.which('fc-list')
+            configuration=shutil.which('fc-conflist')
+            if not executable or not configuration:raise BuildError('Existing fontconfig file/configuration inventory unavailable')
+            listing=subprocess.run([executable,'--format','%{file}\n'],capture_output=True,text=True,check=True,timeout=15)
+            paths={Path(line).resolve() for line in listing.stdout.splitlines() if line}
+            configs=subprocess.run([configuration],capture_output=True,text=True,check=True,timeout=15)
+            font_config=[listing.stdout,configs.stdout,{key:os.environ.get(key) for key in ('LANG','LC_ALL','LC_CTYPE','FONTCONFIG_FILE','FONTCONFIG_PATH')}]
+            for line in configs.stdout.splitlines():
+                if line.startswith(('+ ','- ')):
+                    candidate=Path(line[2:].split(':',1)[0])
+                    if not candidate.is_absolute():raise BuildError('Unresolved fontconfig input')
+                    paths.add(candidate.resolve())
+        if not paths or len(paths)>5000:raise BuildError('Font inventory missing or over budget')
+        fonts=[];total=0
+        for path in sorted(paths,key=str):
+            size=path.stat().st_size;total+=size
+            if size>100_000_000 or total>1_000_000_000:raise BuildError('Font byte budget exceeded')
+            data=path.read_bytes();fonts.append([str(path),len(data),sha(data)])
+        identity['font_environment_sha256']=sha(canon({'files':fonts,'os_font_configuration':sorted(font_config,key=lambda value:json.dumps(value,sort_keys=True))}))
+        identity['cross_run_reuse']=True
+    except (OSError,ValueError,TypeError,BuildError,subprocess.SubprocessError) as error:
+        identity['cross_run_reuse']=False;identity['environment_unavailable']=str(error)
+    return identity
 
 class PublicationSettlementError(BuildError):
     """Keep publication and every failed cleanup observable, including commit state."""
@@ -202,7 +261,7 @@ def checked_svg(data: bytes, name: str) -> bytes:
     check_svg_elements(r, 'Active SVG element: ')
     return data
 
-def read_diagram_cache(root: Path, captured, args, book):
+def read_diagram_cache(root: Path, captured, args, book,expected_renderer=None):
     """No old HTML required. Missing/stale entries never count as rendered."""
     name='.documentation/figures.json'
     if args.diagram_cache:
@@ -220,10 +279,14 @@ def read_diagram_cache(root: Path, captured, args, book):
     try:cache=json.loads(raw,object_pairs_hook=unique)
     except (ValueError,UnicodeError) as e:raise BuildError('Invalid diagram cache JSON')from e
     if not isinstance(cache,dict) or cache.get('schema')!='sec.diagram-cache/1' or not isinstance(cache.get('entries'),dict) or not isinstance(cache.get('renderer'),dict):raise BuildError('Unknown diagram cache contract')
+    if expected_renderer is not None and (not expected_renderer.get('cross_run_reuse') or cache['renderer']!=expected_renderer):
+        return {'state':'renderer-environment-mismatch','rendered':0}
     for job in book.diagrams:
         entry=cache['entries'].get(job['sha256'])
         if entry is None:continue
         if not isinstance(entry,dict):raise BuildError('Invalid diagram cache entry: '+job['sha256'])
+        if not isinstance(entry.get('renderer_id'),str) or not entry['renderer_id']:raise BuildError('Cache entry missing renderer identity')
+        if expected_renderer is not None and entry['renderer_id']!=sha(canon(expected_renderer)):raise BuildError('Cache entry renderer identity mismatch')
         if entry.get('source_sha256')!=job['sha256']:raise BuildError('Cache source hash mismatch')
         if not isinstance(entry.get('data'),str) or len(entry['data'])>20_000_000:raise BuildError('Cache encoding budget')
         try:
@@ -259,29 +322,91 @@ class MermaidRenderer:
             self.page.add_script_tag(content=data.decode('utf-8'))
             if not self.page.evaluate("!!window.mermaid && typeof mermaid.render==='function' && typeof mermaid.initialize==='function'"):
                 raise BuildError('Supply a standalone Mermaid UMD/IIFE script exposing window.mermaid, not an ESM entry')
-            self.info={'engine_sha256':sha(data),'browser':self.browser.version,'playwright':importlib.metadata.version('playwright'),'font_family':self.args.font_family,'browser_sandbox':not self.args.allow_no_sandbox,'engine_label':self.args.engine_label}
+            self.info={'engine_sha256':sha(data),'browser':self.browser.version,'playwright':importlib.metadata.version('playwright'),'font_family':self.args.font_family,'browser_sandbox':not self.args.allow_no_sandbox,'engine_label':self.args.engine_label,'backend':'python-playwright','python':platform.python_version()}
             return self
-        except Exception:
-            self.__exit__(None,None,None);raise
-    def __exit__(self,*unused):
-        if self.browser:self.browser.close()
-        if self.pw:self.pw.stop()
+        except BaseException as error:
+            self.__exit__(type(error),error,None);raise
+    def __exit__(self,kind=None,primary=None,trace=None):
+        errors=[]
+        for name,resource,close in (('browser close',self.browser,lambda:self.browser.close()),('Playwright stop',self.pw,lambda:self.pw.stop())):
+            if resource:
+                try:close()
+                except BaseException as error:errors.append((name,error))
+        renderer_settlement(primary,errors)
     def render(self,source,ident):
         # Diagram-local configuration/clicks are intentionally not executable input.
         if re.search(r'(?m)^\s*(?:%%\{\s*(?:init|config)|click\b|---\s*$)',source):
-            raise BuildError('Diagram-local configuration/callback is outside the safe reading profile: '+ident)
-        cfg={'startOnLoad':False,'securityLevel':'strict','suppressErrorRendering':True,'deterministicIds':True,'deterministicIDSeed':ident,'handDrawnSeed':(int(sha(ident.encode())[:8],16)&0x7fffffff) or 1,'fontFamily':self.args.font_family,'maxTextSize':100000,'maxEdges':2000,'theme':'default','flowchart':{'htmlLabels':True},'sequence':{'useMaxWidth':False},'secure':['secure','securityLevel','startOnLoad','maxTextSize','maxEdges','suppressErrorRendering','themeCSS','fontFamily','handDrawnSeed','deterministicIds','deterministicIDSeed']}
+            raise DiagramError('Diagram-local configuration/callback is outside the safe reading profile: '+ident)
+        cfg=mermaid_config(self.args,ident)
         try:
-            value=self.page.evaluate('''async x=>{mermaid.initialize(x.config);const rendered=mermaid.render(x.id,x.source);const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('diagram timeout')),x.ms));const r=await Promise.race([rendered,timeout]);const parsed=new DOMParser().parseFromString(r.svg,'text/html');const svg=parsed.querySelector('svg');if(!svg)throw new Error('missing SVG');return new XMLSerializer().serializeToString(svg);}''',{'id':ident,'source':source,'config':cfg,'ms':self.args.timeout*1000})
+            result=self.page.evaluate('''async x=>{mermaid.initialize(x.config);let timer;try{const r=await Promise.race([mermaid.render(x.id,x.source),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('diagram timeout')),x.ms)})]);const parsed=new DOMParser().parseFromString(r.svg,'text/html');const svg=parsed.querySelector('svg');if(!svg)throw new Error('missing SVG');return {svg:new XMLSerializer().serializeToString(svg)};}catch(error){return {error:String(error.stack||error),kind:error.hash&&Array.isArray(error.hash.expected)?'syntax':'fatal'};}finally{clearTimeout(timer);}}''',{'id':ident,'source':source,'config':cfg,'ms':self.args.timeout*1000})
         except Exception as e:raise BuildError('Mermaid failed at '+ident+': '+str(e)[:1200]) from e
-        if len(value)>10_000_000:raise BuildError('Rendered SVG exceeds 10 MB budget: '+ident)
-        from xml.etree import ElementTree as ET
-        try:r=ET.fromstring(value)
-        except ET.ParseError as e:raise BuildError('Invalid SVG: '+ident) from e
-        if r.tag.split('}')[-1]!='svg':raise BuildError('Renderer returned non-SVG')
-        check_svg_elements(r, 'Active/external SVG element: ')
         if self.blocked:raise BuildError('Renderer attempted network access: '+repr(self.blocked[:3]))
-        return value.encode('utf-8')
+        if 'error'in result:raise (DiagramError if result.get('kind')=='syntax' else BuildError)(result['error'])
+        try:return checked_svg(result['svg'].encode('utf-8'),ident)
+        except BuildError as error:raise DiagramError(str(error)) from error
+
+
+def mermaid_config(args,ident):
+    return {'startOnLoad':False,'securityLevel':'strict','suppressErrorRendering':True,'deterministicIds':True,'deterministicIDSeed':ident,'handDrawnSeed':(int(sha(ident.encode())[:8],16)&0x7fffffff) or 1,'fontFamily':args.font_family,'maxTextSize':100000,'maxEdges':2000,'theme':'default','flowchart':{'htmlLabels':True},'sequence':{'useMaxWidth':False},'secure':['secure','securityLevel','startOnLoad','maxTextSize','maxEdges','suppressErrorRendering','themeCSS','fontFamily','handDrawnSeed','deterministicIds','deterministicIDSeed']}
+
+
+def checkpoint_diagrams(path,book,renderer,before,entries):
+    """A derived, exact-source cache survives later diagram failures; never publishes partial HTML."""
+    for job in book.diagrams:
+        data=book.svg.get(job['id'])
+        if data is None or job['sha256']in entries:continue
+        entries[job['sha256']]={'source_sha256':job['sha256'],'svg_sha256':sha(data),'svg_bytes':len(data),
+            'encoding':'zlib+base64','data':b64(zlib.compress(data)),'renderer_id':sha(canon(renderer))}
+    payload=canon({'schema':'sec.diagram-cache/1','renderer':renderer,'entries':entries})
+    if len(payload)>40_000_000:raise BuildError('Diagram cache exceeds byte budget')
+    path.parent.mkdir(parents=True,exist_ok=True)
+    publish_output(path,payload,before,lambda:None)
+    return payload
+
+
+class NodeMermaidRenderer:
+    """Use explicitly selected, already installed Node Playwright; never resolve/install packages."""
+    def __init__(self,args):self.args=args;self.process=None;self.info={}
+    def exchange(self,message):
+        self.process.stdin.write(json.dumps(message,ensure_ascii=False)+'\n');self.process.stdin.flush()
+        line=self.process.stdout.readline()
+        if not line:raise BuildError('Node renderer exited without result; exit='+str(self.process.poll()))
+        result=json.loads(line)
+        if 'error'in result:raise (DiagramError if result.get('kind')=='syntax' else BuildError)(result['error'])
+        return result
+    def __enter__(self):
+        bridge=Path(__file__).with_name('mermaid_node_renderer.cjs')
+        self.process=subprocess.Popen([self.args.node,str(bridge)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                                      encoding='utf-8',creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt'else 0)
+        try:
+            self.info=self.exchange({'action':'open','module':str(Path(self.args.playwright_module).resolve()),
+                'engine':str(Path(self.args.mermaid_js).resolve()),'browser':self.args.browser,
+                'sandbox':not self.args.allow_no_sandbox,'timeout':self.args.timeout*1000,
+                'font_family':self.args.font_family,'engine_label':self.args.engine_label})['info']
+            return self
+        except BaseException as error:self.__exit__(type(error),error,None);raise
+    def render(self,source,ident):
+        value=self.exchange({'action':'render','source':source,'id':ident,
+                             'config':mermaid_config(self.args,ident),'ms':self.args.timeout*1000})['svg']
+        try:return checked_svg(value.encode('utf-8'),ident)
+        except BuildError as error:raise DiagramError(str(error)) from error
+    def __exit__(self,kind=None,primary=None,trace=None):
+        if not self.process:return
+        errors=[]
+        try:
+            if self.process.poll()is None:
+                result=self.exchange({'action':'close'})
+                if result.get('closed')is not True:raise BuildError('Node close acknowledgement missing')
+            code=self.process.wait(timeout=min(self.args.timeout,10))
+            if code!=0:raise BuildError('Node renderer exited with '+str(code))
+        except BaseException as error:errors.append(('Node/browser close',error))
+        finally:
+            for name,stream in (('Node stdin',self.process.stdin),('Node stdout',self.process.stdout)):
+                if stream:
+                    try:stream.close()
+                    except BaseException as error:errors.append((name,error))
+        renderer_settlement(primary,errors)
 
 
 def _render_worker(connection, settings):
@@ -290,18 +415,25 @@ def _render_worker(connection, settings):
         os.setsid()
     args = argparse.Namespace(**settings)
     try:
-        with MermaidRenderer(args) as engine:
+        with (NodeMermaidRenderer(args) if getattr(args,'node',None) else MermaidRenderer(args)) as engine:
             connection.send(('ready', engine.info))
             while True:
                 command = connection.recv()
                 if command[0] == 'close':
                     break
                 _, source, ident = command
-                result = engine.render(source, ident)
-                connection.send(('svg', result))
+                try:
+                    result = engine.render(source, ident)
+                    connection.send(('svg', result))
+                except DiagramError as error:
+                    connection.send(('diagram-error',str(error)))
+        connection.send(('closed',True))
     except BaseException as exc:
         try:
             connection.send(('error', type(exc).__name__ + ': ' + str(exc)[:1800]))
+            # Keep the known worker tree alive until its parent terminates it;
+            # a failed browser close must not orphan descendants after worker exit.
+            connection.recv()
         except (OSError, EOFError):
             pass
     finally:
@@ -331,17 +463,23 @@ class IsolatedRenderer:
             if self.process.is_alive():
                 self.process.kill()
         self.process.join(timeout=5)
+        if self.process.is_alive():raise BuildError('Known rendering worker did not terminate')
 
     def _receive(self):
         if not self.pipe.poll(self.args.timeout):
-            self._stop_tree()
-            raise BuildError('Renderer exceeded wall deadline; previous HTML not replaced')
+            primary=BuildError('Renderer exceeded wall deadline; previous HTML not replaced')
+            try:self._stop_tree()
+            except BaseException as cleanup:renderer_settlement(primary,[('worker tree termination',cleanup)])
+            raise primary
         try:
             kind, value = self.pipe.recv()
         except (EOFError, OSError) as exc:
             raise BuildError('Renderer exited without a complete result') from exc
         if kind == 'error':
+            try:self._stop_tree()
+            except BaseException as cleanup:renderer_settlement(BuildError(value),[('worker tree termination',cleanup)])
             raise BuildError(value)
+        if kind == 'diagram-error':raise DiagramError(value)
         return kind, value
 
     def __enter__(self):
@@ -356,8 +494,8 @@ class IsolatedRenderer:
             if kind != 'ready':
                 raise BuildError('Invalid renderer startup result')
             return self
-        except BaseException:
-            self.__exit__(None, None, None)
+        except BaseException as error:
+            self.__exit__(type(error),error,None)
             raise
 
     def render(self, source, ident):
@@ -370,17 +508,26 @@ class IsolatedRenderer:
             raise BuildError('Invalid renderer result')
         return data
 
-    def __exit__(self, *unused):
+    def __exit__(self, kind=None, primary=None, trace=None):
+        errors=[]
         if self.process and self.process.is_alive():
             try:
                 self.pipe.send(('close',))
-                self.process.join(timeout=min(self.args.timeout, 10))
-            except (BrokenPipeError, OSError):
-                pass
+                closed,value=self._receive()
+                if closed!='closed' or value is not True:raise BuildError('Worker terminal close acknowledgement missing')
+                self.process.join(timeout=min(self.args.timeout,10))
+                if self.process.is_alive():raise BuildError('Worker acknowledged close without exiting')
+                if self.process.exitcode!=0:raise BuildError('Renderer worker exited with '+str(self.process.exitcode))
+            except BaseException as error:errors.append(('worker close',error))
+        elif self.process and primary is None:
+            errors.append(('worker close',BuildError('Worker exited before terminal close acknowledgement')))
         if self.process and self.process.is_alive():
-            self._stop_tree()
+            try:self._stop_tree()
+            except BaseException as error:errors.append(('worker tree termination',error))
         if self.pipe:
-            self.pipe.close()
+            try:self.pipe.close()
+            except BaseException as error:errors.append(('worker pipe close',error))
+        renderer_settlement(primary,errors)
 
 
 class Book:
@@ -622,15 +769,20 @@ def main(argv=None):
     parser.add_argument('--sealed',action='store_true',help='Require the source package to match its frozen baseline')
     parser.add_argument('--diagrams',choices=('cached','browser','required','source'),default='cached')
     parser.add_argument('--diagram-cache',default=None,help='Exact-current-source cache; default .documentation/figures.json')
+    parser.add_argument('--write-diagram-cache',type=Path,default=None,help='Publish complete derived cache after successful rendering; source-tree destination is only .documentation/figures.json')
     parser.add_argument('--mermaid-js',default=os.environ.get('SEC_MERMAID_JS'))
     parser.add_argument('--engine-label',default='operator-supplied Mermaid; exact bytes recorded')
     parser.add_argument('--browser',default=None,help='Existing Chromium/Chrome executable; omit for installed Playwright browser')
+    parser.add_argument('--node',default=None,help='Explicit existing Node executable, paired with --playwright-module; no package installation')
+    parser.add_argument('--playwright-module',default=None,help='Explicit existing Playwright package directory for --node')
     parser.add_argument('--allow-no-sandbox',action='store_true',help='Explicitly allow no Chromium sandbox in an already isolated container; not default')
     parser.add_argument('--font-family',default='Arial, Microsoft YaHei, Noto Sans CJK SC, sans-serif')
     parser.add_argument('--timeout',type=int,default=45)
     parser.add_argument('--max-file-bytes',type=int,default=16_000_000)
     parser.add_argument('--max-total-bytes',type=int,default=80_000_000)
     args=parser.parse_args(argv)
+    if bool(args.node)!=bool(args.playwright_module):raise BuildError('--node and --playwright-module must be selected together')
+    if args.write_diagram_cache and args.diagrams!='required':raise BuildError('--write-diagram-cache requires actual required rendering')
     if args.root.is_symlink() or any(p.is_symlink() for p in args.root.absolute().parents):
         raise BuildError('Source root symlink is not supported')
     root=args.root.resolve();out=(args.output or root.parent/'Gift.html').absolute()
@@ -652,21 +804,48 @@ def main(argv=None):
         if args.diagrams=='cached' and len(book.svg)!=len(book.diagrams):
             missing=[j['path']+':'+str(j['line'])for j in book.diagrams if j['id']not in book.svg]
             raise BuildError('Current diagram cache incomplete: '+repr(missing[:8])+'; use --diagrams browser to refresh; old output retained')
+    cached_count=0;rendered_count=0
     if args.diagrams=='required' and book.diagrams:
         with IsolatedRenderer(args)as engine:
+            engine.info.update(renderer_environment(args))
+            cache_path=Path(args.diagram_cache).expanduser().absolute() if args.diagram_cache else None
+            cache_before=None
+            if cache_path:
+                if cache_path.is_symlink() or any(p.is_symlink() for p in cache_path.parents):raise BuildError('Diagram cache symlink rejected')
+                if root==cache_path or root in cache_path.parents:raise BuildError('Required progress cache must be outside the source tree')
+                if cache_path.exists():
+                    cache_before=cache_path.read_bytes()
+                    info=read_diagram_cache(root,captured,args,book,expected_renderer=engine.info)
+                    cached_count=len(book.svg)
+            failures=[];encoded_entries={}
             for i,job in enumerate(book.diagrams):
+                if job['id']in book.svg:continue
                 print(f'[{i+1}/{len(book.diagrams)}] {job["path"]}:{job["line"]}',file=sys.stderr)
-                try:book.svg[job['id']]=engine.render(job['source'],job['id'])
-                except BuildError as e:raise BuildError(job['path']+':'+str(job['line'])+' — '+str(e)) from e
+                try:book.svg[job['id']]=engine.render(job['source'],'fig-'+job['sha256'][:20])
+                except DiagramError as e:
+                    failures.append(job['path']+':'+str(job['line'])+' — '+str(e))
+                    continue
+                except BuildError as e:raise BuildError(job['path']+':'+str(job['line'])+' — fatal renderer failure: '+str(e)) from e
+                rendered_count+=1
+                if cache_path:cache_before=checkpoint_diagrams(cache_path,book,engine.info,cache_before,encoded_entries)
             renderer_info=engine.info
+            if failures:raise BuildError('Diagram rendering incomplete:\n'+'\n'.join(failures))
+        current_environment=renderer_environment(args)
+        if any(renderer_info.get(key)!=value for key,value in current_environment.items()):raise BuildError('Renderer environment changed during build')
     content,meta=book.build(renderer_info)
     book.unchanged()
+    if args.write_diagram_cache:
+        cache_out=args.write_diagram_cache.expanduser().absolute()
+        if cache_out.is_symlink() or any(p.is_symlink() for p in cache_out.parents):raise BuildError('Diagram cache destination symlink rejected')
+        if (cache_out==root or root in cache_out.parents) and cache_out!=root/'.documentation/figures.json':raise BuildError('Only canonical derived figures cache may be published inside source tree')
+        cache_before=cache_out.read_bytes() if cache_out.exists() else None
+        checkpoint_diagrams(cache_out,book,renderer_info,cache_before,{})
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
         check_docs.verify(root, sealed=True)
     out.parent.mkdir(parents=True,exist_ok=True)
     publish_output(out,content,before,book.unchanged)
-    print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(book.data),'reading_attachments':len(book.attachments),'unavailable_repository_references':len(book.unavailable),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else 0,'rendered_this_build':len(book.svg) if args.diagrams=='required' else 0,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
+    print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(book.data),'reading_attachments':len(book.attachments),'unavailable_repository_references':len(book.unavailable),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else cached_count,'rendered_this_build':rendered_count,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))
     return 0
 
 if __name__=='__main__':

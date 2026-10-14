@@ -216,8 +216,8 @@ build.rs、proc-macro 与 native dependency 都是可执行/外部供给。它�
 
 ```mermaid
 flowchart TD
-  bindings["各 UseBinding 已选精确 crate 与能力映射"] --> graph["固定 source/version、features、target 条件及 API 合同"]
-  graph --> cargo["消费 Cargo 真实 feature unification、平台条件及 lock 结果"]
+  bindings["各 UseBinding 已选精确 crate 与能力映射"] --> dependencyGraph["固定 source/version、features、target 条件及 API 合同"]
+  dependencyGraph --> cargo["消费 Cargo 真实 feature unification、平台条件及 lock 结果"]
   cargo --> compose{"crate/workspace 组合相容？"}
   compose -->|是| manifest["单一组合者形成 manifest 与真实调用/适配"]
   compose -->|否| split["准确失败或合法分离构建根，不让最后 writer 覆盖"]
@@ -226,7 +226,7 @@ flowchart TD
   executable -->|否| closure["封闭 rustc/Cargo、std、target、linker 及配置输入"]
   effect --> closure
   closure --> result["实际构建及完整成员；缓存不作唯一事实源"]
-  graph -->|缺供给| needs["返回 Needs；获准取得后形成新固定输入，不在 printer 联网"]
+  dependencyGraph -->|缺供给| needs["返回 Needs；获准取得后形成新固定输入，不在 printer 联网"]
 ```
 
 ## 10. rustc/Cargo 诊断与 SourceMap

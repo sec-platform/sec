@@ -1,0 +1,71 @@
+name: Linux native retirement
+
+# Windows cannot issue Linux flock/unlinkat/recovery evidence. Run only when
+# this native capability or its small dependency-free qualification changes.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/adapters/runtime-state/physical/runtime/**'
+      - '.github/workflows/linux-native-retirement.yml'
+      - '.bun-version'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-native-retirement-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    name: Strict deletion and original-state recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the exact candidate without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Run the original native cases with a verified portable runtime
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(cat .bun-version)" = '1.4.0'
+          task_root="$(mktemp -d "$RUNNER_TEMP/gift-native-retirement.XXXXXX")"
+          cleanup() {
+            original_status=$?
+            case "$task_root" in
+              "$RUNNER_TEMP"/gift-native-retirement.*) ;;
+              *) printf '%s\n' 'Unexpected native qualification cleanup root' >&2; exit 1 ;;
+            esac
+            if ! rm -rf -- "$task_root"; then
+              printf 'Native qualification cleanup failed; original exit=%s\n' "$original_status" >&2
+              exit 1
+            fi
+            test ! -e "$task_root" || exit 1
+            exit "$original_status"
+          }
+          trap cleanup EXIT
+          # No installer, package manager, PATH mutation or dependency setup.
+          # The release archive and executable are independently pinned.
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --connect-timeout 15 --max-time 120 \
+            'https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip' \
+            --output "$task_root/runtime.zip"
+          printf '%s  %s\n' '2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452' \
+            "$task_root/runtime.zip" | sha256sum --check --strict
+          unzip -q "$task_root/runtime.zip" -d "$task_root/runtime"
+          executable="$task_root/runtime/bun-linux-x64/bun"
+          printf '%s  %s\n' '33d56b070be6a9e3da0ab013038b43d1645d0534ca811ecdba4472599117eb4b' \
+            "$executable" | sha256sum --check --strict
+          mkdir "$task_root/tmp"
+          printf '[install]\nauto = "disable"\n' > "$task_root/bunfig.toml"
+          test_file="$GITHUB_WORKSPACE/src/adapters/runtime-state/physical/runtime/linux-tree-byte-retirement.test.ts"
+          cd "$task_root"
+          TMPDIR="$task_root/tmp" timeout --signal=TERM --kill-after=5s 60s \
+            "$executable" --no-env-file --no-install --config "$task_root/bunfig.toml" test "$test_file"
