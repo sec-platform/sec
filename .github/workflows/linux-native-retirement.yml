@@ -67,5 +67,18 @@ jobs:
           printf '[install]\nauto = "disable"\n' > "$task_root/bunfig.toml"
           test_file="$GITHUB_WORKSPACE/src/adapters/runtime-state/physical/runtime/linux-tree-byte-retirement.test.ts"
           cd "$task_root"
+          test "$(uname -s)" = 'Linux'
+          # Select test first: this runtime can exit 0 without running it when
+          # these options precede the subcommand. The report below rejects that.
           TMPDIR="$task_root/tmp" timeout --signal=TERM --kill-after=5s 60s \
-            "$executable" --no-env-file --no-install --config "$task_root/bunfig.toml" test "$test_file"
+            "$executable" test --no-env-file --no-install --config "$task_root/bunfig.toml" \
+            --reporter=junit --reporter-outfile "$task_root/results.xml" "$test_file"
+          # A zero process status alone does not prove any native case ran.
+          python3 - "$task_root/results.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse(sys.argv[1]).iter('testcase'))
+          if not cases or any(case.find(tag) is not None for case in cases for tag in ('skipped', 'failure', 'error')):
+              raise SystemExit('Native qualification requires executed cases with no skips or failures')
+          print(f'Native Linux cases executed={len(cases)}; skipped=0; failures=0')
+          PY
