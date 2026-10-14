@@ -14,7 +14,10 @@ function fixture() {
   for (const [relativePath, bytes] of expectedFileBytes) writeFileSync(path.join(rootPath, relativePath), bytes);
   const parent = inspectNoFollowDirectoryChain(parentPath, 'Tree byte retirement test parent').target;
   const root = inspectNoFollowDirectoryChain(rootPath, 'Tree byte retirement test root').target;
-  const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: performance.now() + 30_000, maximumBytes: 1024, maximumEntries: 8 });
+  // Permission restoration consumes the canonical scan's original mode and
+  // retained POSIX ownership; the default content inventory omits both.
+  const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: performance.now() + 30_000,
+    includePermissionMode: true, maximumBytes: 1024, maximumEntries: 8 });
   const retire = (restoreOwnerPermissions = false) => retireNoFollowDirectoryTree({ parent, root, inventory, expectedFileBytes,
     restoreOwnerPermissions, deadlineAtMonotonicMs: performance.now() + 30_000 });
   return { parentPath, rootPath, expectedFileBytes, retire };

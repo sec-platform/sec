@@ -7,9 +7,22 @@ const lines = readline.createInterface({ input: process.stdin });
 async function execute(x) {
   if (x.action === 'open') {
     driver = require(x.module);
-    if (fs.statSync(x.engine).size > 30000000) throw new Error('Mermaid script exceeds renderer budget');
-    const data = fs.readFileSync(x.engine);
-    if (data.length > 30000000) throw new Error('Mermaid script exceeds renderer budget');
+    const fd = fs.openSync(x.engine, 'r');
+    let data, primary;
+    try {
+      const entry = fs.fstatSync(fd);
+      if (!entry.isFile() || entry.size > 30000000) throw new Error('Mermaid script exceeds renderer budget or is not an ordinary file');
+      const bytes = Buffer.allocUnsafe(30000001);
+      let length = 0, count;
+      while (length < bytes.length && (count = fs.readSync(fd, bytes, length, Math.min(65536, bytes.length - length), null)) !== 0)
+        length += count;
+      if (length > 30000000) throw new Error('Mermaid script exceeds renderer budget');
+      data = bytes.subarray(0, length);
+    } catch (error) { primary = error; throw error; }
+    finally {
+      try { fs.closeSync(fd); }
+      catch (error) { throw primary ? new AggregateError([primary, error], 'Mermaid input read failed: ' + String(primary) + '; descriptor close failed: ' + String(error)) : error; }
+    }
     browser = await driver.chromium.launch({ headless: true, chromiumSandbox: x.sandbox,
       ...(x.browser ? { executablePath: x.browser } : {}) });
     const context = await browser.newContext({ viewport: { width: 1800, height: 1200 }, serviceWorkers: 'block' });
