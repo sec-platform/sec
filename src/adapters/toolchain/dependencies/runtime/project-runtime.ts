@@ -22,6 +22,7 @@ import {
 import { isFileNotFoundError, readJson } from "../../../filesystem/files.ts";
 import { assertPhysicalGenerationRetirementReceipt, assertPhysicallyDisjointDirectoryChains, assertRetainedNoFollowProvenDirectoryGeneration, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { WindowsHostDirectoryAuthorityError } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+import { observeWindowsKernelBootBoundary } from '../../../runtime-state/physical/runtime/windows-kernel-boot.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
@@ -3016,6 +3017,7 @@ async function withInstallLock<T>(
 
 type CompilerDependencyCoordinationSession = Readonly<{
   consumers: PhysicalDirectoryIdentity;
+  root: PhysicalDirectoryIdentity;
 }>;
 
 const COMPILER_DEPENDENCY_COORDINATION_CUTOVER_SCHEMA =
@@ -3371,7 +3373,7 @@ async function withCompilerDependencyCoordinationLease<T>(
             { migrationRequired: true }
           );
         }
-        const session = Object.freeze({ consumers: authority.directory(consumersRoot) });
+        const session = Object.freeze({ consumers: authority.directory(consumersRoot), root: authority.directory(coordinationRoot) });
         compilerDependencyCoordinationSessions.set(operationOptions, session);
         try {
           await settleCompilerDependencyConsumerCompactionIntents(session.consumers, operationOptions);
@@ -8497,6 +8499,213 @@ function parseCompilerDependencyConsumerRecord(
   return Object.freeze(record);
 }
 
+type CompilerDependencyConsumerRecovery = Readonly<{
+  schema: 'sec-compiler-dependency-consumer-recovery-v1';
+  recoveryDigest: `sha256:${string}`;
+  ownerRoot: string;
+  ownerPhysical: GeneratedStatePhysicalIdentity;
+  boot: Readonly<{ sequence: number; fullBootEventRecordId: string }>;
+  acquisitions: readonly CompilerDependencyConsumerRecord[];
+}>;
+
+function parseCompilerDependencyConsumerRecovery(bytes: Uint8Array): CompilerDependencyConsumerRecovery {
+  const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  if (!hasExactObjectKeys(value, ['schema', 'recoveryDigest', 'ownerRoot', 'ownerPhysical', 'boot', 'acquisitions'])) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery has foreign fields');
+  }
+  const recovery = value as unknown as CompilerDependencyConsumerRecovery;
+  if (recovery.schema !== 'sec-compiler-dependency-consumer-recovery-v1' ||
+      !isSha256Digest(recovery.recoveryDigest) || !isCanonicalAbsolutePath(recovery.ownerRoot) ||
+      !isCanonicalGeneratedStatePhysicalIdentity(recovery.ownerPhysical) ||
+      !hasExactObjectKeys(recovery.boot, ['sequence', 'fullBootEventRecordId']) ||
+      !Number.isInteger(recovery.boot.sequence) || recovery.boot.sequence <= 0 || recovery.boot.sequence > 0xffff_ffff ||
+      typeof recovery.boot.fullBootEventRecordId !== 'string' || !/^[1-9][0-9]{0,19}$/u.test(recovery.boot.fullBootEventRecordId) ||
+      BigInt(recovery.boot.fullBootEventRecordId) > 0xffff_ffff_ffff_ffffn ||
+      !Array.isArray(recovery.acquisitions) || recovery.acquisitions.length === 0) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery binding is invalid');
+  }
+  let previous = '';
+  for (const entry of recovery.acquisitions) {
+    const record = parseCompilerDependencyConsumerRecord(Buffer.from(formatJsonFile(canonicalJson(entry))));
+    if (record.phase !== 'acquired' || record.previousRecordDigest !== null ||
+        compareCodeUnits(previous, record.leaseId) >= 0 ||
+        !isCanonicalLocalCompilerDependencyGeneration(recovery.ownerRoot, record.generationPath)) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery acquisition is foreign or duplicate');
+    }
+    previous = record.leaseId;
+  }
+  const { recoveryDigest: _digest, ...unsigned } = recovery;
+  if (generatedStateDigest(canonicalJson(unsigned)) !== recovery.recoveryDigest ||
+      formatJsonFile(canonicalJson(recovery)) !== Buffer.from(bytes).toString('utf8')) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery bytes changed');
+  }
+  return Object.freeze(recovery);
+}
+
+function readCompilerDependencyRecoveryClaims(
+  consumers: PhysicalDirectoryIdentity,
+  generationPath: string,
+  physical: GeneratedStatePhysicalIdentity,
+  options: RuntimeDependencyOperationOptions
+): readonly CompilerDependencyConsumerRecord[] {
+  const epochs = new Set<`sha256:${string}`>();
+  const inventory = scanNoFollowDirectoryTreeInventory(consumers, {
+    deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
+    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
+  });
+  for (const entry of inventory) {
+    if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery consumer inventory is foreign');
+    }
+    const bytes = readNoFollowOrdinaryFile(consumers, entry.relativePath);
+    if (bytes === null) throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery consumer disappeared');
+    if (entry.relativePath.startsWith('zero-')) {
+      parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath);
+      continue;
+    }
+    const record = parseCompilerDependencyConsumerRecord(bytes, entry.relativePath);
+    if (sameHostPath(record.generationPath, generationPath)) {
+      if (!sameGeneratedStateIdentity(record.generationPhysical, physical)) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation identity differs');
+      }
+      epochs.add(record.generationDigest);
+    }
+  }
+  return [...epochs].flatMap(epoch => readCompilerDependencyConsumerCensus(consumers, {
+    epoch, physical, sourcePath: generationPath
+  }, options).active);
+}
+
+/**
+ * Recover only explicitly selected obsolete generations. The first call binds
+ * their original claims to this host's full-boot boundary without revoking any
+ * borrower. A later full boot, native readback and the original coordination
+ * lease are required before retiring claims; no normal release is fabricated.
+ */
+export async function recoverObsoleteCompilerDependencyConsumers(
+  root: string,
+  generationPaths?: readonly string[]
+): Promise<Readonly<{
+  state: 'requires-host-restart' | 'completed';
+  acquisitions: number;
+  generations: readonly string[];
+  recoveryPath: string | null;
+}>> {
+  root = path.resolve(root);
+  return withCompilerDependencyCoordinationLease(root, { lockTimeoutMs: 30_000 }, async options => {
+    const session = compilerDependencyCoordinationSession(options);
+    const owner = inspectNoFollowDirectoryChain(root, 'Compiler dependency recovery owner').target;
+    const ownerPhysical = generatedStatePhysicalIdentity(owner);
+    const name = `consumer-recovery-${generatedStateDigest(canonicalJson({ root, ownerPhysical })).slice('sha256:'.length)}.json`;
+    const recoveryPath = path.join(session.root.path, name);
+    const observation = observeNoFollowOwnedFile(recoveryPath, 'Compiler dependency recovery');
+    const boot = observeWindowsKernelBootBoundary();
+    let recovery: CompilerDependencyConsumerRecovery;
+    if (observation === null) {
+      if (generationPaths === undefined || generationPaths.length === 0) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery requires explicit obsolete generations');
+      }
+      const selected = [...new Set(generationPaths.map(candidate => path.resolve(candidate)))].sort(compareCodeUnits);
+      const activePath = path.resolve(await fs.realpath(dependencyAuthorityPaths(root).compilerModulesRoot));
+      const acquisitions: CompilerDependencyConsumerRecord[] = [];
+      for (const generationPath of selected) {
+        if (!isCanonicalLocalCompilerDependencyGeneration(root, generationPath) || sameHostPath(activePath, generationPath)) {
+          throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery cannot select an active or foreign generation');
+        }
+        const generationRoot = inspectNoFollowDirectoryChain(generationPath, 'Compiler dependency recovery generation').target;
+        const generationPhysical = generatedStatePhysicalIdentity(generationRoot);
+        const claims = readCompilerDependencyRecoveryClaims(session.consumers, generationPath, generationPhysical, options);
+        if (claims.length === 0) {
+          throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery selection has no unresolved claims');
+        }
+        acquisitions.push(...claims);
+      }
+      acquisitions.sort((left, right) => compareCodeUnits(left.leaseId, right.leaseId));
+      const unsigned = Object.freeze({
+        schema: 'sec-compiler-dependency-consumer-recovery-v1' as const,
+        ownerRoot: root, ownerPhysical, boot, acquisitions: Object.freeze(acquisitions)
+      });
+      recovery = Object.freeze({ ...unsigned, recoveryDigest: generatedStateDigest(canonicalJson(unsigned)) });
+      await runtimeDependencyOperationEffectFence(options, 'Compiler dependency recovery preparation');
+      publishExclusiveDurableCanonicalFile({
+        parent: session.root, name,
+        bytes: Buffer.from(formatJsonFile(canonicalJson(recovery))),
+        validate: candidate => { parseCompilerDependencyConsumerRecovery(candidate); }
+      });
+      const readback = readNoFollowOrdinaryFile(session.root, name);
+      if (readback === null || parseCompilerDependencyConsumerRecovery(readback).recoveryDigest !== recovery.recoveryDigest) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery preparation failed readback');
+      }
+    } else {
+      recovery = parseCompilerDependencyConsumerRecovery(readNoFollowOwnedFileBytes(observation, 'Compiler dependency recovery'));
+      if (!sameHostPath(recovery.ownerRoot, root) || !sameGeneratedStateIdentity(recovery.ownerPhysical, ownerPhysical)) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery owner changed');
+      }
+    }
+    const generations = Object.freeze([...new Set(recovery.acquisitions.map(record => record.generationPath))].sort(compareCodeUnits));
+    if (generationPaths !== undefined && !canonicalEquals(
+      [...new Set(generationPaths.map(candidate => path.resolve(candidate)))].sort(compareCodeUnits), generations
+    )) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency pending recovery selection differs');
+    }
+    if (boot.sequence === recovery.boot.sequence && boot.fullBootEventRecordId === recovery.boot.fullBootEventRecordId) {
+      return Object.freeze({ state: 'requires-host-restart', acquisitions: recovery.acquisitions.length, generations, recoveryPath });
+    }
+    if (boot.sequence <= recovery.boot.sequence || BigInt(boot.fullBootEventRecordId) <= BigInt(recovery.boot.fullBootEventRecordId)) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery has no later native full-boot boundary');
+    }
+    const activePath = path.resolve(await fs.realpath(dependencyAuthorityPaths(root).compilerModulesRoot));
+    const retained = new Set(recovery.acquisitions.map(record => record.recordDigest));
+    // Complete the negative census before any mutation. A new-boot borrower is
+    // outside the prepared claim set and keeps the entire generation protected.
+    for (const acquired of recovery.acquisitions) {
+      if (sameHostPath(activePath, acquired.generationPath)) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation became active');
+      }
+      const claims = readCompilerDependencyRecoveryClaims(session.consumers, acquired.generationPath, acquired.generationPhysical, options);
+      if (claims.some(record => !retained.has(record.recordDigest))) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation has a new borrower');
+      }
+      const presence = inspectExactNoFollowDirectoryPresence(acquired.generationPath, 'Compiler dependency recovery generation');
+      if (presence.state !== 'absent' && !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(presence.directory.target), acquired.generationPhysical)) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery physical generation changed');
+      }
+    }
+    for (const acquired of recovery.acquisitions) {
+      for (const phase of ['released', 'acquired'] as const) {
+        const recordName = `consumer-${acquired.leaseId.slice('sha256:'.length)}-${phase}.json`;
+        const recordPath = path.join(session.consumers.path, recordName);
+        const recordObservation = observeNoFollowOwnedFile(recordPath, 'Compiler dependency recovery original claim');
+        if (recordObservation === null) continue;
+        const record = parseCompilerDependencyConsumerRecord(readNoFollowOwnedFileBytes(recordObservation, 'Compiler dependency recovery original claim'), recordName);
+        if ((phase === 'acquired' ? record.recordDigest : record.previousRecordDigest) !== acquired.recordDigest ||
+            record.generationDigest !== acquired.generationDigest || !sameHostPath(record.generationPath, acquired.generationPath) ||
+            !sameGeneratedStateIdentity(record.generationPhysical, acquired.generationPhysical)) {
+          throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery claim is foreign and preserved');
+        }
+        await runtimeDependencyOperationEffectFence(options, 'Compiler dependency old-boot claim retirement');
+        deleteNoFollowOwnedFile(recordPath, recordObservation, 'Compiler dependency old-boot claim');
+      }
+    }
+    await collectReleasedCompilerDependencyGenerations(root, options);
+    for (const generationPath of generations) {
+      if (inspectExactNoFollowDirectoryPresence(generationPath, 'Compiler dependency recovered generation').state !== 'absent') {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery left physical residue');
+      }
+    }
+    const finalObservation = observeNoFollowOwnedFile(recoveryPath, 'Compiler dependency completed recovery');
+    if (finalObservation === null || parseCompilerDependencyConsumerRecovery(
+      readNoFollowOwnedFileBytes(finalObservation, 'Compiler dependency completed recovery')
+    ).recoveryDigest !== recovery.recoveryDigest) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency completed recovery binding changed');
+    }
+    await runtimeDependencyOperationEffectFence(options, 'Compiler dependency completed recovery retirement');
+    deleteNoFollowOwnedFile(recoveryPath, finalObservation, 'Compiler dependency completed recovery');
+    return Object.freeze({ state: 'completed', acquisitions: recovery.acquisitions.length, generations, recoveryPath: null });
+  });
+}
+
 async function compilerDependencyConsumerRoot(
   options: RuntimeDependencyOperationOptions
 ): Promise<PhysicalDirectoryIdentity> {
@@ -9257,50 +9466,62 @@ async function collectReleasedCompilerDependencyGenerations(
       }
       continue;
     }
-    const binding = await readCompilerDepsBinding(path.join(acquired.generationPath, COMPILER_DEPS_BINDING_FILE));
-    if (binding === null) {
-      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation binding is absent');
-    }
-    const observedGeneration = await runtimeDependencySourceGeneration({
-      binding,
-      options,
-      ownerRoot: root,
-      sourcePath: acquired.generationPath
-    });
-    if (!sameGeneratedStateIdentity(observedGeneration.physical, acquired.generationPhysical)) {
-      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation physical authority differs');
-    }
-    const generation = observedGeneration.epoch === acquired.generationDigest
-      ? observedGeneration
-      : acquired.sourceGeneration;
-    if (generation === null || generation.epoch !== acquired.generationDigest ||
-        !sameHostPath(generation.sourcePath, acquired.generationPath) ||
-        !sameGeneratedStateIdentity(generation.physical, acquired.generationPhysical) ||
-        generatedStateDigest(binding) !== generation.bindingDigest) {
-      throw new CodedFailure(
-        'RUNTIME-DEPS-004',
-        'Compiler dependency released generation has no owner-issued pre-mutation authority'
+    const priorRetirement = consumerZeroReceipts.find(receipt =>
+      receipt.generationDigest === acquired.generationDigest &&
+      sameHostPath(receipt.generationPath, acquired.generationPath) &&
+      sameGeneratedStateIdentity(receipt.generationPhysical, acquired.generationPhysical) &&
+      receipt.purpose === 'generation-retirement');
+    const proofRoot = inspectNoFollowDirectoryChild(namespace.backupRoot, 'read-only-generations');
+    const proofAlreadyRetired = proofRoot === null || inspectNoFollowOrdinaryFileEntry(
+      proofRoot, `${acquired.generationDigest.slice('sha256:'.length)}.json`
+    ) === null;
+    // A prior consumer-zero receipt plus completed publisher-proof retirement
+    // is the original deletion admission. Resume its remaining tree directly;
+    // files within that tree (including its binding) may already be gone.
+    if (priorRetirement === undefined || !proofAlreadyRetired) {
+      const binding = await readCompilerDepsBinding(path.join(acquired.generationPath, COMPILER_DEPS_BINDING_FILE));
+      if (binding === null) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation binding is absent');
+      }
+      const observedGeneration = await runtimeDependencySourceGeneration({
+        binding,
+        options,
+        ownerRoot: root,
+        sourcePath: acquired.generationPath
+      });
+      if (!sameGeneratedStateIdentity(observedGeneration.physical, acquired.generationPhysical)) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation physical authority differs');
+      }
+      const generation = observedGeneration.epoch === acquired.generationDigest
+        ? observedGeneration
+        : acquired.sourceGeneration;
+      if (generation === null || generation.epoch !== acquired.generationDigest ||
+          !sameHostPath(generation.sourcePath, acquired.generationPath) ||
+          !sameGeneratedStateIdentity(generation.physical, acquired.generationPhysical) ||
+          generatedStateDigest(binding) !== generation.bindingDigest) {
+        throw new CodedFailure(
+          'RUNTIME-DEPS-004',
+          'Compiler dependency released generation has no owner-issued pre-mutation authority'
+        );
+      }
+      await publishCompilerDependencyConsumerZeroReceipt(
+        consumers,
+        generation,
+        census.censusDigest,
+        census.terminalRecords,
+        'generation-retirement',
+        options
+      );
+      await settleCompilerDependencyConsumerCompactionIntents(consumers, options);
+      // The persisted proof restores publisher access before any tree entry
+      // is deleted. Its absence and the zero receipt allow partial-tree retry.
+      await retireCompilerDependencyExecutionProofIfPresent(
+        root,
+        acquired.generationPath,
+        options,
+        generation
       );
     }
-    await publishCompilerDependencyConsumerZeroReceipt(
-      consumers,
-      generation,
-      census.censusDigest,
-      census.terminalRecords,
-      'generation-retirement',
-      options
-    );
-    await settleCompilerDependencyConsumerCompactionIntents(consumers, options);
-    // The persisted proof is the only authority that may restore publisher
-    // write/delete access.  Reopen the exact child only after that terminal
-    // ACL/mode readback; attempting a deletion-capable parent-relative open
-    // while the proven tree is still read-only correctly fails on Windows.
-    await retireCompilerDependencyExecutionProofIfPresent(
-      root,
-      acquired.generationPath,
-      options,
-      generation
-    );
     const generationRoot = inspectNoFollowDirectoryChain(
       acquired.generationPath,
       'Compiler dependency released generation collection root'
