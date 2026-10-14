@@ -8543,38 +8543,16 @@ function parseCompilerDependencyConsumerRecovery(bytes: Uint8Array): CompilerDep
 }
 
 function readCompilerDependencyRecoveryClaims(
-  consumers: PhysicalDirectoryIdentity,
+  census: CompilerDependencyConsumerCensus,
   generationPath: string,
-  physical: GeneratedStatePhysicalIdentity,
-  options: RuntimeDependencyOperationOptions
+  physical: GeneratedStatePhysicalIdentity
 ): readonly CompilerDependencyConsumerRecord[] {
-  const epochs = new Set<`sha256:${string}`>();
-  const inventory = scanNoFollowDirectoryTreeInventory(consumers, {
-    deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
-    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
-  });
-  for (const entry of inventory) {
-    if (entry.kind !== 'file' || entry.relativePath.includes('/')) {
-      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery consumer inventory is foreign');
-    }
-    const bytes = readNoFollowOrdinaryFile(consumers, entry.relativePath);
-    if (bytes === null) throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery consumer disappeared');
-    if (entry.relativePath.startsWith('zero-')) {
-      parseCompilerDependencyConsumerZeroReceipt(bytes, entry.relativePath);
-      continue;
-    }
-    const record = parseCompilerDependencyConsumerRecord(bytes, entry.relativePath);
-    if (sameHostPath(record.generationPath, generationPath)) {
-      if (!sameGeneratedStateIdentity(record.generationPhysical, physical)) {
-        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation identity differs');
-      }
-      epochs.add(record.generationDigest);
+  for (const record of [...census.active, ...census.terminalRecords.map(terminal => terminal.acquired)]) {
+    if (sameHostPath(record.generationPath, generationPath) && !sameGeneratedStateIdentity(record.generationPhysical, physical)) {
+      throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation identity differs');
     }
   }
-  return [...epochs].flatMap(epoch => readCompilerDependencyConsumerCensus(consumers, {
-    epoch, physical, sourcePath: generationPath
-  }, options).active);
+  return census.active.filter(record => sameHostPath(record.generationPath, generationPath));
 }
 
 /**
@@ -8609,13 +8587,14 @@ export async function recoverObsoleteCompilerDependencyConsumers(
       const selected = [...new Set(generationPaths.map(candidate => path.resolve(candidate)))].sort(compareCodeUnits);
       const activePath = path.resolve(await fs.realpath(dependencyAuthorityPaths(root).compilerModulesRoot));
       const acquisitions: CompilerDependencyConsumerRecord[] = [];
+      const census = readCompilerDependencyConsumerCensus(session.consumers, undefined, options);
       for (const generationPath of selected) {
         if (!isCanonicalLocalCompilerDependencyGeneration(root, generationPath) || sameHostPath(activePath, generationPath)) {
           throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery cannot select an active or foreign generation');
         }
         const generationRoot = inspectNoFollowDirectoryChain(generationPath, 'Compiler dependency recovery generation').target;
         const generationPhysical = generatedStatePhysicalIdentity(generationRoot);
-        const claims = readCompilerDependencyRecoveryClaims(session.consumers, generationPath, generationPhysical, options);
+        const claims = readCompilerDependencyRecoveryClaims(census, generationPath, generationPhysical);
         if (claims.length === 0) {
           throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery selection has no unresolved claims');
         }
@@ -8657,13 +8636,18 @@ export async function recoverObsoleteCompilerDependencyConsumers(
     }
     const activePath = path.resolve(await fs.realpath(dependencyAuthorityPaths(root).compilerModulesRoot));
     const retained = new Set(recovery.acquisitions.map(record => record.recordDigest));
+    // One validated snapshot under the original coordination lease covers all
+    // generations and epochs. No consumer record is mutated until this entire
+    // negative census and every physical preimage have been checked.
+    const census = readCompilerDependencyConsumerCensus(session.consumers, undefined, options);
     // Complete the negative census before any mutation. A new-boot borrower is
     // outside the prepared claim set and keeps the entire generation protected.
-    for (const acquired of recovery.acquisitions) {
+    for (const generationPath of generations) {
+      const acquired = recovery.acquisitions.find(record => sameHostPath(record.generationPath, generationPath))!;
       if (sameHostPath(activePath, acquired.generationPath)) {
         throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation became active');
       }
-      const claims = readCompilerDependencyRecoveryClaims(session.consumers, acquired.generationPath, acquired.generationPhysical, options);
+      const claims = readCompilerDependencyRecoveryClaims(census, acquired.generationPath, acquired.generationPhysical);
       if (claims.some(record => !retained.has(record.recordDigest))) {
         throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery generation has a new borrower');
       }
@@ -8688,7 +8672,7 @@ export async function recoverObsoleteCompilerDependencyConsumers(
         deleteNoFollowOwnedFile(recordPath, recordObservation, 'Compiler dependency old-boot claim');
       }
     }
-    await collectReleasedCompilerDependencyGenerations(root, options);
+    await collectReleasedCompilerDependencyGenerations(root, options, recovery.acquisitions);
     for (const generationPath of generations) {
       if (inspectExactNoFollowDirectoryPresence(generationPath, 'Compiler dependency recovered generation').state !== 'absent') {
         throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency recovery left physical residue');
@@ -9025,14 +9009,13 @@ async function settleCompilerDependencyConsumerCompactionIntents(
         Object.freeze({ digest: terminal.released.recordDigest, name: terminal.releasedName }),
         Object.freeze({ digest: terminal.acquired.recordDigest, name: terminal.acquiredName })
       ]) {
-        const candidatePath = path.join(consumers.path, candidate.name);
-        const observation = observeNoFollowOwnedFile(
-          candidatePath,
-          'Compiler dependency consumer compaction record'
-        );
+        const observation = inspectNoFollowOrdinaryFileEntry(consumers, candidate.name);
         if (observation === null) continue;
+        if (observation.kind !== 'file' || observation.bytes === null) {
+          throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency consumer compaction record is not an ordinary readable file');
+        }
         const parsed = parseCompilerDependencyConsumerRecord(
-          readNoFollowOwnedFileBytes(observation, 'Compiler dependency consumer compaction record'),
+          observation.bytes,
           candidate.name
         );
         if (parsed.recordDigest !== candidate.digest) {
@@ -9045,11 +9028,18 @@ async function settleCompilerDependencyConsumerCompactionIntents(
           options,
           'Compiler dependency consumer compaction record retirement'
         );
-        deleteNoFollowOwnedFile(
-          candidatePath,
-          observation,
-          'Compiler dependency consumer compaction record'
-        );
+        // The coordination session already retains this exact parent. Byte-CAS
+        // deletion uses it directly instead of reopening its full ancestor
+        // chain repeatedly for every historical terminal record.
+        deleteRetainedNoFollowEntry({
+          root: consumers,
+          relativePath: candidate.name,
+          kind: 'file',
+          device: observation.device,
+          inode: observation.inode,
+          expectedFileBytes: observation.bytes,
+          ancestorDirectories: []
+        });
       }
     }
     if (intent.purpose === 'terminal-compaction') {
@@ -9083,7 +9073,7 @@ function readCompilerDependencyConsumerCensus(
     epoch: `sha256:${string}`;
     physical: GeneratedStatePhysicalIdentity;
     sourcePath: string;
-  }>,
+  }> | undefined,
   options: RuntimeDependencyOperationOptions
 ): CompilerDependencyConsumerCensus {
   const context = runtimeDependencyOperationContext(options);
@@ -9130,13 +9120,12 @@ function readCompilerDependencyConsumerCensus(
         leaseId
       });
     }
-    if (released === undefined && acquired.generationDigest === generation.epoch &&
-        sameHostPath(acquired.generationPath, generation.sourcePath) &&
-        sameGeneratedStateIdentity(acquired.generationPhysical, generation.physical)) {
+    const matches = generation === undefined || (acquired.generationDigest === generation.epoch &&
+      sameHostPath(acquired.generationPath, generation.sourcePath) &&
+      sameGeneratedStateIdentity(acquired.generationPhysical, generation.physical));
+    if (released === undefined && matches) {
       active.push(acquired);
-    } else if (released !== undefined && acquired.generationDigest === generation.epoch &&
-        sameHostPath(acquired.generationPath, generation.sourcePath) &&
-        sameGeneratedStateIdentity(acquired.generationPhysical, generation.physical)) {
+    } else if (released !== undefined && matches) {
       terminalRecords.push(Object.freeze({
         acquired,
         acquiredName: `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`,
@@ -9204,7 +9193,8 @@ async function publishCompilerDependencyConsumerZeroReceipt(
 
 async function collectReleasedCompilerDependencyGenerations(
   root: string,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationOptions,
+  recoveredClaims: readonly CompilerDependencyConsumerRecord[] = []
 ): Promise<void> {
   const namespace = inspectDependencyTransitionNamespace(root);
   if (namespace === null) return;
@@ -9219,7 +9209,6 @@ async function collectReleasedCompilerDependencyGenerations(
     generationDigest: `sha256:${string}`;
     generationPath: string;
     generationPhysical: GeneratedStatePhysicalIdentity;
-    sourceGeneration: RuntimeDependencySourceGeneration | null;
   }>;
   const uniqueGenerations = new Map<string, GenerationCandidate>();
   const releasedLegacyGenerations = new Map<string, GeneratedStatePhysicalIdentity>();
@@ -9231,8 +9220,7 @@ async function collectReleasedCompilerDependencyGenerations(
     const candidate: GenerationCandidate = Object.freeze({
       generationDigest: transition.sourceGeneration.epoch,
       generationPath: transition.sourceGeneration.sourcePath,
-      generationPhysical: transition.sourceGeneration.physical,
-      sourceGeneration: transition.sourceGeneration
+      generationPhysical: transition.sourceGeneration.physical
     });
     uniqueGenerations.set(generationKey(candidate.generationDigest, candidate.generationPath), candidate);
   }
@@ -9363,55 +9351,44 @@ async function collectReleasedCompilerDependencyGenerations(
         }
         continue;
       }
-      const binding = await readCompilerDepsBinding(
-        path.join(intent.destinationPath, COMPILER_DEPS_BINDING_FILE)
-      );
-      if (binding === null) {
-        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency relocated legacy generation binding is absent');
-      }
-      const generation = await runtimeDependencySourceGeneration({
-        binding,
-        options,
-        ownerRoot: root,
-        sourcePath: intent.destinationPath
-      });
-      if (!sameGeneratedStateIdentity(generation.physical, intent.sourcePhysical)) {
+      if (!sameGeneratedStateIdentity(generatedStatePhysicalIdentity(destination.directory.target), intent.sourcePhysical)) {
         throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency relocated legacy generation identity differs');
       }
-      if (transition.kind === 'compiler-local-locator' && !sameHostPath(
-        compilerTransitionBackupPath(root, 'generation', generation),
-        intent.destinationPath
-      )) {
-        throw new CodedFailure(
-          'RUNTIME-DEPS-004',
-          'Compiler dependency relocated legacy generation path differs from its exact generation identity'
-        );
+      const originalDigests = new Set([...consumerRecords, ...consumerZeroReceipts, ...recoveredClaims].filter(record =>
+        sameHostPath(record.generationPath, intent.destinationPath) &&
+        sameGeneratedStateIdentity(record.generationPhysical, intent.sourcePhysical)
+      ).map(record => record.generationDigest));
+      if (originalDigests.size === 0) continue; // Unknown legacy identity is preserved, never re-signed from cache contents.
+      if (originalDigests.size !== 1) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency relocated legacy generation has no unique original identity');
       }
-      const key = generationKey(generation.epoch, generation.sourcePath);
-      releasedLegacyGenerations.set(key, generation.physical);
+      const epoch = [...originalDigests][0]!;
+      if (transition.kind === 'compiler-local-locator' && path.basename(intent.destinationPath) !== `generation-${epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`) {
+        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency relocated legacy generation selector differs');
+      }
+      const key = generationKey(epoch, intent.destinationPath);
+      releasedLegacyGenerations.set(key, intent.sourcePhysical);
       uniqueGenerations.set(key, Object.freeze({
-        generationDigest: generation.epoch,
-        generationPath: generation.sourcePath,
-        generationPhysical: generation.physical,
-        sourceGeneration: generation
+        generationDigest: epoch,
+        generationPath: intent.destinationPath,
+        generationPhysical: intent.sourcePhysical
       }));
     }
   }
-  for (const record of consumerRecords) {
+  for (const record of [...consumerRecords, ...recoveredClaims]) {
     if (record.phase === 'acquired') {
       const key = generationKey(record.generationDigest, record.generationPath);
-      const existing = uniqueGenerations.get(key);
       uniqueGenerations.set(key, Object.freeze({
         generationDigest: record.generationDigest,
         generationPath: record.generationPath,
-        generationPhysical: record.generationPhysical,
-        sourceGeneration: existing?.sourceGeneration ?? null
+        generationPhysical: record.generationPhysical
       }));
     }
   }
   const candidates = [...uniqueGenerations.values()].filter((candidate) =>
     activeGenerationPath === null || !sameHostPath(activeGenerationPath, candidate.generationPath));
   if (candidates.length === 0) return;
+  const consumerCensus = readCompilerDependencyConsumerCensus(consumers, undefined, options);
   for (const acquired of candidates) {
     const releasedLegacyPhysical = releasedLegacyGenerations.get(generationKey(
       acquired.generationDigest,
@@ -9435,7 +9412,14 @@ async function collectReleasedCompilerDependencyGenerations(
       physical: acquired.generationPhysical,
       sourcePath: acquired.generationPath
     });
-    const census = readCompilerDependencyConsumerCensus(consumers, censusProjection, options);
+    const census = Object.freeze({
+      ...consumerCensus,
+      active: consumerCensus.active.filter(record => sameHostPath(record.generationPath, acquired.generationPath) &&
+        sameGeneratedStateIdentity(record.generationPhysical, acquired.generationPhysical)),
+      terminalRecords: consumerCensus.terminalRecords.filter(({ acquired: record }) =>
+        record.generationDigest === acquired.generationDigest && sameHostPath(record.generationPath, acquired.generationPath) &&
+        sameGeneratedStateIdentity(record.generationPhysical, acquired.generationPhysical))
+    });
     // An acquired consumer is the complete negative authority for GC.  Do
     // not even reopen its physical generation: on Windows the consumer's
     // retained handles deliberately exclude publisher mutation/deletion and
@@ -9479,34 +9463,9 @@ async function collectReleasedCompilerDependencyGenerations(
     // is the original deletion admission. Resume its remaining tree directly;
     // files within that tree (including its binding) may already be gone.
     if (priorRetirement === undefined || !proofAlreadyRetired) {
-      const binding = await readCompilerDepsBinding(path.join(acquired.generationPath, COMPILER_DEPS_BINDING_FILE));
-      if (binding === null) {
-        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation binding is absent');
-      }
-      const observedGeneration = await runtimeDependencySourceGeneration({
-        binding,
-        options,
-        ownerRoot: root,
-        sourcePath: acquired.generationPath
-      });
-      if (!sameGeneratedStateIdentity(observedGeneration.physical, acquired.generationPhysical)) {
-        throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation physical authority differs');
-      }
-      const generation = observedGeneration.epoch === acquired.generationDigest
-        ? observedGeneration
-        : acquired.sourceGeneration;
-      if (generation === null || generation.epoch !== acquired.generationDigest ||
-          !sameHostPath(generation.sourcePath, acquired.generationPath) ||
-          !sameGeneratedStateIdentity(generation.physical, acquired.generationPhysical) ||
-          generatedStateDigest(binding) !== generation.bindingDigest) {
-        throw new CodedFailure(
-          'RUNTIME-DEPS-004',
-          'Compiler dependency released generation has no owner-issued pre-mutation authority'
-        );
-      }
       await publishCompilerDependencyConsumerZeroReceipt(
         consumers,
-        generation,
+        censusProjection,
         census.censusDigest,
         census.terminalRecords,
         'generation-retirement',
@@ -9519,7 +9478,11 @@ async function collectReleasedCompilerDependencyGenerations(
         root,
         acquired.generationPath,
         options,
-        generation
+        Object.freeze({
+          ...censusProjection,
+          ownerRoot: root,
+          ownerRootPhysical: generatedStatePhysicalIdentity(namespace.ownerRoot)
+        })
       );
     }
     const generationRoot = inspectNoFollowDirectoryChain(
@@ -9529,7 +9492,7 @@ async function collectReleasedCompilerDependencyGenerations(
     if (!sameGeneratedStateIdentity(generatedStatePhysicalIdentity(generationRoot), acquired.generationPhysical)) {
       throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency released generation physical identity changed');
     }
-    const inventory = scanNoFollowDirectoryTreeInventory(generationRoot, {
+    const inventory = scanNoFollowDirectoryTreeMetadata(generationRoot, {
       deadlineAtMs: runtimeDependencyOperationContext(options).deadlineAtMonotonicMs,
       maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
       maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
@@ -9560,7 +9523,7 @@ type RetiredCompilerDependencyPreimage = Readonly<{
 }>;
 
 function assertCompilerDependencyProofOwnerCurrent(
-  sourceGeneration: RuntimeDependencySourceGeneration,
+  sourceGeneration: Pick<RuntimeDependencySourceGeneration, 'ownerRoot' | 'ownerRootPhysical'>,
   label: string
 ): PhysicalDirectoryIdentity {
   const owner = inspectNoFollowDirectoryChain(sourceGeneration.ownerRoot, label).target;
@@ -9575,7 +9538,7 @@ function assertCompilerDependencyProofOwnerCurrent(
 
 function assertCompilerDependencyProofNamespaceCurrent(
   namespace: DependencyTransitionNamespace,
-  sourceGeneration: RuntimeDependencySourceGeneration,
+  sourceGeneration: Pick<RuntimeDependencySourceGeneration, 'ownerRoot' | 'ownerRootPhysical'>,
   label: string
 ): void {
   const owner = assertSameNoFollowDirectoryIdentity(namespace.ownerRoot, label).target;
@@ -9588,7 +9551,7 @@ function assertCompilerDependencyProofNamespaceCurrent(
 }
 
 function inspectCompilerDependencyProofNamespace(
-  sourceGeneration: RuntimeDependencySourceGeneration,
+  sourceGeneration: Pick<RuntimeDependencySourceGeneration, 'ownerRoot' | 'ownerRootPhysical'>,
   label: string
 ): DependencyTransitionNamespace | null {
   const owner = assertCompilerDependencyProofOwnerCurrent(sourceGeneration, `${label} owner`);
@@ -9614,10 +9577,11 @@ async function retireCompilerDependencyExecutionProofIfPresent(
   root: string,
   sourcePath: string,
   options: RuntimeDependencyOperationOptions,
-  expectedSourceGeneration?: RuntimeDependencySourceGeneration
+  expectedSourceGeneration?: RuntimeDependencySourceGeneration | (Pick<RuntimeDependencySourceGeneration, 'epoch' | 'physical' | 'sourcePath' | 'ownerRoot' | 'ownerRootPhysical'> & Readonly<{ schema?: never }>)
 ): Promise<void> {
-  const binding = await readCompilerDepsBinding(path.join(sourcePath, COMPILER_DEPS_BINDING_FILE));
-  if (binding === null) {
+  const binding = expectedSourceGeneration !== undefined && expectedSourceGeneration.schema === undefined
+    ? null : await readCompilerDepsBinding(path.join(sourcePath, COMPILER_DEPS_BINDING_FILE));
+  if (binding === null && expectedSourceGeneration === undefined) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Compiler dependency generation binding is unavailable before proof retirement');
   }
   const sourceGeneration = expectedSourceGeneration ?? await runtimeDependencySourceGeneration({
@@ -9628,7 +9592,7 @@ async function retireCompilerDependencyExecutionProofIfPresent(
   });
   if (!sameHostPath(sourceGeneration.sourcePath, sourcePath) ||
       !sameHostPath(sourceGeneration.ownerRoot, root) ||
-      generatedStateDigest(binding) !== sourceGeneration.bindingDigest) {
+      (sourceGeneration.schema !== undefined && generatedStateDigest(binding) !== sourceGeneration.bindingDigest)) {
     throw new CodedFailure(
       'RUNTIME-DEPS-004',
       'Compiler dependency execution proof retirement authority is foreign'
@@ -9700,11 +9664,11 @@ async function retireCompilerDependencyExecutionProofIfPresent(
     'Compiler dependency execution generation retirement'
   );
   await retireNoFollowProvenDirectoryGeneration({
-    binding: {
+    binding: sourceGeneration.schema !== undefined ? {
       generationDigest: sourceGeneration.epoch,
       treeDigest: sourceGeneration.treeDigest,
       treeEntryCount: sourceGeneration.treeEntryCount
-    },
+    } : { generationDigest: sourceGeneration.epoch },
     // The operation ledger is monotonic and may return a fractional remainder.
     // The physical owner requires one bounded wall-clock integer; floor rather
     // than round so this projection can only narrow the parent budget.

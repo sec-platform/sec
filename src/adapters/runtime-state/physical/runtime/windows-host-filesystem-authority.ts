@@ -1204,16 +1204,24 @@ export async function openWindowsReadOnlyTreeGeneration(
 export async function retireWindowsReadOnlyTreeGeneration(
   rootPath: string,
   proofText: string,
-  binding: WindowsReadOnlyTreeGenerationBinding,
+  binding: WindowsReadOnlyTreeGenerationBinding | Pick<WindowsReadOnlyTreeGenerationBinding, 'generationDigest'>,
   options: Readonly<{ deadlineAtMs?: number; signal?: AbortSignal }> = {}
 ): Promise<void> {
   if (process.platform !== 'win32') {
     throw authorityError('unsupported-platform', 'Windows generation retirement is Windows-only');
   }
-  assertGenerationBinding(binding);
   const proof = parseGenerationProof(proofText);
+  // Retirement restores the persisted predecessor; it does not execute the
+  // tree or recompute its contents. An exact generation digest can bind that
+  // original proof without requiring the caller to reconstruct tree hashes.
+  if (!isDigest(binding.generationDigest) || ('treeEntryCount' in binding && !('treeDigest' in binding))) {
+    throw authorityError('proof-unavailable', 'Windows generation retirement digest is invalid');
+  }
+  const expectedBinding = 'treeDigest' in binding ? binding : proof.binding;
+  assertGenerationBinding(expectedBinding);
   const root = await physicalWindowsDirectory(rootPath);
-  if (!sameGenerationBinding(proof.binding, binding)
+  if (proof.binding.generationDigest !== binding.generationDigest
+      || !sameGenerationBinding(proof.binding, expectedBinding)
       || !sameWindowsPath(proof.rootPath, root.rootPath)
       || !samePhysicalObject(proof.rootIdentity, root.identity)) {
     throw authorityError('physical-identity-changed', 'Windows generation retirement binding changed');
