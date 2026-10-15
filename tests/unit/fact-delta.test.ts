@@ -250,13 +250,11 @@ test('endpoint, lineage, and unsupported validity failures use stable diagnostic
   );
 
   const source = input();
-  const closed = resign(source, (ir) => {
+  // The core validator now rejects unsupported closed intervals before a
+  // snapshot can be branded and later handed to Fact Delta.
+  expectCodedFailure(() => resign(source, (ir) => {
     ir.facts[0]!.assertions[0]!.validToRevision = 'sha256:closed';
-  });
-  expectCodedFailure(
-    () => buildFactDelta(context(before, 'tx:before'), context(closed, 'tx:closed')),
-    'FACT-DELTA-006'
-  );
+  }), 'IR-VALIDATION-009');
 });
 
 test('fact and assertion collections remain canonically ordered', () => {

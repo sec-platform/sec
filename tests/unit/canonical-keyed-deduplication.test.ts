@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
-import { normalizeEvidence, normalizeProvenance } from '../../src/compiler/ir/ir-normalization.ts';
+import { normalizeAttributes, normalizeEvidence, normalizeProvenance } from '../../src/compiler/ir/ir-normalization.ts';
 import { CanonicalKeyConflictError, uniqueSortedByKey } from '../../src/contracts/canonical.ts';
 import type { EvidenceReference, FactProvenance } from '../../src/semantics/engineering-ir/fact-types.ts';
 
@@ -21,6 +21,14 @@ test('keyed deduplication folds canonical-equal duplicates and sorts unique keys
     assert.equal(calls, values.length);
     assert.equal(values.length, 3);
   }
+});
+
+test('entity attributes retain one value per key or reject competing values', () => {
+  const a = { key: 'mode', value: 'safe' };
+  const b = { key: 'name', value: 'subject' };
+  assert.deepEqual(normalizeAttributes([a, b, { ...a }]), [a, b].sort((x, y) =>
+    x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  assert.throws(() => normalizeAttributes([a, { key: 'mode', value: 'unsafe' }]), conflict);
 });
 
 test('conflicting duplicate keys reject every ordering without leaking values', () => {
