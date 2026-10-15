@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import type { ManifestEntry, ManifestKind } from '../../src/compiler/contract/plan-manifest.ts';
 import { resolveManifestGraph } from '../../src/compiler/resolve/manifest-graph.ts';
+import { BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH } from '../../src/contracts/registry-source.ts';
 
 function entry(id: string, requires: string[] = [], provides: string[] = [id], kind: ManifestKind = 'capability'): ManifestEntry {
   return { manifest: { id, version: '1.0.0', kind, requires, provides, conflicts: [], stackProfiles: ['test'],
@@ -12,7 +13,7 @@ function entry(id: string, requires: string[] = [], provides: string[] = [id], k
 /** A builtin official origin is the only current policy-owned implicit provider source. */
 function builtin(entry: ManifestEntry): ManifestEntry {
   return { ...entry, registrySourceId: 'official', registryKind: 'official',
-    registryLocation: 'compiler', registryPath: 'catalog/registry/official' };
+    registryLocation: 'compiler', registryPath: BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH };
 }
 const ids = (values: readonly ManifestEntry[]) => values.map(value => value.manifest.id);
 const resolve = (selected: ManifestEntry[], all = selected) => resolveManifestGraph(selected, all);
