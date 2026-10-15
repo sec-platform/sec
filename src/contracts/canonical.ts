@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { types as nodeTypes } from 'node:util';
 import { createSha256Hasher, type Digest } from './digest.ts';
 
 /**
@@ -17,7 +18,7 @@ import { createSha256Hasher, type Digest } from './digest.ts';
  *   insertion order or locale.
  * - `canonicalJson` recursively sorts object keys and rejects unsupported
  *   value kinds (`undefined`, `bigint`, `function`, `symbol`, non-finite
- *   numbers, non-plain prototypes).
+ *   numbers, non-plain prototypes, proxies and accessor-bearing data).
  * - `uniqueSortedByKey` folds canonical-equal duplicates and rejects conflicting
  *   values under one key; it never chooses an implicit conflicting winner.
  */
@@ -58,6 +59,11 @@ export function canonicalJson(value: unknown): unknown {
       if (!Number.isFinite(entry)) throw new Error('Canonical JSON numbers must be finite');
       return Object.is(entry, -0) ? 0 : entry;
     }
+    // A Proxy may supply caller-controlled descriptor/prototype/ownKeys traps.
+    // Reject before attempting any structural enumeration or property access.
+    if (entry !== null && typeof entry === 'object' && nodeTypes.isProxy(entry)) {
+      throw new Error('Canonical JSON rejects proxies');
+    }
     if (!Array.isArray(entry) && !isPlainObject(entry)) {
       throw new Error('Canonical JSON only accepts arrays and plain objects');
     }
@@ -65,7 +71,7 @@ export function canonicalJson(value: unknown): unknown {
     ancestors.add(entry);
     if (Array.isArray(entry)) {
       // Do not dispatch input.map or ArraySpeciesCreate: input hooks must not
-      // choose the normalized value or its digest. Retain length/hole semantics.
+      // choose the normalized value or its digest. Sparse holes become null.
       const output = new Array<unknown>(entry.length);
       pending.push({ kind: 'array', input: entry, output, length: output.length, cursor: 0 });
       return output;
@@ -85,11 +91,24 @@ export function canonicalJson(value: unknown): unknown {
     }
     const index = frame.cursor++;
     if (frame.kind === 'array') {
-      if (index in frame.input) frame.output[index] = normalize(frame.input[index]);
+      const descriptor = Object.getOwnPropertyDescriptor(frame.input, String(index));
+      if (descriptor !== undefined && !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('Canonical JSON rejects accessor array elements');
+      }
+      // Own data only: inherited indices never determine canonical truth.
+      // Define rather than assign to bypass ambient Array.prototype setters.
+      Object.defineProperty(frame.output, String(index), {
+        value: normalize(descriptor === undefined ? null : descriptor.value),
+        enumerable: true, configurable: true, writable: true
+      });
       continue;
     }
     const key = frame.keys[index]!;
-    const nested = frame.input[key];
+    const descriptor = Object.getOwnPropertyDescriptor(frame.input, key);
+    if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) {
+      throw new Error(`Canonical JSON rejects accessor or unstable property at key "${key}"`);
+    }
+    const nested = descriptor.value;
     if (nested === undefined || typeof nested === 'bigint' || typeof nested === 'function' || typeof nested === 'symbol') {
       throw new Error(`Canonical JSON rejects unsupported value at key "${key}"`);
     }
