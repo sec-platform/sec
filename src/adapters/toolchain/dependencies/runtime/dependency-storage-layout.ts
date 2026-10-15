@@ -7,11 +7,20 @@ import {
   physicallyContainsDirectoryChain
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { observeCompilerDependencyCoordinationRoots } from './dependency-coordination-location.ts';
+
+/** Existing durable State remains attached to its original physical locator;
+ * current cache selection controls only new generation/stage publication. */
+export function compilerDependencyStorageRuntimeRoots(ownerRoot: string) {
+  ownerRoot = path.resolve(ownerRoot);
+  return observeCompilerDependencyCoordinationRoots(ownerRoot)?.roots
+    ?? resolveSecWorkspaceRuntimeRoots({ repositoryRoot: ownerRoot });
+}
 
 /** Location only: qualification remains bound to the real engineering owner. */
 export function compilerDependencyStoragePaths(ownerRoot: string) {
   ownerRoot = path.resolve(ownerRoot);
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: ownerRoot });
+  const roots = compilerDependencyStorageRuntimeRoots(ownerRoot);
   const cachePartition = path.join(roots.cacheRoot, 'workspaces', 'v1', roots.workspaceLocatorKey.slice(7), 'compiler-dependencies');
   const statePartition = path.join(roots.workspaceStateRoot, 'compiler-dependencies');
   const legacyBackupRoot = path.join(ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups');

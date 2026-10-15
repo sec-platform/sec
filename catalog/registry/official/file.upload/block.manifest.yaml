@@ -27,3 +27,6 @@ pins:
       required: true
 acceptance:
   - id: customer_can_upload_attachment
+    source:
+      tests:
+        - tests/acceptance/customer-attachments-flow.test.ts

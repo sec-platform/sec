@@ -166,8 +166,8 @@ def _enqueue_directory(entry: Path, pending: list[Path], visited: int, limit: in
             pending.append(entry / child.name)
 
 
-def baseline(root: Path) -> dict:
-    value = decode(read_ordinary(root, BASELINE_PATH), BASELINE_PATH)
+def baseline(root: Path, captured=None) -> dict:
+    value = decode(source_bytes(root, BASELINE_PATH, captured), BASELINE_PATH)
     if not isinstance(value, dict) or set(value) != BASELINE_KEYS:
         raise ValueError('baseline must contain exactly the source-boundary fields')
     if value['schema'] != BASELINE_SCHEMA or value['source_root'] != '..':
@@ -300,22 +300,41 @@ def documentation_files(root: Path, include_cache: bool = True, *, include_proje
     return tuple(sorted(files, key=lambda p: p.relative_to(root).as_posix()))
 
 
-def source_manifest_members(root: Path) -> list[dict[str, object]]:
+def source_bytes(root: Path, name, captured=None) -> bytes:
+    if isinstance(name, Path):name=name.relative_to(root).as_posix()
+    if captured is None:return read_ordinary(root, name)
+    try:return captured[name]
+    except KeyError as error:raise FileNotFoundError('Missing captured source: '+name) from error
+
+
+def capture_source_bytes(root: Path) -> dict[str, bytes]:
+    root = _root(root);captured={};total=0
+    for path in source_files(root):
+        name=path.relative_to(root).as_posix();data=read_ordinary(root,name);total+=len(data)
+        if total>MAX_TOTAL_BYTES:raise ValueError('documentation source byte budget exceeded')
+        captured[name]=data
+    return captured
+
+
+def assert_source_capture_current(root: Path, captured) -> None:
+    if captured != capture_source_bytes(root):raise ValueError('documentation source changed during capture')
+
+
+def source_manifest_members(root: Path, captured=None) -> list[dict[str, object]]:
     root = _root(root)
     members = []
-    total = 0
-    for path in source_files(root):
-        name = path.relative_to(root).as_posix()
-        data = read_ordinary(root, name)
-        total += len(data)
-        if total > MAX_TOTAL_BYTES:
-            raise ValueError('documentation source byte budget exceeded')
+    for name,data in sorted((capture_source_bytes(root) if captured is None else captured).items()):
         members.append({'path': name, 'bytes': len(data), 'sha256': _sha256(data)})
     return members
 
 
 def source_set_digest(members: list[dict[str, object]]) -> str:
     return _sha256(canonical(members))
+
+
+def source_manifest_from_capture(root: Path, captured) -> dict:
+    members=source_manifest_members(root,captured)
+    return {'schema':MANIFEST_SCHEMA,'source_set_sha256':source_set_digest(members),'members':members}
 
 
 def source_identity_from_capture(captured: dict[str, bytes]) -> str:
@@ -340,14 +359,14 @@ def validate_source_manifest(value: object, root: Path) -> dict:
     return expected
 
 
-def requirement_projection(root: Path) -> dict:
+def requirement_projection(root: Path, captured=None) -> dict:
     """Rebuild the locator; stable requirement identities remain authored in Markdown."""
     from check_docs import anchor_locations
     name = 'docs/产品/产品要求与工作约束.md'
     path = local_path(root, name)
-    if not path.exists():
+    if (captured is None and not path.exists()) or (captured is not None and name not in captured):
         raise ValueError('requirement authority is missing')
-    text = read_ordinary(root, name).decode('utf-8')
+    text = source_bytes(root, name, captured).decode('utf-8')
     anchors = anchor_locations(text)
     visible_lines = {n for lines in anchors.values() for n in lines}
     matches = [m for m in re.finditer(r'^### (REQ\d{3})[^\n]*', text, re.M)

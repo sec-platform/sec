@@ -1,4 +1,5 @@
 import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
+import type { AcceptanceSource } from '../../semantics/acceptance/types.ts';
 import type { SemanticGeneratorTask as SemanticLoweringTask } from '../../semantics/generation/types.ts';
 import type { SemanticViewSet } from '../../semantics/projection/types.ts';
 import type { PassStatus } from './pass-status.ts';
@@ -51,5 +52,8 @@ export interface LockFile {
   semanticViews?: SemanticViewSet;
   generatedPaths: string[];
   acceptancePlan: string[];
+  /** Absent only in historical Locks readable by non-verification consumers.
+   * Current verification requires a newly resolved captured source. */
+  acceptanceSources?: AcceptanceSource[];
   passStatus: PassStatus;
 }

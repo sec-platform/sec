@@ -40,8 +40,9 @@ const provenance: ProvenanceFile = {
 };
 
 const coverage: AcceptanceCoverageReport = {
-  formatVersion: "1",
+  formatVersion: "2",
   status: "passed",
+  source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
   acceptancePassed: [],
   blocks: [],
   uncoveredBlocks: [],

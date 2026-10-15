@@ -11,7 +11,9 @@ import { ensureProjectBase } from '../../src/adapters/workspace/project-base.ts'
 import { isCanonicalVerificationArtifactSet } from '../../src/assurance/verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../src/assurance/verification/profile/contract/product.ts';
+import { productVerificationSubjectRevision } from '../../src/assurance/verification/project/report.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
+import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -58,8 +60,9 @@ function blockedArtifactSet() {
     logs: { stdout: '', stderr: '' }
   };
   const acceptanceCoverage = {
-    formatVersion: '1' as const,
+    formatVersion: '2' as const,
     status: 'skipped' as const,
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: [] as string[],
     blocks: [],
     uncoveredBlocks: [] as string[]
@@ -79,7 +82,7 @@ function blockedArtifactSet() {
         failedLanes: ['fast' as const],
         claimSummary: buildBlockedProductVerificationClaimSummary(
           'all',
-          productVerificationObservationsFixture()
+          productVerificationObservationsFixture('all', 'full', productVerificationSubjectRevision(publicationLock()))
         )
       },
       logs: { stdout: '', stderr: '' }
@@ -90,13 +93,17 @@ function blockedArtifactSet() {
   };
 }
 
+function publicationLock() {
+  return buildReviewLock({ passStatus: { verify: 'failed' }, semanticLoweringTasks: [], semanticViews: buildSemanticViewFixture() });
+}
+
 test('Verification artifact publisher bytes round-trip through the canonical reader', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await ensureProjectBase(workspaceRoot);
     const artifacts = blockedArtifactSet();
     await publishVerificationArtifactSet({
       workspaceRoot,
-      lock: buildReviewLock({ passStatus: { verify: 'failed' } }),
+      lock: publicationLock(),
       artifacts
     });
 
@@ -160,7 +167,7 @@ test('publication owns one root, input set and callback despite mutation at the 
     await ensureProjectBase(workspaceRoot);
     const expected = blockedArtifactSet();
     const input = { workspaceRoot, artifacts: structuredClone(expected),
-      lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: async () => {} };
+      lock: publicationLock(), commitFence: async () => {} };
     let calls = 0;
     input.commitFence = async () => {
       calls++;
@@ -182,7 +189,7 @@ test('nested source changes cannot retarget the already validated artifact set',
     await ensureProjectBase(workspaceRoot);
     const artifacts = blockedArtifactSet(), expected = structuredClone(artifacts);
     await publishVerificationArtifactSet({ workspaceRoot, artifacts,
-      lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: async () => {
+      lock: publicationLock(), commitFence: async () => {
         artifacts.verificationReport.fast.unit.passed.push('changed.test.ts');
         artifacts.runtimeReport.logs.stdout = 'changed';
       } });
@@ -197,7 +204,7 @@ test('a relative publication root cannot move when the callback changes cwd', as
     try {
       process.chdir(workspaceRoot);
       await publishVerificationArtifactSet({ workspaceRoot: '.', artifacts,
-        lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: async () => { process.chdir(tmpdir()); } });
+        lock: publicationLock(), commitFence: async () => { process.chdir(tmpdir()); } });
       assert.deepEqual(readOptionalCanonicalVerificationArtifactSet(workspaceRoot), artifacts);
     } finally { process.chdir(previous); }
   });
@@ -210,7 +217,7 @@ test('publication callback keeps private state on the actual provider receiver',
       #calls = 0;
       workspaceRoot = workspaceRoot;
       artifacts = blockedArtifactSet();
-      lock = buildReviewLock({ passStatus: { verify: 'failed' } });
+      lock = publicationLock();
       async commitFence() { this.#calls++; }
       get calls() { return this.#calls; }
     }
@@ -225,7 +232,7 @@ test('invalid callback rejects before any verification artifact is published', a
   await withTempWorkspace(async workspaceRoot => {
     await ensureProjectBase(workspaceRoot);
     await assert.rejects(publishVerificationArtifactSet({ workspaceRoot, artifacts: blockedArtifactSet(),
-      lock: buildReviewLock({ passStatus: { verify: 'failed' } }), commitFence: 7 as never }), TypeError);
+      lock: publicationLock(), commitFence: 7 as never }), TypeError);
     for (const key of ['runtimeReport', 'policyReport', 'acceptanceCoverage', 'verificationReport'] as const) {
       await assert.rejects(fs.access(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES[key])));
     }

@@ -9,15 +9,15 @@ import { readOptionalVerificationArtifactSet } from '../../src/adapters/verifica
 import { publishVerificationArtifactSet } from '../../src/adapters/verification/verification-artifact-publication.ts';
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { readLockFile } from '../../src/adapters/workspace/lock.ts';
+import { buildAcceptanceCoverageReport } from '../../src/assurance/acceptance/build-coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import { productVerificationSubjectRevision } from '../../src/assurance/verification/project/report.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/semantics/policies/types.ts';
-import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
+import { buildOfficialCopyInstallStep, buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairVerificationFixture } from '../helpers/repair-fixtures.ts';
 import {
-  buildPassingReviewCoverage,
   buildPassingReviewReport,
   buildReviewLock,
   buildRuntimeVerificationReport
@@ -47,21 +47,13 @@ async function writeCanonicalPassingVerificationArtifacts(
   lock: LockFile
 ): Promise<VerificationReport> {
   const policyReport = skippedPolicyReport();
-  const acceptanceCoverage = buildPassingReviewCoverage({
-    acceptancePassed: [ACCEPTANCE_ID],
-    blocks: [{
-      id: BLOCK_ID,
-      declaredAcceptance: [ACCEPTANCE_ID],
-      coveredBy: [ACCEPTANCE_ID],
-      uncovered: false
-    }]
-  });
   const fast = {
     ...report.fast,
     status: 'passed' as const,
     policy: { status: 'skipped' as const, violations: [] },
     policyReport
   };
+  const acceptanceCoverage = buildAcceptanceCoverageReport({ lock, fast, runtime: report.runtime });
   const verificationReport = await writeCanonicalVerificationArtifactSetFixture(workspaceRoot, {
     ...report,
     policy: { status: 'skipped', violations: [] },
@@ -80,11 +72,15 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
         stack: 'typescript-library',
         mode: 'single-tenant'
       },
-      resolvedBlocks: [],
+      resolvedBlocks: [buildOfficialResolvedBlock({ id: BLOCK_ID, installOrder: 1,
+        manifestPath: 'catalog/registry/official/entity.customer-basic/block.manifest.yaml' })],
       resolvedCapabilities: [],
       semanticLoweringTasks: [],
       semanticViews: buildSemanticViewFixture(),
       installPlan: [
+        buildOfficialCopyInstallStep({ stepId: 'copy_customer_acceptance', blockId: BLOCK_ID,
+          sourceRoot: 'catalog/registry/official/entity.customer-basic/files',
+          from: 'files/tests/acceptance/customer-flow.test.ts', to: ACCEPTANCE_TEST }),
         buildOfficialCopyInstallStep({
           stepId: 'copy_customer_runtime_test',
           blockId: BLOCK_ID,
@@ -105,7 +101,10 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
         CI_ARTIFACT_FILES.repairPlan,
         CI_ARTIFACT_FILES.upgradePlan
       ],
-      acceptancePlan: [],
+      acceptancePlan: [ACCEPTANCE_ID],
+      acceptanceSources: [{ declaringBlockId: BLOCK_ID, acceptance: {
+        id: ACCEPTANCE_ID, source: { tests: [ACCEPTANCE_TEST] }
+      } }],
       passStatus: {
         parse: 'succeeded',
         align: 'succeeded',
@@ -139,13 +138,14 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
     const provenance = await buildProvenance(workspaceRoot, lock);
 
     expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
-      verifiedBy: ['tests/unit/customer-runtime.test.ts']
+      verifiedBy: [ACCEPTANCE_TEST, 'tests/unit/customer-runtime.test.ts']
     });
     expect(provenance.artifacts.map((artifact) => [artifact.path, artifact.generatedByPass])).toEqual([
       [CI_ARTIFACT_FILES.explainGraph, 'explain'],
       [CI_ARTIFACT_FILES.repairPlan, 'repair'],
       [CI_ARTIFACT_FILES.upgradePlan, 'upgrade'],
       ['src/installed/entity/customer-service.ts', 'compose'],
+      [ACCEPTANCE_TEST, 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);
 
@@ -207,6 +207,7 @@ test('lockProject rejects foreign subjects before effects and captures admitted 
     expect(effects).toBe(0);
     expect(await fs.readFile(lockPath, 'utf8')).toBe(admittedBytes);
 
+    const callerBeforePublication = structuredClone(fixture.lock);
     const pending = lockProject(workspaceRoot, fixture.lock);
     fixture.lock.app.id = 'retargeted-after-admission';
     fixture.lock.passStatus.verify = 'failed';
@@ -215,7 +216,7 @@ test('lockProject rejects foreign subjects before effects and captures admitted 
     expect(published.passStatus.verify).toBe('succeeded');
     expect(published.passStatus.lock).toBe('succeeded');
     expect(readLockFile(workspaceRoot)).toEqual(published);
-    expect(fixture.lock.passStatus.lock).toBe('succeeded');
-    expect(fixture.lock.generatedPaths).toEqual(published.generatedPaths);
+    expect(fixture.lock.passStatus.lock).toBe(callerBeforePublication.passStatus.lock);
+    expect(fixture.lock.generatedPaths).toEqual(callerBeforePublication.generatedPaths);
   });
 });

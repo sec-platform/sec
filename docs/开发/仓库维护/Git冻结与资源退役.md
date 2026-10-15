@@ -100,7 +100,9 @@ CodeQL projection、真实 review submission、inline finding/thread、人工裁
 
 普通安装使用包管理器原生用户缓存。必须隔离、只读执行和保留借用的副本，存于既有 Runtime Cache 的物理工作区分区 `workspaces/v1/<workspaceLocatorKey>/compiler-dependencies/`：`generations/` 保存正式代际，`stages/` 保存未发布物化。该键由真实工程物理身份派生，不按路径名称猜同一工程。转换日志、publisher proof、消费者与零消费者凭据、stage/恢复意图放既有 Runtime State 分区；它们承担在途恢复及作用前像，不能随内容缓存任意丢弃。工作区只保留标准 `node_modules` 使用入口；普通目录前像因同卷原对象重命名而暂存在原工程的回滚根，完成后准确退役。回滚根为空时只表示没有回滚材料，不要求为表示空状态重新制造目录内容。
 
-工程资格 owner 与内容的物理父目录分别处理。`ownerRoot`、`ownerRootPhysical` 绑定真实工程输入责任；`sourcePath`、`physical`、`bindingDigest`、`treeDigest`、`treeEntryCount` 与 `epoch` 绑定实际代际。源可以位于工程内，或位于该真实工程派生的准确用户缓存分区；外部源必须经原生不跟随目录链、缓存/工程物理分离及当前对象身份检查，字符串前缀不是准入。跨工作树消费由原记录中的工程 owner 与真实物理身份定位，不能从缓存 hash 目录倒推工程，也不能把缓存目录复制一套 manifest 冒充工程真源。环境改变不重写旧记录中的绝对路径或物理身份；缺少当前存放准入时保留原对象并报告迁移需要。
+工程资格 owner 与内容的物理父目录分别处理。`ownerRoot`、`ownerRootPhysical` 绑定真实工程输入责任；`sourcePath`、`physical`、`bindingDigest`、`treeDigest`、`treeEntryCount` 与 `epoch` 绑定实际代际。源可以位于工程内，或位于该真实工程派生的准确用户缓存分区；外部源必须经原生不跟随目录链、缓存/工程物理分离及当前对象身份检查，字符串前缀不是准入。跨工作树消费由原记录中的工程 owner 与真实物理身份定位，不能从缓存 hash 目录倒推工程，也不能把缓存目录复制一套 manifest 冒充工程真源。有效持久 locator 固定原 State，当前显式 cache 选择只决定新 generation/stage 的位置；环境改变不重选旧日志、证明或意图，也不重写旧路径与物理身份。已经发布的旧源可由原准确记录、入口与 owner/source 物理身份、完整 binding 和 retained native proof 继续限定读取；这不授予旧 cache 父目录的新写权。未知 owner、损坏 locator、原证明缺失或漂移拒绝相交读取并保留原材料，不退回读取缓存容器中的假工程 manifest。公共读要求原转换终态，原写者的发布读回与恢复只能消费其真正持有的同一协调 session。
+
+目标工程读取复用这一已准备源。runtime source 只从唯一签发的 compiler source 及其摘要准确绑定的完整 compiler binding 中派生 `runtimeMaterialization`；保留 owner/source 物理身份及 tree 事实，按 runtime binding 重算 bindingDigest 与 epoch，不声称原 native proof 已经绑定新 epoch。目标作用前仍由同一读取 owner 重验原来源与 binding，不能用结构 clone、自填 runtime binding 或第二次普通目录扫描绕过资格。共享 State 物理能力固定稳定父目录；可正常退役的临时意图子目录由原 intent owner 管理出生、作用、恢复与精确退出，不能因长期固定其旧目录身份而阻断下次合法操作。
 
 <!-- mermaid:id=cache_boundary -->
 ```mermaid
@@ -109,14 +111,16 @@ flowchart LR
   dev["仓库开发：归属选择、准备、迁移及清理决策"]
   shared["共同依赖能力：内容绑定、物理代际、借用与投影事务"]
   pkg["包管理器原生用户缓存"]
-  stage["用户缓存：未发布 stages"]
-  cache["用户缓存：已验证只读 generations"]
+  stage["当前显式用户缓存：未发布 stages"]
+  cache["原记录与 native proof 限定的已发布只读 generations"]
   locator["仓库 node_modules：使用入口"]
   compiler["产品：只观察已准备源、借用和发布本目标投影"]
+  runtime["project读取owner：由唯一issued源与完整binding派生runtime事实<br/>原physical/tree保持；重算runtime bindingDigest/epoch"]
+  reject["owner/proof不明、身份漂移或公共读遇未结转换：拒绝相交动作<br/>保留原State与源，不安装、不补假manifest"]
   release["本次借用真实释放：不顺带全库 GC"]
   gc["开发维护：自己的旧代际及历史记录"]
   native["OS 文件身份、权限与删除"]
-  state["用户状态：journal、proof、consumers、zero 与未完意图"]
+  state["持久locator绑定的原State：journal、proof、consumers、zero 与未完意图"]
   rollback["工程同卷：普通目录原像，仅转换期间保留"]
   inputs -->|固定资格与输入前像| dev
   dev -->|显式准备，许可不安装时只复制| shared
@@ -126,8 +130,13 @@ flowchart LR
   stage -->|完整验证、新物理身份及证明| cache
   cache -->|准确入口发布| locator
   locator -->|只读观察及真实借用| compiler
+  cache -->|原准确物理身份与native proof；不扩大旧cache写域| compiler
+  compiler -->|完整binding摘要及其runtimeMaterialization关系| runtime
+  runtime -->|目标作用前重验原proof与binding；不重复普通扫描| shared
+  compiler -->|资格缺失或漂移| reject
+  state -->|locator损坏或原转换未结；原held写者读回另核| reject
   compiler -->|finally| release
-  shared -->|原意图与原对象绑定| state
+  shared -->|稳定父目录；原intent owner管理子目录出生/恢复/退出| state
   shared -->|普通目录切换前同卷保全| rollback
   dev -->|选择自己的过期副本| gc
   gc -->|核所有 epoch 借用及活动入口| state

@@ -4,6 +4,7 @@ import {
   type VerificationArtifactPublicationArtifacts
 } from '../../assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
+import { assertProductVerificationArtifactSubject } from '../../assurance/verification/project/report.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { formatJsonFile } from "../../contracts/json-text.ts";
@@ -49,6 +50,7 @@ export async function publishVerificationArtifactSet(
   const commitFence = providerFence === undefined ? undefined : () => Reflect.apply(providerFence, input, []);
   const lock = structuredClone(requestedLock);
   const artifacts = snapshotVerificationPublicationArtifacts(requestedArtifacts);
+  assertProductVerificationArtifactSubject(lock, artifacts);
   // Resolve every destination and encode every artifact before the first fence
   // or file effect. A later input mutation cannot split one set across roots,
   // replace its admission callback, or change a later serialization decision.

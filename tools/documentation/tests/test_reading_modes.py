@@ -10,6 +10,14 @@ from .test_check_documentation_identity import declaration
 import check_design as d
 
 class Modes(unittest.TestCase):
+ @staticmethod
+ def renderer_fixture():
+  info={'engine_sha256':b.sha(b'fixture engine'),'core_sha256':b.sha(b'fixture core'),'browser':'fixture browser',
+        'drawing_profile':{'configuration':{'fontFamily':'fixture'},'viewport':{'width':1800,'height':1200,'deviceScaleFactor':1},'locale':'en-US'},
+        'backend':'original transport','font_family':'fixture'}
+  environment={'core_sha256':info['core_sha256'],'font_environment_sha256':b.sha(b'fixture fonts'),
+               'browser_executable':{'path':'fixture browser','sha256':b.sha(b'browser bytes')},'os':'fixture OS','cross_run_reuse':True}
+  return info,environment
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.home=Path(self.tmp.name);self.root=self.home/'SEC';(self.root/'docs').mkdir(parents=True);(self.root/'.documentation').mkdir();self.out=self.home/'out.html'
   (self.root/'.documentation/baseline.json').write_text(json.dumps({**declaration(['README.md','docs','.documentation']), 'entry':'../README.md'}),encoding='utf-8')
@@ -83,6 +91,39 @@ class Modes(unittest.TestCase):
   second=self.run_('--replace')
   self.assertEqual(first['source_set_sha256'],second['source_set_sha256'])
   self.assertNotEqual(first['input_set_sha256'],second['input_set_sha256'])
+ def test_derived_cache_carrier_is_not_embedded_twice_as_authored_source(self):
+  cache=self.cache();cache['purpose']='independent-cache-carrier-marker'
+  (self.root/'.documentation/figures.json').write_text(json.dumps(cache))
+  result=self.run_();output=self.out.read_text()
+  self.assertEqual(result['rendered'],1)
+  self.assertNotIn('independent-cache-carrier-marker',output)
+  self.assertIn(base64.b64encode(self.svg).decode(),output)
+  self.assertIn('图缓存',output)
+ def test_geometry_identity_reads_core_not_publication_or_pipe_implementation(self):
+  import os
+  fonts=self.home/'windows/Fonts';fonts.mkdir(parents=True);(fonts/'fixture.ttf').write_bytes(b'font bytes')
+  browser=self.home/'browser.exe';browser.write_bytes(b'browser bytes')
+  args=argparse.Namespace(browser=str(browser),font_family='fixture')
+  native=Path.read_bytes
+  def read(path):
+   if path.name in ('build_html.py','mermaid_node_renderer.cjs'):raise AssertionError('unrelated lifecycle implementation entered SVG identity')
+   return native(path)
+  with contextlib.ExitStack()as stack:
+   stack.enter_context(patch.dict(os.environ,{'WINDIR':str(fonts.parent),'LOCALAPPDATA':str(self.home)}))
+   stack.enter_context(patch.object(b.platform,'platform',return_value='fixture OS'))
+   if os.name=='nt':
+    import winreg
+    stack.enter_context(patch.object(winreg,'OpenKey',side_effect=FileNotFoundError))
+   else:
+    stack.enter_context(patch.object(b.shutil,'which',side_effect=lambda name:name))
+    stack.enter_context(patch.object(b.subprocess,'run',side_effect=lambda command,**kwargs:argparse.Namespace(stdout=str(fonts/'fixture.ttf')+'\n'if command[0]=='fc-list'else'')))
+   stack.enter_context(patch.object(Path,'read_bytes',read))
+   stack.enter_context(patch.object(b,'render_core_bytes',side_effect=[b'drawing core',b'changed drawing core']))
+   first=b.renderer_environment(args)
+   self.assertTrue(first['cross_run_reuse'])
+   self.assertNotIn('implementation_sha256',first)
+   second=b.renderer_environment(args)
+  self.assertNotEqual(first['core_sha256'],second['core_sha256'])
  def test_source_mode_does_not_read_broken_cache(self):
   (self.root/'.documentation/figures.json').write_bytes(b'\xffinvalid cache')
   self.assertEqual(self.run_('--diagrams','source')['rendered'],0)
@@ -94,7 +135,7 @@ class Modes(unittest.TestCase):
   cache=self.home/'progress.json';engine_file=self.home/'engine.js';engine_file.write_text('fixture only')
   calls=[];outer=self
   class Engine:
-   def __init__(self,args):self.info={'engine_sha256':'fixture'};self.process=type('Process',(),{'is_alive':lambda self:True})()
+   def __init__(self,args):self.info=outer.renderer_fixture()[0];self.process=type('Process',(),{'is_alive':lambda self:True})()
    def __enter__(self):return self
    def __exit__(self,*args):pass
    def render(self,source,ident):
@@ -103,7 +144,7 @@ class Modes(unittest.TestCase):
     return outer.svg
   args=('--diagrams','required','--mermaid-js',str(engine_file),'--diagram-cache',str(cache))
   self.out.write_bytes(b'old')
-  environment={'cross_run_reuse':True,'fixture_environment':'fixed'}
+  environment=self.renderer_fixture()[1]
   with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value=environment):
    with self.assertRaises(b.BuildError):self.run_('--replace',*args)
   self.assertEqual(self.out.read_bytes(),b'old');self.assertEqual(len(json.loads(cache.read_bytes())['entries']),1)
@@ -153,12 +194,52 @@ class Modes(unittest.TestCase):
    self.bad('--diagrams','required','--mermaid-js','fixture')
   self.assertEqual(len(calls),1)
  def test_required_cache_rejects_entry_renderer_identity_mismatch(self):
-  cache=self.cache();cache['renderer']['cross_run_reuse']=True
+  cache=self.cache();info,environment=self.renderer_fixture();b.bind_drawing_identity(info,environment);cache['renderer']=info
   path=self.root/'.documentation/figures.json';path.write_text(json.dumps(cache))
   book=argparse.Namespace(diagrams=[{'sha256':b.sha(self.source.encode()),'id':'figure','path':'fixture'}],svg={})
   args=argparse.Namespace(diagram_cache=str(path))
   with self.assertRaisesRegex(b.BuildError,'renderer identity mismatch'):
    b.read_diagram_cache(self.root,{},args,book,expected_renderer=cache['renderer'])
+ def test_drawing_cache_reuses_transport_changes_but_not_core_or_effective_profile_changes(self):
+  import copy
+  cache=self.cache();info,environment=self.renderer_fixture();identity=b.bind_drawing_identity(info,environment)
+  cache['renderer']=info;next(iter(cache['entries'].values()))['renderer_id']=b.sha(b.canon(identity))
+  path=self.root/'.documentation/figures.json';path.write_text(json.dumps(cache))
+  args=argparse.Namespace(diagram_cache=str(path))
+  def read(expected):
+   book=argparse.Namespace(diagrams=[{'sha256':b.sha(self.source.encode()),'id':'figure','path':'fixture'}],svg={})
+   return b.read_diagram_cache(self.root,{},args,book,expected_renderer=expected)
+  transport=copy.deepcopy(info);transport.update(backend='changed',node='different',engine_label='new label',browser_sandbox=False)
+  self.assertEqual(read(transport)['rendered'],1)
+  core=copy.deepcopy(info);core['core_sha256']=b.sha(b'changed core');changed_environment={**environment,'core_sha256':core['core_sha256']};b.bind_drawing_identity(core,changed_environment)
+  self.assertEqual(read(core)['rendered'],0)
+  profile=copy.deepcopy(info);profile['drawing_profile']['viewport']['width']=900;b.bind_drawing_identity(profile,environment)
+  self.assertEqual(read(profile)['rendered'],0)
+ def test_book_uses_captured_baseline_then_rejects_real_input_drift(self):
+  args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=False,max_file_bytes=1_000_000,max_total_bytes=2_000_000)
+  captured=b.capture(self.root,args)
+  (self.root/'.documentation/baseline.json').write_text('broken live baseline')
+  book=b.Book(self.root,captured,args)
+  self.assertIn('docs',book.source_roots)
+  with self.assertRaises(ValueError):book.unchanged()
+ def test_mixed_cache_retains_actual_producer_without_changing_drawing_identity(self):
+  import copy
+  cache=self.cache();original,environment=self.renderer_fixture();b.bind_drawing_identity(original,environment)
+  cache['renderer']=original;next(iter(cache['entries'].values()))['renderer_id']=b.sha(b.canon(original['drawing_identity']))
+  path=self.root/'.documentation/figures.json';path.write_text(json.dumps(cache))
+  current=copy.deepcopy(original);current['backend']='new transport'
+  old_key=b.sha(self.source.encode());new_key=b.sha(b'new diagram')
+  book=argparse.Namespace(diagrams=[{'sha256':old_key,'id':'old','path':'fixture'},{'sha256':new_key,'id':'new','path':'fixture'}],svg={},svg_provenance={})
+  b.read_diagram_cache(self.root,{},argparse.Namespace(diagram_cache=str(path)),book,expected_renderer=current)
+  book.svg['new']=self.svg;book.svg_provenance['new']=current
+  output=self.home/'mixed.json';payload=b.checkpoint_diagrams(output,book,current,None,{})
+  mixed=json.loads(payload)
+  self.assertEqual(mixed['entries'][old_key]['producer'],original)
+  self.assertNotIn('producer',mixed['entries'][new_key])
+  self.assertEqual(mixed['entries'][old_key]['renderer_id'],mixed['entries'][new_key]['renderer_id'])
+  reread=argparse.Namespace(diagrams=book.diagrams,svg={},svg_provenance={})
+  b.read_diagram_cache(self.root,{},argparse.Namespace(diagram_cache=str(output)),reread,expected_renderer=current)
+  self.assertEqual(reread.svg_provenance,{'old':original,'new':current})
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

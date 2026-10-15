@@ -18,8 +18,9 @@ import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
-    formatVersion: '1',
+    formatVersion: '2',
     status: 'passed',
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: [],
     blocks: [],
     uncoveredBlocks: []

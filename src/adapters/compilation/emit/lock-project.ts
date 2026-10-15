@@ -28,7 +28,5 @@ export async function lockProject(
   publicationLock.passStatus.lock = 'succeeded';
   // Provenance publication also durably publishes the generated-path Lock.
   await writeProvenanceFromVerification(workspaceRoot, publicationLock, artifacts, commitFence);
-  lock.passStatus.lock = 'succeeded';
-  lock.generatedPaths = [...publicationLock.generatedPaths];
   return publicationLock;
 }

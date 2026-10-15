@@ -11,6 +11,7 @@ import {
 import type { GitReadProviderRoute } from '../../../providers/git-read/runtime/session.ts';
 import { SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS } from '../../../repository/source-program-model/compilation-operation.ts';
 import { isSourceProgramInputPath } from '../../../repository/source-program-model/contract.ts';
+import type { WorkspaceTypeScriptProjectGenerationEvidence } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,
@@ -120,34 +121,42 @@ function gate(id: LocalAffectedGateId): LocalAffectedGateStep {
   return { id, command };
 }
 
-/** Git-issued paths only; semantic selection still owns every other input. */
+/** Markdown bodies cannot be native TypeScript sources or resolution metadata.
+ * Other documentation inputs still require the real compiler observation. */
 export function isDocumentationOnlyAffectedSelection(changedPaths: readonly string[]): boolean {
   return changedPaths.length > 0
     && changedPaths.every((file) => isDocumentationVerificationInputPath(file)
+      && /\.(?:md|markdown)$/iu.test(file)
       && !isSourceProgramInputPath(file)
       && !file.startsWith('tools/'));
 }
 
 export function buildLocalAffectedCheckPlan(
-  affectedPlan: AffectedTestPlan
+  affectedPlan: AffectedTestPlan,
+  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence | null = null
 ): LocalAffectedCheckPlan {
   const changedPaths = [...affectedPlan.changedPaths];
   const documentationGateChanged = changedPaths.some((file) => isDocumentationVerificationInputPath(file));
-  const documentationGateOnly = isDocumentationOnlyAffectedSelection(changedPaths);
+  const compilerInputs = projectGenerationEvidence === null ? null
+    : new Set([
+        ...projectGenerationEvidence.projectInput.sourceFacts.map(({ path }) => path),
+        ...projectGenerationEvidence.projectInput.resolutionLookupPaths
+      ]);
   const typescriptChanged = changedPaths.some((file) => (
     /\.[cm]?tsx?$/u.test(file)
-    && (isSourceProgramInputPath(file) || !isDocumentationVerificationInputPath(file))
+    && (isSourceProgramInputPath(file) || !isDocumentationVerificationInputPath(file)
+      || compilerInputs?.has(file) === true)
   ));
-  const typecheckRequired = typescriptChanged || changedPaths.some((file) => (
+  const typecheckRequired = (compilerInputs !== null && changedPaths.some((file) => compilerInputs.has(file)))
+    || affectedPlan.selectionResolved.unresolvedModuleFiles.length > 0
+    || typescriptChanged || changedPaths.some((file) => (
     TYPECHECK_AUTHORITY_PATHS.has(file)
     || /^tsconfig(?:\.[^/]+)?\.json$/u.test(file)
   ));
   const failClosed = affectedPlan.resolved
     && isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary);
   const testAffectedRequired = affectedPlan.selectedFastTests.length > 0 || failClosed;
-  const gates = documentationGateOnly
-    ? [gate('docs:doctor')]
-    : [
+  const gates = [
       ...(typescriptChanged ? [gate('imports:check')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(documentationGateChanged ? [gate('docs:doctor')] : []),
@@ -156,7 +165,8 @@ export function buildLocalAffectedCheckPlan(
 
   return {
     schema: 'sec-local-affected-check-plan-v1',
-    resolved: affectedPlan.resolved,
+    resolved: affectedPlan.resolved && (projectGenerationEvidence !== null
+      || changedPaths.length === 0 || isDocumentationOnlyAffectedSelection(changedPaths)),
     changedPaths,
     affectedPlan,
     gates,

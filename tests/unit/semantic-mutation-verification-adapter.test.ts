@@ -424,8 +424,9 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     logs: runtimeLogs
   };
   const acceptanceCoverage = {
-    formatVersion: '1' as const,
+    formatVersion: '2' as const,
     status: runtime.status,
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: [],
     blocks: [],
     uncoveredBlocks: []

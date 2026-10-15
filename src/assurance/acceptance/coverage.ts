@@ -1,6 +1,7 @@
 import type { VerificationStatus } from '../verification/contract/types.ts';
+import type { AcceptanceCoverageSource } from './source.ts';
 
-export const ACCEPTANCE_COVERAGE_FORMAT_VERSION = '1' as const;
+export const ACCEPTANCE_COVERAGE_FORMAT_VERSION = '2' as const;
 
 export interface AcceptanceCoverageEntry {
   id: string;
@@ -12,6 +13,7 @@ export interface AcceptanceCoverageEntry {
 export interface AcceptanceCoverageReport {
   formatVersion: typeof ACCEPTANCE_COVERAGE_FORMAT_VERSION;
   status: VerificationStatus;
+  source: AcceptanceCoverageSource;
   acceptancePassed: string[];
   blocks: AcceptanceCoverageEntry[];
   uncoveredBlocks: string[];

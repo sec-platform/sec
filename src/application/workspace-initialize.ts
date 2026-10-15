@@ -35,6 +35,7 @@ export async function initializePreparedWorkspace(
     resolvedBlocks: [], resolvedCapabilities: [], installPlan: [],
     generatedPaths: [...initialGeneratedPaths],
     acceptancePlan: plan.acceptance.map(entry => entry.id),
+    acceptanceSources: [],
     passStatus: { ...PASS_INITIAL_STATES }
   };
   const suppliedRecipe = await loadTemplate.call(operations, template);

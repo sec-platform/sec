@@ -54,8 +54,7 @@ test('semantic application analysis avoids target loaders and generation request
       manifests: [],
       acceptanceIds: [],
       policyDeclarations: []
-    },
-    generatorDeclarations: []
+    }
   };
   const calls: string[] = [];
   const unavailable = new Error('test target loader unavailable');

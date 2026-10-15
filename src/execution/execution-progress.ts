@@ -1,3 +1,5 @@
+import { observeOptionalDiagnostic } from './optional-diagnostic.ts';
+
 const processStartedAtMonotonicMs = performance.now();
 const processStartedAtUnixMs = Date.now();
 let progressEnabled = false;
@@ -12,11 +14,7 @@ export function enableExecutionProgress(): void {
   progressEnabled = true;
   const heartbeat = setInterval(() => {
     for (const { command, phase } of phaseStarts.values()) {
-      try {
-        reportExecutionProgress({ command, phase, state: 'running' });
-      } catch {
-        // Progress is a diagnostic projection, never an execution prerequisite.
-      }
+      reportExecutionProgress({ command, phase, state: 'running' });
     }
   }, PROGRESS_HEARTBEAT_INTERVAL_MS);
   heartbeat.unref();
@@ -30,31 +28,33 @@ export function reportExecutionProgress(input: Readonly<{
   elapsedMs?: number;
 }>): void {
   if (!progressEnabled) return;
-  const observedAtMonotonicMs = performance.now();
-  const phaseKey = JSON.stringify([input.command, input.phase]);
-  let phaseDurationMs: number | undefined;
-  if (input.state === 'start') {
-    phaseStarts.set(phaseKey, { command: input.command, phase: input.phase, at: observedAtMonotonicMs });
-  } else {
-    const startedAt = phaseStarts.get(phaseKey);
-    if (startedAt !== undefined) {
-      phaseDurationMs = Math.max(0, observedAtMonotonicMs - startedAt.at);
-      if (input.state !== 'running') phaseStarts.delete(phaseKey);
+  observeOptionalDiagnostic(() => {
+    const observedAtMonotonicMs = performance.now();
+    const phaseKey = JSON.stringify([input.command, input.phase]);
+    let phaseDurationMs: number | undefined;
+    if (input.state === 'start') {
+      phaseStarts.set(phaseKey, { command: input.command, phase: input.phase, at: observedAtMonotonicMs });
+    } else {
+      const startedAt = phaseStarts.get(phaseKey);
+      if (startedAt !== undefined) {
+        phaseDurationMs = Math.max(0, observedAtMonotonicMs - startedAt.at);
+        if (input.state !== 'running') phaseStarts.delete(phaseKey);
+      }
     }
-  }
-  const record = Object.freeze({
-    schema: 'sec-execution-progress-v1' as const,
-    command: input.command,
-    phase: input.phase,
-    state: input.state,
-    startedAt: new Date(processStartedAtUnixMs).toISOString(),
-    observedAt: new Date().toISOString(),
-    elapsedMs: Math.max(0, input.elapsedMs ?? (observedAtMonotonicMs - processStartedAtMonotonicMs)),
-    ...(phaseDurationMs === undefined ? {} : { phaseDurationMs }),
-    processId: process.pid,
-    ...(input.detail === undefined ? {} : { detail: input.detail })
+    const record = Object.freeze({
+      schema: 'sec-execution-progress-v1' as const,
+      command: input.command,
+      phase: input.phase,
+      state: input.state,
+      startedAt: new Date(processStartedAtUnixMs).toISOString(),
+      observedAt: new Date().toISOString(),
+      elapsedMs: Math.max(0, input.elapsedMs ?? (observedAtMonotonicMs - processStartedAtMonotonicMs)),
+      ...(phaseDurationMs === undefined ? {} : { phaseDurationMs }),
+      processId: process.pid,
+      ...(input.detail === undefined ? {} : { detail: input.detail })
+    });
+    process.stderr.write(`[sec-progress] ${JSON.stringify(record)}\n`);
   });
-  process.stderr.write(`[sec-progress] ${JSON.stringify(record)}\n`);
 }
 
 /** One bounded phase emits its terminal timing even when the underlying owner throws. */

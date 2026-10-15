@@ -6,7 +6,6 @@ import { prepareManifestResolution } from '../../compiler/resolve/resolve-plan.t
 import { canonicalEquals, uniqueSorted } from '../../contracts/canonical.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { posixPath } from '../../contracts/relative-path.ts';
-import type { SemanticGeneratorDeclaration } from '../../semantics/generation/types.ts';
 import type { SemanticMutationLoadedSourceCandidate } from '../../semantics/mutation/types.ts';
 import { buildSemanticContractSourceCandidate } from "../../semantics/provenance/source-candidate.ts";
 import { getWorkspacePaths } from "../workspace-context.ts";
@@ -24,7 +23,6 @@ function stableManifestPath(entry: ManifestEntry): string {
 
 export interface WorkspaceEngineeringIRBuildInput {
   engineeringIRInput: BuildEngineeringIRInput;
-  generatorDeclarations: SemanticGeneratorDeclaration[];
   semanticContractSources: SemanticMutationLoadedSourceCandidate[];
   /** Exact in-memory Lock object consumed to derive this build input. */
   sourceLock: LockFile;
@@ -127,17 +125,6 @@ async function captureWorkspaceEngineeringIRBuildInput(
       semanticContracts
     },
     semanticContractSources,
-    generatorDeclarations: manifestEntries.flatMap((entry) =>
-      entry.manifest.generators.map((declaration) => ({
-        blockId: entry.manifest.id,
-        manifestPath: stableManifestPath(entry),
-        declaration: structuredClone(declaration),
-        registrySourceId: entry.registrySourceId,
-        registryKind: entry.registryKind,
-        registryLocation: entry.registryLocation,
-        registryPath: entry.registryPath
-      }))
-    ),
     sourceLock: lock
   };
 }

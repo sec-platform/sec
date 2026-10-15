@@ -62,6 +62,12 @@ test('begin never retargets owner or source after asynchronous slot observation 
   assert.equal(result.sourceGeneration.ownerRoot, f.root);
 }));
 
+test('begin rejects a structural source clone before creating any transition namespace', async () => using(async f => {
+  await assert.rejects(beginDependencyTransition({ ...request(f), sourceGeneration: { ...f.sourceGeneration } }),
+    (error: unknown) => error instanceof Error && error.message.includes('was not issued by the physical source compiler'));
+  assert.equal(existsSync(path.join(f.root, '.tmp')), false);
+}));
+
 test('relative begin paths are interpreted at invocation, not after an await changes cwd', async () => using(async f => {
   const original = process.cwd();
   try {

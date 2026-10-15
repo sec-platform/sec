@@ -100,7 +100,6 @@ export async function ensureProjectDependencyOperation(projectRoot:string, optio
       readCanonicalPaths: native.observeProjectCanonicalDependencyPaths,
       readRuntimeSpec: native.readProjectDependencyRuntimeSpec,
       observeCompilerReady: () => native.observeProjectCompilerDependencySource(operationOptions),
-      readSourceGeneration: (binding, ownerRoot, sourcePath) => native.readProjectDependencySourceGeneration(binding, ownerRoot, sourcePath, operationOptions),
       verifyIsolatedSource: native.verifyIsolatedProjectDependencySource,
       publishTarget: source => {
         const lifecycle = operationOptions.generatedStateLifecycle ?? operationOptions.generatedStateLifecycleFactory?.forWorkspace(projectRoot);

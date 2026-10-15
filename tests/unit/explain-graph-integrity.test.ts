@@ -13,8 +13,9 @@ const EMPTY_PROVENANCE: ProvenanceFile = {
 };
 
 const EMPTY_COVERAGE: AcceptanceCoverageReport = {
-  formatVersion: '1',
+  formatVersion: '2',
   status: 'passed',
+  source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
   acceptancePassed: [],
   blocks: [],
   uncoveredBlocks: []
@@ -163,4 +164,29 @@ test('provenance and coverage register their block endpoints explicitly', async 
     to: 'acceptance:acceptance-1',
     type: 'verified_by'
   });
+});
+
+test('semantic ports retain canonical endpoints and references without legacy aliases', async () => {
+  const app = node('app:customer-admin', 'customer-admin', 'app');
+  const block = node('block:fixture/basic', 'fixture/basic', 'block');
+  const port = node('port:fixture/basic:input:context', 'context', 'port');
+  port.references = [{ kind: 'entity', ref: port.id }];
+  const references = [{ kind: 'entity' as const, ref: block.id }, ...port.references];
+  const lock = lockWithProjection([app, block, port], [{
+    id: 'edge:context', source: block.id, target: port.id,
+    relation: 'REQUIRES', label: 'requires', references
+  }]);
+  const graph = await buildExplainGraph(process.cwd(), lock, EMPTY_PROVENANCE, EMPTY_COVERAGE, null);
+
+  expect(graph.nodes).toHaveLength(3);
+  expect(graph.nodes.find(entry => entry.id === port.id)).toEqual({
+    id: port.id, type: 'port', label: 'context', references: port.references
+  });
+  expect(graph.edges).toEqual([{
+    from: block.id, to: port.id, type: 'requires', references
+  }]);
+  expect(graph.nodes.some(entry => entry.type === 'pin')).toBe(false);
+  const endpoints = new Set(graph.nodes.map(entry => entry.id));
+  expect(endpoints.size).toBe(graph.nodes.length);
+  expect(graph.edges.every(edge => endpoints.has(edge.from) && endpoints.has(edge.to))).toBe(true);
 });

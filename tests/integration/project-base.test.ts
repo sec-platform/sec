@@ -75,9 +75,9 @@ test('project base emits the canonical TypeScript runtime package', async () => 
     const passed = await runFast();
     expect(passed.code, passed.stdout + passed.stderr).toBe(0);
     expect(passed.stdout.split('native-acceptance-called')).toHaveLength(2);
-    const contractPath = path.join(paths.srcRoot, 'installed', 'infra', 'postgres-contract.ts');
-    const source = await readFile(contractPath, 'utf8');
-    await writeFile(contractPath, source.replace("provider: 'postgres'", "provider: 'broken-provider'"));
+    const contractPath = path.join(workspaceRoot, 'generated', 'postgres-contract.json');
+    const source = await readJson<Record<string, unknown>>(contractPath);
+    await writeFile(contractPath, JSON.stringify({ ...source, provider: 'broken-provider' }));
     const failed = await runFast();
     expect(failed.code).not.toBe(0);
     expect(failed.stdout + failed.stderr).toContain('broken-provider');

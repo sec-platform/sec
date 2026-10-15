@@ -63,6 +63,7 @@ interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerific
   acceptanceCoverage: {
     formatVersion: string;
     status: PolicyStatus;
+    source: AcceptanceCoverageReport['source'];
     acceptancePassed: string[];
     blocks: Array<{
       id: string;
@@ -128,6 +129,11 @@ function coverage(status: 'passed' | 'failed'): AcceptanceCoverageReport {
   return {
     formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
     status,
+    source: {
+      resolvedBlockIds: [BLOCK_ID], acceptancePlan: [ACCEPTANCE_ID],
+      declarations: [{ declaringBlockId: BLOCK_ID, acceptance: { id: ACCEPTANCE_ID, source: { tests: ['tests/acceptance/customer-flow.test.ts'] } } }],
+      tests: [{ testPath: 'tests/acceptance/customer-flow.test.ts', blockId: BLOCK_ID }]
+    },
     acceptancePassed: complete ? [ACCEPTANCE_ID] : [],
     blocks: [{
       id: BLOCK_ID,
@@ -162,7 +168,7 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
     unit: { status: 'passed' as const, passed: ['unit/current-writer.test.ts'] },
     acceptance: {
       status: 'passed' as const,
-      passed: ['acceptance/current-writer.test.ts'],
+      passed: ['tests/acceptance/current-writer.test.ts'],
       failed: []
     },
     policy: { status: 'passed' as const, violations: [] },

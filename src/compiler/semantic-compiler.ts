@@ -1,3 +1,4 @@
+import { isPlainObject } from '../contracts/canonical.ts';
 import { CodedFailure } from '../contracts/failure.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir/validated-types.ts';
 import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan } from '../semantics/generation/types.ts';
@@ -10,7 +11,18 @@ import { captureSemanticRoots, selectSemanticGeneratorRoots } from './semantic-r
 
 export interface SemanticCompilationInput {
   readonly engineeringIRInput: BuildEngineeringIRInput;
-  readonly generatorDeclarations?: readonly SemanticGeneratorDeclaration[];
+}
+
+/** The captured profile has one source. Reject unsupported own fields instead
+ * of silently ignoring a caller's requested compilation behavior. Nested IR
+ * validation remains with the existing compiler boundary. */
+export function assertSemanticCompilationInput(value: unknown): asserts value is SemanticCompilationInput {
+  if (!isPlainObject(value) || !Object.hasOwn(value, 'engineeringIRInput')
+      || Reflect.ownKeys(value).some(key => key !== 'engineeringIRInput')
+      || !isPlainObject(value.engineeringIRInput)) {
+    throw new CodedFailure('SEMANTIC-INPUT-001',
+      'Semantic compilation input requires only its own engineeringIRInput field');
+  }
 }
 
 export interface SemanticCompilation {
@@ -43,12 +55,13 @@ function deriveSemanticGeneratorDeclarations(input: BuildEngineeringIRInput): Se
  * function does not turn independently captured values into an atomic snapshot.
  */
 export function compileSemanticInput(input: SemanticCompilationInput, roots?: readonly string[]): SemanticCompilation {
+  assertSemanticCompilationInput(input);
   const selectedRoots = captureSemanticRoots(roots);
   const snapshot = buildValidatedEngineeringIR(input.engineeringIRInput);
   return Object.freeze({
     snapshot,
     generatorPlan: buildSemanticGeneratorPlan(snapshot, selectSemanticGeneratorRoots(
-      input.generatorDeclarations ?? deriveSemanticGeneratorDeclarations(input.engineeringIRInput), selectedRoots
+      deriveSemanticGeneratorDeclarations(input.engineeringIRInput), selectedRoots
     )),
     semanticViews: buildSemanticViewSet(snapshot)
   });

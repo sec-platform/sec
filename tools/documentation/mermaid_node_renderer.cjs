@@ -31,30 +31,19 @@ async function execute(x) {
     page.setDefaultTimeout(x.timeout);
     await page.setContent('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
     await page.addScriptTag({ content: data.toString('utf8') });
+    if (typeof x.core !== 'string' || Buffer.byteLength(x.core) > 100000) throw new Error('Drawing core missing or over budget');
+    await page.addScriptTag({ content: x.core });
     if (!await page.evaluate(() => !!window.mermaid && typeof mermaid.render === 'function' && typeof mermaid.initialize === 'function'))
       throw new Error('Supply standalone Mermaid UMD/IIFE exposing window.mermaid');
     return { info: { engine_sha256: crypto.createHash('sha256').update(data).digest('hex'),
       browser: browser.version(), playwright: require(require('node:path').join(x.module, 'package.json')).version,
       font_family: x.font_family, browser_sandbox: x.sandbox, engine_label: x.engine_label,
-      backend: 'node-playwright', node: process.version, architecture: process.arch } };
+      backend: 'node-playwright', node: process.version, architecture: process.arch,
+      core_sha256: crypto.createHash('sha256').update(x.core).digest('hex'),
+      drawing_profile: await page.evaluate(family => GiftMermaidCore.profile(family), x.font_family) } };
   }
   if (x.action === 'render') {
-    if (/^\s*(?:%%\{\s*(?:init|config)|click\b|---\s*$)/m.test(x.source))
-      throw new Error('Diagram-local configuration/callback rejected');
-    const rendered = await page.evaluate(async x => {
-      mermaid.initialize(x.config);
-      let timer;
-      try {
-        const result = await Promise.race([mermaid.render(x.id, x.source),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('diagram timeout')), x.ms); })]);
-        const parsed = new DOMParser().parseFromString(result.svg, 'text/html');
-        const svg = parsed.querySelector('svg');
-        if (!svg) throw new Error('missing SVG');
-        return { svg: new XMLSerializer().serializeToString(svg) };
-      } catch (error) {
-        return { error: String(error.stack || error), kind: error.hash && Array.isArray(error.hash.expected) ? 'syntax' : 'fatal' };
-      } finally { clearTimeout(timer); }
-    }, x);
+    const rendered = await page.evaluate(input => GiftMermaidCore.render(input), x);
     if (blocked.length) throw new Error('Renderer attempted network access: ' + blocked.slice(0, 3).join(', '));
     return rendered;
   }

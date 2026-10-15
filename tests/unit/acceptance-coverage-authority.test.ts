@@ -7,6 +7,11 @@ function canonicalCoverage() {
   return {
     formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
     status: 'passed',
+    source: {
+      resolvedBlockIds: ['auth/basic-session'], acceptancePlan: ['acceptance_login'],
+      declarations: [{ declaringBlockId: 'auth/basic-session', acceptance: { id: 'acceptance_login', source: { tests: ['tests/acceptance/auth.test.ts'] } } }],
+      tests: [{ testPath: 'tests/acceptance/auth.test.ts', blockId: 'auth/basic-session' }]
+    },
     acceptancePassed: ['acceptance_login'],
     blocks: [{
       id: 'auth/basic-session',

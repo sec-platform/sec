@@ -26,6 +26,9 @@ pins:
       required: true
 acceptance:
   - id: agent_can_be_registered
+    source:
+      tests:
+        - tests/acceptance/agent-classifier-flow.test.ts
     dependsOn:
       - tenant_only_sees_own_customers
     covers:

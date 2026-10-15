@@ -31,9 +31,8 @@ import {
   scanNoFollowDirectoryTree,
   type PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
-import { compilerDependencyStoragePaths } from '../dependency-storage-layout.ts';
+import { compilerDependencyStoragePaths, compilerDependencyStorageRuntimeRoots } from '../dependency-storage-layout.ts';
 import {
   runtimeDependencyEffectFenceOptions,
   runtimeDependencyOperationEffectFence,
@@ -237,11 +236,14 @@ export async function ensureDependencyTransitionNamespace(
   if (oldIntents !== null && (await readNoFollowDirectNames(oldIntents, 'Legacy compiler stage intent migration', DEPENDENCY_TRANSITION_RECORD_CAPACITY, options)).length !== 0) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Legacy compiler stage intents require original owner recovery before namespace migration', { migrationRequired: true });
   }
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: owner.path });
+  const roots = compilerDependencyStorageRuntimeRoots(owner.path);
   return withAcquiredResource({
     acquire: () => acquireSecRuntimeStatePhysicalAuthority({
       repositoryRoot: owner.path, stateRoot: roots.stateRoot, cacheRoot: roots.cacheRoot,
-      requiredDirectories: [paths.generationRoot, paths.stageParent, paths.stageIntentRoot,
+      // Stage intents are operation-owned children that can retire while this
+      // shared authority is held. Pin their stable State parent, not a child
+      // whose genuine absence must remain recoverable by its original owner.
+      requiredDirectories: [paths.generationRoot, paths.stageParent,
         path.dirname(paths.journalRoot)],
       deadlineAtUnixMs: runtimeDependencyOperationContext(options).deadlineAtUnixMs
     }),

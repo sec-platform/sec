@@ -1,4 +1,4 @@
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
@@ -26,6 +26,7 @@ import { isSourceProgramInputPath, type SourceProgramCompilation, type SourcePro
 import { sourceProgramModuleImports } from './embedded-programs.ts';
 import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { canonicalFiles, sourceGeneration, type WorkspaceSourceFile, type WorkspaceSourceFileMode } from './workspace-source-content.ts';
+import { createTypeScriptDeclaredInputClosure, TypeScriptDeclaredInputConfigurationError } from './workspace-typescript-closure.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
@@ -294,7 +295,7 @@ function issueWorkspaceSourceSnapshot(
   const requireSemanticProjection = () => {
     if (semanticProjection !== null) return semanticProjection;
     const moduleGraph = compileSourceProgramRepositoryModuleGraph({
-      files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
+      files: files.map(({ path }) => path),
       readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
       readEmbeddedLanguageImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
     });
@@ -713,6 +714,42 @@ async function observeWorkingTreeMembership(
   return Object.freeze(currentEntries);
 }
 
+function declaredInputAcquisitionClosure(
+  files: readonly WorkspaceSourceFile[],
+  membershipPaths: readonly string[]
+): ReturnType<typeof createTypeScriptDeclaredInputClosure> | null {
+  if (!files.some(({ path }) => path === 'tsconfig.json')) return null;
+  const rootPaths = files.map(({ path }) => path);
+  const byPath = new Map<string, WorkspaceSourceFile>();
+  let indexedLength = 0;
+  const closure = createTypeScriptDeclaredInputClosure({
+    projectConfigPath: 'tsconfig.json',
+    rootPaths,
+    membershipPaths,
+    file: (repositoryPath) => {
+      while (indexedLength < files.length) {
+        const file = files[indexedLength++]!;
+        byPath.set(file.path, file);
+      }
+      return byPath.get(repositoryPath) ?? null;
+    }
+  });
+  let invalidConfig = false;
+  return Object.freeze({
+    advance: () => {
+      if (invalidConfig) return Object.freeze([]);
+      try {
+        return closure.advance();
+      } catch (error) {
+        if (!(error instanceof TypeScriptDeclaredInputConfigurationError)) throw error;
+        invalidConfig = true;
+        return Object.freeze([]);
+      }
+    },
+    selectedPaths: closure.selectedPaths
+  });
+}
+
 /**
  * The only working-tree acquisition path. Membership, exact bytes and source
  * identity are derived inside the live production Git session; callers cannot
@@ -732,57 +769,86 @@ export async function acquireWorkingTreeSnapshot(
   const sourceMembershipEntries = membershipEntries.filter(({ path: repositoryPath }) => (
     isSourceProgramInputPath(repositoryPath)
   ));
-  const admittedEntries = await mapTaskGroup(sourceMembershipEntries, async (membershipEntry) => {
-    const repositoryPath = membershipEntry.path;
-    const canonicalPath = normalizeRepositoryPath(repositoryPath);
-    if (canonicalPath !== repositoryPath || canonicalPath.length === 0) {
-      throw new Error(`Workspace source membership path is not canonical: ${repositoryPath}`);
-    }
-    const absolutePath = path.resolve(session.cwd, ...repositoryPath.split('/'));
-    const relativePath = path.relative(session.cwd, absolutePath);
-    if (relativePath.length === 0 || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-      throw new Error(`Workspace source path escapes the retained repository root: ${repositoryPath}`);
-    }
-    const before = await lstat(absolutePath);
-    if (!before.isFile() || before.isSymbolicLink()) {
-      throw new Error(`Workspace source path is not one ordinary file: ${repositoryPath}`);
-    }
-    if (before.size > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
-      throw new Error(`Workspace source file exceeds its byte ceiling: ${repositoryPath}`);
-    }
-    return Object.freeze({ absolutePath, before, membershipEntry, repositoryPath });
-  });
-  const totalBytes = admittedEntries.reduce((total, { before }) => total + before.size, 0);
-  if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
-    throw new Error('Workspace source snapshot exceeds its aggregate byte ceiling');
-  }
-  const observedEntries = await mapTaskGroup(admittedEntries, async (entry, _index, signal) => {
-    const { absolutePath, before, membershipEntry, repositoryPath } = entry;
-    const bytes = await readFile(absolutePath);
-    throwIfNativeAborted(signal);
-    const after = await lstat(absolutePath);
-    if (bytes.length !== before.size || bytes.includes(0)
-        || !after.isFile() || after.isSymbolicLink()
-        || after.dev !== before.dev || after.ino !== before.ino
-        || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-      throw new Error(`Workspace source file changed during acquisition: ${repositoryPath}`);
-    }
-    return Object.freeze({
-      file: Object.freeze({
-      path: repositoryPath,
-      mode: membershipEntry.mode ?? ((before.mode & 0o111) === 0 ? '100644' : '100755'),
-      source: exactUtf8(bytes, `Workspace source file ${repositoryPath}`),
-      contentDigest: rawSha256(bytes)
-      }),
-      physical: Object.freeze({
-        path: repositoryPath,
-        device: String(before.dev),
-        inode: String(before.ino),
-        size: before.size,
-        mtimeMs: before.mtimeMs
-      })
+  let totalBytes = 0;
+  const captureEntries = async (entries: readonly WorkingTreeMembershipEntry[]) => {
+    const admittedEntries = await mapTaskGroup(entries, async (membershipEntry) => {
+      const repositoryPath = membershipEntry.path;
+      const canonicalPath = normalizeRepositoryPath(repositoryPath);
+      if (canonicalPath !== repositoryPath || canonicalPath.length === 0) {
+        throw new Error(`Workspace source membership path is not canonical: ${repositoryPath}`);
+      }
+      const absolutePath = path.resolve(session.cwd, ...repositoryPath.split('/'));
+      const relativePath = path.relative(session.cwd, absolutePath);
+      if (relativePath.length === 0 || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+        throw new Error(`Workspace source path escapes the retained repository root: ${repositoryPath}`);
+      }
+      const before = await lstat(absolutePath, { bigint: true });
+      if (!before.isFile() || before.isSymbolicLink()) {
+        throw new Error(`Workspace source path is not one ordinary file: ${repositoryPath}`);
+      }
+      if (before.size > BigInt(SOURCE_SNAPSHOT_MAX_FILE_BYTES)) {
+        throw new Error(`Workspace source file exceeds its byte ceiling: ${repositoryPath}`);
+      }
+      return Object.freeze({ absolutePath, before, membershipEntry, repositoryPath });
     });
-  });
+    totalBytes += admittedEntries.reduce((total, { before }) => total + Number(before.size), 0);
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
+      throw new Error('Workspace source snapshot exceeds its aggregate byte ceiling');
+    }
+    return mapTaskGroup(admittedEntries, async (entry, _index, signal) => {
+      const { absolutePath, before, membershipEntry, repositoryPath } = entry;
+      const parent = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Workspace source retained parent').target;
+      const retained = inspectNoFollowOrdinaryFileEntry(parent, path.basename(absolutePath), {
+        maximumBytes: SOURCE_SNAPSHOT_MAX_FILE_BYTES
+      });
+      if (retained === null || retained.kind !== 'file' || retained.bytes === null) {
+        throw new Error(`Workspace source path is not one ordinary file: ${repositoryPath}`);
+      }
+      const bytes = retained.bytes;
+      throwIfNativeAborted(signal);
+      const after = await lstat(absolutePath, { bigint: true });
+      if (BigInt(bytes.length) !== before.size || bytes.includes(0)
+          || !after.isFile() || after.isSymbolicLink()
+          || after.dev !== before.dev || after.ino !== before.ino
+          || after.size !== before.size || after.mtimeNs !== before.mtimeNs) {
+        throw new Error(`Workspace source file changed during acquisition: ${repositoryPath}`);
+      }
+      return Object.freeze({
+        parent,
+        retained,
+        statIdentity: Object.freeze({ device: String(before.dev), inode: String(before.ino) }),
+        file: Object.freeze({
+        path: repositoryPath,
+        mode: membershipEntry.mode ?? ((before.mode & 0o111n) === 0n ? '100644' : '100755'),
+        source: exactUtf8(bytes, `Workspace source file ${repositoryPath}`),
+        contentDigest: rawSha256(bytes)
+        }),
+        physical: Object.freeze({
+          path: repositoryPath,
+          device: retained.device,
+          inode: retained.inode,
+          size: Number(before.size),
+          mtimeMs: Number(before.mtimeNs) / 1_000_000,
+          modifiedAtNanoseconds: String(before.mtimeNs)
+        })
+      });
+    });
+  };
+  const observedEntries = [...await captureEntries(sourceMembershipEntries)];
+  const capturedFiles = observedEntries.map(({ file }) => file);
+  const closure = declaredInputAcquisitionClosure(capturedFiles, membershipEntries.map(({ path }) => path));
+  if (closure !== null) {
+    const membershipByPath = new Map(membershipEntries.map((entry) => [entry.path, entry]));
+    for (let required = closure.advance(); required.length > 0; required = closure.advance()) {
+      const additions = await captureEntries(required.map((repositoryPath) => {
+        const entry = membershipByPath.get(repositoryPath);
+        if (entry === undefined) throw new Error(`Declared workspace input is outside its census: ${repositoryPath}`);
+        return entry;
+      }));
+      observedEntries.push(...additions);
+      capturedFiles.push(...additions.map(({ file }) => file));
+    }
+  }
   const files = observedEntries.map(({ file }) => file);
   const physicalFileObservations = observedEntries.map(({ physical }) => physical);
   const descriptorSources = files
@@ -804,6 +870,23 @@ export async function acquireWorkingTreeSnapshot(
   if (JSON.stringify(membershipReadback) !== JSON.stringify(membershipEntries)) {
     throw new Error('Workspace source membership changed during acquisition');
   }
+  // One final vector fence after all declared inputs have been captured. This
+  // checks each observation, without claiming an atomic filesystem snapshot.
+  await mapTaskGroup(observedEntries, async ({ parent, retained, statIdentity, file, physical }) => {
+    const current = inspectNoFollowOrdinaryFileEntry(parent, path.basename(file.path), {
+      maximumBytes: SOURCE_SNAPSHOT_MAX_FILE_BYTES
+    });
+    const stat = await lstat(path.resolve(session.cwd, ...file.path.split('/')), { bigint: true });
+    if (current === null || current.kind !== 'file' || current.bytes === null
+        || current.device !== retained.device || current.inode !== retained.inode
+        || current.device !== physical.device || current.inode !== physical.inode
+        || String(stat.dev) !== statIdentity.device || String(stat.ino) !== statIdentity.inode
+        || rawSha256(current.bytes) !== file.contentDigest
+        || String(stat.mtimeNs) !== physical.modifiedAtNanoseconds || Number(stat.size) !== physical.size
+        || !stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`Workspace source file changed before acquisition readback: ${file.path}`);
+    }
+  });
   return issuePhysicalWorkspaceSourceSnapshot({
     session,
     provenance: Object.freeze({ kind: 'working-tree-observation', identityDigest }),
@@ -840,23 +923,42 @@ export async function acquireStagedIndexSnapshot(
     isSourceProgramInputPath(repositoryPath)
       && (mode === '100644' || mode === '100755')
   ));
-  const blobs = await readStagedSourceBlobs(session, sourceEntries);
   let totalBytes = 0;
-  const files = sourceEntries.map(({ path: repositoryPath, mode, objectId }) => {
-    const bytes = blobs.get(objectId);
-    if (bytes === undefined) {
-      throw new Error(`Staged workspace source blob is absent: ${repositoryPath}`);
-    }
-    totalBytes += bytes.byteLength;
-    return Object.freeze({
-      path: repositoryPath,
-      mode: mode as WorkspaceSourceFileMode,
-      source: exactUtf8(bytes, `Staged workspace source file ${repositoryPath}`),
-      contentDigest: rawSha256(bytes)
-    });
+  const captureEntries = async (entries: typeof sourceEntries) => {
+    const blobs = await readStagedSourceBlobs(session, entries);
+    const files = entries.map(({ path: repositoryPath, mode, objectId }) => {
+      const bytes = blobs.get(objectId);
+      if (bytes === undefined) {
+        throw new Error(`Staged workspace source blob is absent: ${repositoryPath}`);
+      }
+      if (bytes.includes(0)) throw new Error(`Staged workspace source is not text: ${repositoryPath}`);
+      totalBytes += bytes.byteLength;
+      return Object.freeze({
+        path: repositoryPath,
+        mode: mode as WorkspaceSourceFileMode,
+        source: exactUtf8(bytes, `Staged workspace source file ${repositoryPath}`),
+        contentDigest: rawSha256(bytes)
+      });
   });
-  if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
-    throw new Error('Staged workspace source snapshot exceeds its aggregate byte ceiling');
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
+      throw new Error('Staged workspace source snapshot exceeds its aggregate byte ceiling');
+    }
+    return files;
+  };
+  const files = [...await captureEntries(sourceEntries)];
+  const closure = declaredInputAcquisitionClosure(files, before.entries.map(({ path }) => path));
+  if (closure !== null) {
+    const membershipByPath = new Map(before.entries.map((entry) => [entry.path, entry]));
+    for (let required = closure.advance(); required.length > 0; required = closure.advance()) {
+      const entries = required.map((repositoryPath) => {
+        const entry = membershipByPath.get(repositoryPath);
+        if (entry === undefined || (entry.mode !== '100644' && entry.mode !== '100755')) {
+          throw new Error(`Staged declared workspace input is not one ordinary blob: ${repositoryPath}`);
+        }
+        return entry;
+      });
+      files.push(...await captureEntries(entries));
+    }
   }
   const descriptorSources = files
     .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/module.json'))
@@ -1071,9 +1173,11 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   if (unsafeDescriptor !== undefined) {
     throw new Error(`Exact workspace module descriptor is not an ordinary blob: ${unsafeDescriptor.repositoryPath}`);
   }
-  const sourceEntries = ordinaryEntries.filter(({ repositoryPath }) => (
-    isSourceProgramInputPath(repositoryPath)
-  ));
+  const selectedPaths = new Set(sourceBlobs.map(({ repositoryPath }) => repositoryPath));
+  const sourceEntries = ordinaryEntries.filter(({ repositoryPath }) => selectedPaths.has(repositoryPath));
+  if (sourceEntries.length !== selectedPaths.size) {
+    throw new Error('Exact workspace declared input is not one ordinary blob');
+  }
   let totalBytes = 0;
   for (const { repositoryPath, byteLength } of sourceBlobs) {
     if (byteLength > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
@@ -1107,6 +1211,9 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
     source,
     contentDigest: rawSha256(source)
   }));
+  if (files.some(({ source }) => source.includes('\0'))) {
+    throw new Error('Exact workspace declared input is not text');
+  }
   const subject: WorkspaceSourceSnapshotSubject = Object.freeze({
     kind: 'physical-repository',
     provenance: Object.freeze({
@@ -1140,14 +1247,37 @@ export function acquireExactGitTreeSnapshot(
       && (mode === '100644' || mode === '100755')
       && type === 'blob'
   ));
-  return issueExactGitTreeWorkspaceSourceSnapshot({
-    commitSha: input.commitSha,
-    treeEntries,
-    sourceBlobs: readExactGitTextBlobsBatch({
-      repositoryRoot: input.repositoryRoot,
-      entries: sourceEntries
-    })
-  });
+  const sourceBlobs = [...readExactGitTextBlobsBatch({
+    repositoryRoot: input.repositoryRoot, entries: sourceEntries,
+    maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES
+  })];
+  const membership = new Map(treeEntries.map((entry) => [entry.repositoryPath, entry]));
+  const files: WorkspaceSourceFile[] = sourceBlobs.map(({ repositoryPath, source }) => ({
+    path: repositoryPath, source, contentDigest: rawSha256(source),
+    mode: membership.get(repositoryPath)!.mode as WorkspaceSourceFileMode
+  }));
+  const closure = declaredInputAcquisitionClosure(files, treeEntries.map(({ repositoryPath }) => repositoryPath));
+  if (closure !== null) {
+    for (let required = closure.advance(); required.length > 0; required = closure.advance()) {
+      const entries = required.map((repositoryPath) => {
+        const entry = membership.get(repositoryPath);
+        if (entry === undefined || entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
+          throw new Error(`Exact declared workspace input is not one ordinary blob: ${repositoryPath}`);
+        }
+        return entry;
+      });
+      const additions = readExactGitTextBlobsBatch({
+        repositoryRoot: input.repositoryRoot, entries,
+        maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES - sourceBlobs.reduce((sum, blob) => sum + blob.byteLength, 0)
+      });
+      sourceBlobs.push(...additions);
+      files.push(...additions.map(({ repositoryPath, source }) => ({
+        path: repositoryPath, source, contentDigest: rawSha256(source),
+        mode: membership.get(repositoryPath)!.mode as WorkspaceSourceFileMode
+      })));
+    }
+  }
+  return issueExactGitTreeWorkspaceSourceSnapshot({ commitSha: input.commitSha, treeEntries, sourceBlobs });
 }
 
 export async function acquireExactGitTreeSnapshotFromSession(
@@ -1163,12 +1293,33 @@ export async function acquireExactGitTreeSnapshotFromSession(
       && (mode === '100644' || mode === '100755')
       && type === 'blob'
   ));
-  return issueExactGitTreeWorkspaceSourceSnapshot({
-    commitSha: input.commitSha,
-    treeEntries,
-    sourceBlobs: await readExactGitTextBlobsBatchFromSession(
-      input.session,
-      { entries: sourceEntries, maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES }
-    )
-  });
+  const sourceBlobs = [...await readExactGitTextBlobsBatchFromSession(input.session, {
+    entries: sourceEntries, maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES
+  })];
+  const membership = new Map(treeEntries.map((entry) => [entry.repositoryPath, entry]));
+  const files: WorkspaceSourceFile[] = sourceBlobs.map(({ repositoryPath, source }) => ({
+    path: repositoryPath, source, contentDigest: rawSha256(source),
+    mode: membership.get(repositoryPath)!.mode as WorkspaceSourceFileMode
+  }));
+  const closure = declaredInputAcquisitionClosure(files, treeEntries.map(({ repositoryPath }) => repositoryPath));
+  if (closure !== null) {
+    for (let required = closure.advance(); required.length > 0; required = closure.advance()) {
+      const entries = required.map((repositoryPath) => {
+        const entry = membership.get(repositoryPath);
+        if (entry === undefined || entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
+          throw new Error(`Exact declared workspace input is not one ordinary blob: ${repositoryPath}`);
+        }
+        return entry;
+      });
+      const additions = await readExactGitTextBlobsBatchFromSession(input.session, {
+        entries, maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES - sourceBlobs.reduce((sum, blob) => sum + blob.byteLength, 0)
+      });
+      sourceBlobs.push(...additions);
+      files.push(...additions.map(({ repositoryPath, source }) => ({
+        path: repositoryPath, source, contentDigest: rawSha256(source),
+        mode: membership.get(repositoryPath)!.mode as WorkspaceSourceFileMode
+      })));
+    }
+  }
+  return issueExactGitTreeWorkspaceSourceSnapshot({ commitSha: input.commitSha, treeEntries, sourceBlobs });
 }

@@ -43,7 +43,8 @@ async function fixture(root: string) {
     summary: { status: 'failed' as const, requestedLane: 'all' as const, failedLanes: ['fast' as const],
       claimSummary: buildBlockedProductVerificationClaimSummary('all', productVerificationObservationsFixture()) }
   };
-  const coverage = { formatVersion: '1' as const, status: 'skipped' as const, acceptancePassed: [], blocks: [], uncoveredBlocks: [] };
+  const coverage = { formatVersion: '2' as const, status: 'skipped' as const, source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
+    acceptancePassed: [], blocks: [], uncoveredBlocks: [] };
   const review = await buildReviewSummary(root, lock, provenance, verification, coverage);
   for (const [artifact, value] of [
     [files.graphLock, lock], [files.explainGraph, graph], [files.provenance, provenance],

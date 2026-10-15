@@ -155,7 +155,7 @@ for (const fault of ['missing', 'duplicate', 'foreign-gate', 'foreign-subject', 
   test(`current-subject gate binding rejects ${fault} instead of accepting partial agreement`, async () => {
     await workspace(async root => {
       const lock = buildCurrentVerificationLock();
-      const { verificationReport } = await writeCurrentVerificationFixture(root, lock);
+      const { verificationReport, acceptanceCoverage } = await writeCurrentVerificationFixture(root, lock);
       const gates = [...verificationReport.summary.claimSummary!.gates];
       Object.assign(verificationReport.summary.claimSummary!, { gates });
       if (fault === 'missing') gates.pop();
@@ -163,7 +163,7 @@ for (const fault of ['missing', 'duplicate', 'foreign-gate', 'foreign-subject', 
       else if (fault === 'foreign-gate') Object.assign(gates[0]!, { gateId: 'foreign-gate' });
       else if (fault === 'foreign-subject') Object.assign(gates[0]!, { subjectRevision: 'sha256:' + 'e'.repeat(64) });
       else Object.assign(gates[0]!, { inputDigest: 'sha256:' + 'f'.repeat(64) });
-      expect(() => assertProductVerificationArtifactSubject(lock, { verificationReport }))
+      expect(() => assertProductVerificationArtifactSubject(lock, { verificationReport, acceptanceCoverage }))
         .toThrow(expect.objectContaining({ code: 'VERIFY-SUBJECT-002' }));
     });
   });

@@ -67,24 +67,36 @@ pins:
       required: true
 acceptance:
   - id: ticket_can_be_created
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - user_can_login
     covers:
       blocks:
         - ticket/basic
   - id: ticket_status_can_transition
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - ticket_can_be_created
     covers:
       blocks:
         - ticket/basic
   - id: assignee_can_filter_tickets
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - ticket_can_be_created
     covers:
       blocks:
         - ticket/basic
   - id: tenant_only_sees_own_tickets
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - user_can_login
       - ticket_can_be_created
@@ -93,12 +105,18 @@ acceptance:
         - tenant/basic-workspace
         - ticket/basic
   - id: ticket_attachment_can_be_uploaded
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - ticket_can_be_created
     covers:
       blocks:
         - ticket/basic
   - id: ticket_comment_can_be_added
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - ticket_can_be_created
     covers:

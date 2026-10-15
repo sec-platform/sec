@@ -87,9 +87,10 @@ function runtime(
 
 function completeCoverage(runtimeReport: RuntimeVerificationLaneReport) {
   return {
-    formatVersion: '1' as const,
+    formatVersion: '2' as const,
     status: runtimeReport.status,
     acceptancePassed: ['customer_acceptance'],
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     blocks: [{
       id: 'customer/basic',
       declaredAcceptance: ['customer_acceptance'],

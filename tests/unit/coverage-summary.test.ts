@@ -32,7 +32,7 @@ test('review summary surfaces acceptance coverage summary', async () => {
       }
     },
     coverage: {
-      formatVersion: '1',
+      formatVersion: '2',
       status: 'failed',
       acceptancePassed: ['customer_crud'],
       blocks: [

@@ -14,7 +14,6 @@ test('complete project use case owns prebound-only routing without source or tar
     readCanonicalPaths() { throw new Error('must not prepare'); },
     async readRuntimeSpec() { throw new Error('must not prepare'); },
     async observeCompilerReady() { throw new Error('must not prepare'); },
-    async readSourceGeneration() { throw new Error('must not prepare'); },
     async verifyIsolatedSource() { throw new Error('must not prepare'); },
     async publishTarget() { throw new Error('must not publish'); }
   });
@@ -28,12 +27,11 @@ test('complete project use case owns source preparation before target transactio
     readCanonicalPaths() { order.push('paths'); return { compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules' }; },
     async readRuntimeSpec() { order.push('spec'); return { manifestHash: binding.manifestHash }; },
     async observeCompilerReady() { order.push('observe'); if (failPreparation) throw new Error('source owner blocked'); return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
-    async readSourceGeneration() { order.push('proof'); return source; },
     async verifyIsolatedSource() { throw new Error('must not choose offline'); },
     async publishTarget(prepared: { sourceGeneration: typeof source }) { expect(prepared.sourceGeneration).toBe(source); order.push('target'); }
   };
   await ensureProjectDependencyEnvironment(ports);
-  expect(order).toEqual(['paths', 'spec', 'observe', 'proof', 'target']);
+  expect(order).toEqual(['paths', 'spec', 'observe', 'target']);
   order.length = 0; failPreparation = true;
   await expect(ensureProjectDependencyEnvironment(ports)).rejects.toThrow('source owner blocked');
   expect(order).toEqual(['paths', 'spec', 'observe']);
@@ -43,17 +41,17 @@ test('project source preparation only observes prepared readiness and rejects un
   const ports = { isolated: false, manifestHash: binding.manifestHash,
     compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules',
     async observeCompilerReady() { order.push('observe'); return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
-    async readSourceGeneration(value: Readonly<{ manifestHash: string }>, root: string, sourcePath: string) { expect(value).toBe(binding); expect(root).toBe(source.ownerRoot); expect(sourcePath).toBe(source.sourcePath); order.push('proof'); return source; },
     async verifyIsolatedSource() { throw new Error('offline verification is not selected'); }
   };
   const result = await prepareProjectDependencySource(ports);
   order.push('target');
-  expect(order).toEqual(['observe', 'proof', 'target']);
+  expect(order).toEqual(['observe', 'target']);
   expect(result.sourceGeneration).toBe(source);
   for (const isolated of [false, true]) {
     for (const ready of [null,
       { kind: 'incompatible-bridge', binding: { runtimeMaterialization: binding } },
       { kind: 'ready', binding: { runtimeMaterialization: null } },
+      { kind: 'ready', binding: { runtimeMaterialization: binding } },
       { kind: 'ready', binding: { runtimeMaterialization: { manifestHash: 'foreign-manifest' } } }]) {
       order.length = 0;
       await expect(prepareProjectDependencySource({ ...ports, isolated,
@@ -69,7 +67,6 @@ test('offline project source preparation never installs and refuses an invalid s
     await prepareProjectDependencySource({ isolated: true, manifestHash: binding.manifestHash,
       compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules',
       async observeCompilerReady() { return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
-      async readSourceGeneration() { return source; },
       async verifyIsolatedSource() { return false; }
     });
     targets++;

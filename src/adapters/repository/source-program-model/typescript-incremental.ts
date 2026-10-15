@@ -113,7 +113,8 @@ function canReuseAddedModules(
   state: TypeScriptIncrementalState,
   input: PreparedTypeScriptModelInput,
   graph: RepositoryModuleGraph,
-  currentPaths: readonly string[]
+  currentPaths: readonly string[],
+  changedPaths: readonly string[]
 ): boolean {
   const previous = structuralReuseContexts.get(state);
   if (previous === undefined || previous.hasGlobalInputs
@@ -126,8 +127,12 @@ function canReuseAddedModules(
   // type-only edges and star exports; adjacency alone loses resolver changes.
   if (sha256(previous.graph.references) !== sha256(graph.references.filter(({ from }) =>
     !current.has(from) || previousPaths.has(from)))) return false;
-  for (const { file } of input.sourceFileIdentities.values()) {
+  // The issued predecessor already classified unchanged source bytes with the
+  // same compiler. Recheck both additions and edits, never just new paths.
+  for (const path of changedPaths) {
     sourceProgramCompilationCheckpoint(input.operation, 'file-semantics');
+    const file = input.sourceFileIdentities.get(path)?.file;
+    if (file === undefined) return false;
     if (typeScriptSemanticDependencyScope(file) !== 'module-scoped') return false;
     if (hasTypeScriptReferenceDirectives(file.source)) return false;
   }
@@ -321,8 +326,12 @@ function compileTypeScriptModelIncrementalInternal(
       );
       const previousContext = structuralReuseContexts.get(reusableState);
       if (previousContext !== undefined) {
-        rememberStructuralReuseContext(state, input,
-          input.repositoryCompilation?.moduleGraph ?? previousContext.graph);
+        // No source or module identity changed, so the predecessor's complete
+        // global-input classification remains valid for the rebound model.
+        structuralReuseContexts.set(state, Object.freeze({
+          graph: input.repositoryCompilation?.moduleGraph ?? previousContext.graph,
+          hasGlobalInputs: previousContext.hasGlobalInputs
+        }));
       }
       return Object.freeze({
         mode: 'exact', invalidatedPaths: Object.freeze([]), model, state
@@ -380,7 +389,7 @@ function compileTypeScriptModelIncrementalInternal(
     ?? sha256(reverseConsumers) as `sha256:${string}`;
   const graphChanged = reusableState.moduleGraphDigest !== currentModuleGraphDigest;
   if ((fileSetChanged || graphChanged)
-      && !canReuseAddedModules(reusableState, input, graph, currentPaths)) return compileFull();
+      && !canReuseAddedModules(reusableState, input, graph, currentPaths, changed)) return compileFull();
   const currentSemanticDependencyScopes = new Map(changed.map((repositoryPathValue) => {
     const file = currentFileByPath.get(repositoryPathValue);
     return [
@@ -462,7 +471,11 @@ function compileTypeScriptModelIncrementalInternal(
     input.repositoryCompilation?.moduleGraphDigest
       ?? sha256(reverseConsumers) as `sha256:${string}`
   );
-  if (previousContext !== undefined) rememberStructuralReuseContext(state, input, graph);
+  if (previousContext !== undefined) {
+    // Reaching this point proves both unchanged and changed inputs module-scoped
+    // and reference-free. Full compilation still classifies every input.
+    structuralReuseContexts.set(state, Object.freeze({ graph, hasGlobalInputs: false }));
+  }
   return Object.freeze({
     mode: 'incremental',
     invalidatedPaths: Object.freeze([...invalidatedCurrent].sort(compareCodeUnits)),

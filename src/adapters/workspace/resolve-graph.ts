@@ -34,7 +34,7 @@ export async function resolveCapturedManifestSelection(selection: CapturedManife
   const { workspaceRoot, input, explicitEntries } = selection;
   const allEntries = await loadAllManifests({ workspaceRoot, registrySources: input.sources }, explicitEntries);
   // Reject conflicting ownership before any resource lookup starts.
-  const { resolvedBlocks, resolvedCapabilities, installDescriptors, registryResolutions } = prepareManifestResolution(
+  const { resolvedBlocks, resolvedCapabilities, installDescriptors, registryResolutions, acceptanceSources } = prepareManifestResolution(
     workspaceRoot, explicitEntries, allEntries
   );
   const installPlan: LockFile['installPlan'] = await mapTaskGroup(
@@ -61,6 +61,7 @@ export async function resolveCapturedManifestSelection(selection: CapturedManife
       CI_ARTIFACT_FILES.installManifest
     ]),
     acceptancePlan: uniqueSorted(input.acceptanceIds),
+    acceptanceSources,
     passStatus: {
       ...PASS_STATUS_PENDING,
       parse: 'succeeded',

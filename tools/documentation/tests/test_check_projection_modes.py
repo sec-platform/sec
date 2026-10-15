@@ -39,6 +39,23 @@ class ProjectionModes(TestCase):
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
+    def test_verification_captures_once_and_reobserves_once(self):
+        native=s.read_ordinary;reads=[]
+        def read(root,name):reads.append(name);return native(root,name)
+        with patch.object(s,'read_ordinary',side_effect=read):
+            check_docs.verify(self.root)
+        self.assertEqual(reads.count('docs/产品/产品要求与工作约束.md'),2)
+
+    def test_semantic_consumers_share_original_bytes_and_final_drift_is_rejected(self):
+        original=self.authority.read_bytes()
+        def changed(root,*,captured):
+            self.authority.write_text('### REQ001｜Requirement\n\nChanged during checks.\n',encoding='utf-8')
+            self.assertEqual(s.source_bytes(root,self.authority,captured),original)
+            return {'modules':0,'static_edges':0,'decisions':[],'mermaid_sources':[],
+                    'deliverables':{'count':0,'target_semantic_validation':'not-performed'}}
+        with patch.object(check_design,'review',side_effect=changed):
+            with self.assertRaisesRegex(ValueError,'source changed during capture'):check_docs.verify(self.root)
+
     def test_source_check_neither_requires_nor_opens_local_projections(self):
         before = check_docs.verify(self.root)['source_set_sha256']
         for name in s.PROJECTION_PATHS:

@@ -240,11 +240,18 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(first['source_set_sha256'],second['source_set_sha256'])
         self.assertEqual(first['input_set_sha256'],second['input_set_sha256'])
         self.assertNotIn('stale local output',self.out.read_text())
-    def test_sealed_reading_calls_strict_verification_before_and_after_capture(self):
+    def test_sealed_reading_verifies_the_same_capture_once(self):
         self.write('.documentation/source-manifest.json','{}')
         with patch.object(b.check_docs,'verify',return_value={})as verify:
             self.run_build('--sealed')
-        self.assertEqual(verify.call_args_list,[unittest.mock.call(self.root,sealed=True)]*2)
+        verify.assert_called_once()
+        self.assertTrue(verify.call_args.kwargs['sealed'])
+        self.assertEqual(verify.call_args.kwargs['captured']['README.md'],(self.root/'README.md').read_bytes())
+    def test_sealed_source_drift_after_verification_still_preserves_output(self):
+        self.write('.documentation/source-manifest.json','{}')
+        def changed(*args,**kwargs):self.write('README.md','# Changed after verification\n');return {}
+        with patch.object(b.check_docs,'verify',side_effect=changed):
+            self.assert_publication_preserves_previous('--sealed')
     def test_sealed_reading_without_snapshot_does_not_publish(self):
         self.assert_publication_preserves_previous('--sealed')
     def test_default_output_and_title_use_the_design_name(self):

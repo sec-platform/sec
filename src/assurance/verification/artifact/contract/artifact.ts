@@ -1,8 +1,8 @@
 import { canonicalEquals, uniqueSorted } from '../../../../contracts/canonical.ts';
 import type { PolicyReport } from '../../../../semantics/policies/types.ts';
+import { buildAcceptanceCoverageFromSource } from '../../../acceptance/build-coverage.ts';
 import type { AcceptanceCoverageReport } from '../../../acceptance/coverage.ts';
 import { validatePolicyReport } from "../../../policies/report.ts";
-import { acceptanceIdsProvenByVerificationReports } from '../../acceptance/contract/proof.ts';
 import { validateAcceptanceCoverageReport } from '../../acceptance/validation.ts';
 import { isVerificationLane, verificationLaneProfile } from '../../contract/lanes.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationReport, VerificationStatus } from '../../contract/types.ts';
@@ -258,16 +258,9 @@ function exactAcceptanceCoverage(
 ): value is AcceptanceCoverageReport {
   const report = validatedAcceptanceCoverage(value);
   if (report === null) return false;
-  const declaredAcceptance = [...new Set([
-    ...report.blocks.flatMap((entry) => entry.declaredAcceptance)
-  ])].sort();
-  const expectedAccepted = acceptanceIdsProvenByVerificationReports(fast, runtime, declaredAcceptance);
-  const accepted = new Set(report.acceptancePassed);
-  return CodexDevelopmentVerificationDataEqual(
-    structuredClone(report.acceptancePassed),
-    expectedAccepted
-  ) &&
-    report.blocks.every((entry) => entry.coveredBy.every((id) => accepted.has(id)));
+  try {
+    return CodexDevelopmentVerificationDataEqual(report, buildAcceptanceCoverageFromSource(report.source, fast, runtime));
+  } catch { return false; }
 }
 
 function isProfileValidatedVerificationArtifactSet(

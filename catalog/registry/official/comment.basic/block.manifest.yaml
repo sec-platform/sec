@@ -37,6 +37,9 @@ pins:
       required: true
 acceptance:
   - id: ticket_comment_can_be_added
+    source:
+      tests:
+        - tests/acceptance/ticket-flow.test.ts
     dependsOn:
       - ticket_can_be_created
     covers:

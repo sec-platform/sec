@@ -1,4 +1,4 @@
-import type { BlockManifest, LockFile } from '../../compiler/contract.ts';
+import type { LockFile } from '../../compiler/contract.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import type { AcceptanceItem } from '../../semantics/acceptance/types.ts';
 import { acceptanceIdsProvenByVerificationReports } from '../verification/acceptance/contract/proof.ts';
@@ -12,6 +12,7 @@ import {
   type AcceptanceCoverageEntry,
   type AcceptanceCoverageReport
 } from './coverage.ts';
+import { acceptanceCoverageSource, validateAcceptanceCoverageSource, type AcceptanceCoverageSource } from './source.ts';
 
 interface AcceptanceCoverageTarget {
   id: string;
@@ -29,16 +30,10 @@ interface AcceptanceTargetIndex {
   readonly byBlock: ReadonlyMap<string, readonly string[]>;
 }
 
-type AcceptanceCoverageManifestInput = Readonly<{
-  blockId: string;
-  manifest: BlockManifest;
-}>;
-
 export interface AcceptanceCoverageBuildInput {
   readonly lock: LockFile;
   readonly runtime: RuntimeVerificationLaneReport;
   readonly fast: FastVerificationLaneReport;
-  readonly manifests: readonly AcceptanceCoverageManifestInput[];
 }
 
 function buildCoverageEntry(
@@ -59,17 +54,6 @@ function buildCoverageEntry(
 
 function acceptanceBlockTargets(target: AcceptanceCoverageTarget): string[] {
   return target.acceptance.covers?.blocks ?? [target.blockId];
-}
-
-function buildAcceptanceTargets(
-  blockId: string,
-  manifest: BlockManifest
-): AcceptanceCoverageTarget[] {
-  return manifest.acceptance.map(acceptance => ({
-    id: acceptance.id,
-    acceptance,
-    blockId
-  }));
 }
 
 function addIndexedAcceptance(
@@ -193,31 +177,25 @@ function buildAcceptanceSatisfaction(
 export function buildAcceptanceCoverageReport(
   input: AcceptanceCoverageBuildInput
 ): AcceptanceCoverageReport {
-  const { lock, runtime, fast, manifests } = input;
-  const targets: AcceptanceCoverageTarget[] = [];
-  const manifestsByBlock = new Map(manifests.map(entry => [entry.blockId, entry.manifest]));
+  return buildAcceptanceCoverageFromSource(acceptanceCoverageSource(input.lock), input.fast, input.runtime);
+}
 
-  for (const block of lock.resolvedBlocks) {
-    const manifest = manifestsByBlock.get(block.id);
-    if (manifest === undefined) {
-      throw new Error(`Acceptance Coverage is missing manifest for resolved block ${block.id}`);
-    }
-    targets.push(...buildAcceptanceTargets(block.id, manifest));
-  }
-  if (manifestsByBlock.size !== lock.resolvedBlocks.length) {
-    const resolved = new Set(lock.resolvedBlocks.map(block => block.id));
-    const extras = [...manifestsByBlock.keys()].filter(blockId => !resolved.has(blockId));
-    if (extras.length > 0) {
-      throw new Error(`Acceptance Coverage received manifest for unresolved block ${extras[0]}`);
-    }
-  }
-
-  const resolvedBlockIds = new Set(lock.resolvedBlocks.map(block => block.id));
+/** Offline recomputation uses the same captured frame as the live builder. */
+export function buildAcceptanceCoverageFromSource(
+  sourceInput: AcceptanceCoverageSource,
+  fast: FastVerificationLaneReport,
+  runtime: RuntimeVerificationLaneReport
+): AcceptanceCoverageReport {
+  const source = validateAcceptanceCoverageSource(sourceInput);
+  const targets = source.declarations.map(({ declaringBlockId, acceptance }) => ({
+    id: acceptance.id, acceptance, blockId: declaringBlockId
+  }));
+  const resolvedBlockIds = new Set(source.resolvedBlockIds);
   const targetIndex = buildCoverageTargetIndex(targets, resolvedBlockIds);
   const acceptanceById = buildAcceptanceDefinitions(targets);
   assertAcceptanceDependencyAcyclic(acceptanceById);
 
-  for (const acceptanceId of lock.acceptancePlan) {
+  for (const acceptanceId of source.acceptancePlan) {
     if (!acceptanceById.has(acceptanceId)) {
       throw new Error(`Acceptance plan references undeclared acceptance ID ${acceptanceId}`);
     }
@@ -226,23 +204,29 @@ export function buildAcceptanceCoverageReport(
     }
   }
 
-  const acceptancePassed = uniqueSorted(
-    acceptanceIdsProvenByVerificationReports(fast, runtime, lock.acceptancePlan)
-  );
+  const installed = new Set(source.tests.map(test => test.testPath));
+  const missingSource = new Set(targets.filter(target => target.acceptance.source === undefined
+    || target.acceptance.source.tests.some(test => !installed.has(test))).map(target => target.id));
+  const bindings = targets.flatMap(target => (target.acceptance.source?.tests ?? []).map(testPath => ({
+    testPath, acceptanceIds: [target.id]
+  })));
+  const acceptancePassed = acceptanceIdsProvenByVerificationReports(fast, runtime,
+    source.acceptancePlan.filter(id => !missingSource.has(id)), bindings);
   const isSatisfied = buildAcceptanceSatisfaction(
     new Set(acceptancePassed),
     acceptanceById
   );
-  const blockCoverage = lock.resolvedBlocks.map(block => {
-    const declaredAcceptance = [...(targetIndex.byBlock.get(block.id) ?? [])];
+  const blockCoverage = source.resolvedBlockIds.map(id => {
+    const declaredAcceptance = [...(targetIndex.byBlock.get(id) ?? [])];
     const coveredBy = declaredAcceptance.filter(isSatisfied);
-    return buildCoverageEntry(block.id, declaredAcceptance, coveredBy);
+    return buildCoverageEntry(id, declaredAcceptance, coveredBy);
   });
   const canonicalBlockCoverage = [...blockCoverage]
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 
   return validateAcceptanceCoverageReport({
     formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
+    source,
     status: runtime.status,
     acceptancePassed,
     blocks: canonicalBlockCoverage,

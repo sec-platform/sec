@@ -8,6 +8,8 @@ const picker=document.getElementById('sec-engine-file');
 const button=document.getElementById('sec-render-start');
 const save=document.getElementById('sec-save-diagram-cache');
 const engineData=document.getElementById('sec-engine-data');
+const coreBytes=Uint8Array.from(atob(document.getElementById('sec-render-core-data').textContent),x=>x.charCodeAt(0));
+const fontFamily=host.dataset.fontFamily;
 const nonce=host.dataset.nonce;
 const decoder=new TextDecoder('utf-8',{fatal:true});
 const encoder=new TextEncoder();let frame=null,running=false,engineBytes=null,renderer=null;
@@ -69,12 +71,12 @@ const boot=function(){
    if(q.kind==='engine'&&!ready){
     const s=document.createElement('script');s.nonce=q.nonce;s.textContent=new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(atob(q.data),x=>x.charCodeAt(0)));document.head.appendChild(s);
     m=window.mermaid;if(!m||typeof m.render!=='function'||typeof m.initialize!=='function')throw Error('需要暴露window.mermaid的离线独立JS，不是ESM入口');
-    ready=true;parent.postMessage({channel:q.channel,kind:'ready'},'*');
+    const core=document.createElement('script');core.nonce=q.nonce;core.textContent=new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(atob(q.core),x=>x.charCodeAt(0)));document.head.appendChild(core);
+    ready=true;parent.postMessage({channel:q.channel,kind:'ready',profile:GiftMermaidCore.profile(q.fontFamily)},'*');
    }else if(q.kind==='render'&&ready){
-    const config={startOnLoad:false,securityLevel:'strict',suppressErrorRendering:true,deterministicIds:true,deterministicIDSeed:q.id,handDrawnSeed:q.seed,fontFamily:'Arial, Microsoft YaHei, Noto Sans CJK SC, sans-serif',maxTextSize:100000,maxEdges:2000,theme:'default',flowchart:{htmlLabels:true},sequence:{useMaxWidth:false},secure:['secure','securityLevel','startOnLoad','maxTextSize','maxEdges','themeCSS','fontFamily','handDrawnSeed','deterministicIds','deterministicIDSeed']};
-    m.initialize(config);const r=await m.render(q.id,q.source);
-    const d=new DOMParser().parseFromString(r.svg,'text/html'),svg=d.querySelector('svg');if(!svg)throw Error('没有SVG');
-    parent.postMessage({channel:q.channel,kind:'svg',id:q.id,svg:new XMLSerializer().serializeToString(svg)},'*');
+    const result=await GiftMermaidCore.render({source:q.source,fontFamily:q.fontFamily,ms:45000});
+    if(result.error)throw Error(result.error);
+    parent.postMessage({channel:q.channel,kind:'svg',id:q.id,svg:result.svg},'*');
    }
   }catch(e){parent.postMessage({channel:q.channel,kind:'error',id:q.id||null,error:String(e).slice(0,1800)},'*');}
  });
@@ -99,18 +101,18 @@ button.addEventListener('click',async()=>{
  if(running)return;running=true;button.disabled=true;save.disabled=true;
  try{
   engineBytes=await loadEngine();decoder.decode(engineBytes);const engineHash=await digest(engineBytes);
-  renderer={state:'rendered-in-reader-browser',engine_sha256:engineHash,font_family:'Arial, Microsoft YaHei, Noto Sans CJK SC, sans-serif',browser:navigator.userAgent,profile:'sec-reader-strict/1',network:'CSP blocked',browser_sandbox:'allow-scripts without allow-same-origin'};
+  renderer={state:'rendered-in-reader-browser',engine_sha256:engineHash,core_sha256:await digest(coreBytes),font_family:fontFamily,browser:navigator.userAgent,network:'CSP blocked',browser_sandbox:'allow-scripts without allow-same-origin'};
   frame=document.createElement('iframe');frame.setAttribute('sandbox','allow-scripts');frame.setAttribute('title','隔离的本地图渲染器');frame.style.cssText='position:fixed;left:-5000px;top:0;width:1800px;height:1200px;border:0;';
   const csp=`default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'`;
   const bootText='('+boot.toString()+')();';
   frame.srcdoc='<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="'+csp.replaceAll('"','&quot;')+'"></head><body><script nonce="'+nonce+'">'+bootText.replace(/<\/script/gi,'<\\/script')+'<'+ '/script></body></html>';
   const started=waitMessage('booted',undefined,15000);document.body.appendChild(frame);await started;
-  const ready=waitMessage('ready',undefined,20000);frame.contentWindow.postMessage({channel:'sec-graph-frame/1',kind:'engine',data:to64(engineBytes),nonce},'*');await ready;
+  const ready=waitMessage('ready',undefined,20000);frame.contentWindow.postMessage({channel:'sec-graph-frame/1',kind:'engine',data:to64(engineBytes),core:to64(coreBytes),fontFamily,nonce},'*');renderer.drawing_profile=(await ready).profile;
   results.clear();
   for(const job of jobs){
    if(job.source.length>100000||/^\s*(?:%%\{\s*(?:init|config)|click\b|---\s*$)/m.test(job.source))throw Error('图源超出安全画像：'+job.path);
-   const pending=waitMessage('svg',job.id);const seed=(parseInt((await digest(encoder.encode(job.id))).slice(0,8),16)&0x7fffffff)||1;
-   frame.contentWindow.postMessage({channel:'sec-graph-frame/1',kind:'render',id:job.id,source:job.source,seed},'*');
+   const pending=waitMessage('svg',job.id);
+   frame.contentWindow.postMessage({channel:'sec-graph-frame/1',kind:'render',id:job.id,source:job.source,fontFamily},'*');
    const r=await pending;install(job,r.svg);progress(job.path+' 第'+job.line+'行');
   }
   progress('全部成功；可以保存当前图缓存，下次普通构建无需图引擎。');

@@ -168,8 +168,9 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   };
 
   const coverage: AcceptanceCoverageReport = {
-    formatVersion: '1',
+    formatVersion: '2',
     status: 'passed',
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: ['user_can_login', 'user_can_create_customer'],
     blocks: [
       {

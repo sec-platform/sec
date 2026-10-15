@@ -31,7 +31,7 @@ function manifest(acceptance: BlockManifest['acceptance']): BlockManifest {
   };
 }
 
-function lock(acceptancePlan: string[]): LockFile {
+function lock(acceptancePlan: string[], acceptanceSources: NonNullable<LockFile['acceptanceSources']>): LockFile {
   return {
     formatVersion: '1',
     app: {
@@ -52,9 +52,13 @@ function lock(acceptancePlan: string[]): LockFile {
       registryPath: 'registry'
     }],
     resolvedCapabilities: [],
-    installPlan: [],
+    installPlan: [...new Set(acceptanceSources.flatMap(entry => entry.acceptance.source?.tests ?? []))].map((to, index) => ({
+      stepId: `source:${index}`, blockId: 'source/block', registrySourceId: 'test', registryKind: 'private',
+      registryLocation: 'workspace', registryPath: 'registry', sourceRoot: 'files', action: 'copy', from: to, to
+    })),
     generatedPaths: [],
     acceptancePlan,
+    acceptanceSources,
     passStatus: {
       parse: 'succeeded',
       align: 'succeeded',
@@ -114,21 +118,22 @@ function runtime(): RuntimeVerificationLaneReport {
 async function writeManifest(
   workspaceRoot: string,
   acceptance: BlockManifest['acceptance']
-): Promise<void> {
+): Promise<NonNullable<LockFile['acceptanceSources']>> {
   const root = path.join(workspaceRoot, 'registry', 'source.block');
   await fs.mkdir(root, { recursive: true });
   await writeYaml(path.join(root, 'block.manifest.yaml'), manifest(acceptance));
+  return acceptance.map(item => ({ declaringBlockId: 'source/block', acceptance: item }));
 }
 
 test('a planned acceptance must cover at least one resolved block', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifest(workspaceRoot, [{
+    const captured = await writeManifest(workspaceRoot, [{
       id: 'orphan_acceptance',
       covers: { blocks: [] }
     }]);
     await expect(buildAcceptanceCoverage(
       workspaceRoot,
-      lock(['orphan_acceptance']),
+      lock(['orphan_acceptance'], captured),
       runtime(),
       fast([])
     )).rejects.toThrow('covers no resolved block');
@@ -137,13 +142,13 @@ test('a planned acceptance must cover at least one resolved block', async () => 
 
 test('acceptance targets cannot reference unknown resolved block identities', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifest(workspaceRoot, [{
+    const captured = await writeManifest(workspaceRoot, [{
       id: 'unknown_target',
       covers: { blocks: ['missing/block'] }
     }]);
     await expect(buildAcceptanceCoverage(
       workspaceRoot,
-      lock(['unknown_target']),
+      lock(['unknown_target'], captured),
       runtime(),
       fast([])
     )).rejects.toThrow('unknown resolved block');
@@ -152,7 +157,7 @@ test('acceptance targets cannot reference unknown resolved block identities', as
 
 test('acceptance dependency cycles are invalid proof graphs rather than uncovered results', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifest(workspaceRoot, [
+    const captured = await writeManifest(workspaceRoot, [
       {
         id: 'acceptance_a',
         dependsOn: ['acceptance_b'],
@@ -166,7 +171,7 @@ test('acceptance dependency cycles are invalid proof graphs rather than uncovere
     ]);
     await expect(buildAcceptanceCoverage(
       workspaceRoot,
-      lock(['acceptance_a', 'acceptance_b']),
+      lock(['acceptance_a', 'acceptance_b'], captured),
       runtime(),
       fast([])
     )).rejects.toThrow('Acceptance dependency cycle detected');
@@ -175,8 +180,9 @@ test('acceptance dependency cycles are invalid proof graphs rather than uncovere
 
 test('coverage readback restores fast acceptance from the matching canonical report', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifest(workspaceRoot, [{
+    const captured = await writeManifest(workspaceRoot, [{
       id: 'user_can_create_customer',
+      source: { tests: ['tests/acceptance/customer-flow.test.ts'] },
       covers: { blocks: ['source/block'] }
     }]);
     const fastLane = fast(['customer-flow.test.ts']);
@@ -188,8 +194,10 @@ test('coverage readback restores fast acceptance from the matching canonical rep
     await writeCanonicalVerificationArtifactSetFixture(workspaceRoot, report, {
       policyReport: fastLane.policyReport,
       acceptanceCoverage: {
-        formatVersion: '1',
+        formatVersion: '2',
         status: 'passed',
+        source: { resolvedBlockIds: ['source/block'], acceptancePlan: ['user_can_create_customer'], declarations: captured,
+          tests: [{ testPath: 'tests/acceptance/customer-flow.test.ts', blockId: 'source/block' }] },
         acceptancePassed: ['user_can_create_customer'],
         blocks: [{
           id: 'source/block',
@@ -203,7 +211,7 @@ test('coverage readback restores fast acceptance from the matching canonical rep
 
     const coverage = await buildAcceptanceCoverage(
       workspaceRoot,
-      lock(['user_can_create_customer']),
+      lock(['user_can_create_customer'], captured),
       runtimeLane
     );
     expect(coverage.acceptancePassed).toEqual(['user_can_create_customer']);

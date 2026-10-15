@@ -7,7 +7,6 @@ export async function ensureProjectDependencyEnvironment<Binding extends { reado
   readCanonicalPaths(): Readonly<{ compilerDependencyRoot: string; compilerNodeModulesPath: string }>;
   readRuntimeSpec(): Promise<Readonly<{ manifestHash: string }>>;
   observeCompilerReady(): Promise<Readonly<{ kind: string; binding: { runtimeMaterialization: Binding | null }; sourceGeneration?: Source | null }> | null>;
-  readSourceGeneration(binding: Binding, ownerRoot: string, sourcePath: string): Promise<Source>;
   verifyIsolatedSource(binding: Binding, sourcePath: string): Promise<boolean>;
   publishTarget(source: Readonly<{ binding: Binding; sourceGeneration: Source; sourceNodeModulesPath: string; compilerDependencyRoot: string }>): Promise<void>;
 }>) {
@@ -17,7 +16,6 @@ export async function ensureProjectDependencyEnvironment<Binding extends { reado
   const source = await prepareProjectDependencySource({ ...paths, manifestHash: spec.manifestHash,
     isolated: input.installMode === 'offline-copy-only',
     observeCompilerReady: input.observeCompilerReady,
-    readSourceGeneration: input.readSourceGeneration,
     verifyIsolatedSource: input.verifyIsolatedSource
   });
   await input.publishTarget(source);
@@ -30,18 +28,15 @@ export async function prepareProjectDependencySource<Binding extends { readonly 
   compilerDependencyRoot: string;
   compilerNodeModulesPath: string;
   observeCompilerReady(): Promise<Readonly<{ kind: string; binding: { runtimeMaterialization: Binding | null }; sourceGeneration?: Source | null }> | null>;
-  readSourceGeneration(binding: Binding, ownerRoot: string, sourcePath: string): Promise<Source>;
   verifyIsolatedSource(binding: Binding, sourcePath: string): Promise<boolean>;
 }>) {
   const ready = await input.observeCompilerReady();
   const binding = ready?.binding.runtimeMaterialization;
   if (ready === null || ready.kind === 'incompatible-bridge' || binding === null || binding === undefined ||
-      binding.manifestHash !== input.manifestHash) {
+      binding.manifestHash !== input.manifestHash || ready.sourceGeneration == null) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Canonical compiler dependency readiness is unavailable');
   }
-  const compilerSource = ready.sourceGeneration ?? await input.readSourceGeneration(binding,
-    input.compilerDependencyRoot, input.compilerNodeModulesPath);
-  const sourceGeneration = await input.readSourceGeneration(binding, compilerSource.ownerRoot, compilerSource.sourcePath);
+  const sourceGeneration = ready.sourceGeneration;
   if (input.isolated && !await input.verifyIsolatedSource(binding, sourceGeneration.sourcePath)) {
     throw new CodedFailure('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable for isolated verification');
   }
