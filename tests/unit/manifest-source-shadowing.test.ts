@@ -159,14 +159,14 @@ test.serial('real add and resolve diagnostics display current addressed and depe
     expect(output.join('\n')).toContain('Registry cache/probe: first@1.0.0 selected by source-order; shadowed: second@2.0.0 (workspace:registry-second), third@3.0.0 (workspace:registry-third)');
     expect(plan.blocks).toEqual([{ id: 'cache/probe', version: '1.0.0' }]);
 
-    // Request only the client: its provider is selected through catalog closure.
+    // Keep the client and its private provider explicit; source diagnostics are separate from authorization.
     const parentRoot = path.join(f.workspaceRoot, 'registry-first', 'client.app');
     mkdirSync(parentRoot);
     const parent = loadManifestById('cache/probe', f).manifest;
     writeFileSync(path.join(parentRoot, 'block.manifest.yaml'), JSON.stringify({ ...parent,
       id: 'client/app', provides: [], requires: ['cache/probe'],
       installs: [{ kind: 'copy', from: 'client.ts', to: 'src/client.ts' }] }));
-    plan = { ...plan, blocks: [{ id: 'client/app' }] };
+    plan = { ...plan, blocks: [{ id: 'client/app' }, { id: 'cache/probe' }] };
     f.write(1, '2.1.0');
     output.length = 0;
     await program.parseAsync(['resolve'], { from: 'user' });

@@ -9,6 +9,11 @@ function entry(id: string, requires: string[] = [], provides: string[] = [id], k
     manifestPath: `/registry/${id}/block.manifest.yaml`, manifestRoot: `/registry/${id}`, resourceRoots: [`/registry/${id}`],
     registryRoot: '/registry', registrySourceId: 'test', registryKind: 'private', registryLocation: 'workspace', registryPath: 'registry' };
 }
+/** A builtin official origin is the only current policy-owned implicit provider source. */
+function builtin(entry: ManifestEntry): ManifestEntry {
+  return { ...entry, registrySourceId: 'official', registryKind: 'official',
+    registryLocation: 'compiler', registryPath: 'catalog/registry/official' };
+}
 const ids = (values: readonly ManifestEntry[]) => values.map(value => value.manifest.id);
 const resolve = (selected: ManifestEntry[], all = selected) => resolveManifestGraph(selected, all);
 
@@ -17,7 +22,7 @@ test('empty input has no synthetic blocks or capabilities', () => {
 });
 
 test('unique transitive providers are selected once and unrelated catalog entries stay out', () => {
-  const a = entry('block/a', ['cap/b']), b = entry('block/b', ['cap/c'], ['cap/b']), c = entry('block/c', [], ['cap/c']);
+  const a = entry('block/a', ['cap/b']), b = builtin(entry('block/b', ['cap/c'], ['cap/b'])), c = builtin(entry('block/c', [], ['cap/c']));
   const result = resolve([a], [a, b, c, entry('block/unused')]);
   assert.deepEqual(ids(result.entries), ['block/c', 'block/b', 'block/a']);
   assert.deepEqual(result.capabilities, ['block/a', 'cap/b', 'cap/c']);
@@ -64,8 +69,32 @@ test('equal catalog mirrors and different versions do not replace the captured e
 });
 
 test('one provider repeating a declaration is not two ambiguous implementations', () => {
-  const a = entry('block/a', ['service', 'service']), b = entry('block/b', [], ['service', 'service']);
+  const a = entry('block/a', ['service', 'service']), b = builtin(entry('block/b', [], ['service', 'service']));
   assert.deepEqual(ids(resolve([a], [a, b]).entries), ['block/b', 'block/a']);
+});
+
+test('a unique private or community provider cannot gain authority from catalog discovery', () => {
+  const consumer = entry('block/app', ['cap/database']);
+  for (const kind of ['private', 'community'] as const) {
+    const candidate = entry('block/database', [], ['cap/database']);
+    candidate.registryKind = kind;
+    assert.throws(() => resolve([consumer], [consumer, candidate]), error => {
+      const failure = error as { code?: string; details?: { providerBlockId?: string } };
+      assert.equal(failure.code, 'RESOLVE-AUTHORITY-007');
+      assert.equal(failure.details?.providerBlockId, 'block/database');
+      return true;
+    });
+    assert.deepEqual(ids(resolve([consumer, candidate], [consumer, candidate]).entries),
+      ['block/database', 'block/app']);
+  }
+});
+
+test('official labels alone do not authorize a non-packaged implicit provider', () => {
+  const consumer = entry('block/app', ['cap/database']);
+  const candidate = builtin(entry('block/database', [], ['cap/database']));
+  candidate.registryPath = 'different-official-root';
+  assert.throws(() => resolve([consumer], [consumer, candidate]),
+    error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
 });
 
 test('missing capabilities remain typed resolver failures', () => {
