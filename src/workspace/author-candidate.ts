@@ -1,5 +1,7 @@
 import { cloneAndDeepFreeze, isPlainObject } from '../contracts/canonical.ts';
 import { CodedFailure } from '../contracts/failure.ts';
+import { assertAuthorSourceCaptureBudget, requireAuthorSourceCaptureBudget,
+  type AuthorSourceCaptureBudget } from './author-source-capture-budget.ts';
 
 const candidateBrand: unique symbol = Symbol('author-candidate');
 
@@ -31,7 +33,8 @@ const candidateOwners = new WeakMap<object, object>();
 /** Capture plain structured author values, including erroneous domain drafts.
  * Domain validation belongs to semantics, not candidate creation. Mutable
  * collection internal slots cannot be made immutable by Object.freeze. */
-function capture<Value>(input: Value): Value {
+function capture<Value>(input: Value, budget: Readonly<AuthorSourceCaptureBudget>): Value {
+  assertAuthorSourceCaptureBudget(input, budget, 'AUTHOR-CANDIDATE-001');
   const value = cloneAndDeepFreeze(input);
   const pending: unknown[] = [value];
   const visited = new WeakSet<object>();
@@ -61,7 +64,11 @@ export function readAuthorCandidate<Value>(candidate: AuthorCandidate<Value>): V
 /** A memory workspace needs neither a database nor a filesystem watcher.
  * Strong candidate references pin their source; the weak owner index does not
  * keep abandoned drafts alive. Saving is a separate effect owned by execution. */
-export function createAuthorWorkspace<Value>(initial: Value): AuthorWorkspace<Value> {
+export function createAuthorWorkspace<Value>(
+  initial: Value,
+  captureBudget?: AuthorSourceCaptureBudget
+): AuthorWorkspace<Value> {
+  const budget = requireAuthorSourceCaptureBudget(captureBudget);
   const owner = Object.freeze({});
   let revision = 0;
   const own = (candidate: AuthorCandidate<Value>): void => {
@@ -71,7 +78,7 @@ export function createAuthorWorkspace<Value>(initial: Value): AuthorWorkspace<Va
     }
   };
   const issue = (content: Value, parentRevision: number | null): AuthorCandidate<Value> => {
-    const captured = capture(content);
+    const captured = capture(content, budget);
     if (!Number.isSafeInteger(revision + 1)) throw new CodedFailure('AUTHOR-CANDIDATE-004', 'Workspace revision space is exhausted');
     const candidate: AuthorCandidate<Value> = Object.freeze({
       [candidateBrand]: true as const, revision: ++revision, parentRevision, content: captured

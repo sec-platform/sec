@@ -3,11 +3,13 @@ import type { SemanticCompilationInput } from '../compiler/semantic-compiler.ts'
 import type { StructuredIdentityRuntime } from '../contracts/structured-identity.ts';
 import { createRuntimeQueryScope } from '../execution/runtime-query-scope.ts';
 import { createAuthorWorkspace } from '../workspace/author-candidate.ts';
+import { requireAuthorSourceCaptureBudget } from '../workspace/author-source-capture-budget.ts';
 
 /** Assemble the current pure compiler and target. Workspace source belongs to
  * workspace; request semantics to application; admission/drain to execution. */
 export function createRuntime(options: SemanticRuntimeOptions = {}): SemanticRuntime {
-  const { maximumPendingQueries = 1 } = options;
+  const { maximumPendingQueries = 1, sourceCaptureBudget } = options;
+  const budget = requireAuthorSourceCaptureBudget(sourceCaptureBudget);
   const scope = createRuntimeQueryScope(maximumPendingQueries);
   // Analysis loads neither the optional target nor the physical content-hash
   // provider. Generation assembles both lazily and reuses them for this runtime.
@@ -21,7 +23,7 @@ export function createRuntime(options: SemanticRuntimeOptions = {}): SemanticRun
   });
 
   const handle = (request: SemanticQueryRequest): Promise<SemanticQueryResult> => scope.run(
-    () => prepareSemanticQuery(request),
+    () => prepareSemanticQuery(request, budget),
     query => executeSemanticQuery(query, {
       loadGenerator: async () => {
         target ??= import('../adapters/targets/typescript/state-transition-source.ts');
@@ -40,7 +42,7 @@ export function createRuntime(options: SemanticRuntimeOptions = {}): SemanticRun
     capabilities,
     workspace: (input: SemanticCompilationInput) => {
       scope.assertAccepting();
-      const workspace = createAuthorWorkspace(input);
+      const workspace = createAuthorWorkspace(input, budget);
       scope.assertAccepting();
       return workspace;
     },
