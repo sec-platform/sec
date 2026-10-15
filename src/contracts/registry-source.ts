@@ -1,5 +1,7 @@
 export const REGISTRY_KINDS = ['official', 'private', 'community'] as const;
 export const REGISTRY_LOCATIONS = ['compiler', 'workspace'] as const;
+/** Only this compiler-owned packaged registry may use the built-in implicit-provider policy. */
+export const BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH = 'catalog/registry/official' as const;
 
 export type RegistryKind = (typeof REGISTRY_KINDS)[number];
 export type RegistryLocation = (typeof REGISTRY_LOCATIONS)[number];

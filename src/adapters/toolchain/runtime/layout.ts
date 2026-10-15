@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { POLICY_SOURCE_PATHS } from '../../../workspace/contract/policy-source-paths.ts';
 
 import { CodedFailure } from '../../../contracts/failure.ts';
+import { BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH } from '../../../contracts/registry-source.ts';
 import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
 
 export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
@@ -29,7 +30,7 @@ export function packageArtifactLauncherScript(artifactRelativePath: string): str
 export const COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS = Object.freeze({
   composeTemplates: path.join('src', 'adapters', 'compilation', 'compose', 'templates'),
   officialPolicies: path.join(...POLICY_SOURCE_PATHS.official.split('/')),
-  officialRegistry: path.join('catalog', 'registry', 'official')
+  officialRegistry: path.join(...BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH.split('/'))
 });
 
 export interface CompilerRuntimeLayout {

@@ -1,5 +1,6 @@
 import { canonicalEquals, compareCodeUnits } from '../../contracts/canonical.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
+import { BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH } from '../../contracts/registry-source.ts';
 import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
 import type { ManifestEntry } from '../contract/plan-manifest.ts';
 import { KIND_PRIORITY } from '../registry/kind-priority.ts';
@@ -107,7 +108,7 @@ function selectedManifestIdentity(entry: ManifestEntry): Omit<ManifestEntry, 're
 }
 
 /** Owns this manifest dependency graph only, not every graph in the system.
- * Preserve existing unique-provider closure and all-selected-provider ordering.
+ * Preserve provider-before-consumer ordering without granting catalog discovery authority.
  * Catalog validation and physical source observation remain with their loader.
  */
 export function resolveManifestGraph(
@@ -157,6 +158,19 @@ export function resolveManifestGraph(
           `Selected block "${provider.manifest.id}" does not provide required capability "${requirement}"`, {
             requiredBy: entry.manifest.id, requirement, selectedVersion: alreadySelected.manifest.version,
             candidateVersion: provider.manifest.version
+          });
+      }
+      // Catalog uniqueness is discovery, never authorization. V1 permits
+      // implicit closure only for the compiler-packaged official source. All
+      // workspace/private/community providers must be explicitly in Plan.blocks.
+      // The policy is bound to a fixed compiler resource origin, not the
+      // caller's registry source ID or the catalog's enumeration order.
+      if (provider.registryKind !== 'official' || provider.registryLocation !== 'compiler'
+          || provider.registryPath !== BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH) {
+        throw new CodedFailure('RESOLVE-AUTHORITY-007',
+          `Provider "${provider.manifest.id}" for capability "${requirement}" requires an explicit Plan.blocks selection`, {
+            requiredBy: entry.manifest.id, capability: requirement,
+            providerBlockId: provider.manifest.id, registrySourceId: provider.registrySourceId
           });
       }
       select(provider);

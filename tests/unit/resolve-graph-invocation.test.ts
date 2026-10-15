@@ -28,7 +28,7 @@ function fixture() {
 
 test('real resolver preserves provider-before-consumer order and stable global install step IDs', async () => {
   const f = fixture(); try {
-    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base']); f.plan.blocks = [{ id: 'block/app' }];
+    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base']); f.plan.blocks = [{ id: 'block/app' }, { id: 'block/base' }];
     const incompatible = f.manifest('block/a', [], ['cap/base']);
     writeFileSync(path.join(incompatible.folder, 'block.manifest.yaml'), JSON.stringify({
       ...incompatible.source, stackProfiles: ['other-stack'],
@@ -83,9 +83,19 @@ test('two explicit versions are rejected instead of silently keeping only the la
   } finally { f.cleanup(); }
 });
 
+test('real local private provider requires explicit selection before install resource observation', async () => {
+  const f = fixture(); try {
+    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base']);
+    f.plan.blocks = [{ id: 'block/app' }];
+    await assert.rejects(resolveGraph(f.root, f.plan),
+      error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
+  } finally { f.cleanup(); }
+});
+
 test('duplicate provider declarations do not create artificial ambiguity', async () => {
   const f = fixture(); try {
-    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base', 'cap/base']); f.plan.blocks = [{ id: 'block/app' }];
+    f.manifest('block/app', ['cap/base']); f.manifest('block/base', [], ['cap/base', 'cap/base']); f.plan.blocks = [{ id: 'block/app' }, { id: 'block/base' }];
     assert.deepEqual((await resolveGraph(f.root, f.plan)).resolvedBlocks.map(b => b.id), ['block/base', 'block/app']);
   } finally { f.cleanup(); }
 });
@@ -99,7 +109,7 @@ test('install ownership conflict still rejects a resolve result', async () => {
 });
 
 for (const compatibleId of ['block/a', 'block/z']) {
-  test(`automatic providers apply stack admission before ambiguity with ${compatibleId} compatible`, async () => {
+  test(`explicit private providers retain stack admission with ${compatibleId} compatible`, async () => {
     const f = fixture(); try {
       f.manifest('block/app', ['cap/base']);
       const incompatibleId = compatibleId === 'block/a' ? 'block/z' : 'block/a';
@@ -109,7 +119,7 @@ for (const compatibleId of ['block/a', 'block/z']) {
         ...incompatible.source, stackProfiles: ['other-stack'],
         installs: [{ kind: 'copy', from: 'absent-resource.ts', to: 'src/unused.ts' }]
       }));
-      f.plan.blocks = [{ id: 'block/app' }];
+      f.plan.blocks = [{ id: 'block/app' }, { id: compatibleId }];
       const lock = await resolveGraph(f.root, f.plan);
       assert.deepEqual(lock.resolvedBlocks.map(block => block.id), [compatibleId, 'block/app']);
       assert.deepEqual(lock.resolvedBlocks.map(block => block.registrySourceId), ['local', 'local']);
