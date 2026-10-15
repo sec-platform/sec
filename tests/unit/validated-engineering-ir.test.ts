@@ -130,6 +130,56 @@ test('raw IR root field access refuses getters before reading semantics', () => 
   expect(reads).toBe(0);
 });
 
+test('all nested raw IR properties reject accessors before semantic readers run', () => {
+  const source = input();
+  for (const select of [
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.entities[0]!, key: 'kind' }),
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.facts[0]!, key: 'predicate' }),
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({ record: ir.facts[0]!.object, key: 'kind' }),
+    (ir: ReturnType<typeof buildEngineeringIR>) => ({
+      record: ir.facts[0]!.assertions[0]!.provenance[0]!, key: 'sourceId'
+    })
+  ]) {
+    const ir = clone(buildEngineeringIR(source));
+    const { record, key } = select(ir);
+    let calls = 0;
+    Object.defineProperty(record, key, {
+      configurable: true, enumerable: true,
+      get() { calls += 1; throw Error('Raw IR property getter must not run'); }
+    });
+    expectCodedFailure(() => validateEngineeringIR(ir, source), 'IR-VALIDATION-005');
+    expect(calls).toBe(0);
+  }
+});
+
+test('raw IR rejects nested Proxy, custom iterators and executable toJSON without calling them', () => {
+  const source = input();
+  const proxied = clone(buildEngineeringIR(source));
+  let proxyTraps = 0;
+  proxied.facts[0]!.object = new Proxy(proxied.facts[0]!.object, {
+    get() { proxyTraps += 1; throw Error('Nested Proxy get must not run'); },
+    ownKeys() { proxyTraps += 1; throw Error('Nested Proxy ownKeys must not run'); }
+  });
+  expectCodedFailure(() => validateEngineeringIR(proxied, source), 'IR-VALIDATION-005');
+  expect(proxyTraps).toBe(0);
+
+  const iterable = clone(buildEngineeringIR(source));
+  let iteratorCalls = 0;
+  Object.defineProperty(iterable.entities, Symbol.iterator, {
+    value() { iteratorCalls += 1; throw Error('Custom iterator must not run'); }
+  });
+  expectCodedFailure(() => validateEngineeringIR(iterable, source), 'IR-VALIDATION-005');
+  expect(iteratorCalls).toBe(0);
+
+  const hook = clone(buildEngineeringIR(source));
+  let calls = 0;
+  Object.defineProperty(hook.facts[0]!, 'toJSON', {
+    value() { calls += 1; throw Error('toJSON must not run'); }
+  });
+  expectCodedFailure(() => validateEngineeringIR(hook, source), 'IR-VALIDATION-005');
+  expect(calls).toBe(0);
+});
+
 test('raw validator rejects invalid confidence, empty provenance and unsupported closed validity', () => {
   const source = input();
   for (const confidence of [NaN, Infinity, -Infinity, -0.01, 1.01]) {

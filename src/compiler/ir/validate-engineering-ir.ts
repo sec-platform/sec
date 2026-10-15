@@ -78,6 +78,41 @@ function assertEngineeringIRTopLevelData(ir: EngineeringIR): void {
       fail('IR-VALIDATION-005', `Engineering IR root field "${key}" must be own data`);
     }
   }
+
+  // All later semantic readers use ordinary property access, iteration and
+  // JSON.stringify. Prove the entire raw graph is plain own-data before any
+  // reader can trigger caller-supplied accessors, toJSON or Symbol.iterator.
+  // Iterative traversal retains current deep-IR stack behavior; resource
+  // ceilings remain the responsibility of the untrusted input admission.
+  const seen = new WeakSet<object>();
+  const pending: object[] = [ir];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (nodeTypes.isProxy(current)) {
+      fail('IR-VALIDATION-005', 'Engineering IR raw data cannot contain Proxy objects');
+    }
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const prototype: unknown = Object.getPrototypeOf(current);
+    if (Array.isArray(current) ? prototype !== Array.prototype
+      : prototype !== Object.prototype && prototype !== null) {
+      fail('IR-VALIDATION-005', 'Engineering IR raw data requires ordinary object and array prototypes');
+    }
+    for (const key of Reflect.ownKeys(current)) {
+      if (typeof key !== 'string') {
+        fail('IR-VALIDATION-005', 'Engineering IR raw data cannot contain symbol fields');
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+        fail('IR-VALIDATION-005', 'Engineering IR raw data cannot contain accessors');
+      }
+      const nested: unknown = descriptor.value;
+      if (typeof nested === 'function' || typeof nested === 'symbol' || typeof nested === 'bigint') {
+        fail('IR-VALIDATION-005', 'Engineering IR raw data cannot contain executable or non-JSON values');
+      }
+      if (nested !== null && typeof nested === 'object') pending.push(nested);
+    }
+  }
 }
 
 function entityIdMatchesKind(entity: SemanticEntity): boolean {
