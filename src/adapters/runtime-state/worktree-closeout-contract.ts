@@ -10,6 +10,23 @@ export {
   type WorktreePorcelainRecord
 } from './physical/contract/git-worktree-observation.ts';
 
+/** Git owns the admin basename. Admit valid UTF-8 Linux components while
+ * refusing traversal, non-representable Git control text and Windows aliases. */
+export function isCanonicalGitWorktreeAdminRelativePath(value: unknown): value is string {
+  if (typeof value !== 'string' || !value.startsWith('worktrees/')) return false;
+  const leaf = value.slice('worktrees/'.length);
+  if (leaf.length === 0 || leaf === '.' || leaf === '..' || leaf.includes('/')
+      || leaf.includes('\0') || leaf.includes('\r') || leaf.includes('\n')
+      || Buffer.byteLength(leaf, 'utf8') > 255
+      || Buffer.from(leaf, 'utf8').toString('utf8') !== leaf) return false;
+  if (process.platform === 'win32') {
+    const base = leaf.split('.')[0]!.toLocaleUpperCase('en-US');
+    return !/[\\:<>"|?*]/u.test(leaf) && !/[ .]$/u.test(leaf)
+      && !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/u.test(base);
+  }
+  return true;
+}
+
 export const WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA = 'sec-worktree-cleanup-authorization-v1' as const;
 const WORKTREE_PHYSICAL_CLOSEOUT_RECEIPT_SCHEMA = 'sec-worktree-cleanup-receipt-v1' as const;
 
@@ -193,8 +210,8 @@ export function createWorktreePhysicalInventory(entries: readonly WorktreePhysic
     if (
       entry.relativePath.length === 0 ||
       entry.relativePath.startsWith('/') ||
-      entry.relativePath.includes('\\') ||
-      entry.relativePath.split('/').includes('..')
+      (process.platform === 'win32' && entry.relativePath.includes('\\')) ||
+      entry.relativePath.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
     ) {
       fail(`unsafe relative inventory path: ${entry.relativePath}`);
     }
@@ -283,7 +300,7 @@ export function createWorktreePhysicalCloseoutAuthorization(
     fail('target recoveryAuthorityDigest shape mismatch.');
   }
   const operationId = sha256(worktreePhysicalCloseoutOperationMaterial(input, true)) as Digest;
-  if (!/^worktrees\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.registryAdmin.relativePath) ||
+  if (!isCanonicalGitWorktreeAdminRelativePath(input.registryAdmin.relativePath) ||
     !/^worktree-admin-closeout-[0-9a-f]{64}$/u.test(input.registryAdmin.tombstoneName) ||
     input.registryAdmin.device.length === 0 || input.registryAdmin.inode.length === 0) {
     fail('registryAdmin is not a canonical Git common-dir worktree directory.');

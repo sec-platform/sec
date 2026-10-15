@@ -90,17 +90,18 @@ function materializeCompilerDependencyFixture(root: string): void {
   }
 }
 
-function fixture(options: Readonly<{ compilerDependencies?: boolean; documentationCoordination?: boolean }> = {}) {
+function fixture(options: Readonly<{ compilerDependencies?: boolean; documentationCoordination?: boolean; targetName?: string; trackedBackslash?: boolean }> = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-worktree-physical-closeout-'));
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
-  const target = path.join(root, 'candidate');
+  const target = path.join(root, options.targetName ?? 'candidate');
   git(root, ['init', '--bare', remote]);
   git(root, ['init', '-b', 'main', repository]);
   git(repository, ['config', 'user.name', 'SEC Test']);
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
   git(repository, ['config', 'core.autocrlf', 'false']);
   writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
+  if (options.trackedBackslash === true) writeFileSync(path.join(repository, 'a\\b'), 'backslash tracked\n', 'utf8');
   if (options.compilerDependencies === true) writeCompilerDependencyInputs(repository);
   if (options.documentationCoordination === true) writeFileSync(path.join(repository, '.gitignore'), '.tmp/\n', 'utf8');
   git(repository, ['add', '.']);
@@ -151,6 +152,33 @@ async function persistRetiredPhaseForCrash(authorization: Awaited<ReturnType<typ
   writeFileSync(path.join(path.dirname(authorization.receiptPath), `retired-phase-${phase.phaseDigest.slice('sha256:'.length)}.json`), `${JSON.stringify(phase)}\n`);
   return tombstone;
 }
+
+test.skipIf(process.platform !== 'linux')('Unicode Git admin and tracked backslash leaf settle one native closeout', async () => {
+  const value = fixture({ targetName: '开发分支', trackedBackslash: true });
+  try {
+    expect(readdirSync(path.join(value.repository, '.git', 'worktrees'))).toContain('开发分支');
+    expect(existsSync(path.join(value.target, 'a\\b'))).toBeTrue();
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository, targetPath: value.target,
+      expectedBranch: value.branch, expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    }, worktreePhysicalCloseoutOperations);
+    expect(authorization.registryAdmin.relativePath).toBe('worktrees/开发分支');
+    expect(authorization.inventory.entries.some(entry => entry.relativePath === 'a\\b')).toBeTrue();
+    const receipt = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository, targetPath: value.target,
+      expectedBranch: value.branch, expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    expect(receipt.readback.registryPresent).toBeFalse();
+    expect(receipt.readback.physicalPresent).toBeFalse();
+    expect(existsSync(value.target)).toBeFalse();
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 30_000);
 
 test('real registered worktree reaches registry and physical absence under one durable receipt', async () => {
   const value = fixture();

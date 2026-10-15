@@ -53,6 +53,17 @@ function expectPhysicalCode(action: () => unknown, code: PhysicalNoFollowError['
   throw new Error(`Expected PhysicalNoFollowError ${code}.`);
 }
 
+test.skipIf(process.platform !== 'linux')('Linux no-follow reader preserves a literal-backslash leaf name', () => {
+  const root = fixtureRoot();
+  try {
+    writeFileSync(path.join(root, 'a\\b'), 'literal backslash');
+    const parent = inspectNoFollowDirectoryChain(root).target;
+    expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'a\\b')!)).toEqual(Buffer.from('literal backslash'));
+    expect(scanNoFollowDirectoryTreeInventory(parent).some(entry => entry.relativePath === 'a\\b')).toBeTrue();
+    expectPhysicalCode(() => readNoFollowOrdinaryFile(parent, '../escape'), 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('no-follow directory inspection returns an ordered physical chain and only ENOENT means absent', () => {
   const root = fixtureRoot();
   try {
