@@ -43,3 +43,26 @@ test('one command phase prints wall-clock chronology and its own monotonic durat
   assert.equal(records[4]?.state, 'failed');
   assert.ok(Number(records[4]?.phaseDurationMs) >= 0);
 });
+
+test('synchronous stderr failure cannot prevent work or replace its original rejection', async () => {
+  const originalWrite = process.stderr.write;
+  const outputFailure = new Error('diagnostic output failed');
+  const executionFailure = Object.freeze({ reason: 'original execution failure' });
+  const result = Object.freeze({ result: 'actual work result' });
+  let calls = 0;
+  process.stderr.write = (() => { throw outputFailure; }) as typeof process.stderr.write;
+  try {
+    enableExecutionProgress();
+    assert.equal(await observeExecutionProgressPhase('progress-write-failure', 'successful-work', () => {
+      calls += 1;
+      return result;
+    }), result);
+    await assert.rejects(observeExecutionProgressPhase('progress-write-failure', 'failing-work', () => {
+      calls += 1;
+      throw executionFailure;
+    }), (error: unknown) => error === executionFailure);
+    assert.equal(calls, 2);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+});

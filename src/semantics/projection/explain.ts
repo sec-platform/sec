@@ -4,6 +4,8 @@ import type { ProvenanceArtifact } from '../provenance/types.ts';
 import type { SemanticViewSet, ViewReference } from './types.ts';
 
 
+/** Historical graph artifacts may contain pin nodes. Readers preserve them;
+ * current semantic projection emits canonical port identities only. */
 export type ExplainNodeType = SemanticEntityKind | 'semantic-value' | 'pin' | 'file' | 'override' | 'repair' | 'upgrade';
 
 export type ExplainEdgeType =

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { uniqueSorted } from '../../contracts/canonical.ts';
 import { REGISTRY_KINDS, REGISTRY_LOCATIONS } from '../../contracts/registry-source.ts';
+import { validateAcceptanceItem } from '../../semantics/acceptance/source.ts';
 import { SEMANTIC_ENTITY_KINDS } from '../../semantics/engineering-ir/entity-types.ts';
 import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES } from '../../semantics/engineering-ir/fact-types.ts';
 import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, SEMANTIC_GENERATOR_TASK_STATUSES } from '../../semantics/generation/types.ts';
@@ -167,6 +168,15 @@ const lockFileSchema = z.strictObject({
   semanticViews: semanticViewSetSchema.optional(),
   generatedPaths: stringArraySchema,
   acceptancePlan: stringArraySchema,
+  acceptanceSources: z.array(z.strictObject({
+    declaringBlockId: z.string(),
+    acceptance: z.unknown().transform((value, context) => {
+      try { return validateAcceptanceItem(value); } catch (error) {
+        context.addIssue({ code: 'custom', message: error instanceof Error ? error.message : String(error) });
+        return z.NEVER;
+      }
+    })
+  })).optional(),
   passStatus: z.strictObject({
     parse: z.enum(LOCK_PASS_STATES),
     align: z.enum(LOCK_PASS_STATES),

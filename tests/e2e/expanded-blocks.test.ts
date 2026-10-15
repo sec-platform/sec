@@ -79,7 +79,7 @@ test('expanded official block set composes and verifies as one project', async (
   expect(lock.installPlan.some((step) => step.to === 'tests/unit/worklog-service.test.ts')).toBe(true);
   expect(lock.generatedPaths).toEqual(
     expect.arrayContaining([
-      'lib/store.ts',
+      'src/runtime/store.ts',
       'src/runtime/database.ts',
       'tests/runtime/unit/ticket-runtime.test.ts',
       'tests/runtime/unit/customer-runtime.test.ts'

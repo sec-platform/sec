@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { affectedGitSelectionDigest, rebindAffectedGitSelectionSource, type IssuedAffectedGitSelectionSource } from '../../../verification/platform/test-impact/runtime/affected-git-source.ts';
-import { boundedAffectedBaseRef, completedGitCommand, createAffectedGitRevalidationLedger, exactRevision, observeGitSelectionState, reobserveAffectedGitSelectionState, sameGitSelectionObservation } from './affected-git-observation.ts';
+import { affectedGitSelectionDigest, readAffectedGitSelectionBinding, rebindAffectedGitSelectionSource, type IssuedAffectedGitSelectionSource } from '../../../verification/platform/test-impact/runtime/affected-git-source.ts';
+import { boundedAffectedBaseRef, createAffectedGitRevalidationLedger, observeGitSelectionState, reobserveAffectedGitSelectionState, sameGitSelectionObservation } from './affected-git-observation.ts';
 
 import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
 
@@ -43,7 +43,7 @@ import {
   type AffectedGitSelectionObservation
 } from '../../../verification/platform/test-impact/runtime/affected-source.ts';
 import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../../verification/platform/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../../verification/platform/test-impact/runtime/transition.ts';
+import type { CodexDevelopmentTestImpactTransitionObservation } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../../verification/platform/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
@@ -294,135 +294,15 @@ async function gitChangedFiles(
   const rawBaseRef = affectedTestsBaseRef();
   const baseRef = boundedAffectedBaseRef(rawBaseRef);
   if (rawBaseRef !== undefined && baseRef === null) return null;
-  let baseSha: string | null = null;
-  let headSha: string | undefined;
-  if (baseRef !== null) {
-    const baseRevision = completedGitCommand(await session.run([
-      '--no-pager',
-      '-c', 'core.fsmonitor=false',
-      '-c', 'core.untrackedCache=false',
-      'rev-parse', '--verify', '--end-of-options', `${baseRef}^{commit}`
-    ]));
-    if (baseRevision === null || baseRevision.code !== 0) return null;
-    baseSha = exactRevision(baseRevision.stdout);
-    if (baseSha === null) return null;
-  }
-
-  const headRevision = completedGitCommand(await session.run([
-    '--no-pager',
-    '-c', 'core.fsmonitor=false',
-    '-c', 'core.untrackedCache=false',
-    'rev-parse', '--verify', 'HEAD^{commit}'
-  ]));
-  if (headRevision === null || headRevision.code !== 0) return null;
-  headSha = exactRevision(headRevision.stdout) ?? undefined;
-  if (headSha === undefined) return null;
-
-  const staged = completedGitCommand(await session.run(
-    gitIndexChangedFileDiffArgs(baseSha === null ? 'HEAD' : headSha)
-  ));
-  const unstaged = completedGitCommand(await session.run(
-    gitWorktreeChangedFileDiffArgs()
-  ));
-  const committedTracked = baseSha === null
-    ? null
-    : completedGitCommand(await session.run(gitChangedFileDiffArgs(baseSha, headSha)));
-  const untracked = completedGitCommand(await session.run(gitUntrackedFileArgs()));
-  const worktreeStatus = completedGitCommand(await session.run(gitWorkingTreeStatusArgs()));
-  const index = completedGitCommand(await session.run([
-    '--no-pager',
-    '-c', 'core.fsmonitor=false',
-    '-c', 'core.untrackedCache=false',
-    'ls-files', '--stage', '-z'
-  ]));
-  if (staged === null || unstaged === null || (baseSha !== null && committedTracked === null)
-      || untracked === null || worktreeStatus === null || index === null
-      || staged.code !== 0 || unstaged.code !== 0 || untracked.code !== 0
-      || worktreeStatus.code !== 0 || index.code !== 0) {
-    return null;
-  }
-  if (committedTracked !== null && committedTracked.code !== 0) return null;
-  const initialObservation = await observeGitSelectionState(
-    session,
-    baseSha,
-    worktreeStatus.stdout,
-    index.stdout,
-    headSha
-  );
-  if (initialObservation === null) return null;
   try {
-    const stagedRecords = parseGitChangedRecordsOutput(staged.stdout);
-    const unstagedRecords = parseGitChangedRecordsOutput(unstaged.stdout);
-    const committedRecords = committedTracked === null
-      ? []
-      : parseGitChangedRecordsOutput(committedTracked.stdout);
-    if (session.consumeRecords(
-      stagedRecords.length + unstagedRecords.length + committedRecords.length
-    ) !== null) return null;
-    const untrackedPaths = parseGitUntrackedFileOutput(untracked.stdout);
-    if (session.consumeRecords(untrackedPaths.length) !== null) return null;
-    const files = uniqueSorted([
-      ...stagedRecords.flatMap((record) => (
-        record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
-      )),
-      ...unstagedRecords.flatMap((record) => (
-        record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
-      )),
-      ...committedRecords.flatMap((record) => (
-        record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
-      )),
-      ...untrackedPaths
-    ]);
-    // Transition/blob reads happen after the initial observation fence. Prove
-    // the executable once more before publishing the changed-file snapshot so
-    // a helper replacement during the final plumbing commands cannot be
-    // mistaken for the already-bound Git provider.
-    if (!session.verifyExecutable()) return null;
-    if (baseSha === null) {
-      return { files, gitObservation: initialObservation };
-    }
-    const removedPaths = uniqueSorted(committedRecords
-      .filter((record) => record.status === 'removed')
-      .map((record) => record.path));
-    if (removedPaths.length > 0 && baseSha !== null) {
-      const blobs = new Map<string, ReturnType<typeof parseGitPathBlobBatchOutput>>();
-      for (const revision of [baseSha, initialObservation.headSha]) {
-        const blobResult = completedGitCommand(await session.run(
-          gitPathBlobBatchArgs(revision, removedPaths)
-        ));
-        if (blobResult === null || blobResult.code !== 0) return null;
-        const parsed = parseGitPathBlobBatchOutput(blobResult.stdout, removedPaths);
-        if (session.consumeRecords(parsed.size) !== null) return null;
-        blobs.set(revision, parsed);
-      }
-      if (!session.verifyExecutable()) return null;
-      return {
-        files,
-        gitObservation: initialObservation,
-        transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
-          baseSha,
-          headSha: initialObservation.headSha,
-          records: committedRecords,
-          readPathBlob: (revision, repositoryPath) => blobs.get(revision)?.get(repositoryPath) ?? null
-        })
-      };
-    }
-    if (baseSha !== null) {
-      if (!session.verifyExecutable()) return null;
-      return {
-        files,
-        gitObservation: initialObservation,
-        transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
-          baseSha,
-          headSha: initialObservation.headSha,
-          records: committedRecords,
-          readPathBlob: () => null
-        })
-      };
-    }
+    const selection = await issueAffectedGitSelectionSource({ session, baseRef });
+    if (selection === null) return null;
+    const binding = readAffectedGitSelectionBinding(selection, session, baseRef);
+    if (binding === null) return null;
     return {
-      files,
-      gitObservation: initialObservation
+      files: [...selection.files],
+      gitObservation: selection.gitObservation,
+      ...(binding.transition === null ? {} : { transitionObservation: binding.transition })
     };
   } catch {
     return null;

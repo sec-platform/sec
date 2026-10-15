@@ -2,9 +2,27 @@ import path from 'node:path';
 import { generatedStateDigest, type GeneratedStatePhysicalIdentity } from '../../../../execution/generated-state/contract.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { compilerDependencyStoragePaths } from './dependency-storage-layout.ts';
+import type { RuntimeDependencySourceGeneration } from './dependency-transition/contract.ts';
 import { sameHostPath } from './host-path.ts';
 
 /** Read-only locator observation and exact owner-qualified generation selection. */
+export function isManagedCompilerDependencyGenerationPath(generationPath: string): boolean {
+  const resolved = path.resolve(generationPath);
+  const envelope = path.basename(resolved) === 'node_modules' ? path.dirname(resolved) : resolved;
+  return /^generation-[0-9a-f]{24}$/u.test(path.basename(envelope));
+}
+
+/** Persisted topology only; the original owner still proves physical content
+ * and publisher authority before any recovery or retirement effect. */
+export function isExactRecordedManagedCompilerDependencySource(
+  source: Pick<RuntimeDependencySourceGeneration, 'sourcePath' | 'epoch'>
+): boolean {
+  const selected = path.resolve(source.sourcePath);
+  const envelope = path.basename(selected) === 'node_modules' ? path.dirname(selected) : selected;
+  return isManagedCompilerDependencyGenerationPath(selected) &&
+    path.basename(envelope) === `generation-${source.epoch.slice(7, 31)}`;
+}
+
 export function canonicalCompilerDependencyGenerationOwnerRoot(
   generationPath: string,
   ownerRoot?: string

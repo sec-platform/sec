@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse, collections, hashlib, html, json, re, sys
 from pathlib import Path
-from source_inventory import local_path
+from source_inventory import local_path, source_bytes, capture_source_bytes, assert_source_capture_current
 sys.dont_write_bytecode=True
 
 MODULES=frozenset('contracts workspace semantics compiler assurance application execution adapters entry bootstrap'.split())
@@ -82,7 +82,7 @@ def dependency_svg(model):
             if d in deps[n]:parts.append(f'<circle cx="{x+cell/2}" cy="{y+cell/2}" r="7" fill="#274b72"><title>{html.escape(n+" imports "+d)}</title></circle>')
     parts.append('</svg>');return ''.join(parts).encode()
 
-def deliverable_model(root: Path):
+def deliverable_model(root: Path, captured=None):
     """Verify author roots, semantic references and the target declaration source.
 
     This is a structural closure gate only. It does not type-check or execute the
@@ -96,12 +96,13 @@ def deliverable_model(root: Path):
                 if k in out: raise DesignError('Duplicate JSON key in '+str(path.relative_to(root))+': '+k)
                 out[k]=v
             return out
-        return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique)
+        return json.loads(source_bytes(root,path,captured).decode('utf-8'), object_pairs_hook=unique)
+    def present(path):return path.is_file() if captured is None else path.relative_to(root).as_posix()in captured
     defs=load_json(sample/'definitions.json')
     spec=load_json(sample/'contracts/spec.json')
     project=load_json(sample/'gift.project.json')
     target_source=sample/'公开边界.d.ts'
-    if not target_source.read_text(encoding='utf-8').strip():
+    if not source_bytes(root,target_source,captured).decode('utf-8').strip():
         raise DesignError('Target declaration source is empty')
     names=list(defs.get('exports',{}))
     if not names:
@@ -141,7 +142,7 @@ def deliverable_model(root: Path):
         if not model_path.is_relative_to(sample.resolve()):
             raise DesignError('Author module is missing/outside sample: '+model_rel)
         if module_id==defs.get('moduleId') or not semantic_source(model_path): continue
-        if not model_path.is_file(): raise DesignError('Author module is missing: '+model_rel)
+        if not present(model_path): raise DesignError('Author module is missing: '+model_rel)
         model=load_json(model_path)
         if model.get('moduleId')!=module_id:
             raise DesignError('Author module identity mismatch: '+model_rel)
@@ -203,8 +204,8 @@ def deliverable_model(root: Path):
         source=sem.get('source'); section=sem.get('section')
         if not source or not section: raise DesignError(name+' rule lacks semantics source/section')
         doc=(sample/'contracts'/source).resolve()
-        if not doc.is_relative_to(root) or not doc.is_file(): raise DesignError(name+' semantics source is missing/outside')
-        text=doc.read_text(encoding='utf-8')
+        if not doc.is_relative_to(root) or not present(doc): raise DesignError(name+' semantics source is missing/outside')
+        text=source_bytes(root,doc,captured).decode('utf-8')
         if not re.search(r'^#{1,6}\s+'+re.escape(section)+r'\s*$',text,re.M):
             raise DesignError(name+' semantics section not found: '+section)
         checked.append({'name':name,'model':model_rel,'semantics':doc.relative_to(root).as_posix()})
@@ -212,7 +213,7 @@ def deliverable_model(root: Path):
             'target_semantic_validation':'not-performed',
             'scope':'Author root and semantic reference structure; target source available, callability and implementation correctness not checked'}
 
-def decision_model(root: Path):
+def decision_model(root: Path, captured=None):
     """Read each independent U owner, allowing responsibility/remaining-work joins.
 
     The status index does not own a duplicate adoption or implementation plan.
@@ -221,8 +222,10 @@ def decision_model(root: Path):
     """
     from check_docs import markdown_visible_lines
     rows=[];visible={}
-    for p in sorted((root/'docs/状态').glob('*.md')):
-        t='\n'.join(line for _,line in markdown_visible_lines(p.read_text(encoding='utf-8'))) + '\n'
+    paths=((root/'docs/状态').glob('*.md') if captured is None else
+           (root/name for name in captured if (root/name).parent==root/'docs/状态' and name.endswith('.md')))
+    for p in sorted(paths):
+        t='\n'.join(line for _,line in markdown_visible_lines(source_bytes(root,p,captured).decode('utf-8'))) + '\n'
         visible[p]=t
         matches=list(re.finditer(r'^### (U\d{3})｜[^\n]*\n',t,re.M))
         for i,m in enumerate(matches):
@@ -255,11 +258,13 @@ def decision_model(root: Path):
                 raise DesignError('U reference lacks its independent owner: '+identity)
     return rows
 
-def review(root: Path):
-    model=dependency_model((root/TABLE_PATH).read_bytes());rows=decision_model(root);graphs=[]
-    from source_inventory import source_files
-    for p in (p for p in source_files(root) if p.suffix == '.md'):
-        text=p.read_text(encoding='utf-8');heading=None;fence=None;start=None;buffer=[]
+def review(root: Path, captured=None):
+    owns_capture=captured is None
+    if owns_capture:captured=capture_source_bytes(root)
+    model=dependency_model(source_bytes(root,TABLE_PATH,captured));rows=decision_model(root,captured);graphs=[]
+    files=(root/name for name in captured)
+    for p in (p for p in files if p.suffix == '.md'):
+        text=source_bytes(root,p,captured).decode('utf-8');heading=None;fence=None;start=None;buffer=[]
         for n,line in enumerate(text.splitlines(),1):
             m=re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$',line)
             if fence:
@@ -272,7 +277,8 @@ def review(root: Path):
             elif m:fence=m[1];start=n if m[2].strip()=='mermaid'else None;buffer=[]
             elif re.match(r'^#{1,6} ',line):heading=line.lstrip('# ').strip()
         if fence:raise DesignError('Unclosed fence: '+str(p))
-    products=deliverable_model(root)
+    products=deliverable_model(root,captured)
+    if owns_capture:assert_source_capture_current(root,captured)
     return {'modules':len(model['dependencies']),'static_edges':sum(map(len,model['dependencies'].values())),'module_model':model,'decisions':rows,'mermaid_sources':graphs,'deliverables':products,'scope':'Current document structure, declared decisions and concrete deliverable closure; not semantic proof or product enforcement'}
 
 def main(argv=None):

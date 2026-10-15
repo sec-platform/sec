@@ -27,6 +27,7 @@ export function buildReviewLock(options: ReviewLockOptions = {}): LockFile {
     installPlan: [],
     generatedPaths: [],
     acceptancePlan: [],
+    acceptanceSources: [],
     passStatus: {
       parse: 'succeeded',
       align: 'succeeded',
@@ -56,8 +57,9 @@ export function buildReviewProvenance(artifacts: ProvenanceFile['artifacts'] = [
 
 export function buildPassingReviewCoverage(options: Partial<AcceptanceCoverageReport> = {}): AcceptanceCoverageReport {
   return {
-    formatVersion: '1',
+    formatVersion: '2',
     status: 'passed',
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: [],
     blocks: [],
     uncoveredBlocks: [],

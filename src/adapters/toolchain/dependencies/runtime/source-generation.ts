@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { cloneAndDeepFreeze } from '../../../../contracts/canonical.ts';
 
 import { CodedFailure } from '../../../../contracts/failure.ts';
 import {
@@ -6,6 +7,7 @@ import {
   type GeneratedStatePhysicalIdentity
 } from '../../../../execution/generated-state/contract.ts';
 import {
+  assertPhysicallyDisjointDirectoryChains,
   assertRetainedNoFollowProvenDirectoryGeneration,
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
@@ -13,6 +15,7 @@ import {
   type ProvenDirectoryGenerationBinding,
   type RetainedNoFollowProvenDirectoryGeneration
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { isRuntimeDependencyMaterializationBinding } from '../contract/runtime-dependency-spec.ts';
 import { assertCompilerDependencySourceScope, compilerDependencySourcePathIsInScope } from './dependency-storage-layout.ts';
 import {
   generatedStatePhysicalIdentity,
@@ -21,6 +24,7 @@ import {
   sameGeneratedStateIdentity,
   type RuntimeDependencySourceGeneration
 } from './dependency-transition/contract.ts';
+import type { CompilerDepsBinding } from './materialization-binding.ts';
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationControls,
@@ -101,9 +105,6 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
   );
   const ownerRoot = path.resolve(input.ownerRoot);
   const sourcePath = path.resolve(input.sourcePath);
-  if (!compilerDependencySourcePathIsInScope(ownerRoot, sourcePath)) {
-    throw new CodedFailure('RUNTIME-DEPS-004', 'Runtime dependency proven source is outside its owner topology');
-  }
   const owner = inspectNoFollowDirectoryChain(
     ownerRoot,
     'Runtime dependency proven source owner root'
@@ -113,7 +114,14 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
     'Runtime dependency proven source generation'
   );
   const ownerRootPhysical = generatedStatePhysicalIdentity(owner.target);
-  assertCompilerDependencySourceScope(ownerRoot, sourcePath);
+  // A retained native publisher proof binds this exact physical source and
+  // canonical owner epoch below. Ambient cache selection cannot revoke that
+  // read-only object; ordinary unproven scans keep the current scope contract.
+  if (compilerDependencySourcePathIsInScope(ownerRoot, sourcePath)) {
+    assertCompilerDependencySourceScope(ownerRoot, sourcePath);
+  } else {
+    assertPhysicallyDisjointDirectoryChains(owner, source, 'Published dependency source and engineering owner');
+  }
   const physical = generatedStatePhysicalIdentity(source.target);
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(input.generation.root),
@@ -160,6 +168,33 @@ export function assertRuntimeDependencySourceGenerationIssued(
       'Dependency transition source generation was not issued by the physical source compiler'
     );
   }
+}
+
+/** Rebind one already qualified immutable tree to the exact nested runtime
+ * contract. This derives a new source epoch; it does not rename the native
+ * publisher proof or claim that its compiler epoch belongs to this binding. */
+export function deriveRuntimeMaterializationSourceGeneration(
+  source: RuntimeDependencySourceGeneration,
+  fullCompilerBinding: Readonly<CompilerDepsBinding>
+): RuntimeDependencySourceGeneration {
+  assertRuntimeDependencySourceGenerationIssued(source);
+  // The existing binding digest hashes its owner-defined JSON property order.
+  // Snapshot once without sorting that preimage, then consume only the clone.
+  const captured = cloneAndDeepFreeze(fullCompilerBinding);
+  if (captured.formatVersion !== 'compiler-deps-binding-v5' ||
+      generatedStateDigest(captured) !== source.bindingDigest ||
+      !isRuntimeDependencyMaterializationBinding(captured.runtimeMaterialization)) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Runtime source is not derived from its exact qualified compiler binding');
+  }
+  const owner = inspectNoFollowDirectoryChain(source.ownerRoot, 'Runtime source derived owner').target;
+  const physical = inspectNoFollowDirectoryChain(source.sourcePath, 'Runtime source derived physical source').target;
+  if (!sameGeneratedStateIdentity(generatedStatePhysicalIdentity(owner), source.ownerRootPhysical) ||
+      !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(physical), source.physical)) {
+    throw new CodedFailure('RUNTIME-DEPS-004', 'Runtime source derived physical identities changed');
+  }
+  const rebound = { ...source, bindingDigest: generatedStateDigest(captured.runtimeMaterialization) };
+  return issueRuntimeDependencySourceGeneration(Object.freeze({ ...rebound,
+    epoch: runtimeDependencySourceGenerationEpoch(rebound) }));
 }
 
 export function issuedRuntimeDependencySourceGenerationWithPath(

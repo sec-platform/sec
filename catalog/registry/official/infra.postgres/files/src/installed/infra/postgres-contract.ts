@@ -1,52 +1,12 @@
-export const POSTGRES_CONTRACT = {
-  formatVersion: '1',
-  provider: 'postgres',
-  persistenceMode: 'contract-only',
-  tables: [
-    {
-      name: 'customers',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'name', 'email', 'phone', 'company']
-    },
-    {
-      name: 'customer_attachments',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'customer_id', 'file_name', 'content_type', 'size', 'content_text', 'created_at']
-    },
-    {
-      name: 'email_notifications',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'entity', 'entity_id', 'event_type', 'recipient', 'subject', 'body', 'created_at']
-    },
-    {
-      name: 'audit_entries',
-      tenantScoped: true,
-      columns: ['actor_id', 'tenant_id', 'action', 'entity', 'entity_id', 'occurred_at']
-    },
-    {
-      name: 'tickets',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'title', 'description', 'status', 'assignee_id', 'due_date', 'created_by', 'updated_at']
-    },
-    {
-      name: 'ticket_attachments',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'ticket_id', 'file_name', 'content_type', 'size', 'content_text', 'created_at']
-    },
-    {
-      name: 'ticket_comments',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'ticket_id', 'body', 'author_id', 'created_at']
-    },
-    {
-      name: 'worklogs',
-      tenantScoped: true,
-      columns: ['id', 'tenant_id', 'ticket_id', 'minutes', 'note', 'author_id', 'created_at']
-    }
-  ]
-} as const;
+import contract from '../../../generated/postgres-contract.json' with { type: 'json' };
 
-export type PostgresContract = typeof POSTGRES_CONTRACT;
+type ReadonlyContract<T> = {
+  readonly [Key in keyof T]: T[Key] extends object ? ReadonlyContract<T[Key]> : T[Key];
+};
+
+export type PostgresContract = ReadonlyContract<typeof contract>;
+
+export const POSTGRES_CONTRACT: PostgresContract = contract;
 
 export function listPostgresContractTables(): string[] {
   return POSTGRES_CONTRACT.tables.map((table) => table.name);

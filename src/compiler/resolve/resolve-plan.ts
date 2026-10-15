@@ -1,3 +1,4 @@
+import { compareCodeUnits } from '../../contracts/canonical.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import type { RegistryManifestResolution } from '../../contracts/registry-source.ts';
@@ -96,5 +97,8 @@ export function prepareManifestResolution(
       registryKind: entry.registryKind, registryLocation: entry.registryLocation, registryPath: entry.registryPath },
     resolution: structuredClone(entry.registryResolution)
   }] : []);
-  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors, registryResolutions };
+  const acceptanceSources = graph.entries.flatMap(entry => entry.manifest.acceptance.map(acceptance => ({
+    declaringBlockId: entry.manifest.id, acceptance: structuredClone(acceptance)
+  }))).sort((left, right) => compareCodeUnits(`${left.declaringBlockId}:${left.acceptance.id}`, `${right.declaringBlockId}:${right.acceptance.id}`));
+  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors, registryResolutions, acceptanceSources };
 }

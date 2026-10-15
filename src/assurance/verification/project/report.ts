@@ -1,8 +1,9 @@
 import type { LockFile } from '../../../compiler/contract.ts';
-import { sha256 } from '../../../contracts/canonical.ts';
+import { canonicalEquals, sha256 } from '../../../contracts/canonical.ts';
 import { CodedFailure } from '../../../contracts/failure.ts';
 import type { PolicyReport } from '../../../semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../acceptance/coverage.ts';
+import { acceptanceCoverageSource } from '../../acceptance/source.ts';
 import {
   verificationLaneProfile,
   type VerificationRuntimeMode
@@ -25,6 +26,7 @@ import {
 } from '../profile/contract/product.ts';
 
 export function productVerificationSubjectRevision(lock: LockFile): string {
+  acceptanceCoverageSource(lock);
   return sha256({
     domain: 'product-verification-subject',
     formatVersion: lock.formatVersion,
@@ -34,7 +36,8 @@ export function productVerificationSubjectRevision(lock: LockFile): string {
     installPlan: lock.installPlan,
     semanticLoweringTasks: lock.semanticLoweringTasks,
     semanticViews: lock.semanticViews,
-    acceptancePlan: lock.acceptancePlan
+    acceptancePlan: lock.acceptancePlan,
+    acceptanceSources: lock.acceptanceSources
   });
 }
 
@@ -54,8 +57,11 @@ export function productVerificationObservationBindings(
  * authenticate a producer or observe physical source bytes outside the subject. */
 export function assertProductVerificationArtifactSubject(
   lock: LockFile,
-  artifacts: Readonly<{ verificationReport: VerificationReport }>
+  artifacts: Readonly<{ verificationReport: VerificationReport; acceptanceCoverage: AcceptanceCoverageReport }>
 ): void {
+  if (!canonicalEquals(artifacts.acceptanceCoverage.source, acceptanceCoverageSource(lock))) {
+    throw new CodedFailure('VERIFY-SUBJECT-002', 'Acceptance Coverage source does not bind the current Lock');
+  }
   const report = artifacts.verificationReport;
   verificationLaneProfile(report.summary.requestedLane);
   const expected = productVerificationObservationBindings(lock, report.summary.requestedLane,

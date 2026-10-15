@@ -1,3 +1,4 @@
+import { buildAcceptanceCoverageReport } from '../../src/assurance/acceptance/build-coverage.ts';
 import type { VerificationArtifactPublicationArtifacts } from '../../src/assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
@@ -87,6 +88,12 @@ export function buildRepairVerificationFixture(
   const lock = buildReviewLock({
     semanticLoweringTasks: [],
     semanticViews: buildSemanticViewFixture(),
+    resolvedBlocks: [{ id: 'entity/customer-basic', version: '0.1.0', kind: 'capability', installOrder: 1,
+      manifestPath: 'customer.yaml', registrySourceId: 'fixture', registryKind: 'private', registryLocation: 'workspace', registryPath: 'customer' }],
+    acceptancePlan: ['user_can_create_customer'],
+    acceptanceSources: [{ declaringBlockId: 'entity/customer-basic', acceptance: { id: 'user_can_create_customer', source: { tests: ['tests/acceptance/customer-flow.test.ts'] } } }],
+    installPlan: [{ stepId: 'customer:test', blockId: 'entity/customer-basic', registrySourceId: 'fixture', registryKind: 'private',
+      registryLocation: 'workspace', registryPath: 'customer', sourceRoot: 'files', action: 'copy', from: 'customer.test.ts', to: 'tests/acceptance/customer-flow.test.ts' }],
     passStatus: { verify }
   });
   const policyReport = createSkippedPolicyReport();
@@ -94,15 +101,16 @@ export function buildRepairVerificationFixture(
     status: failed ? 'failed' : 'passed',
     build: { status: 'passed' },
     unit: { status: failed ? 'failed' : 'passed', passed: failed ? [] : ['independent-unit.test.ts'] },
-    acceptance: { status: 'passed', passed: [], failed: [] },
+    acceptance: { status: 'passed', passed: failed ? [] : ['tests/acceptance/customer-flow.test.ts'], failed: [] },
     policy: { status: 'skipped', violations: [] },
     policyReport,
     logs: { stdout: '', stderr: failed ? 'independent unit failure' : '' }
   };
   const runtime = createSkippedRuntimeLane();
   const acceptanceCoverage: VerificationArtifactPublicationArtifacts['acceptanceCoverage'] = {
-    formatVersion: '1',
+    formatVersion: '2',
     status: 'skipped',
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: [],
     blocks: [],
     uncoveredBlocks: []
@@ -122,17 +130,9 @@ export function buildRepairVerificationFixture(
       command: 'synthetic acceptance observation'
     };
     acceptanceCoverage.status = 'passed';
-    acceptanceCoverage.acceptancePassed = ['user_can_create_customer'];
-    acceptanceCoverage.blocks = [
-      {
-        id: 'entity/customer-basic',
-        declaredAcceptance: ['user_can_create_customer'],
-        coveredBy: ['user_can_create_customer'],
-        uncovered: false
-      }
-    ];
   }
   const runtimeMode = lane === 'all' ? 'full' : 'service';
+  Object.assign(acceptanceCoverage, buildAcceptanceCoverageReport({ lock, fast, runtime }));
   const observations = productVerificationObservationsFixture(lane, runtimeMode, productVerificationSubjectRevision(lock));
   if (failed) {
     observations.fast.execution!.exitCode = 1;

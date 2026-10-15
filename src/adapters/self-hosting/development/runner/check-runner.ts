@@ -218,9 +218,9 @@ export async function runLocalAffectedCheck(
   }
   const affectedPlan = affectedExecution.plan;
   if (args.length === 1) {
-    const plan = buildLocalAffectedCheckPlan(affectedPlan);
+    const plan = buildLocalAffectedCheckPlan(affectedPlan, affectedExecution.projectGenerationEvidence);
     console.log(JSON.stringify(plan, null, 2));
-    return affectedTestPlanExitCode(affectedPlan);
+    return plan.resolved ? affectedTestPlanExitCode(affectedPlan) : 1;
   }
   return executeSelectedLocalAffectedCheck(affectedExecution, compilerDependencies);
 }
@@ -230,7 +230,7 @@ async function executeSelectedLocalAffectedCheck(
   compilerDependencies: MaterializedOperationDependencyBootstrapResult | undefined
 ): Promise<number> {
   const affectedPlan = affectedExecution.plan;
-  const plan = buildLocalAffectedCheckPlan(affectedPlan);
+  const plan = buildLocalAffectedCheckPlan(affectedPlan, affectedExecution.projectGenerationEvidence);
   if (!plan.resolved || isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary)) {
     console.error(
       `Local affected check ownership is unresolved for changed paths: ${affectedPlan.unresolvedPaths.join(', ')}`

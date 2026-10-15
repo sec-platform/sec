@@ -45,9 +45,11 @@ const SOURCE_PROGRAM_ROOT_INPUT = new Set([
 ]);
 
 /**
- * Exact repository inputs owned by the SEC Source Program. Target workspaces,
- * generated artifacts, catalog payloads and documentation bodies are separate
- * domains; their tracked bytes cannot silently expand compiler identity.
+ * Proactive Source Program root discovery. Canonical TypeScript resolution
+ * separately selects declared repository inputs from the exact Git census,
+ * through the same workspace-source acquisition owner. Merely tracking target
+ * workspaces, catalog payloads or documentation does not make them compiler
+ * inputs; a real declared dependency must not be discarded by this root filter.
  */
 export function isSourceProgramInputPath(repositoryPath: string): boolean {
   if (SOURCE_PROGRAM_ROOT_INPUT.has(repositoryPath)) return true;

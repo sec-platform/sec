@@ -32,6 +32,9 @@ pins:
       required: true
 acceptance:
   - id: agent_can_automatically_classify_ticket
+    source:
+      tests:
+        - tests/acceptance/agent-classifier-flow.test.ts
     dependsOn:
       - agent_can_be_registered
     covers:

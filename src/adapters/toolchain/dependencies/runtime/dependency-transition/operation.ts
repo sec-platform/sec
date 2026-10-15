@@ -11,6 +11,7 @@ import {
   generatedStateDigest
 } from '../../../../../execution/generated-state/contract.ts';
 import {
+  assertPhysicallyDisjointDirectoryChains,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -431,20 +432,22 @@ export async function beginDependencyTransition(input: Readonly<{
       throw new CodedFailure('RUNTIME-DEPS-002', 'Dependency transition stage is not contained by its recorded staging root');
     }
   }
-  const sourceOwner = inspectNoFollowDirectoryChain(
+  const sourceOwnerChain = inspectNoFollowDirectoryChain(
     input.sourceGeneration.ownerRoot,
     'Dependency transition source-generation owner root'
-  ).target;
+  );
+  const sourceOwner = sourceOwnerChain.target;
   const stageCarriesSource = (input.kind === 'compiler-generation' ||
     input.kind === 'compiler-local-locator') && stage?.kind === 'directory';
-  // A staged publication binds the real source object below; its final name
-  // must still be absent until the durable transition owns the rename.
-  assertCompilerDependencySourceScope(input.sourceGeneration.ownerRoot,
-    stageCarriesSource
-      ? input.kind === 'compiler-local-locator'
+  // New stage publication must use the current admitted write namespace.
+  // An already issued source is an exact qualified object, not permission to
+  // reselect or write its former cache partition under today's environment.
+  if (stageCarriesSource) {
+    assertCompilerDependencySourceScope(input.sourceGeneration.ownerRoot,
+      input.kind === 'compiler-local-locator'
         ? path.dirname(path.dirname(input.sourceGeneration.sourcePath))
-        : path.dirname(input.sourceGeneration.sourcePath)
-      : input.sourceGeneration.sourcePath);
+        : path.dirname(input.sourceGeneration.sourcePath));
+  }
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(sourceOwner),
     input.sourceGeneration.ownerRootPhysical
@@ -472,10 +475,11 @@ export async function beginDependencyTransition(input: Readonly<{
       );
     }
   } else {
-    const source = inspectNoFollowDirectoryChain(
+    const sourceChain = inspectNoFollowDirectoryChain(
       input.sourceGeneration.sourcePath,
       'Dependency transition source generation'
-    ).target;
+    );
+    const source = sourceChain.target;
     if (!sameGeneratedStateIdentity(
       generatedStatePhysicalIdentity(source),
       input.sourceGeneration.physical
@@ -484,6 +488,11 @@ export async function beginDependencyTransition(input: Readonly<{
         'RUNTIME-DEPS-004',
         'Dependency transition source generation physical identity is foreign or stale'
       );
+    }
+    const relative = path.relative(sourceOwner.path, source.path);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      assertPhysicallyDisjointDirectoryChains(sourceOwnerChain, sourceChain,
+        'Qualified dependency source and engineering owner');
     }
   }
   const current = await readDependencyTransition(ownerRoot.path, input.options);

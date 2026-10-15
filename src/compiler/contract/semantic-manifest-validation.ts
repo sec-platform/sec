@@ -1,8 +1,8 @@
 import { CodedFailure } from '../../contracts/failure.ts';
 import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import { isCanonicalAcceptanceId } from '../../semantics/acceptance/identity.ts';
+import { validateAcceptanceItem } from '../../semantics/acceptance/source.ts';
 import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, type StateTransitionMapManifestGenerator } from '../../semantics/generation/types.ts';
-import { isCanonicalBlockId } from '../../semantics/identity/block.ts';
 import type { BlockManifest } from '../contract.ts';
 
 function validateStateTransitionMapGenerator(generator: StateTransitionMapManifestGenerator): void {
@@ -98,24 +98,8 @@ function validateAcceptanceIdentities(manifest: BlockManifest): void {
       );
     }
     seenIds.add(acceptance.id);
-
-    if (
-      acceptance.dependsOn !== undefined &&
-      (!Array.isArray(acceptance.dependsOn) || acceptance.dependsOn.some((id) => !isCanonicalAcceptanceId(id)))
-    ) {
-      throw new CodedFailure(
-        'MANIFEST-SCHEMA-025',
-        `Acceptance "${acceptance.id}" has a non-canonical dependency identity`
-      );
-    }
-    if (
-      acceptance.covers?.blocks !== undefined &&
-      (!Array.isArray(acceptance.covers.blocks) || acceptance.covers.blocks.some((id) => !isCanonicalBlockId(id)))
-    ) {
-      throw new CodedFailure(
-        'MANIFEST-SCHEMA-025',
-        `Acceptance "${acceptance.id}" has a non-canonical Block coverage identity`
-      );
+    try { validateAcceptanceItem(acceptance); } catch (error) {
+      throw new CodedFailure('MANIFEST-SCHEMA-025', error instanceof Error ? error.message : String(error));
     }
   }
 }

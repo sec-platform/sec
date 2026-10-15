@@ -37,18 +37,27 @@ pins:
       required: true
 acceptance:
   - id: user_can_create_customer
+    source:
+      tests:
+        - tests/acceptance/customer-flow.test.ts
     dependsOn:
       - user_can_login
     covers:
       blocks:
         - entity/customer-basic
   - id: user_can_list_customers
+    source:
+      tests:
+        - tests/acceptance/customer-flow.test.ts
     dependsOn:
       - user_can_create_customer
     covers:
       blocks:
         - entity/customer-basic
   - id: tenant_only_sees_own_customers
+    source:
+      tests:
+        - tests/acceptance/customer-flow.test.ts
     dependsOn:
       - user_can_login
       - user_can_create_customer

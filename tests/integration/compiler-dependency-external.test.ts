@@ -106,6 +106,38 @@ describe('compiler dependency installation', () => {
           expect(terminal?.phase).toBe('complete');
           expect(terminal?.sourceGeneration.epoch).toBe(replacement.sourceGeneration!.epoch);
           expect((await fs.lstat(oldPath)).isDirectory()).toBeTrue();
+          const originalState = process.env.SEC_STATE_HOME;
+          const originalCache = process.env.SEC_CACHE_HOME;
+          const originalStorage = compilerDependencyStoragePaths(ownerRoot);
+          const unpublishedRoot = path.join(ownerRoot, 'unpublished-consumer');
+          await fs.mkdir(unpublishedRoot);
+          await writeCompilerDependencyRoot(unpublishedRoot);
+          await fs.symlink(await fs.realpath(replacement.nodeModulesPath), path.join(unpublishedRoot, 'node_modules'),
+            process.platform === 'win32' ? 'junction' : 'dir');
+          try {
+            process.env.SEC_STATE_HOME = path.join(path.dirname(ownerRoot), `${path.basename(ownerRoot)}-uncreated-private-state`);
+            process.env.SEC_CACHE_HOME = path.join(path.dirname(ownerRoot), `${path.basename(ownerRoot)}-uncreated-private-cache`);
+            const redirected = compilerDependencyStoragePaths(ownerRoot);
+            expect(redirected.journalRoot).toBe(originalStorage.journalRoot);
+            expect(redirected.proofRoot).toBe(originalStorage.proofRoot);
+            expect(redirected.generationRoot).not.toBe(originalStorage.generationRoot);
+            const observedOwner = await observeCompilerDependencyExecutionGenerationAuthority(
+              { deadlineAtUnixMs: ownerOperation.deadlineAtUnixMs, signal: ownerOperation.signal }, ownerRoot);
+            expect(observedOwner?.generationDigest).toBe(replacement.executionGenerationAuthority.generationDigest);
+            const observedConsumer = await observeCompilerDependencyExecutionGenerationAuthority(
+              { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }, consumerRoot);
+            expect(observedConsumer?.generationDigest).toBe(switched.executionGenerationAuthority.generationDigest);
+            await expect(observeCompilerDependencyExecutionGenerationAuthority(
+              { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }, unpublishedRoot))
+              .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+            expect((await fs.lstat(await fs.realpath(replacement.nodeModulesPath))).isDirectory()).toBeTrue();
+          } finally {
+            if (originalState === undefined) delete process.env.SEC_STATE_HOME;
+            else process.env.SEC_STATE_HOME = originalState;
+            if (originalCache === undefined) delete process.env.SEC_CACHE_HOME;
+            else process.env.SEC_CACHE_HOME = originalCache;
+            await fs.rm(unpublishedRoot, { recursive: true, force: true });
+          }
         } finally { await original.retire(); }
         await collectCompilerDependencyCacheGarbage(ownerRoot, maintenance);
         await expect(fs.lstat(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });

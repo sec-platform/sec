@@ -1,3 +1,4 @@
+import { buildAcceptanceCoverageReport } from '../../src/assurance/acceptance/build-coverage.ts';
 import { createSkippedRuntimeLane, productVerificationSubjectRevision } from '../../src/assurance/verification/project/report.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
@@ -9,6 +10,12 @@ export function buildCurrentVerificationLock(options: Parameters<typeof buildRev
   return buildReviewLock({
     semanticLoweringTasks: [],
     semanticViews: buildSemanticViewFixture(sha256('fixture-input'), sha256('fixture-semantic')),
+    resolvedBlocks: [{ id: 'feature/auth', version: '0.1.0', kind: 'capability', installOrder: 1,
+      manifestPath: 'auth.yaml', registrySourceId: 'fixture', registryKind: 'private', registryLocation: 'workspace', registryPath: 'auth' }],
+    acceptancePlan: ['user_can_login'],
+    acceptanceSources: [{ declaringBlockId: 'feature/auth', acceptance: { id: 'user_can_login', source: { tests: ['tests/acceptance/auth-flow.test.ts'] } } }],
+    installPlan: [{ stepId: 'auth:test', blockId: 'feature/auth', registrySourceId: 'fixture', registryKind: 'private',
+      registryLocation: 'workspace', registryPath: 'auth', sourceRoot: 'files', action: 'copy', from: 'auth.test.ts', to: 'tests/acceptance/auth-flow.test.ts' }],
     ...options
   });
 }
@@ -33,14 +40,11 @@ export async function writeCurrentVerificationFixture(
       logs: { stdout: '', stderr: options.failed ? 'unit fixture failure' : '' }
     }, runtime
   });
+  const acceptanceCoverage = buildAcceptanceCoverageReport({ lock, fast: report.fast, runtime });
   const verificationReport = await writeCanonicalVerificationArtifactSetFixture(root, report, {
     lane: options.lane ?? 'all',
     subjectRevision: productVerificationSubjectRevision(lock),
-    acceptanceCoverage: { formatVersion: '1', status: runtime.status,
-      acceptancePassed: options.failed ? [] : ['user_can_login'],
-      blocks: [{ id: 'feature/auth', declaredAcceptance: ['user_can_login'],
-        coveredBy: options.failed ? [] : ['user_can_login'], uncovered: options.failed ?? false }],
-      uncoveredBlocks: options.failed ? ['feature/auth'] : [] }
+    acceptanceCoverage
   });
-  return { verificationReport, runtimeReport: verificationReport.runtime };
+  return { verificationReport, runtimeReport: verificationReport.runtime, acceptanceCoverage };
 }

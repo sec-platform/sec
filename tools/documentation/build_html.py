@@ -16,7 +16,7 @@ from urllib.parse import urlsplit, unquote, quote
 sys.dont_write_bytecode = True
 import check_docs
 from source_inventory import (documentation_files, source_identity_from_capture,
-    EXCLUDED_FROM_SOURCE_HASH, baseline, local_path, read_ordinary, MAX_MEMBERS)
+    EXCLUDED_FROM_SOURCE_HASH, CACHE_PATH, baseline, local_path, read_ordinary, MAX_MEMBERS)
 
 TEXT_SUFFIXES = {'.md','.json','.gift','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff'}
 TEXT_BASENAMES = {'LICENSE','NOTICE'}
@@ -39,9 +39,7 @@ def renderer_settlement(primary,errors):
 
 def renderer_environment(args):
     """Bounded mature OS font inventory; inability to identify it disables cross-run reuse."""
-    here=Path(__file__)
-    identity={'implementation_sha256':sha(here.read_bytes()+here.with_name('mermaid_node_renderer.cjs').read_bytes()),
-              'os':platform.platform(),'configuration_sha256':sha(canon(mermaid_config(args,'source-hash-seed')))}
+    identity={'core_sha256':sha(render_core_bytes()),'os':platform.platform()}
     try:
         if not args.browser:raise BuildError('Explicit browser executable required for environment reuse')
         browser=Path(args.browser).resolve()
@@ -86,6 +84,28 @@ def renderer_environment(args):
     except (OSError,ValueError,TypeError,BuildError,subprocess.SubprocessError) as error:
         identity['cross_run_reuse']=False;identity['environment_unavailable']=str(error)
     return identity
+
+
+def bind_drawing_identity(info,environment):
+    """Actual drawing inputs, distinct from transport and provenance metadata."""
+    if 'core_sha256'in environment and info.get('core_sha256')!=environment['core_sha256']:
+        raise BuildError('Drawing core changed between loading and environment binding')
+    info.update(environment)
+    drawing={'core_sha256':info.get('core_sha256'),'engine_sha256':info.get('engine_sha256'),
+             'drawing_profile':info.get('drawing_profile'),'os':info.get('os'),
+             'browser':{'version':info.get('browser'),'executable':info.get('browser_executable')},
+             'font_family':info.get('font_family'),'font_environment_sha256':info.get('font_environment_sha256')}
+    profile=drawing['drawing_profile'];browser=drawing['browser']['executable']
+    complete=(all(isinstance(drawing[key],str) and re.fullmatch('[0-9a-f]{64}',drawing[key])
+                  for key in ('core_sha256','engine_sha256','font_environment_sha256'))
+              and isinstance(profile,dict) and isinstance(profile.get('configuration'),dict)
+              and isinstance(profile.get('viewport'),dict) and isinstance(profile.get('locale'),str)
+              and isinstance(browser,dict) and isinstance(browser.get('sha256'),str)
+              and isinstance(drawing['font_family'],str)
+              and isinstance(drawing['browser']['version'],str) and isinstance(drawing['os'],str))
+    info['cross_run_reuse']=bool(info.get('cross_run_reuse') and complete)
+    info['drawing_identity']=drawing
+    return drawing
 
 class PublicationSettlementError(BuildError):
     """Keep publication and every failed cleanup observable, including commit state."""
@@ -279,14 +299,16 @@ def read_diagram_cache(root: Path, captured, args, book,expected_renderer=None):
     try:cache=json.loads(raw,object_pairs_hook=unique)
     except (ValueError,UnicodeError) as e:raise BuildError('Invalid diagram cache JSON')from e
     if not isinstance(cache,dict) or cache.get('schema')!='sec.diagram-cache/1' or not isinstance(cache.get('entries'),dict) or not isinstance(cache.get('renderer'),dict):raise BuildError('Unknown diagram cache contract')
-    if expected_renderer is not None and (not expected_renderer.get('cross_run_reuse') or cache['renderer']!=expected_renderer):
+    if expected_renderer is not None and (not expected_renderer.get('cross_run_reuse')
+            or not isinstance(expected_renderer.get('drawing_identity'),dict)
+            or cache['renderer'].get('drawing_identity')!=expected_renderer.get('drawing_identity')):
         return {'state':'renderer-environment-mismatch','rendered':0}
     for job in book.diagrams:
         entry=cache['entries'].get(job['sha256'])
         if entry is None:continue
         if not isinstance(entry,dict):raise BuildError('Invalid diagram cache entry: '+job['sha256'])
         if not isinstance(entry.get('renderer_id'),str) or not entry['renderer_id']:raise BuildError('Cache entry missing renderer identity')
-        if expected_renderer is not None and entry['renderer_id']!=sha(canon(expected_renderer)):raise BuildError('Cache entry renderer identity mismatch')
+        if expected_renderer is not None and entry['renderer_id']!=sha(canon(expected_renderer['drawing_identity'])):raise BuildError('Cache entry renderer identity mismatch')
         if entry.get('source_sha256')!=job['sha256']:raise BuildError('Cache source hash mismatch')
         if not isinstance(entry.get('data'),str) or len(entry['data'])>20_000_000:raise BuildError('Cache encoding budget')
         try:
@@ -297,7 +319,11 @@ def read_diagram_cache(root: Path, captured, args, book,expected_renderer=None):
             elif entry.get('encoding')!='base64':raise BuildError('Unsupported cache encoding')
         except (ValueError,zlib.error)as e:raise BuildError('Invalid encoded diagram')from e
         if len(data)!=entry.get('svg_bytes') or sha(data)!=entry.get('svg_sha256'):raise BuildError('Cache SVG byte mismatch')
+        producer=entry.get('producer',cache['renderer'])
+        if not isinstance(producer,dict):raise BuildError('Invalid cache producer provenance')
+        if not hasattr(book,'svg_provenance'):book.svg_provenance={}
         book.svg[job['id']]=checked_svg(data,job['path'])
+        book.svg_provenance[job['id']]=producer
     return {'state':'exact-source-cache','cache_sha256':sha(raw),'rendered':len(book.svg),'original_renderer':cache['renderer'],'boundary':'source and SVG bytes checked; cache is a derived display, not independent proof of diagram semantics'}
 
 class MermaidRenderer:
@@ -320,9 +346,11 @@ class MermaidRenderer:
             self.page=self.context.new_page();self.page.set_default_timeout(self.args.timeout*1000)
             self.page.set_content('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
             self.page.add_script_tag(content=data.decode('utf-8'))
+            core=render_core_bytes();self.page.add_script_tag(content=core.decode('utf-8'))
             if not self.page.evaluate("!!window.mermaid && typeof mermaid.render==='function' && typeof mermaid.initialize==='function'"):
                 raise BuildError('Supply a standalone Mermaid UMD/IIFE script exposing window.mermaid, not an ESM entry')
             self.info={'engine_sha256':sha(data),'browser':self.browser.version,'playwright':importlib.metadata.version('playwright'),'font_family':self.args.font_family,'browser_sandbox':not self.args.allow_no_sandbox,'engine_label':self.args.engine_label,'backend':'python-playwright','python':platform.python_version()}
+            self.info.update({'core_sha256':sha(core),'drawing_profile':self.page.evaluate('(family)=>GiftMermaidCore.profile(family)',self.args.font_family)})
             return self
         except BaseException as error:
             self.__exit__(type(error),error,None);raise
@@ -337,9 +365,8 @@ class MermaidRenderer:
         # Diagram-local configuration/clicks are intentionally not executable input.
         if re.search(r'(?m)^\s*(?:%%\{\s*(?:init|config)|click\b|---\s*$)',source):
             raise DiagramError('Diagram-local configuration/callback is outside the safe reading profile: '+ident)
-        cfg=mermaid_config(self.args,ident)
         try:
-            result=self.page.evaluate('''async x=>{mermaid.initialize(x.config);let timer;try{const r=await Promise.race([mermaid.render(x.id,x.source),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('diagram timeout')),x.ms)})]);const parsed=new DOMParser().parseFromString(r.svg,'text/html');const svg=parsed.querySelector('svg');if(!svg)throw new Error('missing SVG');return {svg:new XMLSerializer().serializeToString(svg)};}catch(error){return {error:String(error.stack||error),kind:error.hash&&Array.isArray(error.hash.expected)?'syntax':'fatal'};}finally{clearTimeout(timer);}}''',{'id':ident,'source':source,'config':cfg,'ms':self.args.timeout*1000})
+            result=self.page.evaluate('(input)=>GiftMermaidCore.render(input)',{'source':source,'fontFamily':self.args.font_family,'ms':self.args.timeout*1000})
         except Exception as e:raise BuildError('Mermaid failed at '+ident+': '+str(e)[:1200]) from e
         if self.blocked:raise BuildError('Renderer attempted network access: '+repr(self.blocked[:3]))
         if 'error'in result:raise (DiagramError if result.get('kind')=='syntax' else BuildError)(result['error'])
@@ -347,17 +374,21 @@ class MermaidRenderer:
         except BuildError as error:raise DiagramError(str(error)) from error
 
 
-def mermaid_config(args,ident):
-    return {'startOnLoad':False,'securityLevel':'strict','suppressErrorRendering':True,'deterministicIds':True,'deterministicIDSeed':ident,'handDrawnSeed':(int(sha(ident.encode())[:8],16)&0x7fffffff) or 1,'fontFamily':args.font_family,'maxTextSize':100000,'maxEdges':2000,'theme':'default','flowchart':{'htmlLabels':True},'sequence':{'useMaxWidth':False},'secure':['secure','securityLevel','startOnLoad','maxTextSize','maxEdges','suppressErrorRendering','themeCSS','fontFamily','handDrawnSeed','deterministicIds','deterministicIDSeed']}
+def render_core_bytes():
+    return read_ordinary(Path(__file__).resolve().parent,'mermaid_render_core.js')
 
 
 def checkpoint_diagrams(path,book,renderer,before,entries):
     """A derived, exact-source cache survives later diagram failures; never publishes partial HTML."""
+    if renderer.get('state')=='exact-source-cache':renderer=renderer['original_renderer']
     for job in book.diagrams:
         data=book.svg.get(job['id'])
         if data is None or job['sha256']in entries:continue
-        entries[job['sha256']]={'source_sha256':job['sha256'],'svg_sha256':sha(data),'svg_bytes':len(data),
-            'encoding':'zlib+base64','data':b64(zlib.compress(data)),'renderer_id':sha(canon(renderer))}
+        producer=getattr(book,'svg_provenance',{}).get(job['id'],renderer)
+        entry={'source_sha256':job['sha256'],'svg_sha256':sha(data),'svg_bytes':len(data),
+            'encoding':'zlib+base64','data':b64(zlib.compress(data)),'renderer_id':sha(canon(producer['drawing_identity']))}
+        if producer!=renderer:entry['producer']=producer
+        entries[job['sha256']]=entry
     payload=canon({'schema':'sec.diagram-cache/1','renderer':renderer,'entries':entries})
     if len(payload)>40_000_000:raise BuildError('Diagram cache exceeds byte budget')
     path.parent.mkdir(parents=True,exist_ok=True)
@@ -383,12 +414,12 @@ class NodeMermaidRenderer:
             self.info=self.exchange({'action':'open','module':str(Path(self.args.playwright_module).resolve()),
                 'engine':str(Path(self.args.mermaid_js).resolve()),'browser':self.args.browser,
                 'sandbox':not self.args.allow_no_sandbox,'timeout':self.args.timeout*1000,
-                'font_family':self.args.font_family,'engine_label':self.args.engine_label})['info']
+                'font_family':self.args.font_family,'engine_label':self.args.engine_label,'core':render_core_bytes().decode('utf-8')})['info']
             return self
         except BaseException as error:self.__exit__(type(error),error,None);raise
     def render(self,source,ident):
         value=self.exchange({'action':'render','source':source,'id':ident,
-                             'config':mermaid_config(self.args,ident),'ms':self.args.timeout*1000})['svg']
+                             'fontFamily':self.args.font_family,'ms':self.args.timeout*1000})['svg']
         try:return checked_svg(value.encode('utf-8'),ident)
         except BuildError as error:raise DiagramError(str(error)) from error
     def __exit__(self,kind=None,primary=None,trace=None):
@@ -537,8 +568,8 @@ class IsolatedRenderer:
 class Book:
     def __init__(self,root,captured,args):
         from markdown_it import MarkdownIt
-        self.root=root;self.source_data=dict(captured);self.data=dict(captured);self.args=args;self.anchors={};self.tokens={};self.diagrams=[];self.svg={};self.links=0;self.markup_warnings=set();self.images=0
-        boundary=baseline(root)
+        self.root=root;self.source_data=dict(captured);self.data=dict(captured);self.args=args;self.anchors={};self.tokens={};self.diagrams=[];self.svg={};self.svg_provenance={};self.links=0;self.markup_warnings=set();self.images=0
+        boundary=baseline(root,captured)
         self.source_roots=boundary['source_roots']+boundary['audited_namespaces'];self.attachments={};self.unavailable=set();self.tracked=None
         self.reading_bytes=sum(map(len,self.data.values()))
         self.md=MarkdownIt('commonmark',{'html':True}).enable('table').enable('strikethrough')
@@ -705,13 +736,19 @@ class Book:
         meta={'schema':VERSION,'source_set_sha256':digest,'source_mode':'sealed'if self.args.sealed else 'working-tree-capture','source_consistency':'captured byte vector; same membership and bytes rechecked before publish, not a filesystem-wide atomic snapshot','builder_sha256':sha(Path(__file__).read_bytes()),'markdown_it_py':importlib.metadata.version('markdown-it-py'),'renderer':renderer_info,'input_set_sha256':sha(canon(entries)),'input_files':entries,'source_files':[e for e in entries if e['path'] not in EXCLUDED_FROM_SOURCE_HASH],'markdown_count':len(self.tokens),'diagram_mode':self.args.diagrams,'diagrams':[ {k:v for k,v in x.items()if k!='source'} for x in self.diagrams]}
         def sortkey(name):return (0 if name=='README.md' else 1 if name.startswith('docs/') else 2 if name.startswith('examples/') else 3 if name.startswith('alternatives/') else 4,name)
         meta['source_files']=[entry for entry in entries if entry['path'] in self.source_data and entry['path'] not in EXCLUDED_FROM_SOURCE_HASH]
+        producer=renderer_info.get('original_renderer',renderer_info)
+        for diagram in meta['diagrams']:
+            actual=self.svg_provenance.get(diagram['id'])
+            if actual is not None and actual!=producer:diagram['producer']=actual
         meta['reading_attachments']=[entry for entry in entries if entry['path'] in self.attachments]
         meta['reading_attachments_sha256']=sha(canon(meta['reading_attachments']))
         meta['unavailable_repository_references']=[{'from':current,'path':name,'fragment':fragment,'status':'not-carried; target content unknown'} for current,name,fragment in sorted(self.unavailable)]
         names=sorted(self.data,key=sortkey);nav=[];articles=[]
         for name in names:
             data=self.data[name];sid=opaque(name)
-            if name.endswith('.md'):
+            if name==CACHE_PATH:
+                content='<p class="notice">这是已消费的可重建图缓存。实际 SVG 与渲染来源已呈现，载体摘要进入阅读输入；不重复内嵌缓存 JSON 或把它当作者原件。</p>'
+            elif name.endswith('.md'):
                 content=self.md.renderer.render(self.tokens[name],self.md.options,{'path':name})
             elif Path(name).suffix.lower() in TEXT_SUFFIXES or Path(name).name in TEXT_BASENAMES:
                 content='<h1>'+esc(name)+'</h1><pre><code>'+esc(data.decode('utf-8'))+'</code></pre>'
@@ -723,8 +760,8 @@ class Book:
                 model=check_design.dependency_model(data)
                 image=check_design.dependency_svg(model);self.images+=1
                 content+='<figure class="diagram"><div class="image-scroll"><img loading="lazy" alt="从本页唯一模块表派生的静态依赖" src="data:image/svg+xml;base64,'+b64(image)+'"></div><figcaption>由本页模块表直接派生；行依赖列，圆点表示一条直接静态依赖，灰格为自身。不是运行先后或进程。源SHA-256 '+sha(data)+'</figcaption></figure>'
-            # All bytes are embedded losslessly, including JSON and optional calculation sources.
-            download='<details class="source-data"><summary>来源与准确原文件</summary><p>SHA-256 '+sha(data)+'；'+str(len(data))+' 字节。<a download="'+esc(Path(name).name)+'" href="data:application/octet-stream;base64,'+b64(data)+'">保存准确原文件</a></p></details>'
+            # Authored originals remain lossless. The derived cache is already consumed into SVG.
+            download=('' if name==CACHE_PATH else '<details class="source-data"><summary>来源与准确原文件</summary><p>SHA-256 '+sha(data)+'；'+str(len(data))+' 字节。<a download="'+esc(Path(name).name)+'" href="data:application/octet-stream;base64,'+b64(data)+'">保存准确原文件</a></p></details>')
             articles.append('<article class="doc" id="'+sid+'" data-source-path="'+esc(name)+'" data-source-sha256="'+sha(data)+'"><p class="meta">'+esc(name)+'</p>'+download+content+'<p class="back"><a href="#sec-contents">返回导航</a></p></article>')
             nav.append('<li data-nav-item><a href="#'+sid+'">'+esc(name)+'</a></li>')
         meta['links_rewritten']=self.links;meta['raw_html_review']=[{'path':p,'tag_or_attribute':t} for p,t in sorted(self.markup_warnings)];meta['embedded_images']=len(self.svg)+self.images
@@ -736,7 +773,7 @@ class Book:
                 f=Path(self.args.mermaid_js).expanduser()
                 if f.is_symlink() or not f.is_file() or f.stat().st_size>30_000_000:raise BuildError('Invalid local Mermaid standalone script')
                 engine=f.read_bytes();engine.decode('utf-8')
-            extra='<section class="doc" id="sec-diagram-tools" data-nonce="'+nonce+'"><h2>可选：在当前浏览器重新渲染图</h2><p>选择的是可信工具，不是任意第三方脚本。不会下载引擎、上传源码或执行工程。</p><input id="sec-engine-file" type="file" accept=".js,.mjs"><button id="sec-render-start" type="button">开始本地渲染</button><button id="sec-save-diagram-cache" type="button" disabled>保存当前图缓存</button><p id="sec-diagram-status" aria-live="polite"></p><pre id="sec-engine-data" hidden>'+b64(engine)+'</pre><pre id="sec-diagram-jobs" hidden>'+esc(json.dumps(self.diagrams,ensure_ascii=False))+'</pre></section>'
+            extra='<section class="doc" id="sec-diagram-tools" data-nonce="'+nonce+'" data-font-family="'+esc(self.args.font_family)+'"><h2>可选：在当前浏览器重新渲染图</h2><p>选择的是可信工具，不是任意第三方脚本。不会下载引擎、上传源码或执行工程。</p><input id="sec-engine-file" type="file" accept=".js,.mjs"><button id="sec-render-start" type="button">开始本地渲染</button><button id="sec-save-diagram-cache" type="button" disabled>保存当前图缓存</button><p id="sec-diagram-status" aria-live="polite"></p><pre id="sec-engine-data" hidden>'+b64(engine)+'</pre><pre id="sec-render-core-data" hidden>'+b64(render_core_bytes())+'</pre><pre id="sec-diagram-jobs" hidden>'+esc(json.dumps(self.diagrams,ensure_ascii=False))+'</pre></section>'
             csp="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-"+nonce+"'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'none'"
         else:
             csp="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-"+b64(hashlib.sha256(script.encode()).digest())+"'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'none'"
@@ -799,9 +836,10 @@ def main(argv=None):
     if args.diagrams=='required' and not args.mermaid_js:raise BuildError('All diagrams are required. Set --mermaid-js to local mermaid.min.js; or explicitly choose --diagrams source')
     if args.sealed:
         if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
-        check_docs.verify(root, sealed=True)
     before=out.read_bytes()if out.is_file()else None
-    captured=capture(root,args);book=Book(root,captured,args)
+    captured=capture(root,args)
+    if args.sealed:check_docs.verify(root,sealed=True,captured=captured)
+    book=Book(root,captured,args)
     renderer_info={'state':'not-rendered'}
     if args.diagrams in ('cached','browser'):
         renderer_info=read_diagram_cache(root,captured,args,book)
@@ -811,7 +849,8 @@ def main(argv=None):
     cached_count=0;rendered_count=0
     if args.diagrams=='required' and book.diagrams:
         with IsolatedRenderer(args)as engine:
-            engine.info.update(renderer_environment(args))
+            environment=renderer_environment(args)
+            bind_drawing_identity(engine.info,environment)
             cache_path=Path(args.diagram_cache).expanduser().absolute() if args.diagram_cache else None
             cache_before=None
             if cache_path:
@@ -831,11 +870,12 @@ def main(argv=None):
                     continue
                 except BuildError as e:raise BuildError(job['path']+':'+str(job['line'])+' — fatal renderer failure: '+str(e)) from e
                 rendered_count+=1
+                book.svg_provenance[job['id']]=engine.info
                 if cache_path:cache_before=checkpoint_diagrams(cache_path,book,engine.info,cache_before,encoded_entries)
-            renderer_info=engine.info
+            renderer_info=info['original_renderer'] if cached_count and not rendered_count else engine.info
             if failures:raise BuildError('Diagram rendering incomplete:\n'+'\n'.join(failures))
         current_environment=renderer_environment(args)
-        if any(renderer_info.get(key)!=value for key,value in current_environment.items()):raise BuildError('Renderer environment changed during build')
+        if current_environment!=environment:raise BuildError('Renderer environment changed during build')
     content,meta=book.build(renderer_info)
     book.unchanged()
     if args.write_diagram_cache:
@@ -844,9 +884,6 @@ def main(argv=None):
         if (cache_out==root or root in cache_out.parents) and cache_out!=root/'.documentation/figures.json':raise BuildError('Only canonical derived figures cache may be published inside source tree')
         cache_before=cache_out.read_bytes() if cache_out.exists() else None
         checkpoint_diagrams(cache_out,book,renderer_info,cache_before,{})
-    if args.sealed:
-        if not (root/'.documentation/source-manifest.json').is_file():raise BuildError('Sealed reading requires a source snapshot; run docs:refresh')
-        check_docs.verify(root, sealed=True)
     out.parent.mkdir(parents=True,exist_ok=True)
     publish_output(out,content,before,book.unchanged)
     print(json.dumps({'output':str(out),'html_sha256':sha(content),'bytes':len(content),'source_files':len(meta['source_files']),'input_files':len(book.data),'reading_attachments':len(book.attachments),'unavailable_repository_references':len(book.unavailable),'markdown':len(book.tokens),'diagram_mode':args.diagrams,'diagrams':len(book.diagrams),'rendered':len(book.svg),'cached':len(book.svg) if args.diagrams in ('cached','browser') else cached_count,'rendered_this_build':rendered_count,'derived_table_views':1 if 'docs/架构/装配/模块与运行实例.md' in captured else 0,'pending':len(book.diagrams)-len(book.svg),'source_set_sha256':meta['source_set_sha256'],'input_set_sha256':meta['input_set_sha256'],'external_asset_requests':0,'raw_html_review':meta['raw_html_review']},ensure_ascii=False,indent=2))

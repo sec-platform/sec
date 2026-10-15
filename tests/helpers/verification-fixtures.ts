@@ -42,8 +42,9 @@ function emptyPolicyReport(): PolicyReport {
 
 function emptyAcceptanceCoverage(status: VerificationReport['runtime']['status']): AcceptanceCoverageReport {
   return {
-    formatVersion: '1',
+    formatVersion: '2',
     status,
+    source: { resolvedBlockIds: [], acceptancePlan: [], declarations: [], tests: [] },
     acceptancePassed: [],
     blocks: [],
     uncoveredBlocks: []

@@ -1,5 +1,4 @@
-import type { SemanticCompilationInput } from '../../compiler/semantic-compiler.ts';
-import { isPlainObject } from '../../contracts/canonical.ts';
+import { assertSemanticCompilationInput, type SemanticCompilationInput } from '../../compiler/semantic-compiler.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { resolvePathInside } from '../../contracts/relative-path.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
@@ -10,11 +9,8 @@ function readSemanticQueryInput(filePath: string): SemanticCompilationInput {
   const bytes = readOptionalRetainedOrdinaryFile(filePath, 'Semantic query input');
   if (bytes === null) throw new CodedFailure('SEMANTIC-QUERY-003', 'Semantic query input file is missing');
   const value: unknown = JSON.parse(decodeExactUtf8(bytes, 'Semantic query input'));
-  if (!isPlainObject(value) || !isPlainObject(value.engineeringIRInput)
-      || (value.generatorDeclarations !== undefined && !Array.isArray(value.generatorDeclarations))) {
-    throw new CodedFailure('SEMANTIC-QUERY-003', 'Semantic query input requires engineeringIRInput and optional generatorDeclarations');
-  }
-  return value as unknown as SemanticCompilationInput;
+  assertSemanticCompilationInput(value);
+  return value;
 }
 
 

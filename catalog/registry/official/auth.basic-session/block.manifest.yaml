@@ -21,6 +21,9 @@ pins:
       required: true
 acceptance:
   - id: user_can_login
+    source:
+      tests:
+        - tests/acceptance/auth-flow.test.ts
     covers:
       blocks:
         - auth/basic-session

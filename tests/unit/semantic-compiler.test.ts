@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import exampleInput from '../../examples/semantic-query/input.json' with { type: 'json' };
 
 import type { BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
@@ -19,7 +20,7 @@ function input(id = 'captured-app'): BuildEngineeringIRInput {
 test('captured compilation preserves the existing validation, plan and view results', () => {
   const source = input();
   const snapshot = buildValidatedEngineeringIR(source);
-  const result = compileSemanticInput({ engineeringIRInput: source, generatorDeclarations: [] });
+  const result = compileSemanticInput({ engineeringIRInput: source });
 
   expect(result).toEqual({
     snapshot,
@@ -33,7 +34,7 @@ test('captured compilation preserves the existing validation, plan and view resu
 test('compilation neither mutates its input nor shares a mutable result with the caller', () => {
   const source = input();
   const before = structuredClone(source);
-  const first = compileSemanticInput({ engineeringIRInput: source, generatorDeclarations: [] });
+  const first = compileSemanticInput({ engineeringIRInput: source });
   expect(source).toEqual(before);
 
   source.app.name = 'edited-after-capture';
@@ -45,9 +46,9 @@ test('compilation neither mutates its input nor shares a mutable result with the
 
 test('independent requests do not replace or contaminate an earlier result', () => {
   const firstInput = input('first');
-  const first = compileSemanticInput({ engineeringIRInput: firstInput, generatorDeclarations: [] });
-  const second = compileSemanticInput({ engineeringIRInput: input('second'), generatorDeclarations: [] });
-  const repeated = compileSemanticInput({ engineeringIRInput: firstInput, generatorDeclarations: [] });
+  const first = compileSemanticInput({ engineeringIRInput: firstInput });
+  const second = compileSemanticInput({ engineeringIRInput: input('second') });
+  const repeated = compileSemanticInput({ engineeringIRInput: firstInput });
 
   expect(first.snapshot.ir.appId).not.toBe(second.snapshot.ir.appId);
   expect(first.snapshot.ir.inputRevision).not.toBe(second.snapshot.ir.inputRevision);
@@ -62,6 +63,30 @@ test('invalid captured input retains the existing compiler error instead of retu
     manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
   }];
 
-  expect(() => compileSemanticInput({ engineeringIRInput: source, generatorDeclarations: [] }))
+  expect(() => compileSemanticInput({ engineeringIRInput: source }))
     .toThrow('Manifest input references unresolved block "missing/block"');
+});
+
+test('captured manifests supply all generators and roots alone select generation', () => {
+  const source = { engineeringIRInput: structuredClone(exampleInput.engineeringIRInput) as BuildEngineeringIRInput };
+  const complete = compileSemanticInput(source);
+  const generatorId = 'generator:item/basic:item-status-runtime-contract';
+
+  expect(complete.generatorPlan.tasks.map(task => task.id)).toEqual([generatorId]);
+  expect(complete.generatorPlan.tasks[0]?.target).toBe('src/installed/item/item-semantic-contract.ts');
+  expect(compileSemanticInput(source, [generatorId]).generatorPlan).toEqual(complete.generatorPlan);
+  const empty = compileSemanticInput(source, []);
+  expect(empty.generatorPlan.tasks).toEqual([]);
+  expect(empty.snapshot).toEqual(complete.snapshot);
+  expect(empty.semanticViews).toEqual(complete.semanticViews);
+
+  for (const extra of [{ generatorDeclarations: [] }, { unsupported: true }]) {
+    expect(() => compileSemanticInput({ ...source, ...extra })).toThrow('only its own engineeringIRInput field');
+  }
+  for (const key of ['hidden', Symbol('unsupported')]) {
+    const unsupported = Object.defineProperty({ ...source }, key, { value: [] });
+    expect(() => compileSemanticInput(unsupported)).toThrow('only its own engineeringIRInput field');
+  }
+  expect(() => compileSemanticInput({ ...source, engineeringIRInput: undefined! }))
+    .toThrow('only its own engineeringIRInput field');
 });

@@ -13,11 +13,6 @@ import {
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { parseGitChangedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
-import {
-  expectFullLaneCoversCorrectnessBackstop,
-  expectFullLaneCoversSlowSuites,
-  expectPrFastLaneBoundary
-} from '../testkit/contracts.ts';
 
 let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | null = null;
 let testImpactProviderPromise: Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> | null = null;
@@ -42,9 +37,22 @@ const getSlowTestSuitesSync = async () => getSnapshotSlowTestSuites(await testBu
 
 test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
   const contract = buildCiContract();
-  expectPrFastLaneBoundary(contract);
-  expectFullLaneCoversCorrectnessBackstop(contract);
-  expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
+  expect(contract.prQuickLaneCommands).toEqual([
+    'bun run imports:check',
+    'bun run typecheck:verified',
+    'bun run test -- --affected'
+  ]);
+  expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
+    'bun run imports:check',
+    'bun run typecheck:verified',
+    'bun run docs:doctor',
+    'bun run test -- --scope fast',
+    'bun run sec -- verify --lane all --json --compact',
+    'bun run sec -- reference check --json --compact'
+  ]));
+  for (const suiteId of slowTestSuiteIds()) {
+    expect(contract.fullLaneCommands).toContain(`bun run test -- --scope slow --suite ${suiteId}`);
+  }
 });
 
 test('CI verification plans execute canonical affected Quick and ordered Full workspace chain', () => {

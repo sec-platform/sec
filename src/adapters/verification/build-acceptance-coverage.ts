@@ -8,7 +8,6 @@ import type {
   RuntimeVerificationLaneReport
 } from '../../assurance/verification/contract/types.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { loadManifestForResolvedBlock } from '../workspace/sources/load-manifest.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from './platform/artifact/runtime/authority.ts';
 
 function resolveFastVerificationLane(
@@ -39,16 +38,9 @@ export async function buildAcceptanceCoverage(
   fast?: FastVerificationLaneReport
 ): Promise<AcceptanceCoverageReport> {
   const fastLane = resolveFastVerificationLane(workspaceRoot, runtime, fast);
-  const manifests = await Promise.all(
-    lock.resolvedBlocks.map(async block => ({
-      blockId: block.id,
-      manifest: (await loadManifestForResolvedBlock(workspaceRoot, block)).manifest
-    }))
-  );
   return buildAcceptanceCoverageReport({
     lock,
     runtime,
-    fast: fastLane,
-    manifests
+    fast: fastLane
   });
 }

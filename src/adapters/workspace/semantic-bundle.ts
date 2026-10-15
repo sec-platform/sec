@@ -17,12 +17,11 @@ export async function buildWorkspaceSemanticBundle(
 ): Promise<WorkspaceSemanticBundle> {
   const {
     engineeringIRInput,
-    generatorDeclarations,
     semanticContractSources,
     sourceLock
   } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
   return {
-    ...compileSemanticInput({ engineeringIRInput, generatorDeclarations }),
+    ...compileSemanticInput({ engineeringIRInput }),
     semanticContractSources,
     sourceLock
   };

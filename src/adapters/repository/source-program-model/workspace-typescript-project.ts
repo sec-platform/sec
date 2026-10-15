@@ -6,6 +6,7 @@ import { createTypeScriptSnapshotDirectoryReader, TYPESCRIPT_SNAPSHOT_DIRECTORY_
 import { normalizeRepositoryPath } from '../architecture/contract.ts';
 import { assertPhysicalWorkspaceSourceSnapshot, assertWorkspaceSourceSnapshot, type PhysicalWorkspaceSourceSnapshot, type WorkspaceSourceSnapshot } from './workspace-source-authority.ts';
 import type { WorkspaceSourceFile } from './workspace-source-content.ts';
+import { createTypeScriptDeclaredInputClosure, typeScriptSnapshotPath as pathInside, typeScriptModuleSpecifierLiteral, typeScriptScriptKind } from './workspace-typescript-closure.ts';
 import { parseContainedTypeScriptProjectConfig, parseTypeScriptProjectConfiguration } from './workspace-typescript-config.ts';
 
 const workspaceTypeScriptProjectInputBrand: unique symbol = Symbol('workspace-typescript-project-input');
@@ -54,6 +55,8 @@ export interface TypeScriptProjectInput {
   readonly dependencyGenerationDigest: `sha256:${string}` | null;
   readonly executionConfigContainment: WorkspaceTypeScriptExecutionConfigContainmentReceipt;
   readonly sourceFacts: readonly WorkspaceTypeScriptSourceFact[];
+  /** Actual repository file lookups by the same CompilerHost, including absence. */
+  readonly resolutionLookupPaths: readonly string[];
   readonly externalSourceFacts: readonly WorkspaceTypeScriptExternalSourceFact[];
   readonly orderedSourceFactsDigest: `sha256:${string}`;
   readonly projectInputDigest: `sha256:${string}`;
@@ -109,179 +112,35 @@ export function projectTypeScriptProjectFactIdentity(
 export function compileTypeScriptProjectFactIdentity(
   snapshot: WorkspaceSourceSnapshot,
   projectConfigPath: string,
-  input: Readonly<{
-    dependencyGenerationDigest: `sha256:${string}` | null;
-  }>
+  input: Readonly<{ dependencyGenerationDigest: `sha256:${string}` | null }>
 ): TypeScriptProjectFactIdentity {
   assertWorkspaceSourceSnapshot(snapshot);
   const projectConfig = snapshot.file(projectConfigPath);
-  if (projectConfig === null) {
-    throw new Error(`TypeScript project fact config is absent: ${projectConfigPath}`);
-  }
-  const containedProjectConfig = parseContainedTypeScriptProjectConfig(
-    projectConfig.source,
-    projectConfigPath
-  );
-  const virtualRoot = path.resolve(process.cwd(), '.sec-source-program-project-facts');
-  const readSnapshotDirectory = createTypeScriptSnapshotDirectoryReader(
-    snapshot.files.map(({ path: repositoryPath }) => repositoryPath), virtualRoot
-  );
-  const virtualConfigPath = path.resolve(virtualRoot, ...projectConfigPath.split('/'));
-  const parsed = parseTypeScriptProjectConfiguration(
-    virtualConfigPath,
-    projectConfig.source,
-    containedProjectConfig,
-    {
-      useCaseSensitiveFileNames: true,
-      fileExists: (fileName) => {
-        const repositoryPath = pathInside(virtualRoot, fileName);
-        return repositoryPath !== null && snapshot.file(repositoryPath) !== null;
-      },
-      readFile: (fileName) => {
-        const repositoryPath = pathInside(virtualRoot, fileName);
-        return repositoryPath === null ? undefined : snapshot.file(repositoryPath)?.source;
-      },
-      readDirectory: (rootDir, extensions, excludes, includes, depth) => readSnapshotDirectory(
-        rootDir,
-        extensions,
-        excludes,
-        includes,
-        depth
-      )
-    },
-    virtualRoot
-  );
-  if (parsed.errors.length > 0) {
-    throw new Error(`TypeScript project fact config is invalid: ${ts.flattenDiagnosticMessageText(
-      parsed.errors[0]!.messageText,
-      '\n'
-    )}`);
-  }
-  const rootSources = new Map<string, WorkspaceSourceFile>();
-  const pendingSourcePaths: string[] = [];
-  const virtualFile = (repositoryPath: string): string => path.resolve(
-    virtualRoot,
-    ...repositoryPath.split('/')
-  );
-  const repositoryFile = (fileName: string): WorkspaceSourceFile | null => {
-    const repositoryPath = pathInside(virtualRoot, fileName);
-    return repositoryPath === null ? null : snapshot.file(repositoryPath);
-  };
-  const moduleResolutionHost: ts.ModuleResolutionHost = {
-    directoryExists: readSnapshotDirectory.directoryExists,
-    fileExists: (fileName) => repositoryFile(fileName) !== null,
-    getCurrentDirectory: () => virtualRoot,
-    getDirectories: readSnapshotDirectory.getDirectories,
-    readFile: (fileName) => repositoryFile(fileName)?.source,
-    realpath: (fileName) => fileName,
-    useCaseSensitiveFileNames: true
-  };
-  const moduleResolutionCache = ts.createModuleResolutionCache(
-    virtualRoot,
-    (fileName) => fileName,
-    parsed.options
-  );
-  const typeReferenceResolutionCache = ts.createTypeReferenceDirectiveResolutionCache(
-    virtualRoot,
-    (fileName) => fileName,
-    parsed.options,
-    moduleResolutionCache
-  );
-  const admitSource = (fileName: string): void => {
-    const repositoryPath = pathInside(virtualRoot, fileName);
-    const source = repositoryPath === null ? null : snapshot.file(repositoryPath);
-    if (repositoryPath === null || source === null) {
-      throw new Error(`TypeScript project fact source is outside its snapshot: ${fileName}`);
-    }
-    if (rootSources.has(repositoryPath)) return;
-    rootSources.set(repositoryPath, source);
-    pendingSourcePaths.push(repositoryPath);
-  };
-  parsed.fileNames.forEach(admitSource);
-  while (pendingSourcePaths.length > 0) {
-    const repositoryPath = pendingSourcePaths.pop()!;
-    const source = rootSources.get(repositoryPath)!;
-    const containingFile = virtualFile(repositoryPath);
-    const impliedNodeFormat = ts.getImpliedNodeFormatForFile(
-      containingFile,
-      moduleResolutionCache,
-      moduleResolutionHost,
-      parsed.options
-    );
-    const sourceFile = ts.createSourceFile(
-      containingFile,
-      source.source,
-      Object.freeze({
-        languageVersion: parsed.options.target ?? ts.ScriptTarget.Latest,
-        impliedNodeFormat
-      }),
-      true,
-      typeScriptScriptKind(repositoryPath)
-    );
-    if (!parsed.options.noResolve) {
-      for (const reference of typeScriptModuleSpecifierLiterals(sourceFile)) {
-        const resolutionMode = ts.getModeForUsageLocation(sourceFile, reference, parsed.options);
-        const resolvedModule = ts.resolveModuleName(
-          reference.text,
-          containingFile,
-          parsed.options,
-          moduleResolutionHost,
-          moduleResolutionCache,
-          undefined,
-          resolutionMode
-        ).resolvedModule;
-        const isJavaScriptSource = resolvedModule?.extension === ts.Extension.Js
-          || resolvedModule?.extension === ts.Extension.Jsx
-          || resolvedModule?.extension === ts.Extension.Mjs
-          || resolvedModule?.extension === ts.Extension.Cjs;
-        if (resolvedModule !== undefined
-            && (!isJavaScriptSource || parsed.options.allowJs === true)
-            && repositoryFile(resolvedModule.resolvedFileName) !== null) {
-          admitSource(resolvedModule.resolvedFileName);
-        }
-      }
-      for (const reference of sourceFile.referencedFiles) {
-        const referencedFileName = ts.resolveTripleslashReference(
-          reference.fileName,
-          containingFile
-        );
-        if (repositoryFile(referencedFileName) !== null) {
-          admitSource(referencedFileName);
-        }
-      }
-      for (const reference of sourceFile.typeReferenceDirectives) {
-        const resolvedFileName = ts.resolveTypeReferenceDirective(
-          reference.fileName,
-          containingFile,
-          parsed.options,
-          moduleResolutionHost,
-          undefined,
-          typeReferenceResolutionCache,
-          ts.getModeForFileReference(reference, sourceFile.impliedNodeFormat)
-        ).resolvedTypeReferenceDirective?.resolvedFileName;
-        if (resolvedFileName !== undefined && repositoryFile(resolvedFileName) !== null) {
-          admitSource(resolvedFileName);
-        }
-      }
-    }
-  }
-  const rootSourceFacts = Object.freeze([...rootSources.entries()].map(([repositoryPath, source]) => {
-    const module = snapshot.moduleMembership.moduleForPath(repositoryPath);
-    return Object.freeze({
-      path: repositoryPath,
-      contentDigest: source.contentDigest as `sha256:${string}`,
-      moduleId: module?.moduleId ?? null,
-      moduleDigest: sha256(module) as `sha256:${string}`
-    });
-  }).sort((left, right) => compareCodeUnits(left.path, right.path)));
+  if (projectConfig === null) throw new Error(`TypeScript project fact config is absent: ${projectConfigPath}`);
+  const closure = createTypeScriptDeclaredInputClosure({
+    projectConfigPath,
+    rootPaths: snapshot.files.map(({ path }) => path),
+    membershipPaths: snapshot.files.map(({ path }) => path),
+    file: (repositoryPath) => snapshot.file(repositoryPath)
+  });
+  if (closure.advance().length > 0) throw new Error('TypeScript project fact source is outside its snapshot');
+  const rootSourceFacts = Object.freeze(closure.selectedPaths().filter((sourcePath) => sourcePath !== projectConfigPath)
+    .map((repositoryPath) => {
+      const source = snapshot.file(repositoryPath)!;
+      const module = snapshot.moduleMembership.moduleForPath(repositoryPath);
+      return Object.freeze({
+        path: repositoryPath,
+        contentDigest: source.contentDigest as `sha256:${string}`,
+        moduleId: module?.moduleId ?? null,
+        moduleDigest: sha256(module) as `sha256:${string}`
+      });
+    }).sort((left, right) => compareCodeUnits(left.path, right.path)));
   const projectConfigDigest = projectConfig.contentDigest as `sha256:${string}`;
   return Object.freeze({
     projectConfigDigest,
     projectFactDigest: typeScriptProjectFactDigest({
-      projectConfigPath,
-      projectConfigDigest,
-      dependencyGenerationDigest: input.dependencyGenerationDigest,
-      rootSourceFacts
+      projectConfigPath, projectConfigDigest,
+      dependencyGenerationDigest: input.dependencyGenerationDigest, rootSourceFacts
     }),
     rootSourceFacts
   });
@@ -333,67 +192,8 @@ export function assertTypeScriptProjectMatchesSnapshot(
   }
 }
 
-function typeScriptScriptKind(fileName: string): ts.ScriptKind {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
-  if (lower.endsWith('.jsx')) return ts.ScriptKind.JSX;
-  if (/\.(?:c|m)?js$/u.test(lower)) return ts.ScriptKind.JS;
-  if (lower.endsWith('.json')) return ts.ScriptKind.JSON;
-  return ts.ScriptKind.TS;
-}
-
-function pathInside(root: string, candidate: string): string | null {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  if (relative === '') return '';
-  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
-    return null;
-  }
-  return relative.replaceAll('\\', '/');
-}
-
 function typeScriptModuleSpecifier(node: ts.Node): string | null {
   return typeScriptModuleSpecifierLiteral(node)?.text ?? null;
-}
-
-function typeScriptModuleSpecifierLiteral(node: ts.Node): ts.StringLiteralLike | null {
-  if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
-    return node.moduleSpecifier;
-  }
-  if (ts.isImportEqualsDeclaration(node)
-      && ts.isExternalModuleReference(node.moduleReference)
-      && node.moduleReference.expression !== undefined
-      && ts.isStringLiteralLike(node.moduleReference.expression)) {
-    return node.moduleReference.expression;
-  }
-  if (ts.isCallExpression(node) && node.arguments.length >= 1
-      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
-        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
-      && ts.isStringLiteralLike(node.arguments[0]!)) {
-    return node.arguments[0]!;
-  }
-  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
-      && ts.isStringLiteralLike(node.argument.literal)) {
-    return node.argument.literal;
-  }
-  if (ts.isJSDocImportTag(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-    return node.moduleSpecifier;
-  }
-  if (ts.isModuleDeclaration(node) && ts.isStringLiteralLike(node.name)) {
-    return node.name;
-  }
-  return null;
-}
-
-function typeScriptModuleSpecifierLiterals(sourceFile: ts.SourceFile): readonly ts.StringLiteralLike[] {
-  const literals: ts.StringLiteralLike[] = [];
-  const visit = (node: ts.Node): void => {
-    const literal = typeScriptModuleSpecifierLiteral(node);
-    if (literal !== null) literals.push(literal);
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return Object.freeze(literals);
 }
 
 export function compileTypeScriptProjectInput(
@@ -432,9 +232,20 @@ export function compileTypeScriptProjectInput(
   const virtualDependencyRoot = path.resolve(virtualRoot, 'node_modules');
   const defaultLibraryRoot = path.dirname(ts.getDefaultLibFilePath({}));
   const virtualConfigPath = path.resolve(virtualRoot, ...projectConfigPath.split('/'));
+  const repositoryReads = new Map<string, WorkspaceSourceFile>();
+  const repositoryResolutionLookups = new Set<string>();
   const snapshotFileForAbsolute = (fileName: string): WorkspaceSourceFile | null => {
     const repositoryPath = pathInside(virtualRoot, fileName);
+    if (repositoryPath !== null && repositoryPath !== ''
+        && pathInside(virtualDependencyRoot, fileName) === null) {
+      repositoryResolutionLookups.add(repositoryPath);
+    }
     return repositoryPath === null ? null : snapshot.file(repositoryPath);
+  };
+  const readSnapshotSource = (fileName: string): string | undefined => {
+    const source = snapshotFileForAbsolute(fileName);
+    if (source !== null) repositoryReads.set(source.path, source);
+    return source?.source;
   };
   const dependencyHostResolutionPaths = new Map<string, string>();
   const hostPathKey = (fileName: string): string => {
@@ -484,7 +295,7 @@ export function compileTypeScriptProjectInput(
   const parseHost: ts.ParseConfigHost = {
     useCaseSensitiveFileNames: true,
     fileExists: (fileName) => snapshotFileForAbsolute(fileName) !== null,
-    readFile: (fileName) => snapshotFileForAbsolute(fileName)?.source,
+    readFile: readSnapshotSource,
     readDirectory: (rootDir, extensions, excludes, includes, depth) => readSnapshotDirectory(
       rootDir,
       extensions,
@@ -590,7 +401,7 @@ export function compileTypeScriptProjectInput(
           ) ?? []);
     },
     readFile: (fileName) => {
-      const source = snapshotFileForAbsolute(fileName)?.source;
+      const source = readSnapshotSource(fileName);
       if (source !== undefined) return source;
       const externalFile = externalHostPathForRead(fileName);
       return externalFile === null ? undefined : baseHost.readFile(externalFile);
@@ -663,6 +474,7 @@ export function compileTypeScriptProjectInput(
       contentDigest: rawSha256(sourceFile.text)
     }));
   }
+  for (const [sourcePath, source] of repositoryReads) repositorySources.set(sourcePath, source);
   repositorySources.set(projectConfig.path, projectConfig);
   const sourceFacts = Object.freeze([...repositorySources.values()]
     .sort((left, right) => compareCodeUnits(left.path, right.path)).map(({
@@ -677,6 +489,7 @@ export function compileTypeScriptProjectInput(
   const externalSourceFacts = Object.freeze(externalSources.sort((left, right) => (
     compareCodeUnits(left.kind, right.kind) || compareCodeUnits(left.path, right.path)
   )));
+  const resolutionLookupPaths = Object.freeze([...repositoryResolutionLookups].sort(compareCodeUnits));
   dependencyGeneration?.assertCurrent();
   const orderedSourceFactsDigest = sha256({ sourceFacts, externalSourceFacts }) as `sha256:${string}`;
   const resolvedRootSourcePaths = Object.freeze(parsed.fileNames.map((fileName) => {
@@ -729,6 +542,7 @@ export function compileTypeScriptProjectInput(
       resolvedConfigDigest: executionConfigContainment.resolvedConfigDigest
     }),
     sourceFacts,
+    resolutionLookupPaths,
     externalSourceFacts,
     orderedSourceFactsDigest
   });
@@ -741,6 +555,7 @@ export function compileTypeScriptProjectInput(
     dependencyGenerationDigest,
     executionConfigContainment,
     sourceFacts,
+    resolutionLookupPaths,
     externalSourceFacts,
     orderedSourceFactsDigest,
     projectInputDigest,

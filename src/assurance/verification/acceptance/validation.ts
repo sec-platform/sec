@@ -2,11 +2,13 @@ import { canonicalEquals, deepFreeze, uniqueSorted } from '../../../contracts/ca
 import { isCanonicalAcceptanceId } from '../../../semantics/acceptance/identity.ts';
 import { isCanonicalBlockId } from '../../../semantics/identity/block.ts';
 import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport } from '../../acceptance/coverage.ts';
+import { validateAcceptanceCoverageSource } from '../../acceptance/source.ts';
 import type { VerificationStatus } from '../contract/types.ts';
 
 const ROOT_KEYS = new Set([
   'formatVersion',
   'status',
+  'source',
   'acceptancePassed',
   'blocks',
   'uncoveredBlocks'
@@ -98,20 +100,22 @@ function validateUncoveredIds(
 
 export function validateAcceptanceCoverageReport(value: unknown): AcceptanceCoverageReport {
   const raw = record(value, 'Acceptance Coverage report');
-  exactKeys(raw, ROOT_KEYS, 'Acceptance Coverage report');
   if (raw.formatVersion !== ACCEPTANCE_COVERAGE_FORMAT_VERSION) {
-    throw new Error('Acceptance Coverage report has an unsupported formatVersion');
+    throw new Error('Acceptance Coverage report has an unsupported formatVersion; rebuild coverage from the current Lock');
   }
+  exactKeys(raw, ROOT_KEYS, 'Acceptance Coverage report');
   if (typeof raw.status !== 'string' || !STATUSES.has(raw.status as VerificationStatus)) {
     throw new Error('Acceptance Coverage report has an invalid status');
   }
   const acceptancePassed = canonicalAcceptanceIds(raw.acceptancePassed, 'Acceptance Coverage acceptancePassed');
+  const source = validateAcceptanceCoverageSource(raw.source);
   const blocks = validateEntries(raw.blocks);
   const uncoveredBlocks = validateUncoveredIds(raw.uncoveredBlocks, blocks);
 
   return deepFreeze({
     formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
     status: raw.status as VerificationStatus,
+    source,
     acceptancePassed,
     blocks,
     uncoveredBlocks

@@ -68,7 +68,7 @@ function runtime(passed: string[]): RuntimeVerificationLaneReport {
   };
 }
 
-function lock(acceptancePlan: string[]): LockFile {
+function lock(acceptancePlan: string[], acceptanceSources: NonNullable<LockFile['acceptanceSources']>): LockFile {
   return {
     formatVersion: '1',
     app: {
@@ -102,9 +102,13 @@ function lock(acceptancePlan: string[]): LockFile {
       }
     ],
     resolvedCapabilities: [],
-    installPlan: [],
+    installPlan: [...new Set(acceptanceSources.flatMap(entry => entry.acceptance.source?.tests ?? []))].map((to, index) => ({
+      stepId: `source:${index}`, blockId: 'source/block', registrySourceId: 'test', registryKind: 'private',
+      registryLocation: 'workspace', registryPath: 'registry', sourceRoot: 'files', action: 'copy', from: to, to
+    })),
     generatedPaths: [],
     acceptancePlan,
+    acceptanceSources,
     passStatus: {
       parse: 'succeeded',
       align: 'succeeded',
@@ -121,7 +125,7 @@ function lock(acceptancePlan: string[]): LockFile {
 async function writeManifests(
   workspaceRoot: string,
   sourceAcceptance: BlockManifest['acceptance']
-): Promise<void> {
+): Promise<NonNullable<LockFile['acceptanceSources']>> {
   const registryRoot = path.join(workspaceRoot, 'registry');
   await fs.mkdir(path.join(registryRoot, 'source.block'), { recursive: true });
   await fs.mkdir(path.join(registryRoot, 'target.block'), { recursive: true });
@@ -133,22 +137,26 @@ async function writeManifests(
     path.join(registryRoot, 'target.block', 'block.manifest.yaml'),
     manifest('target/block', [])
   );
+  return sourceAcceptance.map(acceptance => ({ declaringBlockId: 'source/block', acceptance }));
 }
 
 test('fast and runtime files close every declared semantic acceptance', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifests(workspaceRoot, [
+    const captured = await writeManifests(workspaceRoot, [
       {
         id: 'user_can_login',
+        source: { tests: ['tests/acceptance/auth-flow.test.ts'] },
         covers: { blocks: ['source/block'] }
       },
       {
         id: 'user_can_create_customer',
+        source: { tests: ['tests/acceptance/customer-flow.test.ts'] },
         dependsOn: ['user_can_login'],
         covers: { blocks: ['source/block'] }
       },
       {
         id: 'customer_can_upload_attachment',
+        source: { tests: ['tests/acceptance/customer-attachments-flow.test.ts'] },
         dependsOn: ['user_can_create_customer'],
         covers: { blocks: ['target/block'] }
       }
@@ -160,7 +168,7 @@ test('fast and runtime files close every declared semantic acceptance', async ()
         'user_can_login',
         'user_can_create_customer',
         'customer_can_upload_attachment'
-      ]),
+      ], captured),
       runtime([
         'tests/acceptance/auth-flow.test.ts',
         'tests/acceptance/customer-attachments-flow.test.ts'
@@ -193,13 +201,15 @@ test('fast and runtime files close every declared semantic acceptance', async ()
 
 test('partial, unmapped and empty observations remain uncovered', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifests(workspaceRoot, [
+    const captured = await writeManifests(workspaceRoot, [
       {
         id: 'user_can_create_customer',
+        source: { tests: ['tests/acceptance/customer-flow.test.ts'] },
         covers: { blocks: ['source/block'] }
       },
       {
         id: 'customer_can_upload_attachment',
+        source: { tests: ['tests/acceptance/customer-attachments-flow.test.ts'] },
         dependsOn: ['user_can_create_customer'],
         covers: { blocks: ['target/block'] }
       },
@@ -212,7 +222,7 @@ test('partial, unmapped and empty observations remain uncovered', async () => {
       'user_can_create_customer',
       'customer_can_upload_attachment',
       'unmapped_acceptance'
-    ]);
+    ], captured);
 
     const partial = await buildAcceptanceCoverage(
       workspaceRoot,
@@ -251,10 +261,10 @@ test('partial, unmapped and empty observations remain uncovered', async () => {
 
 test('acceptance plan cannot reference an undeclared ID', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await writeManifests(workspaceRoot, []);
+    const captured = await writeManifests(workspaceRoot, []);
     await expect(buildAcceptanceCoverage(
       workspaceRoot,
-      lock(['missing_acceptance']),
+      lock(['missing_acceptance'], captured),
       runtime([]),
       fast([])
     )).rejects.toThrow(/undeclared acceptance ID missing_acceptance/);

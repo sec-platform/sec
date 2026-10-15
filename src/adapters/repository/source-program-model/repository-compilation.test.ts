@@ -22,6 +22,7 @@ import {
 } from './test-observations.ts';
 import {
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
+  observeTypeScriptSourceProgramPerformanceForTests,
   sourceProgramCurrentExactReturnProvenances,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
@@ -406,6 +407,8 @@ const incrementalScenarios: readonly Readonly<{
   { name: 'formerly unresolved import', before: { 'src/example/consumer.ts': "import { value } from './late.ts'; export const result = value;\n" }, after: { 'src/example/late.ts': 'export const value = 2;\n' }, mode: 'full' },
   { name: 'star re-export', before: { 'src/example/barrel.ts': "export * from './helper.ts';\n", 'src/example/consumer.ts': "import { value } from './barrel.ts'; export const result = value;\n" }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
   { name: 'global augmentation', after: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, mode: 'full' },
+  { name: 'added module with changed global input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': 'export const value = 1; declare global { interface Window { value: number } }\n' }, mode: 'full' },
+  { name: 'added module with changed triple-slash input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': '/// <reference lib="es2022" />\nexport const value = 1;\n' }, mode: 'full' },
   { name: 'unchanged global dependency', before: { 'src/example/global.ts': 'export {}; declare global { const GLOBAL: number; }\n', 'src/example/helper.ts': 'export const value = GLOBAL;\n' }, after: { 'src/example/helper.ts': 'export const value = GLOBAL + 1;\n' }, mode: 'full' },
   { name: 'unchanged global augmentation', before: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
   { name: 'unchanged triple-slash reference', before: { 'src/example/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
@@ -425,7 +428,13 @@ for (const scenario of incrementalScenarios) {
     const baselineInput = incrementalFixture(before, `${scenario.name}:before`);
     const currentInput = incrementalFixture(after, `${scenario.name}:after`);
     const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
+    const beforeReuse = observeTypeScriptSourceProgramPerformanceForTests();
     const reused = compileVirtualRepositorySourceProgramCompilation({ ...currentInput, previousCompilation: baseline });
+    const afterReuse = observeTypeScriptSourceProgramPerformanceForTests();
+    if (scenario.name === 'isolated new test') {
+      expect(afterReuse.semanticScopeParseOperations - beforeReuse.semanticScopeParseOperations)
+        .toBeLessThanOrEqual(2);
+    }
     const full = compileVirtualRepositorySourceProgramCompilation(currentInput);
     expect(reused.typeScriptCompilation.model).toEqual(full.typeScriptCompilation.model);
     expect(reused.typeScriptCompilation.mode).toBe(scenario.mode);

@@ -56,7 +56,7 @@ bun src/bootstrap/cli/cli.ts semantic generate --input examples/semantic-query/i
 bun examples/semantic-query/consume.ts
 ```
 
-The JSON contains `engineeringIRInput`, the existing captured IR-build profile, not a new general authoring language. Generator declarations are derived from its manifests and selected blocks unless explicitly supplied by an existing adapter. JSON provenance fields are input values, not new registry or write authority. Without `--input`, the CLI reads the existing workspace through its normal read adapter; neither query mode writes the workspace.
+The JSON contains only `engineeringIRInput`, the existing captured IR-build profile, not a new general authoring language. Both the captured API and JSON reader reject unsupported top-level fields. Generator declarations are always derived from the captured manifests and selected blocks. Query `roots` selects generator identities: omission includes all generators, an explicit subset includes only those generators, and `[]` selects no generation. JSON provenance fields are input values, not new registry or write authority. Without `--input`, the CLI reads the existing workspace through its normal read adapter; neither query mode writes the workspace.
 
 The current generator emits state-transition maps. The returned set is explicitly scoped to `semantic-tasks`; required native types/imports still belong to the supplied target implementation. This is not a complete native package, a build result, or proof of passed verification. Change the transition in the same input JSON and generate again to obtain a new semantic revision; previous query results remain detached from later author edits.
 

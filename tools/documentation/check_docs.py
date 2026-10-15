@@ -9,8 +9,9 @@ from pathlib import Path
 import argparse, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
-from source_inventory import (load, local_path, source_files,
-    capture_source_manifest, requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH, baseline)
+from source_inventory import (load, decode, local_path, capture_source_bytes, source_bytes,
+    source_manifest_from_capture, assert_source_capture_current, EXCLUDED_FROM_SOURCE_HASH,
+    requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH, baseline)
 
 def plain_heading(text: str) -> str:
     # Only presentation markup is removed; no Unicode normalization/case-fold
@@ -139,43 +140,51 @@ def checked_regressions(value, source_paths):
     return value['checks']
 
 
-def verify(root: Path, *, sealed: bool = False) -> dict:
+def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
     root = root.resolve()
     errors = []
     def local(name: str) -> Path:
         return local_path(root, name)
-    manifest = capture_source_manifest(root)
+    input_capture=captured;owns_capture=captured is None
+    captured=(capture_source_bytes(root) if owns_capture else
+              {name:data for name,data in captured.items() if name not in EXCLUDED_FROM_SOURCE_HASH})
+    def read(path):return source_bytes(root,path,captured)
+    def source_json(path):return decode(read(path),str(path))
+    def projection_matches(name,value):
+        if input_capture is not None:
+            return name in input_capture and canonical(decode(input_capture[name],name))==canonical(value)
+        path=local(name)
+        return path.is_file() and canonical(load(path))==canonical(value)
+    manifest=source_manifest_from_capture(root,captured)
     if sealed:
-        stored_manifest = local(MANIFEST_PATH)
-        if not stored_manifest.is_file() or canonical(load(stored_manifest)) != canonical(manifest):
+        if not projection_matches(MANIFEST_PATH,manifest):
             errors.append('sealed source projection is missing, stale or has an unsupported identity domain')
     entries = manifest['members']
-    files = source_files(root)
+    files = [root/name for name in captured]
     current = manifest['source_set_sha256']
     source_paths = {x['path'] for x in entries}
-    docs = checked_identity_registry(load(local('.documentation/documents.json')), source_paths,
-                                     baseline(root)['audited_namespaces'])
+    docs = checked_identity_registry(source_json('.documentation/documents.json'), source_paths,
+                                     baseline(root,captured)['audited_namespaces'])
     for x in docs:
-        if not local(x['path']).is_file(): errors.append('document missing: ' + x['path'])
-    projection = requirement_projection(root)
+        if x['path']not in captured: errors.append('document missing: ' + x['path'])
+    projection = requirement_projection(root,captured)
     if sealed:
-        stored_requirements = local(REQUIREMENTS_PATH)
-        if not stored_requirements.is_file() or canonical(load(stored_requirements)) != canonical(projection):
+        if not projection_matches(REQUIREMENTS_PATH,projection):
             errors.append('sealed requirement projection is missing or stale')
     requirements = projection['items']
-    for x in checked_regressions(load(local('.documentation/known-regressions.json')), source_paths):
-        exists = x['text'] in local(x['path']).read_text(encoding='utf-8')
+    for x in checked_regressions(source_json('.documentation/known-regressions.json'), source_paths):
+        exists = x['text'] in read(x['path']).decode('utf-8')
         if (x['mode'] == 'must_contain' and not exists) or (x['mode'] == 'must_not_contain' and exists):
             errors.append('known route regression: ' + x['id'])
     # Check actual authored module membership and semantic source locations.
     # Examples are finite design inputs; byte snapshots belong to sealed packages.
     def inside(p: Path) -> bool:
-        return p.is_relative_to(root) and p.is_file()
+        return p.is_relative_to(root) and p.relative_to(root).as_posix()in captured
     example_projects = 0
     for project_path in (p for p in files if p.name == 'gift.project.json' and p.relative_to(root).parts[0] == 'examples'):
         sample = project_path.parent
         example_projects += 1
-        project = load(project_path)
+        project = source_json(project_path)
         if project.get('schema') != 'gift.project/1':
             errors.append('example project schema unsupported: ' + str(project_path.relative_to(root)))
             continue
@@ -184,7 +193,7 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
             if not inside(p):
                 errors.append('example module missing/outside: ' + str(project_path.relative_to(root)) + ':' + module_id)
                 continue
-            module = load(p)
+            module = source_json(p)
             if module.get('moduleId') != module_id:
                 errors.append('example module identity mismatch: ' + str(project_path.relative_to(root)) + ':' + module_id)
             if module.get('schema') != 'gift.author-module/1':
@@ -192,7 +201,7 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
     # Complete author modules also work without a project. Interpret the module's
     # actual requirement dialect alias, rather than assuming the spelling "req".
     for p in (p for p in files if p.suffix == '.json' and p.relative_to(root).parts[0] == 'examples'):
-        module = load(p)
+        module = source_json(p)
         if not isinstance(module, dict) or module.get('schema') != 'gift.author-module/1':
             continue
         kinds = {alias + ':rule' for alias, dialect in module.get('dialects', {}).items()
@@ -208,14 +217,14 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
             q = (p.parent / source).resolve()
             if not inside(q):
                 errors.append('example rule source missing/outside: ' + str(p.relative_to(root)))
-            elif not re.search(r'^#{1,6}\s+' + re.escape(section) + r'\s*$', q.read_text(encoding='utf-8'), re.M):
+            elif not re.search(r'^#{1,6}\s+' + re.escape(section) + r'\s*$', read(q).decode('utf-8'), re.M):
                 errors.append('example rule section missing: ' + str(p.relative_to(root)) + ':' + section)
     # Check only the current text. There is no historical path resolver.
     anchors = {}
     for p in (p for p in files if p.suffix == '.md'):
         name = p.relative_to(root).as_posix()
         try:
-            anchors[name] = anchor_locations(p.read_text(encoding='utf-8'))
+            anchors[name] = anchor_locations(read(p).decode('utf-8'))
             for fragment, lines in anchors[name].items():
                 if len(lines) != 1:
                     errors.append(f'ambiguous current anchor: {name}#{fragment}')
@@ -229,14 +238,14 @@ def verify(root: Path, *, sealed: bool = False) -> dict:
     design = {}
     try:
         import check_design
-        d = check_design.review(root)
+        d = check_design.review(root,captured=captured)
         design = {'declared_modules': d['modules'], 'declared_static_edges': d['static_edges'],
                   'decisions_with_adoption_and_enforcement': len(d['decisions']), 'diagram_sources': len(d['mermaid_sources']),
                   'concrete_deliverables_with_author_and_semantic_references': d['deliverables']['count'],
                   'target_semantic_validation': d['deliverables']['target_semantic_validation']}
     except (OSError, ValueError) as exc:
         errors.append('design joins: ' + str(exc))
-    if manifest != capture_source_manifest(root): errors.append('source changed during verification')
+    if owns_capture:assert_source_capture_current(root,captured)
     if errors: raise ValueError('\n'.join(errors))
     return {**design, 'source_set_sha256':current,'verified_source_members':len(entries),'document_ids':len(docs),'requirements':len(requirements),
             'current_markdown_files':len(anchors),'example_projects':example_projects,

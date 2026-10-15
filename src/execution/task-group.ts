@@ -1,15 +1,6 @@
-import pLimit, { type LimitFunction } from 'p-limit';
 import { isNativeAborted, linkNativeAbortSignals, throwIfNativeAborted } from '../contracts/native-abort.ts';
 
 const DEFAULT_CONCURRENCY = 10;
-
-export function createConcurrencyLimit(concurrency: number = DEFAULT_CONCURRENCY): LimitFunction {
-  return pLimit(concurrency);
-}
-
-// Retained provider API. Structured groups never share this mutable queue.
-export const defaultLimit: LimitFunction = createConcurrencyLimit();
-export function getDefaultLimit(): LimitFunction { return defaultLimit; }
 
 export interface TaskGroupOptions {
   readonly concurrency?: number;

@@ -4,11 +4,11 @@ import fs from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleepMs } from 'node:timers/promises';
+import pLimit from 'p-limit';
 
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/adapters/self-hosting/development/runner/env-manager.ts';
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
-import { createConcurrencyLimit } from '../../src/execution/task-group.ts';
 import { captureWorkspacePipelineOptions, createTemplatePreparation, workspaceTemplatePipeline, type WorkspacePipelineFixtureOptions, type WorkspaceTemplateKind } from './template-preparation.ts';
 import { captureWorkspaceRetention, createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix } from './workspace-cleanup.ts';
 import { copyWorkspaceFixture } from './workspace-files.ts';
@@ -18,7 +18,7 @@ export { copyWorkspaceFixture } from './workspace-files.ts';
 const workspaceParent = getTestWorkspaceTempRoot();
 const templateParent = path.join(getTestWorkspaceTemplateRoot(), `run-${process.pid}-${randomUUID()}`);
 const deferredCleanupDirs = new Set<string>();
-const deferredCleanupConcurrency = createConcurrencyLimit(Math.min(availableParallelism(), 16));
+const deferredCleanupConcurrency = pLimit(Math.min(availableParallelism(), 16));
 
 export type WorkspaceScenarioKind = WorkspaceTemplateKind;
 
