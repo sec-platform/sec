@@ -23,6 +23,7 @@ import {
   createWorktreePhysicalInventory,
   detailDigest,
   isFieldlessLegacyWorktreePhysicalCloseoutAuthorization,
+  isCanonicalGitWorktreeAdminRelativePath,
   parseGitWorktreeAdminLocator,
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,
@@ -192,7 +193,7 @@ function normalizedAbsolute(value: string): string {
 }
 
 function pathKey(value: string): string {
-  const normalized = normalizedAbsolute(value).replaceAll('\\', '/');
+  const normalized = normalizedAbsolute(value).split(path.sep).join('/');
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
@@ -324,8 +325,8 @@ function registryAdminForTarget(
     target.path,
     parseGitWorktreeAdminLocator(gitFile)
   ));
-  const relativePath = path.relative(commonDir, adminPath).replaceAll('\\', '/');
-  if (!/^worktrees\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(relativePath)) {
+  const relativePath = path.relative(commonDir, adminPath).split(path.sep).join('/');
+  if (!isCanonicalGitWorktreeAdminRelativePath(relativePath)) {
     throw new Error('Registered target Git admin directory is outside canonical common-dir worktrees.');
   }
   const admin = physicalDirectory(adminPath, 'Registered target Git admin directory');
@@ -2053,7 +2054,7 @@ function loadWorktreePhysicalCloseoutGcAuthorization(
     ? null
     : String(generatedStateRetentionRoot.path ?? '');
   if (!path.isAbsolute(targetPath) || targetBranch.length === 0
-      || !/^worktrees\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(registryAdminRelativePath)
+      || !isCanonicalGitWorktreeAdminRelativePath(registryAdminRelativePath)
       || !path.isAbsolute(proofPath)
       || (retentionRootPath !== null && !path.isAbsolute(retentionRootPath))
       || path.basename(proofPath) !== `sec-worktree-closeout-proof-${operationId.slice('sha256:'.length)}`) {

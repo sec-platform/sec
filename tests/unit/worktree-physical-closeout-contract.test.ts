@@ -12,6 +12,7 @@ import {
   createWorktreePhysicalInventory,
   detailDigest,
   isFieldlessLegacyWorktreePhysicalCloseoutAuthorization,
+  isCanonicalGitWorktreeAdminRelativePath,
   parseGitWorktreeAdminLocator,
   parseGitWorktreeAdminPath,
   parseWorktreePorcelainZ,
@@ -22,6 +23,25 @@ import { sha256 } from '../../src/contracts/canonical.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
+
+test('Git admin names admit UTF-8 components but reject traversal and unrepresentable controls', () => {
+  for (const value of ['worktrees/fixture', 'worktrees/开发分支', 'worktrees/café']) {
+    expect(isCanonicalGitWorktreeAdminRelativePath(value)).toBeTrue();
+  }
+  for (const value of ['worktrees/', 'worktrees/.', 'worktrees/..', 'worktrees/a/b',
+    'worktrees/a\0b', 'worktrees/a\nb', 'worktrees/a\rb', 'worktrees/' + '界'.repeat(86),
+    'worktrees/\ud800', 'not-worktrees/fixture']) {
+    expect(isCanonicalGitWorktreeAdminRelativePath(value)).toBeFalse();
+  }
+  expect(isCanonicalGitWorktreeAdminRelativePath('worktrees/a\\b'))
+    .toBe(process.platform === 'linux');
+});
+
+test.skipIf(process.platform !== 'linux')('Linux inventory retains a tracked literal-backslash leaf', () => {
+  const value = createWorktreePhysicalInventory([entry({ relativePath: 'a\\b' })]);
+  expect(value.entries[0]!.relativePath).toBe('a\\b');
+  expect(() => createWorktreePhysicalInventory([entry({ relativePath: '../escape' })])).toThrow();
+});
 
 test('linked-worktree control path files are strict bounded single-line machine records', () => {
   expect(parseGitWorktreeAdminLocator(

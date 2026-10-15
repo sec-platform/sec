@@ -73,7 +73,8 @@ export function sameIdentity(left: PhysicalDirectoryIdentity, right: PhysicalDir
 
 export function ensureOrdinaryDirectorySegment(segment: string): void {
   if (typeof segment !== 'string' || segment.length === 0 || segment.length > 255
-    || segment === '.' || segment === '..' || /[\\/\0]/u.test(segment)) {
+    || segment === '.' || segment === '..' || segment.includes('/') || segment.includes('\0')
+    || (process.platform === 'win32' && segment.includes('\\'))) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Ordinary no-follow directory segment is invalid.');
   }
   if (process.platform === 'win32') {
@@ -87,7 +88,7 @@ export function ensureOrdinaryDirectorySegment(segment: string): void {
 
 export function ensureLeafName(value: string): void {
   if (typeof value !== 'string' || value.length === 0 || value === '.' || value === '..' ||
-    value.includes('/') || value.includes('\\') || value.includes('\0')) {
+    value.includes('/') || value.includes('\0') || (process.platform === 'win32' && value.includes('\\'))) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable publication file name must be one ordinary leaf name.');
   }
   if (process.platform === 'win32') ensureOrdinaryDirectorySegment(value);

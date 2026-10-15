@@ -96,7 +96,7 @@ export function deleteRetainedNoFollowEntry(input: {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Byte-CAS deletion requires an ordinary file.');
   }
   if (typeof input.relativePath !== 'string' || input.relativePath.length === 0 ||
-      input.relativePath.includes('\\') || input.relativePath.includes('\0') ||
+      (process.platform === 'win32' && input.relativePath.includes('\\')) || input.relativePath.includes('\0') ||
       input.relativePath.split('/').some((component) => component === '' || component === '.' || component === '..')) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained deletion relative path is invalid.');
   }
