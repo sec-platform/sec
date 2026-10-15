@@ -13,6 +13,8 @@ import { assertNativeAbortSignal, throwIfNativeAborted } from '../contracts/nati
 import type { StructuredIdentityRuntime } from '../contracts/structured-identity.ts';
 import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
 import { readAuthorCandidate, type AuthorCandidate, type AuthorWorkspace } from '../workspace/author-candidate.ts';
+import { assertAuthorSourceCaptureBudget, requireAuthorSourceCaptureBudget,
+  type AuthorSourceCaptureBudget } from '../workspace/author-source-capture-budget.ts';
 
 export type SemanticQueryPurpose = 'analyze' | 'generate';
 export type SemanticQueryRequest = Readonly<{
@@ -42,7 +44,7 @@ export function requireSemanticQueryPurpose(value: unknown): SemanticQueryPurpos
 
 /** Own source values at the request boundary; retain the original live signal.
  * This prepared query carries no workspace locator or publication permission. */
-export function prepareSemanticQuery(request: SemanticQueryRequest) {
+export function prepareSemanticQuery(request: SemanticQueryRequest, captureBudget?: AuthorSourceCaptureBudget) {
   const { purpose: requestedPurpose, input, candidate, signal, roots } = request;
   const purpose = requireSemanticQueryPurpose(requestedPurpose);
   if (signal !== undefined) assertNativeAbortSignal(signal);
@@ -53,7 +55,12 @@ export function prepareSemanticQuery(request: SemanticQueryRequest) {
   // A workspace candidate is already owned and immutable. Reuse its source;
   // one-shot callers still transfer a copy at this boundary.
   const selectedRoots = captureSemanticRoots(roots);
-  const captured = candidate === undefined ? cloneAndDeepFreeze(input!) : readAuthorCandidate(candidate);
+  const budget = requireAuthorSourceCaptureBudget(captureBudget);
+  // Inspect the supplied value before structuredClone may evaluate a getter
+  // or allocate a huge sparse-array backing store.
+  const source = candidate === undefined ? input! : readAuthorCandidate(candidate);
+  assertAuthorSourceCaptureBudget(source, budget, 'SEMANTIC-INPUT-001');
+  const captured = candidate === undefined ? cloneAndDeepFreeze(source) : source;
   throwIfNativeAborted(signal);
   return Object.freeze({ purpose, input: captured, signal, roots: selectedRoots });
 }
@@ -130,6 +137,9 @@ export interface SemanticRuntimeOptions {
   /** Finite in-flight admission, including source capture. The synchronous
    * compiler profile defaults to one call; excess work is rejected, not queued. */
   readonly maximumPendingQueries?: number;
+  /** Preview source-capture ceilings selected by the owning host. These bound
+   * pre-copy traversal work, not physical memory or compiler execution time. */
+  readonly sourceCaptureBudget?: AuthorSourceCaptureBudget;
 }
 
 /** The current pure semantic profile. It advertises only its real operations;
