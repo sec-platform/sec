@@ -52,39 +52,47 @@ test('canonical array hooks cannot select the digest or equality result', () => 
   assert.equal(canonicalEquals(input, [2]), false);
 });
 
-test('canonical arrays capture length once while observing indices in order', () => {
+test('canonical arrays reject own index getters without invoking them', () => {
   const input: unknown[] = [0, 1, 2];
+  let calls = 0;
   Object.defineProperty(input, '0', {
-    get() { input.push(3); delete input[1]; return 0; }
+    get() { calls++; throw new Error('getter must not execute'); }
   });
-  const actual = canonicalJson(input) as unknown[];
-  assert.equal(actual.length, 3);
-  assert.equal(Object.hasOwn(actual, 1), false);
-  assert.deepEqual(actual, [0, , 2]);
+  assert.throws(() => canonicalJson(input), /accessor array elements/u);
+  assert.equal(calls, 0);
 });
 
-test('canonical arrays retain inherited-index and sparse-array semantics', () => {
+test('canonical arrays treat inherited values as missing and explicitly normalize holes', () => {
   const input = new Array<unknown>(3);
   const prototype = Object.create(Array.prototype) as Record<string, unknown>;
   prototype[1] = { b: 2, a: 1 };
   Object.setPrototypeOf(input, prototype);
   const actual = canonicalJson(input) as unknown[];
-  assert.deepEqual(actual, [, { a: 1, b: 2 }, ,]);
-  assert.equal(Object.hasOwn(actual, 0), false);
-  assert.equal(Object.hasOwn(actual, 2), false);
+  assert.deepEqual(actual, [null, null, null]);
+  assert.equal(actual.every((value) => value === null), true);
+  assert.equal(canonicalEquals(input, [null, null, null]), true);
 });
 
-test('iterative canonical traversal preserves sorted depth-first reads', () => {
-  const order: string[] = [];
+test('canonical arrays never run inherited indexed accessors', () => {
+  let reads = 0;
+  const array = new Array<unknown>(2);
+  const prototype = Object.create(Array.prototype) as Record<string, unknown>;
+  Object.defineProperty(prototype, '1', {
+    get() { reads++; throw new Error('inherited getter must not run'); }
+  });
+  Object.setPrototypeOf(array, prototype);
+  assert.deepEqual(canonicalJson(array), [null, null]);
+  assert.equal(reads, 0);
+});
+
+test('canonical object traversal rejects the first sorted accessor without side effects', () => {
+  let calls = 0;
   const input = {
-    get z() { order.push('z'); return 3; },
-    get a() {
-      order.push('a');
-      return { get n() { order.push('a.n'); return 2; } };
-    }
+    get z() { calls++; throw new Error('getter must not run'); },
+    get a() { calls++; throw new Error('getter must not run'); }
   };
-  assert.deepEqual(canonicalJson(input), { a: { n: 2 }, z: 3 });
-  assert.deepEqual(order, ['a', 'a.n', 'z']);
+  assert.throws(() => canonicalJson(input), /key "a"/u);
+  assert.equal(calls, 0);
 });
 
 test('canonical normalization handles a 50000-edge object chain without the native call stack', () => {

@@ -22,6 +22,15 @@ test('hashing and equality reach a 30000-container input without native recursio
   assert.equal(canonicalEquals(first, second), true);
 });
 
+test('canonical wire identity remains the same when sparse arrays materialize null', () => {
+  const sparse = new Array<unknown>(3);
+  sparse[1] = 'middle';
+  const expected = [null, 'middle', null];
+  assert.deepEqual(canonicalJson(sparse), expected);
+  assert.equal(sha256(sparse), sha256(expected));
+  assert.equal(canonicalEquals(sparse, expected), true);
+});
+
 test('canonical equality preserves normalized object order, holes, numbers and shared subtrees', () => {
   assert.ok(canonicalEquals({ z: -0, a: new Array(2) }, { a: [null, null], z: 0 }));
   const shared = { a: 1 };

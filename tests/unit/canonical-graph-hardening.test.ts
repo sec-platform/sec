@@ -85,10 +85,34 @@ test('canonical JSON retains sparse array behavior without accepting explicit un
   sparse[1] = 'middle';
   const actual = canonicalJson(sparse) as unknown[];
   assert.equal(actual.length, 3);
-  assert.equal(Object.hasOwn(actual, 0), false);
-  assert.equal(Object.hasOwn(actual, 2), false);
+  assert.equal(Object.hasOwn(actual, 0), true);
+  assert.equal(Object.hasOwn(actual, 2), true);
+  assert.equal(actual[0], null);
+  assert.equal(actual[2], null);
   assert.equal(JSON.stringify(actual), '[null,"middle",null]');
   assert.throws(() => canonicalJson([undefined]));
+});
+
+test('canonical JSON rejects object accessors without invoking them or changing later hash authority', () => {
+  let calls = 0;
+  const bad = Object.defineProperty({ okay: 2 }, 'bad', {
+    enumerable: true,
+    get() { calls++; throw new Error('must not execute a getter'); }
+  });
+  assert.throws(() => canonicalJson(bad), /accessor or unstable property at key "bad"/u);
+  assert.throws(() => sha256(bad), /accessor or unstable property at key "bad"/u);
+  assert.equal(calls, 0);
+  assert.deepEqual(canonicalJson({ okay: 2 }), { okay: 2 });
+});
+
+test('canonical JSON rejects Proxy containers before invoking their traps', () => {
+  let traps = 0;
+  for (const proxied of [new Proxy({ value: 1 }, {
+    ownKeys() { traps++; throw new Error('ownKeys must not run'); }
+  }), new Proxy([1], { get() { traps++; throw new Error('get must not run'); } })]) {
+    assert.throws(() => canonicalJson(proxied), /rejects proxies/u);
+  }
+  assert.equal(traps, 0);
 });
 
 test('canonical JSON treats __proto__ and constructor as data keys', () => {
