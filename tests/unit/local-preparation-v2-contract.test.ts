@@ -213,6 +213,22 @@ test('V2 decoding has byte and container-depth bounds before accepting any reque
   expect(() => parseVerificationSessionLocalPreparationRequestV2(`${JSON.stringify(envelope())} trailing`)).toThrow();
 });
 
+test('hosted legacy JSON input refuses excessive bytes, deep containers and duplicate keys', () => {
+  expect(() => parseVerificationSessionHostedRequest('X'.repeat(1_048_577)))
+    .toThrow('exceeds the bounded UTF-8 input size');
+  expect(() => parseVerificationSessionHostedRequest('界'.repeat(350_000)))
+    .toThrow('exceeds the bounded UTF-8 input size');
+  expect(() => parseVerificationSessionHostedRequest('{"a":{"b":{"c":{"d":{"e":true}}}}}'))
+    .toThrow('maximum container depth');
+  expect(() => parseVerificationSessionHostedRequest(
+    '{"schema":"sec-verification-session-hosted-request-v1","schema":"sec-verification-session-hosted-request-v1"}'
+  )).toThrow('duplicate key');
+  expect(() => parseVerificationSessionHostedRequest(JSON.stringify({
+    schema: 'sec-verification-session-local-preparation-v2',
+    executionPlacement: 'local', authorityStage: 'preparation-only', request: {}
+  }))).toThrow('cannot be consumed by a hosted operation');
+});
+
 test('hosted parser rejects both local versions while preserving exact legacy hosted requests', () => {
   const hosted = {
     schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 123,

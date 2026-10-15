@@ -183,12 +183,17 @@ export function createVerificationSessionLocalPreparationRequestV2(
 /** One bounded text boundary for both local envelope versions. Legacy V1
  * field semantics remain unchanged; no unbounded preliminary JSON.parse may
  * run before V2 selection. This returns data, never qualification. */
-export function parseLocalPreparationRequestJson(source: string): unknown {
+function parseBoundedVerificationSessionRequestJson(source: string, label: string): unknown {
   if (typeof source !== 'string' || source.length > LOCAL_PREPARATION_V2_MAXIMUM_INPUT_BYTES
       || Buffer.byteLength(source, 'utf8') > LOCAL_PREPARATION_V2_MAXIMUM_INPUT_BYTES) {
-    throw new Error('Local preparation request exceeds the bounded UTF-8 input size.');
+    throw new Error(`${label} exceeds the bounded UTF-8 input size.`);
   }
-  return parseExactJson(source, 'Local preparation request', undefined, 4);
+  return parseExactJson(source, label, undefined, 4);
+}
+
+/** Both local and hosted verification requests share one bounded JSON ingress. */
+export function parseLocalPreparationRequestJson(source: string): unknown {
+  return parseBoundedVerificationSessionRequestJson(source, 'Local preparation request');
 }
 
 /** Exact bounded JSON decoding, never evidence admission or a Session constructor. */
@@ -235,7 +240,7 @@ export const VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA =
 export function parseVerificationSessionHostedRequest(
   source: string
 ): VerificationSessionHostedRequest<typeof CI_VERIFICATION_SESSION_REQUEST_SCHEMA> {
-  const value = JSON.parse(source) as Record<string, unknown>;
+  const value = parseBoundedVerificationSessionRequestJson(source, 'Hosted Verification Session request') as Record<string, unknown>;
   if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
       || value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA) {
     throw new Error('Local preparation-only request cannot be consumed by a hosted operation.');
