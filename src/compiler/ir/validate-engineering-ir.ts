@@ -34,16 +34,48 @@ const semanticPredicates = new Set<string>(SEMANTIC_PREDICATES);
 const semanticAuthorities = new Set<string>(SEMANTIC_AUTHORITIES);
 const factProvenanceKinds = new Set<string>(FACT_PROVENANCE_KINDS);
 
+/** Read identity without running caller-supplied getters or Proxy traps.
+ * This is the shared reader for Entities, Facts, Assertions and Scenarios. */
 function assertCanonicalIds(values: readonly { id: string }[], collection: string): void {
+  if (nodeTypes.isProxy(values) || !Array.isArray(values)) {
+    fail('IR-VALIDATION-005', `Engineering IR ${collection} must be an own-data array`, { collection });
+  }
+  let previous: string | undefined;
   for (let index = 0; index < values.length; index += 1) {
-    const current = values[index]!.id;
-    const previous = values[index - 1]?.id;
+    const slot = Object.getOwnPropertyDescriptor(values, String(index));
+    const item = slot?.value as unknown;
+    if (!slot || !Object.hasOwn(slot, 'value') || !slot.enumerable
+        || item === null || typeof item !== 'object' || nodeTypes.isProxy(item)) {
+      fail('IR-VALIDATION-005', `Engineering IR ${collection} has a non-data identity entry`,
+        { collection, index });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(item, 'id');
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')
+        || !descriptor.enumerable || typeof descriptor.value !== 'string') {
+      fail('IR-VALIDATION-005', `Engineering IR ${collection} identity must be own string data`,
+        { collection, index });
+    }
+    const current = descriptor.value;
     if (!current.trim() || (previous !== undefined && compareCodeUnits(previous, current) >= 0)) {
       fail(
         'IR-VALIDATION-005',
         `Engineering IR ${collection} must contain unique ids in canonical order`,
         { collection, previousId: previous, currentId: current, index }
       );
+    }
+    previous = current;
+  }
+}
+
+function assertEngineeringIRTopLevelData(ir: EngineeringIR): void {
+  if (ir === null || typeof ir !== 'object' || nodeTypes.isProxy(ir) || Array.isArray(ir)) {
+    fail('IR-VALIDATION-005', 'Engineering IR root must be an own-data record');
+  }
+  for (const key of ['formatVersion', 'appId', 'graphId', 'inputRevision',
+    'semanticRevision', 'entities', 'facts', 'scenarios']) {
+    const descriptor = Object.getOwnPropertyDescriptor(ir, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) {
+      fail('IR-VALIDATION-005', `Engineering IR root field "${key}" must be own data`);
     }
   }
 }
@@ -258,6 +290,7 @@ export function validateEngineeringIR(
   ir: EngineeringIR,
   input: BuildEngineeringIRInput
 ): ValidatedEngineeringIRSnapshot {
+  assertEngineeringIRTopLevelData(ir);
   assertEngineeringIRInputIdentities(input);
   if (ir.formatVersion !== ENGINEERING_IR_FORMAT_VERSION) {
     fail(
