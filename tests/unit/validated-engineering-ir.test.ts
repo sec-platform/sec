@@ -92,6 +92,68 @@ test('validator rejects forged Entity, Fact, Assertion, and validity identities'
   expectCodedFailure(() => validateEngineeringIR(staleValidity, source), 'IR-VALIDATION-009');
 });
 
+test('raw validator rejects invalid confidence, empty provenance and unsupported closed validity', () => {
+  const source = input();
+  for (const confidence of [NaN, Infinity, -Infinity, -0.01, 1.01]) {
+    const forged = clone(buildEngineeringIR(source));
+    forged.facts[0]!.assertions[0]!.confidence = confidence;
+    expectCodedFailure(() => validateEngineeringIR(forged, source), 'IR-VALIDATION-008');
+  }
+  const missingProvenance = clone(buildEngineeringIR(source));
+  missingProvenance.facts[0]!.assertions[0]!.provenance = [];
+  expectCodedFailure(() => validateEngineeringIR(missingProvenance, source), 'IR-VALIDATION-008');
+
+  const closed = clone(buildEngineeringIR(source));
+  closed.facts[0]!.assertions[0]!.validToRevision = closed.semanticRevision;
+  expectCodedFailure(() => validateEngineeringIR(closed, source), 'IR-VALIDATION-009');
+});
+
+test('raw validator checks bounded evidence identities without letting JSON hooks execute', () => {
+  const source = input();
+  const valid = clone(buildEngineeringIR(source));
+  valid.facts[0]!.assertions[0]!.evidence = [{
+    kind: 'verification', ref: 'acceptance:case-a', digest: `sha256:${'a'.repeat(64)}`
+  }];
+  // A new evidence claim changes semantic meaning. It must not be accepted
+  // against the unchanged revision; the identity itself is still well-formed.
+  expectCodedFailure(() => validateEngineeringIR(valid, source), 'IR-VALIDATION-004');
+
+  for (const record of [
+    { kind: '', ref: 'case' }, { kind: 'verification', ref: '' },
+    { kind: 'verification', ref: ' case ' },
+    { kind: 'verification', ref: 'case', digest: 'not-a-digest' },
+    { kind: 'verification', ref: 'x'.repeat(2_049) },
+    { kind: 'verification', ref: 'case', unapproved: 'extra' }
+  ]) {
+    const forged = clone(buildEngineeringIR(source));
+    forged.facts[0]!.assertions[0]!.evidence = [record] as never;
+    expectCodedFailure(() => validateEngineeringIR(forged, source), 'IR-VALIDATION-008');
+  }
+  const excessive = clone(buildEngineeringIR(source));
+  excessive.facts[0]!.assertions[0]!.evidence = Array.from({ length: 1_025 },
+    (_, index) => ({ kind: 'test', ref: `case:${index}` }));
+  expectCodedFailure(() => validateEngineeringIR(excessive, source), 'IR-VALIDATION-008');
+
+  let getterCalls = 0;
+  const dangerous = clone(buildEngineeringIR(source));
+  dangerous.facts[0]!.assertions[0]!.evidence = [{
+    kind: 'verification',
+    ref: 'case',
+    get digest() { getterCalls++; throw Error('must not execute'); }
+  }] as never;
+  expectCodedFailure(() => validateEngineeringIR(dangerous, source), 'IR-VALIDATION-008');
+  expect(getterCalls).toBe(0);
+});
+
+test('a non-equivalent duplicated entity attribute cannot obtain a validated identity', () => {
+  const source = input();
+  const forged = clone(buildEngineeringIR(source));
+  const owner = forged.entities.find((entity) => entity.attributes.length > 0)!;
+  const first = owner.attributes[0]!;
+  owner.attributes.push({ ...first, value: 'conflicting-value' });
+  expect(() => validateEngineeringIR(forged, source)).toThrow();
+});
+
 test('validator reports stable diagnostics for forged runtime enum values', () => {
   const source = input();
 

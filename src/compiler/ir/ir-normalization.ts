@@ -33,9 +33,12 @@ function normalizeAttributeValue(value: SemanticAttributeValue): SemanticAttribu
 }
 
 export function normalizeAttributes(attributes: readonly SemanticAttribute[]): SemanticAttribute[] {
-  return [...attributes]
-    .map((attribute) => ({ ...attribute, value: normalizeAttributeValue(attribute.value) }))
-    .sort((left, right) => compareCodeUnits(left.key, right.key));
+  // Attribute identity is its key. Conflicting values must not become a
+  // last-writer-wins map in downstream consumers; identical duplicates fold.
+  return uniqueSortedByKey(
+    attributes.map((attribute) => ({ ...attribute, value: normalizeAttributeValue(attribute.value) })),
+    (attribute) => attribute.key
+  ).sort((left, right) => compareCodeUnits(left.key, right.key));
 }
 
 function provenanceKey(provenance: FactProvenance): readonly (string | undefined)[] {

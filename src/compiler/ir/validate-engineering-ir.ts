@@ -1,4 +1,6 @@
-import { cloneAndDeepFreeze, compareCodeUnits } from '../../contracts/canonical.ts';
+import { types as nodeTypes } from 'node:util';
+import { canonicalJson, cloneAndDeepFreeze, compareCodeUnits } from '../../contracts/canonical.ts';
+import { isDigest } from '../../contracts/digest.ts';
 import { fail } from '../../contracts/failure.ts';
 import { SEMANTIC_ENTITY_KINDS, type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
 import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES, type SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
@@ -74,6 +76,52 @@ function assertEntityIdentities(ir: EngineeringIR): void {
   }
 }
 
+/** An evidence reference identifies a source claim, never a PASS receipt.
+ * Identity is the exact (kind, ref, optional digest) tuple; formats remain open
+ * under a bounded lexical domain, with only real 256-bit digests accepted. */
+function assertEvidenceReferences(
+  value: unknown,
+  factId: string,
+  assertionId: string
+): void {
+  if (!Array.isArray(value) || value.length > 1_024) {
+    fail('IR-VALIDATION-008', 'Fact assertion evidence must be a bounded array',
+      { factId, assertionId });
+  }
+  const evidence = value as unknown[];
+  for (let index = 0; index < evidence.length; index += 1) {
+    const slot = Object.getOwnPropertyDescriptor(evidence, String(index));
+    if (slot === undefined || !Object.hasOwn(slot, 'value')) {
+      fail('IR-VALIDATION-008', 'Fact assertion evidence requires own data entries',
+        { factId, assertionId, index });
+    }
+    const ref = slot.value as unknown;
+    if (ref === null || typeof ref !== 'object' || Array.isArray(ref)) {
+      fail('IR-VALIDATION-008', 'Fact assertion evidence entry must be a data record',
+        { factId, assertionId, index });
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(ref);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.some((key) => typeof key !== 'string' || !['kind', 'ref', 'digest'].includes(key)
+        || !descriptors[key]?.enumerable || !Object.hasOwn(descriptors[key], 'value'))) {
+      fail('IR-VALIDATION-008', 'Fact assertion evidence entry has unknown or non-data fields',
+        { factId, assertionId, index });
+    }
+    const kind = descriptors.kind?.value;
+    const reference = descriptors.ref?.value;
+    const digestValue = descriptors.digest?.value;
+    if (typeof kind !== 'string' || !/^[a-z][a-z0-9._-]{0,63}$/u.test(kind)
+        || typeof reference !== 'string' || reference.length === 0
+        || reference.trim() !== reference || Buffer.byteLength(reference, 'utf8') > 2_048
+        || /[\u0000-\u001f\u007f]/u.test(reference)
+        || (descriptors.digest !== undefined
+          && !isDigest(digestValue, 'sha256') && !isDigest(digestValue, 'blake3'))) {
+      fail('IR-VALIDATION-008', 'Fact assertion evidence identity or digest is not canonical',
+        { factId, assertionId, index });
+    }
+  }
+}
+
 function expectedFactId(fact: SemanticFact): string {
   return `fact:${digest(factIdentity(fact)).slice(0, 24)}`;
 }
@@ -105,6 +153,48 @@ function assertFactIdentities(ir: EngineeringIR): void {
 
     assertCanonicalIds(fact.assertions, `fact:${fact.id}:assertions`);
     for (const assertion of fact.assertions) {
+      // Read descriptors first: an oversized array must be refused before the
+      // canonical traversal allocates a normalized copy of its contents.
+      if (assertion === null || typeof assertion !== 'object'
+          || Array.isArray(assertion) || nodeTypes.isProxy(assertion)) {
+        fail('IR-VALIDATION-008', 'Fact assertion must be an ordinary data record',
+          { factId: fact.id });
+      }
+      const provenanceDescriptor = Object.getOwnPropertyDescriptor(assertion, 'provenance');
+      const evidenceDescriptor = Object.getOwnPropertyDescriptor(assertion, 'evidence');
+      if (!provenanceDescriptor || !Object.hasOwn(provenanceDescriptor, 'value')
+          || !Array.isArray(provenanceDescriptor.value)
+          || nodeTypes.isProxy(provenanceDescriptor.value)
+          || provenanceDescriptor.value.length === 0
+          || provenanceDescriptor.value.length > 1_024
+          || !evidenceDescriptor || !Object.hasOwn(evidenceDescriptor, 'value')
+          || !Array.isArray(evidenceDescriptor.value)
+          || nodeTypes.isProxy(evidenceDescriptor.value)
+          || evidenceDescriptor.value.length > 1_024) {
+        fail('IR-VALIDATION-008', 'Fact assertion source/evidence arrays are invalid or exceed V1 limits',
+          { factId: fact.id });
+      }
+      // Validate own-data shape before JSON.stringify, which otherwise invokes
+      // attacker-controlled getters/toJSON and can launder invalid authority.
+      try {
+        canonicalJson(assertion);
+      } catch {
+        fail('IR-VALIDATION-008', 'Fact assertion must contain canonical own data',
+          { factId: fact.id, assertionId: assertion.id });
+      }
+      if (!Number.isFinite(assertion.confidence)
+          || assertion.confidence < 0 || assertion.confidence > 1
+          || !Array.isArray(assertion.provenance)
+          || assertion.provenance.length === 0) {
+        fail('IR-VALIDATION-008', 'Fact assertion has invalid confidence or empty provenance',
+          { factId: fact.id, assertionId: assertion.id });
+      }
+      assertEvidenceReferences(assertion.evidence, fact.id, assertion.id);
+      if (Object.hasOwn(assertion, 'validToRevision')) {
+        fail('IR-VALIDATION-009',
+          'Engineering IR V1 cannot validate unsupported closed assertion validity',
+          { factId: fact.id, assertionId: assertion.id });
+      }
       if (
         !semanticAuthorities.has(assertion.authority) ||
         assertion.provenance.some((entry) => !factProvenanceKinds.has(entry.kind))
