@@ -92,6 +92,44 @@ test('validator rejects forged Entity, Fact, Assertion, and validity identities'
   expectCodedFailure(() => validateEngineeringIR(staleValidity, source), 'IR-VALIDATION-009');
 });
 
+test('raw IR identity admission cannot execute getter or Proxy-controlled id reads', () => {
+  const source = input();
+  for (const pick of [
+    (ir: ReturnType<typeof buildEngineeringIR>) => ir.entities[0]!,
+    (ir: ReturnType<typeof buildEngineeringIR>) => ir.facts[0]!,
+    (ir: ReturnType<typeof buildEngineeringIR>) => ir.facts[0]!.assertions[0]!
+  ]) {
+    const ir = clone(buildEngineeringIR(source));
+    let getterCalls = 0;
+    Object.defineProperty(pick(ir), 'id', {
+      enumerable: true, configurable: true,
+      get() { getterCalls += 1; throw new Error('identity getter must never run'); }
+    });
+    expectCodedFailure(() => validateEngineeringIR(ir, source), 'IR-VALIDATION-005');
+    expect(getterCalls).toBe(0);
+  }
+  const withProxy = clone(buildEngineeringIR(source));
+  let proxyTraps = 0;
+  withProxy.facts[0]!.assertions[0] = new Proxy(withProxy.facts[0]!.assertions[0]!, {
+    get() { proxyTraps += 1; throw new Error('identity Proxy trap must never run'); },
+    getOwnPropertyDescriptor() { proxyTraps += 1; throw new Error('descriptor trap must never run'); }
+  });
+  expectCodedFailure(() => validateEngineeringIR(withProxy, source), 'IR-VALIDATION-005');
+  expect(proxyTraps).toBe(0);
+});
+
+test('raw IR root field access refuses getters before reading semantics', () => {
+  const source = input();
+  const ir = clone(buildEngineeringIR(source));
+  let reads = 0;
+  Object.defineProperty(ir, 'facts', {
+    enumerable: true, configurable: true,
+    get() { reads += 1; throw new Error('root getter must never run'); }
+  });
+  expectCodedFailure(() => validateEngineeringIR(ir, source), 'IR-VALIDATION-005');
+  expect(reads).toBe(0);
+});
+
 test('raw validator rejects invalid confidence, empty provenance and unsupported closed validity', () => {
   const source = input();
   for (const confidence of [NaN, Infinity, -Infinity, -0.01, 1.01]) {
