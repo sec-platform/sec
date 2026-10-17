@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { applyOverrides } from '../../src/adapters/compilation/compose/apply-overrides.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 
 // Native integration: use the actual manifest parser, retained file readers and
@@ -70,7 +71,7 @@ test('a no-op target changed during its publication fence is refused without ove
     await writeFile(f.target('a'), 'new-a');
     await assert.rejects(applyOverrides(f.root, async () => {
       if (++fences === 2) await writeFile(f.target('a'), 'user-change');
-    }), /no-op completion/);
+    }), error => error instanceof CodedFailure && error.code === 'OVERRIDE-APPLY-001');
     assert.equal(await readFile(f.target('a'), 'utf8'), 'user-change');
   } finally { await rm(f.root, { recursive: true, force: true }); }
 }, 30_000);

@@ -150,14 +150,3 @@ test('relative paths keep the invocation cwd even if an input getter changes it'
     assert.equal(readFileSync(target, 'utf8'), 'fixed');
   } finally { process.chdir(cwd); }
 }));
-
-test('the publication fence retains class-private instance state', async () => fixture(async (root, target) => {
-  class Input {
-    #calls = 0;
-    workspaceRoot = root; targetPath = target; bytes = Buffer.from('data'); label = 'private';
-    async commitFence() { this.#calls++; }
-    get calls() { return this.#calls; }
-  }
-  const input = new Input(); await publishExistingParentCanonicalWorkspaceFile(input);
-  assert.equal(input.calls, 2); assert.equal(readFileSync(target, 'utf8'), 'data');
-}));

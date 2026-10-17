@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { readGeneratedContract } from '../../src/adapters/workspace/generated-contract-read.ts';
 import { saveLock } from '../../src/adapters/workspace/lock.ts';
-import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
+import { expectCliJson, expectCliText } from '../testkit/cli.ts';
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -34,7 +34,9 @@ test('selection follows lock membership, deduplicates paths and ignores undeclar
     await write(root, second, JSON.stringify(contract));
     expect(await readGeneratedContract(root, missing, matches)).toEqual(contract);
     expect(await expectCliJson<typeof contract>(root, ['postgres', '--json'])).toEqual(contract);
-    await expectCliSuccess(root, ['postgres'], 'Postgres contract postgres\nmode=database; tables=0; tenantScoped=0\nTable list: none\n');
+    await expectCliText(root, ['postgres'], [
+      'Postgres contract postgres', 'mode=database', 'tables=0', 'tenantScoped=0', 'Table list: none'
+    ]);
   });
 });
 

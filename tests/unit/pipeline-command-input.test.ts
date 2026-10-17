@@ -46,18 +46,13 @@ for (const value of [undefined, null, '', 'ALL', ' fast', 0, true, {}, [], new S
 }
 
 for (const value of [null, 0, 1, 'false', 'true', '', {}, [], new Boolean(false)]) {
-  test(`rejects non-boolean output flags ${typeof value}:${String(value)}`, () => {
-    assert.throws(() => parsePipelineOutputOptions({ json: value }), code('PIPELINE-USAGE-003'));
-    assert.throws(() => parsePipelineOutputOptions({ json: true, compact: value }), code('PIPELINE-USAGE-003'));
+  test(`compile rejects non-boolean output flags ${typeof value}:${String(value)}`, () => {
     assert.throws(() => parsePipelineCompileOptions({ lane: 'all', json: value }), code('PIPELINE-USAGE-003'));
   });
 }
 
-test('compact output requires JSON in both commands', () => {
-  assert.throws(() => parsePipelineOutputOptions({ compact: true }), /--compact requires --json/);
+test('compile rejects compact output without JSON', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);
-  assert.deepEqual(parsePipelineOutputOptions({ json: false, compact: false }), { json: false, compact: false });
-  assert.deepEqual(parsePipelineOutputOptions({ json: true, compact: false }), { json: true, compact: false });
 });
 
 test('rejects values without invoking conversion hooks', () => {

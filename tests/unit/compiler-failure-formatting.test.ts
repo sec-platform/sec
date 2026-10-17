@@ -7,7 +7,12 @@ import { CodedFailure } from '../../src/contracts/failure.ts';
 test('compiler failure formatting preserves existing JSON detail output', () => {
   const details = { path: 'source.ts', line: 7, values: [true, null] };
   const error = new CodedFailure('TEST-001', 'primary failure', details);
-  assert.equal(formatFailure(error), `${error.stack}\n${JSON.stringify(details, null, 2)}`);
+  const primary = error.stack!;
+  const output = formatFailure(error);
+  assert.ok(output.startsWith(primary));
+  assert.deepEqual(JSON.parse(output.slice(primary.length)), {
+    path: 'source.ts', line: 7, values: [true, null]
+  });
 });
 
 test('circular compiler details cannot erase the primary failure', () => {
@@ -97,8 +102,9 @@ test('fallback formats the captured details rather than replacement carrier meta
   };
   Object.defineProperty(error, 'details', { value: details, configurable: true });
   const output = formatFailure(error);
-  assert.match(output, /original: 'retained'/u);
-  assert.doesNotMatch(output, /replacement: 'wrong'/u);
+  assert.match(output, /\boriginal['"]?\s*:\s*(['"])retained\1/u);
+  assert.doesNotMatch(output, /\breplacement\b/u);
+  assert.doesNotMatch(output, /\bwrong\b/u);
 });
 
 test('a throwing Error stack accessor cannot escape the diagnostic boundary', () => {

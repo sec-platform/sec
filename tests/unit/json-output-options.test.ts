@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { addJsonFlags, jsonOpts } from '../../src/entry/cli/command-options.ts';
 import { JSON_OUTPUT_OPTIONS, parseJsonOutputOptions, type JsonOutputIssue } from '../../src/entry/cli/json-output-options.ts';
 import { parsePipelineOutputOptions } from '../../src/entry/cli/pipeline-command-input.ts';
@@ -30,20 +31,25 @@ test('the compact dependency has one policy while entrypoints retain diagnostic 
   for (const json of [undefined, false]) {
     const input = { json, compact: true };
     assert.throws(() => parseJsonOutputOptions(input, reject),
-      (issue: unknown) => (issue as JsonOutputIssue).kind === 'missing-dependency');
+      (issue: unknown) => (issue as JsonOutputIssue).kind === 'missing-dependency'
+        && (issue as JsonOutputIssue).option === 'compact');
     assert.throws(() => jsonOpts(input), (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
-    assert.throws(() => parsePipelineOutputOptions(input), (error: unknown) => (error as { code: string }).code === 'PIPELINE-USAGE-003');
+    assert.throws(() => parsePipelineOutputOptions(input),
+      (error: unknown) => error instanceof CodedFailure && error.code === 'PIPELINE-USAGE-003');
   }
 });
 
 test('neither command family coerces programmatic non-boolean options', () => {
-  for (const value of ['false', 'true', '', 0, 1, null, [], {}, new Boolean(false), Symbol('flag'), 1n]) {
+  for (const value of ['false', 'true', '', 0, 1, null, [], {}, new Boolean(false), Symbol('flag'), 1n, () => false]) {
     for (const field of ['json', 'compact']) {
       const input = { json: true, [field]: value };
       assert.throws(() => parseJsonOutputOptions(input, reject),
-        (issue: unknown) => (issue as JsonOutputIssue).kind === 'invalid-boolean');
-      assert.throws(() => jsonOpts(input));
-      assert.throws(() => parsePipelineOutputOptions(input));
+        (issue: unknown) => (issue as JsonOutputIssue).kind === 'invalid-boolean'
+          && (issue as JsonOutputIssue).option === field);
+      assert.throws(() => jsonOpts(input),
+        (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001');
+      assert.throws(() => parsePipelineOutputOptions(input),
+        (error: unknown) => error instanceof CodedFailure && error.code === 'PIPELINE-USAGE-003');
     }
   }
 });
@@ -105,7 +111,14 @@ test('generic compact dependency retains the real command path in its usage erro
   const program = new Command().name('renamed').exitOverride();
   addJsonFlags(program.command('parent').command('inspect')).action(() => assert.fail('not admitted'));
   await assert.rejects(program.parseAsync(['parent', 'inspect', '--compact'], { from: 'user' }),
-    (error: unknown) => (error as Error).message === 'Usage: renamed parent inspect [--json [--compact]]');
+    (error: unknown) => {
+      assert.equal((error as { code: string }).code, 'CLI-USAGE-001');
+      const message = (error as Error).message;
+      assert.match(message, /renamed\s+parent\s+inspect/);
+      assert.ok(message.includes('--json'));
+      assert.ok(message.includes('--compact'));
+      return true;
+    });
 });
 
 test('valid flags execute the actual selected action exactly once', async () => {

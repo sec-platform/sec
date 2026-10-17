@@ -10,29 +10,31 @@ import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('repair plan routing uses application projection and entry rendering without changing JSON authority', async () => {
-  // Keep the independently fixed non-CLI state projections formerly registered in tests/unit/repair-summary-presentation.test.ts.
+  // An applied repair still awaits verification, even when requested as a dry run.
   {
-  const tasks = Array.from({ length: 4 }, (_, index) => buildRepairTask({
-    taskId: `repair_${index}`,
-    targetFile: `src/${index}.ts`
-  }));
-  const blockers = Array.from({ length: 4 }, (_, index) => buildRepairBlocker({
-    blockerId: `blocker_${index}`
-  }));
-  const plan = buildRepairPlanArtifact({
-    status: 'applied',
-    requiresVerification: true,
-    tasks,
-    blockers
-  });
+    const tasks = Array.from({ length: 4 }, (_, index) => buildRepairTask({
+      taskId: `repair_${index}`,
+      targetFile: `src/${index}.ts`
+    }));
+    const blockers = Array.from({ length: 4 }, (_, index) => buildRepairBlocker({
+      blockerId: `blocker_${index}`
+    }));
+    const plan = buildRepairPlanArtifact({
+      status: 'applied',
+      requiresVerification: true,
+      tasks,
+      blockers
+    });
 
-  const view = projectRepairSummary(plan, true);
+    const view = projectRepairSummary(plan, true);
 
-  expect(view.presentation).toBe('verify-pending');
-  expect(view.taskCount).toBe(4);
-  expect(view.blockerCount).toBe(4);
-  expect(view.tasks).toHaveLength(3);
-  expect(view.blockers).toHaveLength(3);
+    expect(view.presentation).toBe('verify-pending');
+    expect(formatRepairSummary(view)).toMatch(/\bverify pending(?=$|[\s;,()])/u);
+    expect(formatRepairSummary(view)).not.toContain('dry-run');
+    expect(view.taskCount).toBe(4);
+    expect(view.blockerCount).toBe(4);
+    expect(view.tasks).toHaveLength(3);
+    expect(view.blockers).toHaveLength(3);
   }
   const task = buildRepairTask();
   const plan = buildRepairPlanArtifact({
@@ -56,26 +58,35 @@ test('repair plan routing uses application projection and entry rendering withou
   expect(view.tasks[0]!.review.writeBounds).toEqual(['src/installed/entity/customer-service.ts']);
   expect(view.tasks[0]!.review.failureTargets).toEqual(['zeta.test.ts']);
 
-  const expectedText = [
-    'Repair pending (1 tasks, 1 blockers) (dry-run)',
-    'Source verification: failed; requires verification: false',
-    'Task repair_file_customer_service: entity/customer-basic -> src/installed/entity/customer-service.ts',
-    'Review repair_file_customer_service: writeBounds=src/installed/entity/customer-service.ts; symbols=normalizeCustomerInput; tests=none; forbidden=none; failureTargets=zeta.test.ts',
-    'Failure fast/unit; issue=file; repairable=true; Unit verification failed',
-    'Blocker repair_blocker_policy: spec; policy failure is outside automatic file repair: tenant scope missing',
-    'Failure fast/policy; issue=spec; repairable=false; tenant scope missing'
-  ].join('\n');
-  expect(formatRepairSummary(view)).toBe(expectedText);
+  // Keep failure and review fields tied to their subjects without freezing whole lines.
+  function expectPendingRepair(text: string): void {
+    for (const meaning of [
+      /Repair\s+pending(?=$|[\s;,()])[^\n]*\bdry-run(?=$|[\s;,()])/u,
+      /\b1 tasks(?=$|[\s;,()])/u,
+      /\b1 blockers(?=$|[\s;,()])/u,
+      /Source verification\W+failed(?=$|[\s;,()])/u,
+      /requires verification\W+false(?=$|[\s;,()])/u,
+      /Task repair_file_customer_service(?=[\s:])[^\n]*entity\/customer-basic(?=$|[\s;,()])[^\n]*src\/installed\/entity\/customer-service\.ts(?=$|[\s;,()])/u,
+      /Review repair_file_customer_service(?=[\s:])[^\n]*writeBounds=src\/installed\/entity\/customer-service\.ts(?=$|[\s;,()])/u,
+      /Review repair_file_customer_service(?=[\s:])[^\n]*symbols=normalizeCustomerInput(?=$|[\s;,()])/u,
+      /Review repair_file_customer_service(?=[\s:])[^\n]*tests=none(?=$|[\s;,()])/u,
+      /Review repair_file_customer_service(?=[\s:])[^\n]*forbidden=none(?=$|[\s;,()])/u,
+      /Review repair_file_customer_service(?=[\s:])[^\n]*failureTargets=zeta\.test\.ts(?=$|[\s;,()])/u,
+      /Failure fast\/unit(?=$|[\s;,()])[^\n]*issue=file(?=$|[\s;,()])/u,
+      /Failure fast\/unit(?=$|[\s;,()])[^\n]*repairable=true(?=$|[\s;,()])/u,
+      /Blocker repair_blocker_policy\W+spec(?=$|[\s;,()])[^\n]*tenant scope missing/u,
+      /Failure fast\/policy(?=$|[\s;,()])[^\n]*issue=spec(?=$|[\s;,()])/u,
+      /Failure fast\/policy(?=$|[\s;,()])[^\n]*repairable=false(?=$|[\s;,()])/u
+    ]) expect(text).toMatch(meaning);
+  }
+  expectPendingRepair(formatRepairSummary(view));
 
   await withTempWorkspace(async (workspaceRoot) => {
     const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     await writeJson(repairPlanPath, originalPlan);
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['repair', 'plan'],
-      `${expectedText}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['repair', 'plan']);
+    expectPendingRepair(stdout);
 
     const json = await expectCliJson(workspaceRoot, ['repair', 'plan', '--json']);
     expect(json).toEqual(originalPlan);

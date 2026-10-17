@@ -7,8 +7,8 @@ import { PIPELINE_STAGE_OWNERSHIP } from '../../src/compiler/pipeline/stages.ts'
 
 const inputs = () => ({ passes: structuredClone(PASS_DEFINITIONS), ownership: structuredClone(PIPELINE_STAGE_OWNERSHIP) });
 
-test('pass initialization, sequence and identity have a single immutable source', () => {
-  assert.equal(PASS_STATUS_PENDING, PASS_INITIAL_STATES);
+test('pass initialization and sequence preserve canonical identities and states', () => {
+  assert.deepEqual(PASS_STATUS_PENDING, PASS_INITIAL_STATES);
   assert.deepEqual(PASS_SEQUENCE, Object.keys(PASS_INITIAL_STATES));
   assert.deepEqual(PASS_SEQUENCE, ['parse', 'align', 'resolve', 'build-ir', 'compose', 'verify', 'repair', 'lock', 'emit']);
   for (const pass of PASS_SEQUENCE) assert.equal(PASS_STATUS_PENDING[pass], pass === 'repair' ? 'skipped' : 'pending');

@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
 import { validateProvenanceFile } from '../../src/semantics/provenance/authority.ts';
@@ -15,14 +18,26 @@ function validArtifact(path = 'src/generated.ts') {
   };
 }
 
-test('Provenance V1 validates canonical unique artifact records and deep-freezes output', () => {
-  const value = validateProvenanceFile({
+test('Provenance V1 preserves validated records as an isolated immutable snapshot', () => {
+  const artifact = { ...validArtifact(), verifiedBy: ['tests/unit/a.test.ts'] };
+  const input = { formatVersion: '1', artifacts: [artifact] };
+  const expected = {
     formatVersion: '1',
-    artifacts: [validArtifact()]
-  });
-  expect(Object.isFrozen(value)).toBe(true);
-  expect(Object.isFrozen(value.artifacts)).toBe(true);
-  expect(Object.isFrozen(value.artifacts[0])).toBe(true);
+    artifacts: [{ ...validArtifact(), verifiedBy: ['tests/unit/a.test.ts'] }]
+  };
+  const value = validateProvenanceFile(input);
+  expect(value).toEqual(expected);
+
+  artifact.path = 'src/changed.ts';
+  artifact.verifiedBy.push('tests/unit/b.test.ts');
+  input.artifacts.length = 0;
+  expect(value).toEqual(expected);
+
+  Reflect.set(value, 'formatVersion', '2');
+  Reflect.set(value.artifacts, 'length', 0);
+  Reflect.set(value.artifacts[0]!, 'originId', 'substituted');
+  Reflect.set(value.artifacts[0]!.verifiedBy, '0', 'tests/unit/substituted.test.ts');
+  expect(value).toEqual(expected);
 });
 
 test('Provenance V1 rejects identity normalization, duplicate authority and unknown shape', () => {
@@ -64,9 +79,11 @@ test('Provenance V1 rejects noncanonical artifact and verification evidence orde
   })).toThrow(/verifiedBy must be canonically ordered/);
 });
 
-test('canonical Provenance reader maps only physical absence to null', () => {
-  expect(readOptionalProvenanceFile(
-    '/this/path/should/not/exist/sec-provenance-authority.json',
-    'test Provenance'
-  )).toBeNull();
+test('canonical Provenance reader returns null for physical absence', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-provenance-reader-'));
+  try {
+    expect(readOptionalProvenanceFile(path.join(root, 'absent.json'), 'test Provenance')).toBeNull();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

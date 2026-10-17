@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { registerInspectionCommands } from '../../src/bootstrap/cli/register-inspection-commands.ts';
 import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
-import { commandFromRoot, commandPath, jsonOpts, optionalModeCommand } from '../../src/entry/cli/command-options.ts';
+import { commandFromRoot, commandPath, optionalModeCommand } from '../../src/entry/cli/command-options.ts';
 
 function program() {
   let output = '';
@@ -16,7 +16,7 @@ function program() {
   return { command, output: () => output };
 }
 
-test('workspace and inspection help do not load their execution or artifact readers', async () => {
+test('workspace and inspection commands expose native help', async () => {
   const names = ['', ...program().command.commands.map((command) => command.name())];
   for (const name of names) {
     const { command, output } = program();
@@ -60,10 +60,4 @@ test('optional argument choice registration does not mutate its caller-owned lis
   const command=optionalModeCommand(new Command().name('sample'), 'mode', choices);
   assert.deepEqual(command.registeredArguments[0]!.argChoices, ['inspect','list']);
   assert.deepEqual(choices,['inspect','list']);
-});
-
-test('JSON output flags retain ordinary CLI booleans', () => {
-  assert.deepEqual(jsonOpts({}), { json:false, compact:false });
-  assert.deepEqual(jsonOpts({json:true}), {json:true, compact:false});
-  assert.deepEqual(jsonOpts({json:true,compact:true}), {json:true,compact:true});
 });

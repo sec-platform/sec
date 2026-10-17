@@ -1,10 +1,23 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { TemplateEngine } from '../../src/adapters/compilation/compose/template-engine.ts';
 import { renderTemplateString } from '../../src/compiler/templates/render-template-string.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
+
+const code = (expected: string, details?: Record<string, unknown>) => (error: unknown): boolean => {
+  if (!(error instanceof CodedFailure) || error.code !== expected) return false;
+  if (details !== undefined) {
+    assert.ok(error.details !== null && typeof error.details === 'object');
+    for (const [key, value] of Object.entries(details)) {
+      assert.equal((error.details as Record<string, unknown>)[key], value);
+    }
+  }
+  return true;
+};
 
 for (const newline of ['\n', '\r\n']) {
   test(`template conditionals preserve literal ${JSON.stringify(newline)} bytes around paired directives`, () => {
@@ -22,30 +35,30 @@ for (const newline of ['\n', '\r\n']) {
 }
 
 test('unknown, inherited, non-boolean, and malformed conditions fail closed', () => {
-  expect(() => renderTemplateString(
+  assert.throws(() => renderTemplateString(
     '/*#IF missing*/value/*#ENDIF*/',
     {}
-  )).toThrow(/unknown context key/);
-  expect(() => renderTemplateString(
+  ), code('COMPOSE-TEMPLATE-007', { key: 'missing' }));
+  assert.throws(() => renderTemplateString(
     '/*#IF toString*/value/*#ENDIF*/',
     {}
-  )).toThrow(/unknown context key/);
-  expect(() => renderTemplateString(
+  ), code('COMPOSE-TEMPLATE-007', { key: 'toString' }));
+  assert.throws(() => renderTemplateString(
     '/*#IF enabled*/value/*#ENDIF*/',
     { enabled: 'true' }
-  )).toThrow(/requires a boolean/);
-  expect(() => renderTemplateString(
+  ), code('COMPOSE-TEMPLATE-007', { key: 'enabled', valueType: 'string' }));
+  assert.throws(() => renderTemplateString(
     '/*#IF enabled*//*#IF dormantMissing*/value/*#ENDIF*//*#ENDIF*/',
     { enabled: false }
-  )).toThrow(/unknown context key/);
-  expect(() => renderTemplateString(
+  ), code('COMPOSE-TEMPLATE-007', { key: 'dormantMissing' }));
+  assert.throws(() => renderTemplateString(
     '/*#IF enabled*/value',
     { enabled: true }
-  )).toThrow(/missing \/\*#ENDIF\*\//);
-  expect(() => renderTemplateString(
+  ), code('COMPOSE-TEMPLATE-003'));
+  assert.throws(() => renderTemplateString(
     'value/*#ENDIF*/',
     {}
-  )).toThrow(/unmatched \/\*#ENDIF\*\//);
+  ), code('COMPOSE-TEMPLATE-004'));
 });
 
 test('interpolation uses literal keys and literal replacement bytes', () => {
@@ -54,16 +67,14 @@ test('interpolation uses literal keys and literal replacement bytes', () => {
     { value: '$&-$`-$\'', count: 2 }
   )).toBe('value=$&-$`-$\'; count=2');
 
-  expect(() => renderTemplateString('value=__missing__', {}))
-    .toThrow(/placeholder references an unknown context key/);
-  expect(() => renderTemplateString('value=__enabled__', { enabled: true }))
-    .toThrow(/placeholder requires a string or number/);
-  expect(() => renderTemplateString('unchanged', {
+  assert.throws(() => renderTemplateString('value=__missing__', {}), code('COMPOSE-TEMPLATE-007', { key: 'missing', placeholder: '__missing__' }));
+  assert.throws(() => renderTemplateString('value=__enabled__', { enabled: true }), code('COMPOSE-TEMPLATE-007', { key: 'enabled', valueType: 'boolean' }));
+  assert.throws(() => renderTemplateString('unchanged', {
     'value.*': 'invalid'
-  })).toThrow(/context key is not canonical/);
-  expect(() => renderTemplateString('unchanged', {
+  }), code('COMPOSE-TEMPLATE-007', { key: 'value.*' }));
+  assert.throws(() => renderTemplateString('unchanged', {
     value: Number.NaN
-  })).toThrow(/context value is unsupported/);
+  }), code('COMPOSE-TEMPLATE-007', { key: 'value', valueType: 'number' }));
 });
 
 test('template file reads stay inside the root and observe current bytes', () => {
@@ -76,8 +87,7 @@ test('template file reads stay inside the root and observe current bytes', () =>
     writeFileSync(templatePath, 'second __value__', 'utf8');
     expect(TemplateEngine.render('sample.template', { value: 2 }, root)).toBe('second 2');
 
-    expect(() => TemplateEngine.render('../outside.template', {}, root))
-      .toThrow(/escapes its allowed root/);
+    assert.throws(() => TemplateEngine.render('../outside.template', {}, root), code('COMPOSE-TEMPLATE-005'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

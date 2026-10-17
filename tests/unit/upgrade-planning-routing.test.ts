@@ -53,43 +53,48 @@ test('upgrade plan routing uses application projection and entry rendering witho
     'migration-entries',
     'migration-targets'
   ]);
-  const expectedText = [
-    'Upgrade auth/basic-session 0.1.0 -> 0.1.1',
-    'Status: planned; migrations: 1; preflight checks: 9',
-    'Migration kinds: file-replace=1',
-    'Operation roles: file=1',
-    'Impacts: src/installed/auth/session.ts',
-    'Preflight evidence: 5',
-    'Requires verification: true (1 migrations)',
-    'Migration mig-auth-session-refresh: file-replace; target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; role=file; requiresVerification=true',
-    'Preflight version-range: passed; evidence=1',
-    'Preflight migration-entries: passed; evidence=1',
-    'Preflight migration-targets: passed; evidence=1'
-  ].join('\n');
-  expect(formatUpgradePlanning(planned)).toBe(expectedText);
+  // State, migration identity and verification requirements matter; prose layout does not.
+  function expectPlannedUpgrade(text: string): void {
+    for (const meaning of [
+      /Upgrade\s+auth\/basic-session(?=$|[\s;,()])[^\n]*0\.1\.0(?=$|[\s;,()])[^\n]*0\.1\.1(?=$|[\s;,()])/u,
+      /Status\W+planned(?=$|[\s;,()])/u,
+      /\bmigrations\W+1(?=$|[\s;,()])/u,
+      /\bpreflight checks\W+9(?=$|[\s;,()])/u,
+      /Migration kinds[^\n]*\bfile-replace=1(?=$|[\s;,()])/u,
+      /Operation roles[^\n]*\bfile=1(?=$|[\s;,()])/u,
+      /Impacts[^\n]*src\/installed\/auth\/session\.ts(?=$|[\s;,()])/u,
+      /Preflight evidence\W+5(?=$|[\s;,()])/u,
+      /Requires verification\W+true(?=$|[\s;,()])[^\n]*\b1 migrations(?=$|[\s;,()])/u,
+      /Migration mig-auth-session-refresh\W+file-replace(?=$|[\s;,()])/u,
+      /Migration mig-auth-session-refresh(?=[\s:])[^\n]*\btarget=src\/installed\/auth\/session\.ts(?=$|[\s;,()])/u,
+      /Migration mig-auth-session-refresh(?=[\s:])[^\n]*\bsource=files\/src\/installed\/auth\/session\.ts(?=$|[\s;,()])/u,
+      /Migration mig-auth-session-refresh(?=[\s:])[^\n]*\brole=file(?=$|[\s;,()])/u,
+      /Migration mig-auth-session-refresh(?=[\s:])[^\n]*\brequiresVerification=true(?=$|[\s;,()])/u
+    ]) expect(text).toMatch(meaning);
+    for (const check of ['version-range', 'migration-entries', 'migration-targets']) {
+      expect(text).toMatch(new RegExp(`Preflight ${check}\\W+passed(?=$|[\\s;,()])[^\\n]*\\bevidence=1(?=$|[\\s;,()])`, 'u'));
+    }
+  }
+  expectPlannedUpgrade(formatUpgradePlanning(planned));
 
   const applied = projectUpgradePlan(
     plan,
     buildUpgradeExecutionTerminalArtifact(plan, { settlement: 'applied' })
   );
   expect(applied.presentation).toBe('applied');
-  expect(formatUpgradePlanning(applied).split('\n')[1]).toStartWith('Status: applied;');
+  expect(formatUpgradePlanning(applied)).toMatch(/Status\W+applied(?=$|[\s;,()])/u);
 
   const preview = projectUpgradePreview(previewFromPlan(plan));
   expect(preview.presentation).toBe('preview');
-  expect(formatUpgradePlanning(preview).split('\n')[0]).toBe(
-    'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)'
-  );
+  expect(formatUpgradePlanning(preview)).toMatch(/Upgrade\s+auth\/basic-session(?=$|[\s;,()])[^\n]*\bdry-run(?=$|[\s;,()])/u);
+  expect(formatUpgradePlanning(preview)).toMatch(/Status\W+preview(?=$|[\s;,()])/u);
 
   await withTempWorkspace(async (workspaceRoot) => {
     const planPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     await writeJson(planPath, originalPlan);
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['upgrade', 'plan'],
-      `${expectedText}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['upgrade', 'plan']);
+    expectPlannedUpgrade(stdout);
 
     const json = await expectCliJson(workspaceRoot, ['upgrade', 'plan', '--json']);
     expect(json).toEqual(originalPlan);

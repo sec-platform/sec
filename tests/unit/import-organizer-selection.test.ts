@@ -48,7 +48,12 @@ function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'ful
     getNewLine: () => '\n'
   };
 
-  return organizeImportsInSource(ts.createLanguageService(host), fileName, source);
+  const service = ts.createLanguageService(host);
+  try {
+    return organizeImportsInSource(service, fileName, source);
+  } finally {
+    service.dispose();
+  }
 }
 
 describe('import organizer selection', () => {
@@ -259,7 +264,14 @@ describe('import organizer newline preservation', () => {
       ''
     ].join('\n');
 
-    expect(organizeFixtureImports(unsorted, 'focused')).toBe(organizeFixtureImports(unsorted, 'full'));
+    const expected = [
+      "import { alpha, beta } from './values.ts';",
+      '',
+      'export const answer = alpha + beta;',
+      ''
+    ].join('\n');
+    expect(organizeFixtureImports(unsorted, 'focused')).toBe(expected);
+    expect(organizeFixtureImports(unsorted, 'full')).toBe(expected);
   });
 
   for (const newLine of ['\n', '\r\n'] as const) {

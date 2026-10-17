@@ -56,17 +56,13 @@ function structuralPolicyReport() {
 test('Policy Report authority accepts not-applicable empty inventory and canonicalizes migration diagnostics', () => {
   const { diagnostics, ...legacy } = emptyPolicyReport();
   const report = validatePolicyReport(legacy);
-  expect(report.status).toBe('skipped');
-  expect(report.diagnostics).toEqual([]);
+  expect(report).toEqual(emptyPolicyReport());
   expect(Object.isFrozen(report)).toBe(true);
 });
 
 test('Policy Report authority preserves source-structure diagnostics without treating them as violations', () => {
   const report = validatePolicyReport(structuralPolicyReport());
-  expect(report.status).toBe('passed');
-  expect(report.violations).toEqual([]);
-  expect(report.diagnostics).toHaveLength(1);
-  expect(report.evaluation?.assurance).toBe('source-structure');
+  expect(report).toEqual(structuralPolicyReport());
 });
 
 test('Policy Report authority rejects forged status and missing evaluator assurance', () => {

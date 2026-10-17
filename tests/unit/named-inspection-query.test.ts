@@ -18,11 +18,21 @@ for (const kind of ['freeze', 'errors', 'ci']) {
     assert.deepEqual(calls, [kind]);
   });
 }
-for (const args of [[], ['missing'], ['constructor'], ['--help'], ['freeze', '--compact']]) {
+// Native parser outcomes distinguish help and invalid invocation; only the
+// output-policy rejection below belongs to the SEC diagnostic namespace.
+for (const [args, expectedCode] of [
+  [[], 'commander.missingArgument'],
+  [['missing'], 'commander.invalidArgument'],
+  [['constructor'], 'commander.invalidArgument'],
+  [['--help'], 'commander.helpDisplayed'],
+  [['freeze', '--compact'], 'CLI-USAGE-001']
+] as const) {
   test(`invalid or help invocation ${JSON.stringify(args)} never reads a domain`, async () => {
     const root = program(); let reads = 0;
     registerNamedInspectionQuery(root.command('contract'), { freeze: () => { reads++; return commandValue(1, String); } });
-    await assert.rejects(root.parseAsync(['contract', ...args], { from: 'user' })); assert.equal(reads, 0);
+    await assert.rejects(root.parseAsync(['contract', ...args], { from: 'user' }),
+      (error: unknown) => (error as { code?: string }).code === expectedCode);
+    assert.equal(reads, 0);
   });
 }
 for (const phase of ['sync-read', 'async-read', 'format']) {

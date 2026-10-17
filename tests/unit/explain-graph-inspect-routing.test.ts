@@ -5,14 +5,13 @@ import path from 'node:path';
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
 import { projectExplainGraphInspect } from '../../src/application/explain-graph-inspect.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { formatExplainGraphInspect } from '../../src/entry/cli/explain-graph-inspect.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('explain inspect preserves historical pin graph JSON through reading, counting and rendering', async () => {
-  // Preserve independent projection/text fixture from tests/unit/explain-graph-inspect-presentation.test.ts.
+  // Counts and input preservation are independent of the CLI readback below.
   {
-   const source = {
+    const source = {
       nodes: [{ type: 'service' }, { type: 'entity' }, { type: 'service' }],
       edges: [{ type: 'writes_to' }, { type: 'depends_on' }, { type: 'writes_to' }],
       overlays: {
@@ -35,13 +34,6 @@ test('explain inspect preserves historical pin graph JSON through reading, count
     });
     expect(source.nodes.map((node) => node.type)).toEqual(nodeOrder);
     expect(source.edges.map((edge) => edge.type)).toEqual(edgeOrder);
-    expect(formatExplainGraphInspect(view)).toBe([
-      'Explain graph 3 nodes 3 edges',
-      'Node types: entity=1, service=2',
-      'Edge types: depends_on=1, writes_to=2',
-      'Coverage overlay: 2 blocks',
-      'Provenance overlay: 1 artifacts'
-    ].join('\n'));
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const graph = {
@@ -59,7 +51,10 @@ test('explain inspect preserves historical pin graph JSON through reading, count
         { from: 'service', to: 'pin:fixture/basic:input:context', type: 'depends_on' }
       ],
       overlays: {
-        coverage: { blocks: [{ id: 'alpha', coveredBy: ['acceptance:a'] }] },
+        coverage: { blocks: [
+          { id: 'alpha', coveredBy: ['acceptance:a'] },
+          { id: 'beta', coveredBy: ['acceptance:b'] }
+        ] },
         provenance: [{ path: 'src/service.ts' }]
       }
     } as const;
@@ -67,11 +62,18 @@ test('explain inspect preserves historical pin graph JSON through reading, count
     await fs.mkdir(path.dirname(graphPath), { recursive: true });
     await fs.writeFile(graphPath, `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['explain', 'graph'],
-      `${formatExplainGraphInspect(projectExplainGraphInspect(graph))}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['explain', 'graph']);
+    expect(stdout).toMatch(/\b4 nodes(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/\b4 edges(?=$|[\s;,()])/u);
+    const nodeTypes = stdout.split('\n').find((line) => /^Node types\b/u.test(line));
+    for (const count of [/\bentity=1(?=$|[\s;,()])/u, /\bpin=1(?=$|[\s;,()])/u, /\bservice=2(?=$|[\s;,()])/u]) {
+      expect(nodeTypes).toMatch(count);
+    }
+    const edgeTypes = stdout.split('\n').find((line) => /^Edge types\b/u.test(line));
+    expect(edgeTypes).toMatch(/\bdepends_on=2(?=$|[\s;,()])/u);
+    expect(edgeTypes).toMatch(/\bwrites_to=2(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/Coverage overlay[^\n]*\b2 blocks(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/Provenance overlay[^\n]*\b1 artifacts(?=$|[\s;,()])/u);
 
     const json = await expectCliJson(workspaceRoot, ['explain', 'graph', '--json']);
     expect(json).toEqual(graph);

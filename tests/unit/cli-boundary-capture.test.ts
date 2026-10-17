@@ -68,13 +68,16 @@ test('mixed command output retains the old own-enumerable boundary without whole
   assert.equal(captureJsonOutputInput(inherited, 'property').json, true);
 });
 
-test('mixed read/write command routes expose distinct immutable selections', () => {
+test('mixed read/write command routes retain selected output after caller mutation', () => {
   for (const [command, mode] of [['lock', 'inspect'], ['explain', 'graph']] as const) {
     const raw = new Proxy({ json: true, compact: true, get unused() { assert.fail('unowned'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('enumerated'); } });
     const inspected = parseWorkspaceViewCommandInput(command, mode, raw);
     const executed = parseWorkspaceViewCommandInput(command, undefined, raw);
+    raw.json = false; raw.compact = false;
     assert.equal(inspected.kind, 'inspect'); assert.equal(executed.kind, 'execute');
-    assert.deepEqual(inspected.output, executed.output); assert.ok(Object.isFrozen(inspected));
+    for (const selection of [inspected, executed]) {
+      assert.deepEqual(selection.output, { json: true, compact: true });
+    }
   }
 });
 

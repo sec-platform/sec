@@ -4,12 +4,15 @@ import { executeFastCheckStages, type FastCheckStages } from '../../src/adapters
 
 function fixture(overrides: Partial<FastCheckStages> = {}) {
   const events: string[] = [];
+  const stage = (name: keyof FastCheckStages) => () => {
+    events.push(name);
+    return overrides[name] === undefined ? Promise.resolve(0) : overrides[name]!();
+  };
   const stages: FastCheckStages = {
-    imports: async () => { events.push('imports'); return 0; },
-    documentation: async () => { events.push('documentation'); return 0; },
-    types: async () => { events.push('types'); return 0; },
-    tests: async () => { events.push('tests'); return 0; },
-    ...overrides
+    imports: stage('imports'),
+    documentation: stage('documentation'),
+    types: stage('types'),
+    tests: stage('tests')
   };
   return { events, stages };
 }
@@ -21,7 +24,8 @@ test('every execution stage rejects values that are not non-negative safe-intege
     for (const value of invalid) {
       const { events, stages } = fixture({ [name]: async () => value } as unknown as Partial<FastCheckStages>);
       await assert.rejects(executeFastCheckStages(stages), TypeError);
-      assert.equal(events.includes('tests'), false);
+      assert.equal(events.filter(event => event === name).length, 1);
+      assert.equal(events.includes('tests'), name === 'tests');
     }
   }
 });
@@ -29,7 +33,7 @@ test('every execution stage rejects values that are not non-negative safe-intege
 test('platform exit statuses above 255 are preserved rather than masked to a successful zero', async () => {
   const { stages, events } = fixture({ imports: async () => 256 });
   assert.equal(await executeFastCheckStages(stages), 256);
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, ['imports']);
 });
 
 test('a rejected documentation check does not hide a nonzero type-check exit', async () => {

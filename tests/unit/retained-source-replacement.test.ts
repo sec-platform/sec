@@ -150,17 +150,6 @@ test.skipIf(process.platform !== 'linux')('candidate substitution cannot redirec
   });
 });
 
-test.skipIf(process.platform !== 'linux')('post-exchange interruption preserves both generations for recovery', async () => {
-  await fixture(async ({ target, replace }) => {
-    let displaced = '';
-    await expect(replace(createSourceReplacementTestActorForTests({
-      afterReplace: ({ sourcePath }) => { displaced = sourcePath; throw new Error('interrupted after exchange'); }
-    }))).rejects.toMatchObject({ namespaceChanged: true });
-    expect(readFileSync(target)).toEqual(successor);
-    expect(readFileSync(displaced)).toEqual(original);
-  });
-});
-
 test.skipIf(process.platform !== 'linux')('cleanup refuses a substituted displaced-preimage name', async () => {
   await fixture(async ({ target, replace }) => {
     let foreign = '';

@@ -9,7 +9,7 @@ import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('provenance inspection routes text through application and entry while preserving raw JSON', async () => {
-  // Retain independent provenance projection and fixed text oracle before CLI readback.
+  // Source attribution, verification gaps and snapshot isolation are independent obligations.
   {
     const source = {
       artifacts: [
@@ -108,17 +108,30 @@ test('provenance inspection routes text through application and entry while pres
       ]
     });
 
-    expect(formatProvenanceRegistry(view)).toBe([
-      'Provenance registry; artifacts=5; registry=1; overrides=1; unverified=3',
-      'Origins: block=2, generated=2, override=1',
-      'Registry sources: official=1',
-      'Generated passes: compose, emit',
-      'Artifact src/block-a.ts; origin=block:block-a; registry=official; verifiedBy=verify:a; override=none',
-      'Artifact src/block-b.ts; origin=block:block-b; registry=none; verifiedBy=none; override=none',
-      'Artifact src/override.ts; origin=override:override-a; registry=none; verifiedBy=verify:o; override=project',
-      'Artifact src/generated-a.ts; origin=generated:generated-a; registry=none; verifiedBy=none; override=none',
-      'Artifact src/generated-b.ts; origin=generated:generated-b; registry=none; verifiedBy=none; override=none'
-    ].join('\n'));
+    const text = formatProvenanceRegistry(view);
+    for (const count of [/\bartifacts=5(?=$|[\s;,()])/u, /\bregistry=1(?=$|[\s;,()])/u, /\boverrides=1(?=$|[\s;,()])/u, /\bunverified=3(?=$|[\s;,()])/u]) {
+      expect(text).toMatch(count);
+    }
+    const origins = text.split('\n').find((line) => /^Origins\b/u.test(line));
+    for (const count of [/\bblock=2(?=$|[\s;,()])/u, /\bgenerated=2(?=$|[\s;,()])/u, /\boverride=1(?=$|[\s;,()])/u]) {
+      expect(origins).toMatch(count);
+    }
+    expect(text).toMatch(/Registry sources[^\n]*\bofficial=1(?=$|[\s;,()])/u);
+    const passes = text.split('\n').find((line) => /^Generated passes\b/u.test(line));
+    expect(passes).toMatch(/\bcompose(?=$|[\s;,()])/u);
+    expect(passes).toMatch(/\bemit(?=$|[\s;,()])/u);
+    // Check each risk against its artifact; a correct word on the wrong row is insufficient.
+    for (const [path, fields] of [
+      ['src/block-a.ts', ['origin=block:block-a', 'registry=official', 'verifiedBy=verify:a', 'override=none']],
+      ['src/block-b.ts', ['origin=block:block-b', 'registry=none', 'verifiedBy=none', 'override=none']],
+      ['src/override.ts', ['origin=override:override-a', 'registry=none', 'verifiedBy=verify:o', 'override=project']],
+      ['src/generated-a.ts', ['origin=generated:generated-a', 'registry=none', 'verifiedBy=none', 'override=none']],
+      ['src/generated-b.ts', ['origin=generated:generated-b', 'registry=none', 'verifiedBy=none', 'override=none']]
+    ] as const) {
+      const row = text.split('\n').find((line) => new RegExp(`${path.replaceAll('.', '\\.')}(?=$|[\\s;,()])`, 'u').test(line));
+      for (const field of fields) expect(row).toMatch(new RegExp(`${field}(?=$|[\\s;,()])`, 'u'));
+    }
+    expect(text).not.toContain('later');
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const provenance = {
@@ -146,12 +159,17 @@ test('provenance inspection routes text through application and entry while pres
     await fs.mkdir(path.dirname(provenancePath), { recursive: true });
     await fs.writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, 'utf8');
 
-    const view = projectProvenanceRegistryInspect(provenance);
-    await expectCliSuccess(
-      workspaceRoot,
-      ['provenance'],
-      `${formatProvenanceRegistry(view)}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['provenance']);
+    expect(stdout).toMatch(/\bartifacts=2(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/\bregistry=1(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/\bunverified=1(?=$|[\s;,()])/u);
+    const block = stdout.split('\n').find((line) => /src\/block\.ts(?=$|[\s;,()])/u.test(line));
+    expect(block).toMatch(/origin=block:block:a(?=$|[\s;,()])/u);
+    expect(block).toMatch(/registry=official(?=$|[\s;,()])/u);
+    expect(block).toMatch(/verifiedBy=verify:a(?=$|[\s;,()])/u);
+    const generated = stdout.split('\n').find((line) => /src\/generated\.ts(?=$|[\s;,()])/u.test(line));
+    expect(generated).toMatch(/origin=generated:generated:a(?=$|[\s;,()])/u);
+    expect(generated).toMatch(/verifiedBy=none(?=$|[\s;,()])/u);
 
     const rawJson = await expectCliJson<typeof provenance>(workspaceRoot, ['provenance', '--json']);
     expect(rawJson).toEqual(provenance);

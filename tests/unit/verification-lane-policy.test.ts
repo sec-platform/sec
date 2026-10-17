@@ -22,15 +22,20 @@ for (const [lane, runFast, runtimeMode, scope] of [
     assert.equal(shouldExecuteRuntimeVerification(profile, true), true);
     assert.equal(shouldExecuteRuntimeVerification(profile, false), !runFast);
     assert.ok(Object.isFrozen(profile));
-    assert.equal(profile, VERIFICATION_LANE_PROFILES[lane]);
   });
   test(`${lane} is decoded identically by both CLI entrypoints`, () => {
-    for (const flags of [{}, { json: true }, { json: true, compact: true }]) {
+    for (const [flags, expectedOutput] of [
+      [{}, { json: false, compact: false }],
+      [{ json: true }, { json: true, compact: false }],
+      [{ json: true, compact: true }, { json: true, compact: true }]
+    ] as const) {
       const workspace = parseVerifyCommandInput({ ...flags, lane });
       const pipeline = parsePipelineCompileOptions({ ...flags, lane });
-      assert.equal(workspace.request.lane, pipeline.invocation.verificationLane);
-      assert.deepEqual(workspace.output, pipeline.output);
-      assert.equal(workspace.request.emitTiming, !workspace.output.json);
+      assert.equal(workspace.request.lane, lane);
+      assert.equal(pipeline.invocation.verificationLane, lane);
+      assert.deepEqual(workspace.output, expectedOutput);
+      assert.deepEqual(pipeline.output, expectedOutput);
+      assert.equal(workspace.request.emitTiming, !expectedOutput.json);
       assert.ok(Object.isFrozen(workspace)); assert.ok(Object.isFrozen(workspace.request));
     }
   });
@@ -67,8 +72,8 @@ test('standalone and pipeline defaults remain independently registered', () => {
   const option = (name: string) => root.commands.find((c) => c.name() === name)!.options.find((o) => o.long === '--lane')!;
   assert.equal(option('verify').defaultValue, 'fast');
   assert.equal(option('compile').defaultValue, 'all');
-  assert.equal(option('verify').flags, option('compile').flags);
-  assert.equal(option('verify').description, option('compile').description);
+  assert.equal(option('verify').required, true);
+  assert.equal(option('compile').required, true);
 });
 
 test('verify captures only owned fields once and fixes execution and output values', () => {

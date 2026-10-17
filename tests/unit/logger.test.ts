@@ -20,8 +20,12 @@ test.serial('logger threshold emits exactly the admitted JSONL records', () => {
     process.stdout.write = originalWrite;
   }
 
-  expect(chunks).toHaveLength(2);
-  const records = chunks.map((chunk) => JSON.parse(chunk) as Record<string, unknown>);
+  // JSONL consumers observe line framing, not stdout.write call boundaries.
+  const output = chunks.join('');
+  expect(output.endsWith('\n')).toBe(true);
+  const records = output.slice(0, -1).split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(records).toHaveLength(2);
   expect(records[0]).toMatchObject({
     level: 30,
     msg: 'warn-visible',

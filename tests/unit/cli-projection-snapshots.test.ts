@@ -79,13 +79,27 @@ test('editing a policy projection never changes the domain result', () => {
 });
 
 test('coverage copies declared, covered and uncovered arrays in both directions', () => {
-  const source = coverage(), projected = projectAcceptanceTargets(source);
-  source.blocks[0]!.declaredAcceptance.push('later'); source.uncoveredBlocks.length = 0;
-  projected.targets[0]!.coveredBy.push('projection-only');
+  const source = coverage();
+  source.blocks[0]!.coveredBy = ['coverage'];
+  const projected = projectAcceptanceTargets(source);
+  assert.deepEqual(projected.targets[0], {
+    id: 'block', declaredAcceptance: ['declared'], coveredBy: ['coverage'], uncovered: true,
+    declaredAcceptanceCount: 1, coveredByCount: 1
+  });
+  source.blocks[0]!.declaredAcceptance.push('later');
+  source.blocks[0]!.coveredBy.push('later-coverage');
+  source.uncoveredBlocks.length = 0;
   assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declared']);
+  assert.deepEqual(projected.targets[0]!.coveredBy, ['coverage']);
   assert.deepEqual(projected.uncoveredIds, ['block']); assert.equal(projected.uncoveredCount, 1);
   assert.equal(projected.targets[0]!.declaredAcceptanceCount, 1);
-  assert.deepEqual(source.blocks[0]!.coveredBy, []);
+  assert.equal(projected.targets[0]!.coveredByCount, 1);
+  projected.targets[0]!.declaredAcceptance.push('projection-only');
+  projected.targets[0]!.coveredBy.push('projection-only');
+  projected.uncoveredIds.push('projection-only');
+  assert.deepEqual(source.blocks[0]!.declaredAcceptance, ['declared', 'later']);
+  assert.deepEqual(source.blocks[0]!.coveredBy, ['coverage', 'later-coverage']);
+  assert.deepEqual(source.uncoveredBlocks, []);
 });
 
 test('coverage summary and target fields use the same captured observations', () => {
@@ -159,14 +173,4 @@ test('an absent generating pass displays none, not an empty string identity', ()
 
 test('manifest zero count presentation preserves the absence wording', () => {
   assert.ok(formatCiArtifactManifest(projectCiArtifactManifest(manifest({}))).includes('Missing reasons: none'));
-});
-
-test('coverage preserves existing JSON field order while detaching source arrays', () => {
-  const entry = { coveredBy: ['coverage'], id: 'block', declaredAcceptance: ['declared'], uncovered: false };
-  const source: CoverageInput = { formatVersion: '1', status: 'passed', acceptancePassed: [], blocks: [entry], uncoveredBlocks: [] };
-  const projected = projectAcceptanceTargets(source).targets[0]!;
-  const expected = { ...entry, declaredAcceptanceCount: 1, coveredByCount: 1 };
-  assert.equal(JSON.stringify(projected), JSON.stringify(expected));
-  assert.notEqual(projected.coveredBy, entry.coveredBy);
-  assert.notEqual(projected.declaredAcceptance, entry.declaredAcceptance);
 });

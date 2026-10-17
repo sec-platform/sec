@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { SUPPORTED_STACK, type PlanFile } from '../../src/compiler/contract.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
 const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
   officialPath: 'catalog/registry/official',
@@ -8,7 +8,7 @@ const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
 });
 
 const input = () => ({ app: { id: 'app', name: 'Application', stack: SUPPORTED_STACK } });
-const normalize = (value: unknown) => normalizePlan(value as PlanFile, PLAN_NORMALIZATION_DEFAULTS);
+const normalize = (value: unknown) => normalizePlan(value, PLAN_NORMALIZATION_DEFAULTS);
 const code = (expected: string) => (error: unknown) => (error as { code?: string }).code === expected;
 
 test('normalization keeps default location/package/mode decisions and independent output', () => {
@@ -16,11 +16,10 @@ test('normalization keeps default location/package/mode decisions and independen
   validatePlan(value);
   assert.deepEqual(value.app, { ...source.app, packageManager: 'pnpm', mode: 'single-tenant' });
   assert.deepEqual(value.blocks, []); assert.deepEqual(value.acceptance, []);
-  assert.equal(value.registry.sources.length, 2);
-  assert.deepEqual(
-    value.registry.sources.map(source => source.path),
-    [PLAN_NORMALIZATION_DEFAULTS.officialPath, PLAN_NORMALIZATION_DEFAULTS.privatePath]
-  );
+  assert.deepEqual(value.registry.sources, [
+    { id: 'official', kind: 'official', location: 'compiler', path: PLAN_NORMALIZATION_DEFAULTS.officialPath },
+    { id: 'private', kind: 'private', location: 'workspace', path: PLAN_NORMALIZATION_DEFAULTS.privatePath }
+  ]);
   value.app.name = 'Changed'; assert.equal(source.app.name, 'Application');
 });
 

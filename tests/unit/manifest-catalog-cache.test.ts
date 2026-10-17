@@ -62,8 +62,13 @@ test('different versions preserve source priority and explicit version filtering
   f.write(); const later = f.write('block/a', 'later');
   writeFileSync(later.file, JSON.stringify({ ...later.manifest, version: '2.0.0', provides: ['new/service'] }));
   const options = sourceOptions(f, ['registry', 'later']);
-  assert.equal(loadManifestById('block/a', options).manifest.version, '1.0.0');
-  assert.equal((await loadAllManifests(options))[0]!.manifest.version, '1.0.0');
+  const addressed = loadManifestById('block/a', options);
+  const catalog = await loadAllManifests(options);
+  assert.equal(addressed.manifest.version, '1.0.0');
+  assert.equal(addressed.registrySourceId, 'registry');
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0]!.manifest.version, '1.0.0');
+  assert.equal(catalog[0]!.registrySourceId, 'registry');
   assert.equal(loadManifestById('block/a', { ...options, version: '2.0.0' }).registrySourceId, 'later');
 }));
 
@@ -80,26 +85,36 @@ test('effective version overlays participate in collision checks after merging r
 }));
 
 test('a repeated catalog read reuses parsed validation but keeps independent mutable results', () => using(async (f, parses) => {
-  f.write(); const first = await loadAllManifests(f.options); const before = parses();
+  const written = f.write(); const first = await loadAllManifests(f.options); const before = parses();
   const next = await loadAllManifests(f.options);
-  assert.equal(parses(), before); assert.deepEqual(next, first); assert.notEqual(next[0], first[0]);
+  assert.equal(parses(), before); assert.deepEqual(next, first);
+  assert.equal(next[0]!.manifest.id, 'block/a');
+  assert.equal(next[0]!.manifest.version, '1.0.0');
   first[0]!.manifest.provides.push('caller-only'); first[0]!.resourceRoots.push('/caller');
-  assert.ok(!next[0]!.manifest.provides.includes('caller-only'));
+  assert.deepEqual(next[0]!.manifest.provides, ['block/a']);
+  assert.deepEqual(next[0]!.resourceRoots, [written.folder]);
   assert.deepEqual((await loadAllManifests(f.options))[0], next[0]);
 }));
 
 test('explicit unversioned lookup and catalog lookup share one parse record', () => using(async (f, parses) => {
   f.write(); const first = loadManifestById('block/a', f.options); const before = parses();
   const catalog = await loadAllManifests(f.options);
-  assert.equal(parses(), before); assert.deepEqual(catalog[0], first); assert.notEqual(catalog[0], first);
+  assert.equal(parses(), before); assert.deepEqual(catalog[0], first);
+  assert.equal(catalog[0]!.manifest.id, 'block/a');
+  assert.equal(catalog[0]!.manifest.version, '1.0.0');
+  catalog[0]!.manifest.provides.push('caller-only');
+  assert.deepEqual(first.manifest.provides, ['block/a']);
   assert.equal(manifestCache.size, 1);
 }));
 
 test('catalog parsing also primes later logical lookup without exposing its mutable view', () => using(async (f, parses) => {
   f.write(); const catalog = await loadAllManifests(f.options); const before = parses();
   const logical = loadManifestById('block/a', f.options);
-  assert.equal(parses(), before); assert.deepEqual(catalog[0], logical); assert.notEqual(catalog[0], logical);
-  assert.ok(Object.isFrozen(logical.manifest)); assert.equal(Object.isFrozen(catalog[0]!.manifest), false);
+  assert.equal(parses(), before); assert.deepEqual(catalog[0], logical);
+  assert.equal(logical.manifest.id, 'block/a');
+  assert.equal(logical.manifest.version, '1.0.0');
+  catalog[0]!.manifest.provides.push('caller-only');
+  assert.deepEqual(logical.manifest.provides, ['block/a']);
 }));
 
 test('changed current bytes invalidate cached parsing before returning a new version', () => using(async (f, parses) => {

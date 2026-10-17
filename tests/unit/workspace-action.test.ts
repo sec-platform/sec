@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { jsonOpts } from '../../src/entry/cli/command-options.ts';
 import { commandValue } from '../../src/entry/cli/command-value.ts';
-import { inspectionValue } from '../../src/entry/cli/inspection-query.ts';
 import { registerWorkspaceAction } from '../../src/entry/cli/workspace-action.ts';
 
 function program() { return new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} }); }
@@ -29,7 +28,7 @@ test('one registered action admits, executes and projects once in that order', a
   assert.deepEqual(events, ['decode', 'execute', 'view', 'format']);
 });
 
-test('JSON suppresses text formatting and progress setup while preserving the projected payload', async () => {
+test('JSON suppresses text formatting while preserving the projected payload through a progress runner', async () => {
   const root = program();
   registerWorkspaceAction(root.command('sample'), {
     decode: () => ({ request: 1, output: jsonOpts({ json: true, compact: true }) }),
@@ -114,8 +113,7 @@ for (const key of ['decode', 'execute', 'view'] as const) {
   });
 }
 
-test('the old inspection value export and operation values are the same typed implementation', () => {
-  assert.equal(inspectionValue, commandValue);
+test('operation value formatting observes later domain changes without freezing the domain', () => {
   const domain = { state: 'live' }; const view = commandValue(domain, (value) => { assert.equal(value, domain); return value.state; });
   assert.ok(Object.isFrozen(view)); assert.ok(!Object.isFrozen(domain));
   domain.state = 'updated'; assert.equal(view.formatText(), 'updated');

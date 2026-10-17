@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { format } from 'node:util';
 import { formatJsonFile, stringifyJsonValue } from '../../src/contracts/json-text.ts';
 import { formatJson, printJsonOrText } from '../../src/entry/cli/format-utils.ts';
 
@@ -21,11 +22,16 @@ test.serial('shared writer, standard JSON values and text selection keep their d
       assert.equal(formatJson(input, { compact }), JSON.stringify(input, null, compact ? 0 : 2));
     }
   }
-  const log = console.log, lines: unknown[] = [];
-  console.log = output => { lines.push(output); };
+  const log = console.log, lines: string[] = [];
+  console.log = (...args) => { lines.push(format(...args)); };
   try {
     printJsonOrText(undefined, { json: false, compact: false }, () => 'text');
     assert.deepEqual(lines, ['text']);
+    for (const compact of [false, true]) {
+      lines.length = 0;
+      printJsonOrText(value, { json: true, compact }, () => assert.fail('text renderer invoked'));
+      assert.deepEqual(JSON.parse(lines.join('\n')), { b: 2, a: ['x', null, 3] });
+    }
   } finally { console.log = log; }
 });
 

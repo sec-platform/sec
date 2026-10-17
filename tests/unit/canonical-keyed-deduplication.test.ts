@@ -26,8 +26,7 @@ test('keyed deduplication folds canonical-equal duplicates and sorts unique keys
 test('entity attributes retain one value per key or reject competing values', () => {
   const a = { key: 'mode', value: 'safe' };
   const b = { key: 'name', value: 'subject' };
-  assert.deepEqual(normalizeAttributes([a, b, { ...a }]), [a, b].sort((x, y) =>
-    x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  assert.deepEqual(normalizeAttributes([b, a, { ...a }]), [a, b]);
   assert.throws(() => normalizeAttributes([a, { key: 'mode', value: 'unsafe' }]), conflict);
 });
 
@@ -37,7 +36,9 @@ test('conflicting duplicate keys reject every ordering without leaking values', 
   for (const values of [[first, second], [second, first], [first, first, second], [second, first, first]]) {
     assert.throws(() => uniqueSortedByKey(values, value => value.id), error => {
       assert.ok(conflict(error));
-      assert.equal((error as Error).message, 'Canonical duplicate key has conflicting values');
+      for (const privateData of ['private-key', 'private-first', 'private-second']) {
+        assert.equal((error as Error).message.includes(privateData), false);
+      }
       return true;
     });
   }
@@ -54,7 +55,6 @@ test('IR metadata preserves unique legacy bytes and rejects ambiguous duplicate 
     const expectedId = `assertion:${createHash('sha256').update(`fact:example\0authoritative\0${bytes}`).digest('hex').slice(0, 24)}`;
     for (const inputs of [[value], [value, { ...value }]]) {
       const normalized = normalizeProvenance(inputs);
-      assert.equal(normalized[0], value);
       assert.equal(JSON.stringify(normalized), bytes);
       assert.equal(factAssertionId('fact:example', 'authoritative', normalized), expectedId);
     }
@@ -69,7 +69,6 @@ test('IR metadata preserves unique legacy bytes and rejects ambiguous duplicate 
     [reorderedEvidence, '[{"digest":"d1","ref":"case","kind":"test"}]']
   ] as const) {
     const normalized = normalizeEvidence([value, { ...value }]);
-    assert.equal(normalized[0], value);
     assert.equal(JSON.stringify(normalized), bytes);
   }
   for (const inputs of [[evidence, reorderedEvidence], [reorderedEvidence, evidence]]) {
@@ -102,16 +101,13 @@ test('IR metadata preserves unique competing fields and refuses conflicting dupl
   const first = { kind: 'test', ref: 'case', competing: 'first' };
   const second = { kind: 'test', ref: 'case', competing: 'second' };
   const normalized = normalizeEvidence([first]);
-  assert.equal(normalized[0], first);
   assert.equal(JSON.stringify(normalized), '[{"kind":"test","ref":"case","competing":"first"}]');
   assert.throws(() => normalizeEvidence([first, second]), conflict);
   assert.throws(() => normalizeEvidence([second, first]), conflict);
   const optional: FactProvenance = { revision: undefined, sourceId: 'owner', kind: 'compiler' };
-  assert.equal(normalizeProvenance([optional])[0], optional);
   assert.equal(JSON.stringify(normalizeProvenance([optional])), '[{"sourceId":"owner","kind":"compiler"}]');
   assert.throws(() => normalizeProvenance([optional, optional]), /own string data/u);
   const legacyPrototype = Object.assign(Object.create({ inherited: 'legacy' }), { kind: 'test', ref: 'prototype-case' });
-  assert.equal(normalizeEvidence([legacyPrototype])[0], legacyPrototype);
   assert.equal(JSON.stringify(normalizeEvidence([legacyPrototype])), '[{"kind":"test","ref":"prototype-case"}]');
   assert.throws(() => normalizeEvidence([legacyPrototype, legacyPrototype]), /plain data records/u);
   let reads = 0;

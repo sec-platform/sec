@@ -4,8 +4,6 @@ import assert from 'node:assert/strict';
 
 import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
 import { decodeBooleanFlag } from '../../src/entry/cli/boolean-option.ts';
-import { jsonOpts } from '../../src/entry/cli/command-options.ts';
-import { parsePipelineOutputOptions } from '../../src/entry/cli/pipeline-command-input.ts';
 import {
   COMPOSE_LOCK_OPTION, WORKSPACE_DRY_RUN_OPTION,
   parseComposeCommandInput, parseRepairCommandInput, parseUpgradeCommandInput
@@ -25,20 +23,17 @@ for (const value of [undefined, false, true]) {
     assert.equal(repair.kind, 'execute'); assert.equal(upgrade.kind, 'execute');
     if (repair.kind === 'execute' && upgrade.kind === 'execute') {
       assert.deepEqual(repair.request, { dryRun: value ?? false });
-      assert.deepEqual(upgrade.request, repair.request);
+      assert.deepEqual(upgrade.request, { dryRun: value ?? false });
       assert.ok(Object.isFrozen(repair.request)); assert.ok(Object.isFrozen(upgrade.request));
     }
   });
 }
 
 for (const [index, value] of denied.entries()) {
-  test(`non-boolean input ${index} is rejected in all selected flag decoders`, () => {
+  test(`non-boolean input ${index} is rejected in workspace write-flag decoders`, () => {
     assert.throws(() => parseComposeCommandInput({ lock: value }), usage);
     assert.throws(() => parseRepairCommandInput(undefined, { dryRun: value }), usage);
     assert.throws(() => parseUpgradeCommandInput('block', '1', { dryRun: value }, 'sec upgrade'), usage);
-    assert.throws(() => jsonOpts({ json: value }), usage);
-    assert.throws(() => parsePipelineOutputOptions({ json: value }),
-      (error: unknown) => (error as { code: string }).code === 'PIPELINE-USAGE-003');
   });
 }
 

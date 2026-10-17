@@ -57,10 +57,9 @@ test('canonical levels and defaults retain existing meanings', () => {
   assert.equal(resolveLogLevel(undefined), 'info');
   assert.equal(resolveLogLevel(undefined, 'warn'), 'warn');
   assert.equal(resolveLogLevel(undefined, 'debug'), 'debug');
-  for (const [index, level] of LOG_LEVELS.entries()) {
+  for (const [level, priority] of [['debug', 10], ['info', 20], ['warn', 30], ['error', 40]] as const) {
     assert.equal(resolveLogLevel(level), level);
-    assert.equal(buildJsonLogRecord(level, 'x', undefined, 0).level, (index + 1) * 10);
-    assert.equal(Object.isFrozen(createLogger({ level })), true);
+    assert.equal(buildJsonLogRecord(level, 'x', undefined, 0).level, priority);
   }
 });
 

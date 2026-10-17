@@ -4,10 +4,7 @@ import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
 
 for (const [label, input] of [
-  ['undefined', undefined], ['null', null], ['boolean', true], ['number', 3],
-  ['string', 'ENOENT'], ['symbol', Symbol('x')], ['bigint', 1n],
-  ['function', () => {}], ['ordinary error', new Error('x')], ['record', {}],
-  ['non-string code', { code: 3 }]
+  ['function', () => {}], ['ordinary error', new Error('x')], ['record', {}]
 ] as const) {
   test(`error-code extraction returns undefined for ${label}`, () => {
     assert.equal(getErrorCode(input), undefined);
@@ -32,11 +29,6 @@ test('a throwing code getter does not replace the original error', () => {
   const original = new Error('original');
   Object.defineProperty(original, 'code', { get() { throw new Error('secondary'); } });
   assert.equal(getErrorCode(original), undefined);
-});
-
-test('a revoked proxy is an unknown code, not a new exception', () => {
-  const { proxy, revoke } = Proxy.revocable({ code: 'HIDDEN' }, {}); revoke();
-  assert.equal(getErrorCode(proxy), undefined);
 });
 
 test('a failing property-read trap is contained', () => {

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import YAML from 'yaml';
 import { YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
 import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 
@@ -58,10 +57,9 @@ test('generic default capacity is explicit and the caller can select a different
   assert.deepEqual(await readYaml(file, { maximumInputBytes: text.length }), { x: 'a'.repeat(WORKSPACE_YAML_MAX_INPUT_BYTES) });
 }));
 
-test('write formatting stays with the existing YAML library and ordinary file owner', () => using(async (_root, file) => {
+test('ordinary YAML writes preserve values through the retained file reader', () => using(async (_root, file) => {
   const value = { name: 'example', values: ['one', 'two'], nested: { enabled: true } };
   await writeYaml(file, value);
-  assert.equal(await fs.readFile(file, 'utf8'), YAML.stringify(value, { indent: 2 }));
   assert.deepEqual(await readYaml(file), value);
 }));
 

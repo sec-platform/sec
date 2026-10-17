@@ -7,8 +7,9 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const code = (expected: string) => (error: unknown): boolean =>
   error instanceof CodedFailure && error.code === expected;
 
-test('template expansion enforces its byte bound before allocating the expanded result', () => {
-  // This would expand to over one gigabyte if String.replace ran to completion.
+test('template expansion rejects amplification beyond its output byte bound', () => {
+  // The full expansion exceeds one gigabyte. This checks rejection, not peak
+  // allocation or allocation timing; those require separate resource evidence.
   const input = '__VALUE__ '.repeat(1024);
   const value = 'x'.repeat(1024 * 1024);
   assert.throws(() => renderTemplateString(input, { VALUE: value }), code('COMPOSE-TEMPLATE-009'));

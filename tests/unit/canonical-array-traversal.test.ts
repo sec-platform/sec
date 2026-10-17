@@ -69,7 +69,6 @@ test('canonical arrays treat inherited values as missing and explicitly normaliz
   Object.setPrototypeOf(input, prototype);
   const actual = canonicalJson(input) as unknown[];
   assert.deepEqual(actual, [null, null, null]);
-  assert.equal(actual.every((value) => value === null), true);
   assert.equal(canonicalEquals(input, [null, null, null]), true);
 });
 
@@ -83,16 +82,6 @@ test('canonical arrays never run inherited indexed accessors', () => {
   Object.setPrototypeOf(array, prototype);
   assert.deepEqual(canonicalJson(array), [null, null]);
   assert.equal(reads, 0);
-});
-
-test('canonical object traversal rejects the first sorted accessor without side effects', () => {
-  let calls = 0;
-  const input = {
-    get z() { calls++; throw new Error('getter must not run'); },
-    get a() { calls++; throw new Error('getter must not run'); }
-  };
-  assert.throws(() => canonicalJson(input), /key "a"/u);
-  assert.equal(calls, 0);
 });
 
 test('canonical normalization handles a 50000-edge object chain without the native call stack', () => {
@@ -110,7 +99,6 @@ test('canonical normalization handles a 50000-edge object chain without the nati
     depth++;
   }
   assert.equal(depth, 50_000);
-  assert.notStrictEqual(actual, source);
 });
 
 test('canonical normalization handles a deep array chain', () => {

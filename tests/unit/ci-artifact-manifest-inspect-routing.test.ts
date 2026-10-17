@@ -3,10 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
-import { projectCiArtifactManifest } from '../../src/application/ci-artifact-manifest-inspect.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactManifest } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
-import { formatCiArtifactManifest } from '../../src/entry/cli/ci-artifact-manifest-inspect.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -40,11 +38,11 @@ test('artifact manifest inspection routes retained manifest through application 
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });
     await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['artifacts', 'manifest'],
-      `${formatCiArtifactManifest(projectCiArtifactManifest(manifest))}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['artifacts', 'manifest']);
+    expect(stdout).toMatch(/Artifact manifest\s+passed(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/\bartifacts=0(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/\bmissing=0(?=$|[\s;,()])/u);
+    expect(stdout).toMatch(/\bupload groups=0(?=$|[\s;,()])/u);
     const json = await expectCliJson(workspaceRoot, ['artifacts', 'manifest', '--json']);
     expect(json).toEqual(manifest);
   });

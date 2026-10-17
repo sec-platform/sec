@@ -24,7 +24,11 @@ const selectSlowTestRiskClosure = (files: string[] | null) => (
 );
 
 test('unresolved changed-file observation fails closed to the bounded baseline', () => {
-  expect(selectSlowTestRiskClosure(null)).toEqual({
+  const selection = selectSlowTestRiskClosure(null);
+  // A baseline selected and expected through the same catalog must not make
+  // an empty execution closure look like a safe fallback.
+  expect(selection.suites.length).toBeGreaterThan(0);
+  expect(selection).toEqual({
     suites: [...baselineSuites],
     slowTests: [],
     affectedSlowTests: [],
@@ -39,6 +43,7 @@ test('unknown paths cannot be converted into a false exact selection', () => {
   const selection = selectSlowTestRiskClosure(['assets/new.bin']);
 
   expect(selection.resolved).toBe(false);
+  expect(selection.unresolvedPaths).toEqual(['assets/new.bin']);
   expect(selection.reasons).toContain('changed-files-unresolved');
   expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
 });

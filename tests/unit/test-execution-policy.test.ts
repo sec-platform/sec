@@ -11,10 +11,7 @@ import {
   EFFECTFUL_TEST_SEMANTIC_OPERATION,
   TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
 } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
-import {
-  disposeCompilerDependencyEnvironment,
-  type CompilerDependencyEnvironmentRetirementReceipt
-} from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
+import { disposeCompilerDependencyEnvironment } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import {
   effectfulTest,
   EffectfulTestPhysicalResidueError,
@@ -99,50 +96,26 @@ test.serial('caller receipts never mint terminal authority without the productio
       context.operationSignal.addEventListener('abort', () => resolve(), { once: true });
     });
     events.push('operation-aborted');
-    const forgedCandidates = [
-      Object.freeze({
-        semanticOperation: context.policy.semanticOperation,
-        operationId: context.operationId,
-        resourceRoot: 'fixture-root',
-        cleanup: Object.freeze({ terminal: 'completed' }),
-        readback: Object.freeze({ physical: 'absent' })
-      }),
-      Object.freeze({
-        semanticOperation: context.policy.semanticOperation,
-        operationId: 'effectful-test:wrong-operation',
-        resourceRoot: 'fixture-root',
-        cleanup: Object.freeze({ terminal: 'completed' }),
-        readback: Object.freeze({ physical: 'absent' })
-      }),
-      Object.freeze({
-        semanticOperation: context.policy.semanticOperation,
-        operationId: context.operationId,
-        resourceRoot: 'wrong-root',
-        cleanup: Object.freeze({ terminal: 'completed' }),
-        readback: Object.freeze({ physical: 'absent' })
-      }),
-      Object.freeze({
-        semanticOperation: context.policy.semanticOperation,
-        operationId: context.operationId,
-        resourceRoot: 'fixture-root',
-        cleanup: Object.freeze({ terminal: 'completed' })
-      })
-    ] as const;
-    for (const candidate of [...forgedCandidates, forgedCandidates[0]]) {
-      try {
-        await settleEffectfulTestCleanup({
-          context,
-          resourceRoot: 'fixture-root',
-          settle: async () => {
-            await new Promise((resolve) => setTimeout(resolve, 1));
-            events.push('cleanup-attempted');
-            return candidate as never;
-          }
-        });
-      } catch (error) {
-        expect(error).toBeInstanceOf(EffectfulTestTerminalAuthorityUnresolvedError);
-        rejectionCodes.push((error as EffectfulTestTerminalAuthorityUnresolvedError).code);
-      }
+    const rootBoundReceipt = await disposeCompilerDependencyEnvironment(
+      ownerRoot,
+      {},
+      `effectful-test-terminal-settlement:${context.operationId}`
+    );
+    // Even a field-for-field copy of a valid receipt lacks its owner's authority.
+    // Wrong operation/root bindings are checked below with genuine owner receipts.
+    const forgedReceipt = Object.freeze({ ...rootBoundReceipt });
+    try {
+      await settleEffectfulTestCleanup({
+        context,
+        resourceRoot: ownerRoot,
+        settle: async () => {
+          events.push('cleanup-attempted');
+          return forgedReceipt;
+        }
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(EffectfulTestTerminalAuthorityUnresolvedError);
+      rejectionCodes.push((error as EffectfulTestTerminalAuthorityUnresolvedError).code);
     }
     try {
       await settleEffectfulTestCleanup({
@@ -179,31 +152,26 @@ test.serial('caller receipts never mint terminal authority without the productio
       expect(error).toBeInstanceOf(EffectfulTestTerminalAuthorityUnresolvedError);
       rejectionCodes.push((error as EffectfulTestTerminalAuthorityUnresolvedError).code);
     }
-    let rootBoundReceipt: CompilerDependencyEnvironmentRetirementReceipt | null = null;
     try {
       await settleEffectfulTestCleanup({
         context,
         resourceRoot: `${ownerRoot}-wrong-root`,
-        settle: async ({ outcome }) => {
-          rootBoundReceipt = await disposeCompilerDependencyEnvironment(ownerRoot, {}, outcome);
-          return rootBoundReceipt;
-        }
+        settle: async () => rootBoundReceipt
       });
     } catch (error) {
       expect(error).toBeInstanceOf(EffectfulTestTerminalAuthorityUnresolvedError);
       rejectionCodes.push((error as EffectfulTestTerminalAuthorityUnresolvedError).code);
     }
-    if (rootBoundReceipt === null) throw new Error('Production owner did not issue its root-bound receipt.');
     await settleEffectfulTestCleanup({
       context,
       resourceRoot: ownerRoot,
-      settle: async () => rootBoundReceipt!
+      settle: async () => rootBoundReceipt
     });
     try {
       await settleEffectfulTestCleanup({
         context,
         resourceRoot: ownerRoot,
-        settle: async () => rootBoundReceipt!
+        settle: async () => rootBoundReceipt
       });
     } catch (error) {
       expect(error).toBeInstanceOf(EffectfulTestTerminalAuthorityUnresolvedError);
@@ -212,7 +180,7 @@ test.serial('caller receipts never mint terminal authority without the productio
   });
 
   await captured.run();
-  expect(rejectionCodes).toEqual(Array(8).fill('EFFECTFUL-TEST-TERMINAL-AUTHORITY-UNRESOLVED'));
-  expect(events).toEqual(['operation-aborted', ...Array(5).fill('cleanup-attempted')]);
+  expect(rejectionCodes).toEqual(Array(4).fill('EFFECTFUL-TEST-TERMINAL-AUTHORITY-UNRESOLVED'));
+  expect(events).toEqual(['operation-aborted', 'cleanup-attempted']);
   expect(captured.timeoutMs).toBeGreaterThan(105);
 });

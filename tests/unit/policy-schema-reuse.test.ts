@@ -16,9 +16,10 @@ test('schema output keeps the public rule and spec types without a second shape'
   assert.equal(severity, 'warn');
 });
 
-test('all existing severities and rule identities remain accepted', () => {
+test('decoding preserves every supported severity and rule identity', () => {
   for (const severity of ['info', 'warn', 'error', 'blocker']) for (const rule of POLICY_RULE_IDS) {
-    assert.equal(PolicyRuleSchema.safeParse({ ...policy(), severity, rule }).success, true);
+    const input = { ...policy(), severity, rule };
+    assert.deepEqual(PolicyRuleSchema.parse(input), input);
   }
 });
 
@@ -56,7 +57,6 @@ test('schema parsing owns output arrays while leaving caller declarations unchan
   first.policies[0]!.appliesTo.pop();
   assert.deepEqual(source.policies[0]!.appliesTo, ['block/a', 'block/b']);
   assert.deepEqual(second.policies[0]!.appliesTo, ['block/a', 'block/b']);
-  assert.notEqual(first.policies[0], source.policies[0]);
 });
 
 test('empty declared policy set stays legal but omitted or null containers are not invented', () => {

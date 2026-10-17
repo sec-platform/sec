@@ -1,13 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { validateOverrideManifest } from '../../src/compiler/contract/override-validation.ts';
-import { OverrideManifestSchema, OverrideSourceSchema } from '../../src/semantics/provenance/override-schema.ts';
-import { emptyOverrideManifest, type OverrideManifest, type OverrideSource } from '../../src/semantics/provenance/types.ts';
+import { OverrideManifestSchema } from '../../src/semantics/provenance/override-schema.ts';
+import { emptyOverrideManifest, type OverrideSource } from '../../src/semantics/provenance/types.ts';
 
 const row = (id = 'first', target = 'src/value.ts') => ({ id, entry: `patches/${id}.ts`, target, reason: '  reason  ' });
-const validate = (input: unknown) => validateOverrideManifest(input as OverrideManifest);
+const validate = validateOverrideManifest;
 
-test('original defaults and reason normalization are provided by the single schema', () => {
+test('manifest decoding applies defaults and normalizes reasons without changing input', () => {
   const raw = { overrides: [row()] }, parsed = validate(raw);
   assert.deepEqual(parsed.overrides[0], { ...row(), reason: 'reason', source: 'manual', conflictsWith: [] });
   assert.deepEqual(OverrideManifestSchema.parse(raw), parsed);
@@ -15,13 +15,17 @@ test('original defaults and reason normalization are provided by the single sche
 });
 
 test('empty input and empty helper share the established output shape', () => {
-  assert.deepEqual(OverrideManifestSchema.parse({}), emptyOverrideManifest());
-  assert.deepEqual(validate({}), emptyOverrideManifest());
+  const expected = { overrides: [] };
+  assert.deepEqual(emptyOverrideManifest(), expected);
+  assert.deepEqual(OverrideManifestSchema.parse({}), expected);
+  assert.deepEqual(validate({}), expected);
 });
 
-test('the source type and schema expose the same legal values', () => {
-  const values: OverrideSource[] = [...OverrideSourceSchema.options];
-  assert.deepEqual(values, ['manual', 'rule-backed']);
+test('manifest decoding preserves each supported source value', () => {
+  const values: OverrideSource[] = ['manual', 'rule-backed'];
+  for (const source of values) {
+    assert.equal(validate({ overrides: [{ ...row(), source }] }).overrides[0]!.source, source);
+  }
 });
 
 for (const field of [{ source: 'custom' }, { conflictsWith: [7] }, { reason: '   ' }, { foreign: true }, { entry: false }]) {
@@ -40,22 +44,20 @@ test('schema acceptance does not authorize a reserved target, duplicate owner or
   ]) assert.throws(() => validate(input));
 });
 
-test('one decode returns detached arrays without hand-written field copying', () => {
+test('changing decoded conflicts does not modify the input manifest', () => {
   const first = { ...row('first', 'src/a.ts'), conflictsWith: ['second'] };
   const raw = { overrides: [first, row('second', 'src/b.ts')] };
   const parsed = validate(raw); parsed.overrides[0]!.conflictsWith.length = 0;
   assert.deepEqual(first.conflictsWith, ['second']);
-  assert.notEqual(parsed, raw);
 });
 
 
 test('default arrays are independently owned across parses and between entries', () => {
   const first = validate({}), second = validate({});
-  assert.notEqual(first.overrides, second.overrides);
+  first.overrides.push(validate({ overrides: [row()] }).overrides[0]!);
+  assert.deepEqual(second.overrides, []);
   const pair = validate({ overrides: [row('first', 'src/a.ts'), row('second', 'src/b.ts')] });
   const repeat = validate({ overrides: [row('first', 'src/a.ts')] });
-  assert.notEqual(pair.overrides[0]!.conflictsWith, pair.overrides[1]!.conflictsWith);
-  assert.notEqual(pair.overrides[0]!.conflictsWith, repeat.overrides[0]!.conflictsWith);
   pair.overrides[0]!.conflictsWith.push('second');
   assert.deepEqual(pair.overrides[1]!.conflictsWith, []);
   assert.deepEqual(repeat.overrides[0]!.conflictsWith, []);
