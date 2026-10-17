@@ -62,9 +62,14 @@ for (const type of ['datasource', 'generator']) test(`${type} keeps its explicit
 
 test('enum comments remain attached to their original values', () => {
   const first = schema('enum', 'Status', ' /// Active\n ACTIVE\n /// Idle\n IDLE');
-  const second = schema('enum', 'Status', ' /// Pending\n PENDING');
+  const second = schema('enum', 'Status', ' /// Pending\n PENDING\n /// Archived\n ARCHIVED');
   const merged = mergePrismaSchemas(first, second);
-  assert.match(merged, /\/\/\/ Active\n ACTIVE\n \/\/\/ Idle\n IDLE\n \/\/\/ Pending\n PENDING/);
+  const enumBody = /^\s*enum\s+Status\s*\{([\s\S]*)\}\s*$/u.exec(merged);
+  assert.ok(enumBody);
+  assert.deepEqual(enumBody[1]!.split(/\r?\n/u).map(line => line.trim().replace(/^\/\/\/[ \t]*/u, '/// ')).filter(Boolean), [
+    '/// Active', 'ACTIVE', '/// Idle', 'IDLE',
+    '/// Pending', 'PENDING', '/// Archived', 'ARCHIVED'
+  ]);
   assert.equal(mergePrismaSchemas(merged, second), merged);
 });
 

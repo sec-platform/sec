@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import type { ErrorProtocol } from '../../src/application/error-protocol.ts';
+import { buildErrorProtocol, type ErrorProtocol } from '../../src/application/error-protocol.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { runRepairWithFailureReadback } from '../../src/application/repair-execution.ts';
 import { formatFailure } from '../../src/contracts/failure-format.ts';
 import { reportCliFailure } from '../../src/entry/cli/cli-failure.ts';
@@ -17,11 +18,20 @@ function render(value: ErrorProtocol): string[] {
 }
 
 test('normal failure rendering keeps header, JSON projection and separate details', () => {
-  const lines = render(protocol({ reason: 'preflight' }));
+  const secret = 'raw-dependency-command-secret';
+  const failure = new CodedFailure('REPAIR-BLOCKED-001', 'repair failed', { reason: 'preflight' }, {
+    cause: new AggregateError([new Error(secret), new Error('stage cleanup failed')], 'materialization and cleanup failed')
+  });
+  const lines: string[] = [];
+  reportCliFailure(failure, buildErrorProtocol, {
+    write: (line) => lines.push(line), error: (line) => `error:${line}`, dim: (line) => `dim:${line}`
+  });
   assert.equal(lines[0], 'error:REPAIR-BLOCKED-001 repair failed');
   assert.deepEqual(JSON.parse(lines[1]!.slice(4)), { code: 'REPAIR-BLOCKED-001', message: 'repair failed', recoverable: true,
-    issueType: 'composition', suggestedActions: ['inspect-repair-plan'], artifactPaths: ['plan.json'] });
+    issueType: 'composition', suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
+    artifactPaths: ['.sec/artifacts/workflow/repair-plan.json', '.sec/artifacts/evidence/review-summary.json'] });
   assert.deepEqual(JSON.parse(lines[2]!.slice(4)), { reason: 'preflight' });
+  assert.doesNotMatch(lines.join('\n'), /raw-dependency-command-secret|stage cleanup failed|materialization and cleanup failed/);
 });
 
 test('falsy details preserve the existing no-extra-line presentation', () => {

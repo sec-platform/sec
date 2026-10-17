@@ -66,22 +66,6 @@ model Post {
   expect(merged).toContain('model Post {');
 });
 
-test('mergePrismaSchemas merges enum values deterministically', () => {
-  const merged = mergePrismaSchemas(`
-enum Role {
-  USER
-}
-`, `
-enum Role {
-  ADMIN
-  MODERATOR
-}
-`);
-  expect(merged).toContain('USER');
-  expect(merged).toContain('ADMIN');
-  expect(merged).toContain('MODERATOR');
-});
-
 test('mergePrismaSchemas rejects same-identity semantic conflicts instead of choosing by order', () => {
   expect(() => mergePrismaSchemas(`
 datasource db {

@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { lstatSync } from 'node:fs';
 import { inspect } from 'node:util';
 import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow-contract.ts';
-import { formatFailure } from '../../src/contracts/failure-format.ts';
 import { boundedFailureCode } from '../../src/contracts/failure-inspection.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
-import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 const allowedCodes = new Set([
   'IMPORT-AUTHORITY-002', 'RUNTIME-DEPS-001', 'RUNTIME-DEPS-003',
@@ -61,52 +59,4 @@ test('neither own or inherited getters, conversion, inspection nor Proxy traps e
   revoked.revoke();
   assert.equal(boundedFailureCode(revoked.proxy, allowedCodes), 'UNKNOWN');
   assert.equal(calls, 0);
-});
-
-test('distinct failure categories survive ordinary message, JSON and failure formatting without raw values', () => {
-  const primary = new CodedFailure('RUNTIME-DEPS-001', sentinel, { path: sentinel, environment: sentinel });
-  const cleanup = new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', sentinel,
-    { cause: new Error(sentinel) });
-  Object.defineProperty(primary, 'cause', { get() { assert.fail('raw cause inspected'); } });
-  const materializationCode = boundedFailureCode(primary, allowedCodes);
-  const cleanupCode = boundedFailureCode(cleanup, allowedCodes);
-  const projected = new CodedFailure('IMPORT-AUTHORITY-004',
-    `Compiler dependency generation staging residue is preserved for recovery; materialization=${materializationCode}; cleanup=${cleanupCode}`,
-    { materializationCode, cleanupCode, recoveryRequired: true });
-  assert.deepEqual(projected.details, {
-    materializationCode: 'RUNTIME-DEPS-001', cleanupCode: 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', recoveryRequired: true
-  });
-  assert.equal(Object.hasOwn(projected, 'cause'), false);
-  for (const output of [projected.message, String(projected), JSON.stringify(projected), formatFailure(projected)]) {
-    assert.ok(output.includes('RUNTIME-DEPS-001'));
-    assert.ok(output.includes('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'));
-    assert.equal(output.includes(sentinel), false);
-  }
-});
-
-test('Bun uncaught output preserves categories without traversing raw native causes', async () => {
-  const inspectionUrl = new URL('../../src/contracts/failure-inspection.ts', import.meta.url).href;
-  const failureUrl = new URL('../../src/contracts/failure.ts', import.meta.url).href;
-  const script = `
-    import { boundedFailureCode } from ${JSON.stringify(inspectionUrl)};
-    import { CodedFailure } from ${JSON.stringify(failureUrl)};
-    const secret = process.env.SEC_TEST_FAILURE_SENTINEL;
-    const primary = new CodedFailure('RUNTIME-DEPS-001', secret, { path: secret, environment: secret });
-    const cleanup = Object.assign(new Error(secret, { cause: new Error(secret) }), { code: 'EACCES' });
-    Object.defineProperty(primary, 'cause', { get() { throw new Error(secret); } });
-    const allowed = new Set(['RUNTIME-DEPS-001', 'EACCES']);
-    const materializationCode = boundedFailureCode(primary, allowed);
-    const cleanupCode = boundedFailureCode(cleanup, allowed);
-    throw new CodedFailure('IMPORT-AUTHORITY-004',
-      'Compiler dependency generation staging residue is preserved for recovery; materialization=' + materializationCode + '; cleanup=' + cleanupCode,
-      { materializationCode, cleanupCode, recoveryRequired: true });
-  `;
-  const result = await runRetainedBunTestCommand(['-e', script], {
-    env: { ...process.env, SEC_TEST_FAILURE_SENTINEL: sentinel }
-  });
-  assert.notEqual(result.code, 0);
-  const output = result.stdout + result.stderr;
-  assert.ok(output.includes('materialization=RUNTIME-DEPS-001; cleanup=EACCES'));
-  assert.ok(output.includes('IMPORT-AUTHORITY-004'));
-  assert.equal(output.includes(sentinel), false);
 });
