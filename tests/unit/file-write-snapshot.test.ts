@@ -4,7 +4,6 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wri
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ensureDir, prepareOrdinaryFileWrite, removeDir, writeBuffer, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
-import { formatJsonFile } from "../../src/contracts/json-text.ts";
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-write-snapshot-'));
@@ -108,12 +107,6 @@ test('native serialization failures stay exact and have no file effects', async 
   await assert.rejects(writeJson(path.join(root, 'value'), circular), TypeError);
   assert.equal(existsSync(path.join(root, 'value')), false);
 }));
-
-test('ordinary JSON bytes retain native field order, spacing and final newline', () => {
-  for (const value of [null, false, 0, '', { b: 2, a: 1, absent: undefined }, [1, undefined, null], { '__proto__': null }]) {
-    assert.equal(formatJsonFile(value), JSON.stringify(value, null, 2) + '\n');
-  }
-});
 
 test('a rejected fence cannot write its captured bytes and its original reason survives', async () => fixture(async root => {
   const target = path.join(root, 'value'); writeFileSync(target, 'before');

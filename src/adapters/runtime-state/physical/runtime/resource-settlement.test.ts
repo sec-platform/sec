@@ -5,32 +5,6 @@ import {
   settleResourcesAsync as settlePhysicalResourcesAsync
 } from '../../../../execution/resource-settlement.ts';
 
-test('async physical settlement awaits every cleanup in caller order', async () => {
-  const events: string[] = [];
-  const terminal = await settlePhysicalResourcesAsync({
-    cleanup: ['alpha', 'beta', 'gamma'].map((label) => ({
-      label,
-      settle: async () => {
-        events.push(`start:${label}`);
-        await Promise.resolve();
-        events.push(`end:${label}`);
-      }
-    }))
-  });
-
-  expect(events).toEqual([
-    'start:alpha', 'end:alpha',
-    'start:beta', 'end:beta',
-    'start:gamma', 'end:gamma'
-  ]);
-  expect(terminal).toEqual({
-    status: 'settled',
-    attemptedLabels: ['alpha', 'beta', 'gamma']
-  });
-  expect(Object.isFrozen(terminal)).toBe(true);
-  expect(Object.isFrozen(terminal.attemptedLabels)).toBe(true);
-});
-
 test('async physical settlement preserves primary and every cleanup residue', async () => {
   const primary = new Error('operation failed');
   const firstResidue = new Error('first cleanup failed');

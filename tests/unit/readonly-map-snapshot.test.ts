@@ -11,6 +11,19 @@ test('snapshot preserves insertion order and SameValueZero lookup without sharin
   assert.equal(view.get(NaN), 'nan'); assert.equal(view.get(0), 'zero');
   assert.deepEqual([...view.keys()], [key, NaN, 0]); assert.deepEqual([...view.values()], [value, 'nan', 'zero']);
   assert.deepEqual([...view], [[key, value], [NaN, 'nan'], [0, 'zero']]);
+  value.value++;
+  assert.deepEqual(view.get(key), { value: 2 });
+  assert.equal(Object.isFrozen(value), false);
+
+  let reads = 0;
+  const generated = readonlyMapSnapshot((function* () {
+    reads++;
+    yield [NaN, 'first-nan'] as const;
+    yield [NaN, 'last-nan'] as const;
+  })());
+  assert.equal(reads, 1);
+  assert.equal(generated.size, 1);
+  assert.equal(generated.get(NaN), 'last-nan');
 });
 
 test('no mutation interface or native Map receiver can change the snapshot', () => {
@@ -38,11 +51,6 @@ test('entry iterators do not expose a mutable pair stored in the map', () => {
   assert.equal(view.get('a'), 1); assert.equal(view.has('other'), false);
 });
 
-test('value identity and mutability remain with the value owner', () => {
-  const value = { counter: 0 }, view = readonlyMapSnapshot([['a', value]]);
-  value.counter++; assert.equal(view.get('a'), value); assert.equal(view.get('a')!.counter, 1);
-  assert.equal(Object.isFrozen(value), false);
-});
 
 test('an empty view still rejects an invalid forEach callback', () => {
   const view = readonlyMapSnapshot<string, number>([]);
@@ -54,10 +62,4 @@ test('callback failures are preserved without changing the snapshot', () => {
   const view = readonlyMapSnapshot([['a', 1]]), failure = {};
   assert.throws(() => view.forEach(() => { throw failure; }), error => error === failure);
   assert.deepEqual([...view], [['a', 1]]);
-});
-
-test('snapshot consumes the provider once and keeps last-value duplicate-key semantics', () => {
-  let reads = 0;
-  const view = readonlyMapSnapshot((function* () { reads++; yield ['a', 1] as const; yield ['a', 2] as const; })());
-  assert.equal(reads, 1); assert.equal(view.size, 1); assert.equal(view.get('a'), 2);
 });

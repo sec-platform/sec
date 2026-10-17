@@ -16,7 +16,10 @@ test.serial('shared writer, standard JSON values and text selection keep their d
   const value = { b: 2, a: ['x', undefined, 3], ignored: undefined };
   assert.equal(formatJson(value, { compact: false }), JSON.stringify(value, null, 2));
   assert.equal(formatJson(value, { compact: true }), JSON.stringify(value));
-  assert.equal(formatJsonFile(value), formatJson(value, { compact: false }) + '\n');
+  assert.equal(formatJsonFile(value), JSON.stringify(value, null, 2) + '\n');
+  for (const input of [null, false, 0, '', { b: 2, a: 1, absent: undefined }, [1, undefined, null], { '__proto__': null }]) {
+    assert.equal(formatJsonFile(input), JSON.stringify(input, null, 2) + '\n');
+  }
   for (const input of [null, false, 0, 'text', [], { a: 1, b: [2] }]) {
     for (const compact of [false, true]) {
       assert.equal(formatJson(input, { compact }), JSON.stringify(input, null, compact ? 0 : 2));

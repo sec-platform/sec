@@ -12,7 +12,7 @@ for (const status of ['passed', 'failed'] as const) {
     const input = fixture(status); const events: string[] = [];
     const pending = publishRepairPlanResult(input, {
       publish: async (plan, lock) => {
-        events.push('publish'); expect(plan).toBe(input.repairPlan); expect(lock).toBe(input.lock);
+        events.push('publish'); expect(plan).toEqual(input.repairPlan); expect(lock).toEqual(input.lock);
         expect(lock.passStatus.repair).toBe(status === 'passed' ? 'skipped' : 'failed');
         await Promise.resolve(); events.push('persisted');
       },

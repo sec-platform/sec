@@ -285,6 +285,6 @@ describe('VerificationAction provider pure state contract', () => {
     expect(() => parseVerificationActionProviderStatusReadback({
       ...canonical,
       pageDigests: []
-    })).toThrow();
+    })).toThrow('pagination');
   });
 });

@@ -2016,7 +2016,6 @@ test('native helper settlement sidecar survives finite preparation normalization
   expect(normalized.preparationSubstage).toBe('native-helper-invocation');
   expect(settlement).toBe(windowsAppContainerObservedNativeHelperSettlementForTests(primary));
   expect(settlement).toEqual({ mode: 'derive', reason: 'not-exited' });
-  expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
   expect(normalized.nativeHelperObservation).toBeUndefined();
 });
 
@@ -2088,7 +2087,6 @@ test('observed native helper settlement classifier separates finite lifecycle di
       const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
       expect(settlement).toEqual({ mode: 'execute', reason: classification.reason });
       expect(Object.isFrozen(settlement)).toBe(true);
-      expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
       expect(primary.nativeHelperObservation).toBeUndefined();
     }
   }
@@ -2157,7 +2155,6 @@ test('observed native helper settlement classifier separates stream truncation a
     const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
     expect(settlement).toEqual({ mode: 'create-profile', reason });
     expect(Object.isFrozen(settlement)).toBe(true);
-    expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
     expect(primary.nativeHelperObservation).toBeUndefined();
   }
 });

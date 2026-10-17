@@ -33,8 +33,10 @@ test('canonical wire identity remains the same when sparse arrays materialize nu
 
 test('canonical equality preserves normalized object order, holes, numbers and shared subtrees', () => {
   assert.ok(canonicalEquals({ z: -0, a: new Array(2) }, { a: [null, null], z: 0 }));
-  const shared = { a: 1 };
-  assert.equal(sha256([shared, shared]), reference([{ a: 1 }, { a: 1 }]));
+  const shared = { z: 1, a: [true, null] };
+  const copies = [{ a: [true, null], z: 1 }, { z: 1, a: [true, null] }];
+  assert.equal(sha256([shared, shared]), reference(copies));
+  assert.equal(canonicalEquals([shared, shared], copies), true);
   assert.equal(canonicalEquals({ a: 1 }, { a: 2 }), false);
   assert.equal(canonicalEquals([1], [1, 2]), false);
 });

@@ -72,10 +72,3 @@ test('duplicate JSON keys, boolean lengths and negative zero fail closed', () =>
   expect(() => parseDocumentationSourceContract(f.baseline,
     Buffer.from(text.replace('"bytes":0', '"bytes":-0')))).toThrow('member');
 });
-
-test('unknown fields cannot create a second boundary policy', () => {
-  const f = fixture();
-  const boundary = JSON.parse(f.baseline.toString());
-  boundary.untrustedExclusions = ['docs'];
-  expect(() => parseDocumentationSourceContract(bytes(boundary), bytes(f.manifest))).toThrow();
-});

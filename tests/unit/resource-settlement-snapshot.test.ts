@@ -35,14 +35,16 @@ test('async capture happens before suspension, while actual cleanup order stays 
   let release!: () => void, entered!: () => void;
   const held = new Promise<void>(r => { release = r; }), begun = new Promise<void>(r => { entered = r; });
   const events: string[] = [];
-  const second = { label: 'second', settle() { events.push('second'); } };
-  const pending = settlePhysicalResourcesAsync({ cleanup: [{ label: 'first', async settle() { entered(); await held; events.push('first'); } }, second] });
+  const second = { label: 'second', async settle() { events.push('start:second'); await Promise.resolve(); events.push('second'); } };
+  const third = { label: 'third', settle() { events.push('third'); } };
+  const pending = settlePhysicalResourcesAsync({ cleanup: [{ label: 'first', async settle() { entered(); await held; events.push('first'); } }, second, third] });
   try {
     await begun; second.settle = () => assert.fail('late replacement'); second.label = 'changed';
     assert.deepEqual(events, []);
-  } finally { release(); }
+  } finally { release(); await pending; }
   const terminal = await pending;
-  assert.deepEqual(events, ['first', 'second']); assert.deepEqual(terminal.attemptedLabels, ['first', 'second']);
+  assert.deepEqual(events, ['first', 'start:second', 'second', 'third']);
+  assert.deepEqual(terminal, { status: 'settled', attemptedLabels: ['first', 'second', 'third'] });
 });
 
 test('composite failure fields and AggregateError values describe one captured sequence', () => {

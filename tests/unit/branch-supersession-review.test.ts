@@ -71,66 +71,76 @@ function git(repositoryRoot: string, args: readonly string[]): string {
 
 function createDivergedReviewFixture(): DivergedReviewFixture {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-reviewed-ref-supersession-'));
-  git(root, ['init', '--quiet', '--initial-branch=main']);
-  git(root, ['config', 'user.name', 'SEC Test']);
-  git(root, ['config', 'user.email', 'sec-test@example.invalid']);
-  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'user.name', 'SEC Test']);
+    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
-  writeFileSync(path.join(root, 'base.txt'), 'shared base\n', 'utf8');
-  git(root, ['add', 'base.txt']);
-  git(root, ['commit', '--quiet', '-m', 'shared base']);
-  const mergeBaseSha = git(root, ['rev-parse', 'HEAD']);
-  const mergeBaseTreeSha = git(root, ['rev-parse', `${mergeBaseSha}^{tree}`]);
+    writeFileSync(path.join(root, 'base.txt'), 'shared base\n', 'utf8');
+    git(root, ['add', 'base.txt']);
+    git(root, ['commit', '--quiet', '-m', 'shared base']);
+    const mergeBaseSha = git(root, ['rev-parse', 'HEAD']);
+    const mergeBaseTreeSha = git(root, ['rev-parse', `${mergeBaseSha}^{tree}`]);
 
-  git(root, ['checkout', '--quiet', '-b', 'reviewed-orphan']);
-  writeFileSync(path.join(root, 'retained.txt'), 'orphan behavior\n', 'utf8');
-  writeFileSync(path.join(root, 'superseded.txt'), 'obsolete implementation\n', 'utf8');
-  git(root, ['add', 'retained.txt', 'superseded.txt']);
-  git(root, ['commit', '--quiet', '-m', 'orphan delta']);
-  const headSha = git(root, ['rev-parse', 'HEAD']);
-  const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
+    git(root, ['checkout', '--quiet', '-b', 'reviewed-orphan']);
+    writeFileSync(path.join(root, 'retained.txt'), 'orphan behavior\n', 'utf8');
+    writeFileSync(path.join(root, 'superseded.txt'), 'obsolete implementation\n', 'utf8');
+    git(root, ['add', 'retained.txt', 'superseded.txt']);
+    git(root, ['commit', '--quiet', '-m', 'orphan delta']);
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
 
-  git(root, ['checkout', '--quiet', 'main']);
-  writeFileSync(path.join(root, 'retained.txt'), 'current replacement\n', 'utf8');
-  writeFileSync(path.join(root, 'main-only.txt'), 'unrelated later main work\n', 'utf8');
-  git(root, ['add', 'retained.txt', 'main-only.txt']);
-  git(root, ['commit', '--quiet', '-m', 'current main evolution']);
-  const currentMainSha = git(root, ['rev-parse', 'HEAD']);
-  const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
+    git(root, ['checkout', '--quiet', 'main']);
+    writeFileSync(path.join(root, 'retained.txt'), 'current replacement\n', 'utf8');
+    writeFileSync(path.join(root, 'main-only.txt'), 'unrelated later main work\n', 'utf8');
+    git(root, ['add', 'retained.txt', 'main-only.txt']);
+    git(root, ['commit', '--quiet', '-m', 'current main evolution']);
+    const currentMainSha = git(root, ['rev-parse', 'HEAD']);
+    const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
 
-  return Object.freeze({
-    root,
-    mergeBaseSha,
-    mergeBaseTreeSha,
-    headSha,
-    headTreeSha,
-    currentMainSha,
-    currentMainTreeSha
-  });
+    return Object.freeze({
+      root,
+      mergeBaseSha,
+      mergeBaseTreeSha,
+      headSha,
+      headTreeSha,
+      currentMainSha,
+      currentMainTreeSha
+    });
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function createRepositoryFixture(): RepositoryFixture {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-supersession-review-'));
-  git(root, ['init', '--quiet', '--initial-branch=main']);
-  git(root, ['config', 'user.name', 'SEC Test']);
-  git(root, ['config', 'user.email', 'sec-test@example.invalid']);
-  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+  try {
+    git(root, ['init', '--quiet', '--initial-branch=main']);
+    git(root, ['config', 'user.name', 'SEC Test']);
+    git(root, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
-  writeFileSync(path.join(root, 'retained.txt'), 'closed branch behavior\n', 'utf8');
-  writeFileSync(path.join(root, 'superseded.txt'), 'old obligation\n', 'utf8');
-  git(root, ['add', 'retained.txt', 'superseded.txt']);
-  git(root, ['commit', '--quiet', '-m', 'closed branch head']);
-  const headSha = git(root, ['rev-parse', 'HEAD']);
-  const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
+    writeFileSync(path.join(root, 'retained.txt'), 'closed branch behavior\n', 'utf8');
+    writeFileSync(path.join(root, 'superseded.txt'), 'old obligation\n', 'utf8');
+    git(root, ['add', 'retained.txt', 'superseded.txt']);
+    git(root, ['commit', '--quiet', '-m', 'closed branch head']);
+    const headSha = git(root, ['rev-parse', 'HEAD']);
+    const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
 
-  writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
-  unlinkSync(path.join(root, 'superseded.txt'));
-  git(root, ['add', 'retained.txt', 'superseded.txt']);
-  git(root, ['commit', '--quiet', '-m', 'current main replacement']);
-  const currentMainSha = git(root, ['rev-parse', 'HEAD']);
-  const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
+    writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
+    unlinkSync(path.join(root, 'superseded.txt'));
+    git(root, ['add', 'retained.txt', 'superseded.txt']);
+    git(root, ['commit', '--quiet', '-m', 'current main replacement']);
+    const currentMainSha = git(root, ['rev-parse', 'HEAD']);
+    const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
 
-  return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha });
+    return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha });
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function reviewSource(fixture: RepositoryFixture, override: Readonly<{

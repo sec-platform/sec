@@ -125,9 +125,13 @@ test('normal value delivery waits for asynchronous release acknowledgement', asy
     acquire: () => 1, use: () => 2,
     release() { notifyRelease(); return ack; }
   }).then(value => { delivered = true; return value; });
-  await enteredRelease;
-  assert.equal(delivered, false);
-  acknowledge();
+  try {
+    await enteredRelease;
+    assert.equal(delivered, false);
+  } finally {
+    acknowledge();
+    await result;
+  }
   assert.equal(await result, 2);
   assert.equal(delivered, true);
 });

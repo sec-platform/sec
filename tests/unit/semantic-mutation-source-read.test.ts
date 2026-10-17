@@ -8,13 +8,18 @@ import { semanticMutationSourcePathEvidenceRevision } from '../../src/compiler/s
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-source-read-'));
-  const transaction = path.join(root, 'transaction');
-  const relativePath = 'source/model/item.yaml';
-  const target = path.join(root, ...relativePath.split('/'));
-  mkdirSync(transaction);
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, 'item: before\n');
-  return { root, transaction, relativePath, target };
+  try {
+    const transaction = path.join(root, 'transaction');
+    const relativePath = 'source/model/item.yaml';
+    const target = path.join(root, ...relativePath.split('/'));
+    mkdirSync(transaction);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, 'item: before\n');
+    return { root, transaction, relativePath, target };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 const read = (f: ReturnType<typeof fixture>) => readSemanticMutationSource(f.root, f.transaction, f.relativePath);

@@ -28,19 +28,33 @@ test('cancellation during format joins the provider and never publishes its late
   const gate = deferred(), started = deferred(), controller = new AbortController(); const reason = new Error('cancel');
   await fixture(async () => { started.resolve(); await gate.promise; return 'formatted'; }, async root => {
     writeFileSync(path.join(root, 'src/a.ts'), 'original');
-    const pending = formatOutputFiles(root, ['src/a.ts'], undefined, controller.signal);
+    let settled = false;
+    const pending = formatOutputFiles(root, ['src/a.ts'], undefined, controller.signal)
+      .finally(() => { settled = true; });
     const rejected = assert.rejects(pending, error => error === reason);
-    await started.promise; controller.abort(reason); gate.resolve(); await rejected;
+    // Keep an unexpected early completion handled until the mandatory join below.
+    void rejected.catch(() => {});
+    try {
+      await started.promise;
+      controller.abort(reason);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(settled, false);
+    } finally {
+      gate.resolve();
+      await rejected;
+    }
     assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'original');
   });
 });
 
 test('all target paths are admitted before formatter configuration or effects', async () => {
-  await fixture(async () => assert.fail('format called'), async root => {
+  const effects: string[] = [];
+  await fixture(async () => { effects.push('format'); return 'formatted'; }, async root => {
     writeFileSync(path.join(root, 'src/a.ts'), 'original');
     await assert.rejects(formatOutputFiles(root, ['src/a.ts', '../escape.ts']));
+    assert.deepEqual(effects, []);
     assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'original');
-  }, async () => assert.fail('configuration loaded before admission'));
+  }, async () => { effects.push('config'); return {}; });
 });
 
 test('duplicate paths format once and unchanged text never asks for a write grant', async () => {

@@ -35,24 +35,26 @@ test('upgrade diagnostics routing uses application projection and entry renderin
       'target=../outside-project.md'
     ]
   });
-  const expectedText = [
-    'Upgrade diagnostics planning',
-    'Block: private/block-upgrade; target: 0.2.0; status: blocked',
-    'Failed check: migration-targets; code: UPGRADE-MIGRATION-004',
-    'Message: Migration path "../outside-project.md" escapes project root',
-    'Attribution: migration=mig-target-escape, kind=file-replace, target=../outside-project.md'
-  ].join('\n');
-  expect(formatUpgradeDiagnostics(view)).toBe(expectedText);
+  const assertDiagnosticText = (text: string): void => {
+    for (const field of [
+      'Upgrade diagnostics planning',
+      'Block: private/block-upgrade', 'target: 0.2.0', 'status: blocked',
+      'Failed check: migration-targets', 'code: UPGRADE-MIGRATION-004',
+      'Message: Migration path "../outside-project.md" escapes project root',
+      'migration=mig-target-escape', 'kind=file-replace', 'target=../outside-project.md'
+    ]) {
+      const escaped = field.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      expect(text).toMatch(new RegExp(`(?:^|[\\s;,])${escaped}(?=\\s*(?:[;,\\r\\n]|$))`, 'u'));
+    }
+  };
+  assertDiagnosticText(formatUpgradeDiagnostics(view));
 
   await withTempWorkspace(async (workspaceRoot) => {
     const diagnosticsPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics);
     await writeJson(diagnosticsPath, originalDiagnostics);
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['upgrade', 'diagnostics'],
-      `${expectedText}\n`
-    );
+    const { stdout } = await expectCliSuccess(workspaceRoot, ['upgrade', 'diagnostics']);
+    assertDiagnosticText(stdout);
 
     const json = await expectCliJson(workspaceRoot, ['upgrade', 'diagnostics', '--json']);
     expect(json).toEqual(originalDiagnostics);

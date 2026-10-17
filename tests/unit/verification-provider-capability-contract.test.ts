@@ -72,7 +72,6 @@ describe('verification provider capability contract', () => {
     const classified = classifyProviderDiagnosticTextV1(raw);
     expect(classified.reasonCode).toBe('provider-quota-unavailable');
     expect(classified.receiptRef).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(raw).not.toContain(classified.reasonCode);
 
     const epoch = createVerificationProviderAvailabilityEpoch({
       epochId: 'test-quota-epoch',

@@ -1751,7 +1751,12 @@ test('graph cut blocks a declaration with same-file type consumers from the cano
 
 test('graph cut keeps Source Program unknown consumer frontiers blocked', () => {
   const fixture = compileGraphCutFixture({
-    'src/example/contract.ts': 'export const UNUSED = 1;\nexport const KEPT = 2;\n'
+    'src/example/contract.ts': [
+      'function register(): number { return 1; }',
+      'export const UNUSED = register();',
+      'export const KEPT = 2;',
+      ''
+    ].join('\n')
   });
   const plan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
@@ -1841,33 +1846,6 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
   expect(() => renderSourceProgramGraphCutReductionPatch(plan, fixture.files)).toThrow(
     'Graph-cut patch requires at least one ready reduction'
   );
-});
-
-test('graph cut rejects unknown consumer-zero before virtual semantic comparison', () => {
-  const fixture = compileGraphCutFixture({
-    'src/example/contract.ts': [
-      'function register(): number { return 1; }',
-      'export const UNUSED = register();',
-      'export const KEPT = 2;',
-      ''
-    ].join('\n')
-  });
-  const plan = compileSourceProgramGraphCutReductionPlan(
-    fixture.model,
-    fixture.files,
-    compileGraphCutProviderReceipt(fixture, [{
-      path: 'src/example/contract.ts',
-      name: 'UNUSED'
-    }]),
-    graphCutContext(fixture)
-  );
-
-  expect(plan.reductions).toContainEqual(expect.objectContaining({
-    path: 'src/example/contract.ts',
-    name: 'UNUSED',
-    status: 'blocked',
-    reason: 'canonical Source Program consumer frontier is unknown; unused provider evidence cannot authorize deletion'
-  }));
 });
 
 test('graph cut blocks compiler-resolved cross-file aliases and re-exports', () => {

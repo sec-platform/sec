@@ -74,15 +74,19 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(resolution.status).toBe('ready');
     if (resolution.status !== 'ready') return;
-    const target = path.join(root, 'nested', 'transient.txt');
-    await writeFile(target, 'transient', 'utf8');
-    await rm(target);
-    const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
-    expect(settlement.status).toBe('events');
-    if (settlement.status !== 'events') return;
-    expect(settlement.events.some(({ path: observedPath }) => (
-      observedPath.replace(/\\/gu, '/') === 'nested/transient.txt'
-    ))).toBeTrue();
+    try {
+      const target = path.join(root, 'nested', 'transient.txt');
+      await writeFile(target, 'transient', 'utf8');
+      await rm(target);
+      const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+      expect(settlement.status).toBe('events');
+      if (settlement.status !== 'events') return;
+      expect(settlement.events.some(({ path: observedPath }) => (
+        observedPath.replace(/\\/gu, '/') === 'nested/transient.txt'
+      ))).toBeTrue();
+    } finally {
+      await settleWindowsRepositoryChangeObserver(resolution.observer);
+    }
   })
 );
 
@@ -97,13 +101,17 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(resolution.status).toBe('ready');
     if (resolution.status !== 'ready') return;
-    await writeFile(target, 'changed', 'utf8');
-    await writeFile(target, 'stable', 'utf8');
-    const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
-    expect(settlement.status).toBe('events');
-    if (settlement.status !== 'events') return;
-    expect(settlement.events.some(({ action, path: observedPath }) => (
-      action === 'modified' && observedPath.replace(/\\/gu, '/') === 'nested/stable.txt'
-    ))).toBeTrue();
+    try {
+      await writeFile(target, 'changed', 'utf8');
+      await writeFile(target, 'stable', 'utf8');
+      const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+      expect(settlement.status).toBe('events');
+      if (settlement.status !== 'events') return;
+      expect(settlement.events.some(({ action, path: observedPath }) => (
+        action === 'modified' && observedPath.replace(/\\/gu, '/') === 'nested/stable.txt'
+      ))).toBeTrue();
+    } finally {
+      await settleWindowsRepositoryChangeObserver(resolution.observer);
+    }
   })
 );

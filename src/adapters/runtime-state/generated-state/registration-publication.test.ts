@@ -56,8 +56,9 @@ test('caller-shaped publication authority cannot publish through a live native r
   const value = await fixture();
   const backend = createGeneratedStateRegistrationMutationBackend();
   const resource = await backend.acquireMutation({ workspaceRoot: value.repositoryRoot, ...value.options });
-  const before = await registrationBytes(value.store.registrationsRoot);
+  let before: Awaited<ReturnType<typeof registrationBytes>>;
   try {
+    before = await registrationBytes(value.store.registrationsRoot);
     for (const candidate of [{}, { kind: 'generated-state-publication-authority' }]) {
       expect(() => backend.publishRegistration(resource, candidate as never)).toThrow();
       expect(await registrationBytes(value.store.registrationsRoot)).toEqual(before);

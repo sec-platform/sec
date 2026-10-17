@@ -357,38 +357,6 @@ test('Review provider quota creates one repository-scoped deny-only availability
   }))).toMatchObject({ status: 'unavailable', sourceCommentId: '307' });
 });
 
-test('Review provider availability fails closed on bounded-census exhaustion and visited-page drift', async () => {
-  const exhausted = new FakeTransport();
-  exhausted.repositoryIssueComments = Array.from({ length: 65 }, (_, index) => [
-    botIssueComment('ordinary Codex provider prose', {
-      id: String(400 + index),
-      createdAt: '2026-08-09T13:59:00.000Z'
-    })
-  ]);
-  expect((await evaluateReviewProviderAvailabilityObservation(exhausted, {
-    repository: 'sec-platform/sec',
-    observedAt: '2026-08-09T14:01:00.000Z'
-  }))).toMatchObject({ status: 'unresolved', reason: 'pagination-budget-exhausted' });
-
-  let firstPageReads = 0;
-  const drifting = {
-    repositoryIssueCommentPage(_repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation> {
-      if (after !== null) throw new Error('unexpected second page');
-      firstPageReads += 1;
-      return {
-        nodes: [],
-        hasNextPage: false,
-        endCursor: null,
-        pageDigest: `sha256:${(firstPageReads === 1 ? 'a' : 'b').repeat(64)}`
-      };
-    }
-  };
-  expect((await evaluateReviewProviderAvailabilityObservation(drifting, {
-    repository: 'sec-platform/sec',
-    observedAt: '2026-08-09T14:01:00.000Z'
-  }))).toMatchObject({ status: 'unresolved', reason: 'provider-comment-page-drift' });
-});
-
 test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', async () => {
   expect(shouldPublishMaintainerReviewWakeup({ reviewBarrierStatus: 'waiting',
     localVerificationStatus: 'passed', hostedArtifactPresent: false })).toBe(true);
@@ -622,7 +590,11 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
   });
 
   const exhausted = new FakeTransport();
-  exhausted.repositoryIssueComments = Array.from({ length: 65 }, () => []);
+  exhausted.repositoryIssueComments = Array.from({ length: 65 }, (_, index) => [
+    botIssueComment('ordinary Codex provider prose', {
+      id: String(600 + index), createdAt: '2026-08-09T13:59:00.000Z'
+    })
+  ]);
   expect((await evaluateReviewProviderAvailabilityObservation(exhausted, {
     repository: 'sec-platform/sec',
     observedAt
@@ -1015,8 +987,8 @@ for (const [mode, first, second] of privateGhProviderBoundaryCases) {
     if (left.status !== PROVIDER_SCHEMA_UNSUPPORTED_STATUS
       || right.status !== PROVIDER_SCHEMA_UNSUPPORTED_STATUS) throw new Error('expected typed provider shape failure');
     expect(left.responseDigest).not.toBe(right.responseDigest);
-    expect(JSON.stringify(left)).not.toContain(first);
-    expect(JSON.stringify(right)).not.toContain(second);
+    expect(JSON.stringify(left)).not.toContain(JSON.stringify(first).slice(1, -1));
+    expect(JSON.stringify(right)).not.toContain(JSON.stringify(second).slice(1, -1));
   }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 }
 
@@ -2353,7 +2325,7 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
   expect(rehydrated.preparation.recovery.path).toBe(localRecoveryPath);
   expect(rehydrated.preparation.worktreePathsAtPreparation).toEqual([]);
   expect(rehydrated.foreignWorktreeObservations).toHaveLength(1);
-  expect(JSON.stringify(rehydrated.foreignWorktreeObservations)).not.toContain(remoteWorktreePath);
+  expect(JSON.stringify(rehydrated.foreignWorktreeObservations)).not.toContain(JSON.stringify(remoteWorktreePath).slice(1, -1));
   expect(rehydrated.attempts).toEqual(local.attempts);
   expect(rehydrated.preparation.preparationDigest).toBe(remotePreparation.preparationDigest);
   const authorization = authorizeBranchCloseout({

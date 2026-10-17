@@ -48,15 +48,20 @@ function gitReadOperation() {
 
 async function createRepository(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
-  git(root, ['init', '--quiet']);
-  git(root, ['config', 'user.email', 'tests@example.com']);
-  git(root, ['config', 'user.name', 'SEC Tests']);
-  git(root, ['config', 'core.autocrlf', 'false']);
-  await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text eol=lf\n');
-  await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = true;\n');
-  git(root, ['add', '--all']);
-  git(root, ['commit', '--quiet', '-m', 'initial']);
-  return root;
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    git(root, ['config', 'core.autocrlf', 'false']);
+    await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text eol=lf\n');
+    await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = true;\n');
+    git(root, ['add', '--all']);
+    git(root, ['commit', '--quiet', '-m', 'initial']);
+    return root;
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
@@ -447,11 +452,14 @@ test.skipIf(process.platform !== 'win32')('repository mutation fence shares one 
         });
         expect(resolution.status).toBe('ready');
         if (resolution.status !== 'ready') return 1;
-        nestedSessionReady = true;
-        const head = await resolution.session.run(['rev-parse', '--verify', 'HEAD^{commit}']);
-        expect(head.kind).toBe('completed');
-        await resolution.session.close?.();
-        return 0;
+        try {
+          nestedSessionReady = true;
+          const head = await resolution.session.run(['rev-parse', '--verify', 'HEAD^{commit}']);
+          expect(head.kind).toBe('completed');
+          return 0;
+        } finally {
+          await resolution.session.close?.();
+        }
       },
       { operation, repositoryRoot: root }
     );

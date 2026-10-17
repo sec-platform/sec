@@ -35,11 +35,16 @@ function fixture(): Readonly<{
   parent: ReturnType<typeof inspectNoFollowDirectoryChain>['target'];
 }> {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-physical-mutation-lease-'));
-  mkdirSync(path.join(root, 'lease-parent'));
-  return Object.freeze({
-    root,
-    parent: inspectNoFollowDirectoryChain(path.join(root, 'lease-parent'), 'lease test parent').target
-  });
+  try {
+    mkdirSync(path.join(root, 'lease-parent'));
+    return Object.freeze({
+      root,
+      parent: inspectNoFollowDirectoryChain(path.join(root, 'lease-parent'), 'lease test parent').target
+    });
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function ownerBytes(owner: PhysicalMutationLeaseOwner): Buffer {

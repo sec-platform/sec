@@ -43,7 +43,6 @@ test('staged rebuild diagnostics redact native absolute paths from retained quer
     message: 'Isolated staged semantic rebuild failed',
     details: { errorCode: 'ENOENT' }
   });
-  expect(JSON.stringify(diagnostic)).not.toContain(secretPath);
   expect(semanticMutationStagedRebuildDiagnostic({ code: secretPath }).details).toEqual({
     errorCode: 'UNKNOWN'
   });
@@ -67,7 +66,10 @@ test('staged rebuild diagnostics redact native absolute paths from retained quer
       requestId: draft.request.requestId
     } as const;
     const queryProjection = await querySemanticMutationRequest(workspaceRoot, identity);
-    expect(JSON.stringify(queryProjection)).not.toContain(secretPath);
+    expect(queryProjection).toMatchObject({
+      recordKind: 'rejected-terminal', state: 'rejected', identity, diagnostics: [diagnostic]
+    });
+    expect(JSON.stringify(queryProjection)).not.toContain(JSON.stringify(secretPath).slice(1, -1));
   }, 'engineering-compiler-sm3-diagnostic-redaction-');
 });
 

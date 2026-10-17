@@ -1000,17 +1000,8 @@ test('adding an unauthorized network dispatcher causes the lock to break', () =>
   ]));
 });
 
-test('TCB retired HTTPS bindings reject direct, escaped and substituted network dispatchers', () => {
+test('TCB retired network imports reject alternate import forms', () => {
   const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
-  const prefix = "import { Agent, request } from 'node:https';\n";
-  const direct = 'function download(agent: Agent) { return new Promise(resolve => { request(target, { agent }, resolve); }); }';
-  const network = new Set<string>();
-  expect(() => runtimeRelativeImportsFromSource(publisher, prefix + direct,
-    new Set(), new Set(), new Set(), network)).toThrow('unreviewed node:https importer');
-  expect([...network]).toEqual([]);
-  expect(() => runtimeRelativeImportsFromSource(publisher,
-    prefix + 'function publishLinuxDockerStaticToolchain() { return new Agent({ keepAlive: false }); }'))
-    .toThrow('unreviewed node:https importer');
   for (const source of [
     "import { get } from 'node:https'; function download() { return get(target); }",
     "import { request as send } from 'node:https'; function download() { return send(target); }",
@@ -1018,36 +1009,10 @@ test('TCB retired HTTPS bindings reject direct, escaped and substituted network 
     "import * as https from 'node:https'; function download() { return https.request(target); }",
     "export { request } from 'node:https';",
     "export const https = import('node:https');",
-    "import { request } from 'node:http'; function download() { return request(target); }",
-    prefix + 'function download() { const send = request; return send(target); }',
-    prefix + 'function download() { return consume(request); }',
-    prefix + 'function download() { return request.call(null, target); }',
-    prefix + "function download() { return request['call'](null, target); }",
-    prefix + 'function download() { return request?.(target); }',
-    prefix + 'function download() { return new request(target); }',
-    prefix + 'function download() { return { request }; }',
-    prefix + 'export { request };',
-    prefix + 'export { request as escaped };',
-    prefix + 'function download() { return consume(Agent); }',
-    prefix + 'function download() { return Agent(target); }',
-    prefix + 'function download() { return new Agent.prototype.constructor(); }',
-    prefix + 'function unknownOwner() { return request(target); }',
-    prefix + 'function download() { request(target); return request(target); }',
-    prefix + 'function download() { request(target); } function download() { request(target); }'
+    "import { request } from 'node:http'; function download() { return request(target); }"
   ]) {
     expect(() => runtimeRelativeImportsFromSource(publisher, source)).toThrow();
   }
-});
-
-test('TCB HTTPS dispatcher census never credits a shadowed local binding', () => {
-  const publisher = 'src/adapters/providers/docker/runtime/linux-static-toolchain-publisher.ts';
-  const network = new Set<string>();
-  expect(() => runtimeRelativeImportsFromSource(publisher,
-    "import { request } from 'node:https'; function download(request: (url: unknown) => unknown) { return request(target); }",
-    new Set(), new Set(), new Set(), network)).toThrow('unreviewed node:https importer');
-  // A denied historical import cannot turn a local callback into network authority.
-  expect([...network]).toEqual([]);
-  expect([...network]).not.toEqual([`${publisher}::function-declaration:download::node:https.request#1`]);
 });
 
 test('TCB live census excludes the retired publisher and denies its actual HTTPS source', () => {

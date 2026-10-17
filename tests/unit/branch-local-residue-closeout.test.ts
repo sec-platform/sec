@@ -84,93 +84,98 @@ function writeDevelopmentCommitJournal(repositoryRoot: string, target: string,
 
 function createEffectFixture(label: string) {
   const root = mkdtempSync(path.join(tmpdir(), `sec-local-residue-${label}-`));
-  const repositoryRoot = path.join(root, 'repository');
-  const recoveryRoot = path.join(root, 'recovery');
-  mkdirSync(repositoryRoot);
-  git(repositoryRoot, ['init', '-b', 'main']);
-  git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-  git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
-  writeFileSync(path.join(repositoryRoot, 'base.txt'), 'base\n');
-  git(repositoryRoot, ['add', 'base.txt']);
-  git(repositoryRoot, ['commit', '-m', 'base']);
-  git(repositoryRoot, ['checkout', '-b', 'fix/example']);
-  writeFileSync(path.join(repositoryRoot, 'feature.txt'), 'feature\n');
-  git(repositoryRoot, ['add', 'feature.txt']);
-  git(repositoryRoot, ['commit', '-m', 'feature']);
-  const headSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-  git(repositoryRoot, ['checkout', 'main']);
-  git(repositoryRoot, ['merge', '--no-ff', 'fix/example', '-m', 'merge feature']);
-  const mainSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-  git(repositoryRoot, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
-  git(repositoryRoot, ['branch', 'release', 'main']);
-  git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);
-  git(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release']);
-  const calls: string[][] = [];
-  const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
-    calls.push([command, ...args]);
-    if (command === 'gh') {
-      if (args[0] === 'repo') {
-        if (JSON.stringify(args) !== JSON.stringify([
-          'repo', 'view', 'sec-platform/sec', '--json', 'nameWithOwner,defaultBranchRef'
-        ])) {
+  try {
+    const repositoryRoot = path.join(root, 'repository');
+    const recoveryRoot = path.join(root, 'recovery');
+    mkdirSync(repositoryRoot);
+    git(repositoryRoot, ['init', '-b', 'main']);
+    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
+    git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
+    writeFileSync(path.join(repositoryRoot, 'base.txt'), 'base\n');
+    git(repositoryRoot, ['add', 'base.txt']);
+    git(repositoryRoot, ['commit', '-m', 'base']);
+    git(repositoryRoot, ['checkout', '-b', 'fix/example']);
+    writeFileSync(path.join(repositoryRoot, 'feature.txt'), 'feature\n');
+    git(repositoryRoot, ['add', 'feature.txt']);
+    git(repositoryRoot, ['commit', '-m', 'feature']);
+    const headSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    git(repositoryRoot, ['checkout', 'main']);
+    git(repositoryRoot, ['merge', '--no-ff', 'fix/example', '-m', 'merge feature']);
+    const mainSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    git(repositoryRoot, ['remote', 'add', 'origin', 'https://github.com/sec-platform/sec.git']);
+    git(repositoryRoot, ['branch', 'release', 'main']);
+    git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);
+    git(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release']);
+    const calls: string[][] = [];
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      calls.push([command, ...args]);
+      if (command === 'gh') {
+        if (args[0] === 'repo') {
+          if (JSON.stringify(args) !== JSON.stringify([
+            'repo', 'view', 'sec-platform/sec', '--json', 'nameWithOwner,defaultBranchRef'
+          ])) {
+            return {
+              status: 1,
+              stdout: Buffer.alloc(0),
+              stderr: Buffer.from(`unexpected gh repo view argv: ${args.join(' ')}`)
+            };
+          }
           return {
-            status: 1,
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.from(`unexpected gh repo view argv: ${args.join(' ')}`)
+            status: 0,
+            stdout: Buffer.from(JSON.stringify({
+              nameWithOwner: 'sec-platform/sec',
+              defaultBranchRef: { name: 'main' }
+            })),
+            stderr: Buffer.alloc(0)
           };
         }
         return {
           status: 0,
-          stdout: Buffer.from(JSON.stringify({
-            nameWithOwner: 'sec-platform/sec',
-            defaultBranchRef: { name: 'main' }
-          })),
+          stdout: Buffer.from(JSON.stringify([{
+            number: 42,
+            headRefName: 'fix/example',
+            headRefOid: headSha,
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergeCommit: { oid: mainSha },
+            url: 'https://github.com/sec-platform/sec/pull/42'
+          }])),
           stderr: Buffer.alloc(0)
         };
       }
+      if (args.includes('ls-remote')) {
+        return {
+          status: 0,
+          stdout: Buffer.from(`${mainSha}\trefs/heads/main\n`),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      const result = spawnSync('git', [...args], {
+        cwd,
+        ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
+        encoding: null,
+        windowsHide: true
+      });
       return {
-        status: 0,
-        stdout: Buffer.from(JSON.stringify([{
-          number: 42,
-          headRefName: 'fix/example',
-          headRefOid: headSha,
-          baseRefName: 'main',
-          state: 'MERGED',
-          mergeCommit: { oid: mainSha },
-          url: 'https://github.com/sec-platform/sec/pull/42'
-        }])),
-        stderr: Buffer.alloc(0)
+        status: result.status,
+        stdout: Buffer.from(result.stdout ?? ''),
+        stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
       };
-    }
-    if (args.includes('ls-remote')) {
-      return {
-        status: 0,
-        stdout: Buffer.from(`${mainSha}\trefs/heads/main\n`),
-        stderr: Buffer.alloc(0)
-      };
-    }
-    const result = spawnSync('git', [...args], {
-      cwd,
-      ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
-      encoding: null,
-      windowsHide: true
-    });
-    return {
-      status: result.status,
-      stdout: Buffer.from(result.stdout ?? ''),
-      stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
     };
-  };
-  return {
-    root,
-    repositoryRoot,
-    recoveryRoot,
-    headSha,
-    mainSha,
-    calls,
-    run,
-    dispose: () => rmSync(root, { recursive: true, force: true })
-  };
+    return {
+      root,
+      repositoryRoot,
+      recoveryRoot,
+      headSha,
+      mainSha,
+      calls,
+      run,
+      dispose: () => rmSync(root, { recursive: true, force: true })
+    };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function completedDuplicateOperationReceipt(input: Readonly<{
@@ -304,31 +309,36 @@ function completedDuplicateOperationReceipt(input: Readonly<{
 
 function createSuccessorFixture(label: string) {
   const fixture = createEffectFixture(label);
-  git(fixture.repositoryRoot, ['checkout', '-b', 'codex/source']);
-  writeFileSync(path.join(fixture.repositoryRoot, 'source-only.txt'), 'preserved outside main\n');
-  git(fixture.repositoryRoot, ['add', 'source-only.txt']);
-  git(fixture.repositoryRoot, ['commit', '-m', 'source outside main']);
-  const sourceSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-  git(fixture.repositoryRoot, ['checkout', '-b', 'codex/successor']);
-  writeFileSync(path.join(fixture.repositoryRoot, 'successor.txt'), 'successor\n');
-  git(fixture.repositoryRoot, ['add', 'successor.txt']);
-  git(fixture.repositoryRoot, ['commit', '-m', 'preserving successor']);
-  const successorSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
-  git(fixture.repositoryRoot, ['checkout', 'main']);
-  const remoteHeads: Record<string, string> = { main: fixture.mainSha, 'codex/successor': successorSha };
-  const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
-    if (command === 'gh' && args[0] === 'pr') {
-      throw new Error('Merged PR observation is unavailable for the independent successor route.');
-    }
-    if (command === 'git' && args.includes('ls-remote')) {
-      return { status: 0, stdout: Buffer.from(Object.entries(remoteHeads)
-        .map(([branch, head]) => `${head}\trefs/heads/${branch}\n`).join('')), stderr: Buffer.alloc(0) };
-    }
-    return fixture.run(command, args, cwd, input);
-  };
-  return { ...fixture, sourceSha, successorSha, remoteHeads, run,
-    retainedTargets: [{ branch: 'codex/source', expectedHeadSha: sourceSha,
-      successor: { ref: 'refs/heads/codex/successor', expectedHeadSha: successorSha } }] };
+  try {
+    git(fixture.repositoryRoot, ['checkout', '-b', 'codex/source']);
+    writeFileSync(path.join(fixture.repositoryRoot, 'source-only.txt'), 'preserved outside main\n');
+    git(fixture.repositoryRoot, ['add', 'source-only.txt']);
+    git(fixture.repositoryRoot, ['commit', '-m', 'source outside main']);
+    const sourceSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryRoot, ['checkout', '-b', 'codex/successor']);
+    writeFileSync(path.join(fixture.repositoryRoot, 'successor.txt'), 'successor\n');
+    git(fixture.repositoryRoot, ['add', 'successor.txt']);
+    git(fixture.repositoryRoot, ['commit', '-m', 'preserving successor']);
+    const successorSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryRoot, ['checkout', 'main']);
+    const remoteHeads: Record<string, string> = { main: fixture.mainSha, 'codex/successor': successorSha };
+    const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
+      if (command === 'gh' && args[0] === 'pr') {
+        throw new Error('Merged PR observation is unavailable for the independent successor route.');
+      }
+      if (command === 'git' && args.includes('ls-remote')) {
+        return { status: 0, stdout: Buffer.from(Object.entries(remoteHeads)
+          .map(([branch, head]) => `${head}\trefs/heads/${branch}\n`).join('')), stderr: Buffer.alloc(0) };
+      }
+      return fixture.run(command, args, cwd, input);
+    };
+    return { ...fixture, sourceSha, successorSha, remoteHeads, run,
+      retainedTargets: [{ branch: 'codex/source', expectedHeadSha: sourceSha,
+        successor: { ref: 'refs/heads/codex/successor', expectedHeadSha: successorSha } }] };
+  } catch (error) {
+    fixture.dispose();
+    throw error;
+  }
 }
 
 test('explicit remote successor preserves a source absent from main and resumes its durable v3 selection', async () => {

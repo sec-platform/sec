@@ -1135,9 +1135,11 @@ test('executor failure is durably cancelled and its diagnostic is bounded', asyn
       }
     });
     expect(result.disposition).toBe('blocked');
+    expect(result.physicalExecution).toBe(true);
     expect(result.state).toBe('cancelled');
     expect(result.terminal).toBeNull();
     expect(result.reason).toContain('executor threw: line one line two');
+    expect(result.reason).toContain('durably cancelled');
     const journal = readVerificationActionJournal(repositoryRoot, key.actionKey);
     expect(journal.latestState).toBe('cancelled');
     expect(journal.events.at(-1)?.note).toBe(result.reason);
@@ -1297,32 +1299,6 @@ test('persisted running and queued actions without a live owner are durably canc
     } finally {
       rmSync(repositoryRoot, { recursive: true, force: true });
     }
-  }
-});
-
-test('executor failure settles the durable action as cancelled before releasing its claim', async () => {
-  const repositoryRoot = root();
-  try {
-    const key = action('executor-failure-cancelled');
-    const result = await new VerificationActionRunner().execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: () => {
-        throw new Error('provider setup failed');
-      }
-    });
-    expect(result).toMatchObject({
-      disposition: 'blocked',
-      physicalExecution: true,
-      state: 'cancelled',
-      terminal: null
-    });
-    expect(result.reason).toContain('durably cancelled');
-    expect(readVerificationActionJournal(repositoryRoot, key.actionKey).latestState)
-      .toBe('cancelled');
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
 

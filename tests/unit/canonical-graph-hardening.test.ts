@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
-  canonicalEquals,
   canonicalJson,
   cloneAndDeepFreeze,
   deepFreeze,
@@ -125,13 +124,6 @@ test('canonical JSON treats __proto__ and constructor as data keys', () => {
   assert.equal(Object.hasOwn(Object.prototype, 'safe'), false);
 });
 
-test('canonical hashes and equality retain key-order invariance and shared-value equivalence', () => {
-  const shared = { z: 1, a: [true, null] };
-  const first = { b: shared, a: shared };
-  const second = { a: { a: [true, null], z: 1 }, b: { z: 1, a: [true, null] } };
-  assert.equal(canonicalEquals(first, second), true);
-  assert.equal(sha256(first), sha256(second));
-});
 
 test('canonical normalization does not mutate frozen inputs', () => {
   const input = Object.freeze({ b: Object.freeze([2, 1]), a: Object.freeze({ n: -0 }) });

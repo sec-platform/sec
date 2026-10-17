@@ -19,7 +19,7 @@ import {
   type OperationDigest,
   type OperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
-import { ResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResources } from '../../../../execution/resource-settlement.ts';
 import {
   issueIndependentProviderProcessCapability
 } from './independent-provider-process.ts';
@@ -120,35 +120,43 @@ function retainTestBoundary(auxiliaryPath?: string): Readonly<{
   dispose(): void;
 }> {
   const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'session test executable');
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(compilerRoot, 'session test cwd'),
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-    'session test cwd'
-  );
-  const auxiliary = auxiliaryPath === undefined
-    ? null
-    : retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(path.dirname(auxiliaryPath), 'session test auxiliary parent'),
-      path.basename(auxiliaryPath),
-      undefined,
-      'session test provider auxiliary',
-      5,
-      'ordinary-file'
+  let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
+  let auxiliary: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+  const cleanup = [
+    { label: 'session test auxiliary', settle: () => auxiliary?.dispose() },
+    { label: 'session test cwd', settle: () => workingDirectory?.dispose() },
+    { label: 'session test executable', settle: () => executable.dispose() }
+  ];
+  try {
+    workingDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(compilerRoot, 'session test cwd'),
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'session test cwd'
     );
-  return Object.freeze({
-    boundary: issueRetainedCommandBoundary({
-      executable,
-      workingDirectory,
-      ...(auxiliary === null ? {} : {
-        auxiliaryInputs: [{ capability: auxiliary, kind: 'ordinary-file' as const }]
-      })
-    }),
-    dispose() {
-      auxiliary?.dispose();
-      workingDirectory.dispose();
-      executable.dispose();
-    }
-  });
+    auxiliary = auxiliaryPath === undefined
+      ? undefined
+      : retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(path.dirname(auxiliaryPath), 'session test auxiliary parent'),
+        path.basename(auxiliaryPath),
+        undefined,
+        'session test provider auxiliary',
+        5,
+        'ordinary-file'
+      );
+    return Object.freeze({
+      boundary: issueRetainedCommandBoundary({
+        executable,
+        workingDirectory,
+        ...(auxiliary === undefined ? {} : {
+          auxiliaryInputs: [{ capability: auxiliary, kind: 'ordinary-file' as const }]
+        })
+      }),
+      dispose() { settleResources({ cleanup }); }
+    });
+  } catch (error) {
+    settleResources({ primary: { label: 'session test boundary construction', error }, cleanup });
+    throw error;
+  }
 }
 
 test('independent provider identity binds retained auxiliary provider inputs', async () => {
@@ -482,8 +490,9 @@ test('process sessions enforce single-flight cancellation and child settlement b
     requirementBindingContext: requirementBindingContext(operation),
     signal: controller.signal
   });
+  let running: Promise<ProcessResourceRunResult> | undefined;
   try {
-    const running = session.run(retained.boundary, [
+    running = session.run(retained.boundary, [
       '--no-env-file',
       '--eval',
       'setInterval(() => {}, 1_000)'
@@ -515,6 +524,11 @@ test('process sessions enforce single-flight cancellation and child settlement b
       failedProcessCount: 1
     });
   } finally {
+    controller.abort(new Error('test cleanup'));
+    // Join the child even when an earlier assertion failed. close() must still
+    // prove native settlement before the caller releases retained inputs.
+    await running?.catch(() => undefined);
+    session.close();
     retained.dispose();
   }
 });
