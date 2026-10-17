@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:generated-edit-1",
+  "title": "Negotiated generated-edit draft",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "base",
+    "artifactRef",
+    "edits"
+  ],
+  "properties": {
+    "kind": {
+      "const": "generated-edit"
+    },
+    "base": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "artifactRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "edits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "old",
+          "new"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "old": {
+            "type": "string",
+            "minLength": 1
+          },
+          "new": {
+            "type": "string"
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "scope": {
+      "enum": [
+        "occurrence",
+        "definition"
+      ]
+    }
+  }
+}

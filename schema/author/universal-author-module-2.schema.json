@@ -1,0 +1,5304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:universal-author-module-2",
+  "title": "Gift unified author module: business, computation and product source (design candidate)",
+  "description": "One proposed structured author language; 27 candidate Definition kinds. Shape acceptance never implies interpreted meaning, method availability, authorization or target implementation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "moduleId",
+    "definitions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.author-module/2"
+    },
+    "moduleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "namespace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dialects": {
+      "type": "object",
+      "minProperties": 0,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "languageId",
+          "constraint"
+        ],
+        "properties": {
+          "languageId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "constraint": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "imports": {
+      "type": "object",
+      "minProperties": 0,
+      "propertyNames": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/Identifier"
+          },
+          {
+            "not": {
+              "const": "local"
+            }
+          },
+          {
+            "not": {
+              "const": "std"
+            }
+          }
+        ]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "moduleId"
+        ],
+        "properties": {
+          "mode": {
+            "enum": [
+              "workspace",
+              "locked"
+            ]
+          },
+          "moduleId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "constraint": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "Optional explicit imports for non-prelude definitions. local is the self alias; std is the frozen pure primitive semantic domain of this Author Writer and cannot be rebound to a user module, library, dynamic Provider or Target alias. Every other imported alias must have a qualified moduleId and a binding/lock."
+    },
+    "definitions": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/Identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Definition"
+      }
+    },
+    "exports": {
+      "type": "object",
+      "minProperties": 0,
+      "propertyNames": {
+        "$ref": "#/$defs/Identifier"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definitionId"
+        ],
+        "properties": {
+          "definitionId": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "annotations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Json"
+      }
+    }
+  },
+  "$defs": {
+    "Identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "minLength": 1
+    },
+    "MemberName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "description": "Record field and variant case name, shared by declarations, construction, access and matching. Definition and binder names retain Identifier."
+    },
+    "Ref": {
+      "type": "string",
+      "pattern": "^(local|[A-Za-z_][A-Za-z0-9_]*):[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "String": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "Field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/Type"
+        },
+        "mutable": {
+          "type": "boolean"
+        },
+        "optional": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "$ref": "#/$defs/Type"
+        },
+        "mode": {
+          "enum": [
+            "in",
+            "borrow",
+            "move",
+            "out",
+            "inout"
+          ]
+        }
+      }
+    },
+    "Effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class"
+      ],
+      "properties": {
+        "class": {
+          "enum": [
+            "state-read",
+            "state-write",
+            "external",
+            "time",
+            "random",
+            "spawn",
+            "await",
+            "io",
+            "alloc",
+            "unsafe"
+          ]
+        },
+        "portRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "resourceRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "Metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "unitRef",
+        "measurementRef"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "unitRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "measurementRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "RequirementLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref"
+      ],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "strength": {
+          "enum": [
+            "hard",
+            "soft"
+          ]
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "roleBindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/BusinessRoleActual"
+          },
+          "description": "Optional explicit role occurrence bindings. Existing goal-scoped exact actor/object bindings remain untouched; conflicting overrides must be rejected by semantic qualification."
+        }
+      }
+    },
+    "Contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "requires": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        },
+        "ensures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        },
+        "preserves": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        },
+        "onError": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        },
+        "progress": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        },
+        "observationScope": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "Type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "name"
+          ],
+          "properties": {
+            "tag": {
+              "const": "scalar"
+            },
+            "name": {
+              "enum": [
+                "unit",
+                "never",
+                "bool",
+                "int",
+                "uint",
+                "decimal",
+                "float",
+                "text",
+                "bytes",
+                "timestamp",
+                "duration"
+              ]
+            },
+            "bits": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "scale": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "overflow": {
+              "enum": [
+                "checked",
+                "wrap",
+                "saturate"
+              ]
+            },
+            "textIndex": {
+              "enum": [
+                "byte",
+                "scalar",
+                "grapheme"
+              ]
+            },
+            "rounding": {
+              "enum": [
+                "ties-even",
+                "toward-zero",
+                "up",
+                "down",
+                "ties-away"
+              ]
+            },
+            "nanPolicy": {
+              "enum": [
+                "preserve-payload",
+                "canonicalize",
+                "reject"
+              ]
+            },
+            "encoding": {
+              "enum": [
+                "hex",
+                "base64",
+                "utf8"
+              ]
+            },
+            "clockRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "ref"
+          ],
+          "properties": {
+            "tag": {
+              "const": "nominal"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Type"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "name"
+          ],
+          "properties": {
+            "tag": {
+              "const": "param"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "interfaceRef"
+          ],
+          "properties": {
+            "tag": {
+              "const": "opaque"
+            },
+            "interfaceRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "fields"
+          ],
+          "properties": {
+            "tag": {
+              "const": "record"
+            },
+            "fields": {
+              "type": "object",
+              "minProperties": 0,
+              "propertyNames": {
+                "$ref": "#/$defs/MemberName"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/Field"
+              }
+            },
+            "open": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "cases"
+          ],
+          "properties": {
+            "tag": {
+              "const": "variant"
+            },
+            "cases": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "$ref": "#/$defs/MemberName"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/Type"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "items"
+          ],
+          "properties": {
+            "tag": {
+              "const": "tuple"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Type"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "inner"
+          ],
+          "properties": {
+            "tag": {
+              "const": "option"
+            },
+            "inner": {
+              "$ref": "#/$defs/Type"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "ok",
+            "error"
+          ],
+          "properties": {
+            "tag": {
+              "const": "result"
+            },
+            "ok": {
+              "$ref": "#/$defs/Type"
+            },
+            "error": {
+              "$ref": "#/$defs/Type"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "item"
+          ],
+          "properties": {
+            "tag": {
+              "const": "sequence"
+            },
+            "item": {
+              "$ref": "#/$defs/Type"
+            },
+            "ordered": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "item"
+          ],
+          "properties": {
+            "tag": {
+              "const": "set"
+            },
+            "item": {
+              "$ref": "#/$defs/Type"
+            },
+            "equalityRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "item"
+          ],
+          "properties": {
+            "tag": {
+              "const": "bag"
+            },
+            "item": {
+              "$ref": "#/$defs/Type"
+            },
+            "equalityRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "key",
+            "value"
+          ],
+          "properties": {
+            "tag": {
+              "const": "map"
+            },
+            "key": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Type"
+            },
+            "keyEqualityRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "params",
+            "returns",
+            "effects"
+          ],
+          "properties": {
+            "tag": {
+              "const": "function"
+            },
+            "params": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Type"
+              },
+              "minItems": 0
+            },
+            "returns": {
+              "$ref": "#/$defs/Type"
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Effect"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "resourceRef",
+            "lifetime"
+          ],
+          "properties": {
+            "tag": {
+              "const": "handle"
+            },
+            "resourceRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "lifetime": {
+              "enum": [
+                "owned",
+                "borrowed",
+                "shared",
+                "managed"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "result"
+          ],
+          "properties": {
+            "tag": {
+              "const": "future"
+            },
+            "result": {
+              "$ref": "#/$defs/Type"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "item",
+            "order"
+          ],
+          "properties": {
+            "tag": {
+              "const": "stream"
+            },
+            "item": {
+              "$ref": "#/$defs/Type"
+            },
+            "order": {
+              "enum": [
+                "total",
+                "per-key",
+                "unordered"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "scalar",
+            "unitRef"
+          ],
+          "properties": {
+            "tag": {
+              "const": "quantity"
+            },
+            "scalar": {
+              "$ref": "#/$defs/Type"
+            },
+            "unitRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "base",
+            "predicateRef"
+          ],
+          "properties": {
+            "tag": {
+              "const": "refinement"
+            },
+            "base": {
+              "$ref": "#/$defs/Type"
+            },
+            "predicateRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      ]
+    },
+    "MatchCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "constructor",
+        "binding",
+        "body"
+      ],
+      "properties": {
+        "constructor": {
+          "$ref": "#/$defs/MemberName"
+        },
+        "binding": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "body": {
+          "$ref": "#/$defs/Expr"
+        }
+      }
+    },
+    "Expr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "type",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "literal"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Json"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "int"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "pattern": "^(0|-?[1-9][0-9]*)$"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "uint"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$"
+                  }
+                }
+              }
+            }
+          ],
+          "description": "Integer literals use canonical decimal strings even within the host safe-integer range. The Type/Value owner separately checks bit-width, bounds and qualified codecs; JSON numbers are not a second integer Writer."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name"
+          ],
+          "properties": {
+            "op": {
+              "const": "var"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "ref"
+          ],
+          "properties": {
+            "op": {
+              "const": "symbol"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "let"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            },
+            "body": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "then",
+            "otherwise"
+          ],
+          "properties": {
+            "op": {
+              "const": "if"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "then": {
+              "$ref": "#/$defs/Expr"
+            },
+            "otherwise": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value",
+            "cases"
+          ],
+          "properties": {
+            "op": {
+              "const": "match"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            },
+            "cases": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/MatchCase"
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "params",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "lambda"
+            },
+            "params": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Param"
+              },
+              "minItems": 0
+            },
+            "body": {
+              "$ref": "#/$defs/Expr"
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Effect"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "callee",
+            "arguments"
+          ],
+          "properties": {
+            "op": {
+              "const": "call"
+            },
+            "callee": {
+              "$ref": "#/$defs/Expr"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Expr"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "fields"
+          ],
+          "properties": {
+            "op": {
+              "const": "record"
+            },
+            "fields": {
+              "type": "object",
+              "minProperties": 0,
+              "propertyNames": {
+                "$ref": "#/$defs/MemberName"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/Expr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "record",
+            "name"
+          ],
+          "properties": {
+            "op": {
+              "const": "field"
+            },
+            "record": {
+              "$ref": "#/$defs/Expr"
+            },
+            "name": {
+              "$ref": "#/$defs/MemberName"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "constructor",
+            "payload"
+          ],
+          "properties": {
+            "op": {
+              "const": "variant"
+            },
+            "constructor": {
+              "$ref": "#/$defs/MemberName"
+            },
+            "payload": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "items"
+          ],
+          "properties": {
+            "op": {
+              "const": "sequence"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Expr"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "steps",
+            "result"
+          ],
+          "properties": {
+            "op": {
+              "const": "do"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Expr"
+              },
+              "minItems": 0
+            },
+            "result": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "portRef",
+            "operation",
+            "arguments"
+          ],
+          "properties": {
+            "op": {
+              "const": "perform"
+            },
+            "portRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "operation": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Expr"
+              },
+              "minItems": 0
+            }
+          },
+          "description": "A declared effect operation, never a live Grant; runtime authorization is separate."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "future"
+          ],
+          "properties": {
+            "op": {
+              "const": "await"
+            },
+            "future": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "error"
+          ],
+          "properties": {
+            "op": {
+              "const": "throw"
+            },
+            "error": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "body",
+            "errorName",
+            "onError"
+          ],
+          "properties": {
+            "op": {
+              "const": "try"
+            },
+            "body": {
+              "$ref": "#/$defs/Expr"
+            },
+            "errorName": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onError": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        }
+      ],
+      "description": "Tagged computation expressions. symbol references local/imported bindings or the frozen reserved std:IntAdd signature family owned by docs/领域/计算基础/文法类型与求值.md#successor-structured-std-int-add. Exactly two same-Type integer arguments; unresolved type/width/overflow returns NeedType. No other std name is implied, and Type tags do not alone supply collection construction Methods."
+    },
+    "PortOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "input",
+        "output",
+        "errors",
+        "effects"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "input": {
+          "$ref": "#/$defs/Type"
+        },
+        "output": {
+          "$ref": "#/$defs/Type"
+        },
+        "errors": {
+          "$ref": "#/$defs/Type"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Effect"
+          },
+          "minItems": 0
+        },
+        "idempotency": {
+          "enum": [
+            "none",
+            "keyed",
+            "naturally-idempotent"
+          ]
+        },
+        "readbackRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "timeoutPolicyRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "Wire": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/Ref"
+        },
+        "to": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "EventDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "payload"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "payload": {
+          "$ref": "#/$defs/Type"
+        }
+      }
+    },
+    "StateTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "event": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Absent means an eventless/completion-sensitive candidate selected by the state semantics; never a wildcard over every externally supplied event."
+        },
+        "to": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "effectRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        },
+        "conditionUse": {
+          "$ref": "#/$defs/BusinessPredicateUse"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "description": "Multiple concurrent compatible targets for one transition. Cannot coexist with to. If both are omitted the transition has no target and only performs its declared abstract actions."
+        },
+        "kind": {
+          "enum": [
+            "internal",
+            "external"
+          ],
+          "description": "External is the target-bearing default; internal is used for targetless or qualified in-scope descendant transitions. State owner defines domain and exit/entry differences."
+        }
+      },
+      "not": {
+        "required": [
+          "to",
+          "targets"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "external"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "to"
+                ]
+              },
+              {
+                "required": [
+                  "targets"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "description": "A transition references the active source state and optionally an external event. A targetless transition is internal, never a silent exit-reentry. Explicit external requires a target. Source ancestry, region conflicts and eventless stabilization are interpreted by the state semantic owner, not by JSON object presence."
+    },
+    "WorkflowStep": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "functionRef"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "compute"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "functionRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "inputs": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "resultBindings": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "onSuccessStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onErrorStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onCancelStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onTimeoutStep": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "operationUse"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "effect"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "operationUse": {
+              "$ref": "#/$defs/OperationUse"
+            },
+            "compensationRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "timeoutRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "resultBindings": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "onSuccessStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onErrorStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onCancelStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onTimeoutStep": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "resumeKey"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "wait"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "resumeKey": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "conditionUse": {
+              "$ref": "#/$defs/BusinessPredicateUse"
+            },
+            "evidenceOutcomes": {
+              "$ref": "#/$defs/EvidenceOutcomes"
+            },
+            "timeoutRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "resultBindings": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "onSuccessStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onErrorStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onCancelStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onTimeoutStep": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "routes"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "decision"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "routes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/WorkflowBranch"
+              }
+            },
+            "otherwise": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "conditionUse": {
+              "$ref": "#/$defs/BusinessPredicateUse"
+            },
+            "evidenceOutcomes": {
+              "$ref": "#/$defs/EvidenceOutcomes"
+            },
+            "selectionPolicy": {
+              "enum": [
+                "exclusive",
+                "explicit-priority"
+              ],
+              "description": "Required for multiple candidate routes; exclusive needs qualified disjointness evidence, priority must be explicit and all priorities distinct."
+            },
+            "exclusivityRef": {
+              "$ref": "#/$defs/Ref",
+              "description": "Qualification claim expected to prove that overlapping true route guards are impossible within the declared world and time scope; a Ref is not a proof."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "routes": {
+                    "type": "array",
+                    "minItems": 2
+                  }
+                },
+                "required": [
+                  "routes"
+                ]
+              },
+              "then": {
+                "required": [
+                  "selectionPolicy"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "selectionPolicy": {
+                    "const": "explicit-priority"
+                  }
+                },
+                "required": [
+                  "selectionPolicy"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "routes": {
+                    "items": {
+                      "required": [
+                        "priority"
+                      ]
+                    }
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "routes": {
+                    "items": {
+                      "not": {
+                        "required": [
+                          "priority"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "actorRoleRef",
+            "approvalRef"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "human"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "actorRoleRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "approvalRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "inputs": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "resultBindings": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "timeoutRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "onSuccessStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onErrorStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onCancelStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onTimeoutStep": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "subflowRef"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "subflow"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "subflowRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "inputs": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "resultBindings": {
+              "$ref": "#/$defs/ValueBindings"
+            },
+            "onSuccessStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onErrorStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onCancelStep": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "onTimeoutStep": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "outcome"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "const": "terminal"
+            },
+            "needs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "minItems": 0,
+              "description": "Optional explicit prerequisite step IDs; omitted means the empty set. A result from a step still requires actual causal availability, branch selection and matching workflow scope. Never infer ordering from JSON array position."
+            },
+            "outcome": {
+              "enum": [
+                "succeeded",
+                "failed",
+                "cancelled",
+                "unresolved"
+              ],
+              "description": "This workflow request termination status, NEVER proof that the entire business Goal or external effect is fulfilled."
+            },
+            "resultBindings": {
+              "$ref": "#/$defs/ValueBindings"
+            }
+          }
+        }
+      ],
+      "description": "One discriminated workflow step with exactly one kind-specific vocabulary. needs expresses data readiness, not control transfer; all explicit branches and result uses resolve within this workflow invocation. No implicit array-order execution, missing mandatory effects, or mixed-kind optional fields. The professional Workflow owner defines control, failures, cancellation, timeout and unknown outcomes."
+    },
+    "Endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "request",
+        "response",
+        "errors",
+        "effectRef"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "request": {
+          "$ref": "#/$defs/Type"
+        },
+        "response": {
+          "$ref": "#/$defs/Type"
+        },
+        "errors": {
+          "$ref": "#/$defs/Type"
+        },
+        "effectRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "streaming": {
+          "enum": [
+            "none",
+            "client",
+            "server",
+            "duplex"
+          ]
+        }
+      }
+    },
+    "UiNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "role": {
+          "enum": [
+            "container",
+            "text",
+            "input",
+            "button",
+            "list",
+            "menu",
+            "dialog",
+            "editor",
+            "tree",
+            "panel",
+            "tab",
+            "status"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actionRef": {
+          "$ref": "#/$defs/Ref",
+          "description": "Refers to a domain:meaning of category operation or event, describing an intended UI action, NEVER directly to an effect:port, Workflow or Method. It does not dispatch itself. A component-local activationRoutes edge identifies the controlled UI occurrence and target workflow. Meaning role/authority, data mapping and UI Runtime remain Needs until qualified."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UiNode"
+          },
+          "minItems": 0
+        },
+        "focusPolicyRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "a11yRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "dataBinding": {
+          "$ref": "#/$defs/UiDataBinding"
+        }
+      }
+    },
+    "QueryTerm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "sourceRef"
+          ],
+          "properties": {
+            "op": {
+              "const": "scan"
+            },
+            "sourceRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "source",
+            "predicateRef"
+          ],
+          "properties": {
+            "op": {
+              "const": "filter"
+            },
+            "source": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "predicateRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "source",
+            "fieldRefs"
+          ],
+          "properties": {
+            "op": {
+              "const": "project"
+            },
+            "source": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "fieldRefs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "left",
+            "right",
+            "conditionRef",
+            "joinType"
+          ],
+          "properties": {
+            "op": {
+              "const": "join"
+            },
+            "left": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "right": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "conditionRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "joinType": {
+              "enum": [
+                "inner",
+                "left",
+                "right",
+                "full",
+                "semi",
+                "anti"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "source",
+            "keys",
+            "aggregates"
+          ],
+          "properties": {
+            "op": {
+              "const": "group"
+            },
+            "source": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "keys": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "minItems": 0
+            },
+            "aggregates": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "inputs",
+            "distinct"
+          ],
+          "properties": {
+            "op": {
+              "const": "union"
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/QueryTerm"
+              },
+              "minItems": 2
+            },
+            "distinct": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "source",
+            "orderRefs"
+          ],
+          "properties": {
+            "op": {
+              "const": "sort"
+            },
+            "source": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "orderRefs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "source",
+            "count",
+            "orderingRef"
+          ],
+          "properties": {
+            "op": {
+              "const": "limit"
+            },
+            "source": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "orderingRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "seed",
+            "stepRef",
+            "monotonicityProofRef"
+          ],
+          "properties": {
+            "op": {
+              "const": "fixpoint"
+            },
+            "seed": {
+              "$ref": "#/$defs/QueryTerm"
+            },
+            "stepRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "monotonicityProofRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      ]
+    },
+    "TypeParam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "constraintRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        }
+      }
+    },
+    "Entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "typeRef",
+        "keyFields",
+        "constraints"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "typeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "keyFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "minItems": 1
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0
+        }
+      }
+    },
+    "QualityTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metricRef",
+        "relation",
+        "strength",
+        "thresholdLiteral"
+      ],
+      "properties": {
+        "metricRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "relation": {
+          "enum": [
+            "<=",
+            "<",
+            ">=",
+            ">",
+            "=="
+          ]
+        },
+        "strength": {
+          "enum": [
+            "hard",
+            "soft"
+          ]
+        },
+        "horizonRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "sampleScopeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "thresholdLiteral": {
+          "$ref": "#/$defs/BusinessQuantity"
+        }
+      }
+    },
+    "PolicyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "effect",
+        "subjectRef",
+        "actionRef",
+        "resourceRef"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "effect": {
+          "enum": [
+            "permit",
+            "deny",
+            "oblige"
+          ]
+        },
+        "subjectRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "actionRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "resourceRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorityRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "exceptionRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "description": "Authority-qualified exceptions; reference alone does not override policy."
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Valid only with explicit-priority combining and qualified rule-overlap interpretation."
+        },
+        "conditionUse": {
+          "$ref": "#/$defs/BusinessPredicateUse"
+        },
+        "obligationRef": {
+          "$ref": "#/$defs/Ref",
+          "description": "Mandatory content reference for oblige; actual norm activation, discharge, deadline and exceptions are interpreted by qualified Norm consumer, never inferred from permit/deny."
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "conditionRef",
+              "conditionUse"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "const": "oblige"
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "obligationRef"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "obligationRef"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ComponentUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance",
+        "componentRef"
+      ],
+      "properties": {
+        "instance": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "componentRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "argumentBindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Ref"
+              },
+              {
+                "$ref": "#/$defs/StaticValueActual"
+              }
+            ]
+          },
+          "description": "One occurrence binding per declared component parameter. Resource/capability/policy/observation modes take a typed Ref; value mode takes a tagged non-computational StaticValueActual. Unknown modes, wrong actual shape, missing required slots and nominal mismatches must be rejected by semantic checker. Old Expr arguments remain read-only and are forbidden to current Writer."
+        },
+        "contextBindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/BusinessRoleActual"
+          },
+          "description": "Per-instance bindings for component contextRoles. Separate from static definition argumentBindings; no cross-instance implicit inheritance."
+        }
+      }
+    },
+    "DeploymentNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "placementRef",
+        "instance"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "placementRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "instance": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "description": "Current /2 Writer: selected root-local component instance is mandatory; historical componentRef is not a current field. Placement identity, replica group, actual residency, authority and cross-root sharing retain distinct owners."
+    },
+    "Definition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "core:type"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "typeParams": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TypeParam"
+                  },
+                  "minItems": 0
+                },
+                "type": {
+                  "$ref": "#/$defs/Type"
+                },
+                "visibility": {
+                  "enum": [
+                    "public",
+                    "private"
+                  ]
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "core:constant"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "value"
+              ],
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/Type"
+                },
+                "value": {
+                  "$ref": "#/$defs/Expr"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "core:function"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "parameters",
+                "returns",
+                "body"
+              ],
+              "properties": {
+                "typeParams": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TypeParam"
+                  },
+                  "minItems": 0
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Param"
+                  },
+                  "minItems": 0
+                },
+                "returns": {
+                  "$ref": "#/$defs/Type"
+                },
+                "effects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Effect"
+                  },
+                  "minItems": 0,
+                  "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
+                },
+                "body": {
+                  "$ref": "#/$defs/Expr"
+                },
+                "contract": {
+                  "$ref": "#/$defs/Contract"
+                },
+                "termination": {
+                  "enum": [
+                    "total",
+                    "partial",
+                    "assumed-total"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "core:interface"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "operations"
+              ],
+              "properties": {
+                "operations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/PortOperation"
+                  },
+                  "minItems": 1
+                },
+                "typeParams": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/TypeParam"
+                  },
+                  "minItems": 0
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "domain:meaning"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "parameters",
+                "result",
+                "interpretationRef"
+              ],
+              "properties": {
+                "category": {
+                  "enum": [
+                    "predicate",
+                    "relation",
+                    "operation",
+                    "measurement",
+                    "event"
+                  ]
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/MeaningRole"
+                  }
+                },
+                "result": {
+                  "$ref": "#/$defs/Type"
+                },
+                "interpretationRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "observationRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "authorityRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "scopeRef": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "state:machine"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "states",
+                "initial",
+                "events",
+                "transitions"
+              ],
+              "properties": {
+                "states": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/StateNode"
+                  },
+                  "description": "A single named-node collection. A string is only the atomic shorthand; a structured node specifies compound/parallel/region/final/history. The semantic owner requires unique state identities, valid parent relationships, exactly one qualified initial child per compound/region and a complete region set for each parallel state."
+                },
+                "initial": {
+                  "$ref": "#/$defs/Identifier",
+                  "description": "Single top-level state selected when the machine starts. The initial descendant of each compound/region is declared on that state node. This does not substitute an initial event or a runtime observation."
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventDecl"
+                  },
+                  "minItems": 0
+                },
+                "transitions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/StateTransition"
+                  },
+                  "minItems": 0
+                },
+                "invariants": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "missingTransition": {
+                  "enum": [
+                    "reject",
+                    "ignore",
+                    "queue"
+                  ],
+                  "description": "Omission has the conservative behavior reject; ignore/queue must be an explicit domain decision. Evidence-unknown, forbidden and effect-unknown are never classified as missing transition."
+                },
+                "livenessRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  }
+                },
+                "transitionArbitrationRef": {
+                  "$ref": "#/$defs/Ref",
+                  "description": "Required on a repeated (state,event) unless mutually-exclusive conditions have a qualified proof; never deduce from array order."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "event:stream"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "eventType",
+                "order",
+                "delivery",
+                "replay",
+                "latePolicy"
+              ],
+              "properties": {
+                "eventType": {
+                  "$ref": "#/$defs/Type"
+                },
+                "order": {
+                  "enum": [
+                    "total",
+                    "per-key",
+                    "unordered"
+                  ]
+                },
+                "delivery": {
+                  "enum": [
+                    "at-most-once",
+                    "at-least-once",
+                    "exactly-once-qualified"
+                  ]
+                },
+                "replay": {
+                  "enum": [
+                    "none",
+                    "bounded",
+                    "durable"
+                  ]
+                },
+                "latePolicy": {
+                  "enum": [
+                    "drop",
+                    "reconcile",
+                    "buffer"
+                  ]
+                },
+                "watermarkRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "workflow:plan"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "steps",
+                "entry",
+                "completion",
+                "recovery",
+                "input",
+                "output",
+                "errors"
+              ],
+              "properties": {
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/WorkflowStep"
+                  },
+                  "minItems": 1
+                },
+                "entry": {
+                  "$ref": "#/$defs/Identifier"
+                },
+                "completion": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Identifier"
+                  },
+                  "minItems": 1
+                },
+                "recovery": {
+                  "enum": [
+                    "fail",
+                    "retry",
+                    "compensate",
+                    "manual"
+                  ]
+                },
+                "deadlineRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  }
+                },
+                "input": {
+                  "$ref": "#/$defs/Type"
+                },
+                "output": {
+                  "$ref": "#/$defs/Type"
+                },
+                "errors": {
+                  "$ref": "#/$defs/Type"
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "api:protocol"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "transportRef",
+                "endpoints",
+                "serializationRef"
+              ],
+              "properties": {
+                "transportRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "endpoints": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Endpoint"
+                  },
+                  "minItems": 1
+                },
+                "sessionPolicyRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "compatibilityRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "serializationRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "data:model"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "entities",
+                "consistency"
+              ],
+              "properties": {
+                "entities": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Entity"
+                  },
+                  "minItems": 1
+                },
+                "consistency": {
+                  "enum": [
+                    "strong",
+                    "causal",
+                    "eventual",
+                    "snapshot",
+                    "unspecified"
+                  ]
+                },
+                "migrationPolicyRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "retentionRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "transactionRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "data:query"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "inputRefs",
+                "algebra",
+                "result"
+              ],
+              "properties": {
+                "inputRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "algebra": {
+                  "$ref": "#/$defs/QueryTerm"
+                },
+                "result": {
+                  "$ref": "#/$defs/Type"
+                },
+                "completenessRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "consistencyRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ui:view"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "root",
+                "accessibilityRef"
+              ],
+              "properties": {
+                "root": {
+                  "$ref": "#/$defs/UiNode"
+                },
+                "stateRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "interactionRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "accessibilityRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "layoutPolicyRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "resource:model"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "unitRef",
+                "allocation",
+                "capacityLiteral"
+              ],
+              "properties": {
+                "unitRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "allocation": {
+                  "enum": [
+                    "exclusive",
+                    "shared",
+                    "fractional",
+                    "consumable"
+                  ]
+                },
+                "conservationRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "admissionRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "leaseRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "capacityLiteral": {
+                  "$ref": "#/$defs/NonnegativeBusinessQuantity"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "concurrency:contract"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "scopeRef",
+                "consistency",
+                "ordering",
+                "atomicity"
+              ],
+              "properties": {
+                "scopeRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "consistency": {
+                  "enum": [
+                    "linearizable",
+                    "serializable",
+                    "snapshot",
+                    "eventual",
+                    "custom"
+                  ]
+                },
+                "ordering": {
+                  "enum": [
+                    "total",
+                    "causal",
+                    "per-key",
+                    "unordered"
+                  ]
+                },
+                "atomicity": {
+                  "enum": [
+                    "single-entity",
+                    "transaction",
+                    "none"
+                  ]
+                },
+                "progressRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "cancellationRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "conflictRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "security:policy"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "authorityRef",
+                "rules",
+                "combining"
+              ],
+              "properties": {
+                "authorityRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/PolicyRule"
+                  },
+                  "minItems": 1
+                },
+                "combining": {
+                  "enum": [
+                    "deny-overrides",
+                    "permit-overrides",
+                    "first-applicable",
+                    "explicit-priority"
+                  ]
+                },
+                "revocationRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "auditRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Typed predicate occurrence roles, not a Grant or an automatic policy authority."
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "combining": {
+                        "const": "explicit-priority"
+                      }
+                    },
+                    "required": [
+                      "combining"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "rules": {
+                        "items": {
+                          "required": [
+                            "priority"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "rules": {
+                        "items": {
+                          "not": {
+                            "required": [
+                              "priority"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "effect:port"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "operations",
+                "grantScopeRef"
+              ],
+              "properties": {
+                "operations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/PortOperation"
+                  },
+                  "minItems": 1
+                },
+                "providerRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "grantScopeRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "recoveryRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "observationRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "observation:contract"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "subjectRef",
+                "observerRef",
+                "scopeRef",
+                "completeness"
+              ],
+              "properties": {
+                "subjectRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "observerRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "scopeRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clockRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "completeness": {
+                  "enum": [
+                    "closed",
+                    "open",
+                    "bounded"
+                  ]
+                },
+                "freshnessRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "conflictPolicyRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "quality:contract"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "terms",
+                "measurementAuthorityRef",
+                "comparisonPolicy"
+              ],
+              "properties": {
+                "terms": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/QualityTerm"
+                  },
+                  "minItems": 1
+                },
+                "measurementAuthorityRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "comparisonPolicy": {
+                  "enum": [
+                    "pareto",
+                    "lexicographic",
+                    "weighted-explicit",
+                    "feasibility-only"
+                  ]
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "product:component"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "provides",
+                "requires",
+                "requirements"
+              ],
+              "properties": {
+                "provides": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "requires": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "requirements": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/RequirementLink"
+                  },
+                  "minItems": 0
+                },
+                "implementationRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ComponentParameter"
+                  },
+                  "minItems": 0
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                },
+                "stateParticipations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/StateParticipation"
+                  },
+                  "uniqueItems": true,
+                  "description": "Component hosts or observes explicitly selected state machine occurrences."
+                },
+                "dataAccesses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DataAccess"
+                  },
+                  "uniqueItems": true
+                },
+                "eventParticipations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventParticipation"
+                  },
+                  "uniqueItems": true
+                },
+                "protocolParticipations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ProtocolParticipation"
+                  },
+                  "uniqueItems": true
+                },
+                "resourceParticipations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ResourceParticipation"
+                  },
+                  "uniqueItems": true
+                },
+                "uiParticipations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/UiParticipation"
+                  },
+                  "uniqueItems": true
+                },
+                "observationParticipations": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ObservationParticipation"
+                  },
+                  "uniqueItems": true
+                },
+                "concurrencyUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Explicit typed concurrencyUses member occurrences; no implicit workspace traversal."
+                },
+                "workflowUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Explicit typed workflowUses member occurrences; no implicit workspace traversal."
+                },
+                "policyUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Explicit typed policyUses member occurrences; no implicit workspace traversal."
+                },
+                "qualityUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Explicit typed qualityUses member occurrences; no implicit workspace traversal."
+                },
+                "activationRoutes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ActivationRoute"
+                  },
+                  "description": "Explicit local causal bindings to workflow occurrences. Must reference stable useId values on workflowUses and the appropriate typed member participation in the same component, never raw Definition names or other component instances."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "product:system"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "components",
+                "requirements"
+              ],
+              "properties": {
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ComponentUse"
+                  },
+                  "minItems": 1
+                },
+                "requirements": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/RequirementLink"
+                  },
+                  "minItems": 0,
+                  "description": "Explicit product obligation roots: intent:goal or req:composite; referenced module exports must be resolved and united with component requirements."
+                },
+                "deploymentRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "connections": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SystemConnection"
+                  },
+                  "description": "Instance-qualified edges. Omission denotes no declared internal edges; required port coverage remains a semantic obligation. Legacy wires are rejected by this successor Writer and require explicit migration."
+                },
+                "contextRoles": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ContextRole"
+                  },
+                  "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                },
+                "publicEndpoints": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/PublicEndpoint"
+                  },
+                  "uniqueItems": true,
+                  "description": "Public exposure is instance-qualified, not an unscoped list of interfaces."
+                },
+                "externalRequirements": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ExternalRequirement"
+                  },
+                  "uniqueItems": true,
+                  "description": "Explicit demand on environment supply, cannot silently assume host provides it."
+                },
+                "workflowUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Qualified typed product-level use, separate from component-level member occurrences."
+                },
+                "policyUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Qualified typed product-level use, separate from component-level member occurrences."
+                },
+                "qualityUses": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionUse"
+                  },
+                  "uniqueItems": true,
+                  "description": "Qualified typed product-level use, separate from component-level member occurrences."
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "product:deployment"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "nodes",
+                "environmentRef"
+              ],
+              "properties": {
+                "nodes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DeploymentNode"
+                  },
+                  "minItems": 1
+                },
+                "environmentRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "secretRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                },
+                "rolloutPolicyRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "rollbackRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "dataMigrationRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "native:implementation"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sourceRegion",
+                "language",
+                "symbol",
+                "interfaceRef",
+                "effects",
+                "ownership"
+              ],
+              "properties": {
+                "sourceRegion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "language": {
+                  "enum": [
+                    "typescript",
+                    "rust",
+                    "python",
+                    "sql",
+                    "wasm",
+                    "other"
+                  ]
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "interfaceRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "abiRef": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "effects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Effect"
+                  },
+                  "minItems": 0
+                },
+                "ownership": {
+                  "enum": [
+                    "author",
+                    "supplier"
+                  ]
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "extension:definition"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "dialectRef",
+                "bodySchemaRef",
+                "payload",
+                "bindingRef"
+              ],
+              "properties": {
+                "dialectRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "bodySchemaRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "payload": {
+                  "$ref": "#/$defs/Json"
+                },
+                "bindingRef": {
+                  "$ref": "#/$defs/Ref"
+                }
+              }
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "intent:goal"
+            },
+            "body": {
+              "$ref": "urn:gift:design-schema:intent-body-1"
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "semantic:pattern"
+            },
+            "body": {
+              "$ref": "urn:gift:design-schema:semantic-pattern-1"
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "semantic:pattern-use"
+            },
+            "body": {
+              "$ref": "urn:gift:design-schema:semantic-pattern-use-2"
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "req:composite"
+            },
+            "body": {
+              "$ref": "urn:gift:design-schema:requirement-structure-1"
+            },
+            "qualifiers": {
+              "$ref": "#/$defs/AuthorQualifiers"
+            }
+          }
+        }
+      ]
+    },
+    "BusinessQuantity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "magnitude",
+        "unitRef"
+      ],
+      "properties": {
+        "magnitude": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+        },
+        "unitRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "Design-shape exact decimal author value and declared unit; no Expr evaluation, and no implied qualified unit conversion."
+    },
+    "NonnegativeBusinessQuantity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "magnitude",
+        "unitRef"
+      ],
+      "properties": {
+        "magnitude": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+        },
+        "unitRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "Static nonnegative capacity magnitude; actual capacity and admission require a qualified resource meaning."
+    },
+    "ComponentParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "contractRef",
+        "cardinality",
+        "mode"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contractRef": {
+          "$ref": "#/$defs/Ref",
+          "description": "For mode=value this must resolve to a core:type. For other modes the target Kind is resource:model, core:interface/effect:port, security:policy or observation:contract respectively; nominal and refinement qualifications are distinct."
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "value",
+            "capability",
+            "resource",
+            "policy",
+            "observation"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "description": "Formal non-computational component slot. A bound actual must satisfy the selected contract/nominal refinement; source refs alone are not such evidence."
+    },
+    "WorkflowBranch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nextStep",
+        "whenUse"
+      ],
+      "properties": {
+        "nextStep": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "whenUse": {
+          "$ref": "#/$defs/BusinessPredicateUse"
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Unique per decision if and only if explicit-priority selection is used. Larger integer wins among qualified true branches. Does not replace condition evidence."
+        }
+      },
+      "description": "A qualified business predicate and destination step; no expression and no implicit first-match semantics."
+    },
+    "BusinessRoleActual": {
+      "description": "An explicit noncomputational role actual; its tag names an addressing mode, not a calculation operation. Nominal type, scope and source authority are separately qualified.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "ref"
+          ],
+          "properties": {
+            "source": {
+              "const": "definition"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "role"
+          ],
+          "properties": {
+            "source": {
+              "const": "context"
+            },
+            "role": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "objectRef",
+            "typeRef",
+            "issuerRef",
+            "scopeRef"
+          ],
+          "properties": {
+            "source": {
+              "const": "object"
+            },
+            "objectRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "typeRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "issuerRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "scopeRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "collectionRef",
+            "cardinality"
+          ],
+          "properties": {
+            "source": {
+              "const": "collection"
+            },
+            "collectionRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "cardinality": {
+              "enum": [
+                "set",
+                "bag",
+                "sequence"
+              ]
+            },
+            "completenessRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      ]
+    },
+    "BusinessPredicateUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "meaningRef",
+        "bindings"
+      ],
+      "properties": {
+        "meaningRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "bindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/BusinessRoleActual"
+          }
+        },
+        "scopeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "observationRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "A predicate occurrence with explicit role actuals. Schema shape alone does not check a qualified meaning signature or evaluate a truth value."
+    },
+    "MeaningRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "$ref": "#/$defs/Type"
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        },
+        "scopeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "bindingLevel": {
+          "enum": [
+            "object",
+            "definition"
+          ],
+          "description": "Object instance versus a definition as an object of discourse; omitted defaults to object. This is not nominal-type validation by itself."
+        }
+      },
+      "description": "Open business-meaning argument. Omitted cardinality means one for this proposed Profile, not for an external unqualified Meaning."
+    },
+    "ContextRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typeRef",
+        "cardinality"
+      ],
+      "properties": {
+        "typeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        }
+      },
+      "description": "Typed subject/object slot available in a state or workflow context; it does not assert an existing real-world object."
+    },
+    "AuthorQualifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "scopeRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "subjectRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "authorityRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "validityRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "evidenceDemandRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Ref"
+          }
+        }
+      },
+      "description": "Semantic qualifications attached to one authored definition. Referenced authority/evidence is a requirement to resolve, never an author-issued grant or independent evidence."
+    },
+    "SystemConnectionEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance",
+        "portRef"
+      ],
+      "properties": {
+        "instance": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "portRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "SystemConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "target"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/SystemConnectionEnd"
+        },
+        "target": {
+          "$ref": "#/$defs/SystemConnectionEnd"
+        },
+        "contractRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Ref"
+          }
+        }
+      },
+      "description": "Provider instance and port to consumer instance and port, NOT merely two port names. Target must explicitly require the port; compatibility is a distinct qualified result."
+    },
+    "EvidenceDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "reject",
+            "manual",
+            "wait"
+          ]
+        },
+        "resumeKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "decisionStep": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Named workflow step performed by an authorized actor under the applicable policy; manual does not itself require a human."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "manual"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "decisionStep"
+            ],
+            "not": {
+              "required": [
+                "resumeKey"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "wait"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "resumeKey"
+            ],
+            "not": {
+              "required": [
+                "decisionStep"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "reject"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "decisionStep"
+                  ]
+                },
+                {
+                  "required": [
+                    "resumeKey"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Explicit routing of a qualified predicate evidence outcome, not a means to turn unqualified meanings into business evidence."
+    },
+    "EvidenceOutcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "neither",
+        "both"
+      ],
+      "properties": {
+        "neither": {
+          "$ref": "#/$defs/EvidenceDisposition"
+        },
+        "both": {
+          "$ref": "#/$defs/EvidenceDisposition"
+        }
+      },
+      "description": "NEITHER = insufficient support/refutation; BOTH = conflicting qualified evidence. Uninterpreted/unauthorized => Needs, never a branch."
+    },
+    "DefinitionUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref"
+      ],
+      "properties": {
+        "useId": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Optional stable local name of this member occurrence. Required when another component-local relation addresses this particular use, e.g. activationRoutes. It is not the referenced Definition identity."
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "bindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/BusinessRoleActual"
+          },
+          "description": "Omitted means the empty role binding map. If referenced declaration has required context roles, omission remains a missing binding (not a default object). An explicit empty object has identical semantics."
+        },
+        "scopeRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "A noncomputational occurrence of a reusable typed Definition, with actual role bindings; does not invoke a function or imply its implementation. useId names the occurrence only in its containing product:component or product:system, not in the workspace/global namespace."
+    },
+    "PublicEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "source",
+        "interfaceRef"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "source": {
+          "$ref": "#/$defs/SystemConnectionEnd"
+        },
+        "interfaceRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "exposureScopeRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "A named externally visible product interface, supplied by one particular product component instance; visibility is not permission or target implementation."
+    },
+    "ExternalRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/SystemConnectionEnd"
+        },
+        "providerRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "scopeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "contractRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true
+        }
+      },
+      "description": "One required port is intentionally delegated to an external environment; absent providerRef means demand without supplier. Even a present providerRef still needs authoritative external binding, Grant and target qualification."
+    },
+    "StateParticipation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "role"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "role": {
+          "enum": [
+            "host",
+            "observe"
+          ]
+        }
+      },
+      "description": "Hosting a state-machine lifetime differs from observing an externally hosted state. Neither grants transition authority."
+    },
+    "DataAccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "role"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "role": {
+          "enum": [
+            "owner",
+            "read",
+            "write"
+          ]
+        }
+      },
+      "description": "Independent logical schema ownership, read or write intention; access/ownership does not issue permissions, storage method or transactional guarantees."
+    },
+    "EventParticipation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "role"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "role": {
+          "enum": [
+            "publish",
+            "subscribe"
+          ]
+        }
+      },
+      "description": "Event producer and subscriber are independently typed; delivery, retention and broker supply remain distinct."
+    },
+    "ProtocolParticipation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "role"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "role": {
+          "enum": [
+            "client",
+            "server"
+          ]
+        }
+      },
+      "description": "API client and service provider are separate roles; transport and sessions require qualified implementation."
+    },
+    "ResourceParticipation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "role"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "role": {
+          "enum": [
+            "owner",
+            "provide",
+            "consume"
+          ]
+        }
+      },
+      "description": "Resource ownership, provisioning and consuming are separate from capacity, lease and admission qualification."
+    },
+    "UiParticipation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "roles"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "render",
+              "control"
+            ]
+          }
+        }
+      },
+      "description": "One view occurrence with a nonempty set of UI participation capabilities. Multiple roles must not require duplicating its DefinitionUse and accidentally referring to different rendered trees."
+    },
+    "ObservationParticipation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "use",
+        "role"
+      ],
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/DefinitionUse"
+        },
+        "role": {
+          "enum": [
+            "produce",
+            "consume",
+            "audit"
+          ]
+        }
+      },
+      "description": "Observer production, data consumption, and independent assurance/auditing must not be conflated."
+    },
+    "StaticValueActual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "typeRef",
+        "value"
+      ],
+      "properties": {
+        "source": {
+          "const": "literal"
+        },
+        "typeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "value": {
+          "$ref": "#/$defs/Json"
+        }
+      },
+      "description": "Non-executable static literal for a ComponentParameter whose mode is value. typeRef names a core:type in the occurrence module. Absence, null, collections, units and precision are not interchangeable. The formal contractRef and typed literal must agree; the qualified semantic/type consumer checks actual content, quantity/units/encoding and target support. This field grants no runtime effect and does not evaluate Expr."
+    },
+    "ActivationCause": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "uiUseId",
+            "nodeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ui-action"
+            },
+            "uiUseId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "nodeId": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "streamUseId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "stream-event"
+            },
+            "streamUseId": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "protocolUseId",
+            "endpoint"
+          ],
+          "properties": {
+            "kind": {
+              "const": "api-endpoint"
+            },
+            "protocolUseId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "endpoint": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "stateUseId",
+            "event"
+          ],
+          "properties": {
+            "kind": {
+              "const": "state-event"
+            },
+            "stateUseId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "event": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "scheduleRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "schedule"
+            },
+            "scheduleRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      ],
+      "description": "An explicit event source in an instance: UI control, subscribed event stream, served API endpoint, hosted state-machine event, or qualified schedule. Different sources have different permission, timing, delivery, and payload contracts; this is a discriminated closed union, not an arbitrary relation."
+    },
+    "ActivationRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "cause",
+        "workflowUseId"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "cause": {
+          "$ref": "#/$defs/ActivationCause"
+        },
+        "workflowUseId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "inputBindings": {
+          "$ref": "#/$defs/ValueBindings"
+        }
+      },
+      "description": "One typed causal edge from one occurrence-local event source to a declared workflow occurrence; typed inputBindings maps trigger payload / context / state into workflow inputs. Cross-use role and authority qualification remains required."
+    },
+    "ValueSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "typeRef",
+            "value"
+          ],
+          "properties": {
+            "source": {
+              "const": "literal"
+            },
+            "typeRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "value": {
+              "$ref": "#/$defs/Json"
+            }
+          },
+          "description": "Typed fixed value, independent from core:constant and arbitrary Expr."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "path"
+          ],
+          "properties": {
+            "source": {
+              "const": "input"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
+            }
+          },
+          "description": "Activation cause payload in current workflow invocation."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "role"
+          ],
+          "properties": {
+            "source": {
+              "const": "context"
+            },
+            "role": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+            }
+          },
+          "description": "Context role resolved for this selected root and component occurrence."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "stateUseId",
+            "path"
+          ],
+          "properties": {
+            "source": {
+              "const": "state"
+            },
+            "stateUseId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
+            },
+            "readPolicyRef": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "description": "Hosted/observed state use with explicit consistency and authority qualification."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "stepId",
+            "path"
+          ],
+          "properties": {
+            "source": {
+              "const": "result"
+            },
+            "stepId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*$",
+              "description": "JSON Pointer within the declared, typed payload; not a string-evaluation expression."
+            }
+          },
+          "description": "Output of a predecessor step after success, not a guessable future value."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "slot"
+          ],
+          "properties": {
+            "source": {
+              "const": "resource"
+            },
+            "slot": {
+              "$ref": "#/$defs/Identifier"
+            }
+          },
+          "description": "Explicit capability/resource slot; actual grant not produced by this declaration."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "uiUseId",
+            "nodeId",
+            "path"
+          ],
+          "properties": {
+            "source": {
+              "const": "ui-input"
+            },
+            "uiUseId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "nodeId": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+            }
+          },
+          "description": "Pending value of a concrete input/editor node in the same qualified UI occurrence. Allowed at UI action payload/activation binding; not a globally readable value or secret bypass."
+        }
+      ],
+      "description": "A closed tagged set of value-origin shapes reused only as a schema helper. Each consumer restricts eligible origins and performs its own type/scope checks. NOT a global AnyValue store or computational language."
+    },
+    "ValueBindings": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/Identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/ValueSource"
+      },
+      "description": "Formal parameter name to a typed value-origin at one qualified use site; all names must resolve to its callee signature."
+    },
+    "OperationUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "portRef",
+        "operation"
+      ],
+      "properties": {
+        "portRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "operation": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ValueBindings",
+          "description": "Omission is the empty input binding map; admissible only when the declared operation has no required inputs and defaults (if any) are professionally qualified. Explicit {} is semantically identical."
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/ValueSource"
+        },
+        "resultTypeRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "Port and *one explicit operation* with typed input slots; qualified permission, effects, error and result types remain owned by interface/effect consumers. inputs keys are field names of the operation input record (direct or resolved nominal); for a scalar input use the reserved key value. Target signature/Method refines this mapping."
+    },
+    "UiDataBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "mode"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/ValueSource"
+        },
+        "mode": {
+          "enum": [
+            "display",
+            "edit"
+          ]
+        },
+        "editActionRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "conflictPolicyRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "UI data reads are typed source uses. Editing requires a distinct business action and activation route; it cannot directly mutate arbitrary state/effects."
+    },
+    "StateNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Identifier"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "kind": {
+              "enum": [
+                "atomic",
+                "compound",
+                "parallel",
+                "region",
+                "final",
+                "history-shallow",
+                "history-deep"
+              ]
+            },
+            "parent": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "initial": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "fallback": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "entryWorkflowRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "exitWorkflowRef": {
+              "$ref": "#/$defs/Ref"
+            },
+            "invariantRefs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              }
+            },
+            "activityRefs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "compound",
+                      "region"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "required": [
+                  "initial"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "history-shallow",
+                      "history-deep"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "required": [
+                  "parent",
+                  "fallback"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "region"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "required": [
+                  "parent"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "atomic",
+                      "parallel",
+                      "final"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "initial"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "fallback"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "compound",
+                      "region"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "fallback"
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "history-shallow",
+                      "history-deep"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "initial"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "entryWorkflowRef"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "exitWorkflowRef"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "invariantRefs"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "activityRefs"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "final"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "entryWorkflowRef"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "activityRefs"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "description": "A structured state graph in the existing state:machine Body, not another StateDefinition kind. String shorthand is an atomic state. All nodes share one local identity namespace; kind controls legal parent/initial/region/fallback/entry/exit use. Valid configuration, transitions, event generation, restoration and external effects are owned by the state/runtime contracts. Compound/region require initial direct child; parallel has region children rather than a single initial. Atomic/final and history pseudo states cannot carry initial; only history carries fallback. Parent ancestry, parallel region uniqueness and transition choice require semantic resolution of the complete chart."
+    }
+  },
+  "x-gift-current-source-writer": true,
+  "x-gift-author-qualification": "All declared Kind shapes are in the single proposed author design; meaning/compute/method/target qualifications are independent and not assumed from schema recognition.",
+  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied."
+}

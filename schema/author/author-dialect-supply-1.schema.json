@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:author-dialect-supply-1",
+  "title": "PROPOSED author dialect supply contract; design-only",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "dialect",
+    "issuer",
+    "definitionKinds",
+    "decoderRef",
+    "interpreterRef",
+    "typeRulesRef",
+    "effectRulesRef",
+    "compositionRef",
+    "migrationRef",
+    "evidenceObligations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.author-dialect-supply/1"
+    },
+    "dialect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "languageId",
+        "revision",
+        "digest"
+      ],
+      "properties": {
+        "languageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "issuer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "definitionKinds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "bodySchemaRef",
+          "resultTypeRef",
+          "consumerRef"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bodySchemaRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resultTypeRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "consumerRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "decoderRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "interpreterRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "typeRulesRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effectRulesRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compositionRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "loweringRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "migrationRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidenceObligations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "requiresCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "permissionPolicyRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resourceBoundsRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trustRef": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "x-gift-status": "DESIGN_SHAPE_ONLY"
+}

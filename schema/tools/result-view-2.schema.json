@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:tool-result-view-2",
+  "title": "Negotiated compact common result view; completed is request completion only",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "subjectRef",
+    "basis",
+    "coverage"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "completed",
+        "rejected",
+        "failed",
+        "incomplete"
+      ]
+    },
+    "subjectRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "basis": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "complete",
+        "incomplete"
+      ],
+      "properties": {
+        "requested": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "minItems": 0
+        },
+        "complete": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "minItems": 0
+        },
+        "incomplete": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "reason"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              }
+            }
+          },
+          "minItems": 0
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "role",
+              "ref"
+            ],
+            "properties": {
+              "kind": {
+                "const": "reference"
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "language",
+              "members"
+            ],
+            "properties": {
+              "kind": {
+                "const": "code"
+              },
+              "language": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "minItems": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "subjectKind",
+              "baseRef",
+              "content"
+            ],
+            "properties": {
+              "kind": {
+                "const": "diff"
+              },
+              "subjectKind": {
+                "enum": [
+                  "author",
+                  "artifact"
+                ]
+              },
+              "baseRef": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "text"
+            ],
+            "properties": {
+              "kind": {
+                "const": "summary"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "claimRef",
+              "verdict",
+              "evidenceRefs"
+            ],
+            "properties": {
+              "kind": {
+                "const": "check"
+              },
+              "claimRef": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "verdict": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "unknown",
+                  "incomplete"
+                ]
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                },
+                "minItems": 0
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 0
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "message": {
+            "type": "string"
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sourceRef"
+              ],
+              "properties": {
+                "sourceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                },
+                "jsonPointer": {
+                  "type": "string"
+                },
+                "startByte": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "endByte": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "minItems": 0
+          }
+        }
+      },
+      "minItems": 0
+    },
+    "effectRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "next": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "reason"
+        ],
+        "properties": {
+          "tool": {
+            "enum": [
+              "query",
+              "propose",
+              "preview",
+              "check",
+              "apply",
+              "operation"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "subjectRef": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        }
+      },
+      "minItems": 0
+    }
+  }
+}

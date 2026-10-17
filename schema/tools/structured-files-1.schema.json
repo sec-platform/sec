@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:structured-files-1",
+  "title": "Negotiated gift.structured-files/1 propose params",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "files",
+    "fileProfiles"
+  ],
+  "properties": {
+    "files": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "minProperties": 1
+    },
+    "fileProfiles": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "minProperties": 0
+    },
+    "context": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "base": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "return": {
+      "enum": [
+        "summary",
+        "diff",
+        "source"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "required": [
+            "base"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "files": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "additionalProperties": {
+              "type": "string"
+            },
+            "minProperties": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    }
+  }
+}

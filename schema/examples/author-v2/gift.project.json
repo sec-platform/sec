@@ -1,0 +1,8 @@
+{
+  "schema": "gift.project/2",
+  "projectId": "example:limit",
+  "sourceScopes": [
+    {"root": "design", "kind": "semantic", "editSource": {"mode": "file"}, "include": ["*.module.json"]},
+    {"root": ".", "kind": "design", "editSource": {"mode": "file"}, "include": ["gift.package.json"]}
+  ]
+}

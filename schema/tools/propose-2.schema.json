@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:ai-tools-2-propose",
+  "title": "gift.ai-tools/2 propose base params",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceLanguage": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base",
+        "edits"
+      ],
+      "properties": {
+        "base": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "edits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "old",
+              "new"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "old": {
+                "type": "string",
+                "minLength": 1
+              },
+              "new": {
+                "type": "string"
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context",
+        "entry"
+      ],
+      "properties": {
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": false,
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files"
+      ],
+      "properties": {
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "files": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minProperties": 1
+        },
+        "base": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "editRef",
+        "value"
+      ],
+      "properties": {
+        "editRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "value": {
+          "$ref": "#/$defs/Json"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "files"
+        ],
+        "not": {
+          "required": [
+            "base"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "files": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "additionalProperties": {
+              "type": "string"
+            },
+            "minProperties": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    }
+  }
+}

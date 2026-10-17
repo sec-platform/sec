@@ -32,12 +32,14 @@
     "docs/编译",
     "docs/运行",
     "docs/领域",
+    "schema",
     "examples",
     "tools"
   ],
   "source_manifest": "source-manifest.json",
   "audited_namespaces": [
-    "docs"
+    "docs",
+    "schema"
   ],
   "non_documentation_roots": [],
   "excluded_from_source_hash": [

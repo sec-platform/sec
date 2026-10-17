@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:package-manifest-1",
+  "title": "gift.package-manifest/1 — optional author packaging descriptor (design-only)",
+  "$comment": "An optional package source within the existing Project SourceScopes. Validation is only structural; accepted package identity, publishing and binding require current physical/semantic/authorization owners.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "package",
+    "version",
+    "exports"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.package-manifest/1"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "package": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exports": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^\\.(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*)?$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId"
+        ],
+        "properties": {
+          "moduleId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "export": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier",
+            "description": "Public export name from the candidate gift.author-module/2; producer/binding must check that it actually exists and is public."
+          }
+        }
+      }
+    },
+    "requests": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "package",
+          "role"
+        ],
+        "properties": {
+          "package": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "enum": [
+              "author",
+              "generator",
+              "check"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "constraint": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scheme",
+              "expression"
+            ],
+            "properties": {
+              "scheme": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expression": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "revision"
+            ]
+          },
+          {
+            "required": [
+              "constraint"
+            ]
+          }
+        ]
+      }
+    },
+    "variants": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "targetRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaRef",
+              "value"
+            ],
+            "properties": {
+              "schemaRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "$ref": "#/$defs/Json"
+              }
+            }
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "targetRef"
+            ]
+          },
+          {
+            "required": [
+              "parameters"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:gift:design-schema:intent-finite-model-1",
+  "title":"Offline finite simulation snapshot, never evidence of actual world state",
+  "type":"object","additionalProperties":false,
+  "required":["schema","revision","scope","objects"],
+  "properties":{
+    "schema":{"const":"gift.finite-model/1"},
+    "revision":{"type":"string","minLength":1},
+    "scope":{"const":"explicit-offline-simulation-only"},
+    "objects":{"type":"object","additionalProperties":{"type":"object","additionalProperties":false,"required":["typeRef","fields"],"properties":{"typeRef":{"type":"string","minLength":1},"fields":{"type":"object"}}}}
+  }
+}

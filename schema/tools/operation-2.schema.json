@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:ai-tools-2-operation",
+  "title": "gift.ai-tools/2 operation base params",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["operationRef", "action"],
+      "properties": {
+        "operationRef": { "$ref": "#/$defs/Ref" },
+        "action": { "const": "status" }
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["operationRef", "action", "controlRef"],
+      "properties": {
+        "operationRef": { "$ref": "#/$defs/Ref" },
+        "action": { "enum": ["cancel", "resume", "rollback"] },
+        "controlRef": { "$ref": "#/$defs/Ref" }
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["scopeRef", "requestId", "action"],
+      "properties": {
+        "scopeRef": { "$ref": "#/$defs/Ref" },
+        "requestId": { "$ref": "#/$defs/Ref" },
+        "action": { "const": "status" }
+      }
+    }
+  ],
+  "$defs": {
+    "Ref": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,256 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "sourceScopes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.project/2"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "sourceScopes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SourceScope"
+      }
+    },
+    "targets": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Target"
+      }
+    },
+    "defaultTarget": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "annotations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Json"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:project-2",
+  "title": "gift.project/2 — unique current project author source candidate (design-only)",
+  "$comment": "Single new candidate writer, unlike historical gift.project/1 (modules required) and retired unissued gift.project/2 control-file-index experiment. Schema byte identity and reader selection must be frozen. Structural validity alone does not establish meaning, authorized operations, external resources, physical snapshot or target success.",
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "SourceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "kind",
+        "editSource"
+      ],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "kind": {
+          "enum": [
+            "semantic",
+            "native",
+            "asset",
+            "design",
+            "generated"
+          ]
+        },
+        "editSource": {
+          "$ref": "#/$defs/EditSource"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        }
+      }
+    },
+    "EditSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "file",
+            "projection",
+            "derived"
+          ]
+        },
+        "producerRef": {
+          "$ref": "#/$defs/Json"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"mode": {"const": "projection"}},
+            "required": ["mode"]
+          },
+          "then": {"required": ["producerRef"]}
+        }
+      ],
+      "description": "A projection requires its actual producer reference; structural presence does not qualify its inputs, effects, ownership or authorization. SourceOwner validates relative roots and exact include/exclude grammar, overlap, physical paths and captured coverage."
+    },
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileRef",
+        "outputRoots"
+      ],
+      "properties": {
+        "profileRef": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            {
+              "$ref": "#/$defs/TargetProfileRequest"
+            }
+          ]
+        },
+        "outputRoots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputRoot"
+          },
+          "description": "OutputRoot occurrence identities are unique per target, separate from module/export selectors. Multi-root targets require explicit rootId for every member. A single root lacking rootId normalizes to main on read; equality/uniqueness, binding and accepted-revision continuity require domain validation beyond JSON Schema. Empty roots are allowed only for non-generating drafts.",
+          "allOf": [
+            {
+              "if": {
+                "minItems": 2
+              },
+              "then": {
+                "items": {
+                  "required": [
+                    "rootId"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "parameters": {
+          "$ref": "#/$defs/Json"
+        }
+      }
+    },
+    "TargetProfileRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "OutputRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId"
+      ],
+      "properties": {
+        "moduleId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "export": {
+          "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier",
+          "description": "Public export name in the selected candidate gift.author-module/2; the target module must export this exact identifier. Omission selects the published set rather than any guessed default."
+        },
+        "contextBindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessRoleActual"
+          },
+          "description": "Explicit product-root occurrence bindings chosen by this target. For /2 product:system roots only; no implicit environment object or cross-instance inheritance; qualified issuer/scope/Grant still external."
+        },
+        "rootId": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 128,
+          "description": "Stable identity of a selected output-root occurrence within one target. Current Writer requires it if more than one outputRoot is selected; single legacy root may be deterministically named main. Not a new Definition, global object, permissions grant, or shared component instance.",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "description": "New deliberately incompatible project author format: sourceScopes owns discovery, captured moduleId produces a derived ModuleIndex, no duplicate modules or extensions writer. Old v1 modules, policyRequests and extensions demand explicit semantic migration and preserved original bytes. Old unissued project/2 control index is not accepted by this contract."
+}
