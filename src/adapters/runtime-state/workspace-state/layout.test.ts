@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -71,12 +72,12 @@ test('one admitted handoff becomes a reusable CAS object plus workspace locator 
     expect(located?.repository).toBe('sec-platform/sec');
     expect(located?.layout.repositoryKey).toBe(value.layout.repositoryKey);
     expect(located?.layout.workspaceKey).toBe(value.layout.workspaceKey);
-    expect(value.layout.continuationPointerPath.startsWith(value.stateRoot)).toBe(true);
-    expect(value.layout.continuationObjectRoot.startsWith(value.stateRoot)).toBe(true);
-    expect(value.layout.continuationPointerPath.startsWith(value.repositoryRoot)).toBe(false);
-    expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot)).toBe(false);
-    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot)).toBe(true);
-    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot)).toBe(false);
+    expect(value.layout.continuationPointerPath.startsWith(value.stateRoot + path.sep)).toBe(true);
+    expect(value.layout.continuationObjectRoot.startsWith(value.stateRoot + path.sep)).toBe(true);
+    expect(value.layout.continuationPointerPath.startsWith(value.repositoryRoot + path.sep)).toBe(false);
+    expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot + path.sep)).toBe(false);
+    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot + path.sep)).toBe(true);
+    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot + path.sep)).toBe(false);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -152,16 +153,17 @@ test('corrupt workspace pointer fails safe and prevents collection of repository
       environment: value.environment
     });
     const pointer = JSON.parse(readFileSync(value.layout.continuationPointerPath, 'utf8')) as Record<string, unknown>;
-    writeFileSync(value.layout.continuationPointerPath, `${JSON.stringify({
+    const corruptPointer = `${JSON.stringify({
       ...pointer,
       pointerDigest: `sha256:${'0'.repeat(64)}`
-    })}\n`, 'utf8');
+    })}\n`;
+    writeFileSync(value.layout.continuationPointerPath, corruptPointer, 'utf8');
     await expect(loadActiveContinuationCheckpoint({ layout: value.layout,
       repositoryRoot: value.repositoryRoot, environment: value.environment })).rejects.toThrow();
     expect(await gcContinuationObjects({ layout: value.layout, repositoryRoot: value.repositoryRoot,
       environment: value.environment, retentionMs: 0 }))
       .toEqual({ scanned: 1, removed: 0, retained: 1 });
-    expect(readFileSync(value.layout.continuationPointerPath, 'utf8')).toContain('sha256:00000000');
+    expect(readFileSync(value.layout.continuationPointerPath, 'utf8')).toBe(corruptPointer);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -201,6 +203,7 @@ test('physical Runtime State rejects a symlink or junction into the repository b
       checkpoint,
       environment
     })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+    expect(readdirSync(repositoryRoot)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

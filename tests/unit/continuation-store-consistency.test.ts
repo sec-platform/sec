@@ -49,10 +49,9 @@ test('concurrent active reads and GC return the same reachable checkpoint', asyn
   const f = fixture();
   try {
     await persistActiveContinuationCheckpoint(f);
-    const results = await Promise.all(Array.from({ length: 8 }, (_, index) => index % 2 === 0
+    await Promise.all(Array.from({ length: 8 }, (_, index) => index % 2 === 0
       ? loadActiveContinuationCheckpoint(f).then(value => { assert.deepEqual(value, f.checkpoint); })
       : gcContinuationObjects({ ...f, retentionMs: 0 }).then(value => { assert.equal(value.removed, 0); })));
-    assert.equal(results.length, 8);
     await clearActiveContinuation(f);
     assert.equal((await gcContinuationObjects({ ...f, retentionMs: 0 })).removed, 1);
   } finally { rmSync(f.root, { recursive: true, force: true }); }

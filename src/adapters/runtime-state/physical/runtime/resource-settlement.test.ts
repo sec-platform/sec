@@ -7,23 +7,17 @@ import {
 
 test('async physical settlement awaits every cleanup in caller order', async () => {
   const events: string[] = [];
-  let active = 0;
-  let maximumActive = 0;
   const terminal = await settlePhysicalResourcesAsync({
     cleanup: ['alpha', 'beta', 'gamma'].map((label) => ({
       label,
       settle: async () => {
         events.push(`start:${label}`);
-        active += 1;
-        maximumActive = Math.max(maximumActive, active);
         await Promise.resolve();
-        active -= 1;
         events.push(`end:${label}`);
       }
     }))
   });
 
-  expect(maximumActive).toBe(1);
   expect(events).toEqual([
     'start:alpha', 'end:alpha',
     'start:beta', 'end:beta',

@@ -145,8 +145,9 @@ describe('Docker daemon lifecycle algorithm', () => {
     expect(Number(launcherArguments[3])).toBeGreaterThanOrEqual(1);
     expect(Number(launcherArguments[3])).toBeLessThanOrEqual(9);
     expect(launcherDeadlineAtUnixMs).toBe(commandDeadlineAtUnixMs);
-    expect(lifecycles.some((value) => value.includes('stop'))).toBe(false);
-    expect(commands).toHaveLength(3);
+    expect(commands).toEqual(Array.from({ length: 3 }, () => [
+      '--host', endpointHost, 'info', '--format', '{{json .}}'
+    ]));
   });
 
   test('ensure-started returns an initial ready observation without lock or start', async () => {
@@ -154,6 +155,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     const lifecycles: string[] = [];
     const result = await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
+      launch: async () => { throw new Error('ready daemon must not be started'); },
       commandDeadlineAtUnixMs,
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,
@@ -178,6 +180,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     let observations = 0;
     await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
+      launch: async () => { throw new Error('ready daemon must not be started'); },
       commandDeadlineAtUnixMs,
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,

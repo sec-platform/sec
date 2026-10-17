@@ -68,18 +68,18 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
     await expectCliVariants(workspaceRoot, ['doctor'], {
       text: [
         'Developer environment doctor',
-        'Checks: 6',
-        'node-version',
+        'Checks: 5',
         'workspace-roots',
         'Workspace roots missing: source, project, control, .sec; run platform init.',
         'runtime-dependencies'
       ],
       json: {
         status: expect.any(String),
-        checkCount: 6,
+        checkCount: 5,
         checks: expect.arrayContaining([
-          expect.objectContaining({ id: 'node-version' }),
           expect.objectContaining({ id: 'bun' }),
+          expect.objectContaining({ id: 'workspace-plan' }),
+          expect.objectContaining({ id: 'project-package' }),
           expect.objectContaining({
             id: 'workspace-roots',
             status: 'warn',
@@ -94,7 +94,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
       },
       compactJson: {
         status: expect.any(String),
-        checkCount: 6,
+        checkCount: 5,
         dependencies: expect.objectContaining({ mode: expect.any(String) })
       }
     });

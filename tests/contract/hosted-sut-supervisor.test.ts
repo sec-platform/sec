@@ -56,6 +56,7 @@ test('report cannot be transplanted to another plan, operation, attempt or refre
 
 test('init terminal reap and every tracee plus both pipe EOFs are independently necessary', () => {
   for (const change of [
+    // Empty traced set alone says nothing about CLONE_UNTRACED descendants.
     (value: ReturnType<typeof fixture>) => { value.namespaceInitReaped = false; },
     (value: ReturnType<typeof fixture>) => { value.traceesReaped = false; },
     (value: ReturnType<typeof fixture>) => { value.stdout.eof = false; },
@@ -66,8 +67,6 @@ test('init terminal reap and every tracee plus both pipe EOFs are independently 
     const value = fixture(); change(value);
     expect(() => parse(value)).toThrow();
   }
-  // Empty traced set alone says nothing about CLONE_UNTRACED descendants.
-  expect(() => parse({ ...fixture(), namespaceInitReaped: false, traceesReaped: true })).toThrow();
 });
 
 test('init dying before candidate exec cannot be promoted to candidate start', () => {

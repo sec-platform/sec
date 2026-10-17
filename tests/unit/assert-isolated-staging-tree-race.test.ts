@@ -61,6 +61,7 @@ test('isolated staging tree coordinates final revalidation with its active lease
           heartbeat = lease.heartbeat();
         }
       });
+      expect(heartbeat).toBeDefined();
       await heartbeat;
       await lease.assertOwned();
     } finally {

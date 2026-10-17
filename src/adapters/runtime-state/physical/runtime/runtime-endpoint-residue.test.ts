@@ -21,13 +21,14 @@ const providerIdentityDigest = `sha256:${'a'.repeat(64)}` as const;
 
 test('partial generation census preserves primary and reports its physical close failure', () => {
   const primary = new Error('second generation admission failed');
+  const closeFailure = new Error('first generation close failed');
   let closeCalls = 0;
   try {
     settleRuntimeGenerationCensusAdmissionForTests({
       primary,
       close: () => {
         closeCalls += 1;
-        throw new Error('first generation close failed');
+        throw closeFailure;
       }
     });
     throw new Error('expected composite settlement failure');
@@ -35,7 +36,7 @@ test('partial generation census preserves primary and reports its physical close
     expect(error).toBeInstanceOf(PhysicalResourceCompositeSettlementError);
     expect((error as PhysicalResourceCompositeSettlementError).failures).toEqual([
       { label: 'runtime-generation-census-admission', error: primary },
-      { label: 'runtime-generation-census-close', error: expect.any(Error) }
+      { label: 'runtime-generation-census-close', error: closeFailure }
     ]);
   }
   expect(closeCalls).toBe(1);

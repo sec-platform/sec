@@ -54,7 +54,7 @@ test('repair reports failed verification as an owner-classified blocker and pers
   });
 }, 120000);
 
-test('repair skips source mutation after passing verification and persists the terminal observation', async () => {
+test('repair reports a skipped terminal observation after passing verification', async () => {
   await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
     const result = await expectCliJson<RepairPlan>(
       workspaceRoot,

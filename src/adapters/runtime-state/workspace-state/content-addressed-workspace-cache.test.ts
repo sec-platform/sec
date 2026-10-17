@@ -164,7 +164,7 @@ test.serial('domain-neutral cache publishes immutable bytes and exposes only val
   expect(new TextDecoder().decode(predecessor.entries[0]!.bytes)).toBe('first');
 });
 
-test.serial('physical replacement and foreign residue remain typed cache failures', () => {
+test.serial('physical generation replacement remains a typed cache failure', () => {
   const value = fixture();
   const key = sha256('replace') as `sha256:${string}`;
   const hint = value.namespace.open(key);

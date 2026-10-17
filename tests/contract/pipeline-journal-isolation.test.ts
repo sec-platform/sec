@@ -19,15 +19,17 @@ async function writeJournal(workspaceRoot: string, value: unknown): Promise<void
 
 test('existing stale or inconsistent Pipeline journal is not projected as an empty journal', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    for (const value of [
+    const cases = [
       { formatVersion: 'stale-version', transactions: [] },
+      { formatVersion: '1', transactions: [] },
       {
-        formatVersion: '1',
+        formatVersion: '2',
         activeTransactionId: 'tx:missing',
         transactions: []
       },
       {
-        formatVersion: '1',
+        formatVersion: '2',
+        activeTransactionId: 'tx:running',
         lastCommittedTransactionId: 'tx:running',
         transactions: [{
           id: 'tx:running',
@@ -39,12 +41,13 @@ test('existing stale or inconsistent Pipeline journal is not projected as an emp
         }]
       },
       {
-        formatVersion: '1',
+        formatVersion: '2',
         transactions: [{
           id: 'tx:duplicate',
           source: 'cli',
           requestedStages: ['resolve'],
           status: 'failed',
+          completedAt: '2026-08-18T00:00:02.000Z',
           startedAt: '2026-08-18T00:00:00.000Z',
           passRecords: []
         }, {
@@ -52,13 +55,22 @@ test('existing stale or inconsistent Pipeline journal is not projected as an emp
           source: 'cli',
           requestedStages: ['resolve'],
           status: 'failed',
+          completedAt: '2026-08-18T00:00:02.000Z',
           startedAt: '2026-08-18T00:00:01.000Z',
           passRecords: []
         }]
       }
-    ]) {
+    ];
+    const failures = [
+      /stale or malformed/,
+      /requires owner-issued Adapt retirement migration/,
+      /active transaction is inconsistent/,
+      /last committed transaction is inconsistent/,
+      /repeats transaction id/
+    ];
+    for (const [index, value] of cases.entries()) {
       await writeJournal(workspaceRoot, value);
-      expect(() => readPipelineJournal(workspaceRoot)).toThrow();
+      expect(() => readPipelineJournal(workspaceRoot)).toThrow(failures[index]!);
     }
   });
 });
@@ -73,7 +85,7 @@ test('Pipeline journal reader rejects a linked local-state ancestor', async () =
     await fs.mkdir(externalState, { recursive: true });
     await fs.writeFile(
       path.join(externalState, path.basename(target)),
-      `${JSON.stringify({ formatVersion: '1', transactions: [] })}\n`,
+      `${JSON.stringify({ formatVersion: '2', transactions: [] })}\n`,
       'utf8'
     );
     await fs.symlink(

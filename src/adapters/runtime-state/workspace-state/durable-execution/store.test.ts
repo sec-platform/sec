@@ -237,7 +237,7 @@ test('owner terminal resolution references only an exact owner-issued join recei
   }
 });
 
-test('constructing and reading an absent store performs zero filesystem writes', () => {
+test('constructing and reading an absent store does not create its journal directory', () => {
   const value = fixture();
   const identity = { operationKeyDigest: digest('58') } as const;
   try {
@@ -249,14 +249,14 @@ test('constructing and reading an absent store performs zero filesystem writes',
   }
 });
 
-test('expired monotonic admission is rejected before any journal path observation or write', () => {
+test('expired monotonic admission is rejected without creating the journal directory', () => {
   const value = fixture();
   try {
     expect(() => createDurableExecutionStore({
       fileSystem: value.fileSystem,
       journalRoot: value.journalRoot,
       limits: { ...value.storeLimits, deadlineAtMonotonicMs: performance.now() - 1 }
-    })).toThrow('unexpired finite absolute monotonic deadline');
+    })).toThrow(expect.objectContaining({ kind: 'deadline-exhausted' }));
     expect(existsSync(value.journalRoot)).toBe(false);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -419,7 +419,7 @@ test('attempt start reserves its worst settlement closure before changing bytes'
   }
 });
 
-test('retained reader rejects an existing oversized journal before parsing or allocating it', () => {
+test('retained reader rejects an existing oversized journal and preserves its size', () => {
   const value = fixture({ maximumStateBytes: 1_024 });
   const identity = { operationKeyDigest: digest('78') } as const;
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
@@ -450,7 +450,7 @@ test('failed CAS append is conflict-only and leaves the preimage byte-exact', ()
       limits: value.storeLimits
     });
     expect(() => conflicting.appendInitialAttemptStart(operation, digest('80')))
-      .toThrow('changed during CAS append');
+      .toThrow(expect.objectContaining({ kind: 'conflict' }));
     expect(readFileSync(filePath)).toEqual(before);
   } finally {
     rmSync(value.root, { recursive: true, force: true });

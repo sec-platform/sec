@@ -70,7 +70,7 @@ test('an applicable policy target must be a retained readable ordinary file', as
   });
   await fs.rm(customerServicePath(workspaceRoot));
 
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Applicable policy target is missing/);
+  await expect(runPolicyGate(workspaceRoot)).rejects.toMatchObject({ code: 'VERIFY-POLICY-003' });
 }, 180000);
 
 test('equal project policy declarations retain project attribution without changing assurance', async () => {
@@ -121,7 +121,7 @@ test('unknown policy rules fail at the declaration schema boundary', async () =>
     }]
   });
 
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow();
+  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Policy source violates the exact schema/);
 }, 180000);
 
 test('same policy id with different declarations is a conflict, not last-wins input', async () => {
@@ -145,7 +145,7 @@ test('same policy id with different declarations is a conflict, not last-wins in
     ]
   });
 
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow();
+  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Conflicting duplicate policy id/);
 }, 180000);
 
 test('policy applicability is derived from the resolved install plan across blocks', async () => {

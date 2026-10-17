@@ -55,7 +55,7 @@ for (const failureAt of ['readPlan', 'selectManifest', 'writePlan'] as const) {
     f.operations[failureAt] = async () => { throw failure; };
     await expect(addBlockToPlan('feature/a', f.operations)).rejects.toBe(failure);
     expect(f.plan).toEqual(before);
-    expect(f.events).not.toContain('write');
+    if (failureAt !== 'writePlan') expect(f.events).not.toContain('write');
   });
 }
 

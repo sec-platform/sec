@@ -15,6 +15,7 @@ import {
   deleteExactGitRef,
   deleteExactLocalGitRefs,
   GitLocalRefDeleteAtomicityUnavailableError,
+  GitLocalRefDeleteBlockedError,
   GitRefDeleteOutcomeUnknownError,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
@@ -169,7 +170,7 @@ test('GitRefEffect blocks checked-out local refs and ref drift before the native
       try {
         await expect(withWorkspaceWriteLease(path.join(root, '.git'), undefined, (coordinatedLease) => (
           deleteExactLocalGitRefs({ provider: opened.provider, coordinatedLease, entries: [entry] })
-        ))).rejects.toThrow();
+        ))).rejects.toBeInstanceOf(GitLocalRefDeleteBlockedError);
         expect(git(root, ['rev-parse', entry.ref])).toBe(sha);
       } finally { closeProvider(opened); }
     }

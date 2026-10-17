@@ -21,9 +21,11 @@ async function runCase(body: (root: string, decoy: string) => string) {
 test('dependency output format is fixed before asynchronous domain loading', async () => {
   await runCase(() => `
     import { Command } from ${source('node_modules/commander/index.js')};
+    import { deepStrictEqual } from 'node:assert';
+    import { format } from 'node:util';
     import { registerCommands } from ${source('src/bootstrap/cli/register-commands.ts')};
     const outputs = [], originalLog = console.log;
-    console.log = value => outputs.push(value);
+    console.log = (...args) => outputs.push(format(...args));
     const value = { result: 'captured' }, read = async () => value;
     const domain = { getDoctorReport: read, getDependencyEnvironmentStatus: read,
       getDependencyFreshness: read, warmupDependencyEnvironment: read,
@@ -37,28 +39,36 @@ test('dependency output format is fixed before asynchronous domain loading', asy
         return domain;
       }});
       await program.parseAsync(name === 'doctor' ? [name, '--json'] : ['deps', name, '--json'], { from: 'user' });
-      if (outputs.pop() !== JSON.stringify(value, null, 2)) throw new Error(name + ' changed output mode after loading');
+      deepStrictEqual(JSON.parse(outputs.join('\\n')), { result: 'captured' });
+      outputs.length = 0;
     }
     originalLog('bound request retained');
   `);
 });
 
 for (const operation of ['census', 'settlement']) {
-  test(`${operation} keeps its target and fix flag across optional progress loading`, async () => {
+  test(`${operation} keeps its captured request during asynchronous execution`, async () => {
     await runCase((root, decoy) => `
       import { mock } from 'bun:test';
       import { Command } from ${source('node_modules/commander/index.js')};
       const primary = Object.freeze({ result: 'recorded' });
       let observed, program;
-      const record = async (root, options) => { observed = { root, options }; throw primary; };
+      const perturb = () => {
+        process.chdir(${JSON.stringify(decoy)});
+        program.commands.find(c => c.name() === 'environment').commands.find(c => c.name() === 'settle').opts().fix = true;
+      };
+      const record = async (root, options) => {
+        if (${operation === 'settlement'}) { await Promise.resolve(); perturb(); }
+        observed = { root, options };
+        throw primary;
+      };
       const domains = await import(${source('src/bootstrap/cli/lazy-command-domains.ts')});
       mock.module(${source('src/bootstrap/cli/lazy-command-domains.ts')}, () => ({
         ...domains, runCensus: record, runSettlement: record
       }));
       mock.module(${source('src/bootstrap/cli/runtime/spinner.ts')}, () => ({
         withSpinner: async (text, execute) => {
-          process.chdir(${JSON.stringify(decoy)});
-          program.commands.find(c => c.name() === 'environment').commands.find(c => c.name() === 'settle').opts().fix = true;
+          perturb();
           return execute();
         }
       }));
@@ -68,7 +78,8 @@ for (const operation of ['census', 'settlement']) {
         await program.parseAsync(${JSON.stringify(operation === 'census' ? ['text', 'census'] : ['environment', 'settle'])}, { from: 'user' });
         throw new Error('unexpected success');
       } catch (error) { if (error !== primary) throw error; }
-      if (observed.root !== ${JSON.stringify(root)}) throw new Error('target changed during progress loading');
+      if (process.cwd() !== ${JSON.stringify(decoy)}) throw new Error('late input mutation did not occur');
+      if (observed.root !== ${JSON.stringify(root)}) throw new Error('captured target changed');
       if (${operation === 'settlement'} && observed.options.fix !== false) throw new Error('fix scope expanded');
       console.log('bound request retained');
     `);

@@ -14,7 +14,7 @@ test('fast lane alone does not unlock the workspace', async () => {
   expect(report.runtime.unit.status).toBe('passed');
   expect(report.runtime.acceptance.status).toBe('skipped');
 
-  await expect(lockWorkspace(workspaceRoot)).rejects.toThrow();
+  await expect(lockWorkspace(workspaceRoot)).rejects.toMatchObject({ code: 'LOCK-BLOCKED-002' });
 }, 180000);
 test('runtime lane runs generated service tests without unrelated acceptance suites', async () => {
   const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-runtime-service-lane-' });

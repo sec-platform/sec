@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,8 @@ test('formatter joins every started publication before reporting a peer failure'
     release.resolve();
     const result = await outcome;
     assert.equal(result.succeeded, false);
+    if (!result.succeeded) assert.ok(result.reason === failure ||
+      result.reason instanceof AggregateError && result.reason.errors.includes(failure));
     assert.equal(readFileSync(path.join(root, 'a.json'), 'utf8'), '{"a":1}');
     assert.equal(readFileSync(path.join(root, 'b.json'), 'utf8'), '{"b":2}');
   } finally { release.resolve(); await outcome; rmSync(root, { recursive: true, force: true }); }
@@ -66,7 +68,10 @@ test('cancelled scaffold admission performs neither source rendering nor writes'
   const root = mkdtempSync(path.join(tmpdir(), 'sec-scaffold-abort-'));
   const controller = new AbortController(), reason = new Error('cancelled'); controller.abort(reason);
   const lock = { get resolvedBlocks() { assert.fail('features read after cancellation'); throw new Error('unreachable'); } } as unknown as LockFile;
-  try { await assert.rejects(generateRuntimeLibraryScaffold(root, lock, undefined, controller.signal), error => error === reason); }
+  try {
+    await assert.rejects(generateRuntimeLibraryScaffold(root, lock, undefined, controller.signal), error => error === reason);
+    assert.deepEqual(readdirSync(root), []);
+  }
   finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
 

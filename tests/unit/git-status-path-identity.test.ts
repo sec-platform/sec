@@ -57,6 +57,7 @@ test('BOM, malformed UTF-8 and incomplete framing cannot be repaired into a trus
 test('status byte views ignore custom iteration and reject shared memory', () => {
   const bytes = Uint8Array.from(Buffer.from('?? file\0'));
   Object.defineProperty(bytes, 'length', { value: 0 });
+  Object.defineProperty(bytes, Symbol.iterator, { get() { assert.fail('caller iterator read'); } });
   assert.equal(parseWorktreeStatusPorcelainZ(bytes)[0]!.path, 'file');
   assert.throws(() => parseWorktreeStatusPorcelainZ(new Uint8Array(new SharedArrayBuffer(8))), TypeError);
 });

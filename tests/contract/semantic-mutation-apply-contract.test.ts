@@ -56,7 +56,7 @@ test('ordinary malformed requests return the exact redacted request-rejected out
   });
   if (outcome.status !== 'request-rejected') throw new Error(JSON.stringify(outcome));
   expect(outcome.diagnostics).toHaveLength(1);
-  expect(JSON.stringify(outcome)).not.toContain('Z:\\must-not-be-observed');
+  expect(JSON.stringify(outcome)).not.toContain(JSON.stringify('Z:\\must-not-be-observed').slice(1, -1));
   expect(outcome.diagnosticRevision).toBe(sha256({
     domain: 'semantic-mutation-diagnostic-v2',
     diagnostics: outcome.diagnostics

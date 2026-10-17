@@ -110,11 +110,6 @@ test('runtime trusted-input guard rejects malformed endpoint shells without leak
       }
     }
   };
-  expect(() => preflightSemanticMutation({
-    request: raw,
-    base: malformed as never,
-    authorization
-  })).not.toThrow();
   expect(preflightSemanticMutation({
     request: raw,
     base: malformed as never,
@@ -197,14 +192,15 @@ test('independent plan, required-verification, execution, and result digest vect
     requiredVerificationDigest,
     status: 'passed' as const
   };
-  const execution = buildSemanticMutationVerificationExecutionRef(
-    semanticMutationVerificationReportFixture({ ...executionInput, requirements })
-  );
-  const { verificationExecutionRevision: _executionRevision, ...executionWithoutRevision } = execution;
-  expect(execution.verificationExecutionRevision).toBe(sha256({
-    domain: 'semantic-mutation-verification-execution-v1',
-    ...executionWithoutRevision
-  }));
+  const report = semanticMutationVerificationReportFixture({ ...executionInput, requirements });
+  const expectedExecution = { ...executionInput, reportRevision: report.reportRevision };
+  expect(buildSemanticMutationVerificationExecutionRef(report)).toEqual({
+    ...expectedExecution,
+    verificationExecutionRevision: sha256({
+      domain: 'semantic-mutation-verification-execution-v1',
+      ...expectedExecution
+    })
+  });
 
   const resultDraft = {
     contractVersion: '2' as const,

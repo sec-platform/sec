@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { throws } from 'node:assert/strict';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import type { SourceProgramEntrypointAddress } from '../source-program-model/contract.ts';
@@ -69,8 +70,8 @@ test('worker protocol rejects incomplete, duplicate, unknown, trailing and overs
     { bytes: requestBytes, eofObserved: false },
     budget
   );
-  expect(noEof).toThrow(RepositoryAuditWorkerProtocolError);
-  expect(() => noEof()).toThrow('eof-unobserved');
+  throws(noEof, (error: unknown) =>
+    error instanceof RepositoryAuditWorkerProtocolError && error.code === 'eof-unobserved');
 
   const source = Buffer.from(requestBytes).toString('utf8').trimEnd();
   const duplicate = Buffer.from(source.replace(
@@ -134,7 +135,7 @@ test('worker protocol preserves typed rejection for every foreign binding dimens
   }
 });
 
-test('worker result payload is byte-bound and cannot claim authority', () => {
+test('worker result stream is size-bounded and cannot claim authority', () => {
   const boundRequest = request();
   const stream = candidateStream(boundRequest, Buffer.alloc(64, 0x61));
   expect(() => parseRepositoryAuditWorkerCandidateStream(
