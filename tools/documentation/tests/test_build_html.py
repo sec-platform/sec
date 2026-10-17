@@ -228,6 +228,15 @@ class ReadingTests(unittest.TestCase):
         self.assertFalse(audit.handlers)
         self.assertFalse(audit.remote)
         self.assertNotIn('<script>never_execute()</script>', self.out.read_text())
+    def test_sql_design_source_is_readable_as_inert_text(self):
+        source='CREATE TABLE operation(id TEXT PRIMARY KEY);\n-- <script>unsafe()</script>\n'
+        self.write('docs/design/control.sql',source)
+        self.write('README.md','# Fixture\n[SQL design](docs/design/control.sql)\n')
+        self.run_build();text=self.out.read_text()
+        originals=Originals();originals.feed(text)
+        self.assertEqual(originals.files['docs/design/control.sql'],(self.root/'docs/design/control.sql').read_bytes())
+        self.assertIn('CREATE TABLE operation(id TEXT PRIMARY KEY);',text)
+        self.assertNotIn('<script>unsafe()</script>',text)
     def test_no_source_writes(self):
         before={str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()}
         self.run_build()
