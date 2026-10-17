@@ -6,7 +6,6 @@ import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-va
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
-import { uniqueSortedByKey } from '../../src/contracts/canonical.ts';
 import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/semantics/policies/rules.ts';
@@ -360,37 +359,29 @@ test('plan validation hard fails when app.id is absent', () => {
 });
 
 
-test('distinct transitions cannot silently collide in the input revision tuple key', () => {
+test('distinct transition tuples remain separate facts in either source order', () => {
   const input = fixture();
   const state = input.semanticContracts![0]!.contract.states[0]!;
   state.values = ['a\0b', 'c', 'a', 'b\0c'];
   const first = { from: 'a\0b', to: 'c', by: 'processItem' };
   const second = { from: 'a', to: 'b\0c', by: 'processItem' };
+  const singletonRevisions = [first, second].map(transition => {
+    state.transitions = [transition];
+    return buildEngineeringIR(input).inputRevision;
+  });
+  const pairRevisions: string[] = [];
   for (const transitions of [[first, second], [second, first]]) {
     state.transitions = transitions;
-    expect(() => buildEngineeringIR(input)).toThrow(expect.objectContaining({ code: 'CANONICAL-KEY-CONFLICT' }));
+    const ir = buildEngineeringIR(input);
+    pairRevisions.push(ir.inputRevision);
+    for (const singletonRevision of singletonRevisions) expect(ir.inputRevision).not.toBe(singletonRevision);
+    const transitionsInIR = ir.facts.filter(fact => fact.predicate === 'TRANSITIONS_TO');
+    expect(transitionsInIR).toHaveLength(2);
+    expect(new Set(transitionsInIR.map(fact => fact.id)).size).toBe(2);
+    expect(transitionsInIR.map(fact => fact.object)).toEqual(expect.arrayContaining([
+      { kind: 'value', value: { from: 'a\0b', to: 'c', by: 'operation:item:processItem' } },
+      { kind: 'value', value: { from: 'a', to: 'b\0c', by: 'operation:item:processItem' } }
+    ]));
   }
-});
-
-
-test('keyed canonical duplicates preserve the last equal representative but never choose conflicting data', () => {
-  const first = { id: 'b', value: { z: 2, a: 1 } };
-  const equal = { value: { a: 1, z: 2 }, id: 'b' };
-  const other = { id: 'a', value: { a: 3, z: 4 } };
-  let calls = 0;
-  const values = [first, other, equal];
-  const result = uniqueSortedByKey(values, value => { calls++; return value.id; });
-  expect(result[0]).toBe(other);
-  expect(result[1]).toBe(equal);
-  expect(calls).toBe(values.length);
-  expect(values).toEqual([first, other, equal]);
-  const conflict = { id: 'b', value: { a: 999, z: 999 } };
-  for (const entries of [[first, conflict], [conflict, first]]) {
-    try {
-      uniqueSortedByKey(entries, value => value.id);
-      throw new Error('Expected a conflicting-key failure');
-    } catch (error) {
-      expect(error).toMatchObject({ code: 'CANONICAL-KEY-CONFLICT', message: 'Canonical duplicate key has conflicting values' });
-    }
-  }
+  expect(pairRevisions[0]).toBe(pairRevisions[1]);
 });

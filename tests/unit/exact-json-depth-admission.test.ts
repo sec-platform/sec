@@ -2,11 +2,14 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { ExactJsonError, parseExactJson, parseExactJsonBytes } from '../../src/contracts/exact-json.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 const admission = { maximumInputBytes: 1024, maximumDepth: 10 } as const;
 function kind(expected: string): (error: unknown) => boolean {
-  return (error) => error instanceof ExactJsonError && error.code === 'EXACT-JSON-001' && error.kind === expected;
+  return (error) => error instanceof ExactJsonError && error instanceof CodedFailure
+    && error.code === 'EXACT-JSON-001' && error.kind === expected
+    && (error.details as { kind?: unknown } | null)?.kind === expected;
 }
 
 for (const source of ['null', 'true', 'false', '0', '-0', '1e+20', '"中😀\\u0000"', '[]', '{}', '{"a":[null,1,{"b":false}]}']) {
@@ -124,7 +127,9 @@ test('byte admission captures maximumInputBytes once so a getter cannot widen it
   assert.equal(reads, 1);
 });
 
-test('byte admission captures maximumDepth once so a getter cannot widen it', () => {
+test('byte admission accepts flat data and captures maximumDepth once so a getter cannot widen it', () => {
+  assert.deepEqual(parseExactJsonBytes(bytes('{"status":"ready"}'), 'bytes',
+    { maximumInputBytes: 128, maximumDepth: 1 }), { status: 'ready' });
   let reads = 0;
   const limits = {
     maximumInputBytes: 1024,

@@ -9,18 +9,27 @@ import {
 const BASE = '1'.repeat(40);
 const D = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
 
-test('trusted runtime provenance binds the exact trusted merge-gate revision', () => {
-  const provenance = createTrustedRuntimeMergeGateProvenance({
+test('trusted runtime provenance binds the exact revision, execution and actor', () => {
+  const input = {
     runtimePath: CodexDevelopmentMergeGateProducerIdentity,
     runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     actorNodeId: 'APP_sec_integrator',
     actorPermission: 'maintain'
-  });
-  expect(provenance.runtimeSha).toBe(BASE);
-  expect(provenance.runtimeRef).toBe(`${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`);
-  expect(provenance.sourceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  } as const;
+  const provenance = createTrustedRuntimeMergeGateProvenance(input);
+  expect(provenance).toEqual({ ...input, sourceDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u) });
+  expect(createTrustedRuntimeMergeGateProvenance(input).sourceDigest).toBe(provenance.sourceDigest);
+  const otherRevision = '2'.repeat(40);
+  for (const changed of [
+    { executionId: 'trusted-runtime-2' },
+    { actorNodeId: 'APP_sec_other' },
+    { runtimeSha: otherRevision, runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${otherRevision}` }
+  ]) {
+    expect(createTrustedRuntimeMergeGateProvenance({ ...input, ...changed }).sourceDigest)
+      .not.toBe(provenance.sourceDigest);
+  }
 });
 
 test('trusted runtime provenance rejects candidate or ambiguous runtime identity', () => {
@@ -44,18 +53,17 @@ test('trusted runtime provenance rejects candidate or ambiguous runtime identity
 });
 
 test('trusted runtime artifact observation retains declared durable-file identity', () => {
-  const observation = createTrustedRuntimeArtifactObservation({
-    artifactFileName: 'verification-session-artifact.json',
+  const input = {
+    artifactFileName: 'verification-session-artifact.json' as const,
     artifactByteDigest: D('a'),
     artifactByteLength: 123,
     runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     producerSourceDigest: D('b'),
-    readbackTransport: 'trusted-runtime-durable-file'
-  });
-  expect(observation.readbackTransport).toBe('trusted-runtime-durable-file');
-  expect(observation.runtimeSha).toBe(BASE);
+    readbackTransport: 'trusted-runtime-durable-file' as const
+  };
+  expect(createTrustedRuntimeArtifactObservation(input)).toEqual(input);
 });
 
 test('trusted runtime artifact observation rejects Actions-style readback transport', () => {

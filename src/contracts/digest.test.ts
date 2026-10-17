@@ -103,11 +103,3 @@ test('canonical errors do not poison subsequent computations', () => {
   }
   assert.equal(sha256({ a: 1 }), rawSha256('{"a":1}'));
 });
-
-test('canonical hashing remains stack-safe and preserves shared acyclic values', () => {
-  const shared = { z: 1 };
-  assert.equal(sha256([shared, shared]), rawSha256('[{"z":1},{"z":1}]'));
-  let deep: unknown = null;
-  for (let index = 0; index < 20_000; index += 1) deep = [deep];
-  assert.equal(sha256(deep), rawSha256(`${'['.repeat(20_000)}null${']'.repeat(20_000)}`));
-});

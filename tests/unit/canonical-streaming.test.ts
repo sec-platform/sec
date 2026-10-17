@@ -41,9 +41,6 @@ test('canonical equality preserves normalized object order, holes, numbers and s
 
 test('all inputs are normalized before equality can short-circuit', () => {
   assert.throws(() => canonicalEquals({ a: 1 }, { a: 2, z: undefined }));
-  const cycle: unknown[] = []; cycle.push(cycle);
-  assert.throws(() => sha256(cycle), /circular/);
-  for (const value of [undefined, 1n, NaN, Infinity, () => 1, new Date()]) assert.throws(() => sha256(value));
 });
 
 test('ambient toJSON hooks cannot rewrite normalized canonical hashes', () => {

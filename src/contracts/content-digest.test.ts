@@ -51,6 +51,8 @@ test('streaming is invariant around compression and tree-chunk boundaries', () =
         }
         assert.equal(hash.finish(), `blake3:${hex}`);
       } finally { hash.dispose(); }
+      // Larger sizes in this ascending list repeat the same single-update sequence.
+      if (chunkSize >= bytes.length) break;
     }
   }
 });

@@ -16,10 +16,11 @@ test('keyed deduplication folds canonical-equal duplicates and sorts unique keys
   const other = { id: 'a', payload: { a: 3, z: 4 } };
   for (const values of [[first, equal, other], [equal, other, first], [other, first, equal]]) {
     let calls = 0;
+    const before = [...values];
     const actual = uniqueSortedByKey(values, value => { calls++; return value.id; });
     assert.deepEqual(actual, [other, first]);
     assert.equal(calls, values.length);
-    assert.equal(values.length, 3);
+    assert.deepEqual(values, before);
   }
 });
 
@@ -76,22 +77,24 @@ test('IR metadata preserves unique legacy bytes and rejects ambiguous duplicate 
   }
 });
 
-test('IR metadata rejects delimiter collisions and distinguishes empty optional values', () => {
+test('IR metadata retains distinct tuple components and empty optional values', () => {
   const provenancePairs: FactProvenance[][] = [
-    [{ kind: 'compiler', sourceId: 'a\0b', sourcePath: 'c' }, { kind: 'compiler', sourceId: 'a', sourcePath: 'b\0c' }],
+    [{ kind: 'compiler', sourceId: 'a', sourcePath: 'b\0c' }, { kind: 'compiler', sourceId: 'a\0b', sourcePath: 'c' }],
     [{ kind: 'compiler', sourceId: 'a' }, { kind: 'compiler', sourceId: 'a', sourcePath: '' }]
   ];
   for (const pair of provenancePairs) {
-    assert.throws(() => normalizeProvenance(pair), conflict);
-    assert.throws(() => normalizeProvenance([...pair].reverse()), conflict);
+    const expected = structuredClone(pair);
+    assert.deepEqual(normalizeProvenance(pair), expected);
+    assert.deepEqual(normalizeProvenance([...pair].reverse()), expected);
   }
   const evidencePairs: EvidenceReference[][] = [
-    [{ kind: 'test', ref: 'a\0b', digest: 'c' }, { kind: 'test', ref: 'a', digest: 'b\0c' }],
+    [{ kind: 'test', ref: 'a', digest: 'b\0c' }, { kind: 'test', ref: 'a\0b', digest: 'c' }],
     [{ kind: 'test', ref: 'a' }, { kind: 'test', ref: 'a', digest: '' }]
   ];
   for (const pair of evidencePairs) {
-    assert.throws(() => normalizeEvidence(pair), conflict);
-    assert.throws(() => normalizeEvidence([...pair].reverse()), conflict);
+    const expected = structuredClone(pair);
+    assert.deepEqual(normalizeEvidence(pair), expected);
+    assert.deepEqual(normalizeEvidence([...pair].reverse()), expected);
   }
   assert.equal(normalizeProvenance([{ kind: 'compiler', sourceId: 'a', sourcePath: '' }])[0]!.sourcePath, '');
   assert.equal(normalizeEvidence([{ kind: 'test', ref: 'a', digest: '' }])[0]!.digest, '');

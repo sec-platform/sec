@@ -50,31 +50,26 @@ test('serialization errors cannot return partial identities or poison future req
 });
 
 
-test('structured migration verifies legacy SHA-256 and emits framed BLAKE3 from one payload traversal', () => {
+test('structured migration rejects accessors and binds both algorithms to the admitted canonical payload', () => {
   let reads = 0;
-  const value: Record<string, unknown> = {};
-  Object.defineProperty(value, 'a', {
+  const accessor = Object.defineProperty({}, 'a', {
     enumerable: true,
-    get() {
-      reads += 1;
-      return 1;
-    }
+    get() { reads += 1; return 1; }
   });
-  const previous = sha256({ a: 1 });
-  const migrated = migrateStructuredIdentity(
-    previous,
-    'cache',
-    'record/v2',
-    value
-  );
-  assert.equal(reads, 1);
+  const previous = rawSha256('{"a":1}');
+  assert.throws(() => migrateStructuredIdentity(previous, 'cache', 'record/v2', accessor), /accessor/u);
+  assert.equal(reads, 0);
+
+  const migrated = migrateStructuredIdentity(previous, 'cache', 'record/v2', { a: 1 });
+  const frame = Buffer.concat([identityFrameHeader('cache', 'record/v2'), Buffer.from('{"a":1}')]);
   assert.equal(migrated.previous, previous);
-  assert.deepEqual(
-    migrated.current,
-    structuredIdentity('cache', 'record/v2', { a: 1 })
-  );
+  assert.deepEqual(migrated.current, {
+    profile: 'blake3-256-canonical-json-v1',
+    domain: 'cache', schema: 'record/v2', digest: contentDigest(frame)
+  });
   assert.equal(Object.isFrozen(migrated), true);
 });
+
 
 test('structured migration rejects wrong preimages and mixed generations before a new identity escapes', () => {
   assert.throws(
