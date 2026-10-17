@@ -749,7 +749,14 @@ class Book:
             if name==CACHE_PATH:
                 content='<p class="notice">这是已消费的可重建图缓存。实际 SVG 与渲染来源已呈现，载体摘要进入阅读输入；不重复内嵌缓存 JSON 或把它当作者原件。</p>'
             elif name.endswith('.md'):
-                content=self.md.renderer.render(self.tokens[name],self.md.options,{'path':name})
+                tokens=self.tokens[name]
+                outline_entries=[]
+                for i,token in enumerate(tokens):
+                    if token.type=='heading_open' and token.tag!='h1':
+                        label=''.join(child.content if child.type in {'text','code_inline','image'} else ' ' if child.type in {'softbreak','hardbreak'} else '' for child in (tokens[i+1].children or [])) or '（无标题）'
+                        outline_entries.append('<li style="margin-inline-start:'+str(int(token.tag[1])-2)+'em"><a href="#'+esc(token.attrGet('id'))+'">'+esc(label)+'</a></li>')
+                outline=('<details class="page-contents"><summary>本页内容</summary><nav aria-label="本页内容"><ul>'+''.join(outline_entries)+'</ul></nav></details>') if outline_entries else ''
+                content=outline+self.md.renderer.render(tokens,self.md.options,{'path':name})
             elif Path(name).suffix.lower() in TEXT_SUFFIXES or Path(name).name in TEXT_BASENAMES:
                 content='<h1>'+esc(name)+'</h1><pre><code>'+esc(data.decode('utf-8'))+'</code></pre>'
             else:

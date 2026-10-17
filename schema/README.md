@@ -21,4 +21,6 @@ Schema 不能独立检查：重复 JSON 键的原文、文件对象与路径安�
 
 后继正例及第二次修改见[最小持久作者工程](examples/author-v2/README.md)。例子只使用设计协议，保存合法作者源不证明生成或执行。
 
+专业结构与结构外检查分别见[语义、模型和模式载体](semantics/README.md)及[六工具载体](tools/README.md)；两处继续拥有各自画像的适用边界，不由本索引复制字段或签发运行资格。[方法供给声明](supply/method-supply-1.schema.json)和[Target画像声明](supply/target-profile-1.schema.json)分别消费[实现供给](../docs/架构/实现供给与替换.md)与[成品消费及发射](../docs/编译/目标/成品消费合同与发射.md)，声明中的covers、accepts及members不是实际行为、完整成员或发布资格。
+
 [Requirement 组合正例](examples/requirement-composition-v2.module.json)另外覆盖共同 core:Int、闭合默认表达式、准确 design 定义值及动态 design-use。Plan 的显式参数 limit 由固定纯表达式 2+1 得到；第二次将该处右字面量由 "1" 改为 "3"，只改变该 Use 的 limit 为 5，不修改 Policy 的默认 3 或其他 Use。空 terms 是合法无附加义务，绝不以此声明实现任何业务功能。该样本仅校准结构与身份/默认分工，阶段、类型与真实 Reader 资格分别取得。
