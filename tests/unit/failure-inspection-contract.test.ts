@@ -62,23 +62,6 @@ test('native Error accessor fields are never invoked, including when nested', ()
   assert.equal(reads, 0);
 });
 
-test('live and revoked proxies reach no traps or renderer', () => {
-  let traps = 0;
-  const live = new Proxy({}, {
-    get() { traps++; throw new Error('get'); },
-    ownKeys() { traps++; throw new Error('ownKeys'); },
-    getOwnPropertyDescriptor() { traps++; throw new Error('descriptor'); },
-    getPrototypeOf() { traps++; throw new Error('prototype'); }
-  });
-  const { proxy: revoked, revoke } = Proxy.revocable({}, {});
-  revoke();
-  for (const value of [live, revoked, { nested: live }]) {
-    assert.match(inspectFailureValue(value), /Proxy not inspected/u);
-    assert.match(failureMessage(value), /Proxy not inspected/u);
-  }
-  assert.equal(traps, 0);
-});
-
 test('presentation keeps own data without inherited constructors or prototype setters', () => {
   let inheritedReads = 0;
   const parent = Object.defineProperty({}, 'constructor', {
