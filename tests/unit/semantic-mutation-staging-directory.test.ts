@@ -110,7 +110,7 @@ test('staging retirement removes only its exact child and preserves artifacts an
   } finally { cleanup(f); }
 });
 
-test('staging retirement does not read or hash large sparse source leaves', async () => {
+test('staging retirement removes a tree containing a large sparse source leaf', async () => {
   const f = fixture();
   try {
     const transaction = await create(f);
@@ -142,7 +142,7 @@ test('a staging directory that appears across an absence fence is not adopted fo
     await expect(retireSemanticMutationStagingWorkspace(transaction, async () => {
       mkdirSync(f.stage);
       writeFileSync(path.join(f.stage, 'foreign'), 'keep');
-    })).rejects.toThrow('appeared');
+    })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' });
     expect(readFileSync(path.join(f.stage, 'foreign'), 'utf8')).toBe('keep');
   } finally { cleanup(f); }
 });

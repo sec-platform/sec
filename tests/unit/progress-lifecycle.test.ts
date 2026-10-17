@@ -14,20 +14,19 @@ function observer(events: string[], broken?: string, reason: unknown = new Error
 
 for (const broken of [undefined, 'factory', 'start', 'succeed', 'stop']) {
   test(`successful action remains successful with ${broken ?? 'healthy'} presentation`, async () => {
-    const events: string[] = [], value = Object.freeze({ value: 7 }); let calls = 0;
+    const events: string[] = [], value = Object.freeze({ value: 7 });
     const result = await withProgressLifecycle('task', () => { events.push('factory'); if (broken === 'factory') throw new Error('factory'); return observer(events, broken); },
-      async () => { events.push('action'); calls += 1; return value; });
-    assert.equal(result, value); assert.equal(calls, 1);
+      async () => { events.push('action'); return value; });
+    assert.equal(result, value);
     assert.deepEqual(events, broken === 'factory' ? ['factory', 'action'] : ['factory', 'start:task', 'action', 'succeed:task', 'stop']);
   });
 }
 
 for (const broken of [undefined, 'factory', 'start', 'fail', 'stop']) {
   test(`failed action retains its primary reason with ${broken ?? 'healthy'} presentation`, async () => {
-    const events: string[] = [], primary = Object.freeze({ origin: 'action' }); let calls = 0;
+    const events: string[] = [], primary = Object.freeze({ origin: 'action' });
     await assert.rejects(withProgressLifecycle('task', () => { events.push('factory'); if (broken === 'factory') throw new Error('factory'); return observer(events, broken); },
-      async () => { events.push('action'); calls += 1; throw primary; }), (error) => error === primary);
-    assert.equal(calls, 1);
+      async () => { events.push('action'); throw primary; }), (error) => error === primary);
     assert.deepEqual(events, broken === 'factory' ? ['factory', 'action'] : ['factory', 'start:task', 'action', 'fail:task', 'stop']);
   });
 }

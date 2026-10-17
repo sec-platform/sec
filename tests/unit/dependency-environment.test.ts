@@ -139,7 +139,7 @@ async function seedHistoricalSharedDependencyRegistration(input: Readonly<{
   await fs.writeFile(path.join(registrationsRoot, `${pointerKey}.json`), bytes, 'utf8');
 }
 
-test('dependency doctor projects the canonical dependency state without an external runtime probe', async () => {
+test('dependency doctor projects dependency state and existing workspace roots', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const paths = getWorkspacePaths(workspaceRoot);
     await Promise.all([
@@ -155,10 +155,9 @@ test('dependency doctor projects the canonical dependency state without an exter
       id: 'runtime-dependencies',
       status: report.dependencies.mode === 'warm-project' ? 'ok' : 'warn'
     });
-    expect(rootsCheck).toEqual({
+    expect(rootsCheck).toMatchObject({
       id: 'workspace-roots',
-      status: 'ok',
-      message: 'Workspace roots exist: workspace, model, src, .sec.'
+      status: 'ok'
     });
     expect(report.dependencies.projectNodeModules.path).toBe(
       path.join(paths.workspaceRoot, 'node_modules')

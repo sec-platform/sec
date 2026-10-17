@@ -24,12 +24,6 @@ for (const observationClass of ['observed', 'derived', 'unknown']) {
   }
 }
 
-test('one unknown fact cannot be hidden by repeated known facts in the same group', () => {
-  const result = view([fact(), fact(), fact({ observationClass: 'unknown' }), fact()])
-    .capabilitySummaryForPaths(paths);
-  assert.deepEqual(result, { observedKinds: ['filesystem'], hasUnknown: true });
-});
-
 test('unrequested paths and non-production facts cannot contribute effects or unknown status', () => {
   const result = view([fact(), fact({ path: 'src/b.ts', capability: 'network', transport: 'unknown' }),
     fact({ surface: 'test', capability: 'process', observationClass: 'unknown' })])

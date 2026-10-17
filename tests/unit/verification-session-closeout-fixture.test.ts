@@ -8,7 +8,6 @@ import { authorizeBranchCloseout } from '../../src/adapters/self-hosting/control
 import { collectBranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
-import type { BranchCloseoutAttempt } from '../../src/execution/verification/branch-closeout.ts';
 import {
   compileCloseoutCliProviderShims, prepareCloseoutCliScenario,
   readCloseoutCliHarnessState, writeCloseoutCliHarnessState
@@ -58,12 +57,10 @@ test('closeout CLI fixture prepares and rehydrates exact recovery through curren
       });
       expect(wrong.status).not.toBe(0);
       expect(readCloseoutCliHarnessState(prepared.statePath).localDeleteCount).toBe(0);
-      const attempts: BranchCloseoutAttempt[] = [];
       const observed = await observeLocalRefCasWithAdmissionDouble({
         preparation: prepared.rehydratedPrepared.preparation,
         operationId: `sha256:${'c'.repeat(64)}` as OperationDigest });
       const result = observed.result;
-      attempts.push(...observed.attempts);
       expect(observed.admissionChecks).toBe(2);
       expect(observed.realForgedAdmissionRejected).toBe(true);
       expect(result).toMatchObject({ status: 'success' });

@@ -223,7 +223,7 @@ test('upgrade durable contracts reject ambiguous JSON and unbound authority', ()
   );
 });
 
-test('review governance rejects ambiguous persisted upgrade artifacts before object parsing', async () => {
+test('review governance rejects duplicate keys in persisted upgrade artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     await fs.mkdir(path.dirname(upgradePlanPath), { recursive: true });
@@ -233,11 +233,13 @@ test('review governance rejects ambiguous persisted upgrade artifacts before obj
       'utf8'
     );
 
-    expect(() => readReviewGovernanceReports(workspaceRoot)).toThrow(/duplicate.*key/iu);
+    expect(() => readReviewGovernanceReports(workspaceRoot)).toThrow(
+      expect.objectContaining({ contract: 'plan', kind: 'duplicate-key' })
+    );
   }, 'engineering-compiler-upgrade-review-reader-');
 });
 
-test('review governance rejects upgrade artifacts from different operations', async () => {
+test('review governance rejects planning diagnostics alongside a durable UpgradePlan', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(

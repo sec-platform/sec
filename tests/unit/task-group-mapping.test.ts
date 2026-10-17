@@ -15,7 +15,8 @@ test('mapping and callable tasks share ordering and bounded active work', async 
     assert.equal(value, index); peak = Math.max(peak, ++active); await Promise.resolve(); active--; return value * 2;
   }, { concurrency: 3 });
   const invoked = await runTaskGroup(input.map(value => async () => value * 2), { concurrency: 3 });
-  assert.equal(peak, 3); assert.deepEqual(mapped, invoked);
+  const expected = input.map(value => value * 2);
+  assert.equal(peak, 3); assert.deepEqual(mapped, expected); assert.deepEqual(invoked, expected);
 });
 
 test('a mapping failure stops acceptance but still joins a suspended mapper', async () => {
@@ -25,8 +26,10 @@ test('a mapping failure stops acceptance but still joins a suspended mapper', as
     if (value === 1) { started.resolve(); await gate.promise; assert.equal(signal.aborted, true); return value; }
     assert.fail('queued item ran after failure');
   }, { concurrency: 2 }).then(() => assert.fail('unexpected success'), error => { settled = true; assert.equal(error, failure); });
-  await started.promise; await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(settled, false); gate.resolve(); await result;
+  try {
+    await started.promise; await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(settled, false);
+  } finally { gate.resolve(); await result; }
 });
 
 test('item slots are captured, but the group does not clone a domain object', async () => {

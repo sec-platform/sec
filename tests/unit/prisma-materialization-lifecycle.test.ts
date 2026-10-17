@@ -53,37 +53,42 @@ test('equal-byte creation by another writer remains a valid idempotent publicati
 
 test('changed source bytes invalidate an otherwise valid target publication', async () => fixture(async f => {
   writeFileSync(f.source, schema('B')); writeFileSync(f.target, schema('A'));
-  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => { writeFileSync(f.source, schema('C')); } }), /source changed/);
+  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => { writeFileSync(f.source, schema('C')); } }), { code: 'COMPOSE-PRISMA-003' });
   assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
 }));
 
 test('no-op merge still checks the target after the final fence', async () => fixture(async f => {
   writeFileSync(f.source, schema('A')); writeFileSync(f.target, schema('A'));
-  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => { writeFileSync(f.target, schema('User')); } }), /no-op completion/);
+  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => { writeFileSync(f.target, schema('User')); } }), { code: 'COMPOSE-PRISMA-003' });
   assert.equal(readFileSync(f.target, 'utf8'), schema('User'));
 }));
 
 test('missing optional source is rechecked after the fence rather than silently changing the plan', async () => fixture(async f => {
   await assert.rejects(materializePrismaSource({ ...input(f), sourceRequired: false,
-    commitFence: async () => { writeFileSync(f.source, schema('Appeared')); } }), /source changed/);
+    commitFence: async () => { writeFileSync(f.source, schema('Appeared')); } }), { code: 'COMPOSE-PRISMA-003' });
   assert.equal(existsSync(f.target), false);
 }));
 
 test('required source absence rejects before any fence or target creation', async () => fixture(async f => {
-  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => assert.fail('effect after missing source') }), /missing/);
+  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => assert.fail('effect after missing source') }), { code: 'COMPOSE-PATH-003' });
   assert.equal(existsSync(f.target), false);
 }));
 
 test('source disappearance is not interpreted as permission to publish stale bytes', async () => fixture(async f => {
   writeFileSync(f.source, schema('B')); writeFileSync(f.target, schema('A'));
-  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => { rmSync(f.source, { force: true }); } }), /source changed/);
+  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => { rmSync(f.source, { force: true }); } }), { code: 'COMPOSE-PRISMA-003' });
   assert.equal(readFileSync(f.target, 'utf8'), schema('A'));
 }));
 
 for (const owner of ['source', 'target'] as const) test(`invalid UTF-8 ${owner} is rejected before effects`, async () => fixture(async f => {
   writeFileSync(f.source, schema('A')); writeFileSync(f.target, schema('B'));
   writeFileSync(f[owner], Buffer.from([0xff]));
-  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => assert.fail('effect before decoding') }));
+  let fenceEntered = false;
+  await assert.rejects(materializePrismaSource({ ...input(f), commitFence: async () => {
+    fenceEntered = true;
+    assert.fail('effect before decoding');
+  } }));
+  assert.equal(fenceEntered, false);
 }));
 
 test('schema conflict is rejected before any publication fence', async () => fixture(async f => {
@@ -92,7 +97,7 @@ test('schema conflict is rejected before any publication fence', async () => fix
   assert.equal(readFileSync(f.target, 'utf8'), schema('A', ' id Int'));
 }));
 
-test('relative root and paths remain fixed when a fence changes cwd', async () => fixture(async f => {
+test.serial('relative root and paths remain fixed when a fence changes cwd', async () => fixture(async f => {
   const old = process.cwd(); writeFileSync(f.source, schema('A'));
   try {
     process.chdir(f.root);
@@ -119,7 +124,7 @@ test('actual merge-prisma strategy shares model identity instead of appending du
 }));
 
 
-test('target containment is admitted even for missing-source and no-op branches', async () => fixture(async f => {
+test('target containment is admitted even when an optional source is missing', async () => fixture(async f => {
   for (const targetPath of [f.root, path.join(f.root, '..', 'outside.prisma')]) {
     await assert.rejects(materializePrismaSource({ ...input(f), targetPath, sourceRequired: false,
       commitFence: async () => assert.fail('fence before path admission') }), /inside its workspace/);
@@ -144,7 +149,7 @@ test('source publication checks retain a class-based fence receiver', async () =
 }));
 
 
-test('relative root interpretation is fixed before request getters can change cwd', async () => fixture(async f => {
+test.serial('relative root interpretation is fixed before request getters can change cwd', async () => fixture(async f => {
   const cwd = process.cwd(); writeFileSync(f.source, schema('A'));
   try {
     process.chdir(f.root);

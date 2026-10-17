@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { chmodSync, mkdirSync, renameSync } from 'node:fs';
 import { chmod, link, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -18,7 +18,7 @@ import {
 import { ResourceCompositeSettlementError } from '../../src/execution/resource-settlement.ts';
 
 const roots: string[] = [];
-afterEach(async () => {
+afterAll(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
 });
 async function fixture(): Promise<{ root: string; store: string; repository: string }> {

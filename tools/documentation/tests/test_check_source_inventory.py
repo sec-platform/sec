@@ -124,9 +124,6 @@ class SourceBoundary(unittest.TestCase):
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
-        names = [member['path'] for member in manifest['members']]
-        self.assertEqual(names, sorted(names))
-        self.assertEqual(names, expected_names)
         self.assertEqual(manifest['members'], expected_members)
         self.assertEqual(manifest['source_set_sha256'], expected_digest)
         self.assertNotIn('source_set_sha256', baseline)

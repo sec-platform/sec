@@ -37,7 +37,7 @@ test('worktree settlement reads Git configuration from the requested repository 
   }
 });
 
-test('worktree settlement preserves a typed authority block before any Git child', async () => {
+test('worktree settlement reports an unavailable authority for a missing root', async () => {
   const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-settlement-missing-root-'));
   const repositoryRoot = path.join(parent, 'missing');
   try {

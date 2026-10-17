@@ -127,6 +127,7 @@ test('real Active Work target remains active inside closeout observation', async
     await withGitHubApiTestSession({ capability: capability(mainSha, requests), repositoryRoot: root, operation: async () => {
       const active = requireActiveWorkPackageOwnerObservation(await observeActiveWorkPackage(root));
       expect(active).toMatchObject({ state: 'active', branch: 'transport/old', defaultSha: mainSha });
+      expect(requests.length).toBeGreaterThan(0);
       expect(requests.every(url => url.endsWith('/git/ref/heads/main'))).toBe(true);
     } });
   });

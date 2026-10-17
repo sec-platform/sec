@@ -32,7 +32,13 @@ test('Windows AppContainer stages one immutable, physically read-back probe asse
       const metadata = await lstat(assetPath);
       expect(metadata.isFile()).toBe(true);
       expect(metadata.isSymbolicLink()).toBe(false);
-      expect((await readFile(assetPath)).byteLength).toBeGreaterThan(0);
+      const sourcePath = new URL(
+        `../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/probes/${windowsAppContainerProbeAssetRelativePath(role)}`,
+        import.meta.url
+      );
+      const stagedBytes = await readFile(assetPath);
+      expect(stagedBytes.byteLength).toBeGreaterThan(0);
+      expect(stagedBytes).toEqual(await readFile(sourcePath));
     }
   } finally {
     await rm(root, { recursive: true, force: true });

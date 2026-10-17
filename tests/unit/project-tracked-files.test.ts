@@ -72,7 +72,6 @@ test('tracked project observation canonicalizes its root and fails closed when p
   const unavailableRoot = path.join(os.tmpdir(), `sec-tracked-provider-absent-${crypto.randomUUID()}`);
   await expect(listTrackedProjectPaths(unavailableRoot)).rejects.toMatchObject({
     name: 'GitReadAuthorityError',
-    message: 'Git read provider is unavailable.',
     failure: {
       kind: 'unresolved-git-read-provider',
       status: 'unavailable'

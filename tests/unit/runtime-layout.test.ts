@@ -137,7 +137,7 @@ describe('compiler runtime layout', () => {
     }
   });
 
-  test('the live source module resolves the current package without caller cwd inference', () => {
+  test('the live source module resolves the current package and CLI entrypoint', () => {
     const packageRoot = path.resolve(import.meta.dir, '../..');
 
     expect(compilerRuntimeLayout.mode).toBe('source');

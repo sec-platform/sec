@@ -23,6 +23,7 @@ test('task mutation of visible signal fields cannot reopen a cancelled queue', a
 test('already cancelled admission executes no task-array getter or iterator', async () => {
   const controller = new AbortController(); controller.abort('stop');
   const tasks: (() => Promise<void>)[] = [];
+  Object.defineProperty(tasks, 0, { get() { assert.fail('task getter read'); } });
   Object.defineProperty(tasks, Symbol.iterator, { get() { assert.fail('iterator read'); } });
   await assert.rejects(runTaskGroup(tasks, { signal: controller.signal }), error => error === 'stop');
 });

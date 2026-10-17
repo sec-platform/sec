@@ -43,7 +43,7 @@ test('trusted runtime provenance rejects candidate or ambiguous runtime identity
   })).toThrow('canonical merge-gate entrypoint');
 });
 
-test('trusted runtime artifact observation is durable-file readback, not an Actions artifact alias', () => {
+test('trusted runtime artifact observation retains declared durable-file identity', () => {
   const observation = createTrustedRuntimeArtifactObservation({
     artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: D('a'),
@@ -58,7 +58,7 @@ test('trusted runtime artifact observation is durable-file readback, not an Acti
   expect(observation.runtimeSha).toBe(BASE);
 });
 
-test('trusted runtime artifact observation rejects Actions-style or stale readback identity', () => {
+test('trusted runtime artifact observation rejects Actions-style readback transport', () => {
   expect(() => createTrustedRuntimeArtifactObservation({
     artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: D('a'),

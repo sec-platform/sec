@@ -182,7 +182,7 @@ test('read refs stay inside Capsule scope and mandatory deny sources cannot be r
   })).toThrow(/omits mandatory baseline source/u);
 });
 
-test('read receipt binds planned owner revision reason and bytes', () => {
+test('read receipt rejects an owner different from the planned reference', () => {
   const malformed = input();
   expect(() => compileOperationReadPlan({
     ...malformed,
@@ -235,7 +235,7 @@ test('Skill registry validates Capsule guidance candidates without owning Capsul
     .toThrow(/not in the trusted Skill registry/u);
 });
 
-test('Task Capsule digest binds all planning content and scope proposal rejects escape', () => {
+test('Task Capsule rejects changed role content and escaping scope proposals', () => {
   const malformed = input();
   expect(() => compileOperationReadPlan({
     ...malformed,

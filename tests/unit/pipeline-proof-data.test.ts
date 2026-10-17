@@ -42,25 +42,29 @@ test('proof fields and sequence data are captured without invoking getters or pr
 
 for (const kind of ['getter', 'hidden', 'symbol', 'extra', 'missing', 'prototype']) {
   test(`proof root rejects ${kind} extensions or non-data fields`, () => {
+    let accessorInvoked = false;
     const value: Record<string | symbol, unknown> = { id: 'proof' };
-    if (kind === 'getter') Object.defineProperty(value, 'id', { get() { assert.fail('getter'); } });
+    if (kind === 'getter') Object.defineProperty(value, 'id', { get() { accessorInvoked = true; assert.fail('getter'); } });
     if (kind === 'hidden') Object.defineProperty(value, 'id', { value: 'proof', enumerable: false });
     if (kind === 'symbol') value[Symbol('extra')] = 7;
     if (kind === 'extra') value.extra = 7;
     if (kind === 'missing') delete value.id;
     if (kind === 'prototype') Object.setPrototypeOf(value, { extension: true });
     assert.throws(() => capturePipelineProofRecord(value, ['id'], 'Proof'));
+    assert.equal(accessorInvoked, false);
   });
 }
 
 for (const kind of ['hole', 'getter', 'extra', 'hidden']) {
   test(`proof arrays reject ${kind} state before payload hashing`, () => {
+    let accessorInvoked = false;
     const array: unknown[] = [1];
     if (kind === 'hole') delete array[0];
-    if (kind === 'getter') Object.defineProperty(array, 0, { get() { assert.fail('getter'); } });
-    if (kind === 'extra') Object.defineProperty(array, 'toJSON', { value() { assert.fail('toJSON'); } });
+    if (kind === 'getter') Object.defineProperty(array, 0, { get() { accessorInvoked = true; assert.fail('getter'); } });
+    if (kind === 'extra') Object.defineProperty(array, 'toJSON', { value() { accessorInvoked = true; assert.fail('toJSON'); } });
     if (kind === 'hidden') Object.defineProperty(array, 0, { value: 1, enumerable: false });
     assert.throws(() => capturePipelineProofRecord({ stages: array }, ['stages'], 'Proof'));
+    assert.equal(accessorInvoked, false);
   });
 }
 

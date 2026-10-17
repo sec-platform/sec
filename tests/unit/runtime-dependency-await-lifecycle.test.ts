@@ -248,7 +248,7 @@ test('cancellation of an ancestor settles a child fence despite a suppressed anc
 });
 
 for (const terminal of ['success', 'provider failure', 'cancellation', 'deadline'] as const) {
-  test(`the actual await observer releases its listeners after ${terminal}`, async () => {
+  test.serial(`the actual await observer releases its listeners after ${terminal}`, async () => {
     const source = new AbortController();
     const original = AbortSignal.prototype.addEventListener;
     const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'addEventListener');

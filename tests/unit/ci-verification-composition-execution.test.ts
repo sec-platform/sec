@@ -183,7 +183,7 @@ test('composition rejects a plain structural process result without an owner-iss
   }
 });
 
-test('composition environment, argv, and topology drift change the Action plan digest', () => {
+test('composition environment and topology drift change the digest while forged argv is rejected', () => {
   const baseline = buildCiVerificationActionPlanClosure({ candidate, gates });
   const variants: readonly (readonly CiVerificationProducerGate[])[] = [
     gates.map((gate, index) => index === 0 ? { ...gate, environment: { 'ci-env-v1:environment': digest('8') } } : gate),
@@ -265,9 +265,7 @@ test('source Action transport consumes the exact completed gate without a second
     expect(processCalls).toEqual(['composition-scope-a']);
     expect(execution.failed).toBe(false);
     expect(execution.gates).toHaveLength(2);
-    expect(execution.gates[1]).toBe(sourceAction.gate);
-    expect(execution.gates[1]!.result.disposition).toBe('executed');
-    expect(execution.gates[1]!.cleanup.evidenceRefs).toEqual([digest('source-attempt')]);
+    expect(execution.gates[1]).toEqual(sourceAction.gate);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

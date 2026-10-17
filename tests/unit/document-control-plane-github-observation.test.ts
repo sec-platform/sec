@@ -121,7 +121,7 @@ describe('Document Control Plane complete GitHub observation', () => {
       .toThrow('must be one bounded option-safe Git branch name');
   });
 
-  test('observes the exact GitHub default ref without ambient Git credentials', () => {
+  test('builds the exact GitHub default-ref query and parses its response', () => {
     expect(buildGitHubDefaultBranchRefArgs(REPOSITORY, 'main')).toEqual(
       expect.arrayContaining([
         'api', 'graphql', '-F', 'owner=sec-platform', '-F', 'name=sec',
@@ -156,7 +156,7 @@ describe('Document Control Plane complete GitHub observation', () => {
       response(complete),
       'open issue inventory',
       147
-    )).toHaveLength(147);
+    )).toEqual(complete);
 
     expect(() => parseExactGitHubNumberedInventory(
       response(complete.slice(0, 100)),
@@ -179,7 +179,7 @@ describe('Document Control Plane complete GitHub observation', () => {
       openPullRequestPage(101, second, false, null)
     ]), expectedNumbers);
 
-    expect(inventory.pullRequests).toHaveLength(101);
+    expect(inventory.pullRequests.map(pullRequest => pullRequest.number)).toEqual(expectedNumbers);
     expect(inventory.incompletePullRequestNumbers).toEqual([]);
     expect(() => parseGitHubOpenPullRequestReviewThreadPages(response([
       openPullRequestPage(101, first, false, null)
@@ -204,7 +204,11 @@ describe('Document Control Plane complete GitHub observation', () => {
       pullRequestThreadPage(496, 101, firstThreads, true, 'next-thread-page'),
       pullRequestThreadPage(496, 101, lastThread, false, null)
     ]), 496);
-    expect(completeThreads.nodes).toHaveLength(101);
+    expect(completeThreads).toEqual({
+      totalCount: 101,
+      nodes: [...firstThreads, ...lastThread],
+      pageInfo: { hasNextPage: false, endCursor: null }
+    });
     expect(replaceIncompleteGitHubReviewThreads(
       inventory,
       new Map([[496, completeThreads]])

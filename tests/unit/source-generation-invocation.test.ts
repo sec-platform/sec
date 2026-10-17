@@ -40,7 +40,7 @@ test('clock callbacks cannot retarget the already-selected source or binding', a
   }finally{rmSync(f.root,{recursive:true,force:true});}
 });
 
-test('relative paths bind before callbacks or the deferred scan can change cwd', async () => {
+test.serial('relative paths bind before callbacks or the deferred scan can change cwd', async () => {
   const f=fixture(), original=process.cwd(); try {
     process.chdir(f.root);
     const pending=runtimeDependencySourceGeneration({...input(f),ownerRoot:'.',sourcePath:'a'});
@@ -69,7 +69,7 @@ test('required input fields are sampled once before scan scheduling', async () =
 
 for(const requested of [null, false, {maximumBytes:null},{maximumEntries:null},{maximumBytes:-1},{maximumEntries:0}]){
   test(`invalid selected bounds cannot become default capacity: ${JSON.stringify(requested)}`,async()=>{
-    const f=fixture();try{await assert.rejects(runtimeDependencySourceGeneration(input(f),requested as never));}
+    const f=fixture();try{await assert.rejects(runtimeDependencySourceGeneration(input(f),requested as never), {code:'RUNTIME-DEPS-003'});}
     finally{rmSync(f.root,{recursive:true,force:true});}
   });
 }
@@ -94,6 +94,6 @@ test('completed observations are not reused after source content changes', async
   const f=fixture();try{
     const request=input(f), a=await runtimeDependencySourceGeneration(request);
     writeFileSync(path.join(request.sourcePath,'value'),'different');
-    const b=await runtimeDependencySourceGeneration(request);assert.notEqual(a,b);assert.notEqual(a.treeDigest,b.treeDigest);
+    const b=await runtimeDependencySourceGeneration(request);assert.notEqual(a.treeDigest,b.treeDigest);
   }finally{rmSync(f.root,{recursive:true,force:true});}
 });

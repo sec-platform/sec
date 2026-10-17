@@ -163,7 +163,7 @@ test.serial('local-only commits return LOCAL_MAIN_SYNC_BLOCKED(local-only-commit
   git(protectedRoot!, ['reset', '--hard', 'origin/main']);
 });
 
-test.serial('a diverged protected main returns LOCAL_MAIN_SYNC_BLOCKED without mutation', async () => {
+test.serial('a diverged protected main preserves local commits while refreshing remote tracking', async () => {
   developerPush('v3\n');
   const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
   writeFileSync(path.join(protectedRoot!, 'diverged.txt'), 'diverged\n');

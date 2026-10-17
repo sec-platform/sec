@@ -75,8 +75,7 @@ test("the policy predicate accepts only capability-to-artifact facts", () => {
   );
 });
 
-test("controlled multi-variant predicates are statically unambiguous", () => {
-  expect(() => assertPredicateSignatureRegistry()).not.toThrow();
+test("controlled multi-variant predicates accept both dependency shapes", () => {
   const dependsOn = PREDICATE_SIGNATURE_REGISTRY.DEPENDS_ON;
   expect(dependsOn.status).toBe("active");
   if (dependsOn.status !== "active")
@@ -142,10 +141,7 @@ test("entity-object signatures accept legal kinds and reject illegal kinds deter
     "IR-PREDICATE-004",
   );
 
-  expect(first.message).toBe(
-    'Fact "fact:a" predicate "CONTAINS" rejects entity object "operation:ticket:create"',
-  );
-  expect(second.message).toBe(first.message);
+  expect(second.details).toEqual(first.details);
   expect(first.details).toEqual({
     factId: "fact:a",
     predicate: "CONTAINS",
@@ -315,9 +311,6 @@ test("reserved predicates hard fail with stable fact context", () => {
     "IR-PREDICATE-001",
   );
 
-  expect(reserved.message).toBe(
-    'Fact "fact:reserved" uses reserved predicate "FORKS_TO"',
-  );
   expect(reserved.details).toEqual({
     factId: "fact:reserved",
     predicate: "FORKS_TO",

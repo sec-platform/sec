@@ -78,8 +78,9 @@ test('inherited and non-enumerable request controls stay outside the input bound
     monotonicNowMs() { throw new Error('inherited clock'); } });
   Object.defineProperty(inherited, 'deadlineAtUnixMs', { value: 0, enumerable: false });
   const bound = runtimeDependencyOperationControls(inherited);
-  assert.equal(bound.lockTimeoutMs, 300_000);
-  assert.equal(bound.pollIntervalMs, 50);
+  const defaults = runtimeDependencyOperationControls({});
+  assert.equal(bound.lockTimeoutMs, defaults.lockTimeoutMs);
+  assert.equal(bound.pollIntervalMs, defaults.pollIntervalMs);
 });
 
 test('extracting controls preserves the exact bound parent ledger and telemetry identity', () => {
@@ -151,7 +152,12 @@ for (const lockTimeoutMs of [undefined, 1, MAX_DEPENDENCY_OPERATION_TIMEOUT_MS])
     const input = { lockTimeoutMs, monotonicNowMs: () => 0 };
     const control = runtimeDependencyOperationControls(input);
     const install = runtimeDependencyOperationOptions(input);
-    assert.equal(control.lockTimeoutMs, lockTimeoutMs ?? 300_000);
+    if (lockTimeoutMs === undefined) {
+      assert.ok(Number.isSafeInteger(control.lockTimeoutMs));
+      assert.ok(control.lockTimeoutMs > 0 && control.lockTimeoutMs <= MAX_DEPENDENCY_OPERATION_TIMEOUT_MS);
+    } else {
+      assert.equal(control.lockTimeoutMs, lockTimeoutMs);
+    }
     assert.equal(control.lockTimeoutMs, install.lockTimeoutMs);
     assert.equal(runtimeDependencyOperationContext(control).deadlineAtMonotonicMs,
       runtimeDependencyOperationContext(install).deadlineAtMonotonicMs);

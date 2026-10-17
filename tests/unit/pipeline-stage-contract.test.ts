@@ -42,8 +42,7 @@ test('registry queries cannot hand callers a writable policy or nested relation'
   assert.equal(Reflect.deleteProperty(PIPELINE_STAGE_DEFINITIONS, 'verify'), false);
   assert.equal(Reflect.set(PIPELINE_STAGE_OWNERSHIP.compose, 'primaryPass', 'emit'), false);
   assert.throws(() => (PIPELINE_STAGE_IDS as string[]).reverse(), TypeError);
-  assert.equal(getPipelineStageDefinition('compose'), definition);
-  assert.deepEqual(definition.requires, ['build-ir']);
+  assert.deepEqual(getPipelineStageDefinition('compose').requires, ['build-ir']);
 });
 
 test('each pass has one identity and each staged pass one stage owner', () => {

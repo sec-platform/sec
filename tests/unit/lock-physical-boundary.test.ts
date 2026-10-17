@@ -45,7 +45,7 @@ test('Lock schema rejects unsupported producers before effects and unknown persi
   });
 });
 
-test('unsafe canonical Lock blocks before reading external bytes', async () => {
+test('canonical Lock reader rejects a linked file', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
     const lock = lockFixture();

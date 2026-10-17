@@ -56,7 +56,7 @@ class ProjectionModes(TestCase):
         with patch.object(check_design,'review',side_effect=changed):
             with self.assertRaisesRegex(ValueError,'source changed during capture'):check_docs.verify(self.root)
 
-    def test_source_check_neither_requires_nor_opens_local_projections(self):
+    def test_source_check_ignores_broken_local_projections_and_preserves_their_bytes(self):
         before = check_docs.verify(self.root)['source_set_sha256']
         for name in s.PROJECTION_PATHS:
             (self.root / name).write_bytes(b'\xffbroken derived bytes')

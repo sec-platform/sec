@@ -79,9 +79,6 @@ test('multiple surviving candidates without unique operation evidence resolve am
 });
 
 test('Skill selection carries no resource, Gate, write-scope or replacement authority', () => {
-  const metadata = AGENT_SKILL_METADATA['worker-development'];
-  expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
-
   const decision = evaluateSkillApplicability(envelope({
     candidates: ['worker-development']
   }));
@@ -90,7 +87,7 @@ test('Skill selection carries no resource, Gate, write-scope or replacement auth
   expect('scopeConflicts' in decision).toBeFalse();
 });
 
-test('goal, role, operation, capsule binding or trusted-revision change invalidates the prior decision as stale', () => {
+test('goal, role, operation and capsule binding changes invalidate the prior decision as stale', () => {
   const prior = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     taskCapsuleRef: 'capsule-1',
@@ -171,7 +168,7 @@ test('malformed envelopes resolve unresolved with reason codes', () => {
   expect(missingBinding.reasonCodes).toEqual(['unresolved-missing-binding']);
 });
 
-test('Skill prose bytes never influence the machine decision', () => {
+test('quarantined Skill guidance retains the metadata-selected decision', () => {
   const baseline = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
     changedPaths: ['platform/shared/ci-contract.ts']

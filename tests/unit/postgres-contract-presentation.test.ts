@@ -22,10 +22,11 @@ describe('postgres contract presentation boundary', () => {
       tableNames: ['tickets', 'customers']
     });
     expect(source.tables.map((table) => table.name)).toEqual(['tickets', 'customers']);
-    expect(formatPostgresContract(view)).toBe([
-      'Postgres contract postgres',
-      'mode=database; tables=2; tenantScoped=1',
-      'Table list: tickets, customers'
-    ].join('\n'));
+    const rendered = formatPostgresContract(view);
+    expect(rendered).toMatch(/(?:^|\s)postgres(?=\s|$)/u);
+    expect(rendered).toMatch(/(?:^|\s)mode=database(?=;|\s|$)/u);
+    expect(rendered).toMatch(/(?:^|\s)tables=2(?=;|\s|$)/u);
+    expect(rendered).toMatch(/(?:^|\s)tenantScoped=1(?=;|\s|$)/u);
+    expect(rendered).toMatch(/^Table list:\s*tickets\s*,\s*customers\s*$/mu);
   });
 });

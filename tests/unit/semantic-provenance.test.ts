@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { expect, test } from 'bun:test';
 
@@ -29,7 +30,7 @@ test('semantic provenance preserves generator identity for a runtime artifact', 
       compilationTransactionId: 'pipeline:test-transaction',
       overrideStatus: 'none'
     });
-    expect(artifact?.hash).toBeDefined();
+    expect(artifact?.hash).toBe(createHash('sha256').update('export const generated = true;\n').digest('hex'));
   }, 'engineering-compiler-semantic-provenance-');
 });
 

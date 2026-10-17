@@ -180,8 +180,10 @@ test('operation provider ownership survives phase closure and settles every fail
     };
     const reset = () => { opened = []; closed = []; ledgers = []; handles = []; failBorrow = false; failRoot = false; };
 
+    let noCapacityEntered = false;
     await assert.rejects(withAuthorityGitReadOperation({ ...input(), budget: { ...budget, maxSettlementAttempts: 1 } },
-      scope => scope.runPhase('no-close-capacity', async () => { throw new Error('callback must not be admitted'); })));
+      scope => scope.runPhase('no-close-capacity', async () => { noCapacityEntered = true; throw new Error('callback must not be admitted'); })));
+    assert.equal(noCapacityEntered, false);
     assert.equal(opened.length, 0); assert.equal(closed.length, 0); assert.equal(handles.length, 0);
     assert.equal(ledgers.length, 1); assert.throws(() => ledgers[0].cooperativeDeadlineAtUnixMs());
     reset();

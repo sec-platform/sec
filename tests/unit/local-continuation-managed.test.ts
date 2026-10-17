@@ -121,8 +121,7 @@ tests:
     expect(importedValue.importedAdmission).not.toBeNull();
 
     const resumed = await invoke(repositoryRoot, env);
-    if (resumed.code !== 0) throw new Error(resumed.stderr || resumed.stdout);
-    expect(resumed.code).toBe(0);
+    expect(resumed.code, resumed.stderr || resumed.stdout).toBe(0);
     const resumedValue = JSON.parse(resumed.stdout) as Record<string, unknown>;
     expect(resumedValue.localState).toBe('exact-snapshot');
     expect(resumedValue.importedAdmission).toBeNull();

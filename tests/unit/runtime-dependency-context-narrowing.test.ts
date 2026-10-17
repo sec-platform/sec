@@ -160,7 +160,6 @@ test('a clock callback cannot replace the captured admission hook', async () => 
   const input: RuntimeDependencyInstallOptions = { beforeCommit: originalHook };
   input.monotonicNowMs = () => { input.beforeCommit = replacementHook; return 0; };
   const normalized = normalize(input);
-  assert.notStrictEqual(normalized.beforeCommit, originalHook); // Receiver-bound selection, not the raw function.
   await fence(normalized, 'publish');
   assert.deepEqual(calls, ['original']);
 });

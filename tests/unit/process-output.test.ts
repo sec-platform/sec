@@ -78,7 +78,7 @@ test('command stdin is exact and rejected before spawn when it exceeds its bound
   })).rejects.toThrow(`stdin exceeds ${input.byteLength - 1} bytes`);
 });
 
-test('runCommandBytes enforces stdout and stderr byte limits before accumulation', async () => {
+test('runCommandBytes rejects oversized output and accepts exact byte limits', async () => {
   const stdout = runCommandBytes(rawExecutable.command, [
     '--no-env-file',
     '--eval',
@@ -117,14 +117,14 @@ test('runCommand stall deadline advances only on admitted semantic progress', as
   const progress = await runCommand(rawExecutable.command, [
     '--no-env-file',
     '--eval',
-    "let n=0; const t=setInterval(() => { process.stdout.write(String(++n)); if(n===4){clearInterval(t)} }, 100)"
+    "let n=0; const t=setInterval(() => { process.stdout.write(String(++n)); if(n===8){clearInterval(t)} }, 100)"
   ], {
     cwd: compilerRoot,
     timeoutMs: 2_000,
     stallTimeoutMs: 500,
     admitProgress: (chunk) => chunk.length > 0
   });
-  expect(progress.stdout).toBe('1234');
+  expect(progress.stdout).toBe('12345678');
 });
 
 test('runCommand rejects a stall deadline without a stricter absolute deadline and admission rule', async () => {

@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { canonicalJson } from '../../src/contracts/canonical.ts';
 
 import { computeWindowsControlCliEnvironmentSpecDigest, getWindowsControlCliExecutableBinding, parseWindowsControlCliEnvironmentAuthority, projectWindowsControlCliEnvironment, WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 
@@ -15,11 +17,13 @@ test('installed control-CLI profile forbids runtime provisioning and persistent 
 });
 
 test('canonical digest is derived from the strict profile content', () => {
+  const expected = `sha256:${createHash('sha256').update(JSON.stringify(canonicalJson(source()))).digest('hex')}`;
   const reparsed = parseWindowsControlCliEnvironmentAuthority(source());
-  expect(reparsed.specDigest).toBe(WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST);
+  expect(reparsed.specDigest).toBe(expected);
+  expect(WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST).toBe(expected);
   expect(computeWindowsControlCliEnvironmentSpecDigest(
     source() as Parameters<typeof computeWindowsControlCliEnvironmentSpecDigest>[0]
-  )).toBe(WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST);
+  )).toBe(expected);
 });
 
 test('Git and GitHub bindings describe installed executable bytes and one effective role', () => {
@@ -43,7 +47,7 @@ test('Git and GitHub bindings describe installed executable bytes and one effect
     'gh'
   )!;
   expect(gh.launcherEntries).toHaveLength(1);
-  expect(gh.launcherEntries[0]).toBe(gh.effectiveEntry);
+  expect(gh.launcherEntries[0]).toEqual(gh.effectiveEntry);
 });
 
 test('projection exposes only bounded physical adoption and executable identities', () => {
