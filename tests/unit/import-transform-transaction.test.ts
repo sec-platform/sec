@@ -13,6 +13,10 @@ async function withWorkspace(run: (root: string) => Promise<void>): Promise<void
   try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
+function terminalJournalEntry(source: string): Record<string, unknown> {
+  return JSON.parse(source.trimEnd().split('\n').at(-1)!);
+}
+
 test('terminal-only retirement removes accepted and rolled-back carriers without recovering active work', async () => {
   await withWorkspace(async (root) => {
     expect(await retireTerminalImportTransformTransactions(root)).toEqual({ retired: 0, retained: [] });
@@ -314,8 +318,8 @@ test('post-rename ambiguity preserves a conservative recovery-required journal e
     expect(outcome).toMatchObject({
       status: 'recovery-required', reasonCode: 'rollback-conflict', files: ['a.ts']
     });
-    expect(await readFile(outcome.journalPath, 'utf8')).toContain('"state":"recovery-required"');
-    expect(await readFile(outcome.journalPath, 'utf8')).toContain('"recoveryReasonCode":"rollback-conflict"');
+    expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ state: 'recovery-required' });
+    expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ recoveryReasonCode: 'rollback-conflict' });
     expect(await readFile(target, 'utf8')).toBe('external\n');
   });
 });
@@ -386,7 +390,7 @@ test('complete import write set is accepted under one durable transaction', asyn
     expect(outcome.status).toBe('accepted');
     expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
     expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b1\n');
-    expect(await readFile(outcome.journalPath, 'utf8')).toContain('"state":"accepted"');
+    expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ state: 'accepted' });
   });
 });
 
@@ -405,7 +409,7 @@ test('durable journal progress does not copy transform payloads into every recor
     const journal = await readFile(outcome.journalPath, 'utf8');
     expect(journal).not.toContain('before-0');
     expect(journal).not.toContain('after-0');
-    expect(journal).toContain('"state":"accepted"');
+    expect(terminalJournalEntry(journal)).toMatchObject({ state: 'accepted' });
 
     const largerWrites = Array.from({ length: 16 }, (_, index) => ({
       relativePath: `larger-${index}.ts`,
@@ -449,7 +453,7 @@ test('recovery derives one in-flight publication from durable progress', async (
       }
     });
     expect(first).toMatchObject({ status: 'recovery-required', reasonCode: 'rollback-failed' });
-    expect(await readFile(first.journalPath, 'utf8')).toContain('"state":"publishing"');
+    expect(terminalJournalEntry(await readFile(first.journalPath, 'utf8'))).toMatchObject({ state: 'publishing' });
     expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a1\n');
     expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('b1\n');
     await writeFile(path.join(root, 'd.ts'), 'd0\n');
@@ -482,7 +486,7 @@ test('missing, empty, or torn journal is repaired into deterministic recovery', 
     }]);
     expect(second.status).toBe('accepted');
     expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a0\n');
-    expect(await readFile(first.journalPath, 'utf8')).toContain('"state":"rolled-back"');
+    expect(terminalJournalEntry(await readFile(first.journalPath, 'utf8'))).toMatchObject({ state: 'rolled-back' });
   });
   await run(null);
   await run('');
@@ -569,7 +573,7 @@ test('concurrent preimage drift rolls back every already-published file', async 
     expect(outcome.status).toBe('rolled-back');
     expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('a0\n');
     expect(await readFile(path.join(root, 'b.ts'), 'utf8')).toBe('external\n');
-    expect(await readFile(outcome.journalPath, 'utf8')).toContain('"state":"rolled-back"');
+    expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ state: 'rolled-back' });
   });
 });
 
@@ -613,7 +617,7 @@ test('rollback conflict preserves recovery material and returns recovery-require
     if (outcome.status !== 'recovery-required') throw new Error('expected recovery-required outcome');
     expect(outcome.reasonCode).toBe('rollback-conflict');
     expect(await readFile(path.join(root, 'a.ts'), 'utf8')).toBe('external-a\n');
-    expect(await readFile(outcome.journalPath, 'utf8')).toContain('"state":"recovery-required"');
+    expect(terminalJournalEntry(await readFile(outcome.journalPath, 'utf8'))).toMatchObject({ state: 'recovery-required' });
   });
 });
 

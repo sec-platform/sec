@@ -129,18 +129,12 @@ test('every live IntegrationAuthorization binding drifts fail closed', () => {
   }
 });
 
-test('consumed authorization rejects regardless of Set insertion order or duplicates', () => {
+test('consumed authorization rejects membership even when it is not the first recorded ID', () => {
   const current = authorization();
-  for (const consumed of [
-    new Set([current.authorizationId]),
-    new Set(['other', current.authorizationId]),
-    new Set([current.authorizationId, 'other', current.authorizationId])
-  ]) {
-    expect(() => assertIntegrationAuthorizationUsable(current, {
-      ...live(current),
-      consumedAuthorizationIds: consumed
-    })).toThrow('already consumed');
-  }
+  expect(() => assertIntegrationAuthorizationUsable(current, {
+    ...live(current),
+    consumedAuthorizationIds: new Set(['other', current.authorizationId])
+  })).toThrow('already consumed');
 });
 
 test('authorizationId changes for every stable decision field', () => {

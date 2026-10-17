@@ -119,9 +119,19 @@ test('review summary surfaces semantically assured policy governance failure', a
       error: 1
     }
   });
-  expect(summary.policySummary?.sourceSummaries).toHaveLength(2);
-  expect(summary.policySummary?.mergedSummaries).toHaveLength(2);
-  expect(summary.policySummary?.violationSummaries).toHaveLength(1);
+  expect(summary.policySummary?.sourceSummaries).toEqual([
+    { scope: 'official', path: 'catalog/policies/official/policy.spec.yaml', policyIds: ['tenant-scope-required'] },
+    { scope: 'project', path: PROJECT_POLICY_SOURCE, policyIds: ['project-only'] }
+  ]);
+  expect(summary.policySummary?.mergedSummaries.map(({ id, sourceScope, sourcePath, targets }) =>
+    ({ id, sourceScope, sourcePath, targets }))).toEqual([
+    { id: 'project-only', sourceScope: 'project', sourcePath: PROJECT_POLICY_SOURCE, targets: [CUSTOMER_SERVICE_TARGET] },
+    { id: 'tenant-scope-required', sourceScope: 'official', sourcePath: 'catalog/policies/official/policy.spec.yaml', targets: [CUSTOMER_SERVICE_TARGET] }
+  ]);
+  expect(summary.policySummary?.violationSummaries.map(({ id, severity, sourceScope, sourcePath, files }) =>
+    ({ id, severity, sourceScope, sourcePath, files }))).toEqual([
+    { id: 'tenant-scope-required', severity: 'error', sourceScope: 'official', sourcePath: 'catalog/policies/official/policy.spec.yaml', files: [CUSTOMER_SERVICE_TARGET] }
+  ]);
 });
 
 test('review projects source-structure policy evidence as attention rather than passed', () => {

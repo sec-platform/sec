@@ -370,11 +370,11 @@ test('unknown frontiers cover both adjacency directions, value stops, self-edge 
     fact('fact:A-invokes-A', 'A', 'INVOKES', 'A'),
     fact('fact:A-invokes-B', 'A', 'INVOKES', 'B'),
     fact('fact:B-invokes-A', 'B', 'INVOKES', 'A'),
-    fact('fact:A-guarantees', 'A', 'GUARANTEES', 'ready')
+    { ...fact('fact:S-guarantees', 'S', 'GUARANTEES', 'ready'), object: { kind: 'value', value: 'ready' } }
   ]);
   const after = snapshot('r', before.ir.entities
     .filter((value) => value.id !== APP_ID)
-    .map((value) => value.id === 'A' ? { ...value, label: 'After' } : value), before.ir.facts);
+    .map((value) => ['A', 'S'].includes(value.id) ? { ...value, label: 'After' } : value), before.ir.facts);
   const result = propagate(before, after);
 
   for (const basis of ['from', 'to'] as const) {
@@ -383,7 +383,7 @@ test('unknown frontiers cover both adjacency directions, value stops, self-edge 
     expect(basisUnknown).toEqual(expect.arrayContaining([
       expect.objectContaining({ factId: 'fact:A-invokes-B', reasonCode: 'unregistered-active-predicate' }),
       expect.objectContaining({ factId: 'fact:B-invokes-A', reasonCode: 'unregistered-active-predicate' }),
-      expect.objectContaining({ factId: 'fact:A-guarantees', reasonCode: 'value-object-boundary' })
+      expect.objectContaining({ factId: 'fact:S-guarantees', reasonCode: 'value-object-boundary' })
     ]));
   }
   expect(result.uncertainties.every((entry) => entry.classification === 'unknown')).toBe(true);

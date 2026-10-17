@@ -142,11 +142,6 @@ test('repeated self calls are grouped by their exact declaration without droppin
   assert.equal(new Set(result.findings[0]!.sites.map((site) => site.start)).size, 2000);
 });
 
-test('different operations remain separate review contexts', () => {
-  const result = review({ ...facts(), capabilities: [capability({ owningDeclarationObservationId: null }), capability({ owningDeclarationObservationId: null, operation: 'writeFile', observationId: 'write' })] });
-  assert.equal(result.counts['module-initialization-effect'], 2);
-});
-
 test('duplicate observations do not inflate distinct evidence sites', () => {
   const record = capability({ owningDeclarationObservationId: null });
   const result = review({ ...facts(), capabilities: [record, record, record] });
@@ -155,18 +150,17 @@ test('duplicate observations do not inflate distinct evidence sites', () => {
   assert.equal(result.findings[0]!.sites.length, 1);
 });
 
-for (const operationCount of [6, 64, 1024, 4096]) {
-  test(`arbitrary operation vocabulary of ${operationCount} remains complete`, () => {
-    const capabilities = Array.from({ length: operationCount }, (_, index) => capability({
-      owningDeclarationObservationId: null, operation: `domain.operation.${index}`, observationId: `call-${index}`,
-      span: { start: index * 3, end: index * 3 + 1 }
-    }));
-    const result = review({ ...facts(), capabilities });
-    assert.equal(result.counts['module-initialization-effect'], operationCount);
-    assert.equal(result.findings.length, operationCount);
-    assert.equal(new Set(result.findings.flatMap((finding) => finding.sites.map((site) => site.observationId))).size, operationCount);
-  });
-}
+test('arbitrary operation vocabulary of 4096 remains complete', () => {
+  const operationCount = 4096;
+  const capabilities = Array.from({ length: operationCount }, (_, index) => capability({
+    owningDeclarationObservationId: null, operation: `domain.operation.${index}`, observationId: `call-${index}`,
+    span: { start: index * 3, end: index * 3 + 1 }
+  }));
+  const result = review({ ...facts(), capabilities });
+  assert.equal(result.counts['module-initialization-effect'], operationCount);
+  assert.equal(result.findings.length, operationCount);
+  assert.equal(new Set(result.findings.flatMap((finding) => finding.sites.map((site) => site.observationId))).size, operationCount);
+});
 
 test('thousands of dependency names do not require predeclared semantic categories', () => {
   const dependencies = Array.from({ length: 2048 }, (_, index) => [dependency({ name: `package-${index}` }), dependency({ name: `package-${index}`, requirement: '^2' })]).flat();

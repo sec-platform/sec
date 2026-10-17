@@ -10,9 +10,11 @@ const legacyModes = [
 ] as const;
 
 for (const [command, mode] of legacyModes) {
-  test(`${command} ${mode} preserves default routing and output in every output mode`, async () => {
+  test(`${command} ${mode} preserves default routing for its available result`, async () => {
     await withTempWorkspace(async root => {
-      for (const options of [[], ['--json'], ['--json', '--compact']]) {
+      // Output options are admitted first; missing reports reject in read() before view/render.
+      const outputModes = command === 'demo' ? [[], ['--json'], ['--json', '--compact']] : [[]];
+      for (const options of outputModes) {
         const implicit = await runCliInProcess(root, [command, ...options]);
         const explicit = await runCliInProcess(root, [command, mode, ...options]);
         expect(explicit).toEqual(implicit);

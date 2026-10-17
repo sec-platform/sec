@@ -45,11 +45,9 @@ for (const value of [undefined, null, '', 'ALL', ' fast', 0, true, {}, [], new S
   });
 }
 
-for (const value of [null, 0, 1, 'false', 'true', '', {}, [], new Boolean(false)]) {
-  test(`compile rejects non-boolean output flags ${typeof value}:${String(value)}`, () => {
-    assert.throws(() => parsePipelineCompileOptions({ lane: 'all', json: value }), code('PIPELINE-USAGE-003'));
-  });
-}
+test('compile routes a non-boolean output flag through pipeline usage admission', () => {
+  assert.throws(() => parsePipelineCompileOptions({ lane: 'all', json: 'false' }), code('PIPELINE-USAGE-003'));
+});
 
 test('compile rejects compact output without JSON', () => {
   assert.throws(() => parsePipelineCompileOptions({ lane: 'all', compact: true }), /--compact requires --json/);

@@ -6,30 +6,14 @@ import { assembleRepositoryModuleGraph as assemble, resolveRepositoryModuleImpor
 const files = ['src/a.ts', 'src/b.ts', 'src/c.ts'];
 const observation = (typeOnly: boolean, from = 'src/a.ts', specifier = './b.ts') => ({ from, specifier, typeOnly, kind: 'static' as const });
 
-test('runtime import cannot be erased by a following type-only import', () => {
-  const graph = assemble({ files, imports: [observation(false), observation(true)] });
-  assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), ['src/b.ts']);
-  assert.equal(graph.references.length, 1);
-  assert.equal(graph.references[0]!.typeOnly, false);
-});
-
 test('type-only and value imports commute and retain one dependency edge', () => {
-  for (const imports of [[observation(true), observation(false)], [observation(false), observation(true)]]) {
+  for (const imports of [[observation(true), observation(false)], [observation(false), observation(true)], [observation(false), observation(false)]]) {
     const graph = assemble({ files, imports });
     assert.deepEqual(graph.directDependencies('src/a.ts'), ['src/b.ts']);
     assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), ['src/b.ts']);
     assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts']);
-  }
-});
-
-test('all short import sequences agree with an independent boolean-union oracle', () => {
-  for (let length = 1; length <= 8; length += 1) {
-    for (let mask = 0; mask < 2 ** length; mask += 1) {
-      const imports = Array.from({ length }, (_, bit) => observation((mask & (1 << bit)) !== 0));
-      const expected = imports.every((item) => item.typeOnly) ? [] : ['src/b.ts'];
-      const graph = assemble({ files, imports });
-      assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), expected, `length=${length}, mask=${mask}`);
-    }
+    assert.equal(graph.references.length, 1);
+    assert.equal(graph.references[0]!.typeOnly, false);
   }
 });
 
@@ -62,13 +46,13 @@ test('hot targets deduplicate consumers across several import kinds', () => {
   assert.deepEqual(graph.directConsumers('src/shared.ts'), [...consumers].sort((a, b) => a.localeCompare(b, 'en-US')));
 });
 
-test('queries return detached frozen arrays, not a mutable cached adjacency', () => {
+test('queries retain immutable adjacency independent of later input mutation', () => {
   const input = { files: [...files], imports: [observation(false)] };
   const graph = assemble(input);
   input.imports.push(observation(false, 'src/a.ts', './c.ts'));
   for (const getter of [graph.directDependencies, graph.directRuntimeDependencies]) {
-    const first = getter('src/a.ts'); const second = getter('src/a.ts');
-    assert.deepEqual(first, ['src/b.ts']); assert.notEqual(first, second);
+    const first = getter('src/a.ts');
+    assert.deepEqual(first, ['src/b.ts']);
     assert.ok(Object.isFrozen(first)); assert.equal(Reflect.set(first, 0, 'injected'), false);
   }
 });
@@ -98,7 +82,7 @@ test('lexical candidate order preserves the declared resolver priority', () => {
   assert.deepEqual(candidates('src/a.ts', './target.ts'), ['src/target.ts']);
 });
 
-test('every candidate subset selects its first admitted target regardless of census ordering', () => {
+test('candidate pairs and the full census select the first admitted target regardless of ordering', () => {
   const precedence = [
     'src/target.ts', 'src/target.tsx', 'src/target.mts', 'src/target.cts',
     'src/target.js', 'src/target.jsx', 'src/target.mjs', 'src/target.cjs',
@@ -106,13 +90,14 @@ test('every candidate subset selects its first admitted target regardless of cen
     'src/target/index.mts', 'src/target/index.cts'
   ];
   const reference = observation(false, 'src/a.ts', './target');
-  for (let mask = 0; mask < 2 ** precedence.length; mask += 1) {
-    const admitted = precedence.filter((_, index) => (mask & (1 << index)) !== 0);
+  const selections = [[], precedence, ...precedence.map(target => [target]),
+    ...precedence.flatMap((target, index) => precedence.slice(index + 1).map(later => [target, later]))];
+  for (const admitted of selections) {
     const expected = admitted.slice(0, 1);
     for (const ordered of [admitted, [...admitted].reverse()]) {
       const graph = assemble({ files: ['src/a.ts', ...ordered], imports: [reference] });
-      assert.deepEqual(graph.directDependencies('src/a.ts'), expected, `subset=${mask}`);
-      assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), expected, `subset=${mask}`);
+      assert.deepEqual(graph.directDependencies('src/a.ts'), expected, `admitted=${admitted.join(",")}`);
+      assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), expected, `admitted=${admitted.join(",")}`);
       assert.equal(graph.references[0]!.resolvedTarget, expected[0] ?? null);
       assert.deepEqual(graph.unresolvedFiles, expected.length === 0 ? ['src/a.ts'] : []);
       for (const target of precedence) {

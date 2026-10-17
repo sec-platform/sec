@@ -102,7 +102,7 @@ test('version eligibility excludes mismatching roots and validates lower version
   const entry = loadManifestById('cache/probe', options);
   expect(entry.registrySourceId).toBe('second');
   expect(entry.manifest.version).toBe('4.0.0');
-  expect(entry.manifestPath).toContain('versions/4.0.0/block.manifest.yaml');
+  expect(entry.manifestPath).toBe(path.join(f.workspaceRoot, 'registry-second', 'cache.probe', 'versions', '4.0.0', 'block.manifest.yaml'));
   expect(entry.registryResolution).toEqual({ policy: 'source-order', shadowed: [shadow('4.0.0', 'third')] });
   f.write(2, '3.0.0', '4.0.0');
   expect(() => loadManifestById('cache/probe', options)).toThrow(expect.objectContaining({ code: 'MANIFEST-SCHEMA-022' }));
@@ -121,6 +121,17 @@ test('disappearing lower sources clear diagnostics and pinned reload never expan
   expect(loadManifestById('cache/probe', f).registryResolution).toBeUndefined();
   expect(first.registryResolution!.shadowed).toHaveLength(2);
 });
+
+function expectRegistrySelection(output: readonly string[], secondVersion: '2.0.0' | '2.1.0') {
+  const rows = output.flatMap(value => value.split('\n')).filter(line => /^Registry\s+cache\/probe:/u.test(line));
+  expect(rows).toHaveLength(1);
+  const row = rows[0]!;
+  expect(row).toMatch(/^Registry\s+cache\/probe:\s+first@1\.0\.0\s+selected\s+by\s+source-order(?=\s|[,;]|$)/u);
+  const shadowed = /(?:^|[\s;])shadowed:\s*([^;]*)/u.exec(row)?.[1];
+  expect(shadowed).toBeDefined();
+  expect(shadowed).toMatch(new RegExp(`(?:^|[\\s,;])second@${secondVersion.replaceAll('.', '\\.')}\\s+\\(workspace:registry-second\\)(?=$|[\\s,;])`, 'u'));
+  expect(shadowed).toMatch(/(?:^|[\s,;])third@3\.0\.0\s+\(workspace:registry-third\)(?=$|[\s,;])/u);
+}
 
 test.serial('real add and resolve diagnostics display current addressed and dependency shadows without changing the persisted lock', async () => {
   const f = fixture();
@@ -156,7 +167,7 @@ test.serial('real add and resolve diagnostics display current addressed and depe
       })
     });
     await program.parseAsync(['add', 'cache/probe'], { from: 'user' });
-    expect(output.join('\n')).toContain('Registry cache/probe: first@1.0.0 selected by source-order; shadowed: second@2.0.0 (workspace:registry-second), third@3.0.0 (workspace:registry-third)');
+    expectRegistrySelection(output, '2.0.0');
     expect(plan.blocks).toEqual([{ id: 'cache/probe', version: '1.0.0' }]);
 
     // Keep the client and its private provider explicit; source diagnostics are separate from authorization.
@@ -171,8 +182,8 @@ test.serial('real add and resolve diagnostics display current addressed and depe
     output.length = 0;
     await program.parseAsync(['resolve'], { from: 'user' });
     expect(persisted).toBe(true);
-    expect(output.join('\n')).toContain('Resolved 2 blocks');
-    expect(output.join('\n')).toContain('Registry cache/probe: first@1.0.0 selected by source-order; shadowed: second@2.1.0 (workspace:registry-second), third@3.0.0 (workspace:registry-third)');
+    expect(output.join('\n')).toMatch(/Resolved\s+2\s+blocks(?=\s|$)/u);
+    expectRegistrySelection(output, '2.1.0');
     expect(output.join('\n')).not.toContain('second@2.0.0');
   } finally { log.mockRestore(); }
 });

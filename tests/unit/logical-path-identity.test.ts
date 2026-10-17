@@ -55,7 +55,6 @@ test('portable logical paths reject Windows device aliases and illegal component
 test('portable logical path identity requires NFC rather than silently normalizing identity', () => {
   const decomposed = `source/${'e\u0301'}.ts`;
   const composed = decomposed.normalize('NFC');
-  expect(decomposed).not.toBe(composed);
   expect(isCanonicalPortableLogicalPath(decomposed)).toBe(false);
   expect(isCanonicalPortableLogicalPath(composed)).toBe(true);
 });

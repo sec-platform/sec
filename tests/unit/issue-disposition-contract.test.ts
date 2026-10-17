@@ -47,8 +47,8 @@ function acceptanceIds() {
 
 test('canonical PR renderer emits only non-effect control fields', () => {
   const rendered = body();
-  expect(rendered).toContain(`Work-Package: ${MANIFEST}`);
-  expect(rendered).toContain('Issue-Disposition: close-tracking-after-readback');
+  expect(rendered.split(/\r?\n/u)).toContain(`Work-Package: ${MANIFEST}`);
+  expect(rendered.split(/\r?\n/u)).toContain('Issue-Disposition: close-tracking-after-readback');
   expect(parseGitHubClosingKeywordOccurrences(rendered, REPOSITORY)).toEqual([]);
   expect(parseIssueDispositionPlan(encodeVerificationActionData(plan()))).toEqual(plan());
 });

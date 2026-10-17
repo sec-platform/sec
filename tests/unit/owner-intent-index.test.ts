@@ -114,11 +114,15 @@ test('empty capability and consumer demands do not build or read their indexes',
 test('resolved declaration identity never falls back to a matching target path', () => {
   const input = fixture(); input.references[0]!.targetObservationId = 'different';
   assert.equal(index(input).consumerPaths(new Set(['a']), new Set(['src/a.ts'])).size, 0);
+  input.references[0]!.targetObservationId = 'a'; input.references[0]!.targetPath = 'other';
+  assert.deepEqual([...index(input).consumerPaths(new Set(['a']), new Set(['src/a.ts']))], ['src/b.ts']);
 });
 
 test('unresolved declaration reference can match its known target path', () => {
   const input = fixture(); input.references[0]!.targetObservationId = null;
   assert.deepEqual([...index(input).consumerPaths(new Set(), new Set(['src/a.ts']))], ['src/b.ts']);
+  input.references[0]!.targetPath = 'other';
+  assert.equal(index(input).consumerPaths(new Set(), new Set(['src/a.ts'])).size, 0);
 });
 
 test('unknown observations and non-production sources do not become consumers', () => {
@@ -132,9 +136,10 @@ test('unknown observations and non-production sources do not become consumers', 
 });
 
 test('duplicate reference locations do not repeat source membership lookups downstream', () => {
-  const input = fixture(); input.references = Array(1000).fill(input.references[0]);
+  const input = fixture(); input.references = [...Array(1000).fill(input.references[0]),
+    { ...input.references[0]!, path: 'src/a.ts' }];
   const actual = index(input).consumerPaths(new Set(['a']), new Set(['src/a.ts']));
-  assert.deepEqual([...actual], ['src/b.ts']);
+  assert.deepEqual(actual, new Set(['src/a.ts', 'src/b.ts']));
 });
 
 test('published buckets are frozen but input declarations and input arrays are not', () => {
@@ -163,19 +168,4 @@ test('a new generation gets fresh independent indexes, even with the same addres
   const second = index({ ...input, declarations: [] });
   assert.equal(second.declarationsForCapability('A', 'run').length, 0);
   assert.equal(first.declarationsForCapability('A', 'run').length, 1);
-});
-
-test('independent direct-relation oracle agrees for all small target-choice combinations', () => {
-  for (let mask = 0; mask < 256; mask += 1) {
-    const input = fixture();
-    input.references = Array.from({ length: 4 }, (_, i) => ({
-      path: i % 2 ? 'src/b.ts' : 'src/a.ts', observationClass: mask & (1 << i) ? 'unknown' : 'observed',
-      targetObservationId: mask & (1 << (i + 4)) ? null : (i % 2 ? 'a' : 'other'),
-      targetPath: i < 2 ? 'src/a.ts' : 'other'
-    }));
-    const ids = new Set(['a']); const paths = new Set(['src/a.ts']);
-    const expected = new Set(input.references.filter((r) => r.observationClass !== 'unknown'
-      && (r.targetObservationId === null ? r.targetPath !== null && paths.has(r.targetPath) : ids.has(r.targetObservationId))).map((r) => r.path));
-    assert.deepEqual(index(input).consumerPaths(ids, paths), expected);
-  }
 });

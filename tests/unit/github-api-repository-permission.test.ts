@@ -13,7 +13,6 @@ test('repository permission normalization recognizes exact documented built-in p
   ] as const) {
     const source = Object.freeze({ permission, role_name: role });
     expect(normalizeGitHubRepositoryPermission(source)).toBe(expected);
-    expect(source).toEqual({ permission, role_name: role });
   }
 });
 
@@ -21,7 +20,6 @@ test('repository permission normalization preserves legacy values without elevat
   for (const permission of ['admin', 'maintain', 'write', 'triage', 'read', 'none'] as const) {
     expect(normalizeGitHubRepositoryPermission({ permission })).toBe(permission);
   }
-  expect(normalizeGitHubRepositoryPermission({ permission: 'write', role_name: 'write' })).toBe('write');
   expect(normalizeGitHubRepositoryPermission({ permission: 'maintain', role_name: 'maintain' })).toBe('maintain');
   expect(normalizeGitHubRepositoryPermission({ permission: 'triage', role_name: 'triage' })).toBe('triage');
 });

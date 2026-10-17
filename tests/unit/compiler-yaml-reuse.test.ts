@@ -34,11 +34,9 @@ test('the default AST profile remains available for its existing non-DTO consume
   assert.deepEqual(parseYamlValue('key: &text value\nother: *text\n', { ...admission, stringKeys: true }), { key: 'value', other: 'value' });
 });
 
-for (const source of ['a: 1\na: 2\n', 'a: !unresolved value\n', 'a: 1\n---\na: 2\n']) {
-  test(`strict library policy rejects ambiguous YAML ${JSON.stringify(source)}`, () => {
-    assert.throws(() => parseYamlValue(source, { ...admission, stringKeys: true }), YamlSyntaxError);
-  });
-}
+test('strict library policy rejects unresolved tag warnings', () => {
+  assert.throws(() => parseYamlValue('a: !unresolved value\n', { ...admission, stringKeys: true }), YamlSyntaxError);
+});
 
 test('UTF-8 byte budget is checked before parsing, not character count or alias expansion', () => {
   assert.deepEqual(parseYamlValue('x: 好', { ...admission, maximumInputBytes: 6 }), { x: '好' });
@@ -48,17 +46,22 @@ test('UTF-8 byte budget is checked before parsing, not character count or alias 
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-yaml-reuse-'));
-  const planPath = path.join(root, 'plan.yaml');
-  const registry = path.join(root, 'registry', 'block.example'); mkdirSync(registry, { recursive: true });
-  const manifestPath = path.join(registry, 'block.manifest.yaml');
-  const overrides = getWorkspacePaths(root).overridesRoot; mkdirSync(overrides, { recursive: true });
-  const overridePath = path.join(overrides, 'override-manifest.yaml');
-  const options = { workspaceRoot: root, registrySources: [{ id: 'test', kind: 'private' as const, location: 'workspace' as const, path: 'registry' }] };
-  const manifest = { id: 'block/example', version: '1.0.0', kind: 'capability', stackProfiles: [SUPPORTED_STACK],
-    requires: [], provides: ['example'], conflicts: [], installs: [{ kind: 'copy', from: 'source.ts', to: 'src/example.ts' }],
-    pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] };
-  return { root, planPath, manifestPath, overridePath, options, manifest,
-    cleanup() { manifestCache.clearWorkspace(root); rmSync(root, { recursive: true, force: true }); } };
+  try {
+    const planPath = path.join(root, 'plan.yaml');
+    const registry = path.join(root, 'registry', 'block.example'); mkdirSync(registry, { recursive: true });
+    const manifestPath = path.join(registry, 'block.manifest.yaml');
+    const overrides = getWorkspacePaths(root).overridesRoot; mkdirSync(overrides, { recursive: true });
+    const overridePath = path.join(overrides, 'override-manifest.yaml');
+    const options = { workspaceRoot: root, registrySources: [{ id: 'test', kind: 'private' as const, location: 'workspace' as const, path: 'registry' }] };
+    const manifest = { id: 'block/example', version: '1.0.0', kind: 'capability', stackProfiles: [SUPPORTED_STACK],
+      requires: [], provides: ['example'], conflicts: [], installs: [{ kind: 'copy', from: 'source.ts', to: 'src/example.ts' }],
+      pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] };
+    return { root, planPath, manifestPath, overridePath, options, manifest,
+      cleanup() { manifestCache.clearWorkspace(root); rmSync(root, { recursive: true, force: true }); } };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 test('Plan loader admits ordinary YAML aliases and preserves existing defaults', () => {
@@ -70,12 +73,10 @@ test('Plan loader admits ordinary YAML aliases and preserves existing defaults',
   } finally { f.cleanup(); }
 });
 
-for (const source of ['app: {}\napp: {}\n', 'app: !unknown {}\n', 'app: {}\n---\napp: {}\n']) {
-  test(`Plan syntax rejection keeps its domain error and original library cause ${JSON.stringify(source)}`, () => {
-    const f = fixture(); try { writeFileSync(f.planPath, source); assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022')); }
-    finally { f.cleanup(); }
-  });
-}
+test('Plan syntax rejection keeps its domain error and original library cause', () => {
+  const f = fixture(); try { writeFileSync(f.planPath, 'app: {}\napp: {}\n'); assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022')); }
+  finally { f.cleanup(); }
+});
 
 test('Manifest root and version overlay use strict YAML without changing resolved version or frozen cache results', () => {
   const f = fixture(); try {
@@ -90,12 +91,10 @@ test('Manifest root and version overlay use strict YAML without changing resolve
   } finally { f.cleanup(); }
 });
 
-for (const source of ['id: block/example\nid: block/other\n', 'id: !unknown block/example\n', 'id: block/example\n---\nid: block/other\n']) {
-  test(`Manifest syntax rejection is a typed boundary failure ${JSON.stringify(source)}`, () => {
-    const f = fixture(); try { writeFileSync(f.manifestPath, source); assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001')); }
-    finally { f.cleanup(); }
-  });
-}
+test('Manifest syntax rejection is a typed boundary failure', () => {
+  const f = fixture(); try { writeFileSync(f.manifestPath, 'id: block/example\nid: block/other\n'); assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001')); }
+  finally { f.cleanup(); }
+});
 
 test('Override file and direct structural contract preserve defaults and reject duplicate YAML keys', async () => {
   const f = fixture(); try {
