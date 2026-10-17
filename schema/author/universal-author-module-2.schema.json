@@ -1270,7 +1270,7 @@
           }
         }
       ],
-      "description": "Tagged computation expressions. symbol references local/imported bindings or the frozen reserved std:IntAdd signature family owned by docs/领域/计算基础/文法类型与求值.md#successor-structured-std-int-add. Exactly two same-Type integer arguments; unresolved type/width/overflow returns NeedType. No other std name is implied, and Type tags do not alone supply collection construction Methods."
+      "description": "Tagged computation expressions. symbol references local/imported bindings or exactly the finite reserved std symbols frozen by docs/领域/计算基础/文法类型与求值.md#successor-structured-std-int-add. That owner defines each symbol's signature, arity, type instantiation, value domain, error interpretation and Method/Target qualification; the IntAdd same-Type integer family is not generalized to Bool, Sequence, Text or other arithmetic. Unlisted std names are unsupported. This schema does not supply implementations or grant semantic qualification merely by accepting a symbol or Type tag."
     },
     "PortOperation": {
       "type": "object",
@@ -2520,7 +2520,8 @@
                     "total",
                     "partial",
                     "assumed-total"
-                  ]
+                  ],
+                  "description": "Meaning and evidence qualification are owned by docs/领域/计算基础/文法类型与求值.md. partial permits nontermination; assumed-total is an explicit assumption, not proof; total requires qualified termination evidence before a consumer may rely on proven termination. This declaration alone supplies no proof or execution guarantee."
                 }
               }
             }

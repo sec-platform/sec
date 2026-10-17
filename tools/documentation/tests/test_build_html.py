@@ -277,6 +277,39 @@ class ReadingTests(unittest.TestCase):
     def test_duplicate_headings_across_docs_are_scoped(self):
         self.write('docs/other.md','# 主题\n## 字段\n');self.run_build()
         audit=b.AuditHTML();audit.feed(self.out.read_text());self.assertEqual(len(audit.ids),len(set(audit.ids)))
+    def test_outline_uses_real_commonmark_headings_and_scoped_targets(self):
+        self.write('README.md','# Fixture\n')
+        self.write('docs/主题.md','# 主题\n\n### 只有三级\n\n二级\n----\n\n## 重复\n## 重复\n\n<a id="alias"></a>\n#### **字段** `<unsafe>`\n\n```md\n## 围栏假标题\n```\n')
+        self.run_build();text=self.out.read_text()
+        class Outline(HTMLParser):
+            def __init__(self):super().__init__(convert_charrefs=True);self.inside=False;self.links=[];self.labels=[]
+            def handle_starttag(self,tag,attrs):
+                attrs=dict(attrs)
+                if tag=='nav' and attrs.get('aria-label')=='本页内容':self.inside=True
+                if self.inside and tag=='a':self.links.append(attrs['href'])
+            def handle_endtag(self,tag):
+                if tag=='nav':self.inside=False
+            def handle_data(self,data):
+                if self.inside:self.labels.append(data)
+        outline=Outline();outline.feed(text)
+        expected=['只有三级','二级','重复','重复-1','字段-']
+        self.assertEqual(outline.links,['#'+b.fragment_id('docs/主题.md',f) for f in expected])
+        audit=b.AuditHTML();audit.feed(text)
+        self.assertTrue(all(link[1:] in audit.ids for link in outline.links))
+        self.assertNotIn('围栏假标题',''.join(outline.labels))
+        self.assertIn('字段 <unsafe>',''.join(outline.labels))
+        self.assertNotIn('<unsafe>',text)
+    def test_outline_regenerates_from_changed_source_and_preserves_original(self):
+        self.run_build()
+        source='# 主题\n\n## 字段\n\n#### 后来新增\n'
+        self.write('docs/主题.md',source);self.run_build('--replace')
+        text=self.out.read_text()
+        self.assertIn('href="#'+b.fragment_id('docs/主题.md','后来新增')+'"',text)
+        originals=Originals();originals.feed(text)
+        self.assertEqual(originals.files['docs/主题.md'],(self.root/'docs/主题.md').read_bytes())
+        self.write('README.md','# Fixture\n')
+        self.write('docs/主题.md','# 短页\n\n正文。\n');self.run_build('--replace')
+        self.assertNotIn('class="page-contents"',self.out.read_text())
     def test_chinese_encoded_links_and_directory(self):
         self.write('docs/group/README.md','# Group\n')
         self.write('README.md','# Fixture\n[x](docs/%E4%B8%BB%E9%A2%98.md#%E5%AD%97%E6%AE%B5)\n[y](docs/group/)\n')

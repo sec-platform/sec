@@ -1205,6 +1205,74 @@
     {
       "document_id": "urn:uuid:ddd73fd2-b9c8-411c-89b2-524de019551c",
       "path": "schema/tools/README.md"
+    },
+    {
+      "document_id": "urn:uuid:777c0e5f-873e-4f77-9fbb-975142a5b4de",
+      "path": "alternatives/作者静态前端/来源/Gift源码工程作者语言总合同.md"
+    },
+    {
+      "document_id": "urn:uuid:254937ce-7ae5-4dad-8b63-82abe7cb9fa0",
+      "path": "alternatives/作者静态前端/来源/Gift静态作者库接口候选.md"
+    },
+    {
+      "document_id": "urn:uuid:1f5df040-6955-406e-b8d0-791016aed476",
+      "path": "alternatives/作者静态前端/README.md"
+    },
+    {
+      "document_id": "urn:uuid:33fd7a57-c869-422e-b6f9-fcff1b74f117",
+      "path": "alternatives/作者静态前端/来源/统一源码工程与多表示作者协议.md"
+    },
+    {
+      "document_id": "urn:uuid:42296a6a-9528-43f1-9033-2b67d68c3e8f",
+      "path": "alternatives/作者静态前端/设计.md"
+    },
+    {
+      "document_id": "urn:uuid:6ba80861-2951-424c-b464-20fad20eab12",
+      "path": "docs/演进/覆盖场景/机制适用性/协作流程与组织.md"
+    },
+    {
+      "document_id": "urn:uuid:a3853bd8-52f3-4bff-887e-aceb5e233d09",
+      "path": "docs/演进/覆盖场景/机制适用性/媒体交互与地区呈现.md"
+    },
+    {
+      "document_id": "urn:uuid:b0791525-a86f-4fd6-8f67-e244a83986e2",
+      "path": "docs/演进/覆盖场景/机制适用性/持久化通信与数据.md"
+    },
+    {
+      "document_id": "urn:uuid:b63ad255-5393-408a-b01e-e9880712b60b",
+      "path": "docs/演进/覆盖场景/机制适用性/时间状态与资源.md"
+    },
+    {
+      "document_id": "urn:uuid:07038d23-e8b2-4adf-b934-7250478194bf",
+      "path": "docs/演进/覆盖场景/机制适用性/构建交付与演进.md"
+    },
+    {
+      "document_id": "urn:uuid:0fe65609-9c30-4a1f-9b2a-73cbddd688c7",
+      "path": "docs/演进/覆盖场景/机制适用性/知识学习与因果.md"
+    },
+    {
+      "document_id": "urn:uuid:8f0eda42-9aaf-42de-8fb2-2bb05bc21d03",
+      "path": "docs/演进/覆盖场景/机制适用性/空间仿真测量控制.md"
+    },
+    {
+      "document_id": "urn:uuid:8e8149b8-80e8-4bcd-ad2e-50518a22981e",
+      "path": "docs/演进/覆盖场景/机制适用性/规则账本分配履约.md"
+    },
+    {
+      "document_id": "urn:uuid:51056a70-0b05-4bc6-95c0-ee7985ea9d8e",
+      "path": "docs/演进/覆盖场景/机制适用性/认证密码与隐私.md"
+    },
+    {
+      "document_id": "urn:uuid:49edb46a-de35-4cc2-abf0-51eedd129720",
+      "path": "docs/演进/覆盖场景/机制适用性/身份表示与计算.md"
+    },
+    {
+      "document_id": "urn:uuid:c3202d62-23a4-4487-ac9e-63d77bdad90c",
+      "path": "docs/演进/覆盖场景/机制适用性/随机优化与数值.md"
+    },
+    {
+      "document_id": "urn:uuid:c7200302-f407-4904-bb71-e91245fca890",
+      "path": "docs/演进/覆盖场景/机制适用性/风险观测与保证.md"
     }
   ]
 }
