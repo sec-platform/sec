@@ -303,6 +303,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         'Blocks: entity/customer-basic, tenant/basic-workspace',
         `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
         'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; Block tenant/basic-workspace has uncovered acceptance',
+        'Diagnostic regression-risk:1; kind=override-active; block=entity/customer-basic; Block entity/customer-basic has active override',
         'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
       ],
       json: {

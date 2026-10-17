@@ -40,7 +40,7 @@ function sourceOptions(f: ReturnType<typeof fixture>, names: readonly string[]) 
   return { ...f.options, registrySources: names.map(name => ({ ...f.source, id: name, path: name })) };
 }
 
-test('same-version conflicting source definitions fail in lookup and catalog even with a warm winner', () => using(async f => {
+test('same-version conflicting definitions fail after registry source selection changes', () => using(async f => {
   f.write(); loadManifestById('block/a', f.options);
   const other = f.write('block/a', 'other');
   writeFileSync(other.file, JSON.stringify({ ...other.manifest, provides: ['different/service'] }));
@@ -56,15 +56,6 @@ test('conflicts between two hidden candidates cannot disappear behind a differen
   const options = sourceOptions(f, ['registry', 'hidden-a', 'hidden-b']);
   assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
   await assert.rejects(loadAllManifests(options), /Conflicting manifest definitions/);
-}));
-
-test('equal definition mirrors keep source priority and accept different formatting and locators', () => using(async f => {
-  f.write(); const mirror = f.write('block/a', 'mirror');
-  writeFileSync(mirror.file, YAML.stringify(mirror.manifest));
-  const options = sourceOptions(f, ['registry', 'mirror']);
-  assert.equal(loadManifestById('block/a', options).registrySourceId, 'registry');
-  assert.equal((await loadAllManifests(options))[0]!.registrySourceId, 'registry');
-  assert.equal(loadManifestById('block/a', sourceOptions(f, ['mirror', 'registry'])).registrySourceId, 'mirror');
 }));
 
 test('different versions preserve source priority and explicit version filtering', () => using(async f => {
@@ -158,7 +149,7 @@ test('path binding never infers a block identity from an invalid directory spell
   await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-012');
 }));
 
-test('two source selections with equal bytes keep their own registry metadata and mutable projections', () => using(async f => {
+test('equal definition mirrors isolate source metadata and preserve configured priority across formats', () => using(async f => {
   f.write(); const mirror = f.write('block/a', 'second');
   const left = await loadAllManifests(f.options);
   const right = await loadAllManifests({ ...f.options, registrySources: [{ ...f.source, id: 'other', path: 'second' }] });

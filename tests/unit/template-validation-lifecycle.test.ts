@@ -19,8 +19,7 @@ const unreachedDependencies: DependencyProjectOperationFactory = {
 
 // Native execution keeps real workspace providers. Interruption fences stop at
 // the first temporary-workspace effect; fs.mkdtemp is wrapped only to observe
-// allocations, not replaced with a fake directory. Local replay explicitly
-// adapts the otherwise unavailable downstream provider imports.
+// allocations, not replaced with a fake directory.
 async function using(run: (root: string, allocations: string[]) => Promise<void>) {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-template-scope-'));
   const original = fs.mkdtemp, environment = process.env[ISOLATED_VERIFICATION_ENV_KEY];

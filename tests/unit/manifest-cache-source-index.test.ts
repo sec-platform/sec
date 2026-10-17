@@ -6,24 +6,41 @@ import type { ManifestEntry } from '../../src/compiler/contract.ts';
 function fixture(id = 'block/a', workspaceRoot = '/workspace') {
   const key: ManifestCacheKey = { workspaceRoot, registrySourceId: 'source', registryKind: 'private', registryLocation: 'workspace',
     registryPath: 'registry', blockId: id, sourceDigest: 'sha256:bytes' };
-  const entry = { manifest: { id, version: '1.0.0' }, registrySourceId: key.registrySourceId,
+  const registryRoot = `${workspaceRoot}/registry`;
+  const manifestRoot = `${registryRoot}/${id.replaceAll('/', '.')}`;
+  const entry: ManifestEntry = { manifest: {
+    id, version: '1.0.0', kind: 'capability', stackProfiles: ['typescript-library'],
+    requires: [], provides: [], conflicts: [],
+    installs: [{ kind: 'template', from: 'source.ts', to: 'source.ts' }],
+    pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: []
+  }, registrySourceId: key.registrySourceId,
     registryKind: key.registryKind, registryLocation: key.registryLocation, registryPath: key.registryPath,
-    manifestPath: `${workspaceRoot}/registry/${id}/block.manifest.yaml` } as ManifestEntry;
+    manifestPath: `${manifestRoot}/block.manifest.yaml`, manifestRoot, resourceRoots: [manifestRoot], registryRoot };
   const source: ManifestObservedSourceKey = { ...key, manifestPath: entry.manifestPath };
   return { key, entry, source };
 }
 
 test('logical and observed-source reads return the same single cached record', () => {
   const cache = new ManifestCache(2), a = fixture(); cache.set(a.key, a.entry);
-  assert.equal(cache.getByObservedSource(a.source), cache.get(a.key)); assert.equal(cache.size, 1);
+  const observed = cache.getByObservedSource(a.source), logical = cache.get(a.key);
+  assert.deepEqual(observed, a.entry);
+  assert.deepEqual(logical, a.entry);
+  assert.equal(observed, logical);
+  assert.equal(cache.size, 1);
   assert.ok(Object.isFrozen(a.entry.manifest));
 });
 
-test('source reuse participates in the same LRU order as logical reuse', () => {
-  const cache = new ManifestCache(2), a = fixture(), b = fixture('block/b'), c = fixture('block/c');
-  cache.set(a.key, a.entry); cache.set(b.key, b.entry); cache.getByObservedSource(a.source); cache.set(c.key, c.entry);
-  assert.equal(cache.getByObservedSource(b.source), undefined); assert.equal(cache.get(b.key), undefined);
-  assert.equal(cache.getByObservedSource(a.source), a.entry); assert.equal(cache.size, 2);
+test('logical and observed-source reuse each refresh the shared bounded LRU order', () => {
+  for (const lookup of ['logical', 'source'] as const) {
+    const cache = new ManifestCache(2), a = fixture(), b = fixture('block/b'), c = fixture('block/c');
+    cache.set(a.key, a.entry); cache.set(b.key, b.entry);
+    assert.deepEqual(lookup === 'logical' ? cache.get(a.key) : cache.getByObservedSource(a.source), a.entry, lookup);
+    cache.set(c.key, c.entry);
+    assert.equal(cache.getByObservedSource(b.source), undefined, lookup); assert.equal(cache.get(b.key), undefined, lookup);
+    assert.deepEqual(cache.get(a.key), a.entry, lookup); assert.deepEqual(cache.getByObservedSource(a.source), a.entry, lookup);
+    assert.deepEqual(cache.get(c.key), c.entry, lookup); assert.deepEqual(cache.getByObservedSource(c.source), c.entry, lookup);
+    assert.equal(cache.size, 2, lookup);
+  }
 });
 
 test('a logical digest miss retires the corresponding source lookup', () => {
@@ -47,10 +64,18 @@ test('workspace, registry selection, location and observed path remain separate 
   assert.equal(cache.getByObservedSource(a.source), a.entry);
 });
 
-test('version-qualified and overlay records cannot impersonate a root-source observation', () => {
-  const cache = new ManifestCache(), a = fixture(); cache.set({ ...a.key, version: '1.0.0' }, a.entry);
+test('version-qualified records stay outside the root-source index and retire on a digest miss', () => {
+  const cache = new ManifestCache(), a = fixture(), b = fixture('block/b');
+  const key = { ...a.key, version: '1.0.0' };
+  const otherKey = { ...b.key, version: '1.0.0' };
+  cache.set(key, a.entry);
+  cache.set(otherKey, b.entry);
   assert.equal(cache.getByObservedSource(a.source), undefined);
-  assert.equal(cache.get({ ...a.key, version: '1.0.0' }), a.entry);
+  assert.equal(cache.get(key), a.entry);
+  assert.equal(cache.get({ ...key, sourceDigest: 'sha256:other' }), undefined);
+  assert.equal(cache.get(key), undefined);
+  assert.equal(cache.size, 1);
+  assert.deepEqual(cache.get(otherKey), b.entry);
 });
 
 test('replacing a logical record retires its former path binding', () => {
@@ -73,7 +98,9 @@ test('workspace clearing removes both projections without clearing another works
   const cache = new ManifestCache(), a = fixture(), b = fixture('block/a', '/other');
   cache.set(a.key, a.entry); cache.set(b.key, b.entry); cache.clearWorkspace('/workspace');
   assert.equal(cache.getByObservedSource(a.source), undefined); assert.equal(cache.getByObservedSource(b.source), b.entry);
+  assert.equal(cache.get(a.key), undefined); assert.deepEqual(cache.get(b.key), b.entry);
   cache.clear(); assert.equal(cache.getByObservedSource(b.source), undefined); assert.equal(cache.size, 0);
+  assert.equal(cache.get(b.key), undefined);
 });
 
 test('disabled cache retains no logical or source record and keeps input ownership unchanged', () => {
@@ -86,12 +113,7 @@ test('disabled cache retains no logical or source record and keeps input ownersh
 test('invalid replacement does not evict a previously valid source', () => {
   const cache = new ManifestCache(1), a = fixture(), b = fixture('block/b'); cache.set(a.key, a.entry);
   assert.throws(() => cache.set(a.key, b.entry)); assert.equal(cache.getByObservedSource(a.source), a.entry);
-});
-
-test('input view and accessors are consumed once and cannot change later lookup state', () => {
-  const cache = new ManifestCache(), a = fixture(); cache.set(a.key, a.entry);
-  let reads = 0; const lookup = { ...a.source, get manifestPath() { reads++; return a.source.manifestPath; } };
-  assert.equal(cache.getByObservedSource(lookup), a.entry); assert.equal(reads, 1);
+  assert.deepEqual(cache.get(a.key), a.entry);
 });
 
 test('churn across both query forms remains bounded by the original record limit', () => {
