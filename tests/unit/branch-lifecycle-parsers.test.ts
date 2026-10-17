@@ -8,14 +8,20 @@ import {
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
 
-test('branch ref parsers use locale-independent code-unit order', () => {
+test('branch ref parsers preserve exact branch-to-SHA bindings in code-unit order', () => {
   const local = parseLocalBranchRefs(
     `a-branch\0${SHA_A}\0\nZ-branch\0${SHA_B}\0\n`
   );
-  expect(local.map(({ branch }) => branch)).toEqual(['Z-branch', 'a-branch']);
+  expect(local).toEqual([
+    { branch: 'Z-branch', sha: SHA_B },
+    { branch: 'a-branch', sha: SHA_A }
+  ]);
 
   const remote = parseRemoteHeadRefs(
     `${SHA_A} refs/heads/a-branch\n${SHA_B} refs/heads/Z-branch\n`
   );
-  expect(remote.map(({ branch }) => branch)).toEqual(['Z-branch', 'a-branch']);
+  expect(remote).toEqual([
+    { branch: 'Z-branch', sha: SHA_B },
+    { branch: 'a-branch', sha: SHA_A }
+  ]);
 });
