@@ -8,7 +8,9 @@ import { registerAdvancedWorkspaceCommands } from '../../src/entry/cli/register-
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 
-for (const filter of [undefined, ...CI_ARTIFACT_KINDS]) {
+// Independent public filter vocabulary: deleting a production kind must not
+// silently delete its admission case too.
+for (const filter of [undefined, 'governance', 'test', 'contract'] as const) {
   test(`path selection binds canonical filter ${filter} and output without a write request`, () => {
     const input = parseArtifactCommandInput(undefined, { paths: true, kind: filter, json: true, compact: true });
     assert.deepEqual(input, { kind: 'paths', filter, output: { json: true, compact: true } });

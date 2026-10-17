@@ -67,12 +67,17 @@ test('hook installer refuses a non-default primary as linked bootstrap', async (
     git(repoRoot, ['branch', '--move', 'candidate-primary']);
     git(repoRoot, ['remote', 'add', 'origin', path.join(repoRoot, 'origin.git')]);
     git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
-    const linkedRoot = path.join(path.dirname(repoRoot), 'linked-non-default');
-    git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-non-default', linkedRoot]);
+    const linkedParent = await mkdtemp(path.join(tmpdir(), 'sec-hooks-non-default-'));
+    try {
+      const linkedRoot = path.join(linkedParent, 'linked');
+      git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-non-default', linkedRoot]);
 
-    expect(await installGitHooks({ repoRoot: linkedRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
-    expect(() => git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toThrow();
-    expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
+      expect(await installGitHooks({ repoRoot: linkedRoot, lifecycle: true }))
+        .toMatchObject({ status: 'conflict' });
+      expect(() => git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toThrow();
+      expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
+    } finally {
+      await rm(linkedParent, { recursive: true, force: true });
+    }
   });
 });

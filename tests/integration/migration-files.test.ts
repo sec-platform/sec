@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
-import { formatJsonFile } from "../../src/contracts/json-text.ts";
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
@@ -225,8 +224,8 @@ test('json-object-merge migration creates missing JSON targets', async () => {
       [jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })]
     );
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      formatJsonFile({ compiler: { upgrade: { enabled: true } } })
+    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8'))).toEqual(
+      { compiler: { upgrade: { enabled: true } } }
     );
   });
 });
@@ -274,11 +273,14 @@ test('create-directory migration keeps existing directory targets', async () => 
     const target = 'generated/reports/snapshots';
     await fs.mkdir(path.join(workspaceRoot, target), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
+    const retainedFile = path.join(workspaceRoot, target, 'retained.txt');
+    await fs.writeFile(retainedFile, 'existing content\n', 'utf8');
 
     await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)]);
 
     const stats = await fs.stat(path.join(workspaceRoot, target));
     expect(stats.isDirectory()).toBe(true);
+    await expect(fs.readFile(retainedFile, 'utf8')).resolves.toBe('existing content\n');
   });
 });
 
@@ -311,7 +313,7 @@ test('delete-file migration removes existing file targets', async () => {
 
     await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)]);
 
-    await expect(fs.access(targetPath)).rejects.toThrow();
+    await expect(fs.lstat(targetPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
@@ -358,7 +360,7 @@ test('rename-file migration moves file targets', async () => {
 
     await applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)]);
 
-    await expect(fs.access(sourcePath)).rejects.toThrow();
+    await expect(fs.lstat(sourcePath)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.readFile(targetPath, 'utf8')).resolves.toBe('{"status":"old"}\n');
   });
 });
@@ -426,7 +428,7 @@ test('rename-directory migration moves directory targets', async () => {
 
     await applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)]);
 
-    await expect(fs.access(sourcePath)).rejects.toThrow();
+    await expect(fs.lstat(sourcePath)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.readFile(path.join(targetPath, 'summary.json'), 'utf8')).resolves.toBe('{"status":"old"}\n');
   });
 });

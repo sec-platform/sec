@@ -183,7 +183,6 @@ describe('bounded control-plane CLI projections', () => {
     expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-api-provider-unavailable',
       httpStatus: null, detailDigest: rawSha256(detail) });
     expect(JSON.stringify(compact)).not.toContain(detail);
-    expect(compact.github).not.toHaveProperty('diagnostic');
     expect(JSON.parse(JSON.stringify({ github: observation })).github.diagnostic.detail).toBe(detail);
   });
 
@@ -250,7 +249,6 @@ describe('bounded control-plane CLI projections', () => {
       } });
       expect(compact.github).toEqual({ status: 'unresolved', reason: 'github-control-observation-unavailable' });
       expect(JSON.stringify(compact)).not.toContain('private raw');
-      expect(compact.github).not.toHaveProperty('authority');
     }
   });
 

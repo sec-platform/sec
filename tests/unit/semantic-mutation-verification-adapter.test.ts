@@ -184,8 +184,9 @@ test('missing, thrown, unavailable, and invalid probe evidence fail closed after
     });
     expect(probeCalls).toBe(candidate === undefined ? 0 : 1);
     expect(plan.status).toBe('blocked');
-    expect(plan.capabilities.every((entry) =>
-      entry.status === 'non-runnable' && entry.isolated === false)).toBe(true);
+    expect(plan.capabilities).toEqual(requirements().map(requirement => ({
+      requirement, status: 'non-runnable', isolated: false
+    })));
   }
 });
 
@@ -516,8 +517,6 @@ test('isolated child outcome blocks incomplete protocols and classifies canonica
   for (const candidate of [failedZero, missingReport, forgedRuntime, mismatchedBundle]) {
     const outcome = classifySemanticMutationIsolatedVerificationArtifactSet(candidate);
     expect(outcome).toBe('blocked');
-    expect(outcome).not.toContain('workspace');
-    expect(outcome).not.toContain('secret');
   }
 });
 

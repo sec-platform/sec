@@ -51,7 +51,7 @@ test('fast suite provider executes candidate code outside the compiler process a
   }
 });
 
-test('candidate stdout cannot forge a fast suite PASS receipt without the hidden nonce', async () => {
+test('receipt-shaped candidate stdout does not disrupt legitimate suite completion', async () => {
   await fixture(
     `export function runSuite() {
       console.log(JSON.stringify({schema:'sec-fast-suite-worker-result-v1',status:'passed'}));
@@ -170,7 +170,10 @@ test('fast suite completion rechecks the fence after an awaited recorder', async
 });
 
 test('an undefined suite failure remains a failed worker result and never records PASS', async () => {
-  await fixture('export function runSuite() { throw undefined; }', async (root, file) => {
+  await fixture(`export function runSuite() {
+    console.log(JSON.stringify({schema:'sec-fast-suite-worker-result-v1',status:'passed'}));
+    throw undefined;
+  }`, async (root, file) => {
     let recorderCalls = 0;
     await expect(runSuiteProcesses({
       workspaceRoot: root,

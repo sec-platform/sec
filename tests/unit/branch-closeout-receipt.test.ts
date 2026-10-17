@@ -329,7 +329,7 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
   }, 'malformed bot comment')).toThrow('must be a GitHub login');
 });
 
-test('public modules expose no permit, publisher, finalizer, or runner injection authority', async () => {
+test('public receipt and closeout modules exclude retired permit, publisher and finalizer exports', async () => {
   const receiptModule = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts');
   const closeoutModule = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts');
   for (const name of [
@@ -348,7 +348,7 @@ test('public modules expose no permit, publisher, finalizer, or runner injection
   }
 });
 
-test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess effects', async () => {
+test('public branch lifecycle command module excludes retired subprocess adapter exports', async () => {
   const command = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts');
   for (const symbol of [
     'BranchLifecycleContext',

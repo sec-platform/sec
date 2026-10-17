@@ -90,7 +90,7 @@ describe('project and compiler runtime manifests', () => {
 });
 
 describe('dependency bridge', () => {
-  test('reuses the shared runtime cache when the project has no node_modules', async () => {
+  test('provides a temporary dependency link when the project has no node_modules', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const bridgePath = path.join(workspaceRoot, 'node_modules');
 
@@ -101,7 +101,7 @@ describe('dependency bridge', () => {
         await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
       });
 
-      await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-runtime-bridge-');
   });
 
@@ -151,10 +151,13 @@ describe('dependency bridge', () => {
         maximumActiveConsumers = Math.max(maximumActiveConsumers, activeConsumers);
         activeConsumers -= 1;
       });
-      await Promise.resolve();
-      expect(maximumActiveConsumers).toBe(1);
-      releaseFirst();
-      await Promise.all([first, second]);
+      try {
+        await Promise.resolve();
+        expect(maximumActiveConsumers).toBe(1);
+      } finally {
+        releaseFirst();
+        await Promise.all([first, second]);
+      }
       expect(maximumActiveConsumers).toBe(1);
       await expect(fs.lstat(path.join(workspaceRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-runtime-bridge-serialization-');
