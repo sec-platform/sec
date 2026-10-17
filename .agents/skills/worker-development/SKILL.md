@@ -37,8 +37,8 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 
 - 独立性先按源码owner、必需输入与读写前像判断。源码已稳定且具有明确授权的独立任务scope时，使用正式`dev commit`的staged-candidate与提交Effect owner形成source-only分支检查点；它绑定准确本地ref、parent、index/tree和规范化结果，不以先改共享Work Package投影为条件。按[原owner分流](../../../docs/开发/AI协作/规则装载与任务恢复.md#source-checkpoint-publication)，独立检查点消费明确用户授权、固定scope与具体提交／传输Effect准入，不依赖正式工作选择、active Work／operation、MainHealth或Gate；不伪造这些结果。先用`dev:status -- --source-checkpoint --base <exact-sha> --expected-head <exact-sha> --owned-path <exact-path>`取得有界观察，再由原Effect owner重验；入口参数和观察结果都不是授权，既有未结Git操作与未知作用继续交原owner结算。
 - source-only检查点只包含本次owned源码，不为证明进度预先生成或搬运最终集成的共享控制投影。冻结exact head/tree后由独立Reviewer完成相交源码审查，再在已明确授权的目标分支范围内推送并回读。任何会自动触发hosted检查的发布动作仍受AGENTS的hosted evidence budget约束；源码检查点不签发active Work、正式Gate、adoption或merge资格。
-- 共享active pointer、rolling、前任manifest退役及需组合源树重算的派生制品，由原integration owner在实际集成base与写入窗口就绪后，调用各自正式producer生成并核验。不要让每个独立源码分支提前争写这些控制，也不把等待最终控制、验收或merge变成独立合法源码工作的前置。需要改变Work Package的Worker仍回交其原owner，不自行手改投影或制造第二冻结入口。
-- 集成时复用准确绑定且未失效的源码、focused Evidence与源码审查结论，只重算main delta实际影响的前像、owner和输入闭包。旧head/tree的Review、Gate与控制投影保留原绑定，不能直接充作新集成候选的通过；当前base/head/tree、Work Package与组合结果仍须原owner重新准入和核验。仅最终候选就绪后取得所需exact-head审查与缺失／失效的hosted证据；旧候选的恢复、迁移和残留义务不因延后投影或采用新main消失。
+- 仅实际动作需要共享active pointer、rolling、前任manifest退役或组合源树派生制品时，由原integration owner在实际base与写入窗口就绪后调用正式producer生成并核验。按[采用来源与动作](../../../docs/开发/仓库维护/工作身份与续接.md#bounded-source-adoption-and-autonomous-work)区分自主执行和维护者明确指定的有界源码采用；后者不为取得源码合并权先创建自主工作身份，仍消费真实授权、准确范围、独立审查、适用证据、平台保护、原Effect和readback。不要让独立源码分支争写不需要的控制。需要改变Work Package的Worker仍回交原owner，不手改投影、制造第二冻结入口或由Skill补权。
+- 集成时复用准确绑定且未失效的源码、focused Evidence与源码审查结论，只重算main delta实际影响的前像、owner和输入闭包。旧head/tree的Review、Gate与控制投影保留原绑定，不能直接充作新集成候选的通过；当前base/head/tree、实际适用的Work Package与组合结果仍须原owner重新准入和核验。仅最终候选就绪后取得所需exact-head审查与缺失／失效的hosted证据；旧候选的恢复、迁移和残留义务不因延后投影或采用新main消失。
 
 ## 已授权提交与中断续接
 
