@@ -79,6 +79,7 @@ test('workspace clearing removes both projections without clearing another works
 test('disabled cache retains no logical or source record and keeps input ownership unchanged', () => {
   const cache = new ManifestCache(0), a = fixture(); cache.set(a.key, a.entry);
   assert.equal(cache.getByObservedSource(a.source), undefined); assert.equal(cache.get(a.key), undefined);
+  assert.equal(cache.size, 0);
   assert.equal(Object.isFrozen(a.entry), false);
 });
 

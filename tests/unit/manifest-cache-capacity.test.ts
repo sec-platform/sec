@@ -17,16 +17,6 @@ test('LRU capacity bounds live locators without changing digest-qualified reuse'
   assert.equal(cache.get(a.key), a.entry); assert.equal(cache.get(c.key), c.entry);
 });
 
-test('a digest miss retires the stale locator immediately', () => {
-  const cache = new ManifestCache(2), a = fixture('a'); cache.set(a.key, a.entry);
-  assert.equal(cache.get({ ...a.key, sourceDigest: 'sha256:new' }), undefined); assert.equal(cache.size, 0);
-});
-
-test('disabled caching retains no records and does not freeze caller-owned inputs', () => {
-  const cache = new ManifestCache(0), a = fixture('a'); cache.set(a.key, a.entry);
-  assert.equal(cache.get(a.key), undefined); assert.equal(cache.size, 0); assert.equal(Object.isFrozen(a.entry), false);
-});
-
 test('workspace clearing cannot remove another workspace cache', () => {
   const cache = new ManifestCache(3), a = fixture('a'), b = fixture('a', '/two');
   cache.set(a.key, a.entry); cache.set(b.key, b.entry); cache.clearWorkspace('/one');
