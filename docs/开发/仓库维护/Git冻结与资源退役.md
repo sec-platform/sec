@@ -74,7 +74,13 @@ flowchart LR
 
 评论卫生分成两个不同 authority lane，禁止再把 GitHub Actions installation token 当成通用 Conversation 管理员。
 
-**历史 comment 请求只读兼容。** v1 的 exact-comment-retirement 仍可解析 1..64 条互不重复的 #313 exact comment 身份，用于解释原请求与历史证据；解析不签发新的 comment 删除权限。旧自动 trigger 清理入口及其无消费者实现已退役，不再承诺当前 hosted CLI 提供该 DELETE lane。旧 SHA 的运行仍保留其原有作用、失败与回读解释，未结责任不会因为新源码删去 helper 而被视为已完成。其他独立 comment owner 和通用 GitHub API 保持自己的准入与作用边界；不为保存历史 parser 重新增加 comment job、公开评论或自动删除。
+原包中的版本化历史设计及相应版本记录按其准确原合同解释；下述字段不证明该设计曾在主干部署。有binding的记录解析`MaintenanceCarrierBinding{bindingRef,repositoryRef,provider:github-issue-comment,issueIdentity,revision}`，旧固定Issue形状仍按原版本读，不猜填新binding。bindingRef与revision指不可变记录，current pointer只选新请求；在途请求固定原binding、revision和Issue直至terminal/readback，推进current不重绑旧评论或让新请求回旧代。旧记录仅在在途/恢复读取责任为零后退役；缺失、漂移、仓库或Issue失配保留unknown，不用当前默认Issue补足。历史单ref与comment lane仍分别解释，dispatcher、comment author及当前maintain/admin权限分别验真，author_association仅作关系诊断；payload只是唤醒定位，不是作用权。
+
+历史exact-ref按原lane解释。main-tree-identical仅支持准确target tree等于当时live main tree且无open PR head/base消费者，作用前从真实commit object再次复验，不等于语义相似或squash吸收。reviewed-superseded引用同一捕获carrier的独立维护者review；原v3绑定repository/Issue、branch、head commit/tree、current-main commit/tree、真实merge-base commit/tree及完整merge-base→head独有source-delta路径集摘要，approved且unknowns为空。main自merge-base新增的无关路径不属本次取代范围；prepare、作用前与终态重读原评论、作者当前maintain/admin资格和Git三端关系，漂移、open消费者或路径遗漏均不得补签。旧字段仅为原请求/证据恢复，不开第二review writer或hosted入口。
+
+closed-PR lane即使ref缺席仍可独立读准确PR head及`refs/pull/<n>/head`恢复同一内容；reviewed-superseded无该独立源，只在prepare时exact ref仍存在才合格。CAS已发生而终态回读丢失时，后者保留已发布recovery carrier，由原owner显式reconcile，不从ref absent重签settled。旧artifact须在破坏性作用前按本run/attempt的immutable identity可读取、下载并复验SHA/checksum、`git bundle verify`及expected head，事后always上传不足。删除后新开/重开PR或main漂移仍可使原attempt unsettled；artifact运输恢复内容，不拥有处置authority。
+
+**历史 comment 请求只读兼容。** exact-comment-retirement沿原版本解析同一binding下1..64条互异exact comments，逐项固定commentId、issueIdentity及raw-body SHA256，不混载体或ref/comment；早期#313记录按其原身份解释，不把该编号当永久默认。解析不签发新删除权限。旧自动trigger入口及无消费者实现已退役，不能因只读解释恢复hosted DELETE lane。旧运行保留原作用、失败、readback与恢复责任；其他comment owner及通用API仍走各自准入，不新增comment job或自动删除。
 
 **PR Conversation hygiene lane** 不走 repository-maintenance DELETE。真实运行已经证明：`github-actions[bot]` 对普通 PR Conversation 评论（包括维护者自己的 `@codex review` 以及其他 GitHub App 的 Codex summary/setup/quota 消息）会收到 GitHub `403 Resource not accessible by integration`。因此当前 adopted 动作是：由已连接的 maintainer identity 对明确的运输噪声执行正文退役，将其替换成不可见 HTML tombstone；评论对象本身仍存在，不能报告为物理删除。已观测的 disposable prose 仅包括精确 review-trigger 命令、Codex review summary、environment setup hint 与 quota/upsell transport；扩展该集合必须重新核作者、用途和 consumer，不能按年龄或 bot 身份泛删。
 
