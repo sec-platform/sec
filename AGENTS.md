@@ -19,7 +19,7 @@
 下列入口消费[仓库开发准入与恢复](docs/开发/仓库维护/工作身份与续接.md#gift自身仓库开发的行为准入工作身份与恢复)的实现接合，不要求所有Gift目标工程复制本仓库控制面。
 
 1. 新任务、续跑、压缩恢复与实施前按[源码检查点与正式采用的分流](docs/开发/仓库维护/工作身份与续接.md#source-checkpoint-publication)选择`dev:status`入口。正式工作绑定live main、exact candidate、工作区、活动Work Package及有效operation；已明确授权的独立源码检查点使用`--source-checkpoint --base <exact-sha> --expected-head <exact-sha> --owned-path <exact-path>`观察固定源码范围，不要求先恢复正式Work、MainHealth或Gate。两路状态都只给continuation，不签发作用权；unresolved/invalid只阻断依赖它的动作，不能由PR、branch或测试绿色补足权限。
-2. 写入前核唯一写者、前像、dirty归属及并发。保护用户和无关工作，不reset/stash/restore/格式化/清理或纳入交付。当前用户授权决定提交、推送、合并、发布、安装和删除的作用上限，scope/envelope与实际Effect admission分别约束具体执行。用户已明确授权仓库终态后，该义务持续到settlement/readback；默认分支保护拒绝直推时，自动转入同内容的最小branch→PR→Gate→merge通路，不等待重复授权。force、改保护、额外发布等扩大作用仍须另行授权。
+2. 写入前核唯一写者、前像、dirty归属及并发。保护用户和无关工作，不reset/stash/restore/格式化/清理或纳入交付。当前用户授权决定提交、推送、合并、发布、安装和删除的作用上限，scope/envelope与实际Effect admission分别约束具体执行。用户已明确授权仓库终态且该授权在执行时仍有效时，该义务持续到settlement/readback；默认分支保护拒绝直推时，可在原有效授权内走最小branch→PR→Gate→merge通路。**最新明确用户限制优先：用户后续禁止合并、要求保留PR或撤回目标ref更新授权时，即使旧指令曾要求完成到main，也不得启用auto-merge或继续合并；仅推进到仍获准的分支／PR与证据，待新的明确合并授权。**force、改保护、额外发布等扩大作用仍须另行授权。
 3. 从可观察终态做删除反事实，判断保留对象的独立价值、真实消费者、失败恢复、并发、资源、外部能力、迁移及验证成本。原生Git/compiler/provider等成熟能力按最窄稳定接口使用；展示、路径、摘要、caller字段和测试seam不创造事实或权限。
 4. 一个logical run保持一个mutable candidate。只有独立结果与owner/文件边界明确、并行有实际收益时委派；子任务权限只收窄，协调 owner 保留授权、架构裁决、集成、验证和收口，不能让多个 writer 修改同一 owner。
 5. 编辑期执行最小有效哨兵；frozen对象才生成昂贵证据。执行集合按`RequiredClosure ∩ MissingOrStale`选择，同一ActionKey的fresh PASS、确定性失败及authenticated in-flight分别复用、停止该失败路径及join。证据只证明其绑定对象与环境。
