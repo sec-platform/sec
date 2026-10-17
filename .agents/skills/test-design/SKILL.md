@@ -1,39 +1,51 @@
 ---
 name: test-design
-description: 已有 Claim/acceptance 需要新 case、oracle、测试语义修订或测试价值判断时，选择最小充分且独立的观察；仅选择、执行或复跑已定测试交原 selector/runner。
+description: SEC 的 Claim/acceptance 需要设计或复核测试、独立 oracle、故障性质、去重、重写、退役或不稳定性调查时使用；已有测试的选择、执行与复跑交原 selector/runner。
 ---
 
 # test-design
 
-## 当前归属
-Claim与方法选择归[要求证据](../../../docs/运行/保证/要求证据与裁决.md#要求含义与验收方法不互相定义)；测试输入、REWRITE/退役、执行及重跑归[测试发现与执行](../../../docs/开发/测试发现与执行.md#developer-test-selection)。输入是准确Claim、现有cases/proof、待区分错误与作用范围；输出回原CasePlan/casesRef或测试作者，不新增状态载体。
+## 归属与不可越界的事实
 
-## 触发
-- 已有 canonical Claim/acceptance/invariant，但 case/test proof 尚未闭合，或现有测试疑似同源 oracle、重复证明、假 contract/E2E、成功型 fixture、实现布局锁定。
-- Worker 只有改变测试语义、oracle 或退役判断才能继续时返回 `test-design-required`。
+- Claim 和验收方法的权威归[要求证据](../../../docs/运行/保证/要求证据与裁决.md#要求含义与验收方法不互相定义)；CasePlan/casesRef、测试发现、Q0—Q6、Test Value、REWRITE/consumer-zero 与执行归[测试发现与执行](../../../docs/开发/测试发现与执行.md#developer-test-selection)及其正式 owner。本 Skill 只指导证据与方法的选择，不创建第二份 inventory、评分、台账、审批状态或测试执行平台。
+- 以准确的当前 `main` 源码、产品合同和真实消费者为事实；PR、分支、历史审计、测试标题、文件名与旧 CI 结论都不是新主干事实。不得把某一分支的变化当成已合并内容，也不得把静态候选当成删除授权。
+- **所有当前正式 SEC 产品能力保持不变。** 测试优化不能以撤销 Git Hooks、Provider、Runner、编译能力或恢复义务来制造可删测试；有独立正式授权且迁移、消费者与历史状态已经结算的产品退役属其他任务，本 Skill 无权发起。
+- **测试修改只提交至聚焦分支与 PR，不自行 merge、squash、rebase-merge 或启用 auto-merge。** 用户已明确禁止直接合并；PR 可合并、CodeQL 成功、作者拥有权限都不能替代新的明确合并授权。该边界不改变正式仓库门禁。
+- 由主协调者在有界设计任务中读取；当前 hosted activation 只确认 Worker implement，不由注册信息推断 design role 已接通。`test-design-required` 交回主协调者；无 canonical Claim 或方法未归于测试时返回 requirement/assurance owner；纯选择/执行交 selector/runner，不扩张既有 Work Package 权限。
 
-## 边界
-- 本 Skill 由主协调者（当前机器角色 `a0`）在有界测试设计任务中读取；仓库当前 hosted activation 只签发 Worker implement，注册信息不证明 hosted design role 已接通。`test-design-required` 回交主协调者，在已有授权内补齐语义后继续原任务；这一内部回交不形成新的授权要求，超出现有授权的变化仍按原 owner 准入。
-- 没有 canonical Claim，或 verification method 尚未决定为 cases/test：返回 requirement/assurance owner；只执行、选择、复跑既有 tests：交给 selector/runner。
-- CasePlan/casesRef 与实际测试框架继续拥有测试输入、oracle、环境和执行；Test Value/Supersession 继续拥有 keep/rewrite/merge/delete。Skill 不创建 `TestDesignDecision`、inventory、ledger、评分或平行 disposition。
-- Skill 不扩张 Work Package/operation scope；测试重写与退役按[测试发现与执行 Q4](../../../docs/开发/测试发现与执行.md#developer-test-selection)取得各自证据，不能把 rewrite 当成无替代者删除的许可。
+## 一次裁决必须走的顺序
 
-## 判断
-1. 固定 Claim、适用域和真实失败模型；测试方法不得反向定义需求。
-2. 先比较现有 evidence 的 observation、环境和 authority/effect boundary；已有 proof 已充分覆盖所需 observation 时，不新增测试。
-3. Oracle 的判错依据必须独立于待证明行为。由同一生产 builder/catalog/selector/formatter 生成 actual 与 expected 只能证明明确的 plumbing relation，不能自证上游语义；差异输入、往返或变形关系可以比较生产结果，但性质与预期须有独立合同，并能区分真实错误。
-4. 测试必须有可区分错误实现的 **failure witness**，但不强制专门造 counterexample。真实 regression、counterexample、mutation、differential/metamorphic case、boundary violation 或外部 readback mismatch 均可；property 已给出充分区分条件时不重复造 case。
-5. 按最小 observation boundary 选层级：纯算法/codec/property 用 unit；跨 owner/storage/effect/recovery 用 integration；稳定外部 bytes/schema/config 用 contract；真实入口/进程/Git/宿主链才用 E2E。目录名本身没有证明力。
-6. Fixture 只建立前置状态，不能先执行待证明 transition 或由同一 SUT 制造 postcondition。platform/env/clock/cwd/random/provider 必须绑定实际环境与隔离；skip/未运行不是 PASS，retry 不抹掉首次 failure。
-7. 性能Claim的运行结论绑定workload、环境、baseline、measurement method与observed result；catalog只是plan。Golden/snapshot的语义预期由原作者依据Claim/公共合同明确裁决，不能由actual自动批准。若失败只锁定已变化的私有名称、路径、措辞或布局，先确认这些不是公共合同；Claim未变且有独立判错依据时，可在已有授权与Q4 REWRITE范围内修复过时断言，不要求先改变需求，也不能借“cosmetic”删除真实反例。
-8. 在原CasePlan／casesRef或测试源中确定放置与执行频率：这项必要观察应在编辑哨兵、受影响回归、集成／发布还是一次性资格核验中取得；比较fixture准备、真实进程／宿主、等待与cleanup的总成本。真实边界必须由真实证据证明，但一次需要深层／大规模原生观察不自动使它成为默认fast每次重跑的前置；仅为覆盖算法规模的部分优先用能独立判错的纯层case，物理边界保留最小充分原生case，按原selector的失效条件复用资格证据。不能用降低频率或更便宜的替身删去仍必需的观察，也不新建第二套测试目录或执行台账。
-9. 输出最小可实施语义：复用哪个 proof，或需要哪个 test/case、输入、oracle/property、observation boundary、环境、failure witness及放置／频率理由；已有 write scope 时由 Worker materialize。
+1. **固定对象。** 写清确切 commit、Claim/acceptance/invariant、真实消费者、适用版本/平台、错误或失败模型和正式外部合同。测试不能反向定义需求。先找已存在的有效 proof，充分时不新增测试。
+2. **辨明测试身份。** 逐一辨别测试源、实际 `test()` 注册、辅助函数内的测试框架替身调用、`test.each`/循环动态实例、运行时跳过、类型级测试、Python 方法和 Block 模板；分别统计源码注册数、参数化潜在实例、适用宿主实跑实例、独立观察义务。不能混加成“实际跑了 N 条”或把辅助代码误算注册。
+3. **实际追溯输入与观察。** 读完整测试体、`before/after`、共享 helper、fixture、条件分支与所测生产代码；记录前置输入、实际动作、断言及辅助断言、可见状态/异常/副作用、后置清理和失败见证。缺少字面 `expect()`、同名、类似哈希、相同 helper 或相似 AST 形状只是核查线索，不是空测试或重复证明。
+4. **建立独立判错 oracle。** 优先使用明确公共合同、外部读回、冻结且人工审定的向量、可信独立参考或有独立数学/语义来源的性质。同一生产 builder/catalog/formatter/selector 的 actual 与 expected 相等只能证明明确的管线关系，不自证语义。不同输入/模式的往返、确定性复算和变形可有效，但须明确被证明的性质及其反例。Golden/snapshot 更新须按真实语义审批，不能从 actual 自动批准。
+5. **选择最小充分的观察层。** 纯算法/codec 用 unit；跨 owner/存储/效果/恢复用 integration；稳定外部协议/字节/配置用 contract；真实外部 CLI、工作区、Git、操作系统进程/权限和发布链须相应的原生执行与最终读回。目录叫 `e2e` 不等于测试了发布产物；进程内 CLI 只证明进程内路由；Mock 只证明其所处端口合同，不能替代真实权限、物理文件原子性或打包程序启动。
+6. **限定方法而非堆砌类别。** 有限枚举的合同用表驱动/参数化，保留各独立错误码、状态机边与故障切点的定位；大/无界输入且有独立性质才用 property/fuzz，并校验有效样本、种子、缩减反例和零样本真空通过；成熟参考与版本交集成立才用 differential；变形仅证明关系本身；mutation/真实缺陷回放用于验证争议测试的缺陷发现力，等价、超时和未执行不能算被杀死。没有已批准依赖变更，不为方法偏好引入新框架。
+7. **真实失败先查根因。** 确认错误来自产品、oracle、测试互相污染、宿主资格、竞态/时间、依赖或权限中的哪一层。隔离 HOME、cwd、全局 Mock、随机数、时钟、并发资源、Git 配置、fixture 和清理；只对真实作用域作有界重复，保留首次失败及全部重试。`sleep`、扩 timeout、吞错、更新 snapshot、改平台条件或跳过不能换取假绿。
+8. **计算完整代价和执行条件。** 比较准备/依赖物化、执行、进程/宿主、等待、资源结算、CI 队列和失败定位成本；由既有 selector 在编辑哨兵、受影响测试、完整集成、发布/跨平台资格间选最窄且充分的集合，未知影响保守扩大。性能结论必须绑定工作负载、环境、基线和实测，不把计划或超时当作结果。
+9. **给出处置而非主观计数。** `KEEP` 说明不可替代的观察；`REWRITE` 说明新旧命题及改变原因；`MERGE` 明示每项原义务由何项具体测试承接；`DELETE` 需要严格重复同一适用前提、实际输入、环境、动作、oracle、失败形态及观察，或依正式 Q4 consumer-zero/supersession 证明。无法闭合证据则为 `UNKNOWN`，不能签发删除。登记到原 Test Value/CasePlan/casesRef 或测试源，不新建长期结论库。
 
-## 完成
-- 必须能回答：**新增了哪项现有 evidence 尚未充分覆盖的必要 observation？判错依据是否独立于待证明行为？** 两项任一答不出，不新增测试。
-- Claim/consumer/authority/environment 未知且会改变结论时 fail-closed；疑似 merge/delete 只返回候选与所需 canonical evidence，不自行授权。
+## SEC 原生执行与权限硬边界
+
+- 以仓库声明的正式 Bun 版本、当前 Bun test runner 与既有测试命令为准。**禁止为了“额外证明兼容性”把 `bun:test` 改写为 `node:test`、制作 Node 等效运行器或执行未经需求授权的 Node 兼容性测试。** Node 可作为代码库已有的被测外部能力时另论，但必须有明确 Claim 和用户授权；不能仅因运行技术上可行就追加工作。
+- 如果本机没有 Bun，记录 `NOT_RUN / 环境不具备`，允许源码审计、补丁适用性与静态语法检查，但绝不把这些、Node 替代运行、CodeQL 或历史 CI 当作 Bun PASS。跨 Windows/Linux、容器、云 Runner 与真实发布运行也一样：只在产品合同/实际变更要求时验证；平台缺席是 `NOT_VERIFIED`，不是 `PASS`，也不是删测试理由。
+- 有副作用的宿主/Git/工作区/Provider 测试必须在明确授权的隔离环境执行，并清算文件、进程、凭证、锁和残留；不能把普通测试运行演变成远端仓库修改、用户配置改变或第三方状态写入。
+- “合并门禁通过”须有该 PR 精确 head 的实际 CI、无有效 REQUEST_CHANGES、无未解决 thread、已理解的 base/head/merge-base 与真实 diff；这些条件只构成合并资格，不自动授权本 Skill 执行合并。禁止重复用 CI 当调试循环。
+
+## 允许精确结构/交互断言的场合
+
+- 当 AST/import topology、稳定 Entity/Fact identity、signing/root-of-trust、权限负面空间、Provider 调用顺序与参数 **本身就是 canonical 合同** 时，精确源码结构或 Mock 交互可以是正确的独立观察；必须引用该合同及失败模型。单纯内部函数位置、无承诺目录顺序、私有措辞和临时实现路径不是对外合同。
+- 同一行为的 pure unit、Mock、集成、原生宿主和发布入口可能分别承担不同证明责任，不因看起来“重复”而跨层抵消。确定性 `decide(x)` 连续调用两次并比较也可检验明确的确定性合同，不能误当 `x === x` 的无效断言。
+- 删除完全重复注册时保留非重复的同标题测试、不同输入/故障点/Proxy 生命周期及共享辅助断言；小量变更优先直接证明两份执行的前提、输入、回调、作用域、失败型态相同。高风险等价性争议可用定点 fault injection/突变检验替代测试的检出能力，不能为凑突变分数重写产品。
+
+## 完成与报告
+
+- 每条裁决最少给出精确源定位、当前受保护能力/Claim、外部可观察事实、oracle 来源、失败见证、替代证据、环境资格、取舍结果和未确认前提；可在原案例/PR 审查中直接说明，不要求每项填写新表。汇总必须分开**确认可删、确认已替代、须加强、需进一步取证、不能删**及真实净数，未知绝不作为已经完成的“最优保留量”。
+- 发布结论前读取实际退出码、测试结论和精确提交身份，明确区分 `PASS`、`FAIL`、`SKIP`、`NOT_RUN`、`INCONCLUSIVE` 和 `NOT_VERIFIED`。静态清单覆盖全部条目不等于每例价值都已验证；只修改或提交分支不等于已合并；检查通过不等于 PR 已进入 `main`。
+- 自我检查误判：相同标题但一例使用 revoked Proxy？无 `expect()` 但辅助函数抛错？循环在 helper 里没有实际注册？`test.each` 实例分别触发不同恢复断点？Mock 证明是否被吹成真实 Git？in-process CLI 是否被称为打包 E2E？Linux 测试在 Windows 被跳过是否被当 PASS？Bun 不可用时是否想“改 Node 试试”？PR CI 全绿是否被误解为允许自动合并？任一问题存在就修正事实与结论。
 
 ## 禁止捷径
-- 不因生产文件变化机械增测，不以 test/assert 数量、coverage%、层级或“全绿”作为价值。
-- 不用 pathname/string/private helper/function arity/version 常量代理真实性质，除非它们本身就是外部合同；不保留只证明自己注册/冻结的自指测试。
-- 不靠弱化 assertion、扩大 timeout、sleep/retry、skip、吞异常或更新 snapshot 换绿色；本地 PASS、CodeQL 或“测试存在”都不能冒充其未证明的 Gate/平台能力。
+
+- 不因产品代码变化机械增测、不依赖行覆盖率、mutation score、`2×行为数`、断言/测试数量配额，且不以删除正式功能优化测试数；允许测试合并减少注册，但不得降低独立风险覆盖和可追溯失败定位。
+- 不制造自证或真空性质测试，不证明 Mock 的配置自洽就宣称真实产品正确，不用版本、路径、偶然错误文案或私有布局冒充合同，也不维护无正式消费者的影子测试清单或重复测试平台。
+- 不通过盲目重试、跳过、扩时、静态分析、改运行时、强行跨平台、提前公布成功或直接合并分支，掩盖证据不足。
