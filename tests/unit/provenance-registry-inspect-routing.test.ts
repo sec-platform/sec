@@ -119,7 +119,6 @@ test('provenance inspection routes text through application and entry while pres
       'Artifact src/generated-a.ts; origin=generated:generated-a; registry=none; verifiedBy=none; override=none',
       'Artifact src/generated-b.ts; origin=generated:generated-b; registry=none; verifiedBy=none; override=none'
     ].join('\n'));
-  });
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const provenance = {

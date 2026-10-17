@@ -86,7 +86,6 @@ test('acceptance inspection routes retained coverage through application and ent
       'Target alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
       'Target beta; declared=2; coveredBy=none; uncovered=true'
     ].join('\n'));
-  });
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const report = {

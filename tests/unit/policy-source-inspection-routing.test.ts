@@ -47,7 +47,6 @@ test('policy sources routes retained policy evidence through application and ent
       'Source official; path=z; policies=official:z',
       'Source project; path=b; policies=project:b'
     ].join('\n'));
-  });
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const report = {

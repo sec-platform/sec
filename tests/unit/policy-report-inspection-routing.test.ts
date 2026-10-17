@@ -56,7 +56,6 @@ test('policy inspection routes retained report through application summary proje
       'Violation v2; severity=error; files=a.ts; fail',
       'Violation v3; severity=error; files=ignored.ts; ignored'
     ].join('\n'));
-  });
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const report: PolicyReport = {

@@ -48,7 +48,6 @@ test('lock inspect routes canonical lock through application projection and entr
       'Block order: 1:alpha@1.1.0, 1:beta@1.0.0, 2:zeta@2.0.0',
       'Pass status: failed=1, succeeded=2'
     ].join('\n'));
-  });
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const lock = semanticArtifactLock('generated/lock-inspect-routing.ts');

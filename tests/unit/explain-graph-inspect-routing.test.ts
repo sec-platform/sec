@@ -42,7 +42,6 @@ test('explain inspect preserves historical pin graph JSON through reading, count
       'Coverage overlay: 2 blocks',
       'Provenance overlay: 1 artifacts'
     ].join('\n'));
-  });
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const graph = {
