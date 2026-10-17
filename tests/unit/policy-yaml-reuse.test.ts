@@ -150,7 +150,7 @@ test('invalid byte encoding remains a retained decoding failure rather than an e
   } finally { f.cleanup(); }
 });
 
-test('each invocation returns independent policy arrays after removing redundant field copies', () => {
+test('each invocation returns policy arrays isolated from caller mutation', () => {
   const f = fixture();
   try {
     f.write('fixture.yaml', JSON.stringify({ policies: [row()] }));

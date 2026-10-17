@@ -920,7 +920,7 @@ for (const laterExitCode of [0, 7]) {
   });
 }
 
-test.serial('a host match still dispatches the real child and cannot turn issuer unavailability into a pass', async () => {
+test.serial('a host match dispatches the child command and cannot turn issuer unavailability into a pass', async () => {
   const file = 'tests/unit/verification-action-github-provider.test.ts';
   testExecutionHostOverride = { os: 'linux', arch: 'x64' };
   devCommandExitCodes.push(7);
@@ -1587,7 +1587,9 @@ test.serial('settled test failure preserves its exit while independent later cla
       'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
     ]);
     const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(receipt).toContain('"queue":"independent-process"');
+    expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
+      queue: 'independent-process'
+    });
   } finally {
     console.error = originalError;
   }
@@ -1668,8 +1670,8 @@ test.serial('explicit fast test files bootstrap once and settle their invocation
   expect(path.basename(environment.SEC_STATE_HOME!)).toBe('parallel-001');
   expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('parallel-001');
   const runtimeRoots = fastInvocationRunRoots(environment);
-  await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
-  await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
+  await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test.serial('composite check reuses one materialized compiler capability without a second bootstrap', async () => {
@@ -1696,8 +1698,8 @@ test.serial('option-only selection preserves fast isolation and canonical slow d
       expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
       expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
       const runtimeRoots = fastInvocationRunRoots(environment);
-      await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
-      await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
+      await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     } else {
       expect(environment.SEC_STATE_HOME).toBeUndefined();
       expect(environment.SEC_CACHE_HOME).toBeUndefined();
@@ -1735,8 +1737,8 @@ test.serial('failed fast children leave no run-owned workspace residue', async (
   expect(code).toBe(7);
   expect(workspaceEnv.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-/u);
   const runtimeRoots = fastInvocationRunRoots(workspaceEnv);
-  await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
-  await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
+  await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test.serial('fast tests preserve the caller namespace and clean only a unique run-owned child', async () => {
@@ -1761,8 +1763,8 @@ test.serial('fast tests preserve the caller namespace and clean only a unique ru
     expect(path.resolve(runtimeRoots.stateRoot).startsWith(path.resolve(compilerRoot))).toBe(false);
     expect(path.resolve(runtimeRoots.cacheRoot).startsWith(path.resolve(compilerRoot))).toBe(false);
     expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
-    await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
-    await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
+    await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await fs.rm(parentRoot, { recursive: true, force: true });
   }
@@ -1818,8 +1820,8 @@ test.serial('overlapping fast runs sharing one caller namespace own disjoint cle
     secondGate.resolve();
     expect(await Promise.all(runs)).toEqual([0, 0]);
     for (const roots of runtimeRoots) {
-      await expect(fs.access(roots.stateRoot)).rejects.toThrow();
-      await expect(fs.access(roots.cacheRoot)).rejects.toThrow();
+      await expect(fs.lstat(roots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(roots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     }
     expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
   } finally {
@@ -2103,7 +2105,9 @@ test.serial('cleanup failure preserves a more specific child exit and its receip
 
     expect(code).toBe(7);
     const receipt = errors.find((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
-    expect(receipt).toContain('"terminal":{"kind":"exited","exitCode":7}');
+    expect(JSON.parse(receipt!.slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length))).toMatchObject({
+      failures: [{ terminal: { kind: 'exited', exitCode: 7 } }]
+    });
     expect(errors).toContain(
       'Fast test workspace cleanup failed: cleanup after child sentinel'
     );
@@ -2175,7 +2179,7 @@ test.serial('cleanup remains additive while every falsy primary is rethrown unch
   }
 });
 
-test.serial('thrown isolated child waits for its bounded siblings before parent cleanup', async () => {
+test.serial('thrown isolated child preserves nonzero result and retires its invocation runtime', async () => {
   materializeTestWorkspace = true;
   const selectedFiles = [
     'tests/integration/pipeline-kernel.test.ts',
@@ -2196,8 +2200,8 @@ test.serial('thrown isolated child waits for its bounded siblings before parent 
   expect(code).toBe(1);
   expect(devCommandCalls).toHaveLength(expectedFirstBatchSize);
   const runtimeRoots = fastInvocationRunRoots(workspaceEnv);
-  await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
-  await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
+  await expect(fs.lstat(runtimeRoots.stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(runtimeRoots.cacheRoot)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test.serial('fast tests reject explicit slow file selectors', async () => {
@@ -2312,8 +2316,11 @@ test.serial('affected plan reports resolved selection without dependency or test
         FAST_TEST_PROCESS_POLICY_TEST_FILE
       ],
       unresolvedPaths: [],
-      resolved: true
+      resolved: true,
+      verificationResult: { status: 'not-run', reasonCode: 'not-dispatched', applicability: 'required' },
+      selectionTrustBoundary: 'applicable-with-tests'
     });
+    expect(fastDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
   } finally {
@@ -2685,29 +2692,6 @@ test.serial('affected plan projects required policy coverage for a changed slow 
     expect(vr.applicability).toBe('required');
     expect(plan.selectionTrustBoundary).toBe('applicable-with-tests');
     expect(plan.selectedFastTests).toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
-  } finally {
-    console.log = originalLog;
-  }
-});
-
-test.serial('affected plan projects not-dispatched for applicable selection with fast tests (Issue #206)', async () => {
-  changedFiles = ['tests/unit/path-containment.test.ts'];
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
-
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
-
-    expect(code).toBe(0);
-    const vr = plan.verificationResult as Record<string, unknown>;
-    expect(vr.status).toBe('not-run');
-    expect(vr.reasonCode).toBe('not-dispatched');
-    expect(vr.applicability).toBe('required');
-    expect(plan.selectionTrustBoundary).toBe('applicable-with-tests');
   } finally {
     console.log = originalLog;
   }

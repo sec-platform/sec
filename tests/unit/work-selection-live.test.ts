@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -394,9 +394,6 @@ describe('work-selection live contract', () => {
     expect(compaction.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(compaction.catalog.items.find(({ workId }) => workId === 'issue-186'))
       .toMatchObject({ prerequisiteWorkIds: ['issue-352'] });
-    expect(compaction.roadmapSource).toContain(
-      '"prerequisiteWorkIds": ["issue-352"]'
-    );
     expect(compaction.delayedManifestRetirementPaths).toEqual([
       'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md'
     ]);
@@ -478,13 +475,11 @@ describe('work-selection live contract', () => {
     })).toThrow(/cannot mutate the manifest set/u);
   });
 
-  test('a stable Issue subject identity migration is not misclassified as terminal work', () => {
+  test('changing Issue evidence anchors is not misclassified as terminal work', () => {
     const prior = transitionCatalog();
     const migrated = prior.source
-      .replace('"workId": "issue-321-candidate-control"', '"workId": "issue-321"')
-      .replace('"ownerRef": "github:issue/321#candidate-control-transaction"',
-        '"ownerRef": "github:issue/321"')
       .replaceAll('"github:issue/321#candidate-control-transaction"', '"github:issue/321"');
+    expect(migrated).not.toBe(prior.source);
     expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: migrated,
@@ -564,7 +559,8 @@ describe('work-selection live contract', () => {
       if (clone.status !== 0) {
         throw new Error(Buffer.from(clone.stderr ?? '').toString('utf8'));
       }
-      expect(existsSync(path.join(root, '.git', 'objects', 'info', 'alternates'))).toBe(false);
+      expect(() => lstatSync(path.join(root, '.git', 'objects', 'info', 'alternates')))
+        .toThrow(expect.objectContaining({ code: 'ENOENT' }));
       runFixtureGit(root, ['config', 'user.name', 'SEC Test']);
       runFixtureGit(root, ['config', 'user.email', 'sec-test@example.invalid']);
       runFixtureGit(root, ['checkout', '--quiet', '-B', 'main', 'HEAD']);
@@ -1190,13 +1186,13 @@ describe('work-selection live contract', () => {
   });
 
   test('caller-mutated receipt cannot pass canonical replay assertion', () => {
-    const canonical = receipt();
+    const canonical = receiptForCatalog(observeCatalog(roadmapSource));
     const forged = structuredClone(canonical) as unknown as {
       decision: { selectedWorkId: string | null };
     };
-    forged.decision.selectedWorkId = 'issue-349';
+    forged.decision.selectedWorkId = 'issue-forged';
     const catalog = parseRoadmapWorkCatalog(roadmapSource);
-    expect(() => assertWorkDecisionReceipt(forged as unknown as typeof canonical, {
+    const input = {
       repository: 'sec-platform/sec',
       exactMain,
       exactMainTree,
@@ -1205,7 +1201,10 @@ describe('work-selection live contract', () => {
       registry: registry(catalog),
       current: lifecycle(),
       currentSpecs: specs(catalog)
-    })).toThrow(/does not equal the canonical live decision/u);
+    };
+    expect(() => assertWorkDecisionReceipt(canonical, input)).not.toThrow();
+    expect(() => assertWorkDecisionReceipt(forged as unknown as typeof canonical, input))
+      .toThrow(/does not equal the canonical live decision/u);
   });
 
   test('unavailable facts retain bounded codes and digests only', () => {

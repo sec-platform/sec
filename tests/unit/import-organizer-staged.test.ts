@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -184,7 +184,7 @@ test.skipIf(process.platform !== 'linux')('candidate snapshot retained capabilit
     expect(movedRoot).not.toBeNull();
     expect(relativePath).not.toBeNull();
     expect(await readFile(path.join(snapshotRoot!, 'foreign-sentinel'), 'utf8')).toBe('foreign');
-    await expect(access(path.join(snapshotRoot!, 'fixture.ts'))).rejects.toThrow();
+    await expect(lstat(path.join(snapshotRoot!, 'fixture.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
 
     await rm(snapshotRoot!, { recursive: true, force: true });
     await rename(movedRoot!, snapshotRoot!);

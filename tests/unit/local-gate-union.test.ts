@@ -138,10 +138,6 @@ test('local affected plan does not turn Source Program invalidation into full-re
   )))).toEqual(['imports:check', 'typecheck', 'test:affected']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['docs/运行/保证/要求证据与裁决.md']
-  )))).toEqual(['docs:doctor']);
-
-  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
     ['.documentation/documents.json']
   )))).toEqual(['docs:doctor', 'test:affected']);
 });

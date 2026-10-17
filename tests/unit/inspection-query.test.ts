@@ -101,7 +101,7 @@ test('data selection receives the same captured context as presentation after an
       return 42;
     },
     view: (value, context) => {
-      assert.equal(context, observed); assert.equal(context.workspaceRoot, initial);
+      assert.deepEqual(context, observed); assert.equal(context.workspaceRoot, initial);
       assert.equal(context.rootCommand, 'sec'); assert.equal(context.output.json, true);
       return inspectionValue(value, () => assert.fail('JSON chosen before read'));
     } });

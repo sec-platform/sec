@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -429,10 +429,10 @@ describe('local GitHub Actions runner contract', () => {
       processAlive: () => 'alive'
     });
     expect(blocked).toBeNull();
-    expect(existsSync(oldCandidatePath)).toBe(true);
+    expect(lstatSync(oldCandidatePath).isDirectory()).toBe(true);
 
     retireLocalGitHubActionsRunnerOciCandidate(directory, oldBinding);
-    expect(existsSync(oldCandidatePath)).toBe(false);
+    expect(() => lstatSync(oldCandidatePath)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
     oldLease!.release();
     rmSync(root, { recursive: true, force: true });
   });
@@ -762,7 +762,7 @@ describe('local GitHub Actions runner contract', () => {
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT).toContain('exec ./run.sh');
   });
 
-  test('binds repository and every external effect to frozen endpoints and exact IDs', async () => {
+  test('binds repository identity to the supported GitHub remote URLs', async () => {
     expect(assertRepositoryIdentityMatchesOrigin(
       repository,
       'https://github.com/sec-platform/sec.git'

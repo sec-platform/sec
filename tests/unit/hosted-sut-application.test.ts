@@ -82,7 +82,11 @@ test('TrustedBootstrap application publishes the original fixed evidence and joi
   const observed = fixture();
   expect(await executeTrustedBootstrapSut(input, observed.ports)).toEqual({ status: 'passed', bootstrapDigest: digest, receiptDigest: digest });
   expect(observed.calls).toEqual(['capability-self-test', 'teardown', 'evidence-root', 'prepare', 'bootstrap-execute', 'teardown', 'close', 'retire']);
-  expect([...observed.members.keys()]).toEqual([...TRUSTED_BOOTSTRAP_SUT_EVIDENCE_MEMBERS.map(([name]) => name), 'SHA256SUMS', 'sut-receipt.json']);
+  expect([...observed.members.keys()].sort()).toEqual([
+    'tcb-lock-pre.json', 'imports.log', 'docs-doctor.log', 'typecheck.log',
+    'diff-check.log', 'focused-tests.log', 'repository-audit.json', 'affected-plan.json',
+    'affected-tests.log', 'tcb-lock-post.json', 'SHA256SUMS', 'sut-receipt.json'
+  ].sort());
 });
 
 test('TrustedBootstrap waits for asynchronous physical preparation before execution or retirement', async () => {

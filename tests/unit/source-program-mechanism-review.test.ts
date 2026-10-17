@@ -2,7 +2,6 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {
-  MECHANISM_REVIEW_RULES,
   compileSourceProgramMechanismReview as review,
   type MechanismReviewModel
 } from '../../src/adapters/repository/repository-audit/mechanism-review.ts';
@@ -48,7 +47,13 @@ test('empty facts do not imply a clean whole repository', () => {
   assert.equal(result.findings.length, 0);
   assert.ok(result.coverage.unassessedMechanisms.includes('parameter-value-flow-and-precedence'));
   assert.ok(result.coverage.unassessedMechanisms.includes('physical-races-and-crash-recovery'));
-  assert.deepEqual(Object.keys(result.counts).sort(), Object.keys(MECHANISM_REVIEW_RULES).sort());
+  assert.deepEqual(result.counts, {
+    'module-initialization-effect': 0,
+    'distributed-direct-transport': 0,
+    'mixed-effect-declaration': 0,
+    'direct-recursive-call': 0,
+    'dependency-requirement-divergence': 0
+  });
 });
 
 test('module-initialization effects retain exact locations without claiming a defect', () => {
@@ -164,6 +169,8 @@ test('diagnostic output is detached and deeply frozen without freezing its input
   assert.ok(Object.isFrozen(result.findings[0]!.sites[0]));
   assert.ok(Object.isFrozen(result.counts));
   assert.equal(Reflect.set(result.findings[0]!.sites[0]!, 'start', 99), false);
+  input.references[0]!.span.start = 99;
+  assert.equal(result.findings[0]!.sites[0]!.start, 20);
 });
 
 test('file bytes, model identity and source revision bind the diagnostic digest', () => {

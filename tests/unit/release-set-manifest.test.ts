@@ -87,9 +87,8 @@ test('release package decoders reject duplicate and undeclared JSON fields', () 
     '"packageVersion":"1.0.0","packageVersion":"1.0.0"'
   );
   expect(() => parseRuntimePackageManifestBytes(Buffer.from(duplicate))).toThrow('duplicate');
-  const unknown = JSON.parse(encode(runtime).toString('utf8'));
-  unknown.extra = true;
-  expect(() => parseRuntimePackageManifestBytes(Buffer.from(JSON.stringify(unknown)))).toThrow();
+  const unknown = { ...runtime, extra: true };
+  expect(() => parseRuntimePackageManifestBytes(encode(unknown))).toThrow();
 
   const documentation = documentationMaterial();
   expect(parseDocumentationPackageManifestBytes(encode(documentation))).toMatchObject({

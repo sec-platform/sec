@@ -55,18 +55,18 @@ test('replacing an old parent file with a child and disjoint additions remain ad
   assert.deepEqual(result.removals, ['a']);
 });
 
-test('invalid trailing metadata is rejected before any blob snapshot allocation', () => {
-  const original = Buffer.from;
-  let copies = 0;
-  Buffer.from = ((...args: Parameters<typeof Buffer.from>) => {
-    if (ArrayBuffer.isView(args[0])) copies++;
-    return Reflect.apply(original, Buffer, args);
-  }) as typeof Buffer.from;
-  try {
-    assert.throws(() => captureGitScratchIndexDelta({ additions: [addition('ok')], removals: ['../bad'] }, 'sha1', 4096));
-    assert.throws(() => captureGitScratchIndexDelta({ additions: [addition('a'), addition('a/b')], removals: [] }, 'sha1', 4096));
-    assert.equal(copies, 0);
-  } finally { Buffer.from = original; }
+test('invalid trailing metadata is rejected before reading blob bytes', () => {
+  let reads = 0;
+  const unreadBlob = (path: string) => ({
+    path,
+    get bytes(): Uint8Array {
+      reads++;
+      throw new Error('blob bytes read before metadata admission');
+    }
+  });
+  assert.throws(() => captureGitScratchIndexDelta({ additions: [unreadBlob('ok')], removals: ['../bad'] }, 'sha1', 4096), TypeError);
+  assert.throws(() => captureGitScratchIndexDelta({ additions: [unreadBlob('a'), unreadBlob('a/b')], removals: [] }, 'sha1', 4096), TypeError);
+  assert.equal(reads, 0);
 });
 
 test('exact byte thresholds account for each hash format, path and deletion terminator', () => {

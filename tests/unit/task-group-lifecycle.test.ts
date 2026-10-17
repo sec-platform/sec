@@ -38,7 +38,7 @@ test('parent cancellation prevents new acceptance and is not reported as success
     { concurrency: 1, signal: c.signal }), e => e === reason);
 });
 
-test('two groups cannot clear or cancel one another', async () => {
+test('concurrent groups preserve their separate results', async () => {
   const values = await Promise.all([runTaskGroup([async () => 1]), runTaskGroup([async () => 2])]);
   assert.deepEqual(values, [[1], [2]]);
 });

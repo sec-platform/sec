@@ -22,7 +22,7 @@ test('explicit materialization input rejects values forged past TypeScript', () 
 test('valid explicit materialization does not observe irrelevant environment inputs', () => {
   let reads = 0;
   const environment = { get NODE_ENV(): string { reads++; throw new Error('must not read'); } };
-  for (const mode of OPAQUE_MODULE_MATERIALIZATION_MODES) {
+  for (const mode of ['workspace-link', 'build-copy'] as const) {
     assert.equal(resolveOpaqueModuleMaterializationMode(mode, environment), mode);
   }
   assert.equal(reads, 0);
@@ -52,5 +52,5 @@ test('materialization environment is an immutable observation rather than a live
 test('materialization vocabulary cannot be mutated after consumers captured it', () => {
   assert.equal(Object.isFrozen(OPAQUE_MODULE_MATERIALIZATION_MODES), true);
   assert.equal(Reflect.set(OPAQUE_MODULE_MATERIALIZATION_MODES, '0', 'forged'), false);
-  assert.equal(OPAQUE_MODULE_MATERIALIZATION_MODES[0], 'workspace-link');
+  assert.deepEqual([...OPAQUE_MODULE_MATERIALIZATION_MODES].sort(), ['build-copy', 'workspace-link']);
 });

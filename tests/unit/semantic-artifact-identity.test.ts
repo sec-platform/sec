@@ -45,7 +45,7 @@ function artifact(source = 'export const value = 1;'): SemanticArtifactSet {
 
 const identities = createContentIdentityRuntime().identity;
 
-test('semantic artifact identity is owner-issued and binds the complete rendered set', () => {
+test('semantic artifact identity is owner-issued and changes with rendered source', () => {
   const first = identifySemanticArtifactSet(artifact(), identities);
   const repeated = identifySemanticArtifactSet(artifact(), identities);
   const changed = identifySemanticArtifactSet(

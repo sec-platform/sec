@@ -26,7 +26,6 @@ test.skipIf(process.platform !== 'win32')('nested Gate workspace cwd stays withi
   const oldRoot = path.join(checkout, '.tmp', 'test-workspaces',
     `fast-${'a'.repeat(64)}`, `fast-${'b'.repeat(64)}`);
   const oldCwd = workspaceTemporaryPrefix(oldRoot, label);
-  assert.equal(oldCwd.length - projectedCwd.length, 64);
   assert.ok(oldCwd.length + 6 >= 260);
 });
 

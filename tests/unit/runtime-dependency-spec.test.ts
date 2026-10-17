@@ -75,12 +75,12 @@ test('generated runtime dependency owner contains only the terminal TypeScript l
     '@types/node': '25.6.0',
     typescript: '6.0.3'
   });
-  expect(RUNTIME_DEPENDENCY_PACKAGE_NAMES).toEqual([
-    'yaml',
+  expect([...RUNTIME_DEPENDENCY_PACKAGE_NAMES].sort()).toEqual([
     '@types/bun',
     '@types/node',
     '@typescript/native',
-    'typescript'
+    'typescript',
+    'yaml'
   ]);
   expect(spec.manifestHash).toMatch(/^[a-f0-9]{64}$/u);
 });
@@ -182,12 +182,13 @@ test('legacy materialization grammar is exact recovery input and never current r
 
   expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery(legacy)).toEqual(legacy);
   expect(isRuntimeDependencyMaterializationBinding(legacy)).toBe(false);
-  expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery({
-    ...legacy,
-    rootPackages: legacy.rootPackages.slice(1)
-  })).toBeNull();
-  expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery({
-    ...legacy,
-    unexpected: true
-  })).toBeNull();
+  for (const invalid of [
+    { ...content, rootPackages: content.rootPackages.slice(1) },
+    { ...content, unexpected: true }
+  ]) {
+    expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery({
+      ...invalid,
+      revision: `sha256:${digest(JSON.stringify(canonicalJson(invalid)))}`
+    })).toBeNull();
+  }
 });

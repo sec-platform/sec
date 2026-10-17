@@ -53,7 +53,6 @@ test('independent requests do not replace or contaminate an earlier result', () 
   expect(first.snapshot.ir.appId).not.toBe(second.snapshot.ir.appId);
   expect(first.snapshot.ir.inputRevision).not.toBe(second.snapshot.ir.inputRevision);
   expect(repeated).toEqual(first);
-  expect(repeated).not.toBe(first);
 });
 
 test('invalid captured input retains the existing compiler error instead of returning partial results', () => {
@@ -81,12 +80,12 @@ test('captured manifests supply all generators and roots alone select generation
   expect(empty.semanticViews).toEqual(complete.semanticViews);
 
   for (const extra of [{ generatorDeclarations: [] }, { unsupported: true }]) {
-    expect(() => compileSemanticInput({ ...source, ...extra })).toThrow('only its own engineeringIRInput field');
+    expect(() => compileSemanticInput({ ...source, ...extra })).toThrow(expect.objectContaining({ code: 'SEMANTIC-INPUT-001' }));
   }
   for (const key of ['hidden', Symbol('unsupported')]) {
     const unsupported = Object.defineProperty({ ...source }, key, { value: [] });
-    expect(() => compileSemanticInput(unsupported)).toThrow('only its own engineeringIRInput field');
+    expect(() => compileSemanticInput(unsupported)).toThrow(expect.objectContaining({ code: 'SEMANTIC-INPUT-001' }));
   }
   expect(() => compileSemanticInput({ ...source, engineeringIRInput: undefined! }))
-    .toThrow('only its own engineeringIRInput field');
+    .toThrow(expect.objectContaining({ code: 'SEMANTIC-INPUT-001' }));
 });

@@ -40,7 +40,7 @@ function fixture() {
     setIntent(value: WorkspaceCreateIntent) { intent = value; }, getBlueprint: () => blueprint };
 }
 
-test('application freezes complete blueprint before opening, then owns publication and settlement order', async () => {
+test('application prepares the blueprint before opening, then owns publication and settlement order', async () => {
   const value = fixture();
   await initializePreparedWorkspace(prepared(), value.operations);
   expect(value.events).toEqual(['recipe', 'controls', 'open', 'observe', 'prepare', 'observe:src', 'observe:sec.yaml', 'publish:sec.yaml', 'settling', 'retire', 'flush', 'complete', 'dispose']);

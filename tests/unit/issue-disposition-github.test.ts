@@ -95,7 +95,7 @@ test('PR closing reference pages require sequential bounded pagination and stabl
   observedBeforeCount: 1, expectedTotalCount: 2 })).toThrow('changed during pagination');
 });
 
-test('latest ClosedEvent exposes exact PR and merge causality, while reopen or actor-only close does not', () => {
+test('latest ClosedEvent exposes exact PR and merge causality, while a later reopen clears it', () => {
   const source = JSON.stringify({ data: { repository: { issue: { number: 346,
     timelineItems: { nodes: [{ __typename: 'ClosedEvent', id: 'CE_1',
       createdAt: '2026-08-11T12:04:29Z', actor: { login: 'maintainer' },

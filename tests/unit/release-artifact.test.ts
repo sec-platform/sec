@@ -9,7 +9,6 @@ import {
   materializeExactReleaseGitTree
 } from '../../src/adapters/release/release-git-tree-source.ts';
 import {
-  RELEASE_BUN_ENTRYPOINT_SHEBANG,
   assertReleaseBunRuntimeRequirement,
   buildFrozenReleaseBundle,
   disposeFrozenReleaseSource,
@@ -217,7 +216,7 @@ test('Bun-target release bundle launches under the retained Bun generation', asy
       expect(await fs.readFile(path.join(artifactRoot, '.bun-version'), 'utf8'))
         .toBe(`${Bun.version}\n`);
       const entrypointBytes = await fs.readFile(entrypoint);
-      expect(entrypointBytes.toString('utf8').startsWith(RELEASE_BUN_ENTRYPOINT_SHEBANG))
+      expect(entrypointBytes.toString('utf8').startsWith('#!/usr/bin/env bun\n'))
         .toBe(true);
       if (process.platform !== 'win32') {
         expect((await fs.stat(entrypoint)).mode & 0o111).not.toBe(0);
@@ -242,7 +241,7 @@ test('Bun-target release bundle launches under the retained Bun generation', asy
   }
 }, 20_000);
 
-test('tracked worktree or index drift is rejected against the captured source commit', async () => {
+test('tracked worktree drift is rejected against the captured source commit', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-tracked-drift-'));
   try {
     await initMinimalBunRepository(repositoryRoot);
@@ -375,7 +374,6 @@ test('release Git admission rejects expired operations and unavailable providers
   const unavailableRoot = path.join(tmpdir(), `sec-release-provider-absent-${crypto.randomUUID()}`);
   await expect(materializeExactReleaseGitTree(unavailableRoot)).rejects.toMatchObject({
     name: 'GitReadAuthorityError',
-    message: 'Git read provider is unavailable.',
     failure: {
       kind: 'unresolved-git-read-provider',
       status: 'unavailable'

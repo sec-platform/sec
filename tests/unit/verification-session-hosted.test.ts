@@ -370,7 +370,7 @@ test('observer-only resume histories stay unknown without first or retry dispatc
 });
 
 test('terminal resume evidence reaches the original finalizer after the independent intake and every member', async () => {
-  const fixture = resumeReceiverFixture({ terminal: true });
+  const fixture = resumeReceiverFixture({ terminal: true, sourceAssessment: 'unselected' });
   const result = await executeHostedSessionResumeReceiver(fixture.input, fixture.ports);
   expect(result).toEqual({ status: 'finalized', coordination: fixture.coordination, artifact: fixture.artifact });
   expect(fixture.order).toEqual(['capture', 'authenticated-reread', 'candidate', 'candidate', 'prepare',
@@ -385,14 +385,6 @@ test('selected SourceProgram qualification completes before terminal finalizatio
   expect(fixture.order.slice(-6)).toEqual(['compose', 'qualify-completion', 'assess-source',
     'qualified-source', 'finalize', 'write-terminal']);
   expect(fixture.forbiddenEffects).toEqual([]);
-});
-
-test('unselected SourceProgram does not execute assessment while retaining intake ordering', async () => {
-  const fixture = resumeReceiverFixture({ terminal: true, sourceAssessment: 'unselected' });
-  const result = await executeHostedSessionResumeReceiver(fixture.input, fixture.ports);
-  expect(result.status).toBe('finalized');
-  expect(fixture.order.slice(-4)).toEqual(['compose', 'qualify-completion', 'finalize', 'write-terminal']);
-  expect(fixture.order).not.toContain('assess-source');
 });
 
 test('SourceProgram adoption Needs stops terminal finalization and publication', async () => {

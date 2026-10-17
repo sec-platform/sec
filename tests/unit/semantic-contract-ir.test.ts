@@ -132,6 +132,8 @@ test('a second edit changes only the named event and does not merge independentl
   const before = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
   loaded.contract.events[0]!.payloadType = 'ChangedPayload';
   const after = buildEngineeringIR({ ...baseInput(), semanticContracts: [loaded] });
+  expect(before.entities.find((entity) => entity.id === 'event:item:OtherEvent')?.attributes)
+    .toContainEqual({ key: 'payloadType', value: 'Item' });
   expect(after.entities.find((entity) => entity.id === 'event:item:OtherEvent')).toEqual(before.entities.find((entity) => entity.id === 'event:item:OtherEvent'));
   expect(after.entities.find((entity) => entity.id === 'event:item:ItemClosed')).not.toEqual(before.entities.find((entity) => entity.id === 'event:item:ItemClosed'));
   expect(after.semanticRevision).not.toBe(before.semanticRevision);

@@ -250,7 +250,7 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
     const first = await planSemanticMutationSourceEdit(input);
     const second = await planSemanticMutationSourceEdit(input);
     expect(first.status).toBe('planned');
-    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    expect(second).toEqual(first);
     if (first.status !== 'planned') return;
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.plan)).toBe(true);
@@ -319,6 +319,8 @@ test('SM-2 adds consecutive transitions to one state as canonical YAML nodes wit
   expect(text).toContain('# authoring contract comment');
   expect(text).toContain('# keep transition comment');
   expect(text).toContain('# retain existing transition node comment');
+  expect(text).toContain('from: closed');
+  expect(text).toContain('to: pending');
   expect(text.indexOf('from: closed')).toBeLessThan(text.indexOf('from: open'));
   expect(text.match(/from:/gu)).toHaveLength(2);
   expect(text.endsWith('\n')).toBe(false);
@@ -379,7 +381,7 @@ test('owner resolution fails closed for none, read-only, ambiguous, forged, mism
   ).status).toBe('rejected');
 });
 
-test('adapter registry mismatch is rejected before path IO and stale current bytes fail before-byte CAS', async () => {
+test('adapter registry mismatch rejects planning and stale current bytes fail before-byte CAS', async () => {
   await withTempWorkspace(async (root) => {
     const before = sourceYaml();
     const transactionDirectory = await writePlanningWorkspace(root, before);
@@ -414,12 +416,15 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
     await mkdir(transaction, { recursive: true });
     await mkdir(path.join(root, 'source', 'model'), { recursive: true });
     await writeFile(path.join(root, 'source', 'model', 'Item.yaml'), sourceYaml());
+    const original = await readSemanticMutationSource(root, transaction, 'source/model/Item.yaml');
+    expect(original.bytes).toEqual(sourceYaml());
+    expect(original.pathEvidence.relativePath).toBe('source/model/Item.yaml');
 
     for (const relativePath of [
       'model/../outside.yaml',
       'model/item.yaml:stream',
       'model/CON.yaml',
-      'model/item.yaml'
+      'source/model/item.yaml'
     ]) {
       await expect(readSemanticMutationSource(root, transaction, relativePath)).rejects.toMatchObject({
         diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' }
@@ -433,7 +438,7 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
     await expect(readSemanticMutationSource(
       root,
       transaction,
-      'model/hardlink.yaml'
+      'source/model/hardlink.yaml'
     )).rejects.toMatchObject({ diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' } });
 
     const realDirectory = path.join(root, 'real-model');
@@ -443,7 +448,7 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
     await expect(readSemanticMutationSource(
       root,
       transaction,
-      'model/linked/item.yaml'
+      'source/model/linked/item.yaml'
     )).rejects.toMatchObject({ diagnostic: { code: 'SEMANTIC-MUTATION-005' } });
   });
 });

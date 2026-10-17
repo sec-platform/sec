@@ -120,6 +120,8 @@ test('trusted runtime live receipt compiles the same healthy semantic revision a
     checks: [check()],
     policy
   }));
+  expect(local.status).toBe('healthy');
+  expect(local.allowedLanes).toEqual(['ordinary']);
   expect(local.healthRevision).toBe(hosted.healthRevision);
   expect(local.ledgerDigest).not.toBe(hosted.ledgerDigest);
   expect(local.producer).toMatchObject({

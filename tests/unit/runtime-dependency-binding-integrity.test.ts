@@ -69,7 +69,12 @@ test('genuine spread copies retain identity, elapsed budget, telemetry and cance
   assert.equal(context(copy), context(original));
   assert.equal(remaining(copy, 'budget'), 70);
   measureRuntimeDependencyOperationPhase(copy, 'identity', () => { now = 35; });
-  assert.deepEqual(readRuntimeDependencyOperationTelemetry(copy), readRuntimeDependencyOperationTelemetry(original));
+  const copiedTelemetry = readRuntimeDependencyOperationTelemetry(copy);
+  assert.deepEqual(copiedTelemetry.phases, [{
+    phase: 'identity', count: 1, durationMs: 5, unmeasuredCount: 0,
+    outcomes: { completed: 1, aborted: 0, 'deadline-exhausted': 0, failed: 0 }
+  }]);
+  assert.deepEqual(copiedTelemetry, readRuntimeDependencyOperationTelemetry(original));
   const reason = Object.freeze({ cancel: 'parent' }); abort.abort(reason);
   assert.throws(() => remaining(copy, 'budget'), (error) => error === reason);
 });

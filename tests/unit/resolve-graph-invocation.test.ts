@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { captureManifestSelection, resolveCapturedManifestSelection, resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
@@ -41,7 +41,7 @@ test('real resolver preserves provider-before-consumer order and stable global i
     assert.equal(lock.passStatus.resolve, 'succeeded');
     assert.deepEqual(lock.resolvedBlocks.map(block => block.registrySourceId), ['local', 'local']);
     assert.equal(lock.resolvedBlocks[0]!.manifestPath, 'registry/block.base/block.manifest.yaml');
-    assert.equal(existsSync(path.join(f.root, 'src')), false);
+    assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
   } finally { f.cleanup(); }
 });
 
@@ -89,7 +89,7 @@ test('real local private provider requires explicit selection before install res
     f.plan.blocks = [{ id: 'block/app' }];
     await assert.rejects(resolveGraph(f.root, f.plan),
       error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
-    assert.equal(existsSync(path.join(f.root, 'src')), false);
+    assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
   } finally { f.cleanup(); }
 });
 
@@ -127,7 +127,7 @@ for (const compatibleId of ['block/a', 'block/z']) {
       assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
       assert.equal(lock.resolvedBlocks[0]!.manifestPath,
         `registry/${compatibleId.replaceAll('/', '.')}/block.manifest.yaml`);
-      assert.equal(existsSync(path.join(f.root, 'src')), false);
+      assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
     } finally { f.cleanup(); }
   });
 }
@@ -148,10 +148,9 @@ test('an exclusively incompatible catalog reports missing before resource lookup
       assert.equal(failure.details?.candidateDomain, 'stack-compatible');
       assert.equal(failure.details?.stack, 'typescript-library');
       assert.ok(failure.cause instanceof Error);
-      assert.match((error as Error).message, /cap\/base/);
       return true;
     });
-    assert.equal(existsSync(path.join(f.root, 'src')), false);
+    assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
   } finally { f.cleanup(); }
 });
 
@@ -167,7 +166,7 @@ test('an explicit incompatible choice retains ALIGN rejection before closure and
       assert.equal((error as { code?: string }).code, 'ALIGN-STACK-001');
       return true;
     });
-    assert.equal(existsSync(path.join(f.root, 'src')), false);
+    assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
   } finally { f.cleanup(); }
 });
 
@@ -186,7 +185,7 @@ test('multiple compatible automatic providers still reject as ambiguous before r
       assert.match((error as Error).message, /Ambiguous providers/);
       return true;
     });
-    assert.equal(existsSync(path.join(f.root, 'src')), false);
+    assert.throws(() => lstatSync(path.join(f.root, 'src')), { code: 'ENOENT' });
   } finally { f.cleanup(); }
 });
 

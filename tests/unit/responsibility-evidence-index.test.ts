@@ -13,7 +13,7 @@ const fact = (id = 'b', subject = 'owner', revision = 'current') => ({
   assertions: [{ authority: 'authoritative', validFromRevision: revision, provenance: [{ kind: 'contract' }] }]
 });
 
-test('unique input joins preserve the declaration object and row order', () => {
+test('unique input joins preserve the declaration object and containment owner', () => {
   const entry = declaration();
   const result = index([row()], [fact()], [entry], 'current');
   assert.deepEqual(result[0]!.containment, { status: 'unique', value: 'owner' });

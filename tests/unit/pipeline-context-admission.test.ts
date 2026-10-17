@@ -32,8 +32,11 @@ for (const source of [null, false, '', 'other', '__proto__']) test(`invalid sour
 });
 
 test('requested stages preserve valid ordering and detach the caller array', () => {
-  const values = ['resolve', 'compose'] as const; const captured = capturePipelineRequestedStages(values);
-  assert.deepEqual(captured, values); assert.notEqual(captured, values); assert.ok(Object.isFrozen(captured));
+  const values: Array<'resolve' | 'compose'> = ['resolve', 'compose'];
+  const captured = capturePipelineRequestedStages(values);
+  values.reverse();
+  assert.deepEqual(captured, ['resolve', 'compose']);
+  assert.ok(Object.isFrozen(captured));
   assert.deepEqual(capturePipelineRequestedStages([]), []);
 });
 

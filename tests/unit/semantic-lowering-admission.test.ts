@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -122,7 +122,7 @@ for (const failure of ['path', 'kind', 'state', 'duplicate-target', 'duplicate-i
     }
     let fences = 0;
     await assert.rejects(lowerSemanticTasks(root, input, async () => { fences++; }));
-    assert.equal(fences, 0); assert.equal(existsSync(path.join(root, first.target)), false);
+    assert.equal(fences, 0); assert.throws(() => lstatSync(path.join(root, first.target)), { code: 'ENOENT' });
   }));
 }
 
@@ -134,8 +134,8 @@ test('publication and returned bindings use one captured task/transaction genera
     Object.assign(input.generatorPlan, { tasks: [task('injected')] });
   });
   assert.deepEqual(result.generatedPaths, ['src/one.ts', 'src/two.ts']);
-  assert.equal(existsSync(path.join(root, 'src/wrong.ts')), false);
-  assert.equal(existsSync(path.join(root, 'src/injected.ts')), false);
+  assert.throws(() => lstatSync(path.join(root, 'src/wrong.ts')), { code: 'ENOENT' });
+  assert.throws(() => lstatSync(path.join(root, 'src/injected.ts')), { code: 'ENOENT' });
   assert.ok(readFileSync(path.join(root, 'src/two.ts'), 'utf8').includes('TicketStatus'));
   for (const emitted of result.tasks) {
     assert.equal(emitted.artifactBinding?.compilationTransactionId, 'tx:original');
@@ -165,7 +165,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('exact
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('an absent semantic target under an existing parent becomes a retained no-op on retry', async () => fixture(async root => {
   const value = task(), target = path.join(root, value.target);
-  assert.equal(existsSync(target), false); assert.equal(existsSync(path.dirname(target)), true);
+  assert.throws(() => lstatSync(target), { code: 'ENOENT' }); assert.ok(lstatSync(path.dirname(target)).isDirectory());
   let fences = 0;
   await lowerSemanticTasks(root, context([value]), async () => { fences++; });
   assert.equal(readFileSync(target, 'utf8'), renderStateTransitionMapSource(value));
@@ -342,7 +342,7 @@ test('an IR revision change at the commit fence is not silently admitted', async
   await assert.rejects(lowerSemanticTasks(root, input, async () => {
     Object.assign(input.snapshot.ir, { semanticRevision: 'next' });
   }), /revision changed/);
-  assert.equal(existsSync(path.join(root, 'src/one.ts')), false);
+  assert.throws(() => lstatSync(path.join(root, 'src/one.ts')), { code: 'ENOENT' });
 }));
 
 test('relative workspaces are fixed before an asynchronous write fence', async () => fixture(async root => {
@@ -350,7 +350,7 @@ test('relative workspaces are fixed before an asynchronous write fence', async (
   try {
     process.chdir(root);
     const result = await lowerSemanticTasks('.', context(), async () => { process.chdir(tmpdir()); });
-    assert.deepEqual(result.generatedPaths, ['src/one.ts']); assert.ok(existsSync(path.join(root, 'src/one.ts')));
+    assert.deepEqual(result.generatedPaths, ['src/one.ts']); assert.equal(readFileSync(path.join(root, 'src/one.ts'), 'utf8'), renderStateTransitionMapSource(task()));
   } finally { process.chdir(previous); }
 }));
 
@@ -363,7 +363,7 @@ test('same-revision IR object replacement cannot retarget the accepted lowering 
   await assert.rejects(lowerSemanticTasks(root, input, async () => {
     Object.assign(input.snapshot, { ir: { ...input.snapshot.ir } });
   }), /revision changed/);
-  assert.equal(existsSync(path.join(root, 'src/one.ts')), false);
+  assert.throws(() => lstatSync(path.join(root, 'src/one.ts')), { code: 'ENOENT' });
 }));
 
 for (const key of ['transactionId', 'inputRevision', 'semanticRevision']) {

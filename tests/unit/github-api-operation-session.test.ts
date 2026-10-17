@@ -465,7 +465,7 @@ test('aggregate request-byte budget terminates repeated merge payloads before tr
   expect(transportCalls).toBeLessThan(100);
 });
 
-test('aggregate response-byte budget cancels a bounded stream once its ceiling is crossed', async () => {
+test('aggregate response-byte budget rejects a bounded stream once its ceiling is crossed', async () => {
   const megabyte = 1024 * 1024;
   const api = capability({
     effect: 'read',
@@ -965,10 +965,10 @@ test('terminal delete 204 rejects unexpected response bytes', async () => {
 
 
 test('runner routing adds only requested labels to the exact ID under runner-admin', async () => {
-  const observed: Array<{ url: string; method: string | undefined; body: string | null }> = [];
+  const observed: Array<{ url: string; method: string | undefined; body: unknown }> = [];
   const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
     transport: async (url, init) => {
-      observed.push({ url: String(url), method: init?.method, body: init?.body === undefined ? null : String(init.body) });
+      observed.push({ url: String(url), method: init?.method, body: init?.body === undefined ? null : JSON.parse(String(init.body)) });
       return Response.json({ total_count: 5, labels: [] });
     }
   });
@@ -979,7 +979,7 @@ test('runner routing adds only requested labels to the exact ID under runner-adm
   } });
   expect(observed).toEqual([{
     url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42/labels',
-    method: 'POST', body: '{"labels":["sec-profile","sec-role-control"]}'
+    method: 'POST', body: { labels: ['sec-profile', 'sec-role-control'] }
   }]);
 });
 
