@@ -113,7 +113,7 @@ test('branch recovery bundle retains only the source closure missing from exact 
 
     mkdirSync(empty);
     git(empty, ['init', '--quiet', '--bare']);
-    expect(git(empty, ['bundle', 'verify', result.recovery.path], true).status).not.toBe(0);
+    expect(git(empty, ['bundle', 'verify', result.recovery.path], true).status).toBeGreaterThan(0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

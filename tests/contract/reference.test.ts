@@ -66,7 +66,7 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
     const formatted = formatReferenceCheck(report, 'sec reference check');
     expect(formatted).toContain('Reference workspace drifted');
     expect(formatted).toContain('Command: sec reference check');
-    expect(() => assertReferenceCheckClean(report)).toThrow('reference workspace drift detected');
+    expect(() => assertReferenceCheckClean(report)).toThrow(expect.objectContaining({ code: 'VERIFY-REFERENCE-DRIFT-001' }));
   });
 });
 
@@ -85,7 +85,7 @@ test('reference check never reports clean when refresh or Git observation fails'
       changedPaths: []
     }
   });
-  expect(() => assertReferenceCheckClean(refreshFailed)).toThrow('reference refresh failed');
+  expect(() => assertReferenceCheckClean(refreshFailed)).toThrow(expect.objectContaining({ code: 'VERIFY-REFERENCE-DRIFT-002' }));
 
   const nonRepositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-reference-nonrepo-'));
   try {
@@ -99,7 +99,7 @@ test('reference check never reports clean when refresh or Git observation fails'
       refreshExitCode: 0,
       drift
     });
-    expect(() => assertReferenceCheckClean(gitFailed)).toThrow('reference diff command failed');
+    expect(() => assertReferenceCheckClean(gitFailed)).toThrow(expect.objectContaining({ code: 'VERIFY-REFERENCE-DRIFT-003' }));
   } finally {
     await fs.rm(nonRepositoryRoot, { recursive: true, force: true });
   }
@@ -190,7 +190,8 @@ test('reference use case preserves drift and failed observation results', async 
     expect(report.untrackedScanExitCode).toBe(exitCode === 1 ? 0 : 128);
     expect(report.changedPathCount).toBe(1);
     expect(report.changedPaths).toEqual(paths);
-    expect(report.changedPaths).not.toBe(paths);
+    paths.push('caller-added-path');
+    expect(report.changedPaths).toEqual(['examples/reference-workspace/model/new.yaml']);
   }
 });
 

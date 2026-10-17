@@ -98,10 +98,12 @@ test('semantic contract validation rejects unknown target references', () => {
   const contract = minimalContract();
   contract.operations[0]!.reads = ['Missing.field'];
 
-  expect(() => normalizeSemanticContract(contract)).toThrow(CodedFailure);
+  let failure: unknown;
   try {
     normalizeSemanticContract(contract);
   } catch (error) {
-    expect((error as CodedFailure).code).toBe('CONTRACT-SEMANTIC-004');
+    failure = error;
   }
+  expect(failure).toBeInstanceOf(CodedFailure);
+  expect(failure).toMatchObject({ code: 'CONTRACT-SEMANTIC-004' });
 });

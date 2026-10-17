@@ -20,7 +20,7 @@ test('prior retirement recovers after delete before its durable retired receipt'
       crashAfterGenerationRetirementDelete: true
     })).toMatchObject({ status: 'conflict' });
     expect(await configTransitionNames(repoRoot)).toHaveLength(1);
-    await expect(lstat(previousGeneration)).rejects.toThrow();
+    await expect(lstat(previousGeneration)).rejects.toMatchObject({ code: 'ENOENT' });
 
     expect(['installed', 'managed']).toContain((await installGitHooks({ repoRoot })).status);
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);

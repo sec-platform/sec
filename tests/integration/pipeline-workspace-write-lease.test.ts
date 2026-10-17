@@ -145,7 +145,7 @@ test('a stage producer stops the current and subsequent writes when its exact le
   }, 'engineering-compiler-pipeline-producer-fence-');
 }, 120000);
 
-test('the pipeline lease monitor aborts a long-running isolated child when the staging token is lost', async () => {
+test('the pipeline lease monitor aborts pending work when the staging token is lost', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { secRoot } = getWorkspacePaths(workspaceRoot);
     const leaseRoot = path.join(secRoot, 'workspace-write-lease');

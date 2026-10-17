@@ -346,14 +346,13 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   if (typeof finalUploadPath !== 'string') {
     throw new Error('trusted bootstrap final artifact path must be one string.');
   }
-  expect(finalUploadPath.split('\n')).toEqual([
+  expect(finalUploadPath.split('\n').filter(Boolean)).toEqual([
     `${finalArtifactRoot}/final-envelope.json`,
     `${finalArtifactRoot}/SHA256SUMS`,
     `${finalArtifactRoot}/environment.txt`,
     `${finalArtifactRoot}/post-receipt.json`,
     `${finalArtifactRoot}/pre-receipt.json`,
-    `${finalArtifactRoot}/sut-diagnostic.json`,
-    ''
+    `${finalArtifactRoot}/sut-diagnostic.json`
   ]);
   expect(finalUpload.with?.name).toEndWith(
     '-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-' + artifactAttemptBinding

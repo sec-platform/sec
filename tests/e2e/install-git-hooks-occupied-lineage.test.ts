@@ -50,6 +50,6 @@ test('hook installer retires a rename-replaced entry only through exact managed 
     const reboundGeneration = configuredManagedHooksPath(repoRoot);
     expect(reboundGeneration).not.toBe(previousGeneration);
     await expectManagedHooksMirror(repoRoot, reboundGeneration);
-    await expect(lstat(previousGeneration)).rejects.toThrow();
+    await expect(lstat(previousGeneration)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

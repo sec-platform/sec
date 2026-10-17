@@ -40,7 +40,7 @@ test('same-digest generation with transform-shaped bytes is repaired as an exact
     const repairedGeneration = configuredManagedHooksPath(repoRoot);
     expect(repairedGeneration).not.toBe(previousGeneration);
     await expectManagedHooksMirror(repoRoot, repairedGeneration);
-    await expect(lstat(previousGeneration)).rejects.toThrow();
+    await expect(lstat(previousGeneration)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

@@ -149,7 +149,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
-  expect(rejected.status).not.toBe(0);
+  expect(rejected.status).toBe(2);
   expect(rejected.stderr).toContain('authority-free schema-only request');
 
   const blocked = await run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
@@ -159,7 +159,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
-  expect(blocked.status).not.toBe(0);
+  expect(blocked.status).toBe(2);
   const blockedProjection = JSON.parse(blocked.stderr);
   expect(blockedProjection).toMatchObject({
     status: 'blocked',
@@ -179,7 +179,7 @@ test('compile CLI rejects caller-provided Capsule authority before live observat
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
-  expect(result.status).not.toBe(0);
+  expect(result.status).toBe(2);
   expect(result.stderr).toContain('cannot provide taskCapsule authority');
 });
 
@@ -195,7 +195,7 @@ test('compile CLI rejects caller-provided read refs and policy before live obser
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
-  expect(result.status).not.toBe(0);
+  expect(result.status).toBe(2);
   expect(result.stderr).toContain('refs, receipts, and policy are trusted-derived');
 });
 
@@ -207,7 +207,7 @@ test('schema-only Read Plan production compile fails closed without a trusted is
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
-  expect(result.status).not.toBe(0);
+  expect(result.status).toBe(2);
   const blocked = JSON.parse(result.stderr);
   expect(blocked.status).toBe('blocked');
   expect(blocked.reasonCode).toMatch(/^activation-/u);
@@ -219,6 +219,6 @@ test('Skill CLI requires an explicit candidate root before live authority observ
   const selected = await run('src/adapters/self-hosting/control/agent/skill-applicability.ts', [
     '--read-plan', JSON.stringify(plan)
   ]);
-  expect(selected.status).not.toBe(0);
+  expect(selected.status).toBe(2);
   expect(selected.stderr).toContain('--candidate-root <path> is required');
 });

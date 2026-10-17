@@ -35,11 +35,13 @@ test.skipIf(process.platform !== 'win32')('provider-issued native checker writes
       })
     );
     expect(result).toMatchObject({ status: 'exited', code: 0 });
-    expect((await fs.stat(path.join(
+    expect((await fs.lstat(path.join(
       root,
       'action-private-auxiliary',
       'tsconfig.tsbuildinfo'
     ))).isFile()).toBe(true);
+    await expect(fs.lstat(path.join(projectRoot, 'tsconfig.tsbuildinfo')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -67,7 +69,7 @@ test.skipIf(process.platform !== 'win32')('expired or cancelled native checker o
           boundary.auxiliaryDirectory.childPath,
           boundary.buildInfoFileName
         );
-        expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
+        await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
         const controller = new AbortController();
         controller.abort();
         expect(await executeTypeScriptNativeChecker(checker, {
@@ -75,7 +77,7 @@ test.skipIf(process.platform !== 'win32')('expired or cancelled native checker o
           deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
           signal: controller.signal
         })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
-        expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
+        await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
       }
     );
   } finally {

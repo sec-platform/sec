@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import {
   consumeOperationRequirementBindingContext,
   issueOperationRequirementBindingContext,
-  OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
   type OperationRequirementBindingContext
 } from './requirement-binding-context.ts';
 import {
@@ -67,7 +66,7 @@ test('foundation context binds one exact attempt requirement provider and narrow
   });
   const projection = consumeOperationRequirementBindingContext(context);
 
-  expect(projection.issuerRole).toBe(OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
+  expect(projection.issuerRole).toBe('semantic-operation-foundation');
   expect(projection.operationIdentityDigest).toBe(bound.plan.identity.identityDigest);
   expect(projection.executionPlanDigest).toBe(bound.plan.execution.executionPlanDigest);
   expect(projection.boundAttemptDigest).toBe(bound.boundAttemptDigest);

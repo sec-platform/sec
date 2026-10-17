@@ -149,9 +149,11 @@ test('WT-A freeze/check/apply leave the WT-B index and worktree byte-identical',
 
   // 1. freeze (candidate identity seal) in WT-A: typed needs-import-transform,
   //    zero index writes in A, and no observable change in B.
+  const beforeACheck = await digestTree(worktreeA!);
   const frozen = await runCandidateImportCheck(worktreeA!, {}, {});
   expect(frozen.status).toBe('needs-import-transform');
   expect(frozen.files).toEqual(['fixture.ts']);
+  expect(await digestTree(worktreeA!)).toEqual(beforeACheck);
   expect(await digestTree(worktreeB!)).toEqual(beforeB);
 
   // 2. staged transform in WT-A publishes only A's index.

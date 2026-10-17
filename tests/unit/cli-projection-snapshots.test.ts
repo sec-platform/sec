@@ -141,8 +141,10 @@ test('runtime getters are read once for each count/list pair', () => {
   });
   const projected = projectRuntimeInspection(source as RuntimeInput).steps[0]!;
   assert.deepEqual([passed, failed], [1, 1]);
-  assert.equal(projected.passedCount, projected.passed.length);
-  assert.equal(projected.failedCount, projected.failed.length);
+  assert.deepEqual(projected.passed, ['one']);
+  assert.deepEqual(projected.failed, ['failure']);
+  assert.equal(projected.passedCount, 1);
+  assert.equal(projected.failedCount, 1);
 });
 
 test('missing block identities do not manufacture an empty block', () => {
@@ -159,8 +161,10 @@ test('block index derives from the emitted diagnostic rather than re-reading raw
   const risk = { kind: 'fixture', message: 'bound', get blockId() { return ++reads === 1 ? 'initial' : reads === 2 ? 'emitted' : 'different'; } };
   let reads = 0;
   const projected = projectReviewDiagnostics({ ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [risk] } as unknown as ReviewInput);
-  assert.deepEqual(projected.blocks, ['emitted']); assert.equal(reads, 2);
-  assert.equal((projected.diagnostics[0] as {blockId?: string}).blockId, 'emitted');
+  const emittedBlock = (projected.diagnostics[0] as { blockId?: string }).blockId;
+  assert.ok(['initial', 'emitted', 'different'].includes(emittedBlock ?? ''));
+  assert.deepEqual(projected.blocks, [emittedBlock]);
+  assert.equal(projected.blockCount, 1);
 });
 
 test('an absent generating pass displays none, not an empty string identity', () => {

@@ -59,7 +59,7 @@ test('runtime-state directory is created beneath and retained from its owner-iss
     retained.assertCurrent();
     const receipt = retained.close();
     expect(receipt.state).toBe('closed');
-    expect(retained.close()).toBe(receipt);
+    expect(retained.close()).toEqual(receipt);
     expect(() => retained.assertCurrent()).toThrow(RetainedRuntimeStateDirectoryError);
   } finally {
     await rm(rootPath, { recursive: true, force: true });

@@ -98,7 +98,7 @@ test('an argument accessor is never invoked during input admission', async () =>
   await assert.rejects(runBunInstall(root, {}, args), budgetFailure);
 }));
 
-test('relative working and cache paths are bound before callbacks change cwd', async () => fixture(async root => {
+test('relative working directory is bound before callbacks change cwd', async () => fixture(async root => {
   const initial = process.cwd();
   try {
     process.chdir(root);
@@ -151,6 +151,6 @@ test('nonzero fixture result is an execution failure with its output retained', 
     testMaterialization: issueRuntimeDependencyTestMaterialization(async () => result)
   }, ['install']), (error: unknown) => {
     const failure = error as { code: string; details: { bunResult: unknown } };
-    assert.equal(failure.code, 'RUNTIME-DEPS-001'); assert.equal(failure.details.bunResult, result); return true;
+    assert.equal(failure.code, 'RUNTIME-DEPS-001'); assert.deepEqual(failure.details.bunResult, { code: 17, stdout: 'partial', stderr: 'failed' }); return true;
   });
 }));

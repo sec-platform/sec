@@ -168,7 +168,7 @@ test('GitHub remote observation binds canonical URL and ignores every ambient Gi
   )).toThrow('bounded owner/name identity');
 });
 
-test('canonical Git branch grammar admits Unicode without weakening option-safe rejection', () => {
+test('canonical Git branch grammar admits a Unicode closeout branch', () => {
   expect(() => createBranchCloseoutPreparation({
     preparedAt: '2026-08-04T00:01:00.000Z',
     repository: {
@@ -1046,7 +1046,7 @@ test('branch/ref CAS rejects missing or caller-forged worktree cleanup authority
   expect(forged.blockers).toContain(`exact completed worktree cleanup receipt is required for ${targetPath}`);
 });
 
-test('foreign observations require a new preparation after original-host physical completion', () => {
+test('foreign observations block local closeout without original-host physical authority', () => {
   const observed = orphanRemoteInventory();
   const prepared = orphanPreparation(observed);
   const foreignDigest = `sha256:${'b'.repeat(64)}` as const;

@@ -46,7 +46,7 @@ test('canonical UTF-8 text tails retain only complete code points within the byt
   expect(() => boundedUtf8TextTail('anything', -1)).toThrow('non-negative safe integer');
 });
 
-test('canonical Bun execution binds the compiler root and exact replacement environment', async () => {
+test('canonical Bun execution binds the compiler root and supplied environment value', async () => {
   const stdoutWrites: Uint8Array[] = [];
   process.stdout.write = ((chunk: Uint8Array) => {
     stdoutWrites.push(Buffer.from(chunk));
@@ -95,7 +95,7 @@ test('canonical Bun execution retains an owner-admitted cwd and script input', a
   }
 });
 
-test('canonical Bun execution accounts immutable stdin in the owner process session', async () => {
+test('canonical Bun execution delivers stdin and rejects oversized input or an exhausted deadline', async () => {
   const input = Buffer.from('fresh-process-standard-input', 'utf8');
   const stdoutWrites: Uint8Array[] = [];
   process.stdout.write = ((chunk: Uint8Array) => {

@@ -35,7 +35,7 @@ test('init creates the minimal workspace on an empty root', async () => {
   expect(plan.blocks).toEqual([]);
   expect(plan.acceptance).toEqual([]);
   expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
-  await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});
+  expect((await fs.lstat(paths.srcRoot)).isDirectory()).toBe(true);
   // The initial pending report is intentionally not a complete Verification
   // artifact set. Remove that optional observation so this assertion reaches
   // the first real provenance publication without fabricating Verification.
@@ -60,7 +60,7 @@ test('reference Customer scaffold requires an explicit create template', async (
     'tenant/basic-workspace',
     'entity/customer-basic'
   ]);
-  await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});
+  expect((await fs.lstat(paths.srcRoot)).isDirectory()).toBe(true);
   expect(await fs.readFile(paths.packageJsonPath, 'utf8')).toContain('generated-customer-admin');
 });
 

@@ -906,7 +906,7 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
   }));
 });
 
-test('equivalent compiler snapshots produce byte-equivalent reconciliation projections', () => {
+test('equivalent compiler snapshots retain the same reconciliation identity', () => {
   const before = compileFixture({
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
   }, [serviceDescriptor('src/example/service.ts', 'run')]);

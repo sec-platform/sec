@@ -180,7 +180,7 @@ test('Docker command provider ignores ambient command and directory redirection'
   }
 });
 
-test('Docker command provider is nonforgeable, single-use, and rejects ambient PATH', async () => {
+test('Docker command provider is nonforgeable and single-use', async () => {
   const fixture = await retainedProviderFixture();
   try {
     expect(() => assertDockerCommandProviderCapability({ ...fixture.capability }))

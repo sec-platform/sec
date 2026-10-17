@@ -48,9 +48,13 @@ test('builder preserves comment/import/declaration order and deduplicates named 
     ts.SyntaxKind.VariableStatement
   ]);
   const declaration = sourceFile.statements[0];
-  assert.equal(declaration && ts.isImportDeclaration(declaration)
-    ? declaration.importClause?.namedBindings?.getText()
-    : null, '{ Ticket }');
+  assert.ok(declaration && ts.isImportDeclaration(declaration));
+  const bindings = declaration.importClause?.namedBindings;
+  assert.ok(bindings && ts.isNamedImports(bindings));
+  assert.deepEqual(bindings.elements.map(element => ({
+    name: element.name.text, importedName: element.propertyName?.text
+  })), [{ name: 'Ticket', importedName: undefined }]);
+  assert.equal(declaration.importClause?.isTypeOnly, true);
 });
 
 test('builder emits optional parameters, access modifiers, interfaces and export assignments', () => {
@@ -78,6 +82,10 @@ test('builder emits optional parameters, access modifiers, interfaces and export
   const classDeclaration = sourceFile.statements.find(ts.isClassDeclaration)!;
   const method = classDeclaration.members.find(ts.isMethodDeclaration)!;
   assert.notEqual(method.parameters[0]?.questionToken, undefined);
+  assert.ok(method.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.PublicKeyword));
+  const property = classDeclaration.members.find(ts.isPropertyDeclaration)!;
+  assert.ok(property.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.PrivateKeyword));
+  assert.ok(property.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ReadonlyKeyword));
 });
 
 test('builder rejects malformed fragments before exposing generated source', () => {

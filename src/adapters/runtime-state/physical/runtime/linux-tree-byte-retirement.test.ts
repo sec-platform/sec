@@ -24,7 +24,7 @@ function fixture() {
 }
 
 for (const interruptionPoint of ['file', 'directory'] as const) {
-test.skipIf(process.platform !== 'linux')(`Linux byte retirement resumes after actual ${interruptionPoint} unlink and settles permissions and exclusion`, () => {
+test.skipIf(process.platform !== 'linux')(`Linux byte retirement resumes after actual ${interruptionPoint} unlink and completes retirement`, () => {
   const item = fixture();
   const first = path.join(item.rootPath, interruptionPoint === 'file' ? 'nested/z.json' : 'nested');
   const originalNow = performance.now.bind(performance);
@@ -55,23 +55,23 @@ test.skipIf(process.platform !== 'linux')('Linux strict retirement preserves byt
   try {
     const file = path.join(item.rootPath, 'nested/a.json');
     writeFileSync(file, 'changed bytes\n');
-    expect(item.retire).toThrow('bytes or identity changed');
+    expect(item.retire).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     expect(existsSync(path.join(item.rootPath, 'nested/z.json'))).toBe(true);
     writeFileSync(file, item.expectedFileBytes.get('nested/a.json')!);
     const extra = path.join(item.rootPath, 'unowned.json');
     writeFileSync(extra, 'foreign\n');
-    expect(item.retire).toThrow('replacement or unowned entry');
+    expect(item.retire).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     rmSync(extra);
     renameSync(file, path.join(item.parentPath, 'displaced.json'));
     writeFileSync(file, item.expectedFileBytes.get('nested/a.json')!);
-    expect(item.retire).toThrow('replacement or unowned entry');
+    expect(item.retire).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     expect(readFileSync(file, 'utf8')).toBe('second original\n');
     expect(readFileSync(path.join(item.parentPath, 'displaced.json'), 'utf8')).toBe('second original\n');
     const displacedRoot = path.join(item.parentPath, 'displaced-root');
     renameSync(item.rootPath, displacedRoot);
     mkdirSync(item.rootPath);
     writeFileSync(path.join(item.rootPath, 'replacement.json'), 'new root\n');
-    expect(item.retire).toThrow('identity changed');
+    expect(item.retire).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     expect(readFileSync(path.join(displacedRoot, 'nested/a.json'), 'utf8')).toBe('second original\n');
     expect(readFileSync(path.join(item.rootPath, 'replacement.json'), 'utf8')).toBe('new root\n');
   } finally { rmSync(item.parentPath, { recursive: true, force: true }); }
@@ -84,7 +84,7 @@ test.skipIf(process.platform !== 'linux')('Linux byte retirement rejects an inde
   try {
     held = linuxTryExclusiveFileGuard(retained.directoryFd, 'Independent tree retirement contender');
     expect(held).toBe(true);
-    expect(item.retire).toThrow('another native coordinator');
+    expect(item.retire).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT' }));
     expect(existsSync(path.join(item.rootPath, 'nested/z.json'))).toBe(true);
     linuxReleaseExclusiveFileGuard(retained.directoryFd, 'Independent tree retirement contender');
     held = false;

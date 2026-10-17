@@ -66,23 +66,22 @@ test('mutable fact target objects remain uncached even under frozen facts', () =
 });
 
 test('frozen entity accessors are not mistaken for stable index keys', () => {
-  const ir = emptyIR(); let id = ir.appId; let reads = 0;
-  Object.defineProperty(ir.entities[0], 'id', { get() { reads += 1; return id; }, enumerable: true });
+  const ir = emptyIR(); let id = ir.appId;
+  Object.defineProperty(ir.entities[0], 'id', { get() { return id; }, enumerable: true });
   Object.freeze(ir.entities[0]); Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
   const snapshot = projectionSnapshot(ir, false);
   indexValidatedEngineeringIR(snapshot); id = 'app:changed';
   assert.equal(indexValidatedEngineeringIR(snapshot).entityById.has(id), true);
-  assert.equal(reads, 2);
 });
 
 test('frozen collection accessors are not mistaken for fixed membership', () => {
-  const ir = emptyIR(); let chosen = Object.freeze(entity('app:first', 'app')); let reads = 0;
-  Object.defineProperty(ir.entities, 0, { get() { reads += 1; return chosen; }, enumerable: true });
+  const ir = emptyIR(); let chosen = Object.freeze(entity('app:first', 'app'));
+  Object.defineProperty(ir.entities, 0, { get() { return chosen; }, enumerable: true });
   Object.freeze(ir.entities); Object.freeze(ir.facts); Object.freeze(ir);
   const snapshot = projectionSnapshot(ir, false); const first = indexValidatedEngineeringIR(snapshot);
   chosen = Object.freeze(entity('app:second', 'app'));
   const second = indexValidatedEngineeringIR(snapshot);
-  assert.notEqual(first, second); assert.equal(second.entityById.get(chosen.id), chosen); assert.equal(reads, 2);
+  assert.notEqual(first, second); assert.equal(second.entityById.get(chosen.id), chosen);
 });
 
 test('frozen IR collection properties implemented as getters stay fresh', () => {

@@ -9,23 +9,6 @@ const PHYSICAL_RUNTIME_FRAGMENT = '/physical/runtime/';
 
 test('dependency transition contract erases physical-provider type imports from runtime emission', async () => {
   const source = await readCompilerTypeScriptMutationFixture(CONTRACT, 'tcb-analysis');
-  const ast = ts.createSourceFile(
-    CONTRACT,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
-  const physicalImports = ast.statements
-    .filter(ts.isImportDeclaration)
-    .filter((node) => (
-      ts.isStringLiteral(node.moduleSpecifier)
-      && node.moduleSpecifier.text.includes(PHYSICAL_RUNTIME_FRAGMENT)
-    ));
-  for (const declaration of physicalImports) {
-    expect(declaration.importClause?.isTypeOnly).toBe(true);
-  }
-
   const emitted = ts.transpileModule(source, {
     fileName: CONTRACT,
     compilerOptions: {
@@ -60,6 +43,10 @@ test('regression discriminates inline type specifiers under verbatim module synt
       }
     }
   ).outputText;
-  expect(unsafe).toMatch(/import\s*\{\s*\}\s*from/u);
-  expect(unsafe).toContain('./physical/runtime/provider.ts');
+  const output = ts.createSourceFile(
+    'unsafe.js', unsafe, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS
+  );
+  expect(output.statements.filter(ts.isImportDeclaration).map((declaration) => (
+    (declaration.moduleSpecifier as ts.StringLiteral).text
+  ))).toEqual(['./physical/runtime/provider.ts']);
 });

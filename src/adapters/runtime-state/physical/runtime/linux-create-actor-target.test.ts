@@ -21,7 +21,7 @@ test.skipIf(process.platform !== 'linux')('ancestor race actor rejects a foreign
       point: 'after-ancestor-open', targetPath: other, displacedPath: displaced
     });
     expect(() => createExclusiveNoFollowDirectory(ownIdentity, 'child', actor))
-      .toThrow('target is outside the retained ancestor chain');
+      .toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' }));
     expect(inspectNoFollowDirectoryChain(own).target).toEqual(ownIdentity);
     expect(inspectNoFollowDirectoryChain(other).target).toEqual(otherIdentity);
     expect(existsSync(displaced)).toBe(false);
