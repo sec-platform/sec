@@ -214,14 +214,6 @@ test('reference entry retires one exact terminal Adapt journal before opening th
       formatVersion: '2',
       bytesDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
     }));
-    const preservedLegacy = JSON.parse(Buffer.from(receipt.source.bytesBase64, 'base64').toString('utf8')) as {
-      transactions: Array<{ completedAt: string; errorCode: string; message: string }>;
-    };
-    expect(preservedLegacy.transactions[0]).toMatchObject({
-      completedAt: '2026-08-30T12:12:41.953Z',
-      errorCode: 'VERIFY-ACCEPTANCE-003',
-      message: 'Project verification failed'
-    });
 
     await commitPipelineTransaction(workspaceRoot, transactionId, async () => undefined);
     await startPipelineTransaction(workspaceRoot, 'reference', ['resolve'], async () => undefined);

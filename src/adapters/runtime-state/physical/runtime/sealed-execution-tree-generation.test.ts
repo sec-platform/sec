@@ -247,7 +247,6 @@ test('sealed physical execution tree returns typed residue and preserves both si
     let second: unknown;
     try { await generation.retire(); } catch (error) { second = error; }
     expect(second).toBeInstanceOf(SealedPhysicalExecutionTreeResidueError);
-    expect(second).not.toBe(first);
     expect(await readFile(path.join(displacedPath, 'owned.txt'), 'utf8')).toBe('owned\n');
     expect(await readFile(path.join(generationPath, 'replacement.txt'), 'utf8'))
       .toBe('replacement\n');

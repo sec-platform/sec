@@ -255,8 +255,8 @@ for (const localOutputs of ['absent', 'corrupt'] as const) {
       await fs.unlink(path.join(target, DOCUMENTATION_SOURCE_MANIFEST));
       await expect(readDocumentationSource(target)).rejects.toThrow();
       if (localOutputs === 'absent') {
-        expect(await fs.access(path.join(root, DOCUMENTATION_SOURCE_MANIFEST)).then(() => true, () => false)).toBe(false);
-        expect(await fs.access(path.join(root, DOCUMENTATION_REQUIREMENTS)).then(() => true, () => false)).toBe(false);
+        await expect(fs.lstat(path.join(root, DOCUMENTATION_SOURCE_MANIFEST))).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(fs.lstat(path.join(root, DOCUMENTATION_REQUIREMENTS))).rejects.toMatchObject({ code: 'ENOENT' });
       } else {
         expect(await fs.readFile(path.join(root, DOCUMENTATION_SOURCE_MANIFEST))).toEqual(Buffer.from([0xff]));
         expect(await fs.readFile(path.join(root, DOCUMENTATION_REQUIREMENTS), 'utf8')).toBe('not JSON');

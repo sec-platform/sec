@@ -89,6 +89,6 @@ test('managed hooks execute the installed Bun identity without inheriting its PA
     });
     expect(committed.status).toBe(0);
     expect(await readFile(`${marker}.imports-apply`, 'utf8')).toBe(process.execPath);
-    await expect(readFile(`${marker}.deps-ensure`, 'utf8')).rejects.toThrow();
+    await expect(readFile(`${marker}.deps-ensure`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

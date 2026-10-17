@@ -6,7 +6,6 @@ import type {
 } from '../../src/adapters/toolchain/dependencies/environment.ts';
 import * as dependencyEnvironmentDomain from '../../src/adapters/toolchain/dependencies/environment.ts';
 import type { DependencyEnvironmentCommandDomain } from '../../src/bootstrap/cli/register-commands.ts';
-import { formatDependencyEnvironmentStatus } from '../../src/entry/cli/dependency-environment.ts';
 import {
   runCliInProcess as runCli,
   type CliResult,
@@ -86,7 +85,13 @@ test('dependency maintenance CLI routes through one explicit command domain with
 
     const text = await runCli(workspaceRoot, ['deps', 'status'], cli);
     expect(text).toMatchObject({ code: 0, stderr: '' });
-    expect(text.stdout.trimEnd()).toBe(formatDependencyEnvironmentStatus(status).trimEnd());
+    expect(text.stdout).toMatch(/^Mode:[ \t]+warm-compiler[ \t]*\r?$/mu);
+    expect(text.stdout).toMatch(/^Manifest hash:[ \t]+dependency-manifest[ \t]*\r?$/mu);
+    expect(text.stdout).toMatch(/^Recommended action:[ \t]+platform deps relink[ \t]*\r?$/mu);
+    for (const label of ['Root node_modules', 'Project node_modules', 'Bun cache']) {
+      const line = text.stdout.split(/\r?\n/u).find(entry => entry.startsWith(`${label}:`));
+      expect(line).toMatch(/\bphysical\b.*\b1 B\b.*\b1 top-level entries\b/u);
+    }
 
     const json = await runCli(workspaceRoot, ['deps', 'status', '--json'], cli);
     expect(json.code).toBe(0);

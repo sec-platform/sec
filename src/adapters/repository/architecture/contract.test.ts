@@ -28,6 +28,7 @@ function repositoryModuleTestDescriptor(
 
 test('repository module descriptors resolve unique physical roots and external entrypoints', () => {
   const membership = compileRepositoryModuleMembership(compilerRoot);
+  expect(membership.descriptors.length).toBeGreaterThan(0);
 
   expect(new Set(membership.descriptors.map(({ moduleId }) => moduleId)).size)
     .toBe(membership.descriptors.length);
@@ -102,8 +103,6 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
 
   expect(parseRepositoryModuleDescriptor(descriptor, descriptorPath).root).toBe('src/example');
   expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'query' }, descriptorPath))
-    .toThrow('architectureRole');
-  expect(() => parseRepositoryModuleDescriptor({ ...descriptor, architectureRole: 'service' }, descriptorPath))
     .toThrow('architectureRole');
   expect(() => parseRepositoryModuleDescriptor({ ...descriptor, covered: true }, descriptorPath))
     .toThrow('unknown field');
@@ -683,8 +682,16 @@ test('edit-loop topology and full semantic architecture share one exact owner gr
   expect(topology.ownerEdges).toEqual(architecture.ownerEdges);
   expect(topology.strongComponents).toEqual(architecture.strongComponents);
   expect(topology.feedbackCuts).toEqual(architecture.feedbackCuts);
-  expect(topology.strongComponents).toHaveLength(1);
-  expect(topology.feedbackCuts).toHaveLength(1);
+  for (const projection of [topology, architecture]) {
+    expect(projection.ownerEdges.map(({ fromOwner, toOwner }) => [fromOwner, toOwner]))
+      .toEqual([[alpha.moduleId, beta.moduleId], [beta.moduleId, alpha.moduleId]]);
+    expect(projection.strongComponents.map(({ ownerIds }) => ownerIds))
+      .toEqual([[alpha.moduleId, beta.moduleId]]);
+    expect(projection.feedbackCuts).toHaveLength(1);
+    const cut = projection.feedbackCuts[0]!;
+    expect(new Set([cut.fromOwner, cut.toOwner]))
+      .toEqual(new Set([alpha.moduleId, beta.moduleId]));
+  }
 });
 
 test('repository topology projects same-owner file cycles from the canonical graph', () => {

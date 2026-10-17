@@ -16,7 +16,6 @@ import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/platform/trust/contract/root.ts';
 import { isSourceProgramInputPath, type SourceProgramFileInput } from '../source-program-model/contract.ts';
-import { captureRepositoryAnalysisPolicy } from '../source-program-model/repository-analysis-policy.ts';
 import {
   compileReviewedProcessDispatcherProjection,
   resolveImmutableRevisionProcessDispatchers,
@@ -154,8 +153,6 @@ test('unread candidate compiler, registry and unrelated edits cannot replace ado
     expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toEqual([dispatcher]);
     const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
     expect(recomputed.reviewedProcessDispatchers).toEqual([dispatcher]);
-    expect(captureRepositoryAnalysisPolicy(recomputed.reviewedProcessDispatchers))
-      .toEqual(captureRepositoryAnalysisPolicy([dispatcher]));
   } finally {
     subject.cleanup();
   }

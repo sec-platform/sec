@@ -46,9 +46,8 @@ test('isolated child outcome rejects nested and oversized noncanonical documents
   const oversized = new TextEncoder().encode(JSON.stringify({
     formatVersion: SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_FORMAT,
     status: 'failed',
-    stage: 'preflight',
-    padding: 'x'.repeat(512)
-  }));
+    stage: 'preflight'
+  }) + ' '.repeat(512));
 
   expect(() => parseSemanticMutationIsolatedChildOutcomeBytes(nested))
     .toThrow('bytes are invalid');

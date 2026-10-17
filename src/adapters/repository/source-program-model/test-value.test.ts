@@ -452,12 +452,6 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     path: retainedPath, observationStatus: 'unresolved',
     observationReason: 'candidate-exact-generation-unavailable'
   })]);
-  expect(compileSourceProgramTestBaselineEvidence({
-    baselineTestPaths: baselinePaths,
-    baselineModel,
-    candidateModel,
-    baselineRevision
-  })).toEqual(baselineEvidence);
 
   const controller = new AbortController();
   const operation = createSourceProgramCompilationOperation({

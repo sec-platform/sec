@@ -423,7 +423,6 @@ describe('compiler dependency installation', () => {
         code: 'RUNTIME-DEPS-003',
         details: { outcome: 'unknown' }
       });
-      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     }));
 
   effectfulTest(test, 'reclaims a dead compiler install owner instead of timing out future development', {

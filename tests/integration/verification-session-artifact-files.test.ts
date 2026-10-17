@@ -125,7 +125,6 @@ test('VerificationSession artifact consumer does not report success after Physic
   expect(() => writeDurable(target, { owner: 'new' })).toThrow('final readback differs');
   expect(finalReadbackObserved).toBe(true);
   // The effect happened; failure is not misreported as pre-effect rejection.
-  expect(existsSync(target)).toBe(true);
   expect(readFileSync(target, 'utf8')).toBe('{\n  "owner": "new"\n}\n');
 });
 

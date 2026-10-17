@@ -68,7 +68,7 @@ test('sealed directory inventory is insensitive to input order, duplicates and l
   const root = path.resolve('virtual-snapshot');
   const mutable = ['src/b.ts', 'src/a.ts', 'src/a.ts'];
   const read = createTypeScriptSnapshotDirectoryReader(mutable, root);
-  const expected = createTypeScriptSnapshotDirectoryReader(['src/a.ts', 'src/b.ts'], root)(root, ['.ts'], [], ['src']);
+  const expected = ['src/a.ts', 'src/b.ts'].map(file => path.join(root, file).replaceAll('\\', '/'));
   mutable.push('src/foreign.ts');
   const first = read(root, ['.ts'], [], ['src']);
   assert.deepEqual(first, expected);

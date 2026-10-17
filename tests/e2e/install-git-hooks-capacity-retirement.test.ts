@@ -43,9 +43,9 @@ test('authorized damaged prior generation gets a bounded transient capacity slot
     const repairedGeneration = configuredManagedHooksPath(repoRoot);
     expect(repairedGeneration).not.toBe(currentGeneration);
     await expectManagedHooksMirror(repoRoot, repairedGeneration);
-    await expect(lstat(currentGeneration)).rejects.toThrow();
+    await expect(lstat(currentGeneration)).rejects.toMatchObject({ code: 'ENOENT' });
     for (const duplicate of duplicateGenerations) {
-      await expect(lstat(duplicate)).rejects.toThrow();
+      await expect(lstat(duplicate)).rejects.toMatchObject({ code: 'ENOENT' });
     }
   });
 });

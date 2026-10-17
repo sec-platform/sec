@@ -471,6 +471,7 @@ test.concurrent('freeze seals identity by pure compare and never publishes to th
     const firstFreeze = await runCandidateImportCheck(repoRoot, {}, {});
     expect(firstFreeze.status).toBe('needs-import-transform');
     expect(firstFreeze.files).toEqual(['fixture.ts']);
+    expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
     expect(await readFile(rawIndexPath)).toEqual(beforeRawIndex);
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
     expect(git(repoRoot, ['count-objects', '-v'])).toBe(beforeObjects);
@@ -482,24 +483,6 @@ test.concurrent('freeze seals identity by pure compare and never publishes to th
     expect(secondFreeze.status).toBe('canonical');
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(afterTransformIndex);
     expect(git(repoRoot, ['count-objects', '-v'])).toBe(afterTransformObjects);
-  });
-});
-
-test.concurrent('freeze returns typed needs-import-transform on a non-canonical staged state without index writes', async () => {
-  await withRepository(async (repoRoot) => {
-    const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
-    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
-    const staged = `${source('unsorted')}export const freezeChange = answer;\n`;
-    await writeFile(fixturePath, staged, 'utf8');
-    git(repoRoot, ['add', 'fixture.ts']);
-    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
-
-    const frozen = await runCandidateImportCheck(repoRoot, {}, {});
-    expect(frozen.status).toBe('needs-import-transform');
-    expect(frozen.files).toEqual(['fixture.ts']);
-    expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
-    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
   });
 });
 
