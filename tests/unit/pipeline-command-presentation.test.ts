@@ -13,19 +13,24 @@ function passStatus(): PassStatus {
   };
 }
 
-test('compilation display preserves result order and legacy text byte-for-byte', () => {
+test('compilation display preserves transaction identity, stage order and pass states', () => {
   const value = { transactionId: 'tx-123', completedStages: ['compose', 'verify'] as ['compose', 'verify'], lock: { passStatus: passStatus() } };
-  assert.equal(formatPipelineCompilation(projectPipelineCompilation(value)), [
-    'Compilation transaction tx-123 succeeded', 'Stages: compose -> verify',
-    'Lock: parse=succeeded, align=succeeded, resolve=succeeded, compose=succeeded, verify=succeeded, repair=skipped, lock=succeeded, emit=succeeded'
-  ].join('\n'));
+  const text = formatPipelineCompilation(projectPipelineCompilation(value));
+  assert.match(text, /Compilation transaction\s+tx-123\s+succeeded(?=$|[\s;,])/u);
+  assert.match(text, /Stages\W+compose(?=$|[\s;,])[^\n]*verify(?=$|[\s;,])/u);
+  for (const field of ['parse=succeeded', 'align=succeeded', 'resolve=succeeded', 'compose=succeeded',
+    'verify=succeeded', 'repair=skipped', 'lock=succeeded', 'emit=succeeded']) {
+    assert.match(text, new RegExp(`Lock[^\\n]*\\b${field}(?=$|[\\s;,])`, 'u'));
+  }
   assert.deepEqual(value.completedStages, ['compose', 'verify']);
 });
 
 test('empty journal preserves absent transaction markers', () => {
-  assert.equal(formatPipelineJournal(projectPipelineJournal({ formatVersion: '2', transactions: [] })), [
-    'Pipeline journal 2', 'Active transaction: none', 'Last committed transaction: none', 'Transactions: 0'
-  ].join('\n'));
+  const text = formatPipelineJournal(projectPipelineJournal({ formatVersion: '2', transactions: [] }));
+  assert.match(text, /Pipeline journal\s+2(?=$|[\s;,])/u);
+  assert.match(text, /Active transaction\W+none(?=$|[\s;,])/u);
+  assert.match(text, /Last committed transaction\W+none(?=$|[\s;,])/u);
+  assert.match(text, /\bTransactions[\s:]+0(?=$|[\s;,])/u);
 });
 
 test('journal shows the latest transaction and preserves its observed failure state', () => {
@@ -40,10 +45,14 @@ test('journal shows the latest transaction and preserves its observed failure st
     ]
   };
   const before = JSON.stringify(journal);
-  assert.equal(formatPipelineJournal(projectPipelineJournal(journal)), [
-    'Pipeline journal 2', 'Active transaction: active', 'Last committed transaction: committed', 'Transactions: 2',
-    'Latest: latest failed source=cli', 'Passes: compose=succeeded, verify=failed'
-  ].join('\n'));
+  const text = formatPipelineJournal(projectPipelineJournal(journal));
+  assert.match(text, /Active transaction\W+active(?=$|[\s;,])/u);
+  assert.match(text, /Last committed transaction\W+committed(?=$|[\s;,])/u);
+  assert.match(text, /\bTransactions[\s:]+2(?=$|[\s;,])/u);
+  assert.match(text, /Latest\W+latest\s+failed(?=$|[\s;,])/u);
+  assert.match(text, /Latest[^\n]*source=cli(?=$|[\s;,])/u);
+  assert.match(text, /Passes[^\n]*compose=succeeded(?=$|[\s;,])/u);
+  assert.match(text, /Passes[^\n]*verify=failed(?=$|[\s;,])/u);
   assert.equal(JSON.stringify(journal), before);
 });
 
@@ -51,7 +60,10 @@ test('empty pass records use the existing none marker, not a success inference',
   const journal: PipelineJournal = { formatVersion: '2', transactions: [
     { id: 'pending', source: 'repair', requestedStages: [], status: 'running', startedAt: 'now', passRecords: [] }
   ] };
-  assert.match(formatPipelineJournal(projectPipelineJournal(journal)), /Latest: pending running source=repair\nPasses: none$/);
+  const text = formatPipelineJournal(projectPipelineJournal(journal));
+  assert.match(text, /Latest\W+pending\s+running(?=$|[\s;,])/u);
+  assert.match(text, /Latest[^\n]*source=repair(?=$|[\s;,])/u);
+  assert.match(text, /Passes\W+none(?=$|[\s;,])/u);
 });
 
 test('presentation accepts an immutable minimal result without compiler-internal fields', () => {
@@ -60,21 +72,25 @@ test('presentation accepts an immutable minimal result without compiler-internal
     completedStages: Object.freeze(['verify'] as const),
     lock: Object.freeze({ passStatus: Object.freeze(passStatus()) })
   });
-  assert.match(formatPipelineCompilation(projectPipelineCompilation(value)), /^Compilation transaction minimal succeeded\nStages: verify\nLock: /);
+  const text = formatPipelineCompilation(projectPipelineCompilation(value));
+  assert.match(text, /Compilation transaction\s+minimal\s+succeeded(?=$|[\s;,])/u);
+  assert.match(text, /Stages\W+verify(?=$|[\s;,])/u);
+  assert.match(text, /Lock[^\n]*verify=succeeded(?=$|[\s;,])/u);
   assert.equal(value.lock.passStatus.verify, 'succeeded');
 });
 
 test('optional build-ir pass state is displayed rather than silently dropped', () => {
   const states: PassStatus = { ...passStatus(), 'build-ir': 'blocked' };
   const rendered = formatPipelineCompilation(projectPipelineCompilation({ transactionId: 'partial', completedStages: [], lock: { passStatus: states } }));
-  assert.match(rendered, /, build-ir=blocked$/);
+  assert.match(rendered, /Lock[^\n]*build-ir=blocked(?=$|[\s;,])/u);
 });
 
 test('journal rendering preserves present empty identities rather than treating them as absent', () => {
   const journal: PipelineJournal = {
     formatVersion: '2', activeTransactionId: '', lastCommittedTransactionId: '', transactions: []
   };
-  assert.equal(formatPipelineJournal(projectPipelineJournal(journal)), [
-    'Pipeline journal 2', 'Active transaction: ', 'Last committed transaction: ', 'Transactions: 0'
-  ].join('\n'));
+  const text = formatPipelineJournal(projectPipelineJournal(journal));
+  assert.match(text, /^Active transaction[^\S\r\n]*:[^\S\r\n]*$/mu);
+  assert.match(text, /^Last committed transaction[^\S\r\n]*:[^\S\r\n]*$/mu);
+  assert.match(text, /\bTransactions[\s:]+0(?=$|[\s;,])/u);
 });

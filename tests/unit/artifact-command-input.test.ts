@@ -3,7 +3,8 @@ import { Command } from 'commander';
 import assert from 'node:assert/strict';
 import { CI_ARTIFACT_KINDS, isCiArtifactKind } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';
 import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
-import { ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION, parseArtifactCommandInput } from '../../src/entry/cli/artifact-command-input.ts';
+import { parseArtifactCommandInput } from '../../src/entry/cli/artifact-command-input.ts';
+import { registerAdvancedWorkspaceCommands } from '../../src/entry/cli/register-advanced-workspace-commands.ts';
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
 
@@ -71,19 +72,22 @@ test('inherited selection flags retain the old own-enumerable input boundary', (
   assert.equal(parseArtifactCommandInput(undefined, input).kind, 'generate');
 });
 
-test('canonical kinds and actual CLI flag metadata cannot drift through mutation', () => {
+test('canonical kinds resist mutation and public artifact flags select the requested view', async () => {
   assert.ok(Object.isFrozen(CI_ARTIFACT_KINDS));
   assert.equal(Reflect.set(CI_ARTIFACT_KINDS, '0', 'other'), false);
-  const program = new Command(); registerWorkspaceCommands(program);
-  const command = program.commands.find((c) => c.name() === 'artifacts')!;
-  for (const definition of [ARTIFACT_KIND_OPTION, ARTIFACT_PATHS_OPTION]) {
-    const option = command.options.find((o) => o.flags === definition.flags)!;
-    assert.equal(option.description, definition.description);
-    assert.equal(option.attributeName(), definition.name);
-  }
+  const program = new Command().name('sec').exitOverride();
+  const selections: unknown[] = [];
+  registerAdvancedWorkspaceCommands(program, {
+    repair: async () => assert.fail('repair selected'),
+    upgrade: async () => assert.fail('upgrade selected'),
+    view: async () => assert.fail('workspace view selected'),
+    artifacts: async ({ input }) => { selections.push(input); }
+  });
+  await program.parseAsync(['artifacts', '--paths', '--kind', 'test', '--json', '--compact'], { from: 'user' });
+  assert.deepEqual(selections, [{ kind: 'paths', filter: 'test', output: { json: true, compact: true } }]);
 });
 
-test('real artifact action rejects selected invalid input before loading its execution module', async () => {
+test('real artifact action rejects selected invalid input with a usage error', async () => {
   for (const flags of [{ paths: 'false' }, { paths: true, kind: 'invalid' }]) {
     const root = new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} });
     registerWorkspaceCommands(root);

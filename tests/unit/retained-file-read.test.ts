@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { decodeExactUtf8, readOptionalRetainedJson, readOptionalRetainedJsonLeaf, readOptionalRetainedOrdinaryFile, retainOptionalDirectory } from '../../src/adapters/runtime-state/physical/runtime/retained-file-read.ts';
+import { readOptionalRetainedJson, readOptionalRetainedJsonLeaf, readOptionalRetainedOrdinaryFile, retainOptionalDirectory } from '../../src/adapters/runtime-state/physical/runtime/retained-file-read.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('retained ordinary-file read maps only physical absence to null', async () => {
@@ -67,18 +67,22 @@ test('shared retained parent binding still rejects directory substitution before
   });
 });
 
-test('exact UTF-8 decoder rejects invalid byte sequences', () => {
-  expect(() => decodeExactUtf8(new Uint8Array([0xff]), 'invalid fixture'))
-    .toThrow('not exact UTF-8');
-});
-
-test('retained JSON read distinguishes invalid JSON from absence', async () => {
+test('retained JSON read distinguishes invalid JSON and UTF-8 from absence', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const invalidPath = path.join(workspaceRoot, 'invalid.json');
     await fs.writeFile(invalidPath, '{not-json}\n', 'utf8');
 
     expect(() => readOptionalRetainedJson(invalidPath, 'invalid JSON fixture'))
       .toThrow('not valid JSON');
+
+    await fs.writeFile(invalidPath, Buffer.concat([
+      Buffer.from('{"value":"'),
+      Buffer.from([0xff]),
+      Buffer.from('"}')
+    ]));
+    expect(() => readOptionalRetainedJson(invalidPath, 'invalid UTF-8 fixture'))
+      .toThrow('not exact UTF-8');
+
     expect(readOptionalRetainedJson(
       path.join(workspaceRoot, 'absent.json'),
       'absent JSON fixture'

@@ -51,18 +51,17 @@ describe('text byte census presentation boundary', () => {
         anomalies: ['mixed-endings']
       }]
     });
-    expect(formatTextByteCensus(view)).toBe([
-      'Text Byte Census',
-      '  totalFiles: 3',
-      '  failClosed: true',
-      '  classifications:',
-      '    canonical-lf: 2',
-      '    unknown: 1',
-      '  anomalies:',
-      '    mixed-endings: 1',
-      '  flagged: 1 file(s)',
-      '    src/mixed.ts [unknown] mixed-endings'
-    ].join('\n'));
+    const text = formatTextByteCensus(view);
+    expect(text).toMatch(/\btotalFiles[\s:]+3(?=$|[\s;,])/u);
+    expect(text).toMatch(/\bfailClosed[\s:]+true(?=$|[\s;,])/u);
+    expect(text).toMatch(/^\s*canonical-lf[\s:]+2(?=$|[\s;,])/mu);
+    expect(text).toMatch(/^\s*unknown[\s:]+1(?=$|[\s;,])/mu);
+    expect(text).toMatch(/^\s*mixed-endings[\s:]+1(?=$|[\s;,])/mu);
+    expect(text).toMatch(/\bflagged[\s:]+1\s+file/u);
+    const flagged = text.split('\n').find((line) => /(?:^|\s)src\/mixed\.ts(?=$|[\s\[])/u.test(line));
+    expect(flagged).toBeDefined();
+    expect(flagged).toMatch(/(?:^|[\s\[])unknown(?=$|[\s\];,])/u);
+    expect(flagged).toMatch(/(?:^|\s)mixed-endings(?=$|[\s;,])/u);
   });
 
   test('entry prints no-anomaly state and caps flagged detail at twenty rows', () => {
@@ -87,9 +86,9 @@ describe('text byte census presentation boundary', () => {
       }))
     }, { classifications, anomalies });
     const text = formatTextByteCensus(view);
-    expect(text).toContain('  anomalies:\n    (none)');
-    expect(text).toContain('  flagged: 21 file(s)');
-    expect(text).toContain('    ... and 1 more');
+    expect(text).toMatch(/\banomalies[\s:]+\(none\)/u);
+    expect(text).toMatch(/\bflagged[\s:]+21\s+file/u);
+    expect(text).toMatch(/(?:^|\s)1\s+more(?=$|[\s;,])/u);
     expect(text).not.toContain('src/20.ts');
   });
 

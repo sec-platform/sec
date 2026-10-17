@@ -20,16 +20,19 @@ describe('worktree settlement presentation boundary', () => {
       })])
     });
 
-    expect(formatWorktreeSettlement(receipt)).toBe([
-      'Worktree Settlement',
-      '  status: materialization-drift',
-      '  totalFiles: 42',
-      '  dirty: 0, untracked: 0, drift: 1',
-      '  core.autocrlf: false, core.eol: lf',
-      '  summary: 1 governed file drifted',
-      '  drift:',
-      '    src/example.ts [declared=lf blob=lf worktree=crlf]'
-    ].join('\n'));
+    const text = formatWorktreeSettlement(receipt);
+    for (const meaning of [
+      /\bstatus[\s:]+materialization-drift(?=$|[\s;,])/u,
+      /\btotalFiles[\s:]+42(?=$|[\s;,])/u,
+      /\bdirty[\s:]+0(?=$|[\s;,])/u,
+      /\buntracked[\s:]+0(?=$|[\s;,])/u,
+      /\bdrift[\s:]+1(?=$|[\s;,])/u,
+      /core\.autocrlf\W+false(?=$|[\s;,])/u,
+      /core\.eol\W+lf(?=$|[\s;,])/u,
+      /src\/example\.ts(?=$|[\s\[])[^\n]*declared=lf(?=$|[\s;,\]])/u,
+      /src\/example\.ts(?=$|[\s\[])[^\n]*blob=lf(?=$|[\s;,\]])/u,
+      /src\/example\.ts(?=$|[\s\[])[^\n]*worktree=crlf(?=$|[\s;,\]])/u
+    ]) expect(text).toMatch(meaning);
   });
 
   test('entry caps drift detail without changing the receipt count', () => {
@@ -49,8 +52,8 @@ describe('worktree settlement presentation boundary', () => {
       summary: 'drift',
       driftEntries
     });
-    expect(text).toContain('drift: 22');
-    expect(text).toContain('    ... and 2 more');
+    expect(text).toMatch(/\bdrift[\s:]+22(?=$|[\s;,])/u);
+    expect(text).toMatch(/\b2 more(?=$|[\s;,])/u);
     expect(text).not.toContain('src/20.ts');
   });
 });

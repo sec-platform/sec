@@ -58,8 +58,15 @@ test('retained permissions reject a byte-identical replacement leaf with a diffe
   try {
     renameSync(f.target.path, path.join(f.root, 'displaced'));
     writeFileSync(f.target.path, f.bytes);
+    chmodSync(f.target.path, 0o600);
+    const mode = statSync(f.target.path).mode & 0o7777;
+    const attributes = await readSemanticMutationWindowsFileAttributes(f.target.path);
+    if (process.platform === 'linux') expect(mode).not.toBe(f.input.expectedSourceMode);
+    else expect(attributes).not.toEqual(f.attributes);
     await expect(copyRetainedNoFollowFilePermissions(f.input)).rejects.toBeDefined();
     expect(readFileSync(f.target.path)).toEqual(f.bytes);
+    if (process.platform === 'linux') expect(statSync(f.target.path).mode & 0o7777).toBe(mode);
+    else expect(await readSemanticMutationWindowsFileAttributes(f.target.path)).toEqual(attributes);
   } finally { f.close(); }
 });
 
@@ -101,8 +108,12 @@ test.skipIf(process.platform !== 'linux')('retained permissions reject a substit
     renameSync(f.root, displaced);
     mkdirSync(f.root);
     writeFileSync(f.target.path, 'foreign parent\n');
+    chmodSync(f.target.path, 0o600);
+    const mode = statSync(f.target.path).mode & 0o7777;
+    expect(mode).not.toBe(f.input.expectedSourceMode);
     await expect(copyRetainedNoFollowFilePermissions(f.input)).rejects.toBeDefined();
     expect(readFileSync(f.target.path, 'utf8')).toBe('foreign parent\n');
+    expect(statSync(f.target.path).mode & 0o7777).toBe(mode);
   } finally {
     f.source.dispose();
     rmSync(f.root, { recursive: true, force: true });

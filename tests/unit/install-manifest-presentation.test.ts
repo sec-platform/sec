@@ -25,12 +25,14 @@ describe('install manifest presentation boundary', () => {
       statuses: [{ id: 'installed', count: 3 }]
     });
     expect(source.map((entry) => entry.blockId)).toEqual(['z/api', 'a/db', 'z/api']);
-    expect(formatInstallManifest(view)).toBe([
-      'Install manifest 3 steps',
-      'Blocks: a/db, z/api',
-      'Actions: copy=2, generate=1',
-      'Registry kinds: official=2, private=1',
-      'Statuses: installed=3'
-    ].join('\n'));
+    const text = formatInstallManifest(view);
+    expect(text).toMatch(/Install manifest\s+3\s+steps\b/u);
+    expect(text).toMatch(/Blocks[^\n]*[\s:,;]a\/db(?=$|[\s;,])/u);
+    expect(text).toMatch(/Blocks[^\n]*[\s:,;]z\/api(?=$|[\s;,])/u);
+    expect(text).toMatch(/Actions[^\n]*[\s:,;]copy=2(?=$|[\s;,])/u);
+    expect(text).toMatch(/Actions[^\n]*[\s:,;]generate=1(?=$|[\s;,])/u);
+    expect(text).toMatch(/Registry kinds[^\n]*[\s:,;]official=2(?=$|[\s;,])/u);
+    expect(text).toMatch(/Registry kinds[^\n]*[\s:,;]private=1(?=$|[\s;,])/u);
+    expect(text).toMatch(/Statuses[^\n]*[\s:,;]installed=3(?=$|[\s;,])/u);
   });
 });

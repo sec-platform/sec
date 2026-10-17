@@ -131,8 +131,11 @@ test('reuse preserves known failure and never promotes non-pass to PASS', () => 
     new Date('2026-08-09T02:00:00.000Z')
   )).not.toThrow();
   const invalidated = evidence([gateEvidence(0, 'invalidated'), gateEvidence(1)]);
-  const promoted = { ...invalidated, status: 'passed' as const };
-  expect(() => CodexDevelopmentAssertVerificationEvidenceV4(promoted, { actionPlan: plan })).toThrow();
+  const { schema: _schema, evidenceDigest: _digest, ...draft } = invalidated;
+  // Recompute the digest so stale hashing cannot mask a missing status check.
+  expect(() => CodexDevelopmentFinalizeVerificationEvidenceV4({
+    ...draft, status: 'passed'
+  })).toThrow('aggregate status is inconsistent with five-state gates/cleanup');
 });
 
 test('verification evidence preserves configured ordinary output paths and invalidates the old artifact before execution', () => {

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 
 import { ExactJsonError, parseExactJson, parseExactJsonBytes } from './exact-json.ts';
 import { CodedFailure } from './failure.ts';
@@ -6,17 +7,16 @@ import { CodedFailure } from './failure.ts';
 test('exact JSON retains duplicate-key information and one typed failure identity', () => {
   const parse = () => parseExactJson('{"value":1,"\\u0076alue":2}', 'Exact fixture');
 
-  expect(parse).toThrow(ExactJsonError);
-  try {
-    parse();
-  } catch (error) {
+  assert.throws(parse, (error: unknown) => {
+    expect(error).toBeInstanceOf(ExactJsonError);
     expect(error).toBeInstanceOf(CodedFailure);
     expect(error).toMatchObject({
       code: 'EXACT-JSON-001',
       kind: 'duplicate-key',
       details: { kind: 'duplicate-key' }
     });
-  }
+    return true;
+  });
 });
 
 test('exact JSON rejects trailing syntax and trailing documents', () => {

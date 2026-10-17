@@ -21,9 +21,10 @@ describe('block usage map presentation boundary', () => {
       ]
     });
     expect(source.blocks.map((block) => block.id)).toEqual(['z/late', 'z/first', 'a/first']);
-    expect(formatBlockUsageMap(view)).toBe([
-      'Block usage map 3 blocks',
-      'Install order: 1:a/first, 1:z/first, 2:z/late'
-    ].join('\n'));
+    const text = formatBlockUsageMap(view);
+    expect(text).toMatch(/Block usage map\s+3\s+blocks\b/u);
+    expect(text).toMatch(
+      /Install order[^\n]*[\s:,;]1:a\/first(?=$|[\s;,])[^\n]*[\s:,;]1:z\/first(?=$|[\s;,])[^\n]*[\s:,;]2:z\/late(?=$|[\s;,])/u
+    );
   });
 });

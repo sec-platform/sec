@@ -67,8 +67,20 @@ test('terminal session retires continuation without inventing a remote read', ()
   });
 });
 
-test('same normalized invalidation input has a stable content digest', () => {
-  expect(decide().decisionDigest).toBe(decide().decisionDigest);
+test('invalidation digest is stable and binds its checkpoint and owner decision', () => {
+  const original = decide();
+  expect(original.decisionDigest).toBe(decide().decisionDigest);
   expect(decide({ externalBoundary: 'review' }).decisionDigest)
     .not.toBe(decide({ externalBoundary: 'main-health' }).decisionDigest);
+
+  const nextCheckpoint = `sha256:${'b'.repeat(64)}` as const;
+  const rebound = decide({ checkpointDigest: nextCheckpoint });
+  expect(original.checkpointDigest).toBe(CHECKPOINT);
+  expect(rebound.checkpointDigest).toBe(nextCheckpoint);
+  expect(rebound).toMatchObject({
+    disposition: 'reuse-zero-remote',
+    remoteOwners: [],
+    checkpointLifecycle: 'active'
+  });
+  expect(rebound.decisionDigest).not.toBe(original.decisionDigest);
 });

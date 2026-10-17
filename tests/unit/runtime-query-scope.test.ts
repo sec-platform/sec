@@ -44,22 +44,22 @@ test('close stops admission but drains accepted execution to its actual settleme
   const scope = createRuntimeQueryScope(1);
   let resolveWork!: (value: number) => void;
   const work = new Promise<number>(resolve => { resolveWork = resolve; });
-  let executed = false;
-  const result = scope.run(() => 1, () => { executed = true; return work; });
-  const closed = scope.close();
-  assert.equal(scope.close(), closed);
-  let drained = false;
-  void closed.then(() => { drained = true; });
+  let executions = 0;
+  const result = scope.run(() => 1, () => { executions++; return work; });
+  const drained = [false, false];
+  const closures = [scope.close(), scope.close()].map((closed, index) =>
+    closed.then(() => { drained[index] = true; }));
   let extraCaptured = false;
   await assert.rejects(scope.run(() => { extraCaptured = true; return 2; }, value => value),
     { code: 'RUNTIME-CLOSED-001' });
   assert.equal(extraCaptured, false);
-  assert.equal(executed, true);
-  assert.equal(drained, false);
+  assert.equal(executions, 1);
+  assert.deepEqual(drained, [false, false]);
   resolveWork(7);
   assert.equal(await result, 7);
-  await closed;
-  assert.equal(drained, true);
+  await Promise.all(closures);
+  assert.deepEqual(drained, [true, true]);
+  assert.equal(executions, 1);
 });
 
 test('a reentrant close during capture prevents execution and still settles its admission', async () => {

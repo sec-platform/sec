@@ -123,11 +123,14 @@ for (const missing of ['close', 'drain'] as const) {
       f.child.emit('error', new Error('spawn failed'));
       if (missing === 'drain') f.close(false);
     }, 0);
-    const outcome = await f.execute();
-    expect(outcome).toMatchObject({ status: 'termination-unproven', started: false, termination: { treeClosed: false } });
-    expect(f.terminations()).toBe(0);
-    expect(f.ledger.close().failedAdmissionCount).toBe(1);
-    f.child.stdout?.destroy(); f.child.stderr?.destroy();
+    try {
+      const outcome = await f.execute();
+      expect(outcome).toMatchObject({ status: 'termination-unproven', started: false, termination: { treeClosed: false } });
+      expect(f.terminations()).toBe(0);
+      expect(f.ledger.close().failedAdmissionCount).toBe(1);
+    } finally {
+      f.child.stdout?.destroy(); f.child.stderr?.destroy();
+    }
   });
 }
 

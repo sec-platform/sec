@@ -30,12 +30,12 @@ test('independent copies preserve file bytes and empty directories without mutab
   await write(source, 'src/main.ts', 'original'); await fs.mkdir(path.join(source, 'empty'));
   const sibling = path.join(root, 'sibling');
   await copyWorkspaceFixture(source, target); await copyWorkspaceFixture(source, sibling);
-  await fs.writeFile(path.join(target, 'src/main.ts'), 'target-only');
+  assert.equal(await fs.readFile(path.join(target, 'src/main.ts'), 'utf8'), 'original');
+  // Mutate the existing file, so a hard-linked copy would also change its peers.
+  await fs.writeFile(path.join(target, 'src/main.ts'), 'target-only', { flag: 'r+' });
+  assert.equal(await fs.readFile(path.join(target, 'src/main.ts'), 'utf8'), 'target-only');
   assert.equal(await fs.readFile(path.join(source, 'src/main.ts'), 'utf8'), 'original');
   assert.equal(await fs.readFile(path.join(sibling, 'src/main.ts'), 'utf8'), 'original');
-  const a = await fs.stat(path.join(source, 'src/main.ts'), { bigint: true });
-  const b = await fs.stat(path.join(target, 'src/main.ts'), { bigint: true });
-  assert.ok(a.dev !== b.dev || a.ino !== b.ino); assert.equal(b.nlink, 1n);
   assert.deepEqual(await fs.readdir(path.join(target, 'empty')), []);
 }));
 

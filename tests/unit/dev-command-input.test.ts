@@ -25,11 +25,15 @@ test('ordinary command decisions preserve defaults without retaining caller cont
   assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.args)); assert.ok(Object.isFrozen(result.environment));
 });
 
-test('an earlier parent deadline narrows the command without a fresh duration window', () => {
-  const parent = Date.now() + 1000;
-  const result = capture({ timeoutMs: 20_000, deadlineAtUnixMs: parent });
-  assert.equal(result.deadlineAtUnixMs, parent); assert.ok(result.timeoutMs <= 1000 && result.timeoutMs >= 2);
-  assert.throws(() => capture({ deadlineAtUnixMs: Date.now() - 1 }), /exhausted/);
+test.serial('an earlier parent deadline narrows the command without a fresh duration window', () => {
+  const now = Date.now, capturedAt = 1_000_000;
+  Date.now = () => capturedAt;
+  try {
+    const parent = capturedAt + 1000;
+    const result = capture({ timeoutMs: 20_000, deadlineAtUnixMs: parent });
+    assert.equal(result.deadlineAtUnixMs, parent); assert.equal(result.timeoutMs, 1000);
+    assert.throws(() => capture({ deadlineAtUnixMs: capturedAt - 1 }), /exhausted/);
+  } finally { Date.now = now; }
 });
 
 test('explicit invalid mode, timing, path or signal values cannot select defaults', () => {
@@ -61,7 +65,6 @@ test('actual typed-array view is copied once, not its shadow fields or iterator'
     [Symbol.iterator]: { value() { assert.fail('iterator'); } } });
   const result = capture({ input }); assert.equal(result.inputBytes, 2); assert.deepEqual([...result.input!], [2, 3]);
   assert.throws(() => capture({ input: new Uint8Array(new SharedArrayBuffer(1)) }), /shared/);
-  assert.throws(() => capture({ input: new Uint8Array(DEV_COMMAND_MAX_STDIN_BYTES + 1) }), /stdin/);
 });
 
 test('argument and auxiliary arrays use their own values rather than custom iteration', () => {

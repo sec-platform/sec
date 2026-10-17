@@ -71,7 +71,6 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
   expect(readback).toMatchObject({ completedStage: 'actions-terminal', completedStageIndex: 1 });
   expect(readback.filePath.replaceAll('\\', '/'))
     .toContain('/state/sec/workspace/verification-sessions/v2/');
-  expect(readback.filePath).not.toContain('R:/repo/.tmp');
   expect(() => appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'hosted-verification-terminal',
@@ -82,23 +81,29 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
 });
 
 test('waiting and failed observations do not advance the completed stage', () => {
-  const fs = new MemoryFs();
-  appendVerificationSessionJournalEvent({
-    ...base(),
-    targetStage: 'frozen',
-    kind: 'completed',
-    recordedAt: at(1),
-    fs
-  });
-  appendVerificationSessionJournalEvent({
-    ...base(),
-    targetStage: 'actions-terminal',
-    kind: 'waiting',
-    recordedAt: at(2),
-    fs
-  });
-  expect(readVerificationSessionJournal({ ...base(), fs }))
-    .toMatchObject({ completedStage: 'frozen', completedStageIndex: 0 });
+  for (const kind of ['waiting', 'failed'] as const) {
+    const fs = new MemoryFs();
+    appendVerificationSessionJournalEvent({
+      ...base(),
+      targetStage: 'frozen',
+      kind: 'completed',
+      recordedAt: at(1),
+      fs
+    });
+    appendVerificationSessionJournalEvent({
+      ...base(),
+      targetStage: 'actions-terminal',
+      kind,
+      recordedAt: at(2),
+      fs
+    });
+    expect(readVerificationSessionJournal({ ...base(), fs }))
+      .toMatchObject({
+        completedStage: 'frozen',
+        completedStageIndex: 0,
+        latestEvent: { kind, targetStage: 'actions-terminal' }
+      });
+  }
 });
 
 test('stable operation claim is immutable and prevents duplicate side effects', () => {

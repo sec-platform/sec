@@ -39,7 +39,6 @@ test('identity parsing copies and freezes exact metadata for its consumer', () =
   input.digest = `blake3:${'b'.repeat(64)}`;
   assert.equal(captured.digest, hash);
   assert.equal(Object.isFrozen(captured), true);
-  assert.notEqual(captured, input);
   const nullPrototype = Object.assign(Object.create(null), record());
   assert.deepEqual(parseIdentity(nullPrototype, 'evidence', 'record/v2'), record());
   // @ts-expect-error same 32 bytes cannot erase the semantic domain
