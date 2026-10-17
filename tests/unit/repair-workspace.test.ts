@@ -23,11 +23,11 @@ test('workspace Repair publishes through the captured provider and original priv
     }
     readVerification() { this.#events.push('read-verification'); return input.report; }
     buildPlan(report: typeof input.report) {
-      this.#events.push('build-plan'); expect(report).toBe(input.report); return input.repairPlan;
+      this.#events.push('build-plan'); expect(report).toEqual(input.report); return input.repairPlan;
     }
     publish(plan: RepairPlan, lock: typeof input.lock) {
       this.#events.push('publish');
-      expect(plan).toBe(input.repairPlan); expect(lock).toBe(input.lock);
+      expect(plan).toEqual(input.repairPlan); expect(lock).toEqual(input.lock);
       expect(lock.passStatus.repair).toBe('skipped');
     }
     recordFailure() { this.#events.push('unexpected-failure'); }
@@ -35,7 +35,7 @@ test('workspace Repair publishes through the captured provider and original priv
   }
   const ports = new Ports();
   const result = await repairWorkspaceResult({ mode: 'publish' }, ports);
-  expect(result.lock).toBe(input.lock); expect(result.repairPlan).toBe(input.repairPlan);
+  expect(result.lock).toEqual(input.lock); expect(result.repairPlan).toEqual(input.repairPlan);
   expect(ports.events).toEqual(['read-lock', 'read-verification', 'build-plan', 'publish']);
 });
 
@@ -54,7 +54,7 @@ for (const settlementFails of [false, true]) {
       async publish() { this.#events.push('publish'); await pause; throw primary; }
       recordFailure(lock: typeof input.lock) {
         this.#events.push('record-failure');
-        expect(lock).toBe(input.lock); expect(lock.passStatus.repair).toBe('failed');
+        expect(lock).toEqual({ ...input.lock, passStatus: { ...input.lock.passStatus, repair: 'failed' } });
         if (settlementFails) throw secondary;
       }
       get events() { return [...this.#events]; }
@@ -72,6 +72,7 @@ for (const settlementFails of [false, true]) {
       expect((failure as AggregateError).errors).toEqual([primary, secondary]);
       expect((failure as AggregateError).cause).toBe(primary);
     } else expect(failure).toBe(primary);
+    expect(input.lock.passStatus.repair).toBe('skipped');
     expect(ports.events).toEqual(['publish', 'record-failure']);
   });
 }

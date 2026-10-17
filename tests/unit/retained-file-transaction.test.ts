@@ -85,7 +85,11 @@ test('retained file transaction exposes its retained root identity and current f
 test('retained file transaction rejects an unissued test actor', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-transaction-'));
   try {
-    expect(() => retainNoFollowFileTransaction(root, 'foreign actor', {})).toThrow(
+    const issued = createRetainedNoFollowFileTransactionTestActorForTests({
+      beforeRename: () => { throw new Error('unissued actor must not run'); }
+    });
+    const copied = Object.freeze({ ...issued });
+    expect(() => retainNoFollowFileTransaction(root, 'foreign actor', copied)).toThrow(
       expect.objectContaining({
         code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
       })

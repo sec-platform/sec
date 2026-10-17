@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as treeObservation from '../../src/adapters/runtime-state/physical/runtime/physical-directory-tree-observation.ts';
@@ -237,6 +237,10 @@ for (const difference of [
     try {
       mkdirSync(path.join(f.source, 'nested'));
       writeFileSync(path.join(f.source, 'nested', 'keep'), 'exact');
+      if (difference === 'link-target') {
+        writeFileSync(path.join(f.source, 'nested', 'next'), 'other');
+        symlinkSync('keep', path.join(f.source, 'nested', 'link'));
+      }
       const target = path.join(f.workspace, 'target');
       const root = inspectNoFollowDirectoryChain(f.source).target;
       observer = spyOn(treeObservation, 'scanNoFollowDirectoryTreeInternal').mockImplementation((...args) => {
@@ -250,8 +254,16 @@ for (const difference of [
           writeFileSync(path.join(target, 'excluded', 'foreign'), 'residue');
           altered = true;
         }
+        if (alterTarget && difference === 'link-target') {
+          const link = path.join(target, 'nested', 'link');
+          expect(readlinkSync(link)).toBe('keep');
+          unlinkSync(link);
+          symlinkSync('next', link);
+          altered = true;
+        }
         const inventory = scan(...args);
         if (!alterSource && !alterTarget) return inventory;
+        if (difference === 'link-target') return inventory;
         if (difference === 'missing-member') {
           altered = true;
           return inventory.filter(entry => entry.kind !== 'file');
@@ -274,7 +286,6 @@ for (const difference of [
             case 'file-size': return { ...entry, size: entry.size + 1 };
             case 'file-digest': return { ...entry, contentDigest: `sha256:${'0'.repeat(64)}` as const };
             case 'kind': return { ...entry, kind: 'directory' as const };
-            case 'link-target': return { ...entry, linkTarget: 'foreign' };
             case 'ownership': return { ...entry, ownerUserId: entry.ownerUserId! + 1n };
             default: return entry;
           }
@@ -286,6 +297,7 @@ for (const difference of [
       }
       const copying = copyNoFollowDirectoryTreesBulk([{ source: root, target }], {
         preservePermissionMode: true, maximumEntries: 32, maximumBytes: 1024,
+        preserveContainedRelativeSymbolicLinks: difference === 'link-target',
         excludeRelativePaths: ['excluded']
       });
       if (difference === 'directory-size') {

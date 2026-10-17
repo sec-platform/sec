@@ -285,7 +285,7 @@ test('artifact selection fails closed when a corrupt Lock leaves stale emit file
     await fs.writeFile(lockPath, '{broken-json', 'utf8');
     await fs.writeFile(explainGraphPath, '{"semantic":"stale"}\n', 'utf8');
 
-    expect(() => buildCiArtifactManifest(workspaceRoot)).toThrow(/not valid JSON/iu);
+    await expect(buildCiArtifactManifest(workspaceRoot)).rejects.toThrow(/not valid JSON/iu);
     expect(await fs.readFile(explainGraphPath, 'utf8')).toBe('{"semantic":"stale"}\n');
   }, 'engineering-compiler-semantic-artifact-corrupt-lock-');
 });

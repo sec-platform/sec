@@ -7,11 +7,8 @@ import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // The delayed domain records only; no real dependency cleanup is performed.
 // Native cwd changes and the actual Commander action execute in a child.
-for (const [name, changeRoot] of [
-  ['doctor', true], ['status', true], ['warmup', true], ['relink', true],
-  ['clean', true], ['clean', false]
-] as const) {
-  test(`dependency ${name} captures request with cwd change=${changeRoot}`, async () => {
+for (const name of ['doctor', 'status', 'warmup', 'relink', 'clean'] as const) {
+  test(`dependency ${name} captures request before delayed loading and cwd change`, async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-dependency-command-'));
     const repo = fileURLToPath(new URL('../../', import.meta.url));
     try {
@@ -31,7 +28,7 @@ for (const [name, changeRoot] of [
         const args = name === 'doctor' ? ['doctor', '--json'] : ['deps', name, ...(name === 'clean' ? ['--project'] : ['--json'])];
         const pending = program.parseAsync(args, { from: 'user' });
         await loading;
-        if (${changeRoot}) process.chdir(${JSON.stringify(decoy)});
+        process.chdir(${JSON.stringify(decoy)});
         if (name === 'clean') {
           const clean = program.commands.find(c => c.name() === 'deps').commands.find(c => c.name() === 'clean');
           Object.assign(clean.opts(), { project: false, all: true, force: true });

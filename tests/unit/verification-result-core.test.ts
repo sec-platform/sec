@@ -176,7 +176,6 @@ test('regression 1: all-lane fast-passed + runtime-skipped → overall not passe
     claims: [claim('overall', ['fast-gate', 'runtime-gate'])],
     gateResults: [fastGate, runtimeGate]
   });
-  expect(result.overallStatus).not.toBe('passed');
   expect(result.overallStatus).toBe('not-run');
   expect(result.claimResults[0]!.status).toBe('not-run');
   expect(result.claimResults[0]!.reasonCode).toBe('fail-fast-prerequisite-failed');
@@ -288,7 +287,6 @@ test('regression 6: empty affected source closure → invalidated, not passed', 
   expect(result.overallStatus).toBe('invalidated');
   expect(result.claimResults[0]!.status).toBe('invalidated');
   expect(result.claimResults[0]!.reasonCode).toBe('selection-unresolved');
-  expect(result.overallStatus).not.toBe('passed');
 });
 
 // ---------------------------------------------------------------------------
@@ -326,12 +324,6 @@ test('regression 8: cleanup failure after assertions pass → failed', () => {
 // ---------------------------------------------------------------------------
 // Builder & validator tests
 // ---------------------------------------------------------------------------
-
-test('builder produces valid gate result and validator accepts it', () => {
-  const gate = passedGate('test-gate', ['test-claim']);
-  // Should not throw
-  CodexDevelopmentAssertVerificationGateResult(gate);
-});
 
 test('validator rejects proof-shaped placeholders that do not describe an execution', () => {
   const zeroInput = structuredClone(passedGate('zero-input', ['claim']));

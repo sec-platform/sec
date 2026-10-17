@@ -44,12 +44,14 @@ test('public source listeners cannot hide cancellation from private dependents',
 });
 
 test('all parent sources remain effective and unrelated links are independent', () => {
-  const one = new AbortController(), two = new AbortController();
-  const linked = linkNativeAbortSignals(undefined, one.signal, two.signal);
-  const unrelated = linkNativeAbortSignals();
-  two.abort('second');
-  assert.throws(() => throwIfNativeAborted(linked), error => error === 'second');
-  assert.equal(isNativeAborted(unrelated), false);
+  for (const index of [0, 1]) {
+    const parents = [new AbortController(), new AbortController()];
+    const linked = linkNativeAbortSignals(undefined, ...parents.map(parent => parent.signal));
+    const unrelated = linkNativeAbortSignals();
+    parents[index]!.abort('selected parent');
+    assert.throws(() => throwIfNativeAborted(linked), error => error === 'selected parent');
+    assert.equal(isNativeAborted(unrelated), false);
+  }
 });
 
 for (const key of ['aborted', 'reason']) {

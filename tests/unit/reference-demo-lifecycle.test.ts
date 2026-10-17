@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
-  REFERENCE_DEMO_MODES,
   runReferenceDemo,
   type ReferenceDemoOperations
 } from '../../src/application/reference-demo.ts';
@@ -26,7 +25,7 @@ async function rejectsWith(promise: Promise<unknown>, reason: unknown): Promise<
   assert.equal(rejected, true);
 }
 
-for (const mode of REFERENCE_DEMO_MODES) {
+for (const mode of ['quickstart', 'governance', 'closed-loop'] as const) {
   test(`${mode} preserves its operation sequence and removes only its acquired workspace`, async () => {
     const events: string[] = [];
     await runReferenceDemo(mode, operations(events));

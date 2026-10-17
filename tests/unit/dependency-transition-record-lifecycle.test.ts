@@ -124,7 +124,7 @@ test('nested successor data cannot drift during namespace admission or publicati
   const next = await advanceDependencyTransition(first, { phase: 'recovery-required', durability: 'unknown', failure },
     { ...f.options, async beforeCommit() { failure.code = 'REPLACED'; failure.message = 'changed'; } });
   assert.deepEqual(next.failure, { code: 'ORIGINAL', message: 'original failure' });
-  assert.notEqual(next.failure, failure); assertDeepFrozen(next);
+  assertDeepFrozen(next);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), next);
 }));
 

@@ -25,9 +25,15 @@ test('architecture includes both ends of eligible facts but not scenario or lite
 
 test('architecture node facts agree with an independent incident-edge selection', () => {
   const snapshot = projectionSnapshot(viewIR(4)); const view = projectArchitectureView(snapshot);
+  const eligibleIds = new Set(snapshot.ir.entities
+    .filter(entity => entity.kind !== 'scenario' && entity.kind !== 'scenario-step')
+    .map(entity => entity.id));
+  assert.deepEqual(view.nodes.map(node => node.entityId).sort(), [...eligibleIds].sort());
   for (const node of view.nodes) {
-    const expected = view.edges.filter((edge) => edge.source === node.entityId || edge.target === node.entityId)
-      .flatMap((edge) => edge.references.filter((ref) => ref.kind === 'fact').map((ref) => ref.ref));
+    const expected = snapshot.ir.facts.filter(fact => fact.object.kind === 'entity'
+      && eligibleIds.has(fact.subject) && eligibleIds.has(fact.object.entityId)
+      && (fact.subject === node.entityId || fact.object.entityId === node.entityId))
+      .map(fact => fact.id);
     assert.deepEqual(node.references.filter((ref) => ref.kind === 'fact').map((ref) => ref.ref).sort(), [...new Set(expected)].sort());
   }
 });

@@ -94,7 +94,11 @@ test('project baseline accepts only canonical unique portable artifact hash reco
       expectDriftFailure(() => readProjectBaseline(workspaceRoot));
     }
 
-    await writeRawBaselineSource(workspaceRoot, Uint8Array.from([0xc3, 0x28]));
+    await writeRawBaselineSource(workspaceRoot, Buffer.concat([
+      Buffer.from('{"formatVersion":"1","artifacts":[{"path":"app/'),
+      Buffer.from([0xff]),
+      Buffer.from(`.ts","hash":"${'a'.repeat(64)}"}]}\n`)
+    ]));
     expectDriftFailure(() => readProjectBaseline(workspaceRoot));
   });
 });

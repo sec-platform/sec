@@ -27,9 +27,6 @@ test('terminal status writer cannot mutate repository and effect job cannot mint
     'pull-requests': 'read',
     statuses: 'write'
   });
-  expect(terminal.permissions?.contents).not.toBe('write');
-  expect(terminal.permissions?.['pull-requests']).not.toBe('write');
-  expect(terminal.permissions?.issues).not.toBe('write');
   expect(integrate.permissions?.statuses).toBe('read');
   expect(integrate.permissions?.contents).toBe('write');
   expect(integrate.permissions?.['pull-requests']).toBe('write');

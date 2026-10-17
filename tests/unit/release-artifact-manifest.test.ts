@@ -102,7 +102,12 @@ test('release manifest retains exact Unicode paths and supports one consistent G
 
 test('release manifest rejects digest changes, invalid UTF-8, BOM and excess structural depth', () => {
   expect(() => decode(document(fixture()).replace('"bytes":0', '"bytes":1'))).toThrow('digest');
-  expect(() => parseReleaseArtifactManifestBytes(new Uint8Array([0xc0, 0xaf]))).toThrow();
+  const utf8Material = { ...fixture(), packageVersion: '\ufffd' };
+  const [beforeInvalidByte, afterInvalidByte] = document(utf8Material).split('\ufffd');
+  const invalidUtf8 = Buffer.concat([
+    Buffer.from(beforeInvalidByte!), Buffer.from([0xff]), Buffer.from(afterInvalidByte!)
+  ]);
+  expect(() => parseReleaseArtifactManifestBytes(invalidUtf8)).toThrow(TypeError);
   expect(() => decode('\ufeff' + document(fixture()))).toThrow();
   const material = fixture();
   Object.assign(material.files[0]!, { extra: { nested: true } });

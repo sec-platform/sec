@@ -104,7 +104,6 @@ test('captured argv retains ordinary read grammar with its exact UTF-8 byte char
     if (captured.status !== 'ready') throw new Error('Expected an admitted vector');
     assert.equal(gitReadCommandIsObservation(captured.args), true, JSON.stringify(args));
     assert.equal(captured.bytes, Buffer.byteLength(args.join('\0') + '\0', 'utf8'));
-    assert.notEqual(captured.args, args); assert.ok(Object.isFrozen(captured.args));
   }
 });
 
@@ -126,6 +125,7 @@ test('argv snapshots ignore custom iteration and method replacements', () => {
   if (captured.status !== 'ready') throw new Error('Expected dense own string arguments');
   input[0] = 'reset';
   assert.deepEqual(captured.args, ['status', '--short']); assert.equal(gitReadCommandIsObservation(captured.args), true);
+  assert.equal(Reflect.set(captured.args, '0', 'reset'), false);
 });
 
 test('accessors, holes, inherited slots and NUL are refused without invoking array accessors', () => {
