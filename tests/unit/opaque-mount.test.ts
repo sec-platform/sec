@@ -73,8 +73,7 @@ describe('installOpaqueModules', () => {
       })).toEqual([]);
 
       const packageJson = await readJson<any>(packageJsonPath);
-      expect(packageJson.dependencies['opaque-test-mod']).toBeDefined();
-      expect(packageJson.dependencies['opaque-test-mod']).toContain('link:');
+      expect(packageJson.dependencies['opaque-test-mod']).toBe('link:src/opaque/test-mod');
     });
   });
 

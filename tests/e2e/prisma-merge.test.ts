@@ -28,9 +28,10 @@ model CustomExtension {
 
     const targetPrismaSchemaPath = path.join(prismaRoot, 'schema.prisma');
     const resultSchema = await fs.readFile(targetPrismaSchemaPath, 'utf8');
-    expect(resultSchema).toContain('model CustomExtension {');
-    expect(resultSchema).toContain('id    String @id');
-    expect(resultSchema).toContain('value String');
+    const customModel = /\bmodel\s+CustomExtension\s*\{([^}]*)\}/u.exec(resultSchema);
+    expect(customModel).not.toBeNull();
+    expect(customModel![1]).toMatch(/\bid\s+String\s+@id(?=$|\s)/u);
+    expect(customModel![1]).toMatch(/\bvalue\s+String(?=$|\s)/u);
 
     // Database mutation is not a compilation side effect. A future explicit
     // database Operation/provider may apply this schema under its own authority.

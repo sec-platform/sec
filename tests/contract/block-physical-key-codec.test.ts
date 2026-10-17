@@ -13,8 +13,8 @@ test('canonical Block physical key codec is injective over accepted logical iden
     'feature/a/b',
     'feature/a-b'
   ];
-  const accepted = ids.filter(isCanonicalBlockId);
-  const keys = accepted.map(encodeCanonicalBlockPhysicalKey);
+  for (const id of ids) expect(isCanonicalBlockId(id)).toBe(true);
+  const keys = ids.map(encodeCanonicalBlockPhysicalKey);
 
   expect(new Set(keys).size).toBe(keys.length);
   expect(blockDirName('auth/basic-session')).toBe('auth.basic-session');

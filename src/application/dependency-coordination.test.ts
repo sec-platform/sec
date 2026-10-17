@@ -44,8 +44,7 @@ test('project source preparation only observes prepared readiness and rejects un
     async verifyIsolatedSource() { throw new Error('offline verification is not selected'); }
   };
   const result = await prepareProjectDependencySource(ports);
-  order.push('target');
-  expect(order).toEqual(['observe', 'target']);
+  expect(order).toEqual(['observe']);
   expect(result.sourceGeneration).toBe(source);
   for (const isolated of [false, true]) {
     for (const ready of [null,
@@ -61,17 +60,12 @@ test('project source preparation only observes prepared readiness and rejects un
     }
   }
 });
-test('offline project source preparation never installs and refuses an invalid source before target admission', async () => {
-  let targets = 0;
-  await expect((async () => {
-    await prepareProjectDependencySource({ isolated: true, manifestHash: binding.manifestHash,
+test('offline project source preparation refuses an invalid isolated source', async () => {
+  await expect(prepareProjectDependencySource({ isolated: true, manifestHash: binding.manifestHash,
       compilerDependencyRoot: 'compiler', compilerNodeModulesPath: 'compiler-modules',
       async observeCompilerReady() { return { kind: 'ready', binding: { runtimeMaterialization: binding }, sourceGeneration: source }; },
       async verifyIsolatedSource() { return false; }
-    });
-    targets++;
-  })()).rejects.toThrow('unavailable for isolated verification');
-  expect(targets).toBe(0);
+    })).rejects.toThrow('unavailable for isolated verification');
 });
 test('dependency settlement rejects a stale plan before journal mutation and orders both inventory reads', async () => {
   const root = path.resolve('fixture-repository');

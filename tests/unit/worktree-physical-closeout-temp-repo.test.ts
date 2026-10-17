@@ -193,7 +193,7 @@ test('real registered worktree reaches registry and physical absence under one d
 }, worktreePhysicalCloseoutOperations);
 
     expect(existsSync(authorization.authorizationPath)).toBe(true);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -219,7 +219,7 @@ test('real registered worktree reaches registry and physical absence under one d
     });
     expect(existsSync(path.join(path.dirname(authorization.receiptPath), latest.generation))).toBe(true);
     expect(existsSync(value.target)).toBe(false);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
     expect(
       (await executeWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
@@ -305,7 +305,7 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
     const firstLease = await acquireWorkspaceWriteLease(commonDir);
     try {
       await expect(execute()).rejects.toThrow('Workspace writer lease is already held');
-      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
       expect(existsSync(value.target)).toBeTrue();
     } finally {
       await firstLease.release();
@@ -374,7 +374,7 @@ test('nonempty documentation coordination state rejects closeout without deletin
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     }, worktreePhysicalCloseoutOperations)).rejects.toThrow('refuses nonempty state');
     expect(readFileSync(lock, 'utf8')).toBe('x');
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -394,7 +394,7 @@ test('non-file documentation coordination state rejects closeout without deletin
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     }, worktreePhysicalCloseoutOperations)).rejects.toThrow();
     expect(existsSync(lock)).toBeTrue();
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -809,8 +809,8 @@ test.skipIf(process.platform !== 'win32')('authorized externally unregistered wo
     );
     rmSync(registryAdminPath, { recursive: true, force: true });
     rmSync(path.join(value.target, 'tracked.txt'));
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])))
-      .not.toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u))
+      .not.toContain(`worktree ${gitPath(value.target)}`);
 
     const first = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -1023,7 +1023,7 @@ test.skipIf(process.platform !== 'win32')('Windows real closeout streams a large
     }).receiptDigest).toBe(receipt.receiptDigest);
     expect(readFileSync(path.join(externalJunctionTarget, 'external-sentinel.txt'), 'utf8')).toBe('must survive closeout\n');
     expect(existsSync(value.target)).toBe(false);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
   } finally {
     const externalSentinel = path.join(externalJunctionTarget, 'external-sentinel.txt');
     if (existsSync(externalSentinel)) chmodSync(externalSentinel, 0o666);
@@ -1076,8 +1076,8 @@ test('first same-branch completed token remains target-valid after a second regi
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     }).receiptDigest).toBe(firstReceipt.receiptDigest);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(secondTarget));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(secondTarget)}`);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -1303,7 +1303,7 @@ test('dirty untracked and ignored targets block before durable authorization or 
         }, worktreePhysicalCloseoutOperations)
       ).rejects.toThrow('working-state-not-clean');
       expect(existsSync(value.target)).toBe(true);
-      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
     } finally {
       rmSync(value.root, { recursive: true, force: true });
     }
@@ -1367,7 +1367,7 @@ test('raw JSON or a caller-constructed token cannot mint trusted closeout consum
       treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     })).toThrow('was not issued by this process');
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -1615,7 +1615,7 @@ test('retired target phase resumes before unregister and rejects registry disapp
       } else {
         expect(existsSync(tombstone)).toBe(false);
       }
-      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
+      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
     } finally {
       rmSync(value.root, { recursive: true, force: true });
     }
@@ -1641,7 +1641,7 @@ test('a rebuilt original path survives retained registry-admin deletion without 
     expect(receipt.terminal).toBe('residue');
     expect(existsSync(path.join(value.target, 'new-owner.txt'))).toBe(true);
     expect(existsSync(tombstone)).toBe(false);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -1661,7 +1661,7 @@ test('locked worktree and target-root replacement fail closed before unregister'
         expectedRecoveryAuthorityDigest: locked.recoveryAuthorityDigest
       }, worktreePhysicalCloseoutOperations)
     ).rejects.toThrow('target-is-locked');
-    expect(gitPath(git(locked.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(locked.target));
+    expect(gitPath(git(locked.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(locked.target)}`);
   } finally {
     rmSync(locked.root, { recursive: true, force: true });
   }

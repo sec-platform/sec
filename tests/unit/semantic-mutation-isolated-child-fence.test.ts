@@ -33,7 +33,7 @@ test('isolated semantic verification environment contains no ambient network or 
   expect(environment.PATH).toBe('');
   expect(Object.keys(environment).some((key) => /proxy|token|credential|secret/iu.test(key))).toBe(false);
   for (const key of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR']) {
-    expect(path.resolve(environment[key]!).startsWith(root)).toBe(true);
+    expect(path.resolve(environment[key]!).startsWith(`${root}${path.sep}`)).toBe(true);
   }
 });
 

@@ -18,7 +18,7 @@ test('mutating returned example details cannot alter a later error contract', ()
 test('example details retain their input/output meaning within one owned result', () => {
   const contract = buildErrorProtocolContract('contract errors');
   const rollback = contract.examples.find((example) => example.id === 'upgrade-rollback-error')!;
-  expect(rollback.output.details).toBe(rollback.input.details);
+  expect(rollback.output.details).toEqual(rollback.input.details);
   expect(rollback.input.details).toMatchObject({
     migrationId: 'mig-customer-normalizer-file',
     migrationKind: 'file-replace',

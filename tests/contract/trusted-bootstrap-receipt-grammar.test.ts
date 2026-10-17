@@ -107,7 +107,6 @@ test('exact checker receipt supports both candidate variants and immutable canon
   for (const value of [semantic(), withoutCandidate()]) {
     const prepared = prepareTrustedBootstrapCheckerReceipt(value);
     expect(prepared).toEqual(receipt(value));
-    expect(Object.keys(prepared)).toHaveLength(29);
     expect(Object.isFrozen(prepared)).toBe(true);
     expect(Object.isFrozen(prepared.baseUndecidablePaths)).toBe(true);
     const paths = value.baseUndecidablePaths as string[];

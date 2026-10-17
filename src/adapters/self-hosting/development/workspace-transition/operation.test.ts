@@ -230,6 +230,7 @@ test('caller cancellation blocks before any provider session', async () => {
     expect(error).toHaveProperty('code', 'workspace-transition-operation-budget-exhausted');
   }
   expect(activeSessions).toBe(0);
+  expect(maximumActiveSessions).toBe(0);
 });
 
 test('an exhausted inherited deadline blocks before any provider session', async () => {
@@ -249,6 +250,7 @@ test('an exhausted inherited deadline blocks before any provider session', async
     expect(error).toHaveProperty('code', 'workspace-transition-operation-budget-exhausted');
   }
   expect(activeSessions).toBe(0);
+  expect(maximumActiveSessions).toBe(0);
 });
 
 test('the operation and trigger retain the same parameters across observation', async () => {

@@ -37,9 +37,7 @@ test('registry projection round-trips default and open-pr entries with exact ide
     ]
   });
   const projection = parseVerificationRegistryProjection(source);
-  expect(projection.entries).toHaveLength(2);
-  expect(projection.entries[0]!.source).toBe('default');
-  expect(projection.entries[1]!.prNumber).toBe(7);
+  expect(projection).toEqual(JSON.parse(source));
 });
 
 test('registry projection rejects a default entry that binds PR identity', () => {
