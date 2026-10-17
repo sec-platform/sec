@@ -208,8 +208,7 @@ test('test process temp owns one disjoint generation and removes only that gener
   }
 });
 
-test('test process temp rejects an unavailable Windows path budget before any generation effect', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('test process temp rejects an unavailable Windows path budget before any generation effect', async () => {
   const repositoryRoot = generation('sec-temp-budget-repository-');
   const stateRoot = generation('sec-temp-budget-state-');
   const cacheRoot = generation('sec-temp-budget-cache-');

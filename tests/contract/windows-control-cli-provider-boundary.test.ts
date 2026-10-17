@@ -95,8 +95,7 @@ test('resolution and terminal receipt surfaces contain no semantic or effect aut
   }
 });
 
-test('ready physical session exports no raw Git or GitHub command capability', async () => {
-  if (process.platform !== 'win32' || process.arch !== 'x64') return;
+test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')('ready physical session exports no raw Git or GitHub command capability', async () => {
   const resolution = resolveWindowsControlCliSession(request());
   if (resolution.status !== 'ready') return;
   expect(Object.hasOwn(resolution.session, 'run')).toBe(false);

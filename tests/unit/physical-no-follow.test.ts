@@ -156,8 +156,7 @@ test('same-identity readback rejects replacement rather than accepting same lexi
   }
 });
 
-test('retained child inspection is create-free and exclusive creation never adopts a collision', () => {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retained child inspection is create-free and exclusive creation never adopts a collision', () => {
   const root = fixtureRoot();
   try {
     const parentPath = path.join(root, 'parent');
@@ -222,8 +221,7 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => {
   const root = fixtureRoot();
   try {
     const expectRaceRejected = (
@@ -531,8 +529,7 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test('Windows retained child-process boundary blocks relocation above its pinned parent', () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows retained child-process boundary blocks relocation above its pinned parent', () => {
   const root = fixtureRoot();
   try {
     const ancestor = path.join(root, 'ancestor');
@@ -681,8 +678,7 @@ test('exact ordinary leaf identity follows the retained physical file rather tha
   }
 });
 
-test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('Linux exact ordinary leaf rejects a FIFO without a blocking open', async () => {
   const root = fixtureRoot();
   const fifoPath = path.join(root, 'retirement-fence.json');
   try {
@@ -907,8 +903,7 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or pro
   }
 });
 
-test('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => {
-  if (process.platform !== 'linux' && process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('permission-mode inventory is opt-in and Windows projects an explicit unavailable value', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -1145,8 +1140,7 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
   }
 });
 
-test('retained ordinary-file capability binds raw digest, size, and leaf identity to one handle', () => {
-  if (process.platform !== 'linux' && process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained ordinary-file capability binds raw digest, size, and leaf identity to one handle', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -1199,8 +1193,7 @@ test('retained ordinary-file capability binds raw digest, size, and leaf identit
   }
 });
 
-test('retained ordinary-file digest rejects a same-size in-place rewrite', () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('retained ordinary-file digest rejects a same-size in-place rewrite', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -1323,8 +1316,7 @@ test.skipIf(process.platform !== 'linux')(
   }
 );
 
-test('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -1550,8 +1542,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('coope
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('Windows durable identity and byte-preimage replacement recover every persisted interruption state', () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows durable identity and byte-preimage replacement recover every persisted interruption state', () => {
   for (const scenario of [
     { point: 'after-transaction-record' as const, status: 'rolled-back' as const, expected: 'old\n' },
     { point: 'after-preimage-quarantine' as const, status: 'rolled-back' as const, expected: 'old\n' },
@@ -1676,8 +1667,7 @@ test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage rec
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
   const root = fixtureRoot();
   try {
     const parentPath = path.join(root, 'cas');
@@ -1709,8 +1699,7 @@ test('Windows durable CAS rejects a same-byte foreign final by FileId and preser
   }
 });
 
-test('Windows retained-handle deletion removes authorized file directory and reparse leaf and rejects a replaced parent', () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows retained-handle deletion removes authorized file directory and reparse leaf and rejects a replaced parent', () => {
   const root = fixtureRoot();
   let retainedReader: number | null = null;
   try {
@@ -1787,8 +1776,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
   }
 });
 
-test('Linux retained openat leaf deletion covers an ordinary file directory and dangling link', () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('Linux retained openat leaf deletion covers an ordinary file directory and dangling link', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -1845,8 +1833,7 @@ test('retained deletion rejects a replaced inventoried ancestor before touching 
   }
 });
 
-test('Linux retained deletion accepts selected-name absence when another hard link survives', () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('Linux retained deletion accepts selected-name absence when another hard link survives', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');

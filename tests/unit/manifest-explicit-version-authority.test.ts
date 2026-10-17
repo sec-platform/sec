@@ -27,8 +27,7 @@ acceptance: []
 const mismatchedVersionOverlay = `version: 1.0.0
 `;
 
-test('an existing explicit version manifest cannot fall back to a root manifest after declaring the wrong version', async () => {
-  if (process.platform !== 'linux' && process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('an existing explicit version manifest cannot fall back to a root manifest after declaring the wrong version', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-version-authority-'));
   try {
     const blockRoot = path.join(workspaceRoot, 'registry', 'example.basic');
