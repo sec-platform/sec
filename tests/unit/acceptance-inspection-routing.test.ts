@@ -40,8 +40,10 @@ test('acceptance inspection routes retained coverage through application and ent
     const targets = projectAcceptanceTargets(source);
     const coverage = projectAcceptanceCoverage(source);
 
+    source.blocks[0]!.declaredAcceptance.push('later-declaration');
     source.blocks[0]!.coveredBy.push('later');
     source.uncoveredBlocks.length = 0;
+    source.blocks.push({ ...source.blocks[0]!, id: 'later' });
 
     expect(targets).toEqual({
       status: 'passed',
@@ -86,6 +88,12 @@ test('acceptance inspection routes retained coverage through application and ent
       'Target alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
       'Target beta; declared=2; coveredBy=none; uncovered=true'
     ].join('\n'));
+    targets.targets[0]!.declaredAcceptance.push('projection-only');
+    targets.targets[0]!.coveredBy.push('projection-only');
+    targets.uncoveredIds.push('projection-only');
+    expect(source.blocks[0]!.declaredAcceptance).toEqual(['declared:a', 'later-declaration']);
+    expect(source.blocks[0]!.coveredBy).toEqual(['acceptance:a', 'later']);
+    expect(source.uncoveredBlocks).toEqual([]);
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const report = {
@@ -112,16 +120,21 @@ test('acceptance inspection routes retained coverage through application and ent
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
-    await expectCliSuccess(
-      workspaceRoot,
-      ['acceptance'],
-      `${formatAcceptanceCoverage(projectAcceptanceCoverage(report))}\n`
-    );
-    await expectCliSuccess(
-      workspaceRoot,
-      ['acceptance', 'blocks'],
-      `${formatAcceptanceTargets(projectAcceptanceTargets(report))}\n`
-    );
+    const coverageText = await expectCliSuccess(workspaceRoot, ['acceptance']);
+    for (const line of [
+      'Acceptance coverage passed; acceptancePassed=1; blocks=1/2; uncoveredBlocks=1',
+      'Uncovered blocks: beta',
+      'Block alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
+      'Block beta; declared=1; coveredBy=none; uncovered=true'
+    ]) expect(coverageText.stdout.split(/\r?\n/u)).toContain(line);
+    const targetsText = await expectCliSuccess(workspaceRoot, ['acceptance', 'blocks']);
+    for (const line of [
+      'Acceptance coverage blocks passed',
+      'targets=2; covered=1; uncovered=1',
+      'Uncovered: beta',
+      'Target alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
+      'Target beta; declared=1; coveredBy=none; uncovered=true'
+    ]) expect(targetsText.stdout.split(/\r?\n/u)).toContain(line);
 
     const json = await expectCliJson(workspaceRoot, ['acceptance', '--json']);
     expect(json).toEqual(report);

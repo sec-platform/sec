@@ -43,7 +43,7 @@ test('policy merge coalesces equal sources and preserves distinct IDs and determ
     { sourcePath: 'catalog/policies/official/z.yaml', spec: { policies: [row()] } }
   ];
   const project = [
-    { sourcePath: 'model/policies/a.yaml', spec: { policies: [row(), { ...row(), id: 'another-policy' }] } },
+    { sourcePath: 'model/policies/a.yaml', spec: { policies: [row(), { ...row(), id: 'another-policy', severity: 'error' as const }] } },
     { sourcePath: 'model/policies/z.yaml', spec: { policies: [row()] } }
   ];
   const merge = (reversed: boolean) => mergeLoadedPolicyDeclarations(
@@ -53,9 +53,17 @@ test('policy merge coalesces equal sources and preserves distinct IDs and determ
   const result = merge(false);
   assert.deepEqual(result, merge(true));
   assert.deepEqual(result.policyIds, ['another-policy', row().id]);
-  assert.deepEqual(result.policies, [{ ...row(), id: 'another-policy' }, row()]);
+  assert.deepEqual(result.policies, [{ ...row(), id: 'another-policy', severity: 'error' }, row()]);
   assert.equal(result.definitions.get(row().id)?.sourcePath, 'model/policies/z.yaml');
-  assert.equal(result.official.sources.length, 2); assert.equal(result.project.sources.length, 2);
+  assert.equal(result.definitions.get(row().id)?.sourceScope, 'project');
+  assert.deepEqual(result.official.sources, [
+    { path: 'catalog/policies/official/a.yaml', policyIds: [row().id] },
+    { path: 'catalog/policies/official/z.yaml', policyIds: [row().id] }
+  ]);
+  assert.deepEqual(result.project.sources, [
+    { path: 'model/policies/a.yaml', policyIds: ['another-policy', row().id] },
+    { path: 'model/policies/z.yaml', policyIds: [row().id] }
+  ]);
   assert.deepEqual(official[0]!.spec.policies, [row()]);
 });
 

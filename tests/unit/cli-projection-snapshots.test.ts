@@ -1,12 +1,10 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { projectAcceptanceTargets } from '../../src/application/acceptance-inspection.ts';
-import { projectCiArtifactManifest } from '../../src/application/ci-artifact-manifest-inspect.ts';
 import { projectPolicySources } from '../../src/application/policy-source-inspection.ts';
 import { projectProvenanceRegistryInspect } from '../../src/application/provenance-registry-inspect.ts';
 import { projectReviewDiagnostics } from '../../src/application/review-diagnostics-inspect.ts';
 import { projectRuntimeInspection } from '../../src/application/runtime-inspection.ts';
-import { formatCiArtifactManifest } from '../../src/entry/cli/ci-artifact-manifest-inspect.ts';
 import { formatProvenanceRegistry } from '../../src/entry/cli/provenance-registry-inspect.ts';
 
 type PolicyInput = Parameters<typeof projectPolicySources>[0];
@@ -25,7 +23,6 @@ type CoverageInput = {
 type RuntimeInput = Parameters<typeof projectRuntimeInspection>[0];
 type ReviewInput = Parameters<typeof projectReviewDiagnostics>[0];
 type ProvenanceInput = Parameters<typeof projectProvenanceRegistryInspect>[0];
-type ManifestInput = Parameters<typeof projectCiArtifactManifest>[0];
 // Focused domain fixtures: these tests exercise projections, not domain parsers.
 function policy() {
   return { status: 'passed', official: { sources: [{ path: 'z', policyIds: ['one'] }] },
@@ -39,32 +36,6 @@ function coverage() {
 }
 function step() { return { status: 'passed', command: 'test', passed: ['one'], failed: [] as string[] }; }
 function runtime() { return { status: 'passed', build: step(), unit: step(), acceptance: step() }; }
-function manifest(counts: Partial<ManifestInput['summary']['missingReasonCounts']>): ManifestInput {
-  const missingReasonCounts = {
-    'declared-generated-missing': 0,
-    'fixed-governance-missing': 0,
-    'stale-semantic-projection': 0,
-    ...counts
-  };
-  return {
-    summary: { artifactStatus: 'passed', artifactCount: 1, missingCount: 1, uploadGroupCount: 0,
-      governanceCount: 1, testCount: 0, contractCount: 0, missingReasonCounts },
-    uploadGroups: []
-  };
-}
-
-test('policy projection owns its arrays while preserving source order and counts', () => {
-  const source = policy(), projected = projectPolicySources(source as PolicyInput);
-  assert.equal(projected.sourceCount, 2); assert.equal(projected.policyCount, 3);
-  assert.deepEqual(projected.sources.map(value => value.scope), ['official', 'project']);
-  source.official.sources[0]!.policyIds.push('later');
-  source.project.sources[0]!.policyIds.length = 0;
-  assert.deepEqual(projected.sources.map(value => value.policyIds), [['one'], ['two', 'three']]);
-  assert.deepEqual(projected.sources.map(value => value.policyCount), [1, 2]);
-  projected.sources[0]!.policyIds.push('projection-only');
-  assert.deepEqual(source.official.sources[0]!.policyIds, ['one', 'later']);
-});
-
 test('policy list and count use one observation of a provider getter', () => {
   const source = policy(); let reads = 0;
   Object.defineProperty(source.official.sources[0], 'policyIds', { get() { reads++; return reads === 1 ? ['first'] : ['later', 'later']; } });
@@ -72,33 +43,6 @@ test('policy list and count use one observation of a provider getter', () => {
   assert.equal(reads, 1);
   assert.deepEqual(projected.sources[0]!.policyIds, ['first']);
   assert.equal(projected.sources[0]!.policyCount, 1);
-});
-
-test('coverage copies declared, covered and uncovered arrays in both directions', () => {
-  const source = coverage();
-  source.blocks[0]!.coveredBy = ['coverage'];
-  const projected = projectAcceptanceTargets(source);
-  assert.deepEqual(projected.targets[0], {
-    id: 'block', declaredAcceptance: ['declared'], coveredBy: ['coverage'], uncovered: true,
-    declaredAcceptanceCount: 1, coveredByCount: 1
-  });
-  source.blocks[0]!.declaredAcceptance.push('later');
-  source.blocks[0]!.coveredBy.push('later-coverage');
-  source.uncoveredBlocks.length = 0;
-  source.blocks.push({ ...source.blocks[0]!, id: 'later' });
-  assert.equal(projected.targetCount, 1);
-  assert.deepEqual(projected.targets.map(value => value.id), ['block']);
-  assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declared']);
-  assert.deepEqual(projected.targets[0]!.coveredBy, ['coverage']);
-  assert.deepEqual(projected.uncoveredIds, ['block']); assert.equal(projected.uncoveredCount, 1);
-  assert.equal(projected.targets[0]!.declaredAcceptanceCount, 1);
-  assert.equal(projected.targets[0]!.coveredByCount, 1);
-  projected.targets[0]!.declaredAcceptance.push('projection-only');
-  projected.targets[0]!.coveredBy.push('projection-only');
-  projected.uncoveredIds.push('projection-only');
-  assert.deepEqual(source.blocks[0]!.declaredAcceptance, ['declared', 'later']);
-  assert.deepEqual(source.blocks[0]!.coveredBy, ['coverage', 'later-coverage']);
-  assert.deepEqual(source.uncoveredBlocks, []);
 });
 
 test('coverage summary and target fields use the same captured observations', () => {
@@ -113,17 +57,6 @@ test('coverage summary and target fields use the same captured observations', ()
   assert.equal(projected.coveredCount, 1); assert.equal(projected.targets[0]!.uncovered, false);
   assert.equal(projected.targets[0]!.declaredAcceptanceCount, projected.targets[0]!.declaredAcceptance.length);
   assert.equal(projected.targets[0]!.coveredByCount, projected.targets[0]!.coveredBy.length);
-});
-
-test('all runtime step details are copied, without freezing the provider result', () => {
-  const source = runtime(), projected = projectRuntimeInspection(source as RuntimeInput);
-  for (const key of ['build', 'unit', 'acceptance'] as const) {
-    source[key].passed.push('later'); source[key].failed.push('later');
-  }
-  assert.deepEqual(projected.steps.map(v => v.passed), [['one'], ['one'], ['one']]);
-  assert.deepEqual(projected.steps.map(v => [v.passedCount, v.failedCount]), [[1, 0], [1, 0], [1, 0]]);
-  projected.steps[0]!.failed.push('projection');
-  assert.deepEqual(source.build.failed, ['later']);
 });
 
 test('runtime getters are read once for each count/list pair', () => {
@@ -166,8 +99,4 @@ test('an absent generating pass displays none, not an empty string identity', ()
   assert.ok(absent.includes('Generated passes: none'));
   const mixed = formatProvenanceRegistry(projectProvenanceRegistryInspect({ artifacts: [artifact, { ...artifact, path: 'b', generatedByPass: 'emit' }] } as unknown as ProvenanceInput));
   assert.ok(mixed.includes('Generated passes: emit')); assert.ok(!mixed.includes('Generated passes: ,'));
-});
-
-test('manifest zero count presentation preserves the absence wording', () => {
-  assert.ok(formatCiArtifactManifest(projectCiArtifactManifest(manifest({}))).includes('Missing reasons: none'));
 });

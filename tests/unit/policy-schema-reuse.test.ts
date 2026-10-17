@@ -2,24 +2,19 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { buildLoadedPolicyScope, mergeLoadedPolicyDeclarations } from '../../src/semantics/policies/declarations.ts';
 import { POLICY_RULE_IDS } from '../../src/semantics/policies/rules.ts';
-import { PolicyRuleSchema, PolicySeveritySchema, PolicySpecSchema } from '../../src/semantics/policies/source-schema.ts';
+import { PolicyRuleSchema, PolicySpecSchema } from '../../src/semantics/policies/source-schema.ts';
 import type { PolicyRule, PolicySeverity, PolicySpec } from '../../src/semantics/policies/types.ts';
 
 const policy = () => ({ id: 'policy-reuse', severity: 'warn' as const,
   appliesTo: ['block/a', 'block/b'], rule: POLICY_RULE_IDS[0] });
 
-test('schema output keeps the public rule and spec types without a second shape', () => {
-  const rule: PolicyRule = PolicyRuleSchema.parse(policy());
-  const spec: PolicySpec = PolicySpecSchema.parse({ policies: [rule] });
-  const severity: PolicySeverity = PolicySeveritySchema.parse('warn');
-  assert.deepEqual(rule, policy()); assert.deepEqual(spec, { policies: [policy()] });
-  assert.equal(severity, 'warn');
-});
-
 test('decoding preserves every supported severity and rule identity', () => {
-  for (const severity of ['info', 'warn', 'error', 'blocker']) for (const rule of POLICY_RULE_IDS) {
+  for (const severity of ['info', 'warn', 'error', 'blocker'] as const) for (const rule of POLICY_RULE_IDS) {
     const input = { ...policy(), severity, rule };
-    assert.deepEqual(PolicyRuleSchema.parse(input), input);
+    const decoded: PolicyRule = PolicyRuleSchema.parse(input);
+    const decodedSeverity: PolicySeverity = decoded.severity;
+    assert.deepEqual(decoded, input);
+    assert.equal(decodedSeverity, severity);
   }
 });
 
@@ -37,7 +32,7 @@ for (const fields of [
 test('canonical-equal duplicate declarations remain legal inputs, not conflicts', () => {
   const repeated = policy();
   const input = { policies: [repeated, structuredClone(repeated)] };
-  const decoded = PolicySpecSchema.parse(input);
+  const decoded: PolicySpec = PolicySpecSchema.parse(input);
   assert.equal(decoded.policies.length, 2);
   assert.deepEqual(decoded, input);
 });
@@ -66,16 +61,6 @@ test('empty declared policy set stays legal but omitted or null containers are n
   }
 });
 
-test('equal cross-scope policies preserve every source and project attribution', () => {
-  const official = buildLoadedPolicyScope('official', [{ sourcePath: 'official.yaml', spec: { policies: [policy()] } }]);
-  const project = buildLoadedPolicyScope('project', [{ sourcePath: 'project.yaml', spec: { policies: [policy()] } }]);
-  const result = mergeLoadedPolicyDeclarations(official, project);
-  assert.deepEqual(result.policies, [policy()]);
-  assert.equal(result.definitions.get(policy().id)?.sourceScope, 'project');
-  assert.deepEqual(result.official.sources, [{ path: 'official.yaml', policyIds: [policy().id] }]);
-  assert.deepEqual(result.project.sources, [{ path: 'project.yaml', policyIds: [policy().id] }]);
-});
-
 for (const change of [{ severity: 'info' as const }, { appliesTo: ['block/a'] }]) {
   test(`source precedence cannot weaken the same policy: ${JSON.stringify(change)}`, () => {
     const original = policy(), changed = { ...policy(), ...change };
@@ -86,10 +71,3 @@ for (const change of [{ severity: 'info' as const }, { appliesTo: ['block/a'] }]
     }
   });
 }
-
-test('different policy identities still coexist with independent scopes', () => {
-  const official = buildLoadedPolicyScope('official', [{ sourcePath: 'official.yaml', spec: { policies: [policy()] } }]);
-  const different = { ...policy(), id: 'another-policy', severity: 'error' as const };
-  const project = buildLoadedPolicyScope('project', [{ sourcePath: 'project.yaml', spec: { policies: [different] } }]);
-  assert.deepEqual(mergeLoadedPolicyDeclarations(official, project).policyIds, ['another-policy', 'policy-reuse']);
-});

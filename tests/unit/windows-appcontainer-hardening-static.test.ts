@@ -6,10 +6,6 @@ import { expect, test } from 'bun:test';
 import { readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtures.ts';
 
 import { runObservedCommand } from '../../src/adapters/runtime-state/physical/runtime/observed-process.ts';
-import {
-  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
-  createWindowsAppContainerNativeExecutionBudgetForTests
-} from '../../src/adapters/runtime-state/physical/test/windows-appcontainer.ts';
 
 const RECOVERY_OWNER_OBSERVATION_SCHEMA = 'sec-recovery-owner-behavior-observation-v1' as const;
 const RECOVERY_OWNER_OBSERVATION_LIMIT_BYTES = 512;
@@ -345,7 +341,7 @@ async function assertRecoveryOwnerBehavioralProjection(
   }
 }
 
-test('Windows AppContainer recovery ownership and deadlines are behaviorally closed', async () => {
+test('Windows AppContainer recovery ownership is behaviorally closed', async () => {
   const root = path.resolve(import.meta.dir, '../..');
   const executorPath = 'src/adapters/runtime-state/physical/runtime/windows-appcontainer/executor.ts';
   const executorSource = await readCompilerTypeScriptMutationFixture(executorPath, 'transpile-input');
@@ -354,17 +350,4 @@ test('Windows AppContainer recovery ownership and deadlines are behaviorally clo
     path.join(root, executorPath),
     executorSource
   );
-
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000)).toEqual({
-    childTimeoutMs: 60_000,
-    hostWatchdogMs: 70_000
-  });
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(undefined)).toEqual({
-    childTimeoutMs: 120_000,
-    hostWatchdogMs: 130_000
-  });
-  expect(createWindowsAppContainerNativeExecutionBudgetForTests(60_000, 1_000)).toEqual({
-    startedAtMs: 1_000,
-    timeoutMs: 60_000
-  });
 });

@@ -47,6 +47,8 @@ describe('CI artifact manifest presentation boundary', () => {
     expect(reasons).toMatch(/\bdeclared-generated-missing=1(?=$|[\s;,()])/u);
     expect(reasons).toMatch(/\bfixed-governance-missing=2(?=$|[\s;,()])/u);
     expect(reasons).not.toContain('zero-reason');
+    const emptyReasons = formatCiArtifactManifest(projectCiArtifactManifest(source({ 'zero-reason': 0 })));
+    expect(emptyReasons).toMatch(/Missing reasons\W+none(?=$|[\s;,()])/u);
     const groups = text.split('\n').find((line) => /^Upload groups\b/u.test(line));
     expect(groups).toMatch(/\bgovernance=1(?=$|[\s;,()])/u);
     expect(groups).toMatch(/\btest=2(?=$|[\s;,()])/u);

@@ -29,6 +29,7 @@ test('policy sources routes retained policy evidence through application and ent
     const view = projectPolicySources(source);
 
     source.official.sources[0]!.policyIds.push('later');
+    source.project.sources[0]!.policyIds.length = 0;
     expect(view).toEqual({
       status: 'passed',
       sourceCount: 3,
@@ -47,6 +48,8 @@ test('policy sources routes retained policy evidence through application and ent
       'Source official; path=z; policies=official:z',
       'Source project; path=b; policies=project:b'
     ].join('\n'));
+    view.sources[1]!.policyIds.push('projection-only');
+    expect(source.official.sources[0]!.policyIds).toEqual(['official:z', 'later']);
   }
   await withTempWorkspace(async (workspaceRoot) => {
     const report = {

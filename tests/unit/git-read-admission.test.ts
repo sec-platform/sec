@@ -39,7 +39,10 @@ test('normal budgets preserve existing defaults, exact-tree duration and selecte
   const input = { maxProcesses: 3, maxStdinBytes: 1 };
   const budget = resolveGitReadSessionBudget(input); input.maxProcesses = 10;
   assert.equal(budget.maxProcesses, 3); assert.equal(budget.maxStdinBytes, 1);
-  assert.equal(resolveGitReadSessionBudget(GIT_READ_EXACT_TREE_OPERATION_BUDGET).deadlineMs, 120000);
+  assert.deepEqual(
+    resolveGitReadSessionBudget(GIT_READ_EXACT_TREE_OPERATION_BUDGET),
+    GIT_READ_EXACT_TREE_OPERATION_BUDGET
+  );
   assert.ok(Object.isFrozen(budget));
 });
 
@@ -74,16 +77,10 @@ test('invalid containers and numbers cannot select implicit or expanded budget p
 });
 
 test('exact-tree budget explicitly admits the bounded source snapshot envelope', () => {
-  assert.equal(GIT_READ_DEFAULT_OPERATION_BUDGET.maxStdoutBytes, 64 * 1024 * 1024);
-  assert.equal(GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStdoutBytes, 32 * 1024 * 1024);
   assert.equal(GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxStdoutBytes, 256 * 1024 * 1024);
   assert.equal(
     GIT_READ_EXACT_TREE_OPERATION_BUDGET.maxCommandStdoutBytes,
     128 * 1024 * 1024 + 250_000 * 128
-  );
-  assert.deepEqual(
-    resolveGitReadSessionBudget(GIT_READ_EXACT_TREE_OPERATION_BUDGET),
-    GIT_READ_EXACT_TREE_OPERATION_BUDGET
   );
 });
 

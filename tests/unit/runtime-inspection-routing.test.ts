@@ -11,9 +11,9 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 test('runtime inspection routes text through application and entry while preserving both JSON contracts', async () => {
   const report = {
     status: 'failed',
-    build: { status: 'passed', passed: ['build:a'], failed: [], command: 'bun run build' },
+    build: { status: 'passed', passed: ['build:a'], failed: [] as string[], command: 'bun run build' },
     unit: { status: 'failed', passed: ['unit:a'], failed: ['unit:b'], command: 'bun test' },
-    acceptance: { status: 'skipped', passed: [], failed: [], command: null },
+    acceptance: { status: 'skipped', passed: [] as string[], failed: [] as string[], command: null },
     logs: { stdout: 'out', stderr: 'err' }
   };
 
@@ -26,10 +26,13 @@ test('runtime inspection routes text through application and entry while preserv
   };
   const view = projectRuntimeInspection(source);
 
-  source.build.passed.push('later');
   source.unit.failed.length = 0;
+  for (const key of ['build', 'unit', 'acceptance'] as const) {
+    source[key].passed.push('later');
+    source[key].failed.push('later');
+  }
 
-  expect(view).toEqual({
+  const expectedView = {
     status: 'failed',
     stepCount: 3,
     passedCount: 1,
@@ -64,7 +67,10 @@ test('runtime inspection routes text through application and entry while preserv
         failed: []
       }
     ]
-  });
+  };
+  expect(view).toEqual(expectedView);
+  view.steps[0]!.failed.push('projection-only');
+  expect(source.build.failed).toEqual(['later']);
   const expectLine = (stdout: string, prefix: string, markers: readonly string[]) => {
     const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     const identity = new RegExp(`^\\s*${escape(prefix)}(?=$|[\\s;,])`, 'u');
@@ -97,6 +103,6 @@ test('runtime inspection routes text through application and entry while preserv
       expectLine(stepsText.stdout, `${label.toLowerCase()}: ${status}`, markers);
     }
     const stepsJson = await expectCliJson<typeof view>(workspaceRoot, ['runtime', 'steps', '--json']);
-    expect(stepsJson).toEqual(view);
+    expect(stepsJson).toEqual(expectedView);
   });
 });
