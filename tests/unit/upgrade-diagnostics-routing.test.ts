@@ -10,25 +10,51 @@ import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('upgrade diagnostics routing uses application projection and entry rendering without changing JSON authority', async () => {
+  const diagnostics = buildUpgradeDiagnostics({
+    details: {
+      migrationId: 'mig-target-escape',
+      migrationKind: 'file-replace',
+      path: '../outside-project.md',
+      role: 'target'
+    }
+  });
+  const originalDiagnostics = structuredClone(diagnostics);
+  const view = projectUpgradeDiagnostics(diagnostics);
+
+  expect(view).toEqual({
+    phase: 'planning',
+    blockId: 'private/block-upgrade',
+    targetVersion: '0.2.0',
+    status: 'blocked',
+    failedCheck: 'migration-targets',
+    errorCode: 'UPGRADE-MIGRATION-004',
+    message: 'Migration path "../outside-project.md" escapes project root',
+    attribution: [
+      'migration=mig-target-escape',
+      'kind=file-replace',
+      'target=../outside-project.md'
+    ]
+  });
+  const expectedText = [
+    'Upgrade diagnostics planning',
+    'Block: private/block-upgrade; target: 0.2.0; status: blocked',
+    'Failed check: migration-targets; code: UPGRADE-MIGRATION-004',
+    'Message: Migration path "../outside-project.md" escapes project root',
+    'Attribution: migration=mig-target-escape, kind=file-replace, target=../outside-project.md'
+  ].join('\n');
+  expect(formatUpgradeDiagnostics(view)).toBe(expectedText);
+
   await withTempWorkspace(async (workspaceRoot) => {
-    const diagnostics = buildUpgradeDiagnostics({
-      details: {
-        migrationId: 'mig-target-escape',
-        migrationKind: 'file-replace',
-        path: '../outside-project.md',
-        role: 'target'
-      }
-    });
     const diagnosticsPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics);
-    await writeJson(diagnosticsPath, diagnostics);
+    await writeJson(diagnosticsPath, originalDiagnostics);
 
     await expectCliSuccess(
       workspaceRoot,
       ['upgrade', 'diagnostics'],
-      `${formatUpgradeDiagnostics(projectUpgradeDiagnostics(diagnostics))}\n`
+      `${expectedText}\n`
     );
 
     const json = await expectCliJson(workspaceRoot, ['upgrade', 'diagnostics', '--json']);
-    expect(json).toEqual(diagnostics);
+    expect(json).toEqual(originalDiagnostics);
   }, 'upgrade-diagnostics-routing-');
 });

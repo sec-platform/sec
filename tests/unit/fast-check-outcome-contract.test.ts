@@ -71,12 +71,19 @@ test('one rejection with a successful peer retains the exact original thrown val
 });
 
 test('two rejecting checks preserve both values even when both values are undefined', async () => {
-  const { stages } = fixture({ documentation: async () => { throw undefined; }, types: async () => { throw undefined; } });
-  await assert.rejects(executeFastCheckStages(stages), error => {
-    assert.ok(error instanceof AggregateError);
-    assert.deepEqual(error.errors, [undefined, undefined]);
-    return true;
-  });
+  for (const second of [undefined, new Error('types')]) {
+    const { stages, events } = fixture({
+      documentation: async () => { throw undefined; },
+      types: async () => { throw second; }
+    });
+    await assert.rejects(executeFastCheckStages(stages), error => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [undefined, second]);
+      assert.equal(error.cause, undefined);
+      return true;
+    });
+    assert.equal(events.includes('tests'), false);
+  }
 });
 
 test('a synchronous exception does not prevent the other selected parallel check from starting', async () => {
@@ -88,29 +95,36 @@ test('a synchronous exception does not prevent the other selected parallel check
 });
 
 test('mixed failures wait for the still-running peer before leaving the operation', async () => {
-  let release!: () => void;
-  let enter!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; });
-  const started = new Promise<void>(resolve => { enter = resolve; });
-  const reason = new Error('first');
-  const { stages } = fixture({
-    documentation: async () => { throw reason; },
-    types: async () => { enter(); await held; return 29; }
-  });
-  let settled = false;
-  const pending = executeFastCheckStages(stages).finally(() => { settled = true; });
-  const checked = assert.rejects(pending, error => {
-    assert.ok(error instanceof AggregateError);
-    assert.equal(error.errors[0], reason);
-    assert.equal(error.errors[1].exitCode, 29);
-    return true;
-  });
-  try {
-    await started;
-    await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(settled, false);
-  } finally { release(); }
-  await checked;
+  for (const [peerExitCode, message] of [[0, 'docs'], [29, 'first']] as const) {
+    let release!: () => void;
+    let enter!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { enter = resolve; });
+    const reason = new Error(message);
+    const { stages, events } = fixture({
+      documentation: async () => { throw reason; },
+      types: async () => { enter(); await held; return peerExitCode; }
+    });
+    let settled = false;
+    const pending = executeFastCheckStages(stages).finally(() => { settled = true; });
+    const checked = assert.rejects(pending, error => {
+      if (peerExitCode === 0) {
+        assert.equal(error, reason);
+      } else {
+        assert.ok(error instanceof AggregateError);
+        assert.equal(error.errors[0], reason);
+        assert.equal(error.errors[1].exitCode, peerExitCode);
+      }
+      return true;
+    });
+    try {
+      await started;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      assert.equal(settled, false, `peer exit code: ${peerExitCode}`);
+    } finally { release(); }
+    await checked;
+    assert.equal(events.includes('tests'), false, `peer exit code: ${peerExitCode}`);
+  }
 });
 
 test('ordinary completed failures retain documentation priority and successful runs reach tests once', async () => {

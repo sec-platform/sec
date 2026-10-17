@@ -16,15 +16,17 @@ const budgetFailure = (error: unknown) => (error as { code: string }).code === '
 test('the actual install entrypoint fixes argv before commit and clock callbacks', async () => fixture(async root => {
   const args = ['install', '--frozen-lockfile'];
   let count = 0;
+  let commitCount = 0;
   const result = await runBunInstall(root, {
     monotonicNowMs: () => { args[0] = 'clock-replaced'; return 0; },
-    beforeCommit: async () => { args[1] = 'fence-replaced'; },
+    beforeCommit: async () => { commitCount++; args[1] = 'fence-replaced'; },
     testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
       count++; assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
       assert.ok(Object.isFrozen(request.args)); return success;
     })
   }, args);
-  assert.equal(count, 1); assert.deepEqual(result, { packageManager: 'bun', result: success });
+  assert.equal(count, 1); assert.ok(commitCount > 0);
+  assert.deepEqual(result, { packageManager: 'bun', result: success });
 }));
 
 test('a commit callback cannot retarget the selected materialization capability or later fences', async () => fixture(async root => {
@@ -78,11 +80,17 @@ for (const place of ['commit', 'input'] as const) {
   }));
 }
 
-for (const args of [[undefined], [7], ['nul\0arg'], new Array(1)] as unknown[]) {
-  test(`invalid argv ${JSON.stringify(args)} is refused before any fence`, async () => fixture(async root => {
-    await assert.rejects(runBunInstall(root, { beforeCommit: async () => assert.fail('premature effect') }, args as string[]), budgetFailure);
-  }));
-}
+test('all invalid argv classes are refused before any fence', async () => {
+  for (const [index, args] of ([[undefined], [7], ['nul\0arg'], new Array(1)] as unknown[]).entries()) {
+    await fixture(async root => {
+      await assert.rejects(
+        runBunInstall(root, { beforeCommit: async () => assert.fail('premature effect') }, args as string[]),
+        budgetFailure,
+        `invalid argv case ${index}: ${JSON.stringify(args)}`
+      );
+    });
+  }
+});
 
 test('an argument accessor is never invoked during input admission', async () => fixture(async root => {
   const args: string[] = [];
@@ -115,6 +123,29 @@ test('offline command spelling remains intact and uses the captured absolute con
 }));
 
 test('nonzero fixture result is an execution failure with its output retained', async () => fixture(async root => {
+  await fixture(async successRoot => {
+    // The retired smoke test admitted a normal success with the real default
+    // clock. Keep that distinct input and its bounded request in this owner.
+    let successfulCalls = 0;
+    let commitCalls = 0;
+    const completed = await runBunInstall(successRoot, {
+      lockTimeoutMs: 5_000,
+      beforeCommit: async () => { commitCalls++; },
+      testMaterialization: issueRuntimeDependencyTestMaterialization(async request => {
+        successfulCalls++;
+        assert.deepEqual(request.args, ['install', '--frozen-lockfile']);
+        assert.equal(request.cwd, successRoot);
+        assert.ok(request.timeoutMs > 0 && request.timeoutMs <= 5_000);
+        return { code: 0, stdout: 'materialized', stderr: '' };
+      })
+    }, ['install', '--frozen-lockfile']);
+    assert.deepEqual(completed, {
+      packageManager: 'bun', result: { code: 0, stdout: 'materialized', stderr: '' }
+    });
+    assert.equal(successfulCalls, 1);
+    assert.ok(commitCalls > 0);
+  });
+
   const result = { code: 17, stdout: 'partial', stderr: 'failed' };
   await assert.rejects(runBunInstall(root, {
     testMaterialization: issueRuntimeDependencyTestMaterialization(async () => result)

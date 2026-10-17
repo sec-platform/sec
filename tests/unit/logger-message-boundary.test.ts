@@ -8,15 +8,15 @@ const invalidMessages: ReadonlyArray<readonly [string, unknown]> = [
   ['bigint', 1n], ['symbol', Symbol('message')], ['function', () => {}],
   ['array', []], ['record', {}], ['boxed string', new String('not primitive')]
 ];
-for (const [name, message] of invalidMessages) {
-  test(`rejects a non-string ${name} message before it can replace the canonical msg field`, () => {
+test('all non-string message classes reject without replacing the canonical msg field', () => {
+  for (const [name, message] of invalidMessages) {
     assert.throws(() => buildJsonLogRecord('info', message as never, undefined, 0), (error: unknown) => {
       assert.equal((error as { code: string }).code, 'LOGGING-RECORD-001');
       assert.match((error as Error).message, /message must be a string/);
       return true;
-    });
-  });
-}
+    }, `message class: ${name}`);
+  }
+});
 
 test('invalid messages are rejected without coercion, serialization, or metadata access', () => {
   let hooks = 0;
@@ -41,16 +41,16 @@ test('a revoked proxy message is rejected without reading proxy properties', () 
   });
 });
 
-for (const message of ['', 'normal', 'line\nbreak', '\u0000', '中文 😀', '\ud800']) {
-  test(`preserves a valid primitive string message ${JSON.stringify(message)}`, () => {
+test('all primitive string message classes preserve exact bytes and reserved-field priority', () => {
+  for (const message of ['', 'normal', 'line\nbreak', '\u0000', '中文 😀', '\ud800']) {
     const record = buildJsonLogRecord('info', message, { tag: 'kept', msg: 'forged' }, 123);
     assert.equal(Object.getPrototypeOf(record), null);
     assert.equal(Object.isFrozen(record), true);
-    assert.equal(record.msg, message);
+    assert.equal(record.msg, message, `message: ${JSON.stringify(message)}`);
     assert.equal(record.tag, 'kept');
-    assert.deepEqual(JSON.parse(JSON.stringify(record)), { tag: 'kept', level: 20, time: 123, msg: message });
-  });
-}
+    assert.deepEqual(JSON.parse(JSON.stringify(record)), { tag: 'kept', level: 20, time: 123, msg: message }, `message: ${JSON.stringify(message)}`);
+  }
+});
 
 test('a filtered-out message is still lazy and does not read its metadata', () => {
   let reads = 0;

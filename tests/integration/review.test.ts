@@ -1,10 +1,11 @@
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { projectReviewDiagnostics } from '../../src/application/review-diagnostics-inspect.ts';
 import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -205,7 +206,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     };
     await writeJson(reviewSummaryPath, reviewSummary);
 
-    await expectCliVariants(workspaceRoot, ['review'], {
+    const reviewVariants = await expectCliVariants(workspaceRoot, ['review'], {
       text: [
         'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
         'CI attention; failures=1; risks=2; conflicts=1',
@@ -240,8 +241,11 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         chainSummary: { status: 'attention' }
       }
     });
+    // Protect the complete persisted JSON contract, not only representative fields.
+    expect(reviewVariants.json).toEqual(reviewSummary);
+    expect(reviewVariants.compactJson).toEqual(reviewSummary);
 
-    await expectCliVariants(workspaceRoot, ['review', 'diagnostics'], {
+    const diagnosticVariants = await expectCliVariants(workspaceRoot, ['review', 'diagnostics'], {
       text: [
         'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
         `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
@@ -266,5 +270,8 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         artifactPathCount: 1
       }
     });
+    const expectedDiagnostics = projectReviewDiagnostics(reviewSummary);
+    expect(diagnosticVariants.json).toEqual(expectedDiagnostics);
+    expect(diagnosticVariants.compactJson).toEqual(expectedDiagnostics);
   });
 });

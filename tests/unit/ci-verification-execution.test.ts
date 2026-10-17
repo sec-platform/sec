@@ -1808,8 +1808,7 @@ test('trusted dependency archive projection binds one stable physical generation
   })).toThrow(/ancestor/u);
 });
 
-test('linux retained bootstrap archive relocates dependency links without mutating source', () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('linux retained bootstrap archive relocates dependency links without mutating source', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dependency-archive-'));
   const candidateRoot = path.join(root, 'candidate');
   const dependencyRoot = path.join(root, 'node_modules');

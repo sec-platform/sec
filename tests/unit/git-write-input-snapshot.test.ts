@@ -47,7 +47,8 @@ test('commit digest preserves the prior canonical JSON domain for ordinary value
 test('commit policy still rejects noncanonical identities, signatures, roots and parent bindings', () => {
   for (const change of [{ signing: 'enabled' }, { hooks: 'enabled' }, { expectedOld: target }, { tree: 'a'.repeat(41) },
     { parents: [] }, { parents: [parent, target] }, { ref: 'HEAD' }, { repositoryRoot: './relative' },
-    { target: target.toUpperCase() }, { preflightReceiptDigest: 'unknown' }, { message: 'a\0b' }]) {
+    { target: target.toUpperCase() }, { preflightReceiptDigest: 'unknown' },
+    { preflightReceiptDigest: `blake3:${'d'.repeat(64)}` }, { message: 'a\0b' }]) {
     assert.equal(captureGitDevelopmentCommitContract({ ...commit(), ...change } as never), null);
   }
   for (const date of ['-1 +0000', '00 +0000', '0 +1460', '0 +1401', '0 +0060', '0 +1500']) {

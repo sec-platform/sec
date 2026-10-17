@@ -95,10 +95,13 @@ test('resolution and terminal receipt surfaces contain no semantic or effect aut
   }
 });
 
-test('ready physical session exports no raw Git or GitHub command capability', async () => {
-  if (process.platform !== 'win32' || process.arch !== 'x64') return;
+test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')('ready physical session exports no raw Git or GitHub command capability', async () => {
   const resolution = resolveWindowsControlCliSession(request());
-  if (resolution.status !== 'ready') return;
+  // Platform eligibility does not imply that the installed provider was admitted.
+  // A non-ready result cannot count as a PASS for the ready-session contract.
+  if (resolution.status !== 'ready') {
+    throw new Error(`Windows control CLI ready-session qualification unavailable: ${resolution.status}; ${resolution.reason}`);
+  }
   expect(Object.hasOwn(resolution.session, 'run')).toBe(false);
   expect(Object.keys(resolution.session)).not.toContain('command');
   const retiredCommandFields = [

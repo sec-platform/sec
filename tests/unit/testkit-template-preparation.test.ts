@@ -22,18 +22,22 @@ test('independent template kinds do not block one another', async () => {
 });
 
 test('failure is shared exactly and retired so an explicitly retried preparation may succeed', async () => {
-  for (const reason of [undefined, null, false, 0, new Error('prepare')]) {
+  const cases = [
+    ...[undefined, null, false, 0, new Error('prepare')].map(reason => ({ reason, synchronous: false })),
+    { reason: new Error('sync'), synchronous: true }
+  ];
+  for (const { reason, synchronous } of cases) {
     let fail = true;
-    const prepare = createTemplatePreparation(async () => { if (fail) throw reason; return 'recovered'; });
-    const a = prepare('kind'), b = prepare('kind'); assert.equal(a, b);
-    await assert.rejects(a, error => error === reason);
-    fail = false; assert.equal(await prepare('kind'), 'recovered');
+    const prepare = createTemplatePreparation(synchronous
+      ? () => { throw reason; }
+      : async () => { if (fail) throw reason; return 'recovered'; });
+    const a = prepare('kind'), b = prepare('kind');
+    const context = `${synchronous ? 'synchronous' : 'asynchronous'}: ${String(reason)}`;
+    assert.equal(a, b, context);
+    await assert.rejects(a, error => error === reason, context);
+    if (!synchronous) {
+      fail = false;
+      assert.equal(await prepare('kind'), 'recovered', context);
+    }
   }
-});
-
-test('synchronous preparation exceptions enter the same joined failure lifecycle', async () => {
-  const reason = new Error('sync');
-  const prepare = createTemplatePreparation(() => { throw reason; });
-  const a = prepare('kind'), b = prepare('kind'); assert.equal(a, b);
-  await assert.rejects(a, error => error === reason);
 });

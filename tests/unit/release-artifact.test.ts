@@ -306,8 +306,7 @@ test('exact Git source disables replacement-object views', async () => {
   }
 });
 
-test('release source rejects a Git symlink mode before materialization', async () => {
-  if (process.platform === 'win32') return;
+test.skipIf(process.platform === 'win32')('release source rejects a Git symlink mode before materialization', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-symlink-tree-'));
   try {
     await initRepository(repositoryRoot);

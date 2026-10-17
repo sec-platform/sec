@@ -467,8 +467,7 @@ test('nested MainHealth sessions still reuse a live outer budget without replaci
 });
 
 
-test('historical files and constructed receipts cannot replace live production qualification', async () => {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('historical files and constructed receipts cannot replace live production qualification', async () => {
   const repositoryRoot = process.cwd();
   const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-state-'));
   const cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-main-health-cache-'));

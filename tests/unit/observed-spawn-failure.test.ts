@@ -102,8 +102,7 @@ test('before-spawn rejection remains distinct from native spawn failure', async 
   });
 });
 
-test('Windows CreateProcess failure reports its native owner phase and code', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows CreateProcess failure reports its native owner phase and code', async () => {
   const missingExecutable = path.join(os.tmpdir(), `sec-missing-${randomUUID()}`, 'missing.exe');
   const outcome = await runObservedCommand(missingExecutable, [], {
     cwd: process.cwd(), maxObservedOutputBytes: 0,

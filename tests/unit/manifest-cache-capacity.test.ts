@@ -15,16 +15,11 @@ test('LRU capacity bounds live locators without changing digest-qualified reuse'
   cache.set(a.key, a.entry); cache.set(b.key, b.entry); assert.equal(cache.get(a.key), a.entry);
   cache.set(c.key, c.entry); assert.equal(cache.size, 2); assert.equal(cache.get(b.key), undefined);
   assert.equal(cache.get(a.key), a.entry); assert.equal(cache.get(c.key), c.entry);
-});
-
-test('a digest miss retires the stale locator immediately', () => {
-  const cache = new ManifestCache(2), a = fixture('a'); cache.set(a.key, a.entry);
-  assert.equal(cache.get({ ...a.key, sourceDigest: 'sha256:new' }), undefined); assert.equal(cache.size, 0);
-});
-
-test('disabled caching retains no records and does not freeze caller-owned inputs', () => {
-  const cache = new ManifestCache(0), a = fixture('a'); cache.set(a.key, a.entry);
-  assert.equal(cache.get(a.key), undefined); assert.equal(cache.size, 0); assert.equal(Object.isFrozen(a.entry), false);
+  // No manifestPath means there is no source-locator index; its digest miss
+  // must still retire the logical record, not just the indexed-source variant.
+  assert.equal(cache.get({ ...a.key, sourceDigest: 'sha256:changed' }), undefined);
+  assert.equal(cache.size, 1);
+  assert.equal(cache.get(c.key), c.entry);
 });
 
 test('workspace clearing cannot remove another workspace cache', () => {

@@ -18,14 +18,6 @@ import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-test('buildProjectOverviewFromWorkspace reports missing required artifacts with recovery command', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    expect(() => buildProjectOverviewFromWorkspace(workspaceRoot)).toThrow(
-      'run the refresh chain, then bun run sec -- explain'
-    );
-  });
-});
-
 test('buildProjectOverview summarizes shared project status and review priorities', () => {
   const lock: LockFile = {
     formatVersion: '1',

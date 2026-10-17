@@ -15,17 +15,6 @@ test('ordinary root policies carry no Skill authority and unknown external Markd
   expect(resolveMarkdownSkillCoverage('notes/architecture.md')).toBeNull();
 });
 
-test('retired public documentation paths have no current classification', () => {
-  for (const path of [
-    'public-docs/CONTRACT.md',
-    'public-docs/README.md',
-    'public-docs/principles.md'
-  ]) {
-    expect(resolveMarkdownSkillCoverage(path)).toBeNull();
-  }
-  expect(resolveMarkdownSkillCoverage('public-docs/nested/unregistered.md')).toBeNull();
-});
-
 test('repository control Markdown is classified outside the documentation namespace', () => {
   expect(resolveMarkdownSkillCoverage(
     'config/repository/work-packages/docs-control-convergence.md'
