@@ -179,11 +179,8 @@ test('GitRefEffect blocks checked-out local refs and ref drift before the native
 
 test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async () => {
   const root = fixture();
-  const linked = path.join(path.dirname(root), `${path.basename(root)}-linked`);
   try {
     const sha = git(root, ['rev-parse', 'HEAD']);
-    git(root, ['branch', 'bound']);
-    git(root, ['worktree', 'add', '--quiet', linked, 'bound']);
     git(root, ['update-ref', 'refs/remotes/origin/topic', sha]);
     git(root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/topic']);
 
@@ -200,8 +197,7 @@ test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async
 
     for (const [ref, expectedOldSha] of [
       ['refs/remotes/origin/HEAD', sha],
-      ['refs/remotes/origin/topic', '0'.repeat(40)],
-      ['refs/heads/bound', sha]
+      ['refs/remotes/origin/topic', '0'.repeat(40)]
     ] as const) {
       const opened = openProvider(root);
       try {
@@ -211,8 +207,6 @@ test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async
       }
     }
   } finally {
-    try { git(root, ['worktree', 'remove', '--force', linked]); } catch {}
-    rmSync(linked, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

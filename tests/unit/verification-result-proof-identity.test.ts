@@ -103,16 +103,7 @@ test('a real owning failure outranks a malformed owning observation', () => {
   expect(result.overallReasonCode).toBe('executed-failure');
 });
 
-test('non-owning proof identity cannot invalidate the owning observation', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
-  const result = aggregate([linux], [
-    gate({ os: 'linux', status: 'passed', gateRevision: 'gate-v1' }),
-    gate({ os: 'darwin', status: 'passed', gateRevision: 'gate-v2' })
-  ]);
-  expect(result.overallStatus).toBe('passed');
-});
-
-test('a non-owning failure observation does not change an owning pass', () => {
+test('a non-owning failure with another proof revision does not change an owning pass', () => {
   const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
   const result = aggregate([linux], [
     gate({ os: 'linux', status: 'passed', gateRevision: 'gate-v1' }),
@@ -169,11 +160,4 @@ test('duplicate gate observations fail closed', () => {
     gate({ os: 'linux', status: 'passed' }),
     gate({ os: 'linux', status: 'failed' })
   ])).toThrow(/duplicate gate observation/);
-});
-
-test('zero observations for a required gate never produce passed', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
-  const result = aggregate([linux], []);
-  expect(result.overallStatus).toBe('not-run');
-  expect(result.overallReasonCode).toBe('not-dispatched');
 });

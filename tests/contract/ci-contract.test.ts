@@ -132,10 +132,10 @@ test('release verification resolves exactly one parent from the trusted default 
   const other = 'c'.repeat(40);
   const execute = async (input: Readonly<{
     parents: readonly string[]; commitSha?: string; defaultSha?: string; ref?: string;
-  }>, outputs: Map<string, string>) => {
+  }>, outputs: Map<string, string>, requestedRefs: string[]) => {
     await new AsyncFunction('github', 'context', 'core', script)({ rest: { repos: {
       getCommit: async (request: { ref: string }) => {
-        expect(request.ref).toBe(head);
+        requestedRefs.push(request.ref);
         return { data: { sha: input.commitSha ?? head, parents: input.parents.map((sha) => ({ sha })) } };
       },
       get: async () => ({ data: { default_branch: 'main' } }),
@@ -144,7 +144,9 @@ test('release verification resolves exactly one parent from the trusted default 
     { setOutput: (name: string, value: string) => outputs.set(name, value) });
   };
   const outputs = new Map<string, string>();
-  await execute({ parents: [base] }, outputs);
+  const requestedRefs: string[] = [];
+  await execute({ parents: [base] }, outputs, requestedRefs);
+  expect(requestedRefs).toEqual([head]);
   expect(Object.fromEntries(outputs)).toEqual({ sha: head, base });
   for (const input of [
     { parents: [] },
@@ -155,7 +157,9 @@ test('release verification resolves exactly one parent from the trusted default 
     { parents: [base], ref: 'refs/heads/other' }
   ]) {
     const rejectedOutputs = new Map<string, string>();
-    await expect(execute(input, rejectedOutputs)).rejects.toThrow();
+    const rejectedRefs: string[] = [];
+    await expect(execute(input, rejectedOutputs, rejectedRefs)).rejects.toThrow();
+    expect(rejectedRefs).toEqual([head]);
     expect(rejectedOutputs.size).toBe(0);
   }
 });

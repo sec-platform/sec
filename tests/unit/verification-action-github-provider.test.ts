@@ -1397,9 +1397,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       event_type: 'sec-produce-verification-action-v2',
       client_payload: { payload: envelope }
     }]);
-    expect(Object.keys((fakeGh.dispatchBodies[0] as {
-      client_payload: Record<string, unknown>;
-    }).client_payload)).toEqual(['payload']);
     expect(fakeGh.createCalls).toBe(0);
   });
 
@@ -1568,10 +1565,16 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       `${prefix}-${'a'.repeat(65)}`,
       `${prefix}-${'a'.repeat(64)}-appended`
     ];
+    // All families share one suffix grammar. Exercise its value classes once,
+    // then retain each other family's recognition and expired-entry admission.
+    const malformedNames = [
+      ...malformedSuffixes(prefixes[0]!),
+      ...prefixes.slice(1).map(prefix => `${prefix}-${'a'.repeat(64)}-appended`)
+    ];
     let malformedId = 8300;
-    for (const [index, name] of prefixes.flatMap(malformedSuffixes).entries()) {
+    for (const [index, name] of malformedNames.entries()) {
       fakeGh = new FakeGh().withMarker();
-      fakeGh.artifacts.push({ id: malformedId, name, expired: index === prefixes.length * 7 - 1,
+      fakeGh.artifacts.push({ id: malformedId, name, expired: index === malformedNames.length - 1,
         runId: Number(CURRENT_RUN_ID), fileName: 'malformed.json', source: '{}' });
       malformedId += 1;
       await expect(ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } }))

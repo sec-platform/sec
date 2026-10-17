@@ -1,4 +1,4 @@
-import { access, cp, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -96,7 +96,7 @@ test('SM-3 transaction root binding rejects ancestor and transaction reparse ali
         transactionRoot,
         requestIdentityDigest
       )).rejects.toThrow('transaction root binding');
-      await expect(access(path.join(externalRoot, 'semantic-mutation')))
+      await expect(lstat(path.join(externalRoot, 'semantic-mutation')))
         .rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(externalRoot, { recursive: true, force: true });
@@ -516,9 +516,8 @@ test('SM-3 rejected terminals are immutable, ordered, non-destructive, and proje
       result,
       allowCommit
     )).toEqual(terminal);
-    expect(() => assertSemanticMutationRejectedTerminalRecordInvariant(terminal)).not.toThrow();
     await expect(access(`${transactionRoot}/records/000001-prepared.json`)).resolves.toBeNull();
-    await expect(access(`${transactionRoot}/original.backup`)).resolves.toBeNull();
+    expect(await readFile(`${transactionRoot}/original.backup`, 'utf8')).toBe('original');
 
     const pollutedIdentity = { ...identity, injected: 'must-not-escape' };
     const rejectedView = projectSemanticMutationRequestRecordView(terminal, pollutedIdentity);
@@ -531,7 +530,7 @@ test('SM-3 rejected terminals are immutable, ordered, non-destructive, and proje
     expect(Object.keys(rejectedView)).not.toContain('request');
     expect(Object.keys(rejectedView)).not.toContain('authorization');
     expect(Object.keys(rejectedView)).not.toContain('plan');
-    expect(Object.keys(rejectedView.identity)).toEqual(['graphId', 'appId', 'requestId']);
+    expect(new Set(Object.keys(rejectedView.identity))).toEqual(new Set(['graphId', 'appId', 'requestId']));
     expect(JSON.stringify(rejectedView)).not.toContain('must-not-escape');
     const activeView = projectSemanticMutationRequestRecordView(prepared);
     expect(activeView.recordKind).toBe('transaction');
@@ -678,7 +677,7 @@ test('SM-3 terminal allocator requires and advances one durable constant-I/O hea
     await writeFile(headPath(workspaceRoot), `${JSON.stringify(canonicalHead, null, 2)}\n`, 'utf8');
     await expect(writeRejected(workspaceRoot, 'head-corruption-must-not-publish'))
       .rejects.toThrow('sequence head content is invalid');
-    await expect(access(completionPath(workspaceRoot, 3))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(completionPath(workspaceRoot, 3))).rejects.toMatchObject({ code: 'ENOENT' });
   }, 'engineering-compiler-sm3-terminal-order-head-trust-');
 
   await withTempWorkspace(async (workspaceRoot) => {
@@ -996,8 +995,8 @@ test('SM-3 retention uses durable completion sequence across all retained termin
     expect(pruneProbes.every((event) => event.kind === 'completion-probe' &&
       event.reason === 'exact' && event.status === 'valid')).toBe(true);
 
-    await expect(access(oldestRejectedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(access(oldestVerifiedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(oldestRejectedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(oldestVerifiedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(newestRolledBackRoot)).resolves.toBeNull();
     await expect(access(newestVerifiedRoot)).resolves.toBeNull();
     await expect(access(activeRoot)).resolves.toBeNull();
@@ -1006,7 +1005,7 @@ test('SM-3 retention uses durable completion sequence across all retained termin
 }, 180_000);
 
 function expectTransition(source: string, from: string, to: string): void {
-  expect(source).toMatch(new RegExp(`["']?${from}["']?:\\s*["']${to}["']`));
+  expect(source).toMatch(new RegExp(`(?:^|[,{\\s])(?:["']${from}["']|${from})\\s*:\\s*["']${to}["']`));
 }
 
 test('ticket semantic contract lowers into the runtime transition contract', async () => {

@@ -347,7 +347,7 @@ async function prepareBridgeRecovery(input: Readonly<{
   return Object.freeze({ bridgePath, installIdentityFailure, pinnedBunVersion, sourcePath });
 }
 
-test('settles only the persisted current-Bun recovery premise without admitting a new install', async () => {
+test('preserves persisted Bun-drift recovery evidence and blocks a new install', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-bun-drift-'));
   try {
     const { installIdentityFailure } = await prepareBridgeRecovery({
@@ -556,7 +556,7 @@ test('accepts a native empty v2 namespace without legacy source or migration int
   }
 });
 
-test('coordination cutover locator survives an invocation-owned Runtime State environment', async () => {
+test.serial('coordination cutover locator survives an invocation-owned Runtime State environment', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-locator-'));
   const persistentState = `${root}-persistent-state`;
   const persistentCache = `${root}-persistent-cache`;
@@ -581,11 +581,8 @@ test('coordination cutover locator survives an invocation-owned Runtime State en
 
     expect(await readFile(marker)).toEqual(markerBytes);
     expect(await readFile(locator)).toEqual(locatorBytes);
-    expect(existsSync(path.join(
-      invocationState,
-      'workspaces',
-      'v1'
-    ))).toBe(false);
+    await expect(lstat(path.join(invocationState, 'workspaces', 'v1')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
     else process.env.SEC_STATE_HOME = previousStateHome;
@@ -599,7 +596,7 @@ test('coordination cutover locator survives an invocation-owned Runtime State en
   }
 });
 
-test('coordination migration preserves a foreign locator and its terminal guard', async () => {
+test.serial('coordination migration preserves a foreign locator and its terminal guard', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-locator-'));
   const persistentState = `${root}-persistent-state`;
   const persistentCache = `${root}-persistent-cache`;
@@ -629,7 +626,8 @@ test('coordination migration preserves a foreign locator and its terminal guard'
     expect(await readFile(lock)).toEqual(lockBytes);
     expect(await readFile(marker)).toEqual(markerBytes);
     expect(await readFile(locator)).toEqual(foreignLocator);
-    expect(existsSync(path.join(invocationState, 'workspaces', 'v1'))).toBe(false);
+    await expect(lstat(path.join(invocationState, 'workspaces', 'v1')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
     else process.env.SEC_STATE_HOME = previousStateHome;
@@ -865,7 +863,7 @@ test('coordination cutover rejects a same-lease pair with a foreign predecessor'
 
     await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
       .rejects.toThrow('invalid consumer chain');
-    expect(existsSync(marker)).toBe(false);
+    await expect(lstat(marker)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(path.join(consumers, acquiredName))).toEqual(acquiredBytes);
     expect(await readFile(path.join(consumers, releasedName))).toEqual(releasedBytes);
   } finally {
@@ -995,8 +993,8 @@ test('coordination handoff cleans its old lock when the final publication fence 
     await expect(migrateDependencyTransitionJournal(root, {
       beforeCommit: async () => { if (existsSync(lock)) throw failure; }, lockTimeoutMs: 30_000
     })).rejects.toBe(failure);
-    expect(existsSync(lock)).toBe(false);
-    expect(existsSync(`${lock}.reclaim`)).toBe(false);
+    await expect(lstat(lock)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(`${lock}.reclaim`)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });

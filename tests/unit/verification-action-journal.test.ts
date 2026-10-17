@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import type { VerificationActionKeyInput } from '../../src/execution/verification/action.ts';
@@ -213,7 +213,6 @@ test('diagnostic-bound journal append/readback validates lifecycle and digest ch
     expect(readback.events[1]!.previousDigest).toBe(readback.events[0]!.eventDigest);
     expect(readback.events[2]!.previousDigest).toBe(readback.events[1]!.eventDigest);
     expect(readback.filePath).toBe(path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY, `${key.actionKey.slice(7)}.jsonl`));
-    expect(readback.filePath).not.toContain('.tmp/codex');
     appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'invalidated' as const,
       recordedAt: at(4), note: 'input changed'
@@ -607,7 +606,7 @@ test('machine cutover inventories auxiliary-only static closure evidence without
       terminal: null,
       recoveryDisposition: null
     });
-    expect(existsSync(quarantineFile(stateRoot, key.actionKey))).toBe(false);
+    expect(lstatSync(quarantineFile(stateRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
     expect(readFileSync(auxiliary.closurePath, 'utf8')).toBe(closureBytes);
     expect(readFileSync(auxiliary.pointerPath, 'utf8')).toBe(pointerBytes);
   } finally {
@@ -667,12 +666,12 @@ test('machine cutover rejects malformed and foreign auxiliary-only static eviden
         expect(control).toBeNull();
         expect(readdirSync(receiptParent.path)).toEqual([]);
       }
-      expect(existsSync(path.join(
+      expect(lstatSync(path.join(
         stateRoot,
         VERIFICATION_ACTION_JOURNAL_DIRECTORY,
         VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-      ))).toBe(false);
-      expect(existsSync(quarantineFile(stateRoot, key.actionKey))).toBe(false);
+      ), { throwIfNoEntry: false })).toBeUndefined();
+      expect(lstatSync(quarantineFile(stateRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
     } finally {
       rmSync(stateRoot, { recursive: true, force: true });
     }
@@ -743,7 +742,7 @@ test('machine cutover consolidates identical workspace Action chains before glob
   }
 });
 
-test('machine cutover blocks active claims and divergent workspace chains without publishing a fence', () => {
+test('machine cutover blocks active claims and corrupt workspace chains before journal publication', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-cutover-blocked-'));
   try {
     const activeKey = action('machine-cutover-active');
@@ -757,7 +756,7 @@ test('machine cutover blocks active claims and divergent workspace chains withou
     }).disposition).toBe('acquired');
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
       .toThrow('unresolved physical claim');
-    expect(existsSync(quarantineFile(stateRoot, activeKey.actionKey))).toBe(false);
+    expect(lstatSync(quarantineFile(stateRoot, activeKey.actionKey), { throwIfNoEntry: false })).toBeUndefined();
     expect(readVerificationActionJournal(journalFs(stateRoot), activeKey.actionKey).latestState)
       .toBeNull();
 
@@ -778,7 +777,7 @@ test('machine cutover blocks active claims and divergent workspace chains withou
     const secondBytes = readFileSync(secondPath, 'utf8');
     writeFileSync(secondPath, secondBytes.replace(at(1), '2026-08-09T13:01:01.000Z'), 'utf8');
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
-      .toThrow(/digest mismatch|divergent journal chains/);
+      .toThrow('digest mismatch');
     expect(readVerificationActionJournal(journalFs(stateRoot), divergentKey.actionKey).latestState)
       .toBeNull();
   } finally {
@@ -804,16 +803,16 @@ test('machine cutover types an active Windows durable publication candidate and 
       expect((error as VerificationActionJournalError).kind).toBe('recovery-required');
       expect((error as Error).message).toContain('active physical mutation publication');
     }
-    expect(existsSync(path.join(
+    expect(lstatSync(path.join(
       stateRoot,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-    ))).toBe(false);
-    expect(existsSync(path.join(
+    ), { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(path.join(
       stateRoot,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
-    ))).toBe(false);
+    ), { throwIfNoEntry: false })).toBeUndefined();
 
     rmSync(candidatePath);
     expect(ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)).targetActionCount)
@@ -850,7 +849,7 @@ test('machine cutover exposes its exact double-dot receipt publication candidate
       expect((error as VerificationActionJournalError).kind).toBe('recovery-required');
       expect((error as Error).message).toEndWith('machine cutover mutation is contended.');
     }
-    expect(existsSync(receiptPath)).toBe(false);
+    expect(lstatSync(receiptPath, { throwIfNoEntry: false })).toBeUndefined();
     rmSync(candidatePath);
     expect(ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)).targetActionCount)
       .toBe(1);
@@ -881,7 +880,7 @@ test('machine cutover classifies same-lock dead and malformed publications from 
       expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
         .toThrow(candidateCase.expected);
       expect(existsSync(candidatePath)).toBeTrue();
-      expect(existsSync(receiptPath)).toBeFalse();
+      expect(lstatSync(receiptPath, { throwIfNoEntry: false })).toBeUndefined();
     } finally {
       rmSync(stateRoot, { recursive: true, force: true });
     }
@@ -947,16 +946,16 @@ test('machine cutover preserves stale, foreign, and malformed mutation publicati
       expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
         .toThrow(candidateCase.expected);
       expect(existsSync(candidatePath)).toBe(true);
-      expect(existsSync(path.join(
+      expect(lstatSync(path.join(
         stateRoot,
         VERIFICATION_ACTION_JOURNAL_DIRECTORY,
         VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-      ))).toBe(false);
-      expect(existsSync(path.join(
+      ), { throwIfNoEntry: false })).toBeUndefined();
+      expect(lstatSync(path.join(
         stateRoot,
         VERIFICATION_ACTION_JOURNAL_DIRECTORY,
         `${key.actionKey.slice(7)}.jsonl`
-      ))).toBe(false);
+      ), { throwIfNoEntry: false })).toBeUndefined();
     } finally {
       rmSync(stateRoot, { recursive: true, force: true });
     }
@@ -1007,11 +1006,11 @@ test('machine cutover quarantines an unbound legacy terminal and permanently blo
       state: 'queued',
       recordedAt: at(4)
     })).toThrow('legacy Action is quarantined');
-    expect(existsSync(`${path.join(
+    expect(lstatSync(`${path.join(
       stateRoot,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
-    )}.claim.json`)).toBe(false);
+    )}.claim.json`, { throwIfNoEntry: false })).toBeUndefined();
 
     const reused = ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot));
     expect(reused.receiptDigest).toBe(receipt.receiptDigest);
@@ -1022,11 +1021,11 @@ test('machine cutover quarantines an unbound legacy terminal and permanently blo
     writeFileSync(legacyPath, legacyBytes);
     expect(() => readVerificationActionJournal(journalFs(stateRoot), key.actionKey))
       .toThrow('legacy quarantine source evidence changed');
-    expect(existsSync(`${path.join(
+    expect(lstatSync(`${path.join(
       stateRoot,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
-    )}.claim.json`)).toBe(false);
+    )}.claim.json`, { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     rmSync(stateRoot, { recursive: true, force: true });
   }
@@ -1080,12 +1079,12 @@ test('machine cutover quarantines the exact retired process terminal binding and
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(rejectedRoot)))
       .toThrow('retired legacy terminal execution binding is invalid.');
     expect(readFileSync(retiredPath, 'utf8')).toBe(retiredBytes);
-    expect(existsSync(quarantineFile(rejectedRoot, key.actionKey))).toBe(false);
-    expect(existsSync(path.join(
+    expect(lstatSync(quarantineFile(rejectedRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(path.join(
       rejectedRoot,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
-    ))).toBe(false);
+    ), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     rmSync(rejectedRoot, { recursive: true, force: true });
   }
@@ -1128,7 +1127,7 @@ test('machine cutover quarantines only the exact retired input invalidation term
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(rejectedRoot)))
       .toThrow('legacy terminal status is invalid.');
     expect(readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
-    expect(existsSync(quarantineFile(rejectedRoot, key.actionKey))).toBe(false);
+    expect(lstatSync(quarantineFile(rejectedRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     rmSync(rejectedRoot, { recursive: true, force: true });
   }
@@ -1216,7 +1215,7 @@ test('machine cutover preserves active claims and quarantines expired abandoned 
     });
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
       .toThrow('active physical claim');
-    expect(existsSync(quarantineFile(stateRoot, activeKey.actionKey))).toBe(false);
+    expect(lstatSync(quarantineFile(stateRoot, activeKey.actionKey), { throwIfNoEntry: false })).toBeUndefined();
 
     releaseVerificationActionClaim({
       fs: journalFs(activeWorkspace),
@@ -1464,11 +1463,11 @@ test('machine cutover quarantines mixed workspace generations without inventing 
         executionDisposition: 'same-action-key-forbidden'
       }
     });
-    expect(existsSync(path.join(
+    expect(lstatSync(path.join(
       stateRoot,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
-    ))).toBe(false);
+    ), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     rmSync(stateRoot, { recursive: true, force: true });
   }
@@ -1488,12 +1487,12 @@ test('quarantine recovery rejects partial, tampered, and foreign evidence before
     writeFileSync(legacyPath, original.slice(0, -20), 'utf8');
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
       .toThrow(/partial final line|invalid JSON/);
-    expect(existsSync(quarantineFile(stateRoot, key.actionKey))).toBe(false);
+    expect(lstatSync(quarantineFile(stateRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
 
     writeFileSync(legacyPath, original.replace('executed-failure', 'different-failure'), 'utf8');
     expect(() => ensureVerificationActionMachineGlobalCutover(journalFs(stateRoot)))
       .toThrow('digest mismatch');
-    expect(existsSync(quarantineFile(stateRoot, key.actionKey))).toBe(false);
+    expect(lstatSync(quarantineFile(stateRoot, key.actionKey), { throwIfNoEntry: false })).toBeUndefined();
 
     writeFileSync(legacyPath, original, 'utf8');
     const quarantinePath = quarantineFile(stateRoot, key.actionKey);
@@ -1559,11 +1558,11 @@ test('legacy terminals without bound diagnostics remain typed recovery evidence 
     )).toThrow('cannot migrate without a diagnostic-bound terminal');
     expect(() => readVerificationActionJournal(journalFs(root), key.actionKey))
       .toThrow('legacy Action evidence requires explicit recovery');
-    expect(existsSync(path.join(
+    expect(lstatSync(path.join(
       root,
       VERIFICATION_ACTION_JOURNAL_DIRECTORY,
       `${key.actionKey.slice(7)}.jsonl`
-    ))).toBe(false);
+    ), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1652,7 +1651,7 @@ test('illegal transitions are rejected and deleting the journal returns a clean 
   }
 });
 
-test('atomic claim joins one live physical owner and rejects wrong-owner release', () => {
+test('claim joins one live physical owner and rejects wrong-owner release', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-race-'));
   try {
     const key = action();

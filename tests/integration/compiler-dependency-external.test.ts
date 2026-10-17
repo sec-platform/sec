@@ -55,7 +55,7 @@ import {
 } from './compiler-dependency-installation.ts';
 
 describe('compiler dependency installation', () => {
-  effectfulTest(test,
+  effectfulTest(test.serial,
     'cache cutover preserves a borrowed predecessor until the consumer explicitly switches',
     { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
       cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
@@ -256,12 +256,13 @@ describe('compiler dependency installation', () => {
         return { code: 0, stdout: 'ok', stderr: '' };
       } }, ownerRoot);
       await withCompilerTestConsumer(effectful, 'sec-cdep-explicit-target-reject-', async (consumerRoot, operation) => {
-        await writeCompilerDependencyRoot(consumerRoot, 'different-lock\n');
+        await writeCompilerDependencyRoot(consumerRoot);
         const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
         const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
           installMode: 'prebound-only' as const, signal: operation.signal };
         await expect(target.ensureCompilerDepsReadyFromGeneration({ ...source.executionGenerationAuthority }, request))
           .rejects.toThrow();
+        await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'different-lock\n');
         await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, request))
           .rejects.toThrow('incompatible canonical inputs');
         await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });

@@ -84,15 +84,22 @@ function emittedModuleDependencies(source: string): readonly string[] {
   return [...dependencies].sort();
 }
 
-test('runtime edges agree with actual verbatim compiler emit, including every pair in both orders', () => {
-  for (const first of emitCases) {
-    for (const second of ['', ...emitCases]) {
-      const source = `${first}\n${second}`;
-      const facts = typeScriptModuleImportFacts(fixtureProgram(source));
-      const observed = [...new Set(facts.imports.filter((item) => !item.typeOnly)
-        .map((item) => item.specifier))].sort();
-      assert.deepEqual(observed, emittedModuleDependencies(source), source);
-    }
+test('runtime edges agree with verbatim compiler emit for each syntax and type/runtime union order', () => {
+  const typeImport = "import type { Value } from './b.ts';";
+  const runtimeImport = "import { value } from './b.ts';";
+  const dynamicImport = "void import('./b.ts');";
+  // Syntax classification is local. Combined observations only interact through
+  // same-key runtime precedence or distinct static/dynamic kinds.
+  const unions = [
+    [typeImport, typeImport], [runtimeImport, runtimeImport],
+    [typeImport, runtimeImport], [runtimeImport, typeImport],
+    [typeImport, dynamicImport], [dynamicImport, typeImport]
+  ];
+  for (const source of [...emitCases, ...unions.map(parts => parts.join('\n'))]) {
+    const facts = typeScriptModuleImportFacts(fixtureProgram(source));
+    const observed = [...new Set(facts.imports.filter((item) => !item.typeOnly)
+      .map((item) => item.specifier))].sort();
+    assert.deepEqual(observed, emittedModuleDependencies(source), source);
   }
 });
 

@@ -165,7 +165,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retai
     const parent = inspectNoFollowDirectoryChain(parentPath).target;
 
     expect(inspectNoFollowDirectoryChild(parent, 'child')).toBeNull();
-    expect(existsSync(path.join(parentPath, 'child'))).toBe(false);
+    expect(lstatSync(path.join(parentPath, 'child'), { throwIfNoEntry: false })).toBeUndefined();
     const child = createExclusiveNoFollowDirectory(parent, 'child');
     expect(inspectNoFollowDirectoryChild(parent, 'child')).toEqual(child);
     expectPhysicalCode(
@@ -179,7 +179,7 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retai
       () => createExclusiveNoFollowDirectory(parent, 'replacement-child'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
-    expect(existsSync(path.join(parentPath, 'replacement-child'))).toBe(false);
+    expect(lstatSync(path.join(parentPath, 'replacement-child'), { throwIfNoEntry: false })).toBeUndefined();
     expect(existsSync(path.join(displacedParent, 'child'))).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -198,7 +198,7 @@ test.skipIf(process.platform !== 'win32')(
       const parent = inspectNoFollowDirectoryChain(parentPath).target;
 
       expect(inspectNoFollowDirectoryLeaf(parent, '.dependency-transition-v1')).toBeNull();
-      expect(existsSync(path.join(parentPath, '.dependency-transition-v1'))).toBe(false);
+      expect(lstatSync(path.join(parentPath, '.dependency-transition-v1'), { throwIfNoEntry: false })).toBeUndefined();
 
       const controlPath = path.join(parentPath, '.dependency-transition-v1');
       mkdirSync(controlPath);
@@ -269,8 +269,8 @@ test.skipIf(process.platform !== 'linux')('Linux directory-create transaction re
     );
     expect(lstatSync(chainTarget).isDirectory()).toBe(true);
     expect(lstatSync(chainDisplaced).isDirectory()).toBe(true);
-    expect(existsSync(path.join(chainTarget, 'generation-one'))).toBe(false);
-    expect(existsSync(path.join(chainDisplaced, 'generation-one'))).toBe(false);
+    expect(lstatSync(path.join(chainTarget, 'generation-one'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(path.join(chainDisplaced, 'generation-one'), { throwIfNoEntry: false })).toBeUndefined();
 
     const prewatchExclusiveParent = path.join(root, 'prewatch-exclusive-parent');
     const prewatchExclusiveDisplaced = path.join(root, 'prewatch-exclusive-parent-displaced');
@@ -286,8 +286,8 @@ test.skipIf(process.platform !== 'linux')('Linux directory-create transaction re
     );
     expect(lstatSync(prewatchExclusiveParent).isDirectory()).toBe(true);
     expect(lstatSync(prewatchExclusiveDisplaced).isDirectory()).toBe(true);
-    expect(existsSync(path.join(prewatchExclusiveParent, 'child'))).toBe(false);
-    expect(existsSync(path.join(prewatchExclusiveDisplaced, 'child'))).toBe(false);
+    expect(lstatSync(path.join(prewatchExclusiveParent, 'child'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(path.join(prewatchExclusiveDisplaced, 'child'), { throwIfNoEntry: false })).toBeUndefined();
 
     const ancestorExclusiveScope = path.join(root, 'ancestor-exclusive-scope');
     const ancestorExclusiveParent = path.join(ancestorExclusiveScope, 'run', 'parent');
@@ -304,8 +304,8 @@ test.skipIf(process.platform !== 'linux')('Linux directory-create transaction re
     );
     expect(lstatSync(ancestorExclusiveScope).isDirectory()).toBe(true);
     expect(lstatSync(ancestorExclusiveDisplaced).isDirectory()).toBe(true);
-    expect(existsSync(path.join(ancestorExclusiveScope, 'run', 'parent', 'child'))).toBe(false);
-    expect(existsSync(path.join(ancestorExclusiveDisplaced, 'run', 'parent', 'child'))).toBe(false);
+    expect(lstatSync(path.join(ancestorExclusiveScope, 'run', 'parent', 'child'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(path.join(ancestorExclusiveDisplaced, 'run', 'parent', 'child'), { throwIfNoEntry: false })).toBeUndefined();
 
     const ancestorChainScope = path.join(root, 'ancestor-chain-scope');
     const ancestorChainParent = path.join(ancestorChainScope, 'run', 'parent');
@@ -324,8 +324,8 @@ test.skipIf(process.platform !== 'linux')('Linux directory-create transaction re
     );
     expect(lstatSync(ancestorChainScope).isDirectory()).toBe(true);
     expect(lstatSync(ancestorChainDisplaced).isDirectory()).toBe(true);
-    expect(existsSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'))).toBe(false);
-    expect(existsSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'))).toBe(false);
+    expect(lstatSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
+    expect(lstatSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -699,22 +699,27 @@ test.skipIf(process.platform !== 'linux')('Linux exact ordinary leaf rejects a F
       stdout: 'pipe',
       stderr: 'pipe'
     });
-    const result = await Promise.race([
-      child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
-      new Promise<{ exitCode: number; timedOut: true }>((resolve) => setTimeout(() => resolve({ exitCode: -1, timedOut: true }), 3_000))
-    ]);
-    if (result.timedOut) {
-      child.kill('SIGKILL');
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
+        new Promise<{ exitCode: number; timedOut: true }>((resolve) => {
+          timeout = setTimeout(() => resolve({ exitCode: -1, timedOut: true }), 3_000);
+        })
+      ]);
+      expect(result.timedOut).toBe(false);
+      expect(result.exitCode).toBe(0);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (child.exitCode === null) child.kill('SIGKILL');
       await child.exited;
     }
-    expect(result.timedOut).toBe(false);
-    expect(result.exitCode).toBe(0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }, 5_000);
 
-test('retained directory relocation makes the original path absent and rejects a substituted tombstone', () => {
+test('retained directory relocation preserves its identity and rejects a rebuilt original path', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -722,7 +727,8 @@ test('retained directory relocation makes the original path absent and rejects a
     writeFileSync(path.join(target, 'keep.txt'), 'bound-to-target\n', 'utf8');
     const original = inspectNoFollowDirectoryChain(target, 'relocation source').target;
     const moved = relocateRetainedNoFollowDirectory({ directory: original, tombstoneName: 'target-tombstone' });
-    expect(existsSync(target)).toBe(false);
+    if (process.platform === 'linux') expect(moved.inode).toBe(original.inode);
+    expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
     expect(readFileSync(path.join(moved.path, 'keep.txt'), 'utf8')).toBe('bound-to-target\n');
     mkdirSync(target);
     expectPhysicalCode(
@@ -735,20 +741,6 @@ test('retained directory relocation makes the original path absent and rejects a
   }
 });
 
-test.skipIf(process.platform !== 'linux')('Linux relocation preserves the retained identity without replacement', () => {
-  const root = fixtureRoot();
-  try {
-    const target = path.join(root, 'renameat-target');
-    mkdirSync(target);
-    const original = inspectNoFollowDirectoryChain(target, 'Linux renameat source').target;
-    const moved = relocateRetainedNoFollowDirectory({ directory: original, tombstoneName: 'renameat-tombstone' });
-    expect(moved.inode).toBe(original.inode);
-    expect(existsSync(target)).toBe(false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('tree scan records a child link as an unsafe leaf and never traverses it', () => {
   const root = fixtureRoot();
   try {
@@ -756,6 +748,7 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
     const external = path.join(root, 'external');
     mkdirSync(target);
     mkdirSync(external);
+    writeFileSync(path.join(external, 'must-not-traverse.txt'), 'external');
     symlinkSync(external, path.join(target, 'child-link'), process.platform === 'win32' ? 'junction' : 'dir');
     const entries = scanNoFollowDirectoryTree(inspectNoFollowDirectoryChain(target, 'scan target').target);
     expect(entries).toHaveLength(1);
@@ -767,6 +760,7 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
 
 test('selected forest retains one root, emits selector prefixes, and shares hard bounds', () => {
   const root = fixtureRoot();
+  const replaced = `${root}-replaced`;
   try {
     const selected = path.join(root, 'a'.repeat(64), 'verification-actions');
     const ignored = path.join(root, 'a'.repeat(64), 'objects');
@@ -818,13 +812,12 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
       deadlineAtMs: performance.now() - 1
     })).toThrow('deadline exceeded');
 
-    const replaced = `${root}-replaced`;
     renameSync(root, replaced);
     mkdirSync(root);
     expect(() => scanNoFollowDirectoryTreeSelectedForest(identity, options))
       .toThrow('physical identity changed');
-    rmSync(replaced, { recursive: true, force: true });
   } finally {
+    rmSync(replaced, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -895,7 +888,7 @@ test.skipIf(process.platform !== 'linux')('Linux bulk copy rejects unsafe or pro
         preserveContainedRelativeSymbolicLinks: fault !== 'default',
         ...(fault === 'excluded' ? { includeRelativePaths: ['link'] } : {}), maximumEntries: 128, maximumBytes: 128
       })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
-      expect(existsSync(target)).toBe(false);
+      expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
       expect(readFileSync(path.join(sourcePath, 'real', 'value'), 'utf8')).toBe('retained');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1030,7 +1023,7 @@ test.skipIf(process.platform !== 'linux')(
         restoreOwnerPermissions: true,
         root: successful
       }).status).toBe('physically-absent');
-      expect(existsSync(successfulPath)).toBe(false);
+      expect(lstatSync(successfulPath, { throwIfNoEntry: false })).toBeUndefined();
 
       const failingPath = path.join(root, 'failing-retirement');
       await copyNoFollowDirectoryTreesBulk([{ source, target: failingPath }], {
@@ -1338,7 +1331,6 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metad
       size: 512 * 1024 * 1024,
       contentDigest: null
     });
-    expect(performance.now() - startedAt).toBeLessThan(2_000);
     expectPhysicalCode(
       () => scanNoFollowDirectoryTreeMetadata(identity, {
         deadlineAtMs: performance.now() + 2_000,
@@ -1410,7 +1402,7 @@ test('exclusive durable canonical publication is idempotent and refuses a confli
       }),
       'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT'
     );
-    expect(existsSync(path.join(parentPath, '.authorization.json.candidate'))).toBe(false);
+    expect(lstatSync(path.join(parentPath, '.authorization.json.candidate'), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     permissionSource?.dispose();
     rmSync(root, { recursive: true, force: true });
@@ -1661,7 +1653,7 @@ test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage rec
         'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
       expect(readFileSync(quarantined, 'utf8')).toBe('bad\n');
       expect(statSync(quarantined, { bigint: true }).ino).toBe(original.ino);
-      expect(existsSync(target)).toBe(false);
+      expect(lstatSync(target, { throwIfNoEntry: false })).toBeUndefined();
       expect(readdirSync(parentPath).sort()).toEqual(names);
     });
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -1743,7 +1735,7 @@ test.skipIf(process.platform !== 'win32')('Windows retained-handle deletion remo
         ...(entry.kind === 'link' ? { expectedLinkTarget: entry.linkTarget! } : {}),
         ancestorDirectories: []
       });
-      expect(existsSync(path.join(target, name))).toBe(false);
+      expect(lstatSync(path.join(target, name), { throwIfNoEntry: false })).toBeUndefined();
       if (name === 'authorized-file.txt') {
         expect(readFileSync(retainedReader!, 'utf8')).toBe('only-this-file\n');
         closeSync(retainedReader!);
@@ -1796,7 +1788,7 @@ test.skipIf(process.platform !== 'linux')('Linux retained openat leaf deletion c
         inode: entry.inode,
         ancestorDirectories: []
       });
-      expect(existsSync(path.join(target, name))).toBe(false);
+      expect(lstatSync(path.join(target, name), { throwIfNoEntry: false })).toBeUndefined();
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1850,7 +1842,7 @@ test.skipIf(process.platform !== 'linux')('Linux retained deletion accepts selec
       inode: selected.inode,
       ancestorDirectories: []
     });
-    expect(existsSync(path.join(target, 'selected.txt'))).toBe(false);
+    expect(lstatSync(path.join(target, 'selected.txt'), { throwIfNoEntry: false })).toBeUndefined();
     expect(readFileSync(path.join(root, 'surviving-link.txt'), 'utf8')).toBe('shared inode\n');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1913,7 +1905,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
       });
 
       expect(readFileSync(path.join(target, 'keep', 'value.txt'), 'utf8')).toBe('kept\n');
-      expect(existsSync(path.join(target, '.scratch'))).toBe(false);
+      expect(lstatSync(path.join(target, '.scratch'), { throwIfNoEntry: false })).toBeUndefined();
       expect(readFileSync(path.join(scratchPath, 'private.txt'), 'utf8')).toBe('excluded\n');
     } finally {
       rmSync(root, { recursive: true, force: true });

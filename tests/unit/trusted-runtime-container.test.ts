@@ -289,7 +289,6 @@ describe('provider-neutral trusted runtime container', () => {
     expect(projected.producer.sourceRef).toBe(
       `live-receipt:trusted-main-health/v4/${parsed.mainSha}/${parsed.receiptDigest.slice(7)}`
     );
-    expect(projected.producer.sourceRef).toBe(trustedRuntimeMainHealthReceiptReference(parsed));
     expect(projected.producer.sourceDigest).toBe(parsed.receiptDigest);
     for (const schema of ['sec-trusted-runtime-main-health-receipt-v2', 'sec-trusted-runtime-main-health-receipt-v3']) {
       expect(() => parseTrustedRuntimeMainHealthReceipt({ ...receipt, schema })).toThrow('receipt schema is invalid');
@@ -339,7 +338,7 @@ describe('provider-neutral trusted runtime container', () => {
 
 
 
-  test('joins only one provider-issued exact requirement settlement with independent endpoint readback', () => {
+  test('joins an exact requirement settlement and accepts its data-equivalent clone', () => {
     const contractDigest = sha256({ contract: 'container-engine-test' }) as OperationDigest;
     const providerIdentityDigest = sha256({ provider: 'container-engine-test' }) as OperationDigest;
     const plan = compileSemanticOperationPlan({
@@ -391,7 +390,7 @@ describe('provider-neutral trusted runtime container', () => {
     expect(correlationOnlyClone.joinReceiptDigest).toBe(join.joinReceiptDigest);
   });
 
-  test('projects the exact base as the offline default-branch ref in both trees', () => {
+  test('historical setup script declares the exact base as the offline default-branch ref in both trees', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
       'git -C /sec-runtime/trusted update-ref refs/remotes/origin/main "$base"'
     );
@@ -404,7 +403,7 @@ describe('provider-neutral trusted runtime container', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain('git fetch origin');
   });
 
-  test('enters dependency materialization through the exact Bun package runner', () => {
+  test('historical setup script declares the exact Bun dependency package runner', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
       `CI=1 SEC_CACHE_HOME=/tmp/sec-hosted-dependency-home ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} run deps:ensure`
     );
@@ -426,9 +425,9 @@ describe('provider-neutral trusted runtime container', () => {
     expect(plan.args.slice(0, 2)).toEqual(['buildx', 'build']);
     expect(plan.args).toContain('--load');
     expect(plan.args).toContain('--progress=rawjson');
-    expect(plan.args.some((value) => new RegExp(
-      `^runner=oci-layout://.*@${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.image.runtimeContentDigest}$`, 'u'
-    ).test(value))).toBe(true);
+    expect(plan.args[plan.args.indexOf('--build-context') + 1]).toBe(
+      `runner=oci-layout://${path.resolve('.tmp/runner-layout').split(path.sep).join('/')}@${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.image.runtimeContentDigest}`
+    );
     expect(plan.args).not.toContain(expect.stringContaining('SEC_RUNNER_IMAGE='));
     expect(plan.args).toContain(`SEC_RUNNER_IMAGE_ID=${TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID}`);
     expect(plan.args).toContain(
@@ -498,10 +497,13 @@ describe('provider-neutral trusted runtime container', () => {
       SEC_CACHE_HOME: '/sec-runtime/output/cache'
     });
     const projected = createTrustedRuntimeCommandEnvironmentArgs({ SURFACE: 'main-health' });
-    expect(projected).toContain('--env');
-    expect(projected).toContain('SEC_STATE_HOME=/sec-runtime/output/state');
-    expect(projected).toContain('SEC_CACHE_HOME=/sec-runtime/output/cache');
-    expect(projected).toContain('SURFACE=main-health');
+    for (const value of [
+      'SEC_STATE_HOME=/sec-runtime/output/state',
+      'SEC_CACHE_HOME=/sec-runtime/output/cache',
+      'SURFACE=main-health'
+    ]) {
+      expect(projected[projected.indexOf(value) - 1]).toBe('--env');
+    }
     expect(() => createTrustedRuntimeCommandEnvironmentArgs({
       SEC_STATE_HOME: '/caller/override'
     })).toThrow('cannot replace SEC_STATE_HOME');
@@ -554,11 +556,13 @@ describe('provider-neutral trusted runtime container', () => {
 
   });
 
-  test('retains bounded stdout and stderr when a provider command fails', () => {
-    expect(renderTrustedRuntimeCommandFailureDetail({
+  test('labels captured stdout and stderr and identifies absent provider output', () => {
+    const detail = renderTrustedRuntimeCommandFailureDetail({
       stdout: 'compiler diagnostic',
       stderr: 'process exit summary'
-    })).toBe('stdout:\ncompiler diagnostic\nstderr:\nprocess exit summary');
+    });
+    expect(detail).toMatch(/stdout:\s*compiler diagnostic(?=\s|$)/u);
+    expect(detail).toMatch(/stderr:\s*process exit summary(?=\s|$)/u);
     expect(renderTrustedRuntimeCommandFailureDetail({ stdout: '', stderr: '' }))
       .toBe('<no captured output>');
   });

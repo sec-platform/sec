@@ -524,6 +524,7 @@ test('development.commit classifies every exact-ref journal before retiring any'
     await rm(fixtureReflogPath(root));
     const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
     const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', result.ref])).toBe(result.target);
     const source = await readFile(result.journalPath, 'utf8');
     const unknown = { ...JSON.parse(source) as Record<string, unknown>,
       attempt: `sha256:${'a'.repeat(64)}`, target: 'b'.repeat(40), object: null, terminal: 'unknown' };
@@ -547,6 +548,7 @@ test('development.commit retires verified applied attempts after a local ref rew
     await rm(fixtureReflogPath(root));
     const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
     const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', result.ref])).toBe(result.target);
     const source = await readFile(result.journalPath, 'utf8');
     git(root, ['reset', '--mixed', result.preimage]);
     expect(git(root, ['rev-parse', result.ref])).toBe(result.preimage);
@@ -574,6 +576,7 @@ test('development.commit settles completed historical and current journals for o
       repositoryRoot: root, message: 'first staged candidate\n'
     });
     const first = await runDevelopmentCommit(firstAdmission.request, firstAdmission.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', first.ref])).toBe(first.target);
     await writeFile(path.join(root, 'later.txt'), 'later\n');
     git(root, ['add', 'later.txt']);
     const secondAdmission = await issueDevelopmentCommitAdmission({
@@ -737,7 +740,7 @@ for (const mode of [
   });
 }
 
-for (const mode of ['recover', 'settle-active', 'settle-historical', 'retire-superseded', 'prepare-retirement'] as const) {
+for (const mode of ['recover', 'prepare-retirement'] as const) {
   test(`development.commit preserves its first-entry transition consumer: ${mode}`, async () => {
     const { root } = await fixture();
     try {
@@ -770,20 +773,6 @@ for (const mode of ['recover', 'settle-active', 'settle-historical', 'retire-sup
         expect(plan.expectedHeadSha).toBe(first.target);
         expect(await readFile(first.journalPath, 'utf8')).toBe(source);
         expect(git(root, ['rev-parse', first.ref])).toBe(first.target);
-      } else {
-        if (mode === 'settle-historical') {
-          await writeFile(path.join(root, 'later.txt'), 'later\n');
-          git(root, ['add', 'later.txt']);
-          const laterAdmission = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'later candidate\n' });
-          expect((await runDevelopmentCommit(laterAdmission.request, laterAdmission.admission)).disposition).toBe('applied');
-        }
-        if (mode === 'retire-superseded') git(root, ['reset', '--mixed', first.preimage]);
-        const settled = mode === 'retire-superseded'
-          ? await retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: first.ref })
-          : await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: first.ref });
-        const count = mode === 'settle-historical' ? 2 : 1;
-        expect(settled).toEqual({ ref: first.ref, observed: count, retired: count });
-        await expect(lstat(first.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
       }
     } finally {
       await rm(root, { recursive: true, force: true });

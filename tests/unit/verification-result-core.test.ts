@@ -502,6 +502,7 @@ test('aggregate: missing required gate → claim not-run', () => {
     gateResults: [gate]
   });
   expect(result.overallStatus).toBe('not-run');
+  expect(result.overallReasonCode).toBe('not-dispatched');
   expect(result.claimResults[0]!.status).toBe('not-run');
   expect(result.claimResults[0]!.reasonCode).toBe('not-dispatched');
 });

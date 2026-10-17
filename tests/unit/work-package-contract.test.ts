@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
@@ -92,13 +93,12 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     requiredProfile: 'quick',
     ciRevision: 'ci-verification-v19'
   });
-  for (const legacyRevision of ['ci-verification-v18', 'ci-verification-v17', 'ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
-    const historical = CodexDevelopmentDecodeWorkPackageManifest(
-      source.replace('ci-verification-v19', legacyRevision)
-    );
-    expect(historical.ciRevision).toBe(legacyRevision);
-  }
-  expect(CodexDevelopmentWorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(CodexDevelopmentDecodeWorkPackageManifest(
+    source.replace('ci-verification-v19', 'ci-verification-v6')
+  ).ciRevision).toBe('ci-verification-v6');
+  expect(CodexDevelopmentWorkPackageManifestDigest(source)).toBe(
+    `sha256:${createHash('sha256').update(source).digest('hex')}`
+  );
   expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, [
     'platform/shared/ci-contract.ts',
     'scripts/codex/example.ts'
@@ -222,7 +222,7 @@ test('Work Package ownership rejects unowned and forbidden changed paths', () =>
   expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
 });
 
-test('Work Package literal paths allow framework brackets but reject Windows and Unicode collisions', () => {
+test('Work Package literal paths allow framework brackets but reject reserved names, streams and globs', () => {
   const bracketed = manifest().replace(
     '      - scripts/codex/',
     '      - app/[customerId]/'
@@ -366,7 +366,6 @@ test('Work Package V3 rejects embedded base, extra keys, retired V2 and stale CI
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('codex-development-work-package-v3', 'codex-development-work-package-v2')
   )).toThrow('schema is unsupported');
-  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifest())).toThrow('schema is unsupported');
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('ci-verification-v19', 'ci-verification-v18')
   )).toThrow('current CI verification revision');

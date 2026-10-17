@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 
 import {
   assertSemanticMutationRuntimeDestinationManifestForTests,
@@ -31,6 +32,8 @@ function deferred(): {
 
 test('runtime materialization scheduler starts exactly eight canonical items at a time', async () => {
   const releaseFirstBatch = deferred();
+  const firstBatchStarted = deferred();
+  const boundaries: number[] = [];
   const started: number[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
@@ -41,34 +44,28 @@ test('runtime materialization scheduler starts exactly eight canonical items at 
       started.push(canonicalIndex);
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
+      if (canonicalIndex === 7) firstBatchStarted.resolve();
       if (canonicalIndex < 8) await releaseFirstBatch.promise;
       inFlight -= 1;
       return canonicalIndex;
-    }
+    },
+    async () => { boundaries.push(started.length); }
   );
 
-  await Promise.resolve();
-  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-  expect(maxInFlight).toBe(8);
-  releaseFirstBatch.resolve();
+  await settleWorkspaceCallback(async () => {
+    await firstBatchStarted.promise;
+    expect(boundaries).toEqual([0]);
+    expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(maxInFlight).toBe(8);
+  }, async () => {
+    releaseFirstBatch.resolve();
+    await execution;
+  });
 
   expect(await execution).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(boundaries).toEqual([0, 8, 9]);
   expect(maxInFlight).toBe(8);
-});
-
-test('runtime materialization scheduler proves lease only at canonical batch boundaries', async () => {
-  let boundaryCalls = 0;
-  const completed = await runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 1024 }, (_, index) => index),
-    async (item) => item,
-    async () => {
-      boundaryCalls += 1;
-    }
-  );
-
-  expect(completed).toHaveLength(1024);
-  expect(boundaryCalls).toBe(129);
 });
 
 test('runtime materialization scheduler reports the lowest canonical rejection after the batch settles', async () => {

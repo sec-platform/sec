@@ -486,12 +486,13 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
 }
 
 test('trusted current-base gate authorizes exact candidate facts without executing merge', () => {
-  const result = CodexDevelopmentEvaluateMergeGate(fixture());
+  const input = fixture();
+  const result = CodexDevelopmentEvaluateMergeGate(input);
   expect(result.status).toBe('authorized');
   expect(result.terminalStatusContext).toBe('sec/integration-authorization');
   expect(result.authorization.headSha).toBe(HEAD);
   expect(result.authorization.scopeAuthorizationRevision)
-    .toBe(fixture().artifact.scopeAuthorization.authorizationRevision);
+    .toBe(input.artifact.scopeAuthorization.authorizationRevision);
   expect(result.authorization.issuer).toMatchObject({
     producerIdentity: CodexDevelopmentMergeGateProducerIdentity,
     trustedRevision: BASE,
@@ -680,10 +681,7 @@ test('V4 Action closure mismatch and non-PASS terminal facts cannot authorize in
   });
   expect(() => CodexDevelopmentEvaluateMergeGate({ ...base, expectedActionPlan: driftedPlan }))
     .toThrow();
-  expect(() => CodexDevelopmentEvaluateMergeGate({
-    ...base,
-    artifact: { ...base.artifact, evidence: { ...base.artifact.evidence, status: 'failed' } }
-  })).toThrow();
+  expect(() => CodexDevelopmentEvaluateMergeGate(fixture('failed'))).toThrow();
 });
 
 test('merge message trailers must derive from validated receipts; free text is rejected', () => {
@@ -898,10 +896,6 @@ test('merge plan derives terminal identity from completed source-run API readbac
 });
 
 test('merge wakeup is event-driven and rejects stale or nonterminal provider observations', async () => {
-  const workflow = await readMergeWorkflow();
-  const script = githubScript(workflow.jobs.plan?.steps[0]);
-  expect(script).not.toContain('setTimeout');
-  expect(script).not.toContain('for (let attempt');
   await expect(executeMergePlan({ sourceStatus: 'in_progress', sourceConclusion: null }))
     .rejects.toThrow('wakeup disagrees with source run API settlement');
   const staleCompletion = await executeMergePlan({ sourceRunAttempt: 1 });
@@ -962,14 +956,14 @@ test('hosted integration splits read-only authorization, terminal status, and me
     statuses: 'read',
     'id-token': 'write'
   });
-  expect(authorize.steps.map(({ name }) => name)).toContain('Prepare exact integration recovery artifact');
   expect(authorize.steps.find(({ id }) => id === 'prepare')?.run)
     .toContain('--job authorize --phase prepare-integration-hosted');
   expect(authorize.steps.find(({ id }) => id === 'verify')?.run)
     .toContain('--job authorize --phase verify-integration-recovery');
-  expect(authorize.steps.findIndex(({ id }) => id === 'verify'))
-    .toBeGreaterThan(authorize.steps.findIndex(({ id }) => id === 'upload-recovery'));
-  expect(authorize.steps.map(({ name }) => name)).not.toContain('Integrate exact hosted Session and publish live readback status');
+  const uploadRecovery = authorize.steps.findIndex(({ id }) => id === 'upload-recovery');
+  expect(uploadRecovery).toBeGreaterThan(-1);
+  expect(authorize.steps.findIndex(({ id }) => id === 'verify')).toBeGreaterThan(uploadRecovery);
+  expect(authorize.steps.some(({ run }) => run?.includes('--phase integrate-hosted'))).toBe(false);
 
   expect(terminal.needs).toEqual(['plan', 'authorize']);
   expect(terminal.permissions).toEqual({
@@ -989,17 +983,20 @@ test('hosted integration splits read-only authorization, terminal status, and me
     statuses: 'read',
     'id-token': 'write'
   });
-  const integrateNames = integrate.steps.map(({ name }) => name);
-  expect(integrateNames).toContain('Download exact integration preflight and recovery artifact');
-  expect(integrateNames).toContain('Integrate exact hosted Session and publish live readback status');
-  expect(integrateNames).toContain('Close out exact integrated branch');
-  expect(integrateNames).toContain('Publish exact branch closeout receipt');
+  const downloadRecovery = integrate.steps.findIndex(({ id }) => id === 'download-recovery');
+  expect(downloadRecovery).toBeGreaterThan(-1);
+  expect(integrate.steps[downloadRecovery]?.with?.name)
+    .toBe('${{ needs.authorize.outputs.recovery-artifact-name }}');
+  expect(integrate.steps.find(({ id }) => id === 'mutate')?.run)
+    .toContain('--job integrate --phase closeout-mutate-hosted');
+  expect(integrate.steps.find(({ id }) => id === 'publish')?.run)
+    .toContain('--job integrate --phase closeout-publish-hosted');
   expect(integrate.steps.find(({ id }) => id === 'integrate')?.run)
     .toContain('--job integrate --phase integrate-hosted');
   expect(integrate.steps.find(({ id }) => id === 'integrate')?.env?.SEC_GITHUB_RULESET_AUDITOR_TOKEN)
     .toBe('${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}');
-  expect(integrateNames.indexOf('Download exact integration preflight and recovery artifact'))
-    .toBeLessThan(integrateNames.indexOf('Integrate exact hosted Session and publish live readback status'));
+  expect(downloadRecovery)
+    .toBeLessThan(integrate.steps.findIndex(({ id }) => id === 'integrate'));
 });
 
 

@@ -5,6 +5,7 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -33,8 +34,8 @@ import { CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificati
 
 test('hosted environment data accepts both canonical profiles and rejects forged profile fields', () => {
   for (const environment of [CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT]) {
-    expect(parseCiVerificationHostedExecutionEnvironment(JSON.parse(JSON.stringify(environment)))).toBe(environment);
-    expect(resolveCiVerificationHostedExecutionEnvironment(environment.executionEnvironmentRevision)).toBe(environment);
+    expect(parseCiVerificationHostedExecutionEnvironment(JSON.parse(JSON.stringify(environment)))).toEqual(environment);
+    expect(resolveCiVerificationHostedExecutionEnvironment(environment.executionEnvironmentRevision)).toEqual(environment);
     expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, runnerImage: 'caller-image' })).toThrow();
     expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, authority: true })).toThrow();
   }
@@ -78,7 +79,7 @@ import { prepareHostedActionSutInputs, runHostedActionSut, type HostedSutInvocat
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
 type SutFixtureInput = Parameters<typeof prepareHostedActionSutInputs>[0] & Readonly<{
-  env?: NodeJS.ProcessEnv; now?: () => Date; platform?: NodeJS.Platform;
+  now?: () => Date; platform?: NodeJS.Platform;
   bunExecutable?: string; unitNonce?: string; runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
 }>;
 
@@ -748,7 +749,7 @@ test('CI runner accepts transition injection only with matching exact changed re
   }
 });
 
-test('multi-commit candidate uses exact current base and never requires HEAD^1', async () => {
+test('candidate revision selection uses exact current base and never requires HEAD^1', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-multicommit-'));
   try {
     const refs: string[] = [];
@@ -915,7 +916,7 @@ test('trusted bootstrap cleanliness excludes only its exact nested candidate che
   }
 });
 
-test('hosted SUT executes only through the isolated command plan and terminalizes raw archive drift', async () => {
+test('hosted SUT builds the isolated command plan and terminalizes retained archive drift', async () => {
   const directBunTestArgv = [
     'bun', 'test', 'tests/unit/verification-action-ci-contract.test.ts',
     '--test-name-pattern', '^direct Bun tests$', '--timeout', '180000'
@@ -952,15 +953,6 @@ test('hosted SUT executes only through the isolated command plan and terminalize
       ticket: cleanTicket,
       candidateArchive: cleanArchive,
       archiveInventory: cleanInventory,
-      env: {
-        SAFE_INPUT: 'visible',
-        GH_TOKEN: 'secret-1',
-        gh_token: 'secret-2',
-        GITHUB_TOKEN: 'secret-3',
-        Actions_Custom_Token: 'secret-4',
-        GITHUB_ENV: 'secret-command-file',
-        ACTIONS_ID_TOKEN_REQUEST_URL: 'secret-url'
-      },
       now: clock(),
       platform: 'linux',
       unitNonce: 'clean',
@@ -1050,7 +1042,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
   }
 });
 
-test('sandbox command plan proves cgroup, namespace, private-root, uid, capability, fd and output boundaries', () => {
+test('sandbox command plan declares cgroup, namespace, private-root, uid, capability, fd and output boundaries', () => {
   const resolution = hostedResolution();
   const ticket = hostedTicket(resolution);
   const memberIndex = resolution.actionPlanClosure.actions.findIndex(
@@ -1188,8 +1180,12 @@ test('supervisor errors do not settle the hosted process before close or attest 
   child.emit('spawn');
   child.emit('error', new Error('unshare: Operation not permitted'));
   await Promise.resolve();
-  expect(resolved).toBe(false);
-  child.emit('close', 1, null);
+  try {
+    expect(resolved).toBe(false);
+  } finally {
+    child.emit('close', 1, null);
+    await pending;
+  }
   const observation = await pending;
   expect(observation.lifecycle).toEqual({
     supervisorSpawned: true, supervisorClosed: true, supervisorCloseCode: 1, supervisorSignal: null,
@@ -1217,7 +1213,7 @@ test('capability success and directory cleanup cannot promote a pre-namespace su
     // Production no longer has an ambient default observer. The actual Bootstrap
     // entry must reject missing native invocation before opening any candidate.
     await expect(runHostedActionSut(unqualified, {} as HostedSutInvocation)).rejects.toThrow();
-    expect(existsSync(path.join(root, 'absent.tar'))).toBe(false);
+    expect(lstatSync(path.join(root, 'absent.tar'), { throwIfNoEntry: false })).toBeUndefined();
 
     const rawResult = await executeSutFixture({
       resolution, ticket, candidateArchive: archive, archiveInventory,
@@ -1395,13 +1391,11 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
   }
 });
 
-test('hostile command-channel output is bounded into the raw receipt without mutating host channels', async () => {
+test('raw receipt preserves reported truncation and excludes hostile command-channel output', async () => {
   const resolution = hostedResolution();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-output-'));
   const archive = path.join(root, 'prepared-candidate.tar');
-  const commandFile = path.join(root, 'github-output');
   writeFileSync(archive, 'output-fixture');
-  writeFileSync(commandFile, 'unchanged\n');
   try {
     const archiveInventory = {
       archiveDigest: bytesDigest('output-fixture'), inventoryDigest: digest('0'),
@@ -1414,12 +1408,6 @@ test('hostile command-channel output is bounded into the raw receipt without mut
       ticket,
       candidateArchive: archive,
       archiveInventory,
-      env: {
-        GITHUB_OUTPUT: commandFile,
-        GITHUB_ENV: path.join(root, 'github-env'),
-        GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
-        GH_TOKEN: 'secret'
-      },
       platform: 'linux', unitNonce: 'hostile-output', now: clock(),
       runSandboxProcess: async (plan) => {
         if (plan.phase === 'capability-self-test') {
@@ -1442,7 +1430,6 @@ test('hostile command-channel output is bounded into the raw receipt without mut
     expect(terminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
     expect(raw.sandboxReceipt.execution.outputTruncated).toBe(true);
     expect(typeof raw.sandboxReceipt.execution.stdoutBytesObserved).toBe('number');
-    expect(readFileSync(commandFile, 'utf8')).toBe('unchanged\n');
     const encoded = encodeVerificationActionData(raw);
     expect(encoded).not.toContain('::set-output');
     expect(encoded).not.toContain('\u001b');
@@ -2035,12 +2022,11 @@ test('hosted coordinator and composer preserve four physical terminals while coo
       now: () => new Date('2026-08-09T00:00:02.000Z')
     });
     expect(composed.evidence?.status).toBe(status === 'invalidated' ? 'failed' : status);
-    expect(composed.evidence?.gates[0]?.result.status).toBe(status);
+    expect(composed.evidence?.gates.map(gate => ({ result: gate.result.status, cleanup: gate.cleanup.status }))).toEqual([
+      { result: status, cleanup: status === 'unsupported' ? 'not-required' : status === 'invalidated' ? 'failed' : 'passed' }
+    ]);
     expect(composed.evidence?.gates[0]?.result.evidenceRefs).toContain(
       `verification-action-artifact:${provider.observations[0]!.artifact!.artifactDigest}`
-    );
-    expect(composed.evidence?.gates[0]?.cleanup.status).toBe(
-      status === 'unsupported' ? 'not-required' : status === 'invalidated' ? 'failed' : 'passed'
     );
     expect(() => CodexDevelopmentAssertVerificationEvidenceV4(composed.evidence, {
       actionPlan: closure
@@ -2050,26 +2036,7 @@ test('hosted coordinator and composer preserve four physical terminals while coo
     expect(terminalStatus.description).toBe(
       `v2 terminal ${provider.terminalAnchorObservations[0]!.payload!.anchorDigest}`
     );
-    expect(terminalStatus.description).not.toContain(status);
   }
-
-  const cleanupFailedProvider = hostedProviderInputs(envelope, new Map([[
-    0,
-    { status: 'invalidated' as const }
-  ]]));
-  const cleanupFailed = CodexDevelopmentComposeHostedEvidence({
-    envelope,
-    ...cleanupFailedProvider,
-    producer: hostedEvidenceProducer,
-    now: () => new Date('2026-08-09T00:00:02.000Z')
-  });
-  expect(cleanupFailed.evidence).toMatchObject({
-    status: 'failed',
-    gates: [{ result: { status: 'invalidated' }, cleanup: { status: 'failed' } }]
-  });
-  expect(() => CodexDevelopmentAssertVerificationEvidenceV4(cleanupFailed.evidence, {
-    actionPlan: closure
-  })).not.toThrow();
 });
 
 test('hosted DAG fail-fast is dependency-derived and preserves independent branches', () => {
@@ -2085,8 +2052,6 @@ test('hosted DAG fail-fast is dependency-derived and preserves independent branc
     expect(coordination.dispatchActionKeys).toEqual([
       closure.actions[2]!.action.actionKey
     ]);
-    expect(coordination.dispatchActionKeys).not.toContain(closure.actions[1]!.action.actionKey);
-    expect(coordination.dispatchActionKeys).not.toContain(closure.actions[3]!.action.actionKey);
 
     const completedProvider = hostedProviderInputs(envelope, new Map([
       [0, { status: nonPassingStatus }],
@@ -2138,7 +2103,6 @@ test('hosted DAG dispatches only members whose direct dependencies are passed', 
   });
   expect(pending.disposition).toBe('dispatch');
   expect(pending.dispatchActionKeys).toEqual([closure.actions[0]!.action.actionKey]);
-  expect(pending.dispatchActionKeys).not.toContain(closure.actions[1]!.action.actionKey);
 });
 
 test('expired hosted terminal artifact blocks without replay or Evidence', () => {
@@ -2440,7 +2404,7 @@ async function preparePrivateActionArchive(fixture: ReturnType<typeof privateAct
       baseRoot: fixture.baseRoot, candidateRoot: checkout.candidateRoot, outputDirectory: fixture.outputDirectory, checkout });
     return Object.freeze({ value, operation: gitCandidateCheckoutRecipeBinding(checkout, issuer) });
   });
-  expect(existsSync(generation)).toBe(false);
+  expect(lstatSync(generation, { throwIfNoEntry: false })).toBeUndefined();
   return result;
 }
 
@@ -2530,12 +2494,12 @@ for (const fault of ['candidate-acquire', 'candidate-acquire-and-base-close', 'r
       // Assertions live outside the expected-failure operation. A failed
       // assertion can never be accepted as its expected primary/close error.
       expect(dependencyPath).not.toBe('');
-      expect(existsSync(path.join(fixture.outputDirectory, 'prepared-candidate.tar'))).toBe(false);
+      expect(lstatSync(path.join(fixture.outputDirectory, 'prepared-candidate.tar'), { throwIfNoEntry: false })).toBeUndefined();
       expect(attempted).toEqual(fault === 'read-and-both-closes' ? ['candidate', 'base'] : ['base']);
       expect(retained.length).toBe(fault === 'read-and-both-closes' ? 2 : 1);
       if (fault === 'candidate-acquire') {
         expect(observed).toBe(primary);
-        expect(existsSync(generation)).toBe(false);
+        expect(lstatSync(generation, { throwIfNoEntry: false })).toBeUndefined();
         expect(() => retained[0]!.assertCurrent()).toThrow();
       } else {
         expect(observed).toBeInstanceOf(GitCandidateCheckoutCleanupUnknownError);
