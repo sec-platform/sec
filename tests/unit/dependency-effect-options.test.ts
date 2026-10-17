@@ -5,6 +5,9 @@ import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, 
 
 test('the effect view neither enumerates nor retains installation and lifecycle fields', () => {
   const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
+    get now() { assert.fail('wall clock read'); throw new Error('unreachable'); },
+    get sharedDepsRoot() { assert.fail('shared root read'); throw new Error('unreachable'); },
+    get testCompilerRename() { assert.fail('rename capability read'); throw new Error('unreachable'); },
     get generatedStateLifecycle() { assert.fail('lifecycle read'); throw new Error('unreachable'); },
     get installMode() { assert.fail('install mode read'); throw new Error('unreachable'); },
     get testMaterialization() { assert.fail('test capability read'); throw new Error('unreachable'); }

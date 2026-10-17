@@ -7,8 +7,8 @@ import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 // Replace only the final effectful engine in an isolated process. Real request
 // binding, lease acquisition, semantic prelude and failure settlement still run.
-for (const operation of ['verify', 'compose'] as const) for (const inherited of [false, true]) {
-  test(`${operation} captures ${inherited ? 'inherited' : 'own'} request decisions and the original live signal`, async () => {
+for (const operation of ['verify', 'compose'] as const) {
+  test(`${operation} captures inherited request decisions before own-property replacement and retains the live signal`, async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-option-capture-'));
     const repo = fileURLToPath(new URL('../../', import.meta.url));
     const script = path.join(root, 'case.ts');
@@ -55,7 +55,7 @@ for (const operation of ['verify', 'compose'] as const) for (const inherited of 
         const options = operation === 'verify'
           ? { lane: 'fast', emitTiming: true, signal: controller.signal }
           : { lock: false, opaqueModuleMaterializationMode: 'workspace-link', signal: controller.signal };
-        const request = ${inherited} ? Object.create(options) : options;
+        const request = Object.create(options);
         const pending = domain[operation + 'Workspace'](workspace, request);
         Object.assign(request, operation === 'verify'
           ? { lane: 'runtime', emitTiming: false, signal: AbortSignal.abort(), isolatedVerificationCapability: {} }

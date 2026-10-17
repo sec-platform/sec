@@ -6,7 +6,7 @@ import {
   runtimeDependencyOperationEffectFence as fence,
   runtimeDependencyOperationRemainingMs as remaining
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { captureRuntimeDependencyControlInput, runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
 
@@ -120,13 +120,6 @@ test('known inherited and nonenumerable internal values stay outside the existin
   const bound=bind(raw);assert.equal(bound.installMode,undefined);assert.equal(bound.sleep,undefined);
 });
 
-test('control snapshot preserves the actual parent issuer while sampling no clock', () => {
-  let calls=0;const raw={lockTimeoutMs:100,monotonicNowMs:()=>{calls++;return 0;}};
-  const capture=captureRuntimeDependencyControlInput(raw);assert.equal(calls,0);raw.lockTimeoutMs=1;
-  const parent=runtimeDependencyOperationControls(capture);assert.equal(remaining(parent,'captured'),100);
-  const copy=captureRuntimeDependencyControlInput(parent);assert.equal(context(runtimeDependencyOperationControls(copy)),context(parent));
-});
-
 test('removing a parent binding from a selected getter is rejected rather than minting a fresh ledger', () => {
   const parent=bind(controls());const symbol=Object.getOwnPropertySymbols(parent)[0]!;
   const raw={...parent,get installMode(){Reflect.deleteProperty(raw,symbol);return 'allow' as const;}};
@@ -148,7 +141,7 @@ test('method binding preserves exact sync and async failure values', async () =>
 
 test('public request validation and internal coordinator accept the same three modes without new defaults', () => {
   for(const mode of ['allow','offline-copy-only','prebound-only'] as const){
-    const bound=bind({...controls(),installMode:mode});assert.equal(bound.installMode,mode);
+    const bound=bind({...controls(),installMode:mode});assert.equal(bound.installMode,mode);assert.equal(bound.rematerialize,undefined);
   }
   assert.equal(bind(controls()).installMode,undefined);
 });

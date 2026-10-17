@@ -30,6 +30,7 @@ test('a raw snapshot fixes clock identity without executing it or freezing provi
   assert.equal(provider.calls, 0);
   assert.equal(capture(raw), raw);
   provider.monotonicNowMs = () => assert.fail('replaced clock');
+  provider.lockTimeoutMs = 1;
   const bound = bind(raw);
   provider.advance(10);
   assert.equal(remaining(bound, 'snapshot'), 90);

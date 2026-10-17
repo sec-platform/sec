@@ -18,8 +18,8 @@ async function runCase(body: (root: string, decoy: string) => string) {
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 
-test('dependency output format is fixed before asynchronous domain loading', async () => {
-  await runCase(() => `
+test('dependency root and output format are fixed before asynchronous domain loading', async () => {
+  await runCase((root, decoy) => `
     import { Command } from ${source('node_modules/commander/index.js')};
     import { deepStrictEqual } from 'node:assert';
     import { format } from 'node:util';
@@ -27,12 +27,19 @@ test('dependency output format is fixed before asynchronous domain loading', asy
     const outputs = [], originalLog = console.log;
     console.log = (...args) => outputs.push(format(...args));
     const value = { result: 'captured' }, read = async () => value;
-    const domain = { getDoctorReport: read, getDependencyEnvironmentStatus: read,
-      getDependencyFreshness: read, warmupDependencyEnvironment: read,
-      relinkProjectDependencies: read };
+    const rootedRead = async (workspaceRoot) => {
+      deepStrictEqual(workspaceRoot, ${JSON.stringify(root)});
+      return value;
+    };
+    const domain = { getDoctorReport: rootedRead, getDependencyEnvironmentStatus: rootedRead,
+      getDependencyFreshness: read, warmupDependencyEnvironment: rootedRead,
+      relinkProjectDependencies: rootedRead };
     for (const name of ['doctor', 'status', 'freshness', 'warmup', 'relink']) {
+      process.chdir(${JSON.stringify(root)});
       const program = new Command('sec').exitOverride();
       registerCommands(program, { loadDependencyEnvironmentDomain: async () => {
+        await Promise.resolve();
+        process.chdir(${JSON.stringify(decoy)});
         const command = name === 'doctor' ? program.commands.find(c => c.name() === name)
           : program.commands.find(c => c.name() === 'deps').commands.find(c => c.name() === name);
         command.opts().json = false;

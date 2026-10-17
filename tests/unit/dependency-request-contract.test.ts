@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { captureRuntimeDependencyInstallRequest, isRuntimeDependencyInstallMode } from '../../src/execution/dependency-install-request.ts';
 
 for(const mode of ['allow','offline-copy-only','prebound-only'] as const)test(`request retains supported ${mode} without interpretation`,()=>{
- const result=captureRuntimeDependencyInstallRequest({installMode:mode});assert.equal(result.installMode,mode);assert.ok(isRuntimeDependencyInstallMode(mode));
+ const result=captureRuntimeDependencyInstallRequest({installMode:mode});assert.equal(result.installMode,mode);assert.equal(result.rematerialize,undefined);assert.ok(isRuntimeDependencyInstallMode(mode));
 });
 for(const mode of [null,false,0,'', 'offline',{},[]])test(`request rejects invalid mode ${JSON.stringify(mode)}`,()=>{
  assert.equal(isRuntimeDependencyInstallMode(mode),false);assert.throws(()=>captureRuntimeDependencyInstallRequest({installMode:mode as never}));
@@ -13,7 +13,7 @@ for(const field of ['rematerialize'] as const)for(const v of [null,'false',0,1,{
 });
 test('public input is selected without enumerating internal fields',()=>{
  const input=new Proxy({rematerialize:false,get monotonicNowMs(){assert.fail('internal clock'); throw new Error('unreachable');},get generatedStateLifecycle(){assert.fail('lifecycle'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('enumeration');}});
- const r=captureRuntimeDependencyInstallRequest(input);assert.equal(r.rematerialize,false);assert.equal(Object.hasOwn(r,'monotonicNowMs'),false);assert.ok(Object.isFrozen(r));
+ const r=captureRuntimeDependencyInstallRequest(input);assert.equal(r.rematerialize,false);assert.equal(r.installMode,undefined);assert.equal(Object.hasOwn(r,'monotonicNowMs'),false);assert.ok(Object.isFrozen(r));
 });
 test('each selected public getter is read once and the input remains independently mutable',()=>{
  const reads=new Map<string,number>();const input={};

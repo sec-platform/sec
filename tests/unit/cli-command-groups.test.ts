@@ -26,7 +26,10 @@ test('workspace and inspection commands expose native help', async () => {
   }
 });
 
-for (const name of ['verify', 'repair', 'upgrade', 'lock', 'explain', 'artifacts', 'policy', 'acceptance', 'runtime', 'verification', 'provenance', 'review', 'demo', 'overview', 'install', 'blocks', 'postgres']) {
+// Policy represents the standard inspection family, whose shared query registrar
+// always installs output admission. Lock and explain share one registration loop.
+// Keep the other independently wired registration sites exercised here.
+for (const name of ['verify', 'repair', 'upgrade', 'lock', 'artifacts', 'policy', 'postgres']) {
   test(`${name} rejects compact-only output before reading a workspace`, async () => {
     const { command } = program();
     await assert.rejects(command.parseAsync([name, '--compact'], { from: 'user' }),

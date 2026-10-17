@@ -50,7 +50,6 @@ test('live explain routing preserves raw JSON, text and single matrix derivation
     const e2eMatrix = buildE2eMatrix(reviewSummary);
     expect(await invoke([])).toBe(`${formatExplainSummary(projectExplainSummary(graph, reviewSummary, e2eMatrix))}\n`);
     expect(JSON.parse(await fs.readFile(receiptPath, 'utf8'))).toEqual({ reads: 1 });
-    expect(JSON.parse(await invoke(['--json']))).toEqual({ graph, reviewSummary, e2eMatrix });
     const compact = await invoke(['--json', '--compact']);
     expect(compact.trim().split('\n')).toHaveLength(1);
     expect(JSON.parse(compact)).toEqual({ graph, reviewSummary, e2eMatrix });

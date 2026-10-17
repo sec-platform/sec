@@ -5,10 +5,13 @@ import { issueRuntimeDependencyTestMaterialization } from '../../src/adapters/to
 import { runtimeDependencyOperationRemainingMs } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('the installer never enumerates unrelated lifecycle/test fields', () => {
-  const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0,
+  const raw = new Proxy({ lockTimeoutMs: 100, monotonicNowMs: () => 0, installMode: 'allow' as const,
+    get now() { assert.fail('unrelated wall clock'); throw new Error('unreachable'); },
+    get sharedDepsRoot() { assert.fail('unrelated shared root'); throw new Error('unreachable'); },
     get generatedStateLifecycle() { assert.fail('unrelated capability'); throw new Error('unreachable'); }, get testCompilerRename() { assert.fail('unrelated test seam'); throw new Error('unreachable'); }
   }, { ownKeys() { assert.fail('enumerated request'); } });
   const bound = bindCompilerInstallInvocation(raw);
+  assert.equal(bound.isolated, false);
   assert.equal(runtimeDependencyOperationRemainingMs(bound.controls, 'test'), 100);
   assert.deepEqual(Object.keys(bound).sort(), ['beforeCommit', 'controls', 'isolated', 'materialization']);
 });
@@ -22,7 +25,7 @@ test('an unissued fixture capability is refused before callbacks', () => {
 });
 
 test('the selected commit method keeps its real receiver', async () => {
-  class Provider { #calls = 0; beforeCommit = async () => { this.#calls++; }; get calls() { return this.#calls; } }
+  class Provider { #calls = 0; beforeCommit = async function (this: Provider) { this.#calls++; }; get calls() { return this.#calls; } }
   const raw = new Provider(); const bound = bindCompilerInstallInvocation(raw);
   raw.beforeCommit = async () => assert.fail('replacement'); await bound.beforeCommit?.(); assert.equal(raw.calls, 1);
 });

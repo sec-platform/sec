@@ -61,6 +61,8 @@ test('policy projection owns its arrays while preserving source order and counts
   source.project.sources[0]!.policyIds.length = 0;
   assert.deepEqual(projected.sources.map(value => value.policyIds), [['one'], ['two', 'three']]);
   assert.deepEqual(projected.sources.map(value => value.policyCount), [1, 2]);
+  projected.sources[0]!.policyIds.push('projection-only');
+  assert.deepEqual(source.official.sources[0]!.policyIds, ['one', 'later']);
 });
 
 test('policy list and count use one observation of a provider getter', () => {
@@ -70,12 +72,6 @@ test('policy list and count use one observation of a provider getter', () => {
   assert.equal(reads, 1);
   assert.deepEqual(projected.sources[0]!.policyIds, ['first']);
   assert.equal(projected.sources[0]!.policyCount, 1);
-});
-
-test('editing a policy projection never changes the domain result', () => {
-  const source = policy(), projected = projectPolicySources(source as PolicyInput);
-  projected.sources[0]!.policyIds.push('projection-only');
-  assert.deepEqual(source.official.sources[0]!.policyIds, ['one']);
 });
 
 test('coverage copies declared, covered and uncovered arrays in both directions', () => {
@@ -89,6 +85,9 @@ test('coverage copies declared, covered and uncovered arrays in both directions'
   source.blocks[0]!.declaredAcceptance.push('later');
   source.blocks[0]!.coveredBy.push('later-coverage');
   source.uncoveredBlocks.length = 0;
+  source.blocks.push({ ...source.blocks[0]!, id: 'later' });
+  assert.equal(projected.targetCount, 1);
+  assert.deepEqual(projected.targets.map(value => value.id), ['block']);
   assert.deepEqual(projected.targets[0]!.declaredAcceptance, ['declared']);
   assert.deepEqual(projected.targets[0]!.coveredBy, ['coverage']);
   assert.deepEqual(projected.uncoveredIds, ['block']); assert.equal(projected.uncoveredCount, 1);
@@ -114,12 +113,6 @@ test('coverage summary and target fields use the same captured observations', ()
   assert.equal(projected.coveredCount, 1); assert.equal(projected.targets[0]!.uncovered, false);
   assert.equal(projected.targets[0]!.declaredAcceptanceCount, projected.targets[0]!.declaredAcceptance.length);
   assert.equal(projected.targets[0]!.coveredByCount, projected.targets[0]!.coveredBy.length);
-});
-
-test('coverage projection does not acquire later-added targets', () => {
-  const source = coverage(), projected = projectAcceptanceTargets(source);
-  source.blocks.push({ ...source.blocks[0]!, id: 'later' });
-  assert.equal(projected.targetCount, 1); assert.deepEqual(projected.targets.map(v => v.id), ['block']);
 });
 
 test('all runtime step details are copied, without freezing the provider result', () => {
