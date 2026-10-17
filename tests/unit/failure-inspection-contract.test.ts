@@ -88,8 +88,13 @@ test('presentation distinguishes marker-named and truncated colliding data keys'
 test('error codes read once, reject nonstrings, and do not throw through the projection', () => {
   let reads = 0;
   assert.equal(getErrorCode({ get code() { reads++; return 'E-CODE'; } }), 'E-CODE'); assert.equal(reads, 1);
-  for (const code of [null, 0, {}, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);
-  assert.equal(getErrorCode({ get code() { throw undefined; } }), undefined);
+  let conversions = 0;
+  const nonStringCode = { toString() { conversions++; throw new Error('must not run'); } };
+  for (const code of [null, 0, nonStringCode, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);
+  assert.equal(conversions, 0);
+  const error = new Error('original');
+  Object.defineProperty(error, 'code', { get() { throw undefined; } });
+  assert.equal(getErrorCode(error), undefined);
 });
 
 test('live and revoked proxies reach no traps or renderer', () => {

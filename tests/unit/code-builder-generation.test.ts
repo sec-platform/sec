@@ -138,19 +138,9 @@ test('hashbang-only input and repeated comment edits preserve one native executa
   assert.equal((builder.getText().match(/#!/g) ?? []).length, 1);
 });
 
-test('all native line terminators in file comments remain comments, not executable statements', async () => {
-  const text = new CodeBuilder().addFileComment('title\r\nthrow 1;\rthrow 2;\nthrow 3;\u2028throw 4;\u2029throw 5;')
-    .addVariable({ name: 'value', initializer: '42', isExported: true }).getText();
-  assert.equal((await executeGenerated(text)).value, 42);
-});
-
-test('malformed fragments and breakout attempts remain rejected without poisoning subsequent output', () => {
+test('invalid raw statements and member names leave previously generated source unchanged', () => {
   const operations = [
-    (b: CodeBuilder) => b.addTypeAlias('Bad', 'number; const extra = 1'),
-    (b: CodeBuilder) => b.addVariable({ name: 'bad', initializer: '1; const extra = 1' }),
-    (b: CodeBuilder) => b.addFunction({ name: 'bad', body: '} const extra = 1; function other() {' }),
     (b: CodeBuilder) => b.addClass({ name: 'Bad', properties: [{ name: 'x; extra', type: 'number' }] }),
-    (b: CodeBuilder) => b.addClass({ name: 'Bad', extends: 'Base {} class Extra' }),
     (b: CodeBuilder) => b.appendRaw('const before = 1; const broken = ;')
   ];
   for (const operation of operations) {

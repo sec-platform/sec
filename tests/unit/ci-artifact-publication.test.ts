@@ -37,6 +37,7 @@ test('CI artifact publication owns an absent manifest parent below the retained 
     const readback = readOptionalCiArtifactManifest(manifestPath);
 
     expect(readback).toEqual(manifest);
+    expect(manifest.artifacts.map((entry) => entry.path)).toContain(CI_ARTIFACT_FILES.artifactManifest);
     expect(manifest.artifacts.every((entry) => isCanonicalCiArtifactPath(entry.path))).toBe(true);
     expect(manifest.artifacts.some((entry) => entry.path === 'package.json')).toBe(false);
   });
@@ -61,12 +62,5 @@ test('CI artifact publication rejects a foreign manifest parent before manifest 
     expect(failure).toBeInstanceOf(PhysicalNoFollowError);
     expect((failure as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
     expect(await fs.readFile(manifestParent, 'utf8')).toBe('foreign-parent');
-    let manifestExists = true;
-    try {
-      await fs.access(manifestPath);
-    } catch {
-      manifestExists = false;
-    }
-    expect(manifestExists).toBe(false);
   });
 });

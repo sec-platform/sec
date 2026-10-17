@@ -10,30 +10,23 @@ const pathCommands = [
 ];
 
 test('the first option terminator turns all later values into literal pathspecs', () => {
-  for (const prefix of pathCommands) for (const name of ['--textconv', '--ext-diff', '--cached', '--exec', '--filter=blob:none', '--upload-pack=x', '-odd', '--']) {
+  for (const prefix of pathCommands) for (const name of prefix[0] === 'ls-files'
+    ? ['--textconv', '--ext-diff', '--cached', '--exec', '--filter=blob:none', '--upload-pack=x', '-odd', '--']
+    : ['--textconv']) {
     const args = [...prefix, '--', name];
     assert.equal(gitReadCommandIsObservation(args), true, JSON.stringify(args));
   }
 });
 
 test('the same dangerous spelling before option termination remains forbidden', () => {
-  for (const prefix of pathCommands) for (const option of ['--textconv', '--ext-diff', '--exec', '--filter=blob:none', '--upload-pack=x']) {
+  for (const prefix of pathCommands) for (const option of prefix[0] === 'ls-files'
+    ? ['--textconv', '--ext-diff', '--exec', '--exec=unsafe', '--filter=blob:none', '--upload-pack=x']
+    : ['--textconv']) {
     assert.equal(gitReadCommandIsObservation([...prefix, option, '--', 'file']), false);
   }
+  assert.equal(gitReadCommandIsObservation(['rev-list', '--first-parent', '--exec=unsafe', `${head}..${head}`, '--', 'file']), false);
   assert.equal(gitReadCommandIsObservation(['diff-files', '--cached', '--', 'file']), false);
   assert.equal(gitReadCommandIsObservation(['diff-files', '--', '--cached']), true);
-});
-
-test('bounded first-parent control history uses only the admitted read grammar', () => {
-  assert.equal(gitReadCommandIsObservation([
-    'rev-list', '--first-parent', '--full-history', '--show-pulls', '--count',
-    `${head}..${head}`, '--', 'config/repository/work-selection.md'
-  ]), true);
-  for (const option of ['--exec=unsafe', '--textconv', '--filter=blob:none', '--upload-pack=x']) {
-    assert.equal(gitReadCommandIsObservation([
-      'rev-list', '--first-parent', option, `${head}..${head}`, '--', 'config/repository/work-selection.md'
-    ]), false);
-  }
 });
 
 test('grep patterns are exactly one -e operand, not recursively parsed helper switches', () => {

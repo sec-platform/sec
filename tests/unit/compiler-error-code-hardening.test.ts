@@ -25,11 +25,6 @@ test('preserves inherited codes and captures a successful accessor only once', (
   assert.equal(reads, 1);
 });
 
-test('a throwing code getter does not replace the original error', () => {
-  const original = new Error('original');
-  Object.defineProperty(original, 'code', { get() { throw new Error('secondary'); } });
-  assert.equal(getErrorCode(original), undefined);
-});
 
 test('a failing property-read trap is contained', () => {
   const input = new Proxy({}, { get() { throw new Error('secondary'); } });
@@ -44,9 +39,4 @@ test('does not require a separate property-presence trap to classify a readable 
   });
   assert.equal(getErrorCode(input), 'READABLE');
   assert.equal(reads, 1);
-});
-
-test('non-string code objects are neither coerced nor inspected', () => {
-  const value = { toString() { throw new Error('must not run'); } };
-  assert.equal(getErrorCode({ code: value }), undefined);
 });

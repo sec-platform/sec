@@ -29,6 +29,13 @@ test('failure descriptions retain known compiler codes and ordinary messages', (
   assert.deepEqual(describePipelineFailure(new CodedFailure('TEST-001', 'message')), { code: 'TEST-001', message: 'message' });
   assert.deepEqual(describePipelineFailure(new Error('message')), { code: 'UNEXPECTED', message: 'message' });
   assert.deepEqual(describePipelineFailure(undefined), { code: 'UNEXPECTED', message: 'undefined' });
+  let conversions = 0;
+  const hostile = {
+    toString() { conversions++; throw new Error('conversion'); },
+    [Symbol.toPrimitive]() { conversions++; throw new Error('conversion'); }
+  };
+  assert.equal(describePipelineFailure(hostile).code, 'UNEXPECTED');
+  assert.equal(conversions, 0);
 });
 
 test('revoked proxies and hostile accessors do not prevent failure settlement', async () => {
@@ -43,9 +50,4 @@ test('revoked proxies and hostile accessors do not prevent failure settlement', 
       assert.equal(value.settlementFailures[0]?.reason, reason); return true;
     });
   }
-});
-
-test('object conversion hooks are not executed while describing an unknown failure', () => {
-  const hostile = { toString() { assert.fail('conversion'); }, [Symbol.toPrimitive]() { assert.fail('conversion'); } };
-  assert.equal(describePipelineFailure(hostile).code, 'UNEXPECTED');
 });

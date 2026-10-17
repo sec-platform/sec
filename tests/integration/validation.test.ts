@@ -527,67 +527,47 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
 });
 
 test('upgrade rejects JSON array structure mismatches before planning', async () => {
-  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
-    prefix: 'engineering-compiler-upgrade-json-structure-',
-    migration: {
+  for (const scenario of [
+    {
       id: 'mig-json-array-append',
-      kind: 'json-array-append',
+      prefix: 'engineering-compiler-upgrade-json-structure-',
       entry: 'migrations/json-array-append.json',
-      requiresVerification: false,
-      body: {
-        id: 'mig-json-array-append',
-        kind: 'json-array-append',
-        reason: 'Append upgrade metadata.',
-        target: 'upgrade.metadata.json',
-        path: ['upgradedBlocks'],
-        items: ['private/block-upgrade@0.2.0']
-      }
+      path: ['upgradedBlocks'],
+      document: { upgradedBlocks: 'auth/basic-session@0.1.0' }
     },
-    setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.workspaceRoot, 'upgrade.metadata.json'), {
-        upgradedBlocks: 'auth/basic-session@0.1.0'
-      });
-    }
-  });
-
-  await expectUpgradeDryRunFailureWithoutDiagnostics(
-    workspaceRoot,
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     {
-      code: 'UPGRADE-MIGRATION-012'
-    }
-  );
-});
-
-test('upgrade rejects JSON array parent structure mismatches before planning', async () => {
-  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
-    prefix: 'engineering-compiler-upgrade-json-parent-structure-',
-    migration: {
       id: 'mig-json-array-append-nested',
-      kind: 'json-array-append',
+      prefix: 'engineering-compiler-upgrade-json-parent-structure-',
       entry: 'migrations/json-array-append-nested.json',
-      requiresVerification: false,
-      body: {
-        id: 'mig-json-array-append-nested',
+      path: ['upgrade', 'blocks'],
+      document: { upgrade: 'legacy-scalar' }
+    }
+  ]) {
+    const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
+      prefix: scenario.prefix,
+      migration: {
+        id: scenario.id,
         kind: 'json-array-append',
-        reason: 'Append nested upgrade metadata.',
-        target: 'upgrade.metadata.json',
-        path: ['upgrade', 'blocks'],
-        items: ['private/block-upgrade@0.2.0']
+        entry: scenario.entry,
+        requiresVerification: false,
+        body: {
+          id: scenario.id,
+          kind: 'json-array-append',
+          reason: 'Append upgrade metadata.',
+          target: 'upgrade.metadata.json',
+          path: scenario.path,
+          items: ['private/block-upgrade@0.2.0']
+        }
+      },
+      setup: async ({ paths: workspacePaths }) => {
+        await writeJson(path.join(workspacePaths.workspaceRoot, 'upgrade.metadata.json'), scenario.document);
       }
-    },
-    setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.workspaceRoot, 'upgrade.metadata.json'), {
-        upgrade: 'legacy-scalar'
-      });
-    }
-  });
+    });
 
-  await expectUpgradeDryRunFailureWithoutDiagnostics(
-    workspaceRoot,
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    {
-      code: 'UPGRADE-MIGRATION-012'
-    }
-  );
+    await expectUpgradeDryRunFailureWithoutDiagnostics(
+      workspaceRoot,
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+      { code: 'UPGRADE-MIGRATION-012' }
+    );
+  }
 });

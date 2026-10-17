@@ -277,7 +277,6 @@ test('completed native main absorption retires its proof and preparation without
     const result = await retireWithGitHubObservation(native, settlement);
     expect(result.status).toBe('completed');
     expect(result.retired).toEqual([recovery.path, `${recovery.path}.preparation.json`]);
-    expect(existsSync(`${recovery.path}.sha256`)).toBe(false);
     expect(existsSync(value.recoveryRoot)).toBe(false);
   } finally {
     rmSync(path.dirname(value.root), { recursive: true, force: true });

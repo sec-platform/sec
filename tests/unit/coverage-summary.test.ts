@@ -38,7 +38,7 @@ test('review summary surfaces acceptance coverage summary', async () => {
       blocks: [
         {
           id: 'entity/customer-basic',
-          declaredAcceptance: ['customer_crud', 'tenant_scope'],
+          declaredAcceptance: ['customer_crud'],
           coveredBy: ['customer_crud'],
           uncovered: false
         },

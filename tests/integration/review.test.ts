@@ -5,7 +5,6 @@ import path from 'node:path';
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { projectReviewDiagnostics } from '../../src/application/review-diagnostics-inspect.ts';
 import type { ReviewSummaryInspectView } from '../../src/application/review-summary-inspect.ts';
 import { formatReviewSummary } from '../../src/entry/cli/review-summary-inspect.ts';
 import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
@@ -322,7 +321,38 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         artifactPathCount: 1
       }
     });
-    const expectedDiagnostics = projectReviewDiagnostics(reviewSummary);
+    const expectedDiagnostics = {
+      status: 'attention',
+      diagnosticCount: 4,
+      failureCount: 1,
+      regressionRiskCount: 2,
+      conflictHintCount: 1,
+      artifactPathCount: 1,
+      artifactPaths: [CI_ARTIFACT_FILES.policyReport],
+      blockCount: 2,
+      blocks: ['entity/customer-basic', 'tenant/basic-workspace'],
+      diagnostics: [
+        {
+          id: 'failure:0', category: 'failure', kind: 'policy', lane: 'fast',
+          message: 'Policy tenant-scope-required: missing tenant guard',
+          artifactPath: CI_ARTIFACT_FILES.policyReport
+        },
+        {
+          id: 'regression-risk:0', category: 'regression-risk', kind: 'coverage-gap',
+          message: 'Block tenant/basic-workspace has uncovered acceptance',
+          blockId: 'tenant/basic-workspace'
+        },
+        {
+          id: 'regression-risk:1', category: 'regression-risk', kind: 'override-active',
+          message: 'Block entity/customer-basic has active override',
+          blockId: 'entity/customer-basic'
+        },
+        {
+          id: 'conflict:0', category: 'conflict', kind: 'upgrade-plan-present',
+          message: 'Upgrade plan needs review before merge', relatedId: 'auth/basic-session'
+        }
+      ]
+    };
     expect(diagnosticVariants.json).toEqual(expectedDiagnostics);
     expect(diagnosticVariants.compactJson).toEqual(expectedDiagnostics);
   });

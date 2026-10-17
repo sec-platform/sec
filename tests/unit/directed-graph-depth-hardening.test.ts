@@ -16,16 +16,10 @@ test('empty directed graph returns a frozen empty partition', () => {
 });
 
 test('isolated, self-loop and duplicate nodes preserve set semantics', () => {
-  assert.deepEqual(scc(['b', 'a', 'a'], [{ from: 'b', to: 'b' }]), [['a'], ['b']]);
-});
-
-test('SCC keeps duplicate edges idempotent and output deeply frozen', () => {
-  const result = scc(['b', 'a'], [
-    { from: 'a', to: 'b' }, { from: 'a', to: 'b' }, { from: 'b', to: 'a' }
-  ]);
-  assert.deepEqual(result, [['a', 'b']]);
+  const result = scc(['b', 'a', 'a'], [{ from: 'b', to: 'b' }]);
+  assert.deepEqual(result, [['a'], ['b']]);
   assert.ok(Object.isFrozen(result));
-  assert.ok(Object.isFrozen(result[0]));
+  for (const component of result) assert.ok(Object.isFrozen(component));
 });
 
 test('SCC rejects either endpoint outside the closed node set', () => {
@@ -41,7 +35,7 @@ test('SCC preserves input and canonical partition across reversed traversal', ()
     Object.freeze({ from: 'b', to: 'c' })
   ]);
   assert.deepEqual(scc(nodes, edges), [['a', 'b'], ['c', 'd']]);
-  assert.deepEqual(scc([...nodes].reverse(), [...edges].reverse()), scc(nodes, edges));
+  assert.deepEqual(scc([...nodes].reverse(), [...edges].reverse()), [['a', 'b'], ['c', 'd']]);
   assert.deepEqual(nodes, ['d', 'c', 'b', 'a']);
 });
 

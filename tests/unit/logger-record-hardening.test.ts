@@ -53,6 +53,9 @@ test('every externally callable log-level boundary rejects values outside its ex
 });
 
 test('canonical levels and defaults retain existing meanings', () => {
+  assert.equal(Object.isFrozen(LOG_LEVELS), true);
+  assert.equal(Reflect.set(LOG_LEVELS, '0', 'trace'), false);
+  assert.equal(LOG_LEVELS[0], 'debug');
   assert.deepEqual(LOG_LEVELS, ['debug', 'info', 'warn', 'error']);
   assert.equal(resolveLogLevel(undefined), 'info');
   assert.equal(resolveLogLevel(undefined, 'warn'), 'warn');
@@ -63,11 +66,6 @@ test('canonical levels and defaults retain existing meanings', () => {
   }
 });
 
-test('exported log-level vocabulary cannot drift after its lookup set is built', () => {
-  assert.equal(Object.isFrozen(LOG_LEVELS), true);
-  assert.equal(Reflect.set(LOG_LEVELS, '0', 'trace'), false);
-  assert.equal(LOG_LEVELS[0], 'debug');
-});
 
 test('log records preserve primitive metadata and reject invalid timestamps', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(buildJsonLogRecord('info', 'value', ['a'], 1))),
