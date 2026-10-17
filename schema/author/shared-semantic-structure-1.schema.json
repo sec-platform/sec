@@ -1,0 +1,1911 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:shared-semantic-structure-1",
+  "title": "Shared TypeTerm, semantic binders and expression structure — design contract",
+  "$comment": "Exact shared structures from docs/作者/组合/结构编辑与身份保持.md and 参数包与类型级值.md. This is not a production reader. Type/kind, lexical resolution, arity, hygiene, uniqueness, unit/Int codecs, context restrictions, effects, capture, pure phase qualification, closed constructor qualification and resource bounds require the named semantic owners.",
+  "$defs": {
+    "Text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "DefinitionRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definitionId"
+          ],
+          "properties": {
+            "definitionId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "import",
+            "export"
+          ],
+          "properties": {
+            "import": {
+              "type": "string",
+              "minLength": 1
+            },
+            "export": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "ParameterRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameter"
+      ],
+      "properties": {
+        "parameter": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "Kind": {
+      "oneOf": [
+        {
+          "enum": [
+            "Type",
+            "Region",
+            "Scope",
+            "EffectRow"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/TypeTerm"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "constructor"
+          ],
+          "properties": {
+            "constructor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "parameters",
+                "result"
+              ],
+              "properties": {
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Kind"
+                  },
+                  "minItems": 0
+                },
+                "result": {
+                  "const": "Type"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pack"
+          ],
+          "properties": {
+            "pack": {
+              "$ref": "#/$defs/Kind"
+            }
+          }
+        }
+      ]
+    },
+    "SemanticParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "name"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "binding": {
+          "enum": [
+            "argument",
+            "fresh"
+          ]
+        }
+      }
+    },
+    "EffectRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members"
+      ],
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DefinitionRef"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "tail": {
+          "$ref": "#/$defs/ParameterRef"
+        }
+      }
+    },
+    "ConstructorTerm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decl"
+          ],
+          "properties": {
+            "decl": {
+              "$ref": "#/$defs/DefinitionRef"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "apply"
+          ],
+          "properties": {
+            "apply": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "constructor",
+                "arguments"
+              ],
+              "properties": {
+                "constructor": {
+                  "$ref": "#/$defs/ConstructorTerm"
+                },
+                "arguments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SemanticArgument"
+                  },
+                  "minItems": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PackTerm": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SemanticArgument"
+          },
+          "minItems": 0
+        },
+        {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "concat"
+          ],
+          "properties": {
+            "concat": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PackTerm"
+              },
+              "minItems": 0
+            }
+          }
+        }
+      ]
+    },
+    "PackElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack",
+        "index"
+      ],
+      "properties": {
+        "pack": {
+          "$ref": "#/$defs/PackTerm"
+        },
+        "index": {
+          "$ref": "#/$defs/Expr"
+        }
+      }
+    },
+    "Expand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expand"
+      ],
+      "properties": {
+        "expand": {
+          "$ref": "#/$defs/PackTerm"
+        }
+      }
+    },
+    "SemanticArgument": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TypeTerm"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "region"
+          ],
+          "properties": {
+            "region": {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope"
+          ],
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "effectRow"
+          ],
+          "properties": {
+            "effectRow": {
+              "$ref": "#/$defs/EffectRow"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typeConstructor"
+          ],
+          "properties": {
+            "typeConstructor": {
+              "$ref": "#/$defs/ConstructorTerm"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pack"
+          ],
+          "properties": {
+            "pack": {
+              "$ref": "#/$defs/PackTerm"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "packElement"
+          ],
+          "properties": {
+            "packElement": {
+              "$ref": "#/$defs/PackElement"
+            }
+          }
+        }
+      ],
+      "description": "packElement is shared with TypeTerm; contextual kind checking and qualified phase evaluation are mandatory."
+    },
+    "TypeSequenceItem": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TypeTerm"
+        },
+        {
+          "$ref": "#/$defs/Expand"
+        }
+      ]
+    },
+    "SemanticSequenceItem": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SemanticArgument"
+        },
+        {
+          "$ref": "#/$defs/Expand"
+        }
+      ]
+    },
+    "FunctionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameters",
+        "returns"
+      ],
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TypeSequenceItem"
+          },
+          "minItems": 0
+        },
+        "returns": {
+          "$ref": "#/$defs/TypeTerm"
+        },
+        "effects": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EffectRow"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DefinitionRef"
+              },
+              "minItems": 0,
+              "uniqueItems": true
+            }
+          ]
+        },
+        "typeParams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SemanticParameter"
+          },
+          "minItems": 0
+        },
+        "callMode": {
+          "enum": [
+            "shared",
+            "exclusive",
+            "consume"
+          ]
+        },
+        "parameterContracts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "position",
+              "retention"
+            ],
+            "properties": {
+              "position": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "retention": {
+                "enum": [
+                  "noescape",
+                  "may-retain"
+                ]
+              }
+            }
+          },
+          "minItems": 0
+        },
+        "captures": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "region"
+                ],
+                "properties": {
+                  "region": {
+                    "$ref": "#/$defs/ParameterRef"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scope"
+                ],
+                "properties": {
+                  "scope": {
+                    "$ref": "#/$defs/ParameterRef"
+                  }
+                }
+              }
+            ]
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      }
+    },
+    "TypeTerm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "core"
+          ],
+          "properties": {
+            "core": {
+              "enum": [
+                "Int",
+                "Bool",
+                "Unit",
+                "Never",
+                "Text",
+                "Bytes"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "core",
+            "arguments"
+          ],
+          "properties": {
+            "core": {
+              "enum": [
+                "List",
+                "Option"
+              ]
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TypeTerm"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "core",
+            "arguments"
+          ],
+          "properties": {
+            "core": {
+              "const": "Result"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TypeTerm"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decl"
+          ],
+          "properties": {
+            "decl": {
+              "$ref": "#/$defs/DefinitionRef"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticSequenceItem"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definition-reference"
+          ],
+          "properties": {
+            "definition-reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "contractRef"
+              ],
+              "properties": {
+                "role": {
+                  "enum": [
+                    "predicate",
+                    "design",
+                    "selector"
+                  ]
+                },
+                "contractRef": {
+                  "$ref": "#/$defs/DefinitionRef"
+                },
+                "typeArguments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SemanticArgument"
+                  },
+                  "minItems": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record"
+          ],
+          "properties": {
+            "record": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "type"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "type": {
+                    "$ref": "#/$defs/TypeTerm"
+                  }
+                }
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "function"
+          ],
+          "properties": {
+            "function": {
+              "$ref": "#/$defs/FunctionType"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "exists"
+          ],
+          "properties": {
+            "exists": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "parameters",
+                "type"
+              ],
+              "properties": {
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SemanticParameter"
+                  },
+                  "minItems": 1
+                },
+                "type": {
+                  "$ref": "#/$defs/TypeTerm"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "apply"
+          ],
+          "properties": {
+            "apply": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "constructor",
+                "arguments"
+              ],
+              "properties": {
+                "constructor": {
+                  "$ref": "#/$defs/ConstructorTerm"
+                },
+                "arguments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SemanticSequenceItem"
+                  },
+                  "minItems": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "packElement"
+          ],
+          "properties": {
+            "packElement": {
+              "$ref": "#/$defs/PackElement"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hole"
+          ],
+          "properties": {
+            "hole": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "expected"
+              ],
+              "properties": {
+                "expected": {
+                  "const": "type"
+                },
+                "rawText": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ExprRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "binding"
+          ],
+          "properties": {
+            "binding": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/DefinitionRef"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "constructor"
+          ],
+          "properties": {
+            "constructor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "name"
+              ],
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/TypeTerm"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resultOf"
+          ],
+          "properties": {
+            "resultOf": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "Binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "name"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "$ref": "#/$defs/TypeTerm"
+        }
+      }
+    },
+    "CallArgument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "$ref": "#/$defs/Expr"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "RecordField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "$ref": "#/$defs/Expr"
+        }
+      }
+    },
+    "LiteralExpr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "type"
+          ],
+          "properties": {
+            "tag": {
+              "const": "literal"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Unit"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "type",
+            "value"
+          ],
+          "properties": {
+            "tag": {
+              "const": "literal"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Int"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^(0|-?[1-9][0-9]*)$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "type",
+            "value"
+          ],
+          "properties": {
+            "tag": {
+              "const": "literal"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Bool"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "type",
+            "value"
+          ],
+          "properties": {
+            "tag": {
+              "const": "literal"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "const": "Text"
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "Pattern": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag"
+          ],
+          "properties": {
+            "tag": {
+              "const": "wildcard"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag"
+          ],
+          "properties": {
+            "tag": {
+              "const": "unit"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag"
+          ],
+          "properties": {
+            "tag": {
+              "const": "empty-list"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/LiteralExpr"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "binding"
+          ],
+          "properties": {
+            "tag": {
+              "const": "bind"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "binding": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "key",
+                "name"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "head",
+            "tail"
+          ],
+          "properties": {
+            "tag": {
+              "const": "cons"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "head": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "key",
+                "name"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "tail": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "key",
+                "name"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "constructor",
+            "patterns"
+          ],
+          "properties": {
+            "tag": {
+              "const": "constructor"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "constructor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "name"
+              ],
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/TypeTerm"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "patterns": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Pattern"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "expected"
+          ],
+          "properties": {
+            "tag": {
+              "const": "hole"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expected": {
+              "const": "pattern"
+            },
+            "rawText": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "Expr": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LiteralExpr"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "ref"
+          ],
+          "properties": {
+            "tag": {
+              "const": "reference"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ref": {
+              "$ref": "#/$defs/ExprRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "operator",
+            "operand"
+          ],
+          "properties": {
+            "tag": {
+              "const": "unary"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operator": {
+              "enum": [
+                "!",
+                "+",
+                "-"
+              ]
+            },
+            "operand": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "operator",
+            "left",
+            "right"
+          ],
+          "properties": {
+            "tag": {
+              "const": "binary"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operator": {
+              "enum": [
+                "+",
+                "-",
+                "*",
+                "/",
+                "%",
+                "==",
+                "!=",
+                "<",
+                "<=",
+                ">",
+                ">=",
+                "&&",
+                "||"
+              ]
+            },
+            "left": {
+              "$ref": "#/$defs/Expr"
+            },
+            "right": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "callee",
+            "arguments"
+          ],
+          "properties": {
+            "tag": {
+              "const": "call"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "callee": {
+              "$ref": "#/$defs/Expr"
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/CallArgument"
+              },
+              "minItems": 0
+            },
+            "semanticArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "receiver",
+            "name"
+          ],
+          "properties": {
+            "tag": {
+              "const": "field"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "receiver": {
+              "$ref": "#/$defs/Expr"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "fields"
+          ],
+          "properties": {
+            "tag": {
+              "const": "record"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RecordField"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "receiver",
+            "fields"
+          ],
+          "properties": {
+            "tag": {
+              "const": "record-update"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "receiver": {
+              "$ref": "#/$defs/Expr"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RecordField"
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "items"
+          ],
+          "properties": {
+            "tag": {
+              "const": "list"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Expr"
+              },
+              "minItems": 0
+            },
+            "tail": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "binding",
+            "initializer",
+            "continuation"
+          ],
+          "properties": {
+            "tag": {
+              "const": "let"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "binding": {
+              "$ref": "#/$defs/Binding"
+            },
+            "initializer": {
+              "$ref": "#/$defs/Expr"
+            },
+            "continuation": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "condition",
+            "then",
+            "otherwise"
+          ],
+          "properties": {
+            "tag": {
+              "const": "if"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "then": {
+              "$ref": "#/$defs/Expr"
+            },
+            "otherwise": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "bindings",
+            "expression"
+          ],
+          "properties": {
+            "tag": {
+              "const": "region"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bindings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "binding",
+                  "initializer"
+                ],
+                "properties": {
+                  "binding": {
+                    "$ref": "#/$defs/Binding"
+                  },
+                  "initializer": {
+                    "$ref": "#/$defs/Expr"
+                  }
+                }
+              },
+              "minItems": 0
+            },
+            "expression": {
+              "$ref": "#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "params",
+            "expression"
+          ],
+          "properties": {
+            "tag": {
+              "const": "lambda"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "params": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Binding"
+              },
+              "minItems": 0
+            },
+            "expression": {
+              "$ref": "#/$defs/Expr"
+            },
+            "typeParams": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SemanticParameter"
+              },
+              "minItems": 0
+            },
+            "effects": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/EffectRow"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DefinitionRef"
+                  },
+                  "minItems": 0,
+                  "uniqueItems": true
+                }
+              ]
+            },
+            "callMode": {
+              "enum": [
+                "shared",
+                "exclusive",
+                "consume"
+              ]
+            },
+            "parameterContracts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "position",
+                  "retention"
+                ],
+                "properties": {
+                  "position": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "retention": {
+                    "enum": [
+                      "noescape",
+                      "may-retain"
+                    ]
+                  }
+                }
+              },
+              "minItems": 0
+            },
+            "captures": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "region"
+                    ],
+                    "properties": {
+                      "region": {
+                        "$ref": "#/$defs/ParameterRef"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "scope"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "$ref": "#/$defs/ParameterRef"
+                      }
+                    }
+                  }
+                ]
+              },
+              "minItems": 0,
+              "uniqueItems": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "subject",
+            "arms"
+          ],
+          "properties": {
+            "tag": {
+              "const": "match"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "subject": {
+              "$ref": "#/$defs/Expr"
+            },
+            "arms": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "pattern",
+                  "expression"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pattern": {
+                    "$ref": "#/$defs/Pattern"
+                  },
+                  "expression": {
+                    "$ref": "#/$defs/Expr"
+                  }
+                }
+              },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "expected"
+          ],
+          "properties": {
+            "tag": {
+              "const": "hole"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expected": {
+              "const": "expression"
+            },
+            "rawText": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ClosedExpr": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LiteralExpr"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "ref"
+          ],
+          "properties": {
+            "tag": {
+              "const": "reference"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/DefinitionRef"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "constructor"
+                  ],
+                  "properties": {
+                    "constructor": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type",
+                        "name"
+                      ],
+                      "properties": {
+                        "type": {
+                          "$ref": "#/$defs/TypeTerm"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "items"
+          ],
+          "properties": {
+            "tag": {
+              "const": "list"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ClosedExpr"
+              },
+              "minItems": 0
+            },
+            "tail": {
+              "$ref": "#/$defs/ClosedExpr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "fields"
+          ],
+          "properties": {
+            "tag": {
+              "const": "record"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "$ref": "#/$defs/ClosedExpr"
+                  }
+                }
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tag",
+            "callee",
+            "arguments"
+          ],
+          "properties": {
+            "tag": {
+              "const": "call"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "callee": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tag",
+                "ref"
+              ],
+              "properties": {
+                "tag": {
+                  "const": "reference"
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ref": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "constructor"
+                  ],
+                  "properties": {
+                    "constructor": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type",
+                        "name"
+                      ],
+                      "properties": {
+                        "type": {
+                          "$ref": "#/$defs/TypeTerm"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "$ref": "#/$defs/ClosedExpr"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "minItems": 0
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/TypeTerm"
+}

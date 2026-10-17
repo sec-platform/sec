@@ -1,0 +1,40 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "example:requirement-composition",
+  "definitions": {
+    "Policy": {
+      "kind": "req:composite",
+      "body": {
+        "parameters": {
+          "limit": {
+            "role": "value",
+            "type": {"core": "Int"},
+            "default": {"expression": {"tag": "literal", "type": "Int", "value": "3"}}
+          }
+        },
+        "terms": []
+      }
+    },
+    "Plan": {
+      "kind": "req:composite",
+      "body": {
+        "parameters": {
+          "policy": {
+            "role": "value",
+            "type": {"definition-reference": {"role": "design", "contractRef": {"definitionId": "Policy"}}},
+            "default": {"definition": {"definitionId": "Policy"}}
+          }
+        },
+        "terms": [
+          {
+            "use": {"design": {"parameter": "policy"}},
+            "arguments": {
+              "limit": {"expression": {"tag": "binary", "operator": "+", "left": {"tag": "literal", "type": "Int", "value": "2"}, "right": {"tag": "literal", "type": "Int", "value": "1"}}}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": {"Plan": {"definitionId": "Plan"}}
+}

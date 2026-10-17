@@ -37,8 +37,8 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 
 - 独立性先按源码owner、必需输入与读写前像判断。源码已稳定且具有明确授权的独立任务scope时，使用正式`dev commit`的staged-candidate与提交Effect owner形成source-only分支检查点；它绑定准确本地ref、parent、index/tree和规范化结果，不以先改共享Work Package投影为条件。按[原owner分流](../../../docs/开发/AI协作/规则装载与任务恢复.md#source-checkpoint-publication)，独立检查点消费明确用户授权、固定scope与具体提交／传输Effect准入，不依赖正式工作选择、active Work／operation、MainHealth或Gate；不伪造这些结果。先用`dev:status -- --source-checkpoint --base <exact-sha> --expected-head <exact-sha> --owned-path <exact-path>`取得有界观察，再由原Effect owner重验；入口参数和观察结果都不是授权，既有未结Git操作与未知作用继续交原owner结算。
 - source-only检查点只包含本次owned源码，不为证明进度预先生成或搬运最终集成的共享控制投影。冻结exact head/tree后由独立Reviewer完成相交源码审查，再在已明确授权的目标分支范围内推送并回读。任何会自动触发hosted检查的发布动作仍受AGENTS的hosted evidence budget约束；源码检查点不签发active Work、正式Gate、adoption或merge资格。
-- 共享active pointer、rolling、前任manifest退役及需组合源树重算的派生制品，由原integration owner在实际集成base与写入窗口就绪后，调用各自正式producer生成并核验。不要让每个独立源码分支提前争写这些控制，也不把等待最终控制、验收或merge变成独立合法源码工作的前置。需要改变Work Package的Worker仍回交其原owner，不自行手改投影或制造第二冻结入口。
-- 集成时复用准确绑定且未失效的源码、focused Evidence与源码审查结论，只重算main delta实际影响的前像、owner和输入闭包。旧head/tree的Review、Gate与控制投影保留原绑定，不能直接充作新集成候选的通过；当前base/head/tree、Work Package与组合结果仍须原owner重新准入和核验。仅最终候选就绪后取得所需exact-head审查与缺失／失效的hosted证据；旧候选的恢复、迁移和残留义务不因延后投影或采用新main消失。
+- 仅实际动作需要共享active pointer、rolling、前任manifest退役或组合源树派生制品时，由原integration owner在实际base与写入窗口就绪后调用正式producer生成并核验。按[采用来源与动作](../../../docs/开发/仓库维护/工作身份与续接.md#bounded-source-adoption-and-autonomous-work)区分自主执行和维护者明确指定的有界源码采用；后者不为取得源码合并权先创建自主工作身份，仍消费真实授权、准确范围、独立审查、适用证据、平台保护、原Effect和readback。不要让独立源码分支争写不需要的控制。需要改变Work Package的Worker仍回交原owner，不手改投影、制造第二冻结入口或由Skill补权。
+- 集成时复用准确绑定且未失效的源码、focused Evidence与源码审查结论，只重算main delta实际影响的前像、owner和输入闭包。旧head/tree的Review、Gate与控制投影保留原绑定，不能直接充作新集成候选的通过；当前base/head/tree、实际适用的Work Package与组合结果仍须原owner重新准入和核验。仅最终候选就绪后取得所需exact-head审查与缺失／失效的hosted证据；旧候选的恢复、迁移和残留义务不因延后投影或采用新main消失。
 
 ## 已授权提交与中断续接
 
@@ -50,7 +50,7 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 - blob/tree 已存在不是入库。commit 已创建但 ref 尚未推进时，续接这个 commit，不重建一个只改提交说明的副本。正常更新必须保留并发历史；拒绝非快进时先读当前 ref、比较祖先与文件变化，再重算必要合入，不能强制覆盖。
 - 写入超时或响应遗失时，先查询对应对象和 ref：目标已在分支历史中则记录实际成功；未能证实则保留“结果未知”，不自动重发可重复副作用。只有在原动作支持且前置身份仍成立时才重试。
 - “已入库”必须以远端 ref 的精确 commit 或已验证祖先关系，以及目标文件内容回读为依据。之后在原台账更新已实现、已验证、已入库、待验收和下一未闭合入口。台账更新失败不撤销已确认源码提交；源码未入库也不能用评论或 ZIP 顶替。
-- 分支检查点、目标ref更新和产品发布是不同效果，分别授权和记录。授权只有`branch-checkpoint`时不得自行合并；授权已明确覆盖`target-ref-updated`时，Provider强制的最小branch→PR→required Gate→仓库允许的merge method只是同一效果的传输闭包，不是要求用户重复授权的新增效果，必须持续到远端ref与内容readback。路径不得扩大候选内容、目标ref、受众、权限或发布范围；若需要force、修改保护规则、绕过Gate或额外发布，则只阻断该新增效果。开发检查点的验证缺口必须显式保留，不因推送成功标绿，也不因PR为Draft就把已推送源码重新说成未入库。
+- 分支检查点、目标ref更新和产品发布是不同效果，分别授权和记录。授权只有`branch-checkpoint`时不得自行合并；授权已明确覆盖`target-ref-updated`且执行时未被最新明确指令撤回或收窄时，Provider强制的最小branch→PR→required Gate→仓库允许的merge method才是同一效果的传输闭包，按原授权持续到远端ref与内容readback。**若用户最新要求不直接合并或保留PR，则该merge步骤不再获准；即使Gate通过也不得auto-merge、squash或手动merge，只能保留已授权的分支／PR和准确未合并状态。**路径不得扩大候选内容、目标ref、受众、权限或发布范围；若需要force、修改保护规则、绕过Gate或额外发布，则只阻断该新增效果。开发检查点的验证缺口必须显式保留，不因推送成功标绿，也不因PR为Draft就把已推送源码重新说成未入库。
 
 ## 完成证据
 - 在原任务的Reconciliation Delta中记录相交规则、owner入口、消费者与持久决策的同步结论及准确修订；无需修改的给出已有覆盖依据，缺失执行的定位修复，仍未闭合的保留责任和恢复条件。

@@ -1,0 +1,7 @@
+{
+  "schema": "gift.package-manifest/1",
+  "projectId": "example:limit",
+  "package": "example/limit-contract",
+  "version": "0.1.0",
+  "exports": {".": {"moduleId": "module:limit", "export": "Limit"}}
+}

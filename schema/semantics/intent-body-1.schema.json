@@ -1,0 +1,553 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:intent-body-1",
+  "title": "Gift intent author body /1 — design shape, not a product decoder",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clauses"
+  ],
+  "properties": {
+    "roles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/role"
+      }
+    },
+    "clauses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/clause"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "formula"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "formula": {
+            "$ref": "#/$defs/formula"
+          },
+          "scopeRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "issuerRef": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "Explicit condition on the domain/model, not proof that it is true in the external world."
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      }
+    },
+    "authorNotes": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typeRef"
+      ],
+      "properties": {
+        "typeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        },
+        "bindingLevel": {
+          "enum": [
+            "object",
+            "definition"
+          ]
+        }
+      },
+      "description": "An abstract typed role, not an actual object or a grant. Use/Root provides the concrete object binding."
+    },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "meaningRef",
+        "bindings"
+      ],
+      "properties": {
+        "op": {
+          "const": "call"
+        },
+        "meaningRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "formula": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/call"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "items"
+          ],
+          "properties": {
+            "op": {
+              "enum": [
+                "all",
+                "any"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/formula"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "item"
+          ],
+          "properties": {
+            "op": {
+              "const": "not"
+            },
+            "item": {
+              "$ref": "#/$defs/formula"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "if",
+            "then"
+          ],
+          "properties": {
+            "op": {
+              "const": "implies"
+            },
+            "if": {
+              "$ref": "#/$defs/formula"
+            },
+            "then": {
+              "$ref": "#/$defs/formula"
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/quantifier"
+        },
+        {
+          "$ref": "#/$defs/temporal"
+        }
+      ]
+    },
+    "horizon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "model-steps",
+            "until-event",
+            "wall-clock",
+            "unbounded"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "clause": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "modality",
+            "formula"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modality": {
+              "enum": [
+                "achieve",
+                "maintain",
+                "avoid"
+              ]
+            },
+            "formula": {
+              "$ref": "#/$defs/formula"
+            },
+            "horizon": {
+              "$ref": "#/$defs/horizon"
+            },
+            "scopeRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "modality",
+            "actorRole",
+            "trigger",
+            "fulfilment",
+            "deadlineRef"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modality": {
+              "const": "oblige"
+            },
+            "actorRole": {
+              "type": "string",
+              "minLength": 1
+            },
+            "trigger": {
+              "$ref": "#/$defs/formula"
+            },
+            "fulfilment": {
+              "$ref": "#/$defs/formula"
+            },
+            "deadlineRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "modality",
+            "actorRole",
+            "actionRef"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modality": {
+              "const": "permit"
+            },
+            "actorRole": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actionRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scopeRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "modality",
+            "qualityRef",
+            "direction"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modality": {
+              "const": "prefer"
+            },
+            "qualityRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "direction": {
+              "enum": [
+                "minimize",
+                "maximize"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "meaningRef",
+        "sourceRef"
+      ],
+      "properties": {
+        "meaningRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "quantifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "quantifier",
+        "binder",
+        "domainRef",
+        "predicate"
+      ],
+      "properties": {
+        "op": {
+          "const": "quantify"
+        },
+        "quantifier": {
+          "enum": [
+            "forall",
+            "exists",
+            "exactly",
+            "atLeast",
+            "atMost"
+          ]
+        },
+        "binder": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "domainRef": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Ref to a typed enumerated domain, query, pure collection-producing function or qualified domain Provider; its allowed Kind/element type and identity scope are checked by the corresponding Owner."
+        },
+        "predicate": {
+          "$ref": "#/$defs/formula"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "completenessRef": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional source assertion about domain completeness; its presence does not establish completeness. For unqualified open-world forall/count, truth stays undetermined."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "quantifier": {
+                "enum": [
+                  "exactly",
+                  "atLeast",
+                  "atMost"
+                ]
+              }
+            },
+            "required": [
+              "quantifier"
+            ]
+          },
+          "then": {
+            "required": [
+              "count"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "quantifier": {
+                "enum": [
+                  "forall",
+                  "exists"
+                ]
+              }
+            },
+            "required": [
+              "quantifier"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "count"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Scoped binder for a typed domain; do not use domain name or an unresolved ref as evidence of set enumeration/closure."
+    },
+    "temporal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "operator",
+        "item",
+        "clockRef"
+      ],
+      "properties": {
+        "op": {
+          "const": "temporal"
+        },
+        "operator": {
+          "enum": [
+            "always",
+            "eventually",
+            "until",
+            "since",
+            "next"
+          ]
+        },
+        "item": {
+          "$ref": "#/$defs/formula"
+        },
+        "boundary": {
+          "$ref": "#/$defs/formula",
+          "description": "Required right-hand boundary condition for until/since; its event-time/execution semantics are owned by Time/Meaning."
+        },
+        "clockRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rangeRef": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Typed temporal interval/scope ref; if absent the modality/outer horizon decides the range. No implicit wall-clock or UTC assumption."
+        },
+        "completenessRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "until",
+                  "since"
+                ]
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "required": [
+              "boundary"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "always",
+                  "eventually",
+                  "next"
+                ]
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "boundary"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Temporal logic on a declared clock and observation domain, not evidence of completed physical action."
+    }
+  },
+  "description": "Body of intent:goal in author module. Optional abstract roles, mandatory clauses; actual role bindings at root or use occurrence; meaning references resolve through module imports/exports and locked providers, never repeated embedded import digests.",
+  "$comment": "This candidate additionally defines scoped quantification and temporal formulas; their external domain, clock, completeness and evidence qualification remains professional semantics, not a static JSON schema guarantee."
+}

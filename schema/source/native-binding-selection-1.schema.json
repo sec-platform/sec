@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:native-binding-selection-1",
+  "title": "Native selection /1, exact language profile required; observed signature remains derived",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "moduleId",
+    "language",
+    "profileRef",
+    "symbols"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.native-binding-selection/1"
+    },
+    "moduleId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "language": {
+      "enum": [
+        "typescript",
+        "rust"
+      ]
+    },
+    "profileRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "symbols": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourcePath",
+          "nativeExport",
+          "role"
+        ],
+        "properties": {
+          "sourcePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nativeExport": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "role": {
+            "enum": [
+              "callable",
+              "predicate"
+            ]
+          }
+        }
+      },
+      "minProperties": 1
+    }
+  }
+}

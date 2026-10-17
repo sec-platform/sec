@@ -1173,6 +1173,38 @@
     {
       "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
       "path": "examples/领域组合/领域应用与算法.md"
+    },
+    {
+      "document_id": "urn:uuid:4df04b88-f4e2-46db-a2bc-d5446c7e537d",
+      "path": "docs/运行/验收/组织保持与连续变化.md"
+    },
+    {
+      "document_id": "urn:uuid:781851a9-f8d5-409a-9bb2-084119dc8acf",
+      "path": "docs/领域/产品交互与呈现.md"
+    },
+    {
+      "document_id": "urn:uuid:75ffd8b2-9e42-4769-a97f-0887b99ac78b",
+      "path": "docs/领域/学习与模型生命周期.md"
+    },
+    {
+      "document_id": "urn:uuid:b1814369-355f-4c77-bbe3-308e1ffa564f",
+      "path": "docs/领域/状态关系与流/工作流执行与激活.md"
+    },
+    {
+      "document_id": "urn:uuid:3bcb2066-27c0-49cf-8ccf-4bf693e7dd7e",
+      "path": "schema/README.md"
+    },
+    {
+      "document_id": "urn:uuid:569a5c24-bfb5-42ec-989c-225e9567436b",
+      "path": "schema/examples/author-v2/README.md"
+    },
+    {
+      "document_id": "urn:uuid:b74fda49-80e7-4f06-a81e-79abd4b2c41d",
+      "path": "schema/semantics/README.md"
+    },
+    {
+      "document_id": "urn:uuid:ddd73fd2-b9c8-411c-89b2-524de019551c",
+      "path": "schema/tools/README.md"
     }
   ]
 }

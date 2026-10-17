@@ -1,0 +1,894 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:requirement-structure-1",
+  "title": "gift.requirement-structure/1 composite body — shared TypeTerm and design Value contract",
+  "$comment": "Design structure bound to exact content revision; extends the offline finite projection to preserve main shared TypeTerm, generic binders, typed definition values, qualified design expressions, closed constructors and dynamic design use. Old narrow projections require explicit reader selection/migration. Not a production reader. Existence, public access, type/kind, default qualification, pure static phase, role paths, hygiene, integer lexeme preservation and accepted obligations require semantic consumers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "parameters",
+    "terms"
+  ],
+  "properties": {
+    "parameters": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Parameter"
+      },
+      "minProperties": 0
+    },
+    "subjects": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/$defs/Type"
+          }
+        }
+      },
+      "minProperties": 0
+    },
+    "exposes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "parameter"
+            ],
+            "properties": {
+              "parameter": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                },
+                "minItems": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "subject"
+            ],
+            "properties": {
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                },
+                "minItems": 0
+              }
+            }
+          }
+        ]
+      },
+      "minProperties": 0
+    },
+    "terms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Term"
+      },
+      "minItems": 0
+    },
+    "typeParams": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticParameter"
+      },
+      "minItems": 0
+    }
+  },
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "DefinitionRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definitionId"
+          ],
+          "properties": {
+            "definitionId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "import",
+            "export"
+          ],
+          "properties": {
+            "import": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "export": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "Type": {
+      "oneOf": [
+        {
+          "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/TypeTerm"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "$ref": "#/$defs/DefinitionRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "list"
+          ],
+          "properties": {
+            "list": {
+              "$ref": "#/$defs/Type"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "builtin"
+          ],
+          "properties": {
+            "builtin": {
+              "enum": [
+                "Bool",
+                "Int",
+                "Text"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "parameter"
+          ],
+          "properties": {
+            "parameter": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "subject"
+          ],
+          "properties": {
+            "subject": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bound"
+          ],
+          "properties": {
+            "bound": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enum"
+          ],
+          "properties": {
+            "enum": {
+              "$ref": "#/$defs/DefinitionRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "literal"
+          ],
+          "properties": {
+            "literal": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definition"
+          ],
+          "properties": {
+            "definition": {
+              "$ref": "#/$defs/DefinitionRef"
+            },
+            "typeArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expression"
+          ],
+          "properties": {
+            "expression": {
+              "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/Expr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typed"
+          ],
+          "properties": {
+            "typed": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "value"
+              ],
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/Type"
+                },
+                "value": {
+                  "$ref": "#/$defs/Json"
+                }
+              }
+            }
+          },
+          "description": "Typed data decoded by the exact selected type's qualified canonical pure codec. Shape does not qualify codec, nominal type, units, purity, closed defaults or representability. Never permits live objects, grants or effectful decoding."
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Value"
+          },
+          "minItems": 0
+        }
+      ]
+    },
+    "ClosedValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enum"
+          ],
+          "properties": {
+            "enum": {
+              "$ref": "#/$defs/DefinitionRef"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "literal"
+          ],
+          "properties": {
+            "literal": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definition"
+          ],
+          "properties": {
+            "definition": {
+              "$ref": "#/$defs/DefinitionRef"
+            },
+            "typeArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expression"
+          ],
+          "properties": {
+            "expression": {
+              "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/ClosedExpr"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typed"
+          ],
+          "properties": {
+            "typed": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "value"
+              ],
+              "properties": {
+                "type": {
+                  "$ref": "#/$defs/Type"
+                },
+                "value": {
+                  "$ref": "#/$defs/Json"
+                }
+              }
+            }
+          },
+          "description": "Typed data decoded by the exact selected type's qualified canonical pure codec. Shape does not qualify codec, nominal type, units, purity, closed defaults or representability. Never permits live objects, grants or effectful decoding."
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClosedValue"
+          },
+          "minItems": 0
+        }
+      ]
+    },
+    "Parameter": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "type"
+          ],
+          "properties": {
+            "role": {
+              "const": "subject"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "type"
+          ],
+          "properties": {
+            "role": {
+              "const": "value"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "default": {
+              "$ref": "#/$defs/ClosedValue"
+            }
+          }
+        }
+      ]
+    },
+    "Condition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/Value"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "equal"
+          ],
+          "properties": {
+            "equal": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/Value"
+                },
+                {
+                  "$ref": "#/$defs/Value"
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "not"
+          ],
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/Condition"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "all"
+          ],
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Condition"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "any"
+          ],
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Condition"
+              },
+              "minItems": 0
+            }
+          }
+        }
+      ]
+    },
+    "Term": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "use",
+            "arguments"
+          ],
+          "properties": {
+            "use": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/DefinitionRef"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "design"
+                  ],
+                  "properties": {
+                    "design": {
+                      "$ref": "#/$defs/Value"
+                    }
+                  }
+                }
+              ]
+            },
+            "arguments": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/Value"
+              },
+              "minProperties": 0
+            },
+            "typeArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "use": {
+                    "required": [
+                      "design"
+                    ]
+                  }
+                },
+                "required": [
+                  "use"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "typeArguments"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "require",
+            "fields"
+          ],
+          "properties": {
+            "require": {
+              "$ref": "#/$defs/DefinitionRef"
+            },
+            "fields": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/Value"
+              },
+              "minProperties": 0
+            },
+            "typeArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prefer",
+            "fields"
+          ],
+          "properties": {
+            "prefer": {
+              "$ref": "#/$defs/DefinitionRef"
+            },
+            "fields": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/Value"
+              },
+              "minProperties": 0
+            },
+            "typeArguments": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticArgument"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "all"
+          ],
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Term"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "any"
+          ],
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Term"
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "when"
+          ],
+          "properties": {
+            "when": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "condition",
+                "then"
+              ],
+              "properties": {
+                "condition": {
+                  "$ref": "#/$defs/Condition"
+                },
+                "then": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Term"
+                  },
+                  "minItems": 0
+                },
+                "else": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Term"
+                  },
+                  "minItems": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "forEach"
+          ],
+          "properties": {
+            "forEach": {
+              "$ref": "#/$defs/Quantifier"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "exists"
+          ],
+          "properties": {
+            "exists": {
+              "$ref": "#/$defs/Quantifier"
+            }
+          }
+        }
+      ]
+    },
+    "Quantifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bind",
+        "in",
+        "body"
+      ],
+      "properties": {
+        "bind": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "in": {
+          "$ref": "#/$defs/Value"
+        },
+        "body": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Term"
+          },
+          "minItems": 0
+        },
+        "itemType": {
+          "$ref": "#/$defs/Type"
+        }
+      }
+    },
+    "SemanticArgument": {
+      "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/SemanticArgument"
+    }
+  }
+}

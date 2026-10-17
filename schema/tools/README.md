@@ -1,0 +1,21 @@
+# 六工具的设计结构载体
+
+本目录是[六工具规范](../../docs/开发/工具协议/六工具与请求.md#tool-schema-design-boundary)的设计结构，未接入生产 handler，不代表当前产品支持。准确协议修订必须在发布时绑定结构内容、严格 decoder、真实语义消费者与符合性向量；名字中的 `/2` 不替代这些条件。
+
+| 结构 | 原责任及消费范围 | Schema 外仍须验证 |
+|---|---|---|
+| query-2 | 基础 at/find/view/limit/cursor | find 的对象领域、引用/范围、当前披露、真实分页覆盖；Json 只证明载体形状 |
+| propose-2 | 六个互斥候选输入槽；files 保留现行 context | 源/路径角色、base 与前像、edits 唯一匹配、return=diff 的源基础、区域权限、形成候选的语义 |
+| preview-2 | source/candidate/context+entry/draft 四个槽及 compareTo 条件 | 固定解释、Target、Artifact 关联、真实 lowering 与范围 |
+| check-2 | types/cases 方法选择，cases 要求 artifactRef/casesRef | 真实方法执行、被测主体、独立期望、Evidence 资格与复用 |
+| apply-2 | save-source/write-output；后者必需 artifactRef | 当前授权、准确前像、作用身份/去重、真实输出与持久 readback |
+| operation-2 | 原操作状态；带 controlRef 的控制；scopeRef+requestId 事前查回 | controlRef 的真实当前代/关联、查回先于新作用、原 Operation/Attempt 的未决和结算 |
+| generated-edit-1 | 仅在准确协商时接入显式 draft | Artifact/SourceMap、occurrence/definition 范围、保持与回源写权 |
+| structured-files-1 | 可选 fileProfiles 扩展，不撤销旧 files/context | 映射只覆盖本批实际新角色、删除无 profile、已有角色不得借此迁移、引用可解析与路径安全 |
+| result-view-2 | 独立协商的紧凑结果投影 | requested/complete/incomplete 集合关系、真实 basis/引用/字节定位、Claim/Evidence、效果存在性与披露 |
+
+propose/preview 基础结构中 `draft:false` 是尚未装入任何已协商扩展时的拒绝槽。实际消费者从准确已锁定扩展注册表编译选择相应联合；不能以 false 声称所有 draft 已支持，也不能改成任意 JSON 放弃验证。intent-action、input-preparation、author-edit、compute-run、debug/process 等扩展仍由现行对应规范定义，未选择的能力明确拒绝。query 的新 view 同理不能直接混进基础枚举。
+
+所有结构先经过有界严格字节解码；解析器须在重复键被覆盖前拒绝，禁止非法 UTF-8、非有限数字、非法数值域和原型污染路径。JSON Schema 检查已解析值，不能补回这些已丢区别，也不能验证真实身份、权限、外部状态或副作用。缺失、null、未知和显式默认各按原合同解释。
+
+生成类型/静态结构校验、生产 decoder 加载、方法真实执行、当前采用、外部效果和系统符合性分别报告。当前只提供设计结构与其有限静态验证，生产进程加载及行为均为 UNVERIFIED。

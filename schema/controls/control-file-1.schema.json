@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:control-file-1",
+  "title": "gift.control-file/1",
+  "$comment": "Normative design structure only. Exact semantic references, qualification, authorization, filesystem identity and runtime effects require their declared consumers. Not a production implementation claim. A product-root Control is located by explicit (target,rootRef.rootId), not by moduleId/export; minItems zero is allowed for an explicitly retained empty file, never a substitute for omitted accepted controls. Definition and occurrence scope definitionId must be lexically expressible as an Author /2 local Definition ID; full source identity, import resolution and existence are semantic checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "projectId",
+    "fileId",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.control-file/1"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "fileId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scopeRef",
+          "controlRef",
+          "mode",
+          "value"
+        ],
+        "properties": {
+          "scopeRef": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "project"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "rootRef"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "product-root"
+                  },
+                  "rootRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "rootId"
+                    ],
+                    "properties": {
+                      "rootId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "description": "Occurrence identity selected by targets[target].outputRoots, NOT the moduleId/export selector. The containing Control record MUST also have target. A single-root implicit main is normalized to rootId main before binding."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "moduleId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "module"
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "moduleId",
+                  "definitionId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "definition"
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "definitionId": {
+                    "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "moduleId",
+                  "definitionId",
+                  "occurrenceId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "occurrence"
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "definitionId": {
+                    "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"
+                  },
+                  "occurrenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                }
+              }
+            ]
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "controlRef": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "mode": {
+            "enum": [
+              "require",
+              "prefer"
+            ]
+          },
+          "value": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "scopeRef": {
+                  "properties": {
+                    "kind": {
+                      "const": "product-root"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "scopeRef"
+              ]
+            },
+            "then": {
+              "required": [
+                "target"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          },
+          "minItems": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    }
+  }
+}

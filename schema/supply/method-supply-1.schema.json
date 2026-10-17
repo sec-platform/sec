@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:method-supply-1",
+  "title": "Method supply manifest design, not qualification",
+  "description": "Adopted declaration design only. Canonical consumer: docs/编译/实现选择与设计搜索.md#realization-binding-use-projection. Method, rule, domain, producer and target references must resolve through the exact binding/input lock. Structural validity, publisher strings and coverage claims grant no implementation, semantic qualification, current permission or execution authority. The production reader is not claimed implemented.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "method",
+    "publisher",
+    "covers",
+    "targetRefs",
+    "requires",
+    "contributes",
+    "residuals",
+    "preserves",
+    "evidenceObligations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "gift.method-supply-manifest/1"
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "publisher": {
+      "type": "string",
+      "minLength": 1
+    },
+    "covers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rule",
+          "domainRef"
+        ],
+        "properties": {
+          "rule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "moduleId",
+              "export"
+            ],
+            "properties": {
+              "moduleId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "export": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "domainRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "moduleId",
+              "export"
+            ],
+            "properties": {
+              "moduleId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "export": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "targetRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities",
+        "effects",
+        "providerRefs"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "effects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "providerRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "contributes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "producerRef"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "producerRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "moduleId",
+              "export"
+            ],
+            "properties": {
+              "moduleId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "export": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "residuals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "preserves": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidenceObligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$comment": "Adopted design shape. Old Gift95 proposal is historical; explicit decoding/migration and exact content locks are required. Publisher claims, string refs and manifests are not implementation, trusted authority or evidence."
+}

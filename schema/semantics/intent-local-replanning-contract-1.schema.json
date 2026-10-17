@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:intent-local-replanning-contract-1",
+  "title": "Gift derived bounded local-model runtime contract; not an author source or world-effect grant",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "profile", "sourceRevision", "sourceInputs", "snapshot", "types", "predicates", "clauses", "methods", "selectedIntents", "search", "assurance"],
+  "properties": {
+    "schema": {"const": "gift.local-sqlite-replanning-contract/1"},
+    "profile": {"const": "explicit-local-model-replanning; no external authority or provider"},
+    "sourceRevision": {"type": "string", "minLength": 1},
+    "sourceInputs": {
+      "type": "array", "minItems": 4,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["role", "ordinal", "bytes", "sha256"],
+        "properties": {
+          "role": {"enum": ["module", "meaning", "method", "model"]},
+          "ordinal": {"type": "integer", "minimum": 0},
+          "bytes": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "snapshot": {"$ref": "urn:gift:design-schema:intent-finite-model-1"},
+    "types": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["properties"],
+      "properties": {"properties": {"type": "object", "additionalProperties": {"enum": ["IntString", "Bool", "Text"]}}}}},
+    "predicates": {"type": "object", "additionalProperties": {
+      "type": "object", "additionalProperties": false, "required": ["definition", "libraryId", "revision"],
+      "properties": {
+        "libraryId": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "definition": {"type": "object", "additionalProperties": false,
+          "required": ["parameters", "interpretation", "observation"],
+          "properties": {
+            "parameters": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+            "interpretation": {"type": "object", "additionalProperties": false, "required": ["kind", "expression"],
+              "properties": {"kind": {"const": "finite-model-expression"}, "expression": {"$ref": "#/$defs/expression"}}},
+            "observation": {"type": "object", "additionalProperties": false, "required": ["scope", "authority"],
+              "properties": {"scope": {"type": "string", "minLength": 1}, "authority": {"type": "string", "minLength": 1}}}
+          }
+        }
+      }
+    }},
+    "clauses": {"type": "array", "minItems": 1,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["identity", "intentId", "clause", "roleTypes", "roleObjects"],
+        "properties": {
+          "identity": {"type": "string", "minLength": 1}, "intentId": {"type": "string", "minLength": 1},
+          "roleTypes": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+          "roleObjects": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+          "clause": {"type": "object", "additionalProperties": false,
+            "required": ["id", "modality", "formula"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1}, "modality": {"enum": ["achieve", "maintain", "avoid"]},
+              "formula": {"$ref": "#/$defs/formula"},
+              "horizon": {"type": "object", "additionalProperties": false, "required": ["kind"],
+                "properties": {"kind": {"const": "model-steps"}}}
+            }
+          }
+        }
+      }
+    },
+    "methods": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false,
+      "required": ["id", "parameters", "precondition", "edits", "scope", "meaningImports"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "scope": {"const": "finite-model-only"},
+        "parameters": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        "precondition": {"$ref": "#/$defs/formula"},
+        "edits": {"type": "array", "minItems": 1, "items": {"oneOf": [
+          {"type": "object", "additionalProperties": false, "required": ["op", "role", "field", "value"],
+           "properties": {"op": {"const": "set"}, "role": {"type": "string", "minLength": 1},
+             "field": {"type": "string", "minLength": 1}, "value": {"type": ["boolean", "string"]}}},
+          {"type": "object", "additionalProperties": false, "required": ["op", "role", "field", "delta"],
+           "properties": {"op": {"const": "addInt"}, "role": {"type": "string", "minLength": 1},
+             "field": {"type": "string", "minLength": 1}, "delta": {"type": "string", "pattern": "^(?:0|-?[1-9][0-9]*)$"}}}
+        ]}},
+        "claimedCoverage": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "meaningImports": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false,
+          "required": ["libraryId", "revision", "contentDigest"],
+          "properties": {"libraryId": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1},
+            "contentDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+        }}
+      }
+    }},
+    "selectedIntents": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "search": {"type": "object", "additionalProperties": false,
+      "required": ["maxDepth", "bindingBudget", "nodeBudget"],
+      "properties": {
+        "maxDepth": {"type": "integer", "minimum": 1, "maximum": 64},
+        "bindingBudget": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "nodeBudget": {"type": "integer", "minimum": 1, "maximum": 100000}
+      }
+    },
+    "assurance": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "expression": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["op", "role", "field"],
+       "properties": {"op": {"const": "field"}, "role": {"type": "string", "minLength": 1}, "field": {"type": "string", "minLength": 1}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "type", "value"],
+       "properties": {"op": {"const": "literal"}, "type": {"enum": ["IntString", "Bool", "Text"]}, "value": {"type": ["string", "boolean"]}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "left", "right"],
+       "properties": {"op": {"enum": ["eq", "lte", "gte"]}, "left": {"$ref": "#/$defs/expression"}, "right": {"$ref": "#/$defs/expression"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "items"],
+       "properties": {"op": {"enum": ["all", "any"]}, "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/expression"}}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "item"],
+       "properties": {"op": {"const": "not"}, "item": {"$ref": "#/$defs/expression"}}}
+    ]},
+    "formula": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["op", "meaningRef", "bindings"],
+       "properties": {"op": {"const": "call"}, "meaningRef": {"type": "string", "minLength": 1},
+         "bindings": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "items"],
+       "properties": {"op": {"enum": ["all", "any"]}, "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/formula"}}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "item"],
+       "properties": {"op": {"const": "not"}, "item": {"$ref": "#/$defs/formula"}}},
+      {"type": "object", "additionalProperties": false, "required": ["op", "if", "then"],
+       "properties": {"op": {"const": "implies"}, "if": {"$ref": "#/$defs/formula"}, "then": {"$ref": "#/$defs/formula"}}}
+    ]}
+  }
+}
