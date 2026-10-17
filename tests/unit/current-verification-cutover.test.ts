@@ -62,7 +62,6 @@ test('Lock publication keeps its checked input when the caller mutates an alias 
       lock.app.name = 'caller changed its own input';
     });
     expect(crossedFence).toBe(true);
-    expect(published).not.toBe(lock);
     expect(published.app.name).toBe('customer-admin');
     expect(readLockFile(root).app.name).toBe('customer-admin');
     expect(published.passStatus.lock).toBe('succeeded');

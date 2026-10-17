@@ -75,45 +75,45 @@ test('test invocation runtime advertises only platforms with retained physical a
 for (const drift of ['none', 'binding', 'identity', 'cache-absent', 'tmp-absent', 'leases-absent', 'empty-state'] as const) {
   test.skipIf(process.platform !== 'win32')(`explicit disposable invocation discard preserves unknown history and rejects ${drift} drift`, async () => {
     const root = generation('sec-invocation-discard-');
-    const repositoryRoot = path.join(root, 'repository');
-    const hostTempRoot = path.join(root, 'host-temp');
-    const environment = { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') };
-    mkdirSync(repositoryRoot);
-    mkdirSync(hostTempRoot);
-    // The original producer really creates these retained objects. The child
-    // exiting does not certify its descendants or the historical attempt;
-    // the subsequent callback authorizes disposal of this fixture today.
-    const producer = new URL('../../src/adapters/self-hosting/development/runner/test-process-temp.ts', import.meta.url).href;
-    const child = spawnSync(process.execPath, ['--eval', `
-      const { createTestInvocationRuntimeRoots } = await import(${JSON.stringify(producer)});
-      const invocation = await createTestInvocationRuntimeRoots(${JSON.stringify({ repositoryRoot, hostTempRoot, environment })});
-      const temporary = invocation.prepareProcessTemp({});
-      console.log(JSON.stringify({ stateRoot: invocation.stateRoot, cacheRoot: invocation.cacheRoot, ...temporary }));
-    `], { encoding: 'utf8', timeout: DEFAULT_TEST_TIMEOUT_MS, windowsHide: true });
-    if (child.status !== 0) throw new Error(`Discard fixture producer failed: ${child.stderr}`, { cause: child.error });
-    const temporary = JSON.parse(child.stdout.trim());
-    const invocation = { stateRoot: temporary.stateRoot as string, cacheRoot: temporary.cacheRoot as string };
-    writeFileSync(path.join(temporary.tempRoot, 'fixture.txt'), 'disposable fixture');
-    const containerPath = path.dirname(temporary.processRoot);
-    const bindingPath = path.join(invocation.stateRoot, 'temp-parent-binding.json');
-    const bindingBytes = readFileSync(bindingPath);
-    const binding = JSON.parse(bindingBytes.toString('utf8'));
-    const leaseParent = inspectNoFollowDirectoryChain(resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment }).testProcessTempLeaseRoot,
-      'Discard fixture lease parent').target;
-    const lease = (prefix: string) => {
-      const name = readdirSync(leaseParent.path).find(name => name.startsWith(prefix) && name.endsWith('.lease'))!;
-      const entry = inspectNoFollowOrdinaryFileEntry(leaseParent, name)!;
-      const bytes = Buffer.from(entry.bytes!);
-      return { name, bytes, device: entry.device, inode: entry.inode, owner: JSON.parse(bytes.toString('utf8')).activeOwner };
-    };
-    const selection: Parameters<typeof disposeRetainedTestInvocationRuntime>[0]['selection'] = {
-      invocationDigest: binding.invocationDigest, ownerDigest: binding.ownerDigest, bindingBytes,
-      state: inspectNoFollowDirectoryChain(invocation.stateRoot, 'Discard fixture State').target,
-      cache: inspectNoFollowDirectoryChain(invocation.cacheRoot, 'Discard fixture Cache').target,
-      container: inspectNoFollowDirectoryChain(containerPath, 'Discard fixture TMP').target,
-      runtimeLease: lease('runtime-'), invocationLease: lease('invocation-')
-    };
     try {
+      const repositoryRoot = path.join(root, 'repository');
+      const hostTempRoot = path.join(root, 'host-temp');
+      const environment = { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') };
+      mkdirSync(repositoryRoot);
+      mkdirSync(hostTempRoot);
+      // The original producer really creates these retained objects. The child
+      // exiting does not certify its descendants or the historical attempt;
+      // the subsequent callback authorizes disposal of this fixture today.
+      const producer = new URL('../../src/adapters/self-hosting/development/runner/test-process-temp.ts', import.meta.url).href;
+      const child = spawnSync(process.execPath, ['--eval', `
+        const { createTestInvocationRuntimeRoots } = await import(${JSON.stringify(producer)});
+        const invocation = await createTestInvocationRuntimeRoots(${JSON.stringify({ repositoryRoot, hostTempRoot, environment })});
+        const temporary = invocation.prepareProcessTemp({});
+        console.log(JSON.stringify({ stateRoot: invocation.stateRoot, cacheRoot: invocation.cacheRoot, ...temporary }));
+      `], { encoding: 'utf8', timeout: DEFAULT_TEST_TIMEOUT_MS, windowsHide: true });
+      if (child.status !== 0) throw new Error(`Discard fixture producer failed: ${child.stderr}`, { cause: child.error });
+      const temporary = JSON.parse(child.stdout.trim());
+      const invocation = { stateRoot: temporary.stateRoot as string, cacheRoot: temporary.cacheRoot as string };
+      writeFileSync(path.join(temporary.tempRoot, 'fixture.txt'), 'disposable fixture');
+      const containerPath = path.dirname(temporary.processRoot);
+      const bindingPath = path.join(invocation.stateRoot, 'temp-parent-binding.json');
+      const bindingBytes = readFileSync(bindingPath);
+      const binding = JSON.parse(bindingBytes.toString('utf8'));
+      const leaseParent = inspectNoFollowDirectoryChain(resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment }).testProcessTempLeaseRoot,
+        'Discard fixture lease parent').target;
+      const lease = (prefix: string) => {
+        const name = readdirSync(leaseParent.path).find(name => name.startsWith(prefix) && name.endsWith('.lease'))!;
+        const entry = inspectNoFollowOrdinaryFileEntry(leaseParent, name)!;
+        const bytes = Buffer.from(entry.bytes!);
+        return { name, bytes, device: entry.device, inode: entry.inode, owner: JSON.parse(bytes.toString('utf8')).activeOwner };
+      };
+      const selection: Parameters<typeof disposeRetainedTestInvocationRuntime>[0]['selection'] = {
+        invocationDigest: binding.invocationDigest, ownerDigest: binding.ownerDigest, bindingBytes,
+        state: inspectNoFollowDirectoryChain(invocation.stateRoot, 'Discard fixture State').target,
+        cache: inspectNoFollowDirectoryChain(invocation.cacheRoot, 'Discard fixture Cache').target,
+        container: inspectNoFollowDirectoryChain(containerPath, 'Discard fixture TMP').target,
+        runtimeLease: lease('runtime-'), invocationLease: lease('invocation-')
+      };
       if (drift === 'binding') writeFileSync(bindingPath, Buffer.concat([bindingBytes, Buffer.from(' ')]));
       const selected = drift === 'identity' ? { ...selection, container: {
         ...selection.container!, inode: `${selection.container!.inode}0`
@@ -730,64 +730,79 @@ test('test process temp lease and generations are isolated by exact workspace id
 
 test('unguarded successor preserves live and PID-dead owners across generation ABA', async () => {
   const root = generation('sec-process-temp-aba-');
-  const repositoryRoot = path.join(root, 'repository');
-  const hostTempRoot = path.join(root, 'host-temp');
-  const stateRoot = path.join(root, 'state');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  mkdirSync(hostTempRoot);
-  const ownerPid = 42_001;
-  const invocationKey = '40000000-0000-4000-8000-000000000001';
-  const owner = await createTestInvocationRuntimeRoots({
-    repositoryRoot,
-    hostTempRoot,
-    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
-    invocationKey,
-    testOnlyOwnerPid: ownerPid,
-    testOnlyProcessAlive: () => 'alive',
-    testOnlyProcessNonce: '50000000-0000-4000-8000-000000000001'
-  });
-  const processGeneration = owner.prepareProcessTemp({});
-  await expect(createTestInvocationRuntimeRoots({
-    repositoryRoot,
-    hostTempRoot,
-    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
-    invocationKey,
-    testOnlyOwnerPid: 42_002,
-    testOnlyProcessAlive: () => 'alive',
-    testOnlyProcessNonce: '50000000-0000-4000-8000-000000000002'
-  })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
-  expect(existsSync(processGeneration.processRoot)).toBe(true);
-
-  const displaced = `${processGeneration.processRoot}.displaced`;
-  renameSync(processGeneration.processRoot, displaced);
-  mkdirSync(processGeneration.processRoot);
-  const preserved = observeUnguardedFixturePreservation({ repositoryRoot,
-    environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
-  }, [owner.stateRoot, owner.cacheRoot, processGeneration.processRoot, displaced]);
-  let blocked: unknown;
+  let owner: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let processRoot: string | undefined;
+  let displaced: string | undefined;
   try {
-    await createTestInvocationRuntimeRoots({
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(repositoryRoot);
+    mkdirSync(hostTempRoot);
+    const ownerPid = 42_001;
+    const invocationKey = '40000000-0000-4000-8000-000000000001';
+    owner = await createTestInvocationRuntimeRoots({
       repositoryRoot,
       hostTempRoot,
       environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
       invocationKey,
-      testOnlyOwnerPid: 42_003,
-      testOnlyProcessAlive: (pid) => pid === ownerPid ? 'dead' : 'alive',
-      testOnlyProcessNonce: '50000000-0000-4000-8000-000000000003'
+      testOnlyOwnerPid: ownerPid,
+      testOnlyProcessAlive: () => 'alive',
+      testOnlyProcessNonce: '50000000-0000-4000-8000-000000000001'
     });
-  } catch (error) {
-    blocked = error;
+    const processGeneration = owner.prepareProcessTemp({});
+    processRoot = processGeneration.processRoot;
+    await expect(createTestInvocationRuntimeRoots({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
+      invocationKey,
+      testOnlyOwnerPid: 42_002,
+      testOnlyProcessAlive: () => 'alive',
+      testOnlyProcessNonce: '50000000-0000-4000-8000-000000000002'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    expect(existsSync(processGeneration.processRoot)).toBe(true);
+
+    displaced = `${processGeneration.processRoot}.displaced`;
+    renameSync(processGeneration.processRoot, displaced);
+    mkdirSync(processGeneration.processRoot);
+    const preserved = observeUnguardedFixturePreservation({ repositoryRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
+    }, [owner.stateRoot, owner.cacheRoot, processGeneration.processRoot, displaced]);
+    let blocked: unknown;
+    try {
+      await createTestInvocationRuntimeRoots({
+        repositoryRoot,
+        hostTempRoot,
+        environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
+        invocationKey,
+        testOnlyOwnerPid: 42_003,
+        testOnlyProcessAlive: (pid) => pid === ownerPid ? 'dead' : 'alive',
+        testOnlyProcessNonce: '50000000-0000-4000-8000-000000000003'
+      });
+    } catch (error) {
+      blocked = error;
+    }
+    expect(blocked).toBeInstanceOf(TestProcessTempLifecycleError);
+    expect((blocked as TestProcessTempLifecycleError).code).toBe('TEST_PROCESS_TEMP_OWNED');
+    preserved();
+    expect(existsSync(processGeneration.processRoot)).toBe(true);
+    expect(existsSync(displaced)).toBe(true);
+    rmSync(processGeneration.processRoot, { recursive: true });
+    renameSync(displaced, processGeneration.processRoot);
+  } finally {
+    try {
+      // Restore the fixture's own displaced generation before releasing its owner.
+      if (displaced !== undefined && processRoot !== undefined && existsSync(displaced)) {
+        rmSync(processRoot, { recursive: true, force: true });
+        renameSync(displaced, processRoot);
+      }
+      await owner?.cleanup();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
-  expect(blocked).toBeInstanceOf(TestProcessTempLifecycleError);
-  expect((blocked as TestProcessTempLifecycleError).code).toBe('TEST_PROCESS_TEMP_OWNED');
-  preserved();
-  expect(existsSync(processGeneration.processRoot)).toBe(true);
-  expect(existsSync(displaced)).toBe(true);
-  rmSync(processGeneration.processRoot, { recursive: true });
-  renameSync(displaced, processGeneration.processRoot);
-  await owner.cleanup();
-  rmSync(root, { recursive: true, force: true });
 });
 
 test.skipIf(process.platform !== 'linux')(

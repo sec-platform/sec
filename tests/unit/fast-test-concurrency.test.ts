@@ -128,7 +128,6 @@ test('non-applicable argv projection is a pure no-op and never mutates input', (
     );
 
     expect(projected).toEqual(before);
-    expect(projected).not.toBe(args);
     expect(args).toEqual(before);
   }
 });

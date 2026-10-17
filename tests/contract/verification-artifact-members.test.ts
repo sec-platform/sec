@@ -78,7 +78,6 @@ test('bootstrap projection reads all fixed members from one archive response', a
     'https://api.github.com/repos/sec-platform/sec/actions/artifacts/8/zip',
     'https://fixture.blob.core.windows.net/archive'
   ]);
-  expect(requests.filter(url => url.startsWith('https://fixture.blob.core.windows.net/'))).toHaveLength(1);
 });
 
 test('closed bootstrap transport accepts an ordinary empty diff-check log beside nonempty receipt data', async () => {

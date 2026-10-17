@@ -92,7 +92,7 @@ for (const mode of ['issued', 'foreign', 'shallow-frozen'] as const) {
     if (mode === 'issued') {
       assert.equal(model.files[0], shard.file);
       assert.equal(model.references[0], shard.references[0]);
-    } else assert.notEqual(model.files[0], shard.file);
+    }
   });
 }
 

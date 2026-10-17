@@ -7,7 +7,6 @@ from unittest.mock import patch
 sys.dont_write_bytecode=True
 import build_html as b
 from .test_check_documentation_identity import declaration
-import check_design as d
 
 class Modes(unittest.TestCase):
  @staticmethod
@@ -19,11 +18,10 @@ class Modes(unittest.TestCase):
                'browser_executable':{'path':'fixture browser','sha256':b.sha(b'browser bytes')},'os':'fixture OS','cross_run_reuse':True}
   return info,environment
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory();self.home=Path(self.tmp.name);self.root=self.home/'SEC';(self.root/'docs').mkdir(parents=True);(self.root/'.documentation').mkdir();self.out=self.home/'out.html'
+  self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.home=Path(self.tmp.name);self.root=self.home/'SEC';(self.root/'docs').mkdir(parents=True);(self.root/'.documentation').mkdir();self.out=self.home/'out.html'
   (self.root/'.documentation/baseline.json').write_text(json.dumps({**declaration(['README.md','docs','.documentation']), 'entry':'../README.md'}),encoding='utf-8')
   (self.root/'README.md').write_text('# Fixture\n[Doc](docs/page.md)\n');self.source='flowchart LR\n A-->B\n';(self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n')
   self.svg=b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="4" y="24">A B</text></svg>'
- def tearDown(self):self.tmp.cleanup()
  def cache(self,svg=None,encoding='zlib+base64'):
   svg=self.svg if svg is None else svg;key=b.sha(self.source.encode());payload=zlib.compress(svg)if encoding=='zlib+base64'else svg
   v={'schema':'sec.diagram-cache/1','renderer':{'engine_sha256':'fixture-only'},'entries':{key:{'source_sha256':key,'svg_sha256':b.sha(svg),'svg_bytes':len(svg),'encoding':encoding,'data':base64.b64encode(payload).decode(),'renderer_id':'fixture'}}}
@@ -46,8 +44,13 @@ class Modes(unittest.TestCase):
   c=self.cache();next(iter(c['entries'].values()))['svg_sha256']='0'*64;(self.root/'.documentation/figures.json').write_text(json.dumps(c));self.bad()
  def test_active_svg_even_with_valid_hash(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><script>bad()</script></svg>');self.bad()
  def test_external_svg(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://x.invalid";</style></svg>');self.bad()
- def test_decompression_limit(self):self.cache(b'x'*10_000_001);self.bad()
- def test_duplicate_keys(self):(self.root/'.documentation/figures.json').write_text('{"schema":1,"schema":2}');self.bad()
+ def test_decompression_limit(self):
+  self.cache(b'x'*10_000_001);self.out.write_bytes(b'old')
+  with self.assertRaisesRegex(b.BuildError,'Compressed cache exceeds limit'):self.run_('--replace')
+  self.assertEqual(self.out.read_bytes(),b'old')
+ def test_duplicate_keys(self):
+  cache=self.cache()
+  (self.root/'.documentation/figures.json').write_text(json.dumps(cache).replace('{','{"schema":"invalid",',1));self.bad()
  def test_cache_root_requires_object(self):
   for value in (None, [], 'cache', 7, False):
    with self.subTest(value=value):

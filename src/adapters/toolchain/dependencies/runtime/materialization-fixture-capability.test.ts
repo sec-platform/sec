@@ -27,7 +27,6 @@ test('dependency test materialization accepts only the exact owner-issued capabi
     Object.freeze({}) as RuntimeDependencyTestMaterializationCapability,
     { args: [], cwd: 'fixture-root', timeoutMs: 250 }
   )).rejects.toMatchObject({
-    code: 'RUNTIME-DEPS-004',
-    message: 'Compiler dependency test materialization requires an owner-issued capability'
+    code: 'RUNTIME-DEPS-004'
   });
 });

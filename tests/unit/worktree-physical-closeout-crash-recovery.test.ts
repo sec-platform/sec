@@ -35,6 +35,7 @@ function diagnosticTree(root: string, depth = 0): string[] {
 
 test('real child death after durable acquisition fence but before terminal lets a fresh process converge without upgrading the opaque token', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-closeout-crash-')); const remote = path.join(root, 'remote.git'); const repository = path.join(root, 'repository'); const target = path.join(root, 'candidate');
+  let activeChild: { readonly pid: number; readonly exitCode: number | null; readonly exited: Promise<number> } | undefined;
   try {
     git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'user.name', 'SEC']); git(repository, ['config', 'user.email', 'sec@example.invalid']); git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
@@ -53,6 +54,7 @@ test('real child death after durable acquisition fence but before terminal lets 
       'bun', fixture, JSON.stringify(input), firstOutput,
       'pause-after-fence-before-terminal', handshake
     ], { stdout: 'pipe', stderr: 'pipe' });
+    activeChild = child;
     const proofRoot = prepared.authorization.proofRoot.path;
     const observed = await waitFor(() => {
       if (!existsSync(handshake)) return false;
@@ -71,6 +73,7 @@ test('real child death after durable acquisition fence but before terminal lets 
     await Bun.sleep(36_000);
     const resumedOutput = path.join(root, 'resumed-receipt.json');
     const resumed = Bun.spawn(['bun', fixture, JSON.stringify(input), resumedOutput], { stdout: 'pipe', stderr: 'pipe' });
+    activeChild = resumed;
     // The killed child may leave both the repository and relocated target
     // leases live.  Fresh acquisition resolves their canonical 30s stale
     // windows serially, so this is intentionally wider than one stale window.
@@ -90,5 +93,12 @@ test('real child death after durable acquisition fence but before terminal lets 
       token: prepared.token, repositoryRoot: repository, targetPath: target,
       branch, headSha, treeSha, recoveryAuthorityDigest
     })).toThrow('did not witness this process-held retirement');
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    try {
+      if (activeChild?.exitCode === null) killFixtureTree(activeChild.pid);
+      await activeChild?.exited;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
 }, 180_000);

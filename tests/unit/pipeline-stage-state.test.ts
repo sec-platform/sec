@@ -14,7 +14,7 @@ for (const definition of Object.values(PIPELINE_STAGE_DEFINITIONS)) {
     const blocked = pipelineStageStatePatch(definition, { kind: 'blocked' });
     for (const pass of [...definition.ownedPasses, ...definition.invalidates]) assert.equal(blocked[pass], 'blocked');
     const success = pipelineStageStatePatch(definition, { kind: 'succeeded' });
-    assert.deepEqual(Object.keys(success), definition.ownedPasses);
+    assert.deepEqual(new Set(Object.keys(success)), new Set(definition.ownedPasses));
     for (const pass of definition.ownedPasses) assert.equal(success[pass], 'succeeded');
     for (const originPass of [...definition.ownedPasses, 'repair'] as const) {
       const failed = pipelineStageStatePatch(definition, { kind: 'failed', originPass });

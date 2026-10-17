@@ -90,20 +90,20 @@ test('normalizer and direct linker both reject ambiguous declarations and import
     const source = contract();
     // Identity validation runs before consuming kind-specific contents.
     Object.assign(source, { [kind]: [{ id: 'ambiguous:name' }] });
-    expect(() => normalizeSemanticContract(source)).toThrow();
-    expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow();
+    expect(() => normalizeSemanticContract(source)).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
+    expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
   }
   for (const field of ['alias', 'namespace', 'contractId'] as const) {
     const source = contract();
     source.imports = [{ alias: 'a', namespace: 'b', contractId: 'c', [field]: 'a:b' }];
-    expect(() => normalizeSemanticContract(source)).toThrow();
-    expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow();
+    expect(() => normalizeSemanticContract(source)).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
+    expect(() => linkWorkspaceSemanticContracts([{ blockId: 'block', contractPath: 'x.yaml', contract: source }], [])).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
   }
   const source = contract();
   source.entities = [{ id: 'Entity.with.dot', fields: [] }];
-  expect(() => normalizeSemanticContract(source)).toThrow();
+  expect(() => normalizeSemanticContract(source)).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
   source.entities = [{ id: 'Entity', fields: [{ id: 'field.with.dot', type: 'string' }] }];
-  expect(() => normalizeSemanticContract(source)).toThrow();
+  expect(() => normalizeSemanticContract(source)).toThrow(expect.objectContaining({ code: 'CONTRACT-SEMANTIC-024' }));
 });
 
 test('fact preimages keep legacy bytes while NUL stays legal in values and labels', () => {

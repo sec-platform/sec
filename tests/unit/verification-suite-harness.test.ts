@@ -103,7 +103,7 @@ test('suite invocation capture rejects sparse, accessor and over-budget inventor
   const input = { workspaceRoot: '.', suiteRoot: 'tests/unit', files: [] as string[] };
   let calls = 0;
   const accessor = Object.defineProperty(['placeholder'], '0', { get() { calls += 1; return 'tests/unit/a.test.ts'; } });
-  for (const files of [Array<string>(1), Array<string>(10_001), accessor, ['a'.repeat(16 * 1024 + 1)]]) {
+  for (const files of [Array<string>(1), Array.from({ length: 10_001 }, (_, index) => `tests/unit/${index}.test.ts`), accessor, ['a'.repeat(16 * 1024 + 1)]]) {
     expect(() => captureFastSuiteProcessInput({ ...input, files })).toThrow();
   }
   expect(calls).toBe(0);

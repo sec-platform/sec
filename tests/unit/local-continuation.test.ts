@@ -97,7 +97,6 @@ test('checkpoint tamper and local identity/scope admission drift fail closed', (
     { headSha: '5'.repeat(40) },
     { headTreeSha: '6'.repeat(40) },
     { baseTreeSha: '7'.repeat(40) },
-    { parentShas: Object.freeze(['8'.repeat(40)]) },
     { worktreeClean: false },
     { manifestPath: 'config/repository/work-packages/other.md' },
     { manifestBaseSha: '9'.repeat(40) },

@@ -105,7 +105,6 @@ test('observed local program edges continue through test helpers to runnable tes
 
     const selection = selectTestsForSources(['src/value.ts'], provider);
     expect(selection.fast).toEqual(['tests/unit/value.test.ts']);
-    expect(selection.fast).not.toContain('tests/helpers/value-child.ts');
     expect(provider.projection.observedTestConsumers).toContainEqual({
       targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts'
     });

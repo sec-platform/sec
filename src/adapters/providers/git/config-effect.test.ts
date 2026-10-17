@@ -215,65 +215,83 @@ test('GitConfigEffect rejects target ABA, structural origin copies and invalid k
 
 test('GitConfigEffect rejects insufficient parent process budget and cancelled provider admission with zero child', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-config-budget-'));
-  const targetPath = path.join(root, 'config');
-  await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
-  const limited = openTestProvider(root, 1);
-  let limitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
   try {
-    limitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
-    await expect(replaceAllGitConfigValue({
-      provider: limited.provider,
-      target: limitedTarget,
-      key: 'core.hooksPath',
-      value: 'value'
-    })).rejects.toThrow(/insufficient aggregate resources/u);
-    expect(limited.processSession.processCount).toBe(0);
-    closeGitPhysicalProvider(limited.provider);
-  } finally {
-    if (limitedTarget !== null) closeGitConfigTargetCapability(limitedTarget);
-    limited.processSession.close();
-  }
+    const targetPath = path.join(root, 'config');
+    await fs.writeFile(targetPath, '[core]\n\trepositoryformatversion = 0\n', 'utf8');
+    const limited = openTestProvider(root, 1);
+    let limitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
+    try {
+      limitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
+      await expect(replaceAllGitConfigValue({
+        provider: limited.provider,
+        target: limitedTarget,
+        key: 'core.hooksPath',
+        value: 'value'
+      })).rejects.toThrow(/insufficient aggregate resources/u);
+      expect(limited.processSession.processCount).toBe(0);
+    } finally {
+      try {
+        if (limitedTarget !== null) closeGitConfigTargetCapability(limitedTarget);
+      } finally {
+        try {
+          closeGitPhysicalProvider(limited.provider);
+        } finally {
+          limited.processSession.close();
+        }
+      }
+    }
 
-  const outputLimited = openTestProvider(root, 2, 1);
-  let outputLimitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
-  try {
-    outputLimitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
-    await expect(replaceAllGitConfigValue({
-      provider: outputLimited.provider,
-      target: outputLimitedTarget,
-      key: 'core.hooksPath',
-      value: 'value'
-    })).rejects.toThrow(/insufficient aggregate resources/u);
-    expect(outputLimited.processSession.processCount).toBe(0);
-    closeGitPhysicalProvider(outputLimited.provider);
-  } finally {
-    if (outputLimitedTarget !== null) closeGitConfigTargetCapability(outputLimitedTarget);
-    outputLimited.processSession.close();
-  }
+    const outputLimited = openTestProvider(root, 2, 1);
+    let outputLimitedTarget: Awaited<ReturnType<typeof issueGitConfigTargetCapability>> | null = null;
+    try {
+      outputLimitedTarget = await issueGitConfigTargetCapability({ path: targetPath });
+      await expect(replaceAllGitConfigValue({
+        provider: outputLimited.provider,
+        target: outputLimitedTarget,
+        key: 'core.hooksPath',
+        value: 'value'
+      })).rejects.toThrow(/insufficient aggregate resources/u);
+      expect(outputLimited.processSession.processCount).toBe(0);
+    } finally {
+      try {
+        if (outputLimitedTarget !== null) closeGitConfigTargetCapability(outputLimitedTarget);
+      } finally {
+        try {
+          closeGitPhysicalProvider(outputLimited.provider);
+        } finally {
+          outputLimited.processSession.close();
+        }
+      }
+    }
 
-  const operation = testOperation();
-  const controller = new AbortController();
-  const cancelled = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({
+    const operation = testOperation();
+    const controller = new AbortController();
+    const cancelled = openProcessResourceSession({
       operation,
-      requirementId: REQUIREMENT,
-      resourceCeilings: operation.plan.execution.aggregateBudgets
-    }),
-    signal: controller.signal
-  });
-  controller.abort();
-  const resolution = openGitPhysicalProvider({
-    cwd: root,
-    executablePath: gitExecutable(),
-    operation,
-    processSession: cancelled,
-    maximumExecutableBytes: 64 * 1024 * 1024
-  });
-  expect(resolution).toEqual({ status: 'unavailable', reason: 'deadline' });
-  expect(cancelled.processCount).toBe(0);
-  cancelled.close();
-  rmSync(root, { recursive: true, force: true });
+      requirementBindingContext: issueOperationRequirementBindingContext({
+        operation,
+        requirementId: REQUIREMENT,
+        resourceCeilings: operation.plan.execution.aggregateBudgets
+      }),
+      signal: controller.signal
+    });
+    try {
+      controller.abort();
+      const resolution = openGitPhysicalProvider({
+        cwd: root,
+        executablePath: gitExecutable(),
+        operation,
+        processSession: cancelled,
+        maximumExecutableBytes: 64 * 1024 * 1024
+      });
+      expect(resolution).toEqual({ status: 'unavailable', reason: 'deadline' });
+      expect(cancelled.processCount).toBe(0);
+    } finally {
+      cancelled.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('GitConfigEffect uses a provider-local process delta inside one borrowed parent aggregate', async () => {

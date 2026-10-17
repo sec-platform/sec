@@ -457,115 +457,119 @@ test.skipIf(process.platform !== 'win32')(
   'production Git scratch computes, reads, and materializes one bound tree without generic GitRead mutation',
   async () => {
     const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-repository-'));
-    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
-    const runFixtureGit = (args: readonly string[]): void => {
-      const result = spawnSync('git', [...args], {
-        cwd: repositoryRoot,
-        env: isolatedGitChildEnvironment(process.env),
-        encoding: 'utf8',
-        windowsHide: true
-      });
-      if (result.status !== 0) throw new Error(`Git scratch fixture failed: ${result.stderr}`);
-    };
-    runFixtureGit(['init', '--quiet']);
-    writeFileSync(path.join(repositoryRoot, 'package.json'), '{"name":"scratch-fixture"}\n');
-    runFixtureGit(['add', '--', 'package.json']);
-    const resolution = createAuthorityGitReadSession({
-      cwd: repositoryRoot,
-      operation: issueTestGitReadOperation(),
-      budget: { maxProcesses: 32 }
-    });
-    expect(resolution.status).toBe('ready');
-    if (resolution.status !== 'ready') return;
+    let scratchRoot: string | undefined;
     try {
-      const indexObservation = await resolution.session.run([
-        'rev-parse', '--path-format=absolute', '--git-path', 'index'
-      ]);
-      if (indexObservation.kind !== 'completed' || indexObservation.result.code !== 0) {
-        throw new Error('Test could not observe the canonical Git index.');
-      }
-      const indexPath = Buffer.from(indexObservation.result.stdout).toString('utf8').trim();
-      const expectedIndexBlob = await resolution.session.run(['show', ':package.json']);
-      if (expectedIndexBlob.kind !== 'completed' || expectedIndexBlob.result.code !== 0) {
-        throw new Error('Test could not read package.json from the canonical Git index.');
-      }
-      copyFileSync(indexPath, path.join(scratchRoot, 'index'));
-      mkdirSync(path.join(scratchRoot, 'objects'));
-
-      const scratchResolution = await createAuthorityGitScratchIndexTreeSession({
-        gitReadSession: resolution.session,
-        scratchRoot
+      scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
+      const runFixtureGit = (args: readonly string[]): void => {
+        const result = spawnSync('git', [...args], {
+          cwd: repositoryRoot,
+          env: isolatedGitChildEnvironment(process.env),
+          encoding: 'utf8',
+          windowsHide: true
+        });
+        if (result.status !== 0) throw new Error(`Git scratch fixture failed: ${result.stderr}`);
+      };
+      runFixtureGit(['init', '--quiet']);
+      writeFileSync(path.join(repositoryRoot, 'package.json'), '{"name":"scratch-fixture"}\n');
+      runFixtureGit(['add', '--', 'package.json']);
+      const resolution = createAuthorityGitReadSession({
+        cwd: repositoryRoot,
+        operation: issueTestGitReadOperation(),
+        budget: { maxProcesses: 32 }
       });
-      expect(scratchResolution.status).toBe('ready');
-      if (scratchResolution.status !== 'ready') return;
-      let scratchPrimaryFailure: unknown;
+      expect(resolution.status).toBe('ready');
+      if (resolution.status !== 'ready') return;
       try {
-        const tree = await scratchResolution.session.writeTree();
-        expect(tree).toMatchObject({ status: 'ready' });
-        if (tree.status !== 'ready') return;
-        const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
-        expect(blob.status).toBe('ready');
-        if (blob.status === 'ready') {
-          expect(Buffer.compare(
-            Buffer.from(blob.value.stdout),
-            Buffer.from(expectedIndexBlob.result.stdout)
-          )).toBe(0);
+        const indexObservation = await resolution.session.run([
+          'rev-parse', '--path-format=absolute', '--git-path', 'index'
+        ]);
+        if (indexObservation.kind !== 'completed' || indexObservation.result.code !== 0) {
+          throw new Error('Test could not observe the canonical Git index.');
         }
-        const deltaPath = 'sec-git-scratch-delta.txt';
-        const added = await scratchResolution.session.applyIndexDelta({
-          additions: [{ path: deltaPath, bytes: Buffer.from('scratch delta\n', 'utf8') }],
-          removals: []
-        });
-        expect(added).toMatchObject({ status: 'ready' });
-        if (added.status !== 'ready') return;
-        const addedBlob = await scratchResolution.session.observe(['show', `${added.value}:${deltaPath}`]);
-        expect(addedBlob.status).toBe('ready');
-        if (addedBlob.status === 'ready') {
-          expect(Buffer.from(addedBlob.value.stdout).toString('utf8')).toBe('scratch delta\n');
+        const indexPath = Buffer.from(indexObservation.result.stdout).toString('utf8').trim();
+        const expectedIndexBlob = await resolution.session.run(['show', ':package.json']);
+        if (expectedIndexBlob.kind !== 'completed' || expectedIndexBlob.result.code !== 0) {
+          throw new Error('Test could not read package.json from the canonical Git index.');
         }
-        const restored = await scratchResolution.session.applyIndexDelta({
-          additions: [],
-          removals: [deltaPath]
+        copyFileSync(indexPath, path.join(scratchRoot, 'index'));
+        mkdirSync(path.join(scratchRoot, 'objects'));
+
+        const scratchResolution = await createAuthorityGitScratchIndexTreeSession({
+          gitReadSession: resolution.session,
+          scratchRoot
         });
-        expect(restored).toMatchObject({ status: 'ready' });
-        if (restored.status === 'ready') expect(restored.value).toBe(tree.value);
-        const materialized = await scratchResolution.session.materializeIndexDelta({
-          additions: [{
-            path: 'package.json',
-            bytes: Buffer.from(expectedIndexBlob.result.stdout)
-          }],
-          removals: []
-        });
-        expect(materialized).toMatchObject({ status: 'ready' });
-        if (materialized.status === 'ready') {
-          expect(materialized.value).toBe(tree.value);
-          const materializedBlob = await resolution.session.run([
-            'show', `${materialized.value}:package.json`
-          ]);
-          expect(materializedBlob).toMatchObject({ kind: 'completed' });
-          if (materializedBlob.kind === 'completed') {
+        expect(scratchResolution.status).toBe('ready');
+        if (scratchResolution.status !== 'ready') return;
+        let scratchPrimaryFailure: unknown;
+        try {
+          const tree = await scratchResolution.session.writeTree();
+          expect(tree).toMatchObject({ status: 'ready' });
+          if (tree.status !== 'ready') return;
+          const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
+          expect(blob.status).toBe('ready');
+          if (blob.status === 'ready') {
             expect(Buffer.compare(
-              Buffer.from(materializedBlob.result.stdout),
+              Buffer.from(blob.value.stdout),
               Buffer.from(expectedIndexBlob.result.stdout)
             )).toBe(0);
           }
+          const deltaPath = 'sec-git-scratch-delta.txt';
+          const added = await scratchResolution.session.applyIndexDelta({
+            additions: [{ path: deltaPath, bytes: Buffer.from('scratch delta\n', 'utf8') }],
+            removals: []
+          });
+          expect(added).toMatchObject({ status: 'ready' });
+          if (added.status !== 'ready') return;
+          const addedBlob = await scratchResolution.session.observe(['show', `${added.value}:${deltaPath}`]);
+          expect(addedBlob.status).toBe('ready');
+          if (addedBlob.status === 'ready') {
+            expect(Buffer.from(addedBlob.value.stdout).toString('utf8')).toBe('scratch delta\n');
+          }
+          const restored = await scratchResolution.session.applyIndexDelta({
+            additions: [],
+            removals: [deltaPath]
+          });
+          expect(restored).toMatchObject({ status: 'ready' });
+          if (restored.status === 'ready') expect(restored.value).toBe(tree.value);
+          const materialized = await scratchResolution.session.materializeIndexDelta({
+            additions: [{
+              path: 'package.json',
+              bytes: Buffer.from(expectedIndexBlob.result.stdout)
+            }],
+            removals: []
+          });
+          expect(materialized).toMatchObject({ status: 'ready' });
+          if (materialized.status === 'ready') {
+            expect(materialized.value).toBe(tree.value);
+            const materializedBlob = await resolution.session.run([
+              'show', `${materialized.value}:package.json`
+            ]);
+            expect(materializedBlob).toMatchObject({ kind: 'completed' });
+            if (materializedBlob.kind === 'completed') {
+              expect(Buffer.compare(
+                Buffer.from(materializedBlob.result.stdout),
+                Buffer.from(expectedIndexBlob.result.stdout)
+              )).toBe(0);
+            }
+          }
+        } catch (error) {
+          scratchPrimaryFailure = error;
+          throw error;
+        } finally {
+          const closeFailure = await scratchResolution.session.close();
+          if (scratchPrimaryFailure === undefined) expect(closeFailure).toBeNull();
         }
-      } catch (error) {
-        scratchPrimaryFailure = error;
-        throw error;
-      } finally {
-        const closeFailure = await scratchResolution.session.close();
-        if (scratchPrimaryFailure === undefined) expect(closeFailure).toBeNull();
-      }
 
-      const directMutation = await resolution.session.run(['write-tree']);
-      expect(directMutation).toMatchObject({
-        kind: 'unresolved-git-read-session',
-        reason: 'operation-not-permitted'
-      });
+        const directMutation = await resolution.session.run(['write-tree']);
+        expect(directMutation).toMatchObject({
+          kind: 'unresolved-git-read-session',
+          reason: 'operation-not-permitted'
+        });
+      } finally {
+        await resolution.session.close?.();
+      }
     } finally {
-      await resolution.session.close?.();
-      rmSync(scratchRoot, { recursive: true, force: true });
+      if (scratchRoot !== undefined) rmSync(scratchRoot, { recursive: true, force: true });
       rmSync(repositoryRoot, { recursive: true, force: true });
     }
   }, { timeout: 15_000 }
@@ -685,19 +689,23 @@ test('the host transport fences the retained executable and cwd before and after
     cwd: process.cwd(),
     budget: { maxProcesses: 2 }
   });
-  expect(session.failure).toBeNull();
-  const result = await session.run(['--version']);
-  expect(result.kind).toBe('completed');
-  const status = await session.run([
-    '--no-pager',
-    '-c', 'core.quotepath=false',
-    '-c', 'core.fsmonitor=false',
-    '-c', 'core.untrackedCache=false',
-    'status', '--porcelain=v1', '-z', '--untracked-files=no'
-  ]);
-  expect(status.kind).toBe('completed');
-  expect(session.processCount).toBe(2);
-  expect(session.failure).toBeNull();
+  try {
+    expect(session.failure).toBeNull();
+    const result = await session.run(['--version']);
+    expect(result.kind).toBe('completed');
+    const status = await session.run([
+      '--no-pager',
+      '-c', 'core.quotepath=false',
+      '-c', 'core.fsmonitor=false',
+      '-c', 'core.untrackedCache=false',
+      'status', '--porcelain=v1', '-z', '--untracked-files=no'
+    ]);
+    expect(status.kind).toBe('completed');
+    expect(session.processCount).toBe(2);
+    expect(session.failure).toBeNull();
+  } finally {
+    await session.close?.();
+  }
 });
 
 test.skipIf(process.platform !== 'win32')('the retained cwd prevents replacement while the Git session is live', async () => {

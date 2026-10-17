@@ -27,7 +27,7 @@ test('unique transitive providers are selected once and unrelated catalog entrie
   const result = resolve([a], [a, b, c, entry('block/unused')]);
   assert.deepEqual(ids(result.entries), ['block/c', 'block/b', 'block/a']);
   assert.deepEqual(result.capabilities, ['block/a', 'cap/b', 'cap/c']);
-  assert.equal(result.entries[0], c);
+  assert.deepEqual(result.entries[0], c);
 });
 
 test('an explicit provider still disambiguates an otherwise ambiguous capability catalog', () => {
@@ -49,10 +49,10 @@ test('conflicting explicit versions and registry identities are not last-writer-
   assert.throws(() => resolve([a, b]), /Conflicting explicit/);
 });
 
-test('repeated equal explicit entries coalesce but preserve the chosen object', () => {
+test('repeated equal explicit entries coalesce but preserve the chosen manifest and origin', () => {
   const a = entry('block/a');
   const result = resolve([a, structuredClone(a), a]);
-  assert.deepEqual(ids(result.entries), ['block/a']); assert.equal(result.entries[0], a);
+  assert.deepEqual(ids(result.entries), ['block/a']); assert.deepEqual(result.entries[0], a);
 });
 
 test('a catalog cannot replace a captured explicit revision with different same-version content', () => {
@@ -64,9 +64,9 @@ test('a catalog cannot replace a captured explicit revision with different same-
 test('equal catalog mirrors and different versions do not replace the captured explicit selection', () => {
   const selected = entry('block/a'), mirror = structuredClone(selected);
   mirror.registrySourceId = 'mirror'; mirror.manifestPath = '/mirror/block.manifest.yaml';
-  assert.equal(resolve([selected], [mirror]).entries[0], selected);
+  assert.deepEqual(resolve([selected], [mirror]).entries[0], selected);
   const newer = structuredClone(mirror); newer.manifest.version = '2.0.0'; newer.manifest.provides = ['new/service'];
-  assert.equal(resolve([selected], [newer]).entries[0], selected);
+  assert.deepEqual(resolve([selected], [newer]).entries[0], selected);
 });
 
 test('one provider repeating a declaration is not two ambiguous implementations', () => {

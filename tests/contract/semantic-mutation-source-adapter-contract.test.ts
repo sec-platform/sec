@@ -94,6 +94,10 @@ test('SM-2 edit-plan and rollback vectors satisfy the exact validators', () => {
 
 test('unknown fields, stale revisions, digest forgery, and non-canonical operation order fail closed', () => {
   const { manifest, plan } = vectors();
+  const rebindPlanDigest = (candidate: SemanticMutationSourceEditPlan) => {
+    const { editPlanRevision: _old, ...content } = candidate;
+    return { ...content, editPlanRevision: sha256({ domain: 'semantic-mutation-source-edit-plan-v1', ...content }) };
+  };
   expect(() => assertSemanticMutationRollbackManifestInvariant({
     ...manifest,
     backupPath: '.sec/backup/item.yaml'
@@ -106,17 +110,17 @@ test('unknown fields, stale revisions, digest forgery, and non-canonical operati
     ...plan,
     absolutePath: 'C:\\workspace\\source\\model\\item.yaml'
   } as never)).toThrow('schema');
-  expect(() => assertSemanticMutationSourceEditPlanInvariant({
+  expect(() => assertSemanticMutationSourceEditPlanInvariant(rebindPlanDigest({
     ...plan,
     adapterRevision: 'semantic-contract-yaml-v0'
-  } as never)).toThrow('digest');
-  expect(() => assertSemanticMutationSourceEditPlanInvariant({
+  } as never))).toThrow('digest');
+  expect(() => assertSemanticMutationSourceEditPlanInvariant(rebindPlanDigest({
     ...plan,
     operations: [
       { ...plan.operations[0]!, operationId: 'operation:z' },
       { ...plan.operations[0]!, operationId: 'operation:a', from: 'closed', to: 'open' }
     ]
-  } as never)).toThrow('digest');
+  } as never))).toThrow('digest');
   expect(() => assertSemanticMutationSourceEditPlanInvariant({
     ...plan,
     pathEvidence: { ...plan.pathEvidence, targetIdentityDigest: sha256('forged-target') }

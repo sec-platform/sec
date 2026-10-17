@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { expect, test } from 'bun:test';
 
 import { CodedFailure } from '../../contracts/failure.ts';
@@ -24,17 +25,16 @@ test('strict YAML exposes separate value and document capabilities', () => {
 test('strict YAML projects parser throws through one typed syntax identity', () => {
   const parse = () => parseYamlValue('value: [unterminated\n', VALUE_ADMISSION);
 
-  expect(parse).toThrow(YamlSyntaxError);
-  try {
-    parse();
-  } catch (error) {
+  assert.throws(parse, (error: unknown) => {
+    expect(error).toBeInstanceOf(YamlSyntaxError);
     expect(error).toBeInstanceOf(CodedFailure);
     expect(error).toMatchObject({
       code: 'YAML-SYNTAX-001',
       kind: 'invalid-yaml',
       details: { kind: 'invalid-yaml' }
     });
-  }
+    return true;
+  });
 });
 
 test('strict YAML admits input by UTF-8 bytes before parsing', () => {
@@ -43,12 +43,15 @@ test('strict YAML admits input by UTF-8 bytes before parsing', () => {
     maximumInputBytes: 8
   });
 
-  expect(parse).toThrow(YamlInputLimitError);
-  expect(parse).toThrow(expect.objectContaining({
-    code: 'YAML-INPUT-001',
-    actualInputBytes: 9,
-    maximumInputBytes: 8
-  }));
+  assert.throws(parse, (error: unknown) => {
+    expect(error).toBeInstanceOf(YamlInputLimitError);
+    expect(error).toMatchObject({
+      code: 'YAML-INPUT-001',
+      actualInputBytes: 9,
+      maximumInputBytes: 8
+    });
+    return true;
+  });
 });
 
 test('strict YAML preserves duplicate-key failure identity', () => {
