@@ -711,8 +711,8 @@ test('exclusive directory birth rejects invalid modes before creating a destinat
 });
 
 for (const changed of ['file', 'directory', 'stage'] as const) {
-  test(`Create refuses a same-inode ${changed} mode change between birth and intent`, async () => {
-    if (process.platform !== 'linux') return; // POSIX modes have no Windows projection.
+  test.skipIf(process.platform !== 'linux')(`Create refuses a same-inode ${changed} mode change between birth and intent`, async () => {
+    // POSIX modes have no Windows projection.
     const root = await createWorkspace('workspace-create-birth-mode-');
     let firstFile: string | undefined;
     let changedPath: string | undefined;

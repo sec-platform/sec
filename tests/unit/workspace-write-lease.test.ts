@@ -1203,8 +1203,7 @@ test('workspace writer lease heartbeat reports a bounded native failure phase', 
   }, 'workspace-write-lease-heartbeat-diagnostic-');
 });
 
-test('Windows heartbeat publication converges after a reader releases replacement sharing', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('Windows heartbeat publication converges after a reader releases replacement sharing', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const manager = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 10_000,

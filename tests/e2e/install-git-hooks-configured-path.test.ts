@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { copyFile, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path, { delimiter } from 'node:path';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../src/adapters/self-hosting/development/runner/contract.ts';
 
-import { git, installGitHooks, tryCreateLink, withRepository } from './fixtures/install-git-hooks.ts';
+import { git, installGitHooks, withRepository } from './fixtures/install-git-hooks.ts';
 test('hook installer preserves an explicit missing non-managed hooks path', async () => {
   await withRepository(async (repoRoot) => {
     const staleHooks = path.join(repoRoot, 'missing-hooks');
@@ -36,11 +36,11 @@ test('hook installer preserves an explicit broken symlink hooks path', async () 
   await withRepository(async (repoRoot) => {
     const staleHooks = path.join(repoRoot, 'broken-hooks');
     const missingTarget = path.join(repoRoot, 'missing-hooks-target');
-    if (!await tryCreateLink(
+    await symlink(
       missingTarget,
       staleHooks,
       process.platform === 'win32' ? 'junction' : 'dir'
-    )) return;
+    );
     git(repoRoot, ['config', '--local', 'core.hooksPath', staleHooks]);
 
     expect(await installGitHooks({ repoRoot, lifecycle: true }))

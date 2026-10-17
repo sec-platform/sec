@@ -49,5 +49,21 @@ describe('review diagnostics presentation boundary', () => {
       'Diagnostic regression-risk:2; kind=coverage; block=none; unbound',
       'Diagnostic conflict:0; kind=overlap; related=change:1; conflict'
     ].join('\n'));
+    const noDiagnostics = projectReviewDiagnostics({
+      ciSummary: { status: 'passed' },
+      failurePoints: [],
+      regressionRisks: [],
+      conflictHints: []
+    });
+    expect(noDiagnostics).toEqual({
+      status: 'passed', diagnosticCount: 0, failureCount: 0,
+      regressionRiskCount: 0, conflictHintCount: 0, artifactPathCount: 0,
+      artifactPaths: [], blockCount: 0, blocks: [], diagnostics: []
+    });
+    expect(formatReviewDiagnostics(noDiagnostics)).toBe([
+      'Review diagnostics passed; diagnostics=0; failures=0; risks=0; conflicts=0',
+      'Artifacts: none',
+      'Blocks: none'
+    ].join('\n'));
   });
 });

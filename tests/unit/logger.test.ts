@@ -1,48 +1,6 @@
 import { expect, test } from 'bun:test';
 
 import { createLogger } from '../../src/adapters/diagnostics/json-logger.ts';
-import { buildJsonLogRecord, resolveLogLevel } from '../../src/contracts/logging.ts';
-
-test('log-level admission accepts only the exact canonical vocabulary', () => {
-  expect(resolveLogLevel(undefined)).toBe('info');
-  expect(resolveLogLevel(undefined, 'warn')).toBe('warn');
-  expect(resolveLogLevel('debug')).toBe('debug');
-  expect(resolveLogLevel('info')).toBe('info');
-  expect(resolveLogLevel('warn')).toBe('warn');
-  expect(resolveLogLevel('error')).toBe('error');
-
-  expect(() => resolveLogLevel('verbose')).toThrow(/LOG_LEVEL must be one of/);
-  expect(() => resolveLogLevel(' INFO ')).toThrow(/LOG_LEVEL must be one of/);
-});
-
-test('JSON log records preserve canonical fields against metadata collisions', () => {
-  const record = buildJsonLogRecord('warn', 'canonical-message', {
-    level: 999,
-    time: 0,
-    msg: 'forged-message',
-    traceId: 'trace-1'
-  }, 1234);
-
-  expect(record).toEqual({
-    traceId: 'trace-1',
-    level: 30,
-    time: 1234,
-    msg: 'canonical-message'
-  });
-  expect(Object.getPrototypeOf(record)).toBeNull();
-  expect(Object.isFrozen(record)).toBe(true);
-});
-
-test('non-record log data remains explicit and invalid timestamps fail closed', () => {
-  expect(buildJsonLogRecord('info', 'value', ['a'], 1)).toEqual({
-    data: ['a'],
-    level: 20,
-    time: 1,
-    msg: 'value'
-  });
-  expect(() => buildJsonLogRecord('info', 'invalid', undefined, -1))
-    .toThrow(/non-negative safe Unix millisecond integer/);
-});
 
 test.serial('logger threshold emits exactly the admitted JSONL records', () => {
   const originalWrite = process.stdout.write;

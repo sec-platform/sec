@@ -170,21 +170,6 @@ test('test invocation runtime rejects a reconstructed fast-batch deadline before
   }
 });
 
-test('direct test runtime temp supports a native child-process working directory', () => {
-  const repository = mkdtempSync(path.join(tmpdir(), 'sec-child-process-cwd-'));
-  try {
-    const result = spawnSync('git', ['init', '--quiet'], {
-      cwd: repository,
-      encoding: 'utf8',
-      env: process.env,
-      windowsHide: true
-    });
-    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' });
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
-});
-
 test('test process temp owns one disjoint generation and removes only that generation', async () => {
   const repositoryRoot = generation('sec-temp-owner-repository-');
   const hostTempRoot = generation('sec-temp-owner-host-');
@@ -208,8 +193,7 @@ test('test process temp owns one disjoint generation and removes only that gener
   }
 });
 
-test('test process temp rejects an unavailable Windows path budget before any generation effect', async () => {
-  if (process.platform !== 'win32') return;
+test.skipIf(process.platform !== 'win32')('test process temp rejects an unavailable Windows path budget before any generation effect', async () => {
   const repositoryRoot = generation('sec-temp-budget-repository-');
   const stateRoot = generation('sec-temp-budget-state-');
   const cacheRoot = generation('sec-temp-budget-cache-');

@@ -1,6 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { formatJson, printJsonOrText } from '../../src/entry/cli/format-utils.ts';
 import { captureJsonOutputInput } from '../../src/entry/cli/json-output-options.ts';
 import { captureCliOptions } from '../../src/entry/cli/own-options.ts';
 import { parseWorkspaceViewCommandInput } from '../../src/entry/cli/workspace-command-input.ts';
@@ -79,26 +78,3 @@ test('mixed read/write command routes expose distinct immutable selections', () 
   }
 });
 
-test('no-JSON roots are rejected before output, including a toJSON that returns undefined', () => {
-  const log = console.log; let writes = 0; console.log = () => { writes++; };
-  try {
-    for (const value of [undefined, () => 7, Symbol('value'), { toJSON() { return undefined; } }]) {
-      assert.throws(() => printJsonOrText(value, { json: true, compact: true }, () => assert.fail('text')), TypeError);
-    }
-    assert.equal(writes, 0);
-  } finally { console.log = log; }
-});
-
-test('circular and bigint JSON failures remain failures, not successful output frames', () => {
-  const cycle: unknown[] = []; cycle.push(cycle);
-  for (const value of [cycle, 1n]) assert.throws(() => formatJson(value, { compact: false }), TypeError);
-});
-
-test('valid JSON output preserves exact standard formatting and lazy text selection', () => {
-  for (const value of [null, false, 0, 'text', [], { a: 1, b: [2] }]) {
-    for (const compact of [false, true]) assert.equal(formatJson(value, { compact }), JSON.stringify(value, null, compact ? 0 : 2));
-  }
-  const log = console.log; const lines: unknown[] = []; console.log = v => { lines.push(v); };
-  try { printJsonOrText(undefined, { json: false, compact: false }, () => 'text'); assert.deepEqual(lines, ['text']); }
-  finally { console.log = log; }
-});

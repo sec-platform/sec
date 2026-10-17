@@ -179,8 +179,7 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
   }
 });
 
-test('a real execution-snapshot consumer must spend the live supervisor challenge exactly once', async () => {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('a real execution-snapshot consumer must spend the live supervisor challenge exactly once', async () => {
   const repositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'supervisor-challenge-'));
   const namespace = `gate-${process.pid}-${Date.now()}-owned`;
   const executionSnapshotRoot = path.join(
