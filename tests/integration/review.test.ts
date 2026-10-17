@@ -6,11 +6,62 @@ import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { projectReviewDiagnostics } from '../../src/application/review-diagnostics-inspect.ts';
+import type { ReviewSummaryInspectView } from '../../src/application/review-summary-inspect.ts';
+import { formatReviewSummary } from '../../src/entry/cli/review-summary-inspect.ts';
 import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+const baseView: ReviewSummaryInspectView = {
+  formatVersion: '2',
+  chain: {
+    status: 'failed',
+    stageCount: 4,
+    passedStageCount: 2,
+    attentionStageCount: 1,
+    failedStageCount: 1,
+    stages: [
+      { id: 'verification', status: 'passed' },
+      { id: 'coverage', status: 'attention' },
+      { id: 'artifacts', status: 'failed' },
+      { id: 'review', status: 'passed' }
+    ]
+  },
+  ci: { status: 'failed', failureCount: 2, regressionRiskCount: 1, conflictHintCount: 0 },
+  impact: { blockCount: 2, runtimeEntryCount: 3, changeSourceCount: 4, installImpactCount: 1 },
+  coverage: null,
+  provenance: {
+    artifactCount: 3,
+    registryArtifactCount: 1,
+    generatedArtifactCount: 2,
+    unverifiedArtifactCount: 1
+  },
+  artifacts: {
+    artifactStatus: 'missing',
+    artifactCount: 0,
+    missingCount: 0,
+    missingReasonTypeCount: 0,
+    contractCount: 0,
+    uploadGroupCount: 0
+  }
+};
+
 test('CLI exposes review summary as text and JSON contracts', async () => {
+  // Preserve the two independent fixed-oracle cases alongside the populated
+  // CLI text/JSON contract on the same fast lane.
+  expect(formatReviewSummary(baseView).split('\n')).toContain('Coverage missing; blocks=missing');
+  const targetOnlyUpgrade = {
+    status: 'blocked',
+    blockId: 'ticket.basic',
+    toVersion: '0.3.0',
+    migrationCount: 1,
+    impactCount: 2,
+    requiresVerification: true
+  };
+  expect(formatReviewSummary({ ...baseView, upgrade: targetOnlyUpgrade }).split('\n')).toContain(
+    'Upgrade blocked; ticket.basic target 0.3.0; migrations=1; impacts=2; requiresVerification=true'
+  );
+
   await withTempWorkspace(async (workspaceRoot) => {
     const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
     await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
