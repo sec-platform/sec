@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { configuredManagedHooksPath, git, installGitHooks, tryCreateLink, withRepository } from './fixtures/install-git-hooks.ts';
+import { configuredManagedHooksPath, git, installGitHooks, withRepository } from './fixtures/install-git-hooks.ts';
 test('hook installer rejects a symlinked managed generation root without replacing it', async () => {
   await withRepository(async (repoRoot) => {
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
@@ -10,11 +10,11 @@ test('hook installer rejects a symlinked managed generation root without replaci
     const foreignGeneration = path.join(repoRoot, 'foreign-generation');
     await mkdir(foreignGeneration);
     await rm(previousGeneration, { recursive: true, force: true });
-    if (!await tryCreateLink(
+    await symlink(
       foreignGeneration,
       previousGeneration,
       process.platform === 'win32' ? 'junction' : 'dir'
-    )) return;
+    );
 
     expect(await installGitHooks({ repoRoot, lifecycle: true }))
       .toMatchObject({ status: 'conflict' });
@@ -31,7 +31,7 @@ test('hook installer rejects a symlinked managed hook without replacing it', asy
     const foreignHook = path.join(repoRoot, 'foreign-pre-commit');
     await writeFile(foreignHook, '#!/usr/bin/env sh\nexit 42\n', 'utf8');
     await rm(occupiedHook, { force: true });
-    if (!await tryCreateLink(foreignHook, occupiedHook, 'file')) return;
+    await symlink(foreignHook, occupiedHook, 'file');
 
     expect(await installGitHooks({ repoRoot, lifecycle: true }))
       .toMatchObject({ status: 'conflict' });
@@ -46,11 +46,10 @@ test('hook installer rejects repository and common-Git ancestor links before any
   try {
     await withRepository(async (repoRoot) => {
       alias = `${repoRoot}-ancestor-alias`;
-      if (await tryCreateLink(repoRoot, alias, process.platform === 'win32' ? 'junction' : 'dir')) {
-        expect(await installGitHooks({ repoRoot: alias, lifecycle: true }))
-          .toMatchObject({ status: 'conflict' });
-        expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
-      }
+      await symlink(repoRoot, alias, process.platform === 'win32' ? 'junction' : 'dir');
+      expect(await installGitHooks({ repoRoot: alias, lifecycle: true }))
+        .toMatchObject({ status: 'conflict' });
+      expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
 
       expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
       const commonGitDir = path.resolve(git(repoRoot, [
@@ -58,13 +57,15 @@ test('hook installer rejects repository and common-Git ancestor links before any
       ]));
       const retainedCommonDir = path.join(repoRoot, '.git-retained-for-link-test');
       await rename(commonGitDir, retainedCommonDir);
-      if (!await tryCreateLink(
-        retainedCommonDir,
-        commonGitDir,
-        process.platform === 'win32' ? 'junction' : 'dir'
-      )) {
+      try {
+        await symlink(
+          retainedCommonDir,
+          commonGitDir,
+          process.platform === 'win32' ? 'junction' : 'dir'
+        );
+      } catch (error) {
         await rename(retainedCommonDir, commonGitDir);
-        return;
+        throw error;
       }
       expect(await installGitHooks({ repoRoot, lifecycle: true }))
         .toMatchObject({ status: 'conflict' });

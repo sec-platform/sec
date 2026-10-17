@@ -144,8 +144,7 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
   }
 });
 
-test('candidate snapshot retained capability rejects ancestor substitution without writing foreign bytes', async () => {
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('candidate snapshot retained capability rejects ancestor substitution without writing foreign bytes', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-snapshot-fence-'));
   const fixturePath = path.join(repoRoot, 'fixture.ts');
   const lifecycle = generatedStateProducerHooks({ repositoryRoot: repoRoot });

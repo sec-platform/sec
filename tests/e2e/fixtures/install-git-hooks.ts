@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHostGitReadSessionForTests, type GitReadSessionResolution } from '../../../src/adapters/providers/git-read/test/session.ts';
@@ -241,17 +241,3 @@ export async function withCanonicalRemoteRepository(
   }
 }
 
-export async function tryCreateLink(
-  target: string,
-  linkPath: string,
-  type: 'file' | 'dir' | 'junction'
-): Promise<boolean> {
-  try {
-    await symlink(target, linkPath, type);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (process.platform === 'win32' && ['EACCES', 'EPERM', 'ENOTSUP'].includes(code ?? '')) return false;
-    throw error;
-  }
-}

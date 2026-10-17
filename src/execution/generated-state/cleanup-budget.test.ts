@@ -1,11 +1,12 @@
-import { expect, test } from 'bun:test';
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 import {
   consumeGeneratedStateCleanupObservation, createGeneratedStateCleanupOperationSession,
   GeneratedStateCleanupOperationExhaustedError, generatedStateCleanupOperationState
 } from './cleanup-budget.ts';
 
-for (const mode of ['before-clock', 'during-clock', 'expired', 'live'] as const) {
-  test(`cleanup admission ${mode} keeps rejected observation counters unchanged`, () => {
+test('cleanup admission preserves every deadline and abort-state observation', () => {
+  for (const mode of ['before-clock', 'during-clock', 'expired', 'live'] as const) {
     const controller = new AbortController();
     let clockCalls = 0;
     if (mode === 'before-clock') controller.abort();
@@ -18,12 +19,15 @@ for (const mode of ['before-clock', 'during-clock', 'expired', 'live'] as const)
     const state = generatedStateCleanupOperationState(session)!;
     if (mode === 'live') {
       consumeGeneratedStateCleanupObservation(state, 1, 7);
-      expect([state.observedEntries, state.observedBytes]).toEqual([1, 7]);
+      assert.deepEqual([state.observedEntries, state.observedBytes], [1, 7], mode);
     } else {
-      expect(() => consumeGeneratedStateCleanupObservation(state, 1, 7))
-        .toThrow(GeneratedStateCleanupOperationExhaustedError);
-      expect([state.observedEntries, state.observedBytes]).toEqual([0, 0]);
+      assert.throws(
+        () => consumeGeneratedStateCleanupObservation(state, 1, 7),
+        GeneratedStateCleanupOperationExhaustedError,
+        mode
+      );
+      assert.deepEqual([state.observedEntries, state.observedBytes], [0, 0], mode);
     }
-    expect(clockCalls).toBe(mode === 'before-clock' ? 0 : 1);
-  });
-}
+    assert.equal(clockCalls, mode === 'before-clock' ? 0 : 1, mode);
+  }
+});

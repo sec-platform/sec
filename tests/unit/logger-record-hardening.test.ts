@@ -43,7 +43,7 @@ test('prototype-looking metadata stays data on a frozen null-prototype record', 
 });
 
 test('every externally callable log-level boundary rejects values outside its exact domain', () => {
-  for (const value of ['', 'INFO', 'toString', '__proto__', 'verbose', null, 1, {}, []]) {
+  for (const value of ['', 'INFO', ' INFO ', 'toString', '__proto__', 'verbose', null, 1, {}, []]) {
     // Deliberately emulate untyped JavaScript at each typed public boundary.
     const untyped = value as LogLevel;
     assert.throws(() => resolveLogLevel(undefined, untyped), invalidLevel);
@@ -53,7 +53,9 @@ test('every externally callable log-level boundary rejects values outside its ex
 });
 
 test('canonical levels and defaults retain existing meanings', () => {
+  assert.deepEqual(LOG_LEVELS, ['debug', 'info', 'warn', 'error']);
   assert.equal(resolveLogLevel(undefined), 'info');
+  assert.equal(resolveLogLevel(undefined, 'warn'), 'warn');
   assert.equal(resolveLogLevel(undefined, 'debug'), 'debug');
   for (const [index, level] of LOG_LEVELS.entries()) {
     assert.equal(resolveLogLevel(level), level);
@@ -69,6 +71,8 @@ test('exported log-level vocabulary cannot drift after its lookup set is built',
 });
 
 test('log records preserve primitive metadata and reject invalid timestamps', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(buildJsonLogRecord('info', 'value', ['a'], 1))),
+    { data: ['a'], level: 20, time: 1, msg: 'value' });
   for (const value of [null, 0, false, '', [1, 2]]) {
     assert.deepEqual(buildJsonLogRecord('info', 'x', value, 0).data, value);
   }

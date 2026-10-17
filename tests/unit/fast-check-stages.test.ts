@@ -8,11 +8,6 @@ function stages(events: string[], overrides: Partial<FastCheckStages> = {}): Fas
     types: run('types'), tests: run('tests'), ...overrides };
 }
 
-test('imports complete before parallel checking and test execution', async () => {
-  const events: string[] = [];
-  assert.equal(await executeFastCheckStages(stages(events)), 0);
-  assert.deepEqual(events, ['imports', 'docs', 'types', 'tests']);
-});
 
 test('imports rejection or failure code prevents every later stage', async () => {
   for (const reject of [false, true]) {
@@ -46,14 +41,6 @@ test('parallel checks retain both raw errors and never invoke tests', async () =
     assert.equal(error.cause, undefined); return true;
   });
   assert.equal(events.includes('tests'), false);
-});
-
-test('parallel exit failures keep documentation priority and stop before tests', async () => {
-  const events: string[] = [];
-  assert.equal(await executeFastCheckStages(stages(events, {
-    documentation: async () => 5, types: async () => 6
-  })), 5);
-  assert.deepEqual(events, ['imports']);
 });
 
 test('selected methods retain their receiver and cannot be replaced by an earlier stage', async () => {

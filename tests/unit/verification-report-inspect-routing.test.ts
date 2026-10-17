@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { formatVerificationReport } from '../../src/entry/cli/verification-report-inspect.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -36,6 +37,12 @@ test('verification inspection renders report text while preserving raw JSON', as
       },
       logs: { stdout: 'all-out', stderr: 'all-err' }
     };
+    // The same independently checked CLI output already covers the formatter's
+    // fixed text. Preserve the direct pure-renderer non-mutation observation.
+    const beforeRender = structuredClone(report);
+    formatVerificationReport(report);
+    expect(report).toEqual(beforeRender);
+
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
     await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
