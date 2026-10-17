@@ -386,7 +386,7 @@ flowchart TB
 
 **A8 更新结果与撤销入口。** 用实际已作用范围刷新命中/装饰；未作用项保留。用户发起普通 Undo 时，沿宿主真实撤销能力、版本与历史；这不是任意历史时刻的安全补偿。已经被其他程序读取的内容不能被“撤销”抹去其历史观察。
 
-**A9 释放与后续。** 清理仅属于本尝试的引用和临时预览；尚未停止或结果未知的作用仍由原 operation 拥有。允许的继续动作包括重新预览未应用资源、仅重试确实未保存的指定后像、查询未知结果或按守卫补偿。不得直接再次调用整份 replace 来“重试保存”。
+**A9 释放与后续。** 清理仅属于本尝试的引用和临时预览；尚未停止或结果未知的作用仍由原 operation 拥有。允许的继续动作包括重新预览未应用资源、仅重试确实未保存的指定后像、查询未知结果或按守卫补偿。不得直接再次调用整份 replace 来“重试保存”。 原尝试可能仍在途时，继续或重试须消费[共同恢复判据](../../docs/运行/持久化提交与恢复.md#attempt-finality-and-retry)，不以同字节反推历史作用。
 
 ### 7.3 分项状态与 B/A/X 恢复
 
@@ -562,9 +562,9 @@ flowchart TB
  C --> D
  D --> E
  E --> F
- F --> G
+ F -->|本次要求检查| G
  F -. "明确请求并准入" .-> H
- H --> I
+ H -->|实际请求运行且已获准| I
  F --> J
  J -->|核当前基础与对应| C
 ```
@@ -667,7 +667,3 @@ F0—F3 可以首先沿原生 TS 深维护闭合，F4 负责同时证明既定�
 [s9]: https://github.com/microsoft/vscode/blob/3e078a39dc95d262123da38f916225a126fb1ccf/src/vs/workbench/contrib/search/browser/searchTreeModel/textSearchHeading.ts#L1-L215
 
 [s10]: https://github.com/microsoft/vscode/blob/3e078a39dc95d262123da38f916225a126fb1ccf/src/vs/workbench/contrib/search/browser/searchActionsRemoveReplace.ts
-
-### 恢复图的观察范围与共享协议
-
-恢复图中的StoredObserved只表示该任务请求的存储观察，不能从相同字节反推唯一历史。Unknown中的原尝试可能仍在途时，沿[共同恢复判据](../../docs/运行/持久化提交与恢复.md#attempt-finality-and-retry)查回或等待；取得AppliedUnsaved也不自动授予新保存。引用失效取消发布资格，释放仍须等实际最后使用。这是上文状态与步骤的交叉核对，不新增Code-OSS专用恢复协议。
