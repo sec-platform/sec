@@ -42,20 +42,8 @@ The architecture uses ten implementation responsibilities:
 | `entry` | protocols, encoding, negotiated behavior, result presentation | side-channel persistence or authority |
 | `bootstrap` | constructing an instance, injecting implementations, closing created resources | a runtime-global service locator |
 
-These responsibilities collaborate without collapsing their state:
+The [canonical assembly graph](docs/架构/协作与状态边界.md#fig-whole-system-assembly) connects these responsibilities. The [physical module contract](docs/架构/装配/模块与运行实例.md) owns static dependencies and instance lifetimes; a collaboration arrow does not redefine either.
 
-```text
-entry → application → workspace
-             │          │
-             ├──────→ compiler ← semantics
-             │             │
-             ├──────→ assurance
-             │
-             └──────→ execution → adapters
-
-contracts define shared boundary values;
-bootstrap constructs the selected implementation graph.
-```
 
 ## Two input paths, one downstream model
 
