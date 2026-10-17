@@ -470,6 +470,8 @@ test('CLI exposes project overview as compact JSON contract', async () => {
     navigation: { machineArtifacts: Array<{ id: string; path?: string }> };
   }>(workspaceRoot, ['overview', '--json', '--compact'], { formatVersion: '1' }, { compact: true });
 
-  expect(payload.navigation.machineArtifacts[0]?.id).toBe('graph');
-  expect(payload.navigation.machineArtifacts).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'verification' })]));
+  expect(payload.navigation.machineArtifacts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'graph' }),
+    expect.objectContaining({ id: 'verification' })
+  ]));
 }, 120000);

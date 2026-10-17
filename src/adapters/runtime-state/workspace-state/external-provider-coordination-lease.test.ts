@@ -15,7 +15,6 @@ import {
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../physical/runtime/physical-no-follow.ts';
 import {
-  ExternalProviderCoordinationLeaseError,
   assertExternalProviderCoordinationLease,
   externalProviderCoordinationLeaseName,
   issueExternalProviderCoordinationLeaseTestIssuerForTests,
@@ -106,7 +105,7 @@ test.skipIf(process.platform !== 'win32')(
       expect(first).toBe('settled');
       let successorCoordinationDigest: `sha256:${string}` | null = null;
       const successor = await withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
-        coordination: coordination(providerOperation({ providerEpochDigest: digest('e') })),
+        coordination: coordination({ ...providerOperation({ providerEpochDigest: digest('e') }) }),
         issuer: testIssuer,
         root,
         operation: async (lease) => {
@@ -173,14 +172,8 @@ test.skipIf(process.platform !== 'win32')(
           return 'must-not-settle';
         }
       });
-      if (process.platform === 'win32') {
-        expect(await replacementAttempt).toBe('replacement-prevented');
-        expect(replacementPrevented).toBe(true);
-      } else {
-        await expect(replacementAttempt).rejects.toBeInstanceOf(
-          ExternalProviderCoordinationLeaseError
-        );
-      }
+      expect(await replacementAttempt).toBe('replacement-prevented');
+      expect(replacementPrevented).toBe(true);
     } finally {
       rmSync(replacementRootPath, { recursive: true, force: true });
       rmSync(displacedRootPath, { recursive: true, force: true });
@@ -228,27 +221,6 @@ test.skipIf(process.platform !== 'win32')(
         cause: expect.any(AggregateError)
       });
       expect(operationCalled).toBe(false);
-    } finally {
-      rmSync(rootPath, { recursive: true, force: true });
-    }
-  }
-);
-
-test.skipIf(process.platform !== 'win32')(
-  'external-provider coordination accepts a canonical copied semantic projection',
-  async () => {
-    const rootPath = mkdtempSync(path.join(tmpdir(), 'sec-provider-projection-'));
-    try {
-      const root = inspectNoFollowDirectoryChain(rootPath, 'test projection coordination owner');
-      const projectedOperation = {
-        ...providerOperation()
-      } as BoundSemanticOperation;
-      await expect(withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
-        coordination: coordination(projectedOperation),
-        issuer: testIssuer,
-        root,
-        operation: async () => 'projection-accepted'
-      })).resolves.toBe('projection-accepted');
     } finally {
       rmSync(rootPath, { recursive: true, force: true });
     }

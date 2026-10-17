@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../testkit/workspace-cleanup.ts';
 
 import {
   hardenExistingWindowsHostDirectoryAuthority,
@@ -92,7 +93,7 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows host directory authority revalidates exact owner, ACL and directory identity',
+  'Windows host directory authority rejects a changed ACL digest',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-authority-'));
     const authorityRoot = path.join(root, 'local-app-data');
@@ -109,9 +110,9 @@ test.skipIf(process.platform !== 'win32')(
       expect(authority.rootPath).toBe(path.resolve(authorityRoot));
       await authority.assertCurrent();
       aclDigest = `sha256:${'b'.repeat(64)}`;
-      await expect(authority.assertCurrent()).rejects.toThrow(
-        'Windows host directory authority changed'
-      );
+      await expect(authority.assertCurrent()).rejects.toMatchObject({
+        failure: 'physical-identity-changed'
+      });
       expect(await readdir(authorityRoot)).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -330,13 +331,14 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows native host authority hardens and revalidates ACL without a shell provider',
+  'Windows native host authority revalidates through directory writes and rejects use after release',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-native-authority-'));
     const authorityRoot = path.join(root, 'state');
-    await mkdir(authorityRoot);
-    try {
-      const authority = await hardenExistingWindowsHostDirectoryAuthority(
+    let authority: Awaited<ReturnType<typeof hardenExistingWindowsHostDirectoryAuthority>> | undefined;
+    await settleWorkspaceCallback(async () => {
+      await mkdir(authorityRoot);
+      authority = await hardenExistingWindowsHostDirectoryAuthority(
         authorityRoot,
         { knownNew: true }
       );
@@ -352,9 +354,10 @@ test.skipIf(process.platform !== 'win32')(
       await expect(authority.assertCurrent()).rejects.toMatchObject({
         failure: 'session-closed'
       });
-    } finally {
+    }, async () => {
+      await authority?.release();
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 
@@ -367,18 +370,24 @@ test.skipIf(process.platform !== 'win32')(
     const authorities: Array<Awaited<ReturnType<
       typeof hardenExistingWindowsHostDirectoryAuthority
     >>> = [];
-    try {
-      authorities.push(...await Promise.all(Array.from({ length: 8 }, async () =>
-        hardenExistingWindowsHostDirectoryAuthority(authorityRoot, { knownNew: true })
-      )));
-      await Promise.all(authorities.map(async (authority) => authority.assertCurrent()));
+    const acquisitions = Array.from({ length: 8 }, async () => {
+      const authority = await hardenExistingWindowsHostDirectoryAuthority(authorityRoot, { knownNew: true });
+      authorities.push(authority);
+    });
+    let observations: Promise<void>[] = [];
+    await settleWorkspaceCallback(async () => {
+      await Promise.all(acquisitions);
+      observations = authorities.map(authority => authority.assertCurrent());
+      await Promise.all(observations);
       expect(new Set(authorities.map((authority) => authority.rootPath))).toEqual(
         new Set([path.resolve(authorityRoot)])
       );
-    } finally {
-      await Promise.allSettled(authorities.map(async (authority) => authority.release()));
+    }, async () => {
+      await Promise.allSettled(acquisitions);
+      await Promise.allSettled(observations);
+      await settleWorkspaceCleanups(authorities.map(authority => () => authority.release()));
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }
 );
 

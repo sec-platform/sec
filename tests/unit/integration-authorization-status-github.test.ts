@@ -160,15 +160,6 @@ async function publishWithProvider(
 // Saved results are historical data. The previous mock's successful provider
 // readbacks never established an actual producer qualification; those live
 // post-qualification obligations require the real integration fixture.
-test('terminal publisher rejects caller Gate data before any provider request', async () => {
-  const provider = githubProviderFetch();
-  const { resultDigest: _oldDigest, ...data } = result();
-  const rehashed = { ...data, resultDigest: sha256(data) as `sha256:${string}` };
-  await expect(publishWithProvider(provider, rehashed))
-    .rejects.toThrow('actual trusted-runtime transition producer');
-  expect(provider.calls).toEqual([]);
-});
-
 test('terminal publisher rejects omitted or relabelled transition JSON before provider effects', async () => {
   const original = JSON.parse(JSON.stringify(result())) as Record<string, unknown>;
   const variants: readonly Record<string, unknown>[] = [

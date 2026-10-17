@@ -45,17 +45,20 @@ function parse(value: unknown) { return parseVerificationSessionLocalPreparation
 
 test('V2 source preparation round-trips into an immutable detached input, including unresolved native content', () => {
   const input = body();
+  const originalInput = structuredClone(input);
   const value: VerificationSessionLocalPreparation = createVerificationSessionLocalPreparationRequestV2(input);
   expect(value.schema).toBe(CI_VERIFICATION_SESSION_LOCAL_PREPARATION_V2_SCHEMA);
   expect(parse(value)).toEqual(value);
   expect(value.request.qualificationRequirements.nativeContentManifestDigest).toBeNull();
-  expect(value.request).not.toBe(input);
-  expect(value.request.authorizedPaths).not.toBe(input.authorizedPaths);
   expect(Object.isFrozen(value)).toBe(true);
   expect(Object.isFrozen(value.request)).toBe(true);
   expect(Object.isFrozen(value.request.authorizedPaths)).toBe(true);
   expect(Object.isFrozen(value.request.qualificationRequirements)).toBe(true);
   expect(Object.isFrozen(input)).toBe(false);
+  Object.assign(input, { profile: 'full' });
+  Object.assign(input.qualificationRequirements, { nativeProfileDigest: DIGEST_B });
+  (input.authorizedPaths as string[])[0] = 'src/retargeted.ts';
+  expect(value.request).toMatchObject(originalInput);
   expect(() => assertVerificationSessionLocalPreparationV2Current(value, parse(value))).not.toThrow();
   const completeInput = body();
   expect(createVerificationSessionLocalPreparationRequestV2({ ...completeInput, profile: 'full',
@@ -182,7 +185,7 @@ test('V2 rejects malformed scalar pins, unsupported fast profile, and unbounded 
     { verificationPlanDigest: `sha256:${'A'.repeat(64)}` }, { sourceProgramBindingDigest: null },
     { profile: 'fast' }, { profile: 'FULL' }, { actorNodeId: '' },
     { actorNodeId: 'x'.repeat(257) }, { actorNodeId: 'USER other' }, { actorNodeId: 'USER\u0000other' }
-  ]) expect(() => parse({ ...value, request: { ...value.request, ...change } })).toThrow();
+  ]) expect(() => parse({ ...value, request: { ...value.request, ...change } })).toThrow(Object.keys(change)[0]!);
   for (const change of [
     { nativeProfileDigest: null }, { nativeContentManifestDigest: '' }, { mainHealthMethodDigest: 'bad' },
     { mainHealthPolicyDigest: 'bad' }, { reviewPolicyDigest: 'bad' },
@@ -190,7 +193,7 @@ test('V2 rejects malformed scalar pins, unsupported fast profile, and unbounded 
     { verificationContractRevision: '' }, { verificationContractRevision: 'x'.repeat(257) },
     { verificationContractRevision: 'revision\nnext' }, { verificationContractRevision: ' revision' }
   ]) expect(() => parse({ ...value, request: { ...value.request,
-    qualificationRequirements: { ...value.request.qualificationRequirements, ...change } } })).toThrow();
+    qualificationRequirements: { ...value.request.qualificationRequirements, ...change } } })).toThrow(Object.keys(change)[0]!);
 });
 
 test('V2 rejects traversal, noncanonical spelling, unsorted paths and duplicate scope entries', () => {

@@ -53,7 +53,6 @@ test('workspace owner issues one live capability bound to its exact staging root
         stagingRoot,
         authorityBindingDigest: lease.token.workspaceIdentityDigest
       });
-      expect(Object.keys(capability)).toEqual([]);
     } finally {
       await lease.release();
     }
@@ -73,7 +72,7 @@ test('plain objects and foreign staging roots cannot substitute a capability', a
         ...operationDeadline(10_000)
       });
       await expect(assertWindowsAppContainerExecutionCapability(
-        {} as never,
+        { ...capability },
         stagingRoot
       )).rejects.toBeInstanceOf(WindowsAppContainerExecutionCapabilityError);
       await expect(assertWindowsAppContainerExecutionCapability(

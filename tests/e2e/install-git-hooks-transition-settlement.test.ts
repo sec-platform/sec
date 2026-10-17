@@ -77,7 +77,7 @@ test('managed fast-path recovery acknowledges a dead operation owner only after 
     })).toMatchObject({ status: 'conflict' });
     const transitionNames = await configTransitionNames(repoRoot);
     expect(transitionNames).toHaveLength(1);
-    await expect(lstat(leasePath)).rejects.toThrow();
+    await expect(lstat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' });
 
     const abandoned = acquirePhysicalMutationLease(managedRootIdentity, leaseName, {
       ownerPid: deadPid
@@ -99,6 +99,6 @@ test('managed fast-path recovery acknowledges a dead operation owner only after 
     await rm(unexpectedTransitionFile);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);
-    await expect(lstat(leasePath)).rejects.toThrow();
+    await expect(lstat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

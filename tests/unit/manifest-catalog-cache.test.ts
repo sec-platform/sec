@@ -94,6 +94,14 @@ test('a repeated catalog read reuses parsed validation but keeps independent mut
   assert.deepEqual(next[0]!.manifest.provides, ['block/a']);
   assert.deepEqual(next[0]!.resourceRoots, [written.folder]);
   assert.deepEqual((await loadAllManifests(f.options))[0], next[0]);
+  const beforeClear = parses();
+  manifestCache.clearWorkspace(f.root);
+  const refreshed = await loadAllManifests(f.options);
+  assert.equal(parses(), beforeClear + 1);
+  assert.equal(refreshed[0]!.manifest.id, 'block/a');
+  assert.equal(refreshed[0]!.manifest.version, '1.0.0');
+  assert.deepEqual(refreshed[0]!.manifest.provides, ['block/a']);
+  assert.deepEqual(refreshed[0]!.resourceRoots, [written.folder]);
 }));
 
 test('explicit unversioned lookup and catalog lookup share one parse record', () => using(async (f, parses) => {
@@ -150,11 +158,6 @@ test('version overlays never prime or replace the root manifest observation', ()
   const before = parses(), catalog = await loadAllManifests(f.options);
   assert.equal(parses(), before + 1); assert.equal(catalog[0]!.manifest.version, '1.0.0');
   assert.deepEqual(catalog[0]!.manifest.provides, ['block/a']);
-}));
-
-test('clearing a workspace forces source and logical lookups to reobserve the cache', () => using(async (f, parses) => {
-  f.write(); await loadAllManifests(f.options); const before = parses();
-  manifestCache.clearWorkspace(f.root); await loadAllManifests(f.options); assert.equal(parses(), before + 1);
 }));
 
 test('path binding never infers a block identity from an invalid directory spelling', () => using(async f => {

@@ -507,27 +507,6 @@ describe('closed-unmerged branch lifecycle operation', () => {
     );
   });
 
-  test('closed-superseded deletes only exact refs from an already closed PR', async () => {
-    const closeout = operation();
-    const harness = providerHarness(inventory());
-    const result = await executeClosedUnmergedCloseoutOperation({
-      operation: closeout,
-      provider: harness.provider
-    });
-
-    expect(result.status).toBe('completed');
-    expect(harness.counters).toEqual({
-      deleteRemoteRef: 1,
-      deleteLocalRef: 0,
-      pruneRemote: 1
-    });
-    if (result.status === 'completed') {
-      expect(result.receipt.branch).toBe(BRANCH);
-      expect(result.receipt.pullRequest).toBe(PR_NUMBER);
-      expect(result.receipt.disposition).toBe('closed-superseded');
-    }
-  });
-
   test('structurally plausible supersession evidence is rejected without owner issuance', () => {
     expect(() => fakeSupersededEvidence()).toThrow(
       'Supersession evidence requires authenticated owner observation.'
@@ -788,6 +767,16 @@ describe('closed-unmerged branch lifecycle operation', () => {
       operation: closeout, provider: completedHarness.provider
     });
     expect(completed.status).toBe('completed');
+    expect(completedHarness.counters).toEqual({
+      deleteRemoteRef: 1,
+      deleteLocalRef: 0,
+      pruneRemote: 1
+    });
+    if (completed.status === 'completed') {
+      expect(completed.receipt.branch).toBe(BRANCH);
+      expect(completed.receipt.pullRequest).toBe(PR_NUMBER);
+      expect(completed.receipt.disposition).toBe('closed-superseded');
+    }
     const current = terminalInventory();
     const advancedMain = '9'.repeat(40);
     current.main = { localSha: advancedMain, remoteSha: advancedMain };

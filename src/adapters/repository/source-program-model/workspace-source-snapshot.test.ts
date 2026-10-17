@@ -531,8 +531,8 @@ test('immutable execution generation isolates workspace mutation and retires its
         await writeFile(path.join(repositoryRoot, 'src', 'example', 'value.ts'), 'export const value = 9;\n');
         expect(await readFile(path.join(generationRoot, 'src', 'example', 'value.ts'), 'utf8'))
           .toBe("import 'commander'; export const value = 1;\n");
-        expect(await lstat(path.join(generationRoot, 'src', 'example', 'non-checker.yaml'))
-          .then(() => true, () => false)).toBe(false);
+        await expect(lstat(path.join(generationRoot, 'src', 'example', 'non-checker.yaml')))
+          .rejects.toMatchObject({ code: 'ENOENT' });
         await expect(writeFile(
           path.join(generationRoot, 'src', 'example', 'value.ts'),
           'export const value = 7;\n'
@@ -551,12 +551,12 @@ test('immutable execution generation isolates workspace mutation and retires its
         await generation.assertCurrent();
       } finally {
         await expect(generation.retire()).rejects.toThrow('preserved physical residue');
-        expect(await lstat(generationRoot).then(() => true, () => false)).toBe(false);
+        await expect(lstat(generationRoot)).rejects.toMatchObject({ code: 'ENOENT' });
         const receipt = await generation.retire();
-        expect(await generation.retire()).toBe(receipt);
+        expect(await generation.retire()).toEqual(receipt);
         expect(dependencyRetirementAttempts).toBe(2);
       }
-      expect(await lstat(generationRoot).then(() => true, () => false)).toBe(false);
+      await expect(lstat(generationRoot)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(generation.assertCurrent()).rejects.toThrow('retired');
 
       const generationParentBeforeForeignLocator = await readdir(generationParentPath);

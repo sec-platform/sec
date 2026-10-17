@@ -221,7 +221,6 @@ test.serial.skipIf(process.platform !== 'win32')('Windows AppContainer sentinel 
     const capability = redactWindowsAppContainerProbeCapabilityForTests(detailedCapability);
     expect(detailedCapability).toEqual({ status: 'available' });
     expect(capability).toEqual({ status: 'available' });
-    expect(Object.keys(capability)).toEqual(['status']);
     expect(await exists(path.join(
       stagingRoot,
       '.sm3p'
@@ -402,7 +401,6 @@ test.serial.skipIf(process.platform !== 'win32')('Windows AppContainer canonical
     const profilesBefore = readSemanticMutationAppContainerProfiles(regPath);
 
     const capability = windowsAppContainerCapability();
-    expect(Object.keys(capability)).toEqual(['status']);
     expect(capability).toEqual({ status: 'available' });
     let execution: Awaited<ReturnType<typeof runWindowsAppContainerChild>> | undefined;
     let cleanLaunchFailure: WindowsAppContainerExecutionError | undefined;

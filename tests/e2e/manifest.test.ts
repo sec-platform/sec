@@ -39,7 +39,7 @@ test('override-manifest can replace a generated file and surface override proven
 
   await composeWorkspace(workspaceRoot);
   await expect(fs.readFile(customerServicePath, 'utf8'))
-    .resolves.toContain('Manual customer service override active.');
+    .resolves.toBe(customerServiceOverride);
 
   const { report } = await verifyWorkspace(workspaceRoot);
   expect(report.summary.status).toBe('passed');
@@ -108,16 +108,9 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
   await fs.writeFile(ticketServiceOverridePath, ticketServiceOverride, 'utf8');
 
   await composeWorkspace(workspaceRoot);
-  await expect(fs.readFile(ticketServicePath, 'utf8')).resolves.toContain('Manual ticket runtime override active.');
+  await expect(fs.readFile(ticketServicePath, 'utf8')).resolves.toBe(ticketServiceOverride);
 
-  let report: any;
-  try {
-    const res = await verifyWorkspace(workspaceRoot);
-    report = res.report;
-  } catch (e: any) {
-    console.error('VERIFY ERROR DETAILS:', JSON.stringify(e.details ?? e, null, 2));
-    throw e;
-  }
+  const { report } = await verifyWorkspace(workspaceRoot);
   expect(report.summary.status).toBe('passed');
 
   await lockWorkspace(workspaceRoot);

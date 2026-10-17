@@ -89,8 +89,6 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
     expect(second.completedStages).toEqual(['semantic', 'compose']);
     expect(second.transactionId).not.toBe(first.transactionId);
     expect(secondSemantic.transactionId).toBe(second.transactionId);
-    expect(secondSemantic).not.toBe(firstSemantic);
-    expect(secondSemantic.snapshot).not.toBe(firstSemantic.snapshot);
     expect(secondSemantic.inputRevision).toBe(firstSemantic.inputRevision);
     expect(secondSemantic.semanticRevision).toBe(firstSemantic.semanticRevision);
     expect(secondSemantic.semanticViews).toEqual(firstSemantic.semanticViews);

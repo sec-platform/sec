@@ -112,14 +112,6 @@ function transport(): MainAuthorityRulesetGitHubTransport {
   };
 }
 
-test('main authority accepts an explicitly selected non-Actions Integration principal', () => {
-  const receipt = createReceipt();
-  expect(receipt.status).toBe('enforced');
-  expect(receipt.terminalStatusIntegrationId).toBe(EXTERNAL_INTEGRATOR_ID);
-  expect(receipt.authorityRulesetIds).toEqual([AUTHORITY_RULESET_ID]);
-  expect(receipt.principalRulesetIds).toEqual([PRINCIPAL_RULESET_ID]);
-});
-
 test('terminal status and update bypass must both bind the exact selected Integration principal', () => {
   expect(() => createReceipt({ statusIntegrationId: WRONG_INTEGRATOR_ID }))
     .toThrow('exactly one no-bypass authority ruleset');
@@ -134,7 +126,10 @@ test('GitHub ruleset observer passes the explicit provider principal through to 
     expectedIntegrationId: EXTERNAL_INTEGRATOR_ID,
     transport: transport()
   });
+  expect(receipt.status).toBe('enforced');
   expect(receipt.terminalStatusIntegrationId).toBe(EXTERNAL_INTEGRATOR_ID);
+  expect(receipt.authorityRulesetIds).toEqual([AUTHORITY_RULESET_ID]);
+  expect(receipt.principalRulesetIds).toEqual([PRINCIPAL_RULESET_ID]);
 });
 
 test('provider-neutral observer rejects an invalid Integration principal before accepting enforcement', () => {

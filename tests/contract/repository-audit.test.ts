@@ -558,9 +558,11 @@ async function createTempRepo(prefix: string): Promise<{ root: string; headSha: 
   return { root, headSha };
 }
 
-test.serial('exact SHA default-ref resolves without remote-tracking ref', async () => {
+test.serial('explicit exact SHA default-ref overrides env without a remote-tracking ref', async () => {
   const { root, headSha: parentSha } = await createTempRepo('repository-audit-default-ref-sha-');
+  const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
   try {
+    process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = '0'.repeat(40);
     await writeFile(path.join(root, 'SECOND.md'), '# Second\n', 'utf8');
     git(root, ['add', 'SECOND.md']);
     git(root, ['commit', '--quiet', '-m', 'second']);
@@ -573,6 +575,11 @@ test.serial('exact SHA default-ref resolves without remote-tracking ref', async 
     expect(report.revision.defaultRefInput).toBe(parentSha);
     expect(report.unknowns.some((unknown) => unknown.startsWith('default ref unavailable:'))).toBe(false);
   } finally {
+    if (savedEnv === undefined) {
+      delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
+    } else {
+      process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
+    }
     await rm(root, { force: true, recursive: true });
   }
 });
@@ -625,27 +632,6 @@ test.serial('ref default-ref resolves when remote-tracking ref exists', async ()
     expect(report.revision.defaultHead).toBe(headSha);
     expect(report.revision.defaultRefMode).toBe('ref');
     expect(report.unknowns.some((unknown) => unknown.startsWith('default ref unavailable:'))).toBe(false);
-  } finally {
-    if (savedEnv === undefined) {
-      delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-    } else {
-      process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = savedEnv;
-    }
-    await rm(root, { force: true, recursive: true });
-  }
-});
-
-test.serial('CLI --default-ref takes precedence over env', async () => {
-  const { root, headSha } = await createTempRepo('repository-audit-default-ref-cli-');
-  const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
-  try {
-    process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = '0'.repeat(40);
-
-    const report = await auditRepository(root, { defaultRef: headSha });
-
-    expect(report.revision.defaultHead).toBe(headSha);
-    expect(report.revision.defaultRefMode).toBe('exact-sha');
-    expect(report.revision.defaultRef).toBe(headSha);
   } finally {
     if (savedEnv === undefined) {
       delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;

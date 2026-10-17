@@ -75,11 +75,6 @@ function providerCapability(effectKinds: readonly OperationEffectKind[]) {
   }
 }
 
-test('independent provider launch retains root kill-on-close while descendants break away', () => {
-  expect(compileWindowsObservedJobLimitFlags('contained')).toBe(0x0000_2000);
-  expect(compileWindowsObservedJobLimitFlags('independent-provider')).toBe(0x0000_3000);
-});
-
 test('Windows observed Job rejects an unowned descendant disposition', () => {
   expect(() => compileWindowsObservedJobLimitFlags(
     'unowned' as 'contained'
@@ -88,6 +83,9 @@ test('Windows observed Job rejects an unowned descendant disposition', () => {
 
 test('ordinary process callers cannot structurally select provider breakaway', () => {
   expect(windowsObservedJobDescendantDisposition()).toBe('contained');
+  expect(compileWindowsObservedJobLimitFlags(
+    windowsObservedJobDescendantDisposition()
+  )).toBe(0x0000_2000);
   expect(() => windowsObservedJobDescendantDisposition({
     providerPhysicalIdentityDigest: digest('forged-provider')
   })).toThrow('was not issued');

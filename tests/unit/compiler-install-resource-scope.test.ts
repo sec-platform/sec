@@ -92,7 +92,7 @@ test('successful execution with failed settlement is not returned as success', a
   });
 });
 
-test('successful cleanup preserves the exact result and invokes the action once', async () => {
+test('successful cleanup preserves the exact result and releases the executable once', async () => {
   const result = { value: 7 }; let calls = 0;
   assert.equal(await withCompilerInstallResources(async resources => {
     resources.executable(executable(() => { calls++; })); return result;

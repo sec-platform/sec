@@ -60,7 +60,7 @@ test('source input enforces node, text-byte and depth budgets independently', ()
   assert.throws(() => assertAuthorSourceCaptureBudget({ records: Array.from({ length: 100 }, (_, i) => i) },
     { ...budget, maximumNodes: 30 }), { code: 'AUTHOR-SOURCE-RESOURCE-001' });
   assert.throws(() => assertAuthorSourceCaptureBudget({ text: '𝄞'.repeat(100) },
-    { ...budget, maximumTextBytes: 200 }), { code: 'AUTHOR-SOURCE-RESOURCE-001' });
+    { ...budget, maximumTextBytes: 300 }), { code: 'AUTHOR-SOURCE-RESOURCE-001' });
   const deep: { next?: unknown } = {};
   let cursor = deep;
   for (let i = 0; i < 32; i++) {

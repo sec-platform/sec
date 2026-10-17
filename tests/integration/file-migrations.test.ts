@@ -28,7 +28,8 @@ test('delete directory migrations remove project directories recursively', async
       ]
     );
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'generated', 'reports', 'obsolete', 'daily.json'), 'utf8')).rejects.toThrow();
+    await expect(fs.lstat(path.join(workspaceRoot, 'generated', 'reports', 'obsolete')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   }, 'engineering-compiler-upgrade-delete-directory-apply-');
 });
 

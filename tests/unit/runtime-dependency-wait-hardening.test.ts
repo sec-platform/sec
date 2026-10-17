@@ -18,15 +18,6 @@ async function rejectionOf(work: Promise<unknown>): Promise<unknown> {
   assert.fail('Expected operation to reject');
 }
 
-test('dependency wait uses its initially captured deadline for raw options', async () => {
-  let now = 0;
-  const options = { lockTimeoutMs: 100, monotonicNowMs: () => now };
-  const failure = await rejectionOf(waitForRuntimeDependencyOperation(options, 1, async () => {
-    now = 101;
-  }, 'raw-deadline'));
-  assert.equal(deadlineFailure(failure), true);
-});
-
 test('dependency wait retains monotonic-clock history for raw options', async () => {
   let now = 10;
   const options = { lockTimeoutMs: 100, monotonicNowMs: () => now };

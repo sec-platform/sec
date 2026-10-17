@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../src/adapters/filesystem/files.ts";
-import { formatJsonFile } from "../../src/contracts/json-text.ts";
 import {
   configRewrite,
   jsonArrayAppend,
@@ -27,18 +26,16 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
       ])
     ]);
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      formatJsonFile({
-        feature: {
-          enabled: true,
-          mode: 'strict'
-        },
-        untouched: true,
-        compiler: {
-          upgrade: '0.2'
-        }
-      })
-    );
+    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8'))).toEqual({
+      feature: {
+        enabled: true,
+        mode: 'strict'
+      },
+      untouched: true,
+      compiler: {
+        upgrade: '0.2'
+      }
+    });
   });
 });
 
@@ -69,15 +66,13 @@ test('json-array-append migration appends unique items to nested arrays', async 
       jsonArrayAppend('app.config.json', ['feature', 'owners'], ['platform'])
     ]);
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      formatJsonFile({
-        plugins: ['auth', 'tenant'],
-        feature: {
-          flags: [{ id: 'existing' }, { id: 'new' }],
-          owners: ['platform']
-        }
-      })
-    );
+    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8'))).toEqual({
+      plugins: ['auth', 'tenant'],
+      feature: {
+        flags: [{ id: 'existing' }, { id: 'new' }],
+        owners: ['platform']
+      }
+    });
   });
 });
 
@@ -106,14 +101,12 @@ test('json-array-remove migration removes matching items from nested arrays', as
       jsonArrayRemove('app.config.json', ['feature', 'owners'], ['nobody'])
     ]);
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      formatJsonFile({
-        plugins: ['auth', 'legacy'],
-        feature: {
-          flags: [{ id: 'keep' }]
-        }
-      })
-    );
+    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8'))).toEqual({
+      plugins: ['auth', 'legacy'],
+      feature: {
+        flags: [{ id: 'keep' }]
+      }
+    });
   });
 });
 
@@ -135,7 +128,8 @@ test('json-array-remove migration skips missing JSON targets', async () => {
 
     await apply(['missing.config.json'], [jsonArrayRemove('missing.config.json', ['plugins'], ['auth'])]);
 
-    await expect(fs.access(path.join(workspaceRoot, 'missing.config.json'))).rejects.toThrow();
+    await expect(fs.lstat(path.join(workspaceRoot, 'missing.config.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
@@ -152,21 +146,19 @@ test('json-object-merge migration recursively merges nested objects', async () =
       })
     ]);
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      formatJsonFile({
-        feature: {
-          auth: {
-            enabled: true,
-            mode: 'basic',
-            strategy: 'session'
-          },
-          keep: true,
-          audit: {
-            enabled: true
-          }
+    expect(JSON.parse(await fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8'))).toEqual({
+      feature: {
+        auth: {
+          enabled: true,
+          mode: 'basic',
+          strategy: 'session'
+        },
+        keep: true,
+        audit: {
+          enabled: true
         }
-      })
-    );
+      }
+    });
   });
 });
 

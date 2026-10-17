@@ -274,33 +274,6 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
   }
 }, 180_000);
 
-test('V6 branch preparation is recovery-only and leaves exact local/remote refs intact', () => {
-  const fixture = repositoryFixture();
-  const restorePath = installGitHubObservationShim(fixture);
-  try {
-    const scope = {
-      repositoryRoot: fixture.repository,
-      repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main',
-      activeWorkPackageObservation: activeWorkObservation(fixture),
-      recoveryRoot: path.join(fixture.root, 'recovery')
-    };
-    const prepared = prepareBranchCloseout(scope, {
-      branch: fixture.branch,
-      expectedHeadSha: fixture.headSha
-    });
-    expect(prepared.preparation.expectedHeadSha).toBe(fixture.headSha);
-    expect(existsSync(preparationFilePath(prepared.preparation))).toBe(true);
-    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
-      .toBe(fixture.headSha);
-    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
-      .toContain(fixture.headSha);
-  } finally {
-    restorePath();
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-}, 180_000);
-
 test('remote-absent preparation recovers the exact local branch without mutating either ref', () => {
   const fixture = repositoryFixture();
   git(fixture.repository, ['push', 'origin', '--delete', fixture.branch]);
@@ -361,6 +334,12 @@ test('recovery readback revalidates the exact expected head before a ref effect'
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
     });
+    expect(prepared.preparation.expectedHeadSha).toBe(fixture.headSha);
+    expect(existsSync(preparationFilePath(prepared.preparation))).toBe(true);
+    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
+      .toBe(fixture.headSha);
+    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
+      .toContain(fixture.headSha);
     const recovery = prepared.preparation.recovery;
     if (recovery === null) throw new Error('Expected exact recovery authority.');
 

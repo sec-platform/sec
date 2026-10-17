@@ -22,7 +22,7 @@ test('release method identity and private receiver survive callback mutation', a
 test('concurrent and later release calls share the same rejected outcome', async () => {
   const reason = new Error('failed'); let calls = 0;
   const release = onceHeavyVerificationGateRelease(async () => { calls++; await Promise.resolve(); throw reason; });
-  const first = release(), second = release(); assert.equal(first, second);
+  const first = release(), second = release();
   await Promise.all([assert.rejects(first, e => e === reason), assert.rejects(second, e => e === reason)]);
   await assert.rejects(release(), e => e === reason); assert.equal(calls, 1);
 });

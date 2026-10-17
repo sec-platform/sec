@@ -238,12 +238,13 @@ test('observed command evaluates its final fence only after tree and stream sett
   const child = fakeChild();
   let treeInspected = false;
   let finalFenceCalls = 0;
+  let treeSettledAtFinalFence = false;
   setTimeout(() => closeChild(child), 0);
 
   const outcome = await runObservedCommand('host-tool.exe', [], {
     afterSettlement: async () => {
       finalFenceCalls += 1;
-      expect(treeInspected).toBe(true);
+      treeSettledAtFinalFence = treeInspected;
       throw new Error('retained boundary drifted after settlement');
     },
     cwd: String.raw`C:\Windows\System32`,
@@ -262,6 +263,7 @@ test('observed command evaluates its final fence only after tree and stream sett
   });
 
   expect(finalFenceCalls).toBe(1);
+  expect(treeSettledAtFinalFence).toBe(true);
   expect(outcome).toMatchObject({
     status: 'fence-lost',
     trigger: 'fence-lost',

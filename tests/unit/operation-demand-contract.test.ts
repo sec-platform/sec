@@ -5,21 +5,6 @@ import {
   compileOperationDemandGraph
 } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 
-test('one demand compiler derives terminal transition and no ambient execution capability', () => {
-  const graph = compileOperationDemandGraph({
-    operation: 'work-selection-observe',
-    terminalWorkIds: ['issue-271', 'issue-186']
-  });
-
-  expect(graph.input.terminalWorkIds).toEqual(['issue-186', 'issue-271']);
-  expect(graph.transitionDemands).toEqual(['roadmap-terminal-compaction']);
-  expect(graph.capabilityDemands).toEqual([]);
-  expect(graph.verificationObligations).toEqual([
-    'operation-demand-integrity',
-    'roadmap-terminal-topology'
-  ]);
-});
-
 test('process and verification operations demand materialization while imports demand only the compiler API', () => {
   const processIsolatedOperations = new Set([
     'test-direct-ambiguous',
@@ -82,6 +67,13 @@ test('demand identity is order-independent and forged ambient demand is rejected
     operation: 'work-selection-observe',
     terminalWorkIds: ['issue-186', 'issue-271']
   });
+  expect(graph.input.terminalWorkIds).toEqual(['issue-186', 'issue-271']);
+  expect(graph.transitionDemands).toEqual(['roadmap-terminal-compaction']);
+  expect(graph.capabilityDemands).toEqual([]);
+  expect(graph.verificationObligations).toEqual([
+    'operation-demand-integrity',
+    'roadmap-terminal-topology'
+  ]);
   expect(reordered).toEqual(graph);
 
   expect(() => assertOperationDemandGraph({

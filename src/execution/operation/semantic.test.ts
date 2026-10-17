@@ -132,17 +132,16 @@ function providerSettlement(
   });
 }
 
-test('caller-compiled attempts and provider bindings remain pure correlation projections', () => {
+test('caller-compiled plan stays provider-neutral while exact bindings remain correlation projections', () => {
   const firstPlan = plan();
   const first = bindSemanticOperation(firstPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('caller-selected-provider')
   })]);
-  const secondPlan = plan();
-  const second = bindSemanticOperation(secondPlan, [compileCapabilityBinding({
+  const second = bindSemanticOperation(firstPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
-    contractDigest: secondPlan.execution.requirements[0]!.contractDigest,
+    contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('different-caller-selected-provider')
   })]);
 
@@ -157,25 +156,6 @@ test('caller-compiled attempts and provider bindings remain pure correlation pro
   });
   expect(() => bindSemanticOperation(firstPlan, [foreignRequirement]))
     .toThrow('not exactly bound');
-});
-
-test('semantic plan remains provider-neutral while exact bindings are replaceable', () => {
-  const operationPlan = plan();
-  const native = compileCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('native-checker')
-  });
-  const remote = compileCapabilityBinding({
-    requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('remote-checker')
-  });
-
-  const nativeOperation = bindSemanticOperation(operationPlan, [native]);
-  const remoteOperation = bindSemanticOperation(operationPlan, [remote]);
-  expect(nativeOperation.plan.identity.identityDigest).toBe(remoteOperation.plan.identity.identityDigest);
-  expect(nativeOperation.bindingSetIdentityDigest).not.toBe(remoteOperation.bindingSetIdentityDigest);
 });
 
 test('operation identity excludes the attempt deadline while the attempt remains deadline-bound', () => {

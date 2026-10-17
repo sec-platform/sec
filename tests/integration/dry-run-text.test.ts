@@ -22,7 +22,7 @@ test('upgrade dry-run records text append migration impacts', async () => {
     }
   });
 
-  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
+  expect(upgradePlan.impacts).toContain('docs/upgrade-notes.md');
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-append': 1
   });
@@ -52,7 +52,7 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
     }
   });
 
-  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
+  expect(upgradePlan.impacts).toContain('docs/upgrade-notes.md');
   expect(upgradePlan.migrationKindCounts).toEqual({
     'text-replace': 1
   });

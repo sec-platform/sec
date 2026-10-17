@@ -39,6 +39,8 @@ test('source use case joins its exact source and independent result before reobs
   const events: string[] = [];
   const outcome = await runSourceProgramTransition(request, control, bindings(events));
   expect(outcome.status).toBe('accepted'); expect(outcome.accepted).toBe('accepted-result');
+  expect(events).toContain('qualified');
+  expect(events).toContain('verification');
   expect(events.indexOf('qualified')).toBeLessThan(events.indexOf('adopt'));
   expect(events.indexOf('verification')).toBeLessThan(events.indexOf('reobserve'));
   expect(events.slice(-2)).toEqual(['reobserve', 'finalize']);

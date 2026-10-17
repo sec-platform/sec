@@ -344,9 +344,9 @@ test('codec-shaped names remain unknown when the compiler cannot prove one gramm
   const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
-  expect(candidates.filter(({ kind }) => kind === 'contract-codec').every(({ evidenceClass }) => (
-    evidenceClass === 'heuristic'
-  ))).toBe(true);
+  const codecCandidates = candidates.filter(({ kind }) => kind === 'contract-codec');
+  expect(codecCandidates.length).toBeGreaterThan(0);
+  expect(codecCandidates.every(({ evidenceClass }) => evidenceClass === 'heuristic')).toBe(true);
   expect(compilation.findings.filter(({ kind }) => kind === 'contract-codec')).toEqual([
     expect.objectContaining({ disposition: 'unknown', removableUnitIds: [] })
   ]);

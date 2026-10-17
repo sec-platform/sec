@@ -1,11 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
+import type { CiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-test('CI contract retains stable gate commands and artifact boundaries', () => {
-  const contract = buildCiContract();
+function expectStableCommandBoundary(contract: CiContract): void {
   const steps = new Map(contract.steps.map((step) => [step.id, step]));
 
   expect(contract).toMatchObject({
@@ -37,11 +36,11 @@ test('CI contract retains stable gate commands and artifact boundaries', () => {
     command: 'bun run sec -- artifacts --paths --json --compact --kind contract',
     produces: ['.sec/artifacts/ci/artifacts.json']
   });
-});
+}
 
 test('CI-contract CLI exposes the stable public boundary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliVariants(workspaceRoot, ['contract', 'ci'], {
+    const results = await expectCliVariants<CiContract, CiContract>(workspaceRoot, ['contract', 'ci'], {
       text: [
         'CI contract active',
         'Command: bun run sec -- contract ci --json',
@@ -57,5 +56,7 @@ test('CI-contract CLI exposes the stable public boundary', async () => {
         fullRuntimeGate: 'full-runtime-verify'
       }
     });
+    expectStableCommandBoundary(results.json);
+    expectStableCommandBoundary(results.compactJson);
   });
 });

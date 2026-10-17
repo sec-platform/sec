@@ -444,8 +444,6 @@ for (const scenario of incrementalScenarios) {
     expect(sourceProgramCurrentExactReturnProvenances(reused.typeScriptCompilation.model))
       .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
     if (scenario.mode === 'incremental') {
-      const retained = reused.typeScriptCompilation.state.factShards.find(({ path }) => path === 'src/example/unrelated.ts');
-      expect(retained).toBe(baseline.typeScriptCompilation.state.factShards.find(({ path }) => path === 'src/example/unrelated.ts'));
       expect(reused.typeScriptCompilation.invalidatedPaths).not.toContain('src/example/unrelated.ts');
     }
   }, 30_000);

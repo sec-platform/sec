@@ -139,16 +139,6 @@ test('registered stable App receipt round-trips and exact expiry boundary remain
   })).toThrow('expired');
 });
 
-test('independent human APPROVED policy remains authorized', () => {
-  const current = receipt({
-    principal: { kind: 'human', nodeId: 'USER_reviewer', approvalState: 'APPROVED' }
-  });
-  expect(current.principal).toEqual({
-    kind: 'human', nodeId: 'USER_reviewer', approvalState: 'APPROVED'
-  });
-  expect(() => assertReviewStabilityReceiptCurrent(current, live(current))).not.toThrow();
-});
-
 test('human reviewer node IDs remain opaque while rejecting unsafe bounds', () => {
   const paddedNodeId = 'MDQ6VXNlcjU4MzIzMQ==';
   const current = receipt({
@@ -157,6 +147,7 @@ test('human reviewer node IDs remain opaque while rejecting unsafe bounds', () =
   expect(current.principal).toEqual({
     kind: 'human', nodeId: paddedNodeId, approvalState: 'APPROVED'
   });
+  expect(() => assertReviewStabilityReceiptCurrent(current, live(current))).not.toThrow();
 
   for (const [label, nodeId] of [
     ['empty', ''],
@@ -391,5 +382,6 @@ test('an Independent-* trailer derives only from a validated receipt', () => {
     /^Independent-Exact-Head-Review: receipt=sha256:[0-9a-f]{64} revision=sha256:[0-9a-f]{64} threads=[0-9]+ unresolved=0$/u
   );
   expect(canonical).not.toContain('P0=');
-
+  expect(() => renderIndependentReviewTrailer({ ...current, receiptDigest: D_A }))
+    .toThrow('receipt digest mismatch');
 });
