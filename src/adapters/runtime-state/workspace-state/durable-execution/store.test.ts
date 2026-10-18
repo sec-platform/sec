@@ -237,26 +237,18 @@ test('owner terminal resolution references only an exact owner-issued join recei
   }
 });
 
-test('constructing and reading an absent store does not create its journal directory', () => {
+test('store construction, expired admission and absent reads do not create the journal directory', () => {
   const value = fixture();
   const identity = { operationKeyDigest: digest('58') } as const;
   try {
     expect(existsSync(value.journalRoot)).toBe(false);
-    expect(value.reader.read(identity)).toBeNull();
-    expect(existsSync(value.journalRoot)).toBe(false);
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
-});
-
-test('expired monotonic admission is rejected without creating the journal directory', () => {
-  const value = fixture();
-  try {
     expect(() => createDurableExecutionStore({
       fileSystem: value.fileSystem,
       journalRoot: value.journalRoot,
       limits: { ...value.storeLimits, deadlineAtMonotonicMs: performance.now() - 1 }
     })).toThrow(expect.objectContaining({ kind: 'deadline-exhausted' }));
+    expect(existsSync(value.journalRoot)).toBe(false);
+    expect(value.reader.read(identity)).toBeNull();
     expect(existsSync(value.journalRoot)).toBe(false);
   } finally {
     rmSync(value.root, { recursive: true, force: true });

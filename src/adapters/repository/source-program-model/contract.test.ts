@@ -2602,34 +2602,6 @@ test('test retirement rejects a caller-forged Supersession decision', () => {
   })).toThrow('exact Supersession decision recomputed from sealed evidence');
 });
 
-test('test retirement rejects a real Supersession receipt from another intent epoch', () => {
-  const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');
-  const foreignBaselineEvidence = compileSourceProgramSupersessionEvidence({
-    ...fixture.baseline.full,
-    intentEvidence: Object.freeze([]),
-    identity: fixture.baseline.identity
-  });
-  const foreignCurrentEvidence = compileSourceProgramSupersessionEvidence({
-    ...fixture.current.full,
-    intentEvidence: Object.freeze([]),
-    identity: fixture.current.identity
-  });
-  const foreignReceipt = compileSourceProgramSupersessionReceipt({
-    baseline: foreignBaselineEvidence,
-    current: foreignCurrentEvidence
-  });
-
-  expect(() => compileSourceProgramTestRetirementReceipt({
-    baseline: fixture.baseline.evidence,
-    current: fixture.currentEvidence,
-    supersession: foreignReceipt,
-    currentModel: fixture.current.full.model,
-    currentTestCompilation: fixture.currentTests,
-    baselineFiles: fixture.baseline.files,
-    currentFiles: fixture.current.files
-  })).toThrow('sealed baseline/current Source Program evidence: supersession-receipt');
-});
-
 test('test retirement derives DELETE only from one compiler-issued consumer-zero receipt', () => {
   const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');
   const proof = fixture.retirement.proofs[0]!;
@@ -2661,6 +2633,31 @@ test('test retirement derives DELETE only from one compiler-issued consumer-zero
     fixture.observedProjection,
     { ...fixture.retirement }
   )).toThrow('compiler-issued exact receipt');
+
+  const foreignBaselineEvidence = compileSourceProgramSupersessionEvidence({
+    ...fixture.baseline.full,
+    intentEvidence: Object.freeze([]),
+    identity: fixture.baseline.identity
+  });
+  const foreignCurrentEvidence = compileSourceProgramSupersessionEvidence({
+    ...fixture.current.full,
+    intentEvidence: Object.freeze([]),
+    identity: fixture.current.identity
+  });
+  const foreignReceipt = compileSourceProgramSupersessionReceipt({
+    baseline: foreignBaselineEvidence,
+    current: foreignCurrentEvidence
+  });
+
+  expect(() => compileSourceProgramTestRetirementReceipt({
+    baseline: fixture.baseline.evidence,
+    current: fixture.currentEvidence,
+    supersession: foreignReceipt,
+    currentModel: fixture.current.full.model,
+    currentTestCompilation: fixture.currentTests,
+    baselineFiles: fixture.baseline.files,
+    currentFiles: fixture.current.files
+  })).toThrow('sealed baseline/current Source Program evidence: supersession-receipt');
 });
 
 test('test retirement blocks real consumers, path contracts, dynamic imports, and parse unknowns', () => {

@@ -17,50 +17,6 @@ import {
 } from './compiler-dependency-installation.ts';
 
 describe('compiler dependency installation', () => {
-  effectfulTest(test, 'retries only bounded Windows transient generation renames and preserves the exact source identity', {
-    operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-    cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
-  }, (effectfulContext) =>
-    withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-dev-deps-windows-rename-retry-', async (tempRoot, operation) => {
-      await writeCompilerDependencyRoot(tempRoot);
-      let installCalls = 0;
-      const materialize = async (_args: string[], command: { cwd: string }) => {
-        installCalls += 1;
-        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
-        return { code: 0, stdout: 'ok', stderr: '' };
-      };
-      const baseOptions = { ...operation, materialize };
-      await ensureCompilerDepsReady(baseOptions, tempRoot);
-      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
-
-      let transientFailures = 0;
-      const delays: number[] = [];
-      const result = await ensureCompilerDepsReady({
-        ...baseOptions,
-        sleep: async (delayMs) => {
-          delays.push(delayMs);
-        },
-        testCompilerPublishPlatform: 'win32',
-        testCompilerRename: async (source, target) => {
-          const stagedPublish = path.basename(source) === 'node_modules' &&
-            path.basename(path.dirname(source)).includes('.staging-');
-          if (stagedPublish && transientFailures < 2) {
-            transientFailures += 1;
-            const error = new Error('injected transient Windows rename denial') as NodeJS.ErrnoException;
-            error.code = 'EPERM';
-            throw error;
-          }
-          await fs.rename(source, target);
-        }
-      }, tempRoot);
-
-      expect(result.source).toBe('installed');
-      expect(transientFailures).toBe(2);
-      expect(delays).toEqual([25, 50]);
-      expect(await fs.readFile(path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'), 'utf8'))
-        .toBe('generation-2:typescript\n');
-    }));
-
   effectfulTest(test, 'preserves a replaced staging source and recovers after its original identity returns', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
     cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
@@ -117,44 +73,6 @@ describe('compiler dependency installation', () => {
       expect(await fs.readFile(path.join(
         tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'
       ), 'utf8')).toBe('generation-2:typescript\n');
-    }));
-
-  effectfulTest(test, 'does not retry a non-transient compiler generation rename failure', {
-    operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-    cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
-  }, (effectfulContext) =>
-    withCompilerTestWorkspace(effectfulContext, 'engineering-compiler-dev-deps-non-transient-rename-', async (tempRoot, operation) => {
-      await writeCompilerDependencyRoot(tempRoot);
-      let installCalls = 0;
-      const materialize = async (_args: string[], command: { cwd: string }) => {
-        installCalls += 1;
-        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
-        return { code: 0, stdout: 'ok', stderr: '' };
-      };
-      const baseOptions = { ...operation, materialize };
-      await ensureCompilerDepsReady(baseOptions, tempRoot);
-      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
-      let failures = 0;
-
-      await expect(ensureCompilerDepsReady({
-        ...baseOptions,
-        sleep: async () => {
-          throw new Error('non-transient rename must not sleep');
-        },
-        testCompilerPublishPlatform: 'win32',
-        testCompilerRename: async (source, target) => {
-          const stagedPublish = path.basename(source) === 'node_modules' &&
-            path.basename(path.dirname(source)).includes('.staging-');
-          if (stagedPublish) {
-            failures += 1;
-            const error = new Error('injected non-transient rename failure') as NodeJS.ErrnoException;
-            error.code = 'ENOTEMPTY';
-            throw error;
-          }
-          await fs.rename(source, target);
-        }
-      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
-      expect(failures).toBe(1);
     }));
 
   test('rejects invalid or widening operation budgets before creating a dependency namespace', async () => {

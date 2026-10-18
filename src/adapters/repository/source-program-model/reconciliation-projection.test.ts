@@ -407,16 +407,6 @@ test('duplicate owner and removed consumer frontiers fail closed', () => {
   expect(reference.blockers.map(({ code }) => code)).toContain('reconciliation-unresolved');
 });
 
-test('architecture evolution refuses caller-constructed reconciliation objects', () => {
-  const fixture = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const issued = reconcile(fixture, fixture);
-  expect(() => compileSourceProgramArchitectureEvolutionReference({
-    reconciliation: { ...issued }
-  })).toThrow('compiler-issued reconciliation projection');
-});
-
 test('architecture evolution consumes canonical owner and file cycle evidence', () => {
   const descriptors = [
     Object.freeze({ root: 'src/a', source: Object.freeze({}) }),
@@ -921,6 +911,11 @@ test('equivalent compiler snapshots retain the same reconciliation identity', ()
 
   expect(reconcile(before, firstAfter).projectionDigest)
     .toBe(reconcile(before, secondAfter).projectionDigest);
+
+  const issued = reconcile(before, before);
+  expect(() => compileSourceProgramArchitectureEvolutionReference({
+    reconciliation: { ...issued }
+  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('Git LF and Windows checkout line endings have one semantic reconciliation identity', () => {
