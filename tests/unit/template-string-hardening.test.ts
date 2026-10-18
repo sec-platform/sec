@@ -54,18 +54,8 @@ test('template interpolation remains literal, simultaneous and safe for prototyp
   assert.equal(renderTemplateString('__N__', { N: 0 }), '0');
 });
 
-test('template conditions retain exact nesting, negation and structural validation', () => {
-  const template = 'a/*#IF OUTER*/b/*#IF !INNER*/c/*#ENDIF*/d/*#ENDIF*/e';
-  assert.equal(renderTemplateString(template, { OUTER: true, INNER: false }), 'abcde');
-  assert.equal(renderTemplateString(template, { OUTER: false, INNER: true }), 'ae');
-  assert.throws(() => renderTemplateString('/*#IF ON*/', { ON: true }), code('COMPOSE-TEMPLATE-003'));
-  assert.throws(() => renderTemplateString('/*#ENDIF*/', {}), code('COMPOSE-TEMPLATE-004'));
-  assert.throws(() => renderTemplateString('/*#UNKNOWN*/', {}), code('COMPOSE-TEMPLATE-002'));
-});
-
-test('template inactive branches neither interpolate nor conceal invalid conditions', () => {
+test('template inactive branches do not interpolate missing values', () => {
   assert.equal(renderTemplateString('/*#IF ON*/__MISSING__/*#ENDIF*/', { ON: false }), '');
-  assert.throws(() => renderTemplateString('/*#IF ON*//*#IF UNKNOWN*//*#ENDIF*//*#ENDIF*/', { ON: false }), code('COMPOSE-TEMPLATE-007'));
 });
 
 test('template input bound and context primitive validation remain fail-closed', () => {

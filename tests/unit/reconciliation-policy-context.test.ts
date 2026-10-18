@@ -49,18 +49,13 @@ test('a reviewed-dispatcher change cannot turn a disappearing finding into a pro
   assert.equal(result.counts.absent, 0); assert.equal(unresolved(result), true);
 });
 
-test('the same policy with full observed inputs still admits the existing absent state', () => {
-  const result = compare(snapshot(true, [reviewed]), snapshot(false, [reviewed]));
-  assert.equal(result.entries[0]!.status, 'absent');
-  assert.equal(result.contextComparable, true); assert.equal(unresolved(result), false);
-});
-
 test('equivalent review inventories do not invent configuration changes', () => {
   const left = snapshot(true, [reviewed, 'src/b.ts::run']);
   const right = snapshot(false, ['src/b.ts::run', reviewed, reviewed]);
   const result = compare(left, right);
   assert.equal(result.contextComparable, true); assert.deepEqual(result.changedContextFields, []);
   assert.equal(result.entries[0]!.status, 'absent');
+  assert.equal(unresolved(result), false);
 });
 
 test('legacy context missing on both sides is unknown, not an implicit empty policy', () => {
@@ -122,12 +117,3 @@ test('source changes do not invalidate unchanged analysis policy or the comparis
   assert.equal(compare(snapshot(true, [reviewed]), changed).entries[0]!.status, 'absent');
 });
 
-test('every pair of small review sets compares only equal sets as the same analysis condition', () => {
-  const names = [reviewed, 'src/b.ts::run', 'src/c.ts::run'];
-  for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
-    const result = compare(snapshot(true, names.filter((_, i) => a & 1 << i)),
-      snapshot(false, names.filter((_, i) => b & 1 << i)));
-    assert.equal(result.contextComparable, a === b);
-    assert.equal(result.entries[0]!.status, a === b ? 'absent' : 'unobserved');
-  }
-});

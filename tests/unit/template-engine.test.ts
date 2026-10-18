@@ -35,6 +35,7 @@ for (const newline of ['\n', '\r\n']) {
 }
 
 test('unknown, inherited, non-boolean, and malformed conditions fail closed', () => {
+  assert.throws(() => renderTemplateString('/*#UNKNOWN*/', {}), code('COMPOSE-TEMPLATE-002'));
   assert.throws(() => renderTemplateString(
     '/*#IF missing*/value/*#ENDIF*/',
     {}
