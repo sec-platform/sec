@@ -177,9 +177,10 @@ test('WT-A freeze/check/apply leave the WT-B index and worktree byte-identical',
   expect(applyOutcome.status).toBe('accepted');
   expect((await readFile(fixturePath, 'utf8')).startsWith(source('sorted'))).toBe(true);
   expect(await digestTree(worktreeB!)).toEqual(beforeB);
+  const finalBIndexConfigured = git(worktreeB!, ['rev-parse', '--git-path', 'index']).trim();
   expect(worktreeBIndexPath).toBe(
-    path.isAbsolute(git(worktreeB!, ['rev-parse', '--git-path', 'index']).trim())
-      ? git(worktreeB!, ['rev-parse', '--git-path', 'index']).trim()
-      : path.resolve(worktreeB!, git(worktreeB!, ['rev-parse', '--git-path', 'index']).trim())
+    path.isAbsolute(finalBIndexConfigured)
+      ? finalBIndexConfigured
+      : path.resolve(worktreeB!, finalBIndexConfigured)
   );
 });

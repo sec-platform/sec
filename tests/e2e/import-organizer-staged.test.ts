@@ -209,22 +209,6 @@ test.concurrent('fixture creators remove partial repositories before ownership t
   });
 });
 
-test.concurrent('staged organizer selects pre-commit changes without rewriting a matching working tree', async () => {
-  await withRepository(async (repoRoot) => {
-    const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const staged = `${source('unsorted')}export const stagedChange = answer;\n`;
-    const expected = `${source('sorted')}export const stagedChange = answer;\n`;
-    await writeFile(fixturePath, staged, 'utf8');
-    git(repoRoot, ['add', 'fixture.ts']);
-
-    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
-
-    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
-    expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
-    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
-  });
-});
-
 test.concurrent('candidate organizer repairs the complete amended commit diff instead of only the staged delta', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
@@ -594,6 +578,7 @@ test.concurrent('staged organizer preserves bytes visible through an external ha
       ));
       expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
       expect(await readFile(aliasPath)).toEqual(Buffer.from(staged));
+      expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
     } finally {
       await rm(aliasPath, { force: true });
     }

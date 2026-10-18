@@ -34,7 +34,7 @@ function legacy(root: string, phase: 'complete' | 'prepared' = 'complete') {
   return { paths, recordsRoot, filename, bytes: readFileSync(filename) };
 }
 
-test('legacy terminal migration preserves source bytes and returns immutable intent values', async () => fixture(async root => {
+test('legacy terminal migration preserves source bytes and immutable readback across an idempotent retry', async () => fixture(async root => {
   const source = legacy(root), options = control();
   await migrateLegacyDependencyTransitionUnderLease(root, options);
   const namespace = inspectDependencyTransitionNamespace(root)!;
@@ -46,15 +46,11 @@ test('legacy terminal migration preserves source bytes and returns immutable int
   assert.equal(Reflect.set(value.complete!.sourceRecordsRootPhysical, 'inode', 'changed'), false);
   assert.deepEqual(readFileSync(source.filename), source.bytes);
   assert.deepEqual(readdirSync(namespace.recordsRoot.path), []);
-}));
-
-test('completed migration remains idempotent and a reader never acquires write callbacks', async () => fixture(async root => {
-  legacy(root); await migrateLegacyDependencyTransitionUnderLease(root, control());
   await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('complete migration rewrote state'); } });
-  const options = new Proxy({ ...control(), get beforeCommit() { assert.fail('reader observed fence'); throw new Error('unreachable'); },
+  const readOptions = new Proxy({ ...control(), get beforeCommit() { assert.fail('reader observed fence'); throw new Error('unreachable'); },
     get installMode() { assert.fail('reader observed install mode'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
-  const value = await readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, options);
-  assert.equal(value.complete!.phase, 'complete');
+  const repeated = await readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, readOptions);
+  assert.equal(repeated.complete!.phase, 'complete');
 }));
 
 test('cancelled migration without any source refuses before namespace effects', async () => fixture(async root => {

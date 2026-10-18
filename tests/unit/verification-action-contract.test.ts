@@ -211,7 +211,7 @@ test('semantic closure, producer, provider and contract changes change ActionKey
   expect(loneSurrogate.actionKey).not.toBe(replacementCharacter.actionKey);
 });
 
-test('Action terminal projection accepts only its owner-issued terminal settlement', () => {
+test('Action terminal preserves owner issuance, strict parsing, and process diagnostic requirements', () => {
   const completed = settlement('passed');
   const terminal = projectVerificationActionTerminal(completed);
   expect(terminal.status).toBe('passed');
@@ -224,7 +224,8 @@ test('Action terminal projection accepts only its owner-issued terminal settleme
   );
   expect(terminal.diagnosticObjects).toEqual([]);
   expect(terminal.resultDigest).not.toBe(completed.ownerTerminalReceipt.terminalReceiptDigest);
-  expect(projectVerificationActionTerminal(settlement('failed')).status).toBe('failed');
+  const failed = projectVerificationActionTerminal(settlement('failed'));
+  expect(failed.status).toBe('failed');
   expect(() => projectVerificationActionTerminal({
     status: 'passed',
     reasonCode: 'executed-success',
@@ -232,6 +233,24 @@ test('Action terminal projection accepts only its owner-issued terminal settleme
   })).toThrow('not Verification-owner-issued');
   expect(() => projectVerificationActionTerminal({ ...completed }))
     .toThrow('not Verification-owner-issued');
+  expect(createVerificationActionTerminal(terminal)).toEqual(terminal);
+  expect(createVerificationActionTerminal(failed)).toEqual(failed);
+  expect(() => createVerificationActionTerminal({
+    ...terminal,
+    reasonCode: 'executed-failure',
+  })).toThrow('passed status requires reasonCode executed-success');
+  expect(() => createVerificationActionTerminal({
+    ...terminal,
+    resultDigest: DIGEST_A
+  })).toThrow('does not bind the terminal attempt and diagnostics');
+  expect(() => createVerificationActionTerminal({
+    ...terminal,
+    unexpected: true
+  })).toThrow('must contain exactly');
+  expect(() => issueProcessVerificationActionTerminalSettlement(
+    completed.ownerTerminalReceipt,
+    { status: 'passed', reasonCode: 'executed-success', diagnosticObjects: [] }
+  )).toThrow('must contain owner-issued diagnostic evidence');
 });
 
 test('Action terminal rejects a diagnostic receipt from another bound attempt', () => {
@@ -257,14 +276,6 @@ test('Action terminal rejects a diagnostic receipt from another bound attempt', 
   })).toThrow('different operation attempt');
 });
 
-test('Action process terminal requires owner-issued diagnostic evidence', () => {
-  const completed = settlement('passed');
-  expect(() => issueProcessVerificationActionTerminalSettlement(
-    completed.ownerTerminalReceipt,
-    { status: 'passed', reasonCode: 'executed-success', diagnosticObjects: [] }
-  )).toThrow('must contain owner-issued diagnostic evidence');
-});
-
 test('Action process resource policy is one immutable single-process bounded execution contract', () => {
   expect(Object.isFrozen(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY)).toBe(true);
   expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.processes).toBe(1);
@@ -274,10 +285,10 @@ test('Action process resource policy is one immutable single-process bounded exe
 });
 
 test('one stable ActionKey accepts attempt-distinct owner settlements without changing identity', () => {
-  const action = createVerificationActionKey(actionInput());
   const first = settlement('passed', 1_900_000_000_000);
   const second = settlement('passed', 1_900_000_000_001);
-  expect(createVerificationActionKey(actionInput()).actionKey).toBe(action.actionKey);
+  expect(first.ownerTerminalReceipt.decision.actionKey)
+    .toBe(second.ownerTerminalReceipt.decision.actionKey);
   expect(first.ownerTerminalReceipt.decision.operationIdentityDigest)
     .toBe(second.ownerTerminalReceipt.decision.operationIdentityDigest);
   expect(first.ownerTerminalReceipt.attempt.boundAttemptDigest)
@@ -365,25 +376,6 @@ test('cheap preflight topology is exact, caller state is never accepted, and lan
   )).toBe(true);
   expect(verificationActionDependsOnChangedInputs(action, ['tests/unit/other.test.ts'])).toBe(false);
   expect(verificationActionDependsOnChangedInputs(action, null)).toBe(true);
-});
-
-test('terminal action adapts canonical result status without adding a reuse status', () => {
-  const passed = projectVerificationActionTerminal(settlement('passed'));
-  const failed = projectVerificationActionTerminal(settlement('failed'));
-  expect(createVerificationActionTerminal(passed)).toEqual(passed);
-  expect(createVerificationActionTerminal(failed)).toEqual(failed);
-  expect(() => createVerificationActionTerminal({
-    ...passed,
-    reasonCode: 'executed-failure',
-  })).toThrow('passed status requires reasonCode executed-success');
-  expect(() => createVerificationActionTerminal({
-    ...passed,
-    resultDigest: DIGEST_A
-  })).toThrow('does not bind the terminal attempt and diagnostics');
-  expect(() => createVerificationActionTerminal({
-    ...passed,
-    unexpected: true
-  })).toThrow('must contain exactly');
 });
 
 test('canonical Result preserves known failed reuse without promotion', () => {

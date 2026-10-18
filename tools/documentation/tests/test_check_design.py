@@ -165,16 +165,17 @@ class DeliverableRoots(unittest.TestCase):
     d.deliverable_model(root)
 
  def test_root_must_match_declared_scope_without_host_normalization(self):
-  for scope in ({'root':'.','include':['applications.json']},
-                {'root':'model','include':['APPLICATIONS.json']},
-                {'root':'model/../model'}, {'root':'model//'},
-                {'root':'model','include':None}):
-   with self.subTest(scope=scope),tempfile.TemporaryDirectory()as temp:
-    root=self.fixture(temp);sample=root/'examples/开发成品'
-    project=self.load(sample/'gift.project.json')
-    project['sourceScopes']=[dict(scope,kind='semantic',editSource={'mode':'file'})]
-    self.save(sample/'gift.project.json',project)
-    with self.assertRaises(d.DesignError):d.deliverable_model(root)
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp);sample=root/'examples/开发成品'
+   project=self.load(sample/'gift.project.json')
+   for scope in ({'root':'.','include':['applications.json']},
+                 {'root':'model','include':['APPLICATIONS.json']},
+                 {'root':'model/../model'}, {'root':'model//'},
+                 {'root':'model','include':None}):
+    with self.subTest(scope=scope):
+     project['sourceScopes']=[dict(scope,kind='semantic',editSource={'mode':'file'})]
+     self.save(sample/'gift.project.json',project)
+     with self.assertRaises(d.DesignError):d.deliverable_model(root)
 
  def test_ambiguous_public_root_cannot_choose_first_module(self):
   import copy
@@ -193,14 +194,15 @@ class DeliverableRoots(unittest.TestCase):
     d.deliverable_model(root)
 
  def test_malformed_form_import_keeps_design_diagnostic(self):
-  for binding in (None,'forms'):
-   with self.subTest(binding=binding),tempfile.TemporaryDirectory()as temp:
-    root=self.fixture(temp)
-    sample,project,relative,module=self.library_root(root)
-    module['imports']['forms']=binding
-    self.save(sample/relative,module)
-    with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
-     d.deliverable_model(root)
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp)
+   sample,project,relative,module=self.library_root(root)
+   for binding in (None,'forms'):
+    with self.subTest(binding=binding):
+     module['imports']['forms']=binding
+     self.save(sample/relative,module)
+     with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
+      d.deliverable_model(root)
 
  def test_public_root_survives_repartition_and_definition_rename(self):
   import copy
