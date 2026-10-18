@@ -22,7 +22,7 @@ function fixture(id = 'block/a', workspaceRoot = '/workspace') {
 
 test('logical and observed-source reuse each refresh the shared bounded LRU order', () => {
   for (const lookup of ['logical', 'source'] as const) {
-    const cache = new ManifestCache(2), a = fixture(), b = fixture('block/b'), c = fixture('block/c');
+    const cache = new ManifestCache(2), a = fixture(), b = fixture('block/b'), c = fixture('block/c'), d = fixture('block/d');
     cache.set(a.key, a.entry); cache.set(b.key, b.entry);
     assert.deepEqual(lookup === 'logical' ? cache.get(a.key) : cache.getByObservedSource(a.source), a.entry, lookup);
     cache.set(c.key, c.entry);
@@ -30,6 +30,21 @@ test('logical and observed-source reuse each refresh the shared bounded LRU orde
     assert.deepEqual(cache.get(a.key), a.entry, lookup); assert.deepEqual(cache.getByObservedSource(a.source), a.entry, lookup);
     assert.deepEqual(cache.get(c.key), c.entry, lookup); assert.deepEqual(cache.getByObservedSource(c.source), c.entry, lookup);
     assert.equal(cache.size, 2, lookup);
+    cache.set(d.key, d.entry);
+    assert.equal(cache.get(a.key), undefined, lookup);
+    assert.equal(cache.getByObservedSource(a.source), undefined, lookup);
+    assert.deepEqual(cache.getByObservedSource(c.source), c.entry, lookup);
+    assert.deepEqual(cache.getByObservedSource(d.source), d.entry, lookup);
+    assert.equal(cache.size, 2, lookup);
+  }
+  const cache = new ManifestCache(8);
+  const entries = Array.from({ length: 9 }, (_, index) => fixture(`block/${index}`));
+  for (const item of entries) cache.set(item.key, item.entry);
+  assert.equal(cache.size, 8);
+  for (const [index, item] of entries.entries()) {
+    const expected = index === 0 ? undefined : item.entry;
+    assert.deepEqual(cache.get(item.key), expected);
+    assert.deepEqual(cache.getByObservedSource(item.source), expected);
   }
 });
 
@@ -87,12 +102,4 @@ test('invalid replacement does not evict a previously valid source', () => {
   const cache = new ManifestCache(1), a = fixture(), b = fixture('block/b'); cache.set(a.key, a.entry);
   assert.throws(() => cache.set(a.key, b.entry)); assert.deepEqual(cache.getByObservedSource(a.source), a.entry);
   assert.deepEqual(cache.get(a.key), a.entry);
-});
-
-test('churn across both query forms remains bounded by the original record limit', () => {
-  const cache = new ManifestCache(8), entries = Array.from({ length: 300 }, (_, i) => fixture(`block/${i}`));
-  for (const entry of entries) { cache.set(entry.key, entry.entry); assert.ok(cache.size <= 8); }
-  for (let i = 0; i < entries.length; i++) {
-    const item = entries[i]!; assert.deepEqual(cache.getByObservedSource(item.source), i < 292 ? undefined : item.entry);
-  }
 });

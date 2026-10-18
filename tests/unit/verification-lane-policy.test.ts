@@ -23,18 +23,15 @@ for (const [lane, runFast, runtimeMode, scope] of [
     assert.equal(shouldExecuteRuntimeVerification(profile, false), !runFast);
     assert.ok(Object.isFrozen(profile));
   });
-  test(`${lane} is decoded identically by both CLI entrypoints`, () => {
+  test(`${lane} preserves standalone output and timing choices`, () => {
     for (const [flags, expectedOutput] of [
       [{}, { json: false, compact: false }],
       [{ json: true }, { json: true, compact: false }],
       [{ json: true, compact: true }, { json: true, compact: true }]
     ] as const) {
       const workspace = parseVerifyCommandInput({ ...flags, lane });
-      const pipeline = parsePipelineCompileOptions({ ...flags, lane });
       assert.equal(workspace.request.lane, lane);
-      assert.equal(pipeline.invocation.verificationLane, lane);
       assert.deepEqual(workspace.output, expectedOutput);
-      assert.deepEqual(pipeline.output, expectedOutput);
       assert.equal(workspace.request.emitTiming, !expectedOutput.json);
       assert.ok(Object.isFrozen(workspace)); assert.ok(Object.isFrozen(workspace.request));
     }

@@ -8,15 +8,11 @@ import {
   projectAcceptanceTargets
 } from '../../src/application/acceptance-inspection.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import {
-  formatAcceptanceCoverage,
-  formatAcceptanceTargets
-} from '../../src/entry/cli/acceptance-inspection.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('acceptance inspection routes retained coverage through application and entry while preserving JSON', async () => {
-  // Preserve independent projection/text fixture from tests/unit/acceptance-inspection-presentation.test.ts.
+  // Direct projection checks own input isolation; CLI checks below own rendered values.
   {
    const source = {
       status: 'passed',
@@ -74,20 +70,6 @@ test('acceptance inspection routes retained coverage through application and ent
     expect(coverage.acceptancePassedCount).toBe(2);
     expect(coverage.blockTargets).toEqual(targets);
 
-    expect(formatAcceptanceCoverage(coverage)).toBe([
-      'Acceptance coverage passed; acceptancePassed=2; blocks=1/2; uncoveredBlocks=1',
-      'Uncovered blocks: beta',
-      'Block alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
-      'Block beta; declared=2; coveredBy=none; uncovered=true'
-    ].join('\n'));
-
-    expect(formatAcceptanceTargets(targets)).toBe([
-      'Acceptance coverage blocks passed',
-      'targets=2; covered=1; uncovered=1',
-      'Uncovered: beta',
-      'Target alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
-      'Target beta; declared=2; coveredBy=none; uncovered=true'
-    ].join('\n'));
     targets.targets[0]!.declaredAcceptance.push('projection-only');
     targets.targets[0]!.coveredBy.push('projection-only');
     targets.uncoveredIds.push('projection-only');
@@ -99,7 +81,7 @@ test('acceptance inspection routes retained coverage through application and ent
     const report = {
       formatVersion: '1',
       status: 'passed',
-      acceptancePassed: ['acceptance:a'],
+      acceptancePassed: ['acceptance:a', 'acceptance:b'],
       blocks: [
         {
           id: 'alpha',
@@ -109,7 +91,7 @@ test('acceptance inspection routes retained coverage through application and ent
         },
         {
           id: 'beta',
-          declaredAcceptance: ['declared:b'],
+          declaredAcceptance: ['declared:b', 'declared:c'],
           coveredBy: [],
           uncovered: true
         }
@@ -122,10 +104,10 @@ test('acceptance inspection routes retained coverage through application and ent
 
     const coverageText = await expectCliSuccess(workspaceRoot, ['acceptance']);
     for (const line of [
-      'Acceptance coverage passed; acceptancePassed=1; blocks=1/2; uncoveredBlocks=1',
+      'Acceptance coverage passed; acceptancePassed=2; blocks=1/2; uncoveredBlocks=1',
       'Uncovered blocks: beta',
       'Block alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
-      'Block beta; declared=1; coveredBy=none; uncovered=true'
+      'Block beta; declared=2; coveredBy=none; uncovered=true'
     ]) expect(coverageText.stdout.split(/\r?\n/u)).toContain(line);
     const targetsText = await expectCliSuccess(workspaceRoot, ['acceptance', 'blocks']);
     for (const line of [
@@ -133,7 +115,7 @@ test('acceptance inspection routes retained coverage through application and ent
       'targets=2; covered=1; uncovered=1',
       'Uncovered: beta',
       'Target alpha; declared=1; coveredBy=acceptance:a; uncovered=false',
-      'Target beta; declared=1; coveredBy=none; uncovered=true'
+      'Target beta; declared=2; coveredBy=none; uncovered=true'
     ]) expect(targetsText.stdout.split(/\r?\n/u)).toContain(line);
 
     const json = await expectCliJson(workspaceRoot, ['acceptance', '--json']);

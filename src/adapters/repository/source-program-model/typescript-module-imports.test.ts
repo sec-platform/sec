@@ -42,14 +42,6 @@ for (const { name, source, imports, unresolved } of cases) {
   });
 }
 
-test('unresolved loader observations survive graph assembly alongside known reverse edges', () => {
-  const facts = typeScriptModuleImportFacts(fixtureProgram("import {value} from './b.ts'; void import(target);"));
-  const graph = assembleRepositoryModuleGraph({ files: ['src/a.ts', 'src/b.ts'], ...facts });
-  assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), ['src/b.ts']);
-  assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts']);
-  assert.deepEqual(graph.unresolvedFiles, ['src/a.ts']);
-});
-
 const emitCases = [
   "import type { Value } from './b.ts';", "import { type Value } from './b.ts';",
   "import { type A, type B } from './b.ts';", "import {} from './b.ts';",

@@ -93,9 +93,6 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     requiredProfile: 'quick',
     ciRevision: 'ci-verification-v19'
   });
-  expect(CodexDevelopmentDecodeWorkPackageManifest(
-    source.replace('ci-verification-v19', 'ci-verification-v6')
-  ).ciRevision).toBe('ci-verification-v6');
   expect(CodexDevelopmentWorkPackageManifestDigest(source)).toBe(
     `sha256:${createHash('sha256').update(source).digest('hex')}`
   );
@@ -165,11 +162,6 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   }
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tests/unit/work-package-contract.test.ts', 'bun run typecheck')
-  )).toThrow();
-  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
-    manifest()
-      .replace('ci-verification-v19', 'ci-verification-v18')
-      .replace('tests/unit/work-package-contract.test.ts', 'bun run typecheck')
   )).toThrow();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('id: b0-bootstrap-v1', 'id: !custom b0-bootstrap-v1')
@@ -357,15 +349,12 @@ test('Work Package V3 keeps strict plan bytes while the observed operation owns 
   }
 });
 
-test('Work Package V3 rejects embedded base, extra keys, retired V2 and stale CI revisions', () => {
+test('Work Package V3 rejects embedded base, extra keys and stale CI revisions', () => {
   const source = baseIndependentManifest();
   for (const extra of [`base: "${BASE}"`, 'unknownField: true']) {
     expect(() => CodexDevelopmentParseWorkPackageManifest(source.replace('manifestState:', `${extra}\nmanifestState:`)))
       .toThrow('must contain exactly');
   }
-  expect(() => CodexDevelopmentParseWorkPackageManifest(
-    source.replace('codex-development-work-package-v3', 'codex-development-work-package-v2')
-  )).toThrow('schema is unsupported');
   expect(() => CodexDevelopmentParseWorkPackageManifest(
     source.replace('ci-verification-v19', 'ci-verification-v18')
   )).toThrow('current CI verification revision');

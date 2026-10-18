@@ -25,11 +25,17 @@ function graph(): ExplainGraph {
   };
 }
 
-test('live explanation preserves the baseline text including explicit zero coverage over a nonempty graph', async () => {
+test('live explanation preserves zero coverage, supplied matrix content and detached presentation', async () => {
   await withTempWorkspace(async (root) => {
     const summary = await buildReviewSummaryFromInputs(root);
-    const view = projectExplainSummary(graph(), summary, buildE2eMatrix(summary));
-    expect(formatExplainSummary(view)).toBe([
+    const sourceGraph = graph();
+    const matrix = buildE2eMatrix(summary);
+    matrix.rows[0]!.detail += '; supplied matrix';
+    const before = structuredClone({ sourceGraph, summary, matrix });
+    const view = projectExplainSummary(sourceGraph, summary, matrix);
+    expect({ sourceGraph, summary, matrix }).toEqual(before);
+    const text = formatExplainSummary(view);
+    expect(text).toBe([
       'Explain graph 3 nodes 1 edges',
       'Node types: block=2, operation=1',
       'Edge types: depends_on=1',
@@ -37,7 +43,7 @@ test('live explanation preserves the baseline text including explicit zero cover
       'Provenance origins: none',
       'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
       'Chain: attention; stages: 3/4; attention: 1; failed: 0',
-      'E2E verification: passed; lane=fast; failed=none; evidence=ci=passed, failures=0',
+      'E2E verification: passed; lane=fast; failed=none; supplied matrix; evidence=ci=passed, failures=0',
       'E2E coverage: passed; blocks=0/0; evidence=blocks=0/0',
       'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
       'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
@@ -46,6 +52,14 @@ test('live explanation preserves the baseline text including explicit zero cover
       'Install impact: 0 impacts; groups: 0; actions: none; runtime entries: 0; targets: 0',
       'Provenance detail: artifacts: 0; overrides: 0; registry: 0; unverified: 0'
     ].join('\n'));
+    sourceGraph.nodes[0]!.type = 'operation';
+    summary.installImpactSummary.actionKinds.push('changed');
+    summary.chainSummary.status = 'failed';
+    matrix.rows[0]!.detail = 'mutated';
+    matrix.rows[0]!.evidence.push('mutated');
+    expect(formatExplainSummary(view)).toBe(text);
+    expect(view).not.toHaveProperty('semanticViews');
+    expect(view).not.toHaveProperty('failurePoints');
   });
 });
 
@@ -110,31 +124,10 @@ test('repair keeps weighted categories but counts target entries, and upgrade at
     expect(text).toContain('Upgrade diagnostics: apply; target; UPGRADE-MIGRATION-016; missing target; attribution: migration=a, target=a.ts, rollback=restored');
     summary.upgradeSummary.fromVersion = '1.0.0';
     summary.upgradeSummary.diagnostics!.details = { migrationId: 4, unrelated: 'not attribution' };
-    expect(render()).toContain('library/example 1.0.0 -> 2.0.0');
-    expect(render()).toContain('attribution: none');
+    const changed = render();
+    expect(changed).toContain('library/example 1.0.0 -> 2.0.0');
+    expect(changed).toContain('attribution: none');
     summary.upgradeSummary.diagnostics = undefined;
     expect(render()).not.toContain('Upgrade diagnostics:');
-  });
-});
-
-test('projection detaches nested inputs and consumes the supplied matrix instead of deriving another', async () => {
-  await withTempWorkspace(async (root) => {
-    const summary = await buildReviewSummaryFromInputs(root);
-    const sourceGraph = graph();
-    const matrix = buildE2eMatrix(summary);
-    matrix.rows[0]!.detail = 'supplied matrix';
-    const before = structuredClone({ sourceGraph, summary, matrix });
-    const view = projectExplainSummary(sourceGraph, summary, matrix);
-    expect({ sourceGraph, summary, matrix }).toEqual(before);
-    const text = formatExplainSummary(view);
-    expect(text).toContain('supplied matrix');
-    sourceGraph.nodes[0]!.type = 'operation';
-    summary.installImpactSummary.actionKinds.push('changed');
-    summary.chainSummary.status = 'failed';
-    matrix.rows[0]!.detail = 'mutated';
-    matrix.rows[0]!.evidence.push('mutated');
-    expect(formatExplainSummary(view)).toBe(text);
-    expect(view).not.toHaveProperty('semanticViews');
-    expect(view).not.toHaveProperty('failurePoints');
   });
 });

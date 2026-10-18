@@ -106,18 +106,20 @@ test('ordinary TypeScript import facts cannot be replaced by an embedded-languag
 });
 
 
-test('canonical frontend joins unresolved and import-type observations into its returned graph', () => {
+test('canonical frontend joins unresolved, type-only and runtime observations without losing reverse edges', () => {
   const sources = new Map([
-    ['src/a.ts', "type Value = import('./b.ts').Value; void import(target);"],
-    ['src/b.ts', 'export type Value = string;']
+    ['src/a.ts', "type Value = import('./b.ts').Value; import { value } from './c.ts'; void import(target);"],
+    ['src/b.ts', 'export type Value = string;'],
+    ['src/c.ts', 'export const value = 1;']
   ]);
   const graph = compileSourceProgramRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (file) => sources.get(file) ?? null
   });
   expect(graph.unresolvedFiles).toEqual(['src/a.ts']);
-  expect(graph.directDependencies('src/a.ts')).toEqual(['src/b.ts']);
-  expect(graph.directRuntimeDependencies('src/a.ts')).toEqual([]);
+  expect(graph.directDependencies('src/a.ts')).toEqual(['src/b.ts', 'src/c.ts']);
+  expect(graph.directRuntimeDependencies('src/a.ts')).toEqual(['src/c.ts']);
+  expect(graph.directConsumers('src/c.ts')).toEqual(['src/a.ts']);
 });
 
 test('canonical frontend preserves empty-runtime imports left by inline type specifiers', () => {

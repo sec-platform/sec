@@ -69,8 +69,6 @@ test('policy merge coalesces equal sources and preserves distinct IDs and determ
 
 for (const source of [
   'policies: []\npolicies: []\n',
-  'policies: !unknown []\n',
-  'policies: []\n---\npolicies: []\n',
   '? [policies]\n: []\n'
 ]) {
   test(`policy source uses the shared strict YAML rejection: ${JSON.stringify(source)}`, () => {

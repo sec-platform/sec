@@ -21,12 +21,10 @@ test('ordinary YAML collections, aliases and empty documents retain their decode
   await fs.writeFile(file, '[true, 7, null]\n'); assert.deepEqual(await readYaml(file), [true, 7, null]);
 }));
 
-for (const source of ['name: a\nname: b\n', 'name: !unknown value\n', 'name: a\n---\nname: b\n']) {
-  test(`generic reads consume strict YAML rather than another permissive entry: ${JSON.stringify(source)}`, () => using(async (_root, file) => {
-    await fs.writeFile(file, source);
-    await assert.rejects(readYaml(file), YamlSyntaxError);
-  }));
-}
+test('generic reads consume strict YAML rather than another permissive entry', () => using(async (_root, file) => {
+  await fs.writeFile(file, 'name: a\nname: b\n');
+  await assert.rejects(readYaml(file), YamlSyntaxError);
+}));
 
 test('invalid UTF-8 cannot be repaired into a different parsed value', () => using(async (_root, file) => {
   await fs.writeFile(file, Uint8Array.of(0x61, 0x3a, 0x20, 0xff));

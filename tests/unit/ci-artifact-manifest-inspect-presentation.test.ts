@@ -25,14 +25,14 @@ function source(counts: Readonly<Record<string, number>>) {
 describe('CI artifact manifest presentation boundary', () => {
   test('application owns finite projection and canonical aggregate counts while entry only renders', () => {
     const view = projectCiArtifactManifest(source({
-      'fixed-governance-missing': 2,
-      'declared-generated-missing': 1,
+      'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
+      'declared-generated-missing': 2 ** 40,
       'zero-reason': 0
     }));
 
     expect(view.missingReasons).toEqual([
-      { id: 'declared-generated-missing', count: 1 },
-      { id: 'fixed-governance-missing', count: 2 }
+      { id: 'declared-generated-missing', count: 1099511627776 },
+      { id: 'fixed-governance-missing', count: 9007199254740991 }
     ]);
     const text = formatCiArtifactManifest(view);
     expect(text).toMatch(/Artifact manifest\s+attention(?=$|[\s;,()])/u);
@@ -44,8 +44,8 @@ describe('CI artifact manifest presentation boundary', () => {
     expect(kinds).toMatch(/\btest=2(?=$|[\s;,()])/u);
     expect(kinds).toMatch(/\bcontract=1(?=$|[\s;,()])/u);
     const reasons = text.split('\n').find((line) => /^Missing reasons\b/u.test(line));
-    expect(reasons).toMatch(/\bdeclared-generated-missing=1(?=$|[\s;,()])/u);
-    expect(reasons).toMatch(/\bfixed-governance-missing=2(?=$|[\s;,()])/u);
+    expect(reasons).toMatch(/\bdeclared-generated-missing=1099511627776(?=$|[\s;,()])/u);
+    expect(reasons).toMatch(/\bfixed-governance-missing=9007199254740991(?=$|[\s;,()])/u);
     expect(reasons).not.toContain('zero-reason');
     const emptyReasons = formatCiArtifactManifest(projectCiArtifactManifest(source({ 'zero-reason': 0 })));
     expect(emptyReasons).toMatch(/Missing reasons\W+none(?=$|[\s;,()])/u);
@@ -54,15 +54,7 @@ describe('CI artifact manifest presentation boundary', () => {
     expect(groups).toMatch(/\btest=2(?=$|[\s;,()])/u);
   });
 
-  test('large aggregate counts remain aggregates and invalid counts fail explicitly', () => {
-    const large = projectCiArtifactManifest(source({
-      'fixed-governance-missing': Number.MAX_SAFE_INTEGER,
-      'declared-generated-missing': 2 ** 40
-    }));
-    const text = formatCiArtifactManifest(large);
-    expect(text).toMatch(new RegExp(`declared-generated-missing=${2 ** 40}(?=$|[\\s;,()])`, 'u'));
-    expect(text).toMatch(new RegExp(`fixed-governance-missing=${Number.MAX_SAFE_INTEGER}(?=$|[\\s;,()])`, 'u'));
-
+  test('invalid aggregate counts fail explicitly', () => {
     for (const count of [-1, 0.5, Infinity, NaN]) {
       expect(() => projectCiArtifactManifest(source({ invalid: count }))).toThrow(RangeError);
     }

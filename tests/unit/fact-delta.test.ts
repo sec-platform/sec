@@ -113,7 +113,7 @@ test('empty Fact Delta is deterministic, transaction-independent, and deeply fro
 
 test('Fact add/remove preserves direction and object changes are remove plus add', () => {
   const before = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic']));
-  const after = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic', 'beta/basic']));
+  const after = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic', 'beta/basic', 'gamma/basic']));
   const forward = buildFactDelta(context(before, 'tx:before'), context(after, 'tx:after'));
   const reverse = buildFactDelta(context(after, 'tx:after'), context(before, 'tx:before'));
 
@@ -121,7 +121,10 @@ test('Fact add/remove preserves direction and object changes are remove plus add
   expectDeepFrozen(reverse);
   expect(forward.added[0]).not.toBe(after.ir.facts.find((fact) => fact.id === forward.added[0]?.id));
   expect(reverse.removed[0]).not.toBe(after.ir.facts.find((fact) => fact.id === reverse.removed[0]?.id));
-  expect(forward.added.length).toBeGreaterThan(0);
+  expect(forward.added).toHaveLength(2);
+  expect(forward.added.map((fact) => fact.id)).toEqual(
+    [...forward.added.map((fact) => fact.id)].sort((left, right) => left.localeCompare(right))
+  );
   expect(forward.removed).toEqual([]);
   expect(reverse.added).toEqual([]);
   expect(reverse.removed.map((fact) => fact.id)).toEqual(forward.added.map((fact) => fact.id));
@@ -253,17 +256,4 @@ test('endpoint, lineage, and unsupported validity failures use stable diagnostic
   expectCodedFailure(() => resign(source, (ir) => {
     ir.facts[0]!.assertions[0]!.validToRevision = 'sha256:closed';
   }), 'IR-VALIDATION-009');
-});
-
-test('fact and assertion collections remain canonically ordered', () => {
-  const before = buildValidatedEngineeringIR(input('delta-app', 'Delta App', ['alpha/basic']));
-  const after = buildValidatedEngineeringIR(input(
-    'delta-app',
-    'Delta App',
-    ['alpha/basic', 'beta/basic', 'gamma/basic']
-  ));
-  const delta = buildFactDelta(context(before, 'tx:before'), context(after, 'tx:after'));
-  expect(delta.added.map((fact) => fact.id)).toEqual(
-    [...delta.added.map((fact) => fact.id)].sort((left, right) => left.localeCompare(right))
-  );
 });

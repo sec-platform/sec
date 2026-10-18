@@ -5,12 +5,11 @@ import path from 'node:path';
 import { resolveWorkspaceArtifactPath } from '../../src/adapters/workspace-context.ts';
 import { projectPolicySources } from '../../src/application/policy-source-inspection.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { formatPolicySources } from '../../src/entry/cli/policy-source-inspection.ts';
 import { expectCliJson, expectCliSuccess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('policy sources routes retained policy evidence through application and entry', async () => {
-  // Independent fixed projection and text oracle retained from tests/unit/policy-source-inspection-presentation.test.ts.
+  // Direct projection protects detachment and ordering; real CLI checks rendering below.
   {
     const source = {
       status: 'passed',
@@ -41,13 +40,6 @@ test('policy sources routes retained policy evidence through application and ent
       ]
     });
     expect(source.official.sources.map((entry) => entry.path)).toEqual(originalOfficial);
-    expect(formatPolicySources(view)).toBe([
-      'Policy sources passed',
-      'sources=3; policies=4',
-      'Source official; path=a; policies=official:a, official:b',
-      'Source official; path=z; policies=official:z',
-      'Source project; path=b; policies=project:b'
-    ].join('\n'));
     view.sources[1]!.policyIds.push('projection-only');
     expect(source.official.sources[0]!.policyIds).toEqual(['official:z', 'later']);
   }
@@ -56,12 +48,12 @@ test('policy sources routes retained policy evidence through application and ent
       status: 'passed',
       official: {
         sources: [
-          { path: 'official/z', policyIds: ['official:z'] },
-          { path: 'official/a', policyIds: ['official:a'] }
+          { path: 'z', policyIds: ['official:z'] },
+          { path: 'a', policyIds: ['official:a', 'official:b'] }
         ]
       },
       project: {
-        sources: [{ path: 'project/b', policyIds: ['project:b', 'project:c'] }]
+        sources: [{ path: 'b', policyIds: ['project:b'] }]
       }
     };
     const reportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
@@ -69,11 +61,14 @@ test('policy sources routes retained policy evidence through application and ent
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const projected = projectPolicySources(report);
-    await expectCliSuccess(
-      workspaceRoot,
-      ['policy', 'sources'],
-      `${formatPolicySources(projected)}\n`
-    );
+    const text = await expectCliSuccess(workspaceRoot, ['policy', 'sources']);
+    for (const line of [
+      'Policy sources passed',
+      'sources=3; policies=4',
+      'Source official; path=a; policies=official:a, official:b',
+      'Source official; path=z; policies=official:z',
+      'Source project; path=b; policies=project:b'
+    ]) expect(text.stdout.split(/\r?\n/u)).toContain(line);
     const json = await expectCliJson(workspaceRoot, ['policy', 'sources', '--json']);
     expect(json).toEqual(projected);
   });
