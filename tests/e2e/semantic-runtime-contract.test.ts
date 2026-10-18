@@ -635,6 +635,20 @@ test('SM-3 terminal allocator requires and advances one durable constant-I/O hea
       draft.requestIdentityDigest,
       'rejected',
       allowCommit
+    )).rejects.toThrow('durable receipts without its authority head');
+    const head = {
+      formatRevision: 'semantic-mutation-terminal-sequence-head-v1' as const,
+      highestReservedSequence: terminalSequence
+    };
+    await writeFile(headPath(workspaceRoot), `${JSON.stringify({
+      ...head,
+      headRevision: sha256({ domain: 'semantic-mutation-terminal-sequence-head-v1', ...head })
+    }, null, 2)}\n`, 'utf8');
+    await expect(reserveSemanticMutationTerminalSequence(
+      transactionRoot,
+      draft.requestIdentityDigest,
+      'rejected',
+      allowCommit
     )).rejects.toThrow('terminal completion sequence is exhausted');
   }, 'engineering-compiler-sm3-terminal-order-exhausted-');
 

@@ -122,6 +122,7 @@ for (const missing of ['close', 'drain'] as const) {
     setTimeout(() => {
       f.child.emit('error', new Error('spawn failed'));
       if (missing === 'drain') f.close(false);
+      else { f.child.stdout?.emit('end'); f.child.stderr?.emit('end'); }
     }, 0);
     try {
       const outcome = await f.execute();
