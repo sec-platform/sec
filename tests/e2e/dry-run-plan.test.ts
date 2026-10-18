@@ -48,25 +48,7 @@ function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): v
   }
 }
 
-test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-range-contract-');
-  await writeBlockUpgradeFixture(workspaceRoot);
-
-  const manifestPath = path.join(getWorkspacePaths(workspaceRoot).privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0', 'block.manifest.yaml');
-  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
-  await writeYaml(manifestPath, {
-    ...manifest,
-    upgrade: {
-      ...(manifest.upgrade as Record<string, unknown>),
-      from: ['0.1']
-    }
-  });
-
-  await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true }))
-    .rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-002' });
-}, 180000);
-
-test('upgrade dry-run records block-owned file migration impacts', async () => {
+test('upgrade dry-run records block-owned file impacts and rejects unsupported shorthand ranges', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-block-file-plan-');
 
   await writeBlockUpgradeFixture(workspaceRoot);
@@ -103,4 +85,17 @@ test('upgrade dry-run records block-owned file migration impacts', async () => {
   expectMigrationArtifactsToMatchPlan(upgradePlan);
   await expectFileUnchanged(workspaceConfigPath, beforePlan);
   await expect(fs.readFile(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+
+  const manifestPath = path.join(getWorkspacePaths(workspaceRoot).privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0', 'block.manifest.yaml');
+  const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+  await writeYaml(manifestPath, {
+    ...manifest,
+    upgrade: {
+      ...(manifest.upgrade as Record<string, unknown>),
+      from: ['0.1']
+    }
+  });
+
+  await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true }))
+    .rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-002' });
 }, 180000);

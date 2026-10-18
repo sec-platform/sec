@@ -47,7 +47,7 @@ function fixture(root: string) {
   return { repository, refs, inventory };
 }
 
-test('one batch bundle restores both unique tips with no source repository or main prerequisites', () => {
+test('batch recovery rejects compact prerequisites and restores both unique tips without its source repository', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-complete-batch-'));
   try {
     const { repository, refs, inventory } = fixture(root);
@@ -61,6 +61,13 @@ test('one batch bundle restores both unique tips with no source repository or ma
       expectedHeads: refs.map((ref) => ref.expectedHeadSha), requireComplete: true }).status).toBe('success');
     expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery,
       expectedHeads: ['0'.repeat(40)], requireComplete: true }).status).toBe('failed');
+    const compact = createRecoveryBundle({ inventory, branch: refs[0]!.branch,
+      expectedSha: refs[0]!.expectedHeadSha, recoveryRoot: path.join(root, 'compact'),
+      refSource: { kind: 'local-branch' } }).recovery;
+    expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery: compact,
+      expectedHeads: [refs[0]!.expectedHeadSha], requireComplete: false }).status).toBe('success');
+    expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery: compact,
+      expectedHeads: [refs[0]!.expectedHeadSha], requireComplete: true }).status).toBe('failed');
     rmSync(repository, { recursive: true, force: true });
     const empty = path.join(root, 'empty.git');
     mkdirSync(empty);
@@ -70,18 +77,4 @@ test('one batch bundle restores both unique tips with no source repository or ma
     for (const ref of refs) expect(git(empty, ['show', `${ref.expectedHeadSha}:unique.txt`])).toBe(ref.branch);
     expect(git(empty, ['show', `${inventory.main.remoteSha}:base.txt`])).toBe('base 2');
   } finally { rmSync(root, { recursive: true, force: true }); }
-}, 30_000);
-
-test('a compact single-head bundle cannot masquerade as self-contained batch recovery', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-reject-partial-batch-'));
-  try {
-    const { refs, inventory } = fixture(root);
-    const compact = createRecoveryBundle({ inventory, branch: refs[0]!.branch,
-      expectedSha: refs[0]!.expectedHeadSha, recoveryRoot: path.join(root, 'compact'),
-      refSource: { kind: 'local-branch' } }).recovery;
-    expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery: compact,
-      expectedHeads: [refs[0]!.expectedHeadSha], requireComplete: false }).status).toBe('success');
-    expect(verifyRecoveryAuthorityHeadsLive({ inventory, recovery: compact,
-      expectedHeads: [refs[0]!.expectedHeadSha], requireComplete: true }).status).toBe('failed');
-  } finally { rmSync(root, { recursive: true, force: true }); }
-}, 30_000);
+}, 60_000);

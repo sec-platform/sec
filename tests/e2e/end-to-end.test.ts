@@ -27,7 +27,11 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
 
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
-  expect(resolvedLock.resolvedBlocks.length).toBe(3);
+  expect(resolvedLock.resolvedBlocks.map((block) => block.id).sort()).toEqual([
+    'auth/basic-session',
+    'entity/customer-basic',
+    'tenant/basic-workspace'
+  ]);
 
   await composeWorkspace(workspaceRoot);
   const installedCustomerService = await fs.readFile(

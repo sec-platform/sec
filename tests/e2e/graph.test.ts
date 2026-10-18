@@ -34,7 +34,7 @@ async function attachSemanticViews(workspaceRoot: string, lock: LockFile): Promi
   return lock;
 }
 
-test('explain graph consumes canonical ports, policies, and policy violation governance edges', async () => {
+test('explain graph projects policy violations and upgrade operations from the same resolved workspace', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-graph-' });
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
@@ -119,12 +119,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
       edge.type === 'violates'
   );
   expect(violationEdges).toHaveLength(1);
-}, 180000);
 
-test('explain graph connects upgrade file operations to their block and durable files', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-file-' });
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const upgradePlan = buildUpgradePlanArtifact({
     blockId: 'entity/customer-basic',
     fromVersion: '0.1.0',
@@ -227,7 +222,7 @@ test('explain graph connects upgrade file operations to their block and durable 
     }
   });
 
-  const graph = await buildExplainGraph(
+  const upgradeGraph = await buildExplainGraph(
     workspaceRoot,
     lock,
     { formatVersion: '1', artifacts: [] },
@@ -237,13 +232,13 @@ test('explain graph connects upgrade file operations to their block and durable 
     diagnostics
   );
   const upgradeId = 'upgrade:entity/customer-basic:0.2.0';
-  const upgradeEdges = graph.edges.filter(
+  const upgradeEdges = upgradeGraph.edges.filter(
     (edge) => edge.from === upgradeId || edge.from.startsWith(`${upgradeId}:`)
   );
   const upgradeEndpointIds = new Set(
     upgradeEdges.flatMap((edge) => [edge.from, edge.to])
   );
-  const upgradeNodes = graph.nodes.filter((node) =>
+  const upgradeNodes = upgradeGraph.nodes.filter((node) =>
     upgradeEndpointIds.has(node.id) ||
     node.id.startsWith(`${upgradeId}:`) ||
     node.id.startsWith('upgrade-verification:')

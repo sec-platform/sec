@@ -5,12 +5,23 @@ import path, { delimiter } from 'node:path';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../src/adapters/self-hosting/development/runner/contract.ts';
 
 import { git, installGitHooks, withRepository } from './fixtures/install-git-hooks.ts';
-test('hook installer preserves an explicit missing non-managed hooks path', async () => {
+test('hook installer preserves explicit non-managed hooks authority when its path is missing or a broken link', async () => {
   await withRepository(async (repoRoot) => {
     const staleHooks = path.join(repoRoot, 'missing-hooks');
     git(repoRoot, ['config', '--local', 'core.hooksPath', staleHooks]);
     expect(await installGitHooks({ repoRoot, lifecycle: true }))
       .toMatchObject({ status: 'conflict' });
+    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe(staleHooks);
+
+    const missingTarget = path.join(repoRoot, 'missing-hooks-target');
+    await symlink(
+      missingTarget,
+      staleHooks,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    expect(await installGitHooks({ repoRoot, lifecycle: true }))
+      .toMatchObject({ status: 'conflict' });
+    expect((await lstat(staleHooks)).isSymbolicLink()).toBe(true);
     expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe(staleHooks);
   });
 });
@@ -29,24 +40,6 @@ test('hook installer preserves an explicit missing worktree hooks path', async (
       .toMatchObject({ status: 'conflict' });
     expect(git(repoRoot, ['config', '--file', worktreeConfigPath, '--get', 'core.hooksPath']))
       .toBe(staleHooks);
-  });
-});
-
-test('hook installer preserves an explicit broken symlink hooks path', async () => {
-  await withRepository(async (repoRoot) => {
-    const staleHooks = path.join(repoRoot, 'broken-hooks');
-    const missingTarget = path.join(repoRoot, 'missing-hooks-target');
-    await symlink(
-      missingTarget,
-      staleHooks,
-      process.platform === 'win32' ? 'junction' : 'dir'
-    );
-    git(repoRoot, ['config', '--local', 'core.hooksPath', staleHooks]);
-
-    expect(await installGitHooks({ repoRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
-    expect((await lstat(staleHooks)).isSymbolicLink()).toBe(true);
-    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe(staleHooks);
   });
 });
 
