@@ -5,13 +5,15 @@ description: SEC 的 Claim/acceptance 需要设计或复核测试、独立 oracl
 
 # test-design
 
-## 归属、对象与权限
+## 归属与不可越界的事实
 
-- Claim 和验收方法的权威归[要求证据](../../../docs/运行/保证/要求证据与裁决.md#要求含义与验收方法不互相定义)；CasePlan/casesRef、测试发现、Q0—Q6、Test Value、REWRITE/consumer-zero 与执行归[测试发现与执行](../../../docs/开发/测试发现与执行.md#developer-test-selection)及其正式 owner。本 Skill 只指导判断与方法，不新建 inventory、评分、台账、审批状态或执行平台。
-- 固定准确的当前 `main`、候选提交及工作区差异，区分已采用产品合同、当前实现和历史证据。PR、分支、测试标题、旧 CI 与实现现状都不能反向定义要求，也不能把候选冒称已合并；源码判断本身不授予写入、执行或发布权限。
-- **当前正式 SEC 产品能力保持不变。** 不以撤销 Git Hooks、Provider、Runner、编译能力、安全、数据保全或恢复义务制造可删测试。正式产品退役须有独立授权及其迁移、历史状态和消费者结算，不属于测试清理。
-- **测试修改留在获准的聚焦分支与现有 PR，不自行 merge、squash、rebase-merge 或启用 auto-merge。** PR 可合并、CI 成功与作者权限不能替代新的明确合并授权。仅要求修订本 Skill 时，写集限本 Skill，不继续改测试、生产代码、规范或创设新 PR；账户 Skill 安装另按授权处理。
-- 在有界任务中使用本 Skill；需要设计裁决的 `test-design-required` 交主协调者。确有要求含义或验收方法未决时交原 requirement/assurance owner；纯选择与执行交 selector/runner，不扩张 Work Package 权限，也不为普通清理另造 Claim 文书。角色与平台能力须实际核查，不由 Skill 声明。
+- Claim 和验收方法的权威归[要求证据](../../../docs/运行/保证/要求证据与裁决.md#要求含义与验收方法不互相定义)；CasePlan/casesRef、测试发现、Q0—Q6、Test Value、REWRITE/consumer-zero 与执行归[测试发现与执行](../../../docs/开发/测试发现与执行.md#developer-test-selection)及其正式 owner。本 Skill 只指导证据与方法的选择，不创建第二份 inventory、评分、台账、审批状态或测试执行平台。
+- 以准确的当前 `main` 源码、产品合同和真实消费者为事实；PR、分支、历史审计、测试标题、文件名与旧 CI 结论都不是新主干事实。不得把某一分支的变化当成已合并内容，也不得把静态候选当成删除授权。
+- **所有当前正式 SEC 产品能力保持不变。** 测试优化不能以撤销 Git Hooks、Provider、Runner、编译能力或恢复义务来制造可删测试；有独立正式授权且迁移、消费者与历史状态已经结算的产品退役属其他任务，本 Skill 无权发起。
+- **测试设计不签发提交、推送或合并权限。** 按执行时有效的最新用户授权与原Effect准入决定交付终态；用户最新禁止合并、要求保留PR或撤回目标ref更新授权时，不得merge、squash、rebase-merge或启用auto-merge。已有明确目标ref授权且未撤回时，沿原集成合同完成收口，不因历史限制重复索取已取得的授权；PR可合并、CodeQL成功、作者权限及Skill本身均不能补足缺失授权。该边界不改变正式仓库门禁。
+- 由主协调者在有界设计任务中读取；当前 hosted activation 只确认 Worker implement，不由注册信息推断 design role 已接通。`test-design-required` 交回主协调者；无 canonical Claim 或方法未归于测试时返回 requirement/assurance owner；纯选择/执行交 selector/runner，不扩张既有 Work Package 权限。
+
+补充执行约束：固定候选提交与工作区差异，区分已采用产品合同、当前实现和历史证据；实现现状不能反向定义要求。安全与数据保全同属不得为删测试撤销的保证。角色与平台能力按实际核验，不凭 Skill 声明推断。仅修订本 Skill 的请求不授权继续改测试、生产代码、规范或新建 PR；账户 Skill 安装另按授权处理。
 
 ## 先判断需要保护什么
 
