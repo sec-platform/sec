@@ -5,8 +5,8 @@ import { readJson } from "../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
-import { expectCliSuccess, expectCliText } from '../testkit/cli.ts';
-import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
+import { expectCliSuccess } from '../testkit/cli.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type WorkspaceLockSnapshot = {
   resolvedBlocks: Array<{ id: string; registrySourceId: string; registryKind: string; registryLocation: string }>;
@@ -38,21 +38,10 @@ async function expectDirectoriesExist(directories: readonly string[]): Promise<v
   }
 }
 
-test('CLI init creates the native workspace roots', async () => {
+test('CLI initializes native roots, adds private blocks, and preserves registry metadata on resolve', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
-    const paths = getWorkspacePaths(workspaceRoot);
-    await expectDirectoriesExist(nativeWorkspaceDirectories(paths));
-  });
-}, 180000);
-test('CLI defaults verification to the fast lane', async () => {
-  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
-  });
-}, 180000);
-test('CLI adds private registry blocks and preserves registry metadata on resolve', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
+    await expectDirectoriesExist(nativeWorkspaceDirectories(getWorkspacePaths(workspaceRoot)));
     await installPrivateBannerBlock(workspaceRoot);
     const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
     const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);

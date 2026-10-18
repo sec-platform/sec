@@ -4,7 +4,7 @@ import type { VerificationReport } from '../../src/assurance/verification/contra
 import { expectCliJson, expectCliText, expectCliVariants } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
-test('CLI exposes policy report as text and JSON contracts', async () => {
+test('CLI exposes policy, acceptance, runtime, and verification reports as text and JSON contracts', async () => {
   await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: policyReport } = await expectCliVariants<{
       status: string;
@@ -60,11 +60,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
         }
       ]
     });
-  });
-}, 120000);
 
-test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
-  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: coverageReport } = await expectCliVariants<{
       status: string;
       blocks: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
@@ -114,11 +110,6 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
       { compact: true }
     );
 
-  });
-}, 120000);
-
-test('CLI exposes runtime report as text and JSON contracts', async () => {
-  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: runtimeReport } = await expectCliVariants<{
       status: string;
       build: { status: string };
@@ -169,46 +160,7 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
       },
       { compact: true }
     );
-  });
-}, 120000);
 
-test('CLI runs verify with JSON output for CI consumers', async () => {
-  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['verify', '--lane', 'fast'], ['Verification passed (fast)\n']);
-
-    const directVerificationReport = await expectCliJson<VerificationReport>(
-      workspaceRoot,
-      ['verify', '--lane', 'fast', '--json'],
-      undefined,
-      { stdoutMarkers: ['\n  "summary"'] }
-    );
-    expect(directVerificationReport).toMatchObject({
-      summary: {
-        status: 'passed',
-        requestedLane: 'fast',
-        failedLanes: []
-      },
-      fast: { status: 'passed', policy: { status: 'passed' } },
-      runtime: { status: 'passed', acceptance: { status: 'skipped' } }
-    });
-
-    await expectCliJson(
-      workspaceRoot,
-      ['verify', '--json', '--compact'],
-      {
-        summary: {
-          status: 'passed',
-          requestedLane: 'fast'
-        }
-      },
-      { compact: true }
-    );
-
-  });
-}, 120000);
-
-test('CLI exposes verification report as text and JSON contracts', async () => {
-  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
     const { json: verificationReport } = await expectCliVariants<VerificationReport>(workspaceRoot, ['verification', 'report'], {
       text: [
         'Verification report passed; requestedLane=fast; failedLanes=none',
@@ -241,5 +193,40 @@ test('CLI exposes verification report as text and JSON contracts', async () => {
       },
       runtime: { status: 'passed', acceptance: { status: 'skipped' } }
     });
+  });
+}, 180000);
+
+test('CLI runs verify with JSON output for CI consumers', async () => {
+  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
+    await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
+
+    const directVerificationReport = await expectCliJson<VerificationReport>(
+      workspaceRoot,
+      ['verify', '--lane', 'fast', '--json'],
+      undefined,
+      { stdoutMarkers: ['\n  "summary"'] }
+    );
+    expect(directVerificationReport).toMatchObject({
+      summary: {
+        status: 'passed',
+        requestedLane: 'fast',
+        failedLanes: []
+      },
+      fast: { status: 'passed', policy: { status: 'passed' } },
+      runtime: { status: 'passed', acceptance: { status: 'skipped' } }
+    });
+
+    await expectCliJson(
+      workspaceRoot,
+      ['verify', '--json', '--compact'],
+      {
+        summary: {
+          status: 'passed',
+          requestedLane: 'fast'
+        }
+      },
+      { compact: true }
+    );
+
   });
 }, 180000);

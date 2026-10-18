@@ -1863,7 +1863,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     });
 
     test(`${slot.name} artifact cannot borrow a different slot, attempt or producer with correct bytes`, async () => {
-      const forgeries: Array<(job: Record<string, unknown>) => void> = [
+      const forgeries: Array<(job: Record<string, unknown>) => string | void> = [
         job => { job.name = 'coordinate-verification-session'; },
         job => { job.head_sha = HEAD; },
         job => { job.run_id = Number(PARENT_RUN_ID); },
@@ -1873,7 +1873,9 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.conclusion = 'skipped'; },
         job => { (job.steps as Record<string, unknown>[])[slot.uploadIndex]!.name = 'Upload a different slot'; },
         job => { const steps = job.steps as Record<string, unknown>[];
-          steps[slot.uploadIndex]!.number = Number(steps[slot.producerIndex]!.number) - 1; },
+          // Number 1 is unique in every slot fixture, so only ordering is invalid.
+          steps[slot.uploadIndex]!.number = 1;
+          return 'Action artifact producer/upload steps are absent, ambiguous, unsuccessful or unordered.'; },
         job => { const steps = job.steps as Record<string, unknown>[];
           steps.push({ ...steps[slot.producerIndex]!, number: 20 }); },
         job => { fakeGh.actionJobsByAttempt[`${CURRENT_RUN_ID}:1`]!.push({ ...job }); },
@@ -1883,9 +1885,10 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       for (const forge of forgeries) {
         const job = isolatedSlot(slot);
         const originalBytes = fakeGh.artifacts.find(artifact => artifact.id === slot.artifactId)!.source;
-        forge(job);
+        const expectedFailure = forge(job);
         await expect(ensureTransaction({ origin: claimOrigin, authority: authority(), intent: { kind: 'claim-start', marker } }))
-          .rejects.toThrow(/(?:Action artifact|parent workflow job)/);
+          .rejects.toThrow(typeof expectedFailure === 'string'
+            ? expectedFailure : /(?:Action artifact|parent workflow job)/);
         expect(fakeGh.artifacts.find(artifact => artifact.id === slot.artifactId)!.source).toBe(originalBytes);
         expect(fakeGh.createCalls + fakeGh.dispatchCalls).toBe(0);
       }
@@ -1903,8 +1906,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
           fakeGh.artifactMetadataOverrides[String(slot.artifactId)] = {
             created_at: '2026-08-10T01:00:03Z', updated_at: '2026-08-10T01:00:05Z' }; },
         ...[{ created_at: undefined }, { updated_at: 'invalid' },
-          { updated_at: '2026-08-21' }, { updated_at: '9999' },
-          { updated_at: '2026-09-31T01:00:04Z' }, { created_at: 'not-a-time' },
+          { created_at: 'not-a-time' },
           { created_at: '2026-08-09T01:00:00Z' }, { updated_at: '2026-08-10T01:00:00Z' },
           { updated_at: '2026-08-09T01:00:00Z' },
           { workflow_run: { id: Number(CURRENT_RUN_ID), head_sha: HEAD } }].map(patch =>

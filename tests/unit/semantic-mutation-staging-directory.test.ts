@@ -95,7 +95,7 @@ test.skipIf(process.platform !== 'linux')(
   }
 );
 
-test('staging retirement removes only its exact child and preserves artifacts and path proof', async () => {
+test('staging retirement removes its exact child including a large sparse leaf and preserves artifacts and path proof', async () => {
   const f = fixture();
   try {
     const transaction = await create(f);
@@ -103,23 +103,13 @@ test('staging retirement removes only its exact child and preserves artifacts an
     writeFileSync(path.join(f.transactionRoot, 'original.backup'), 'retained backup');
     mkdirSync(path.join(f.stage, 'nested'), { recursive: true });
     writeFileSync(path.join(f.stage, 'nested', 'source.yaml'), 'source: before');
-    await retireSemanticMutationStagingWorkspace(transaction, fence);
-    expect(existsSync(f.stage)).toBe(false);
-    expect(readFileSync(path.join(f.transactionRoot, 'original.backup'), 'utf8')).toBe('retained backup');
-    expect(existsSync(path.join(f.transactionRoot, 'path-proof'))).toBe(true);
-  } finally { cleanup(f); }
-});
-
-test('staging retirement removes a tree containing a large sparse source leaf', async () => {
-  const f = fixture();
-  try {
-    const transaction = await create(f);
-    mkdirSync(f.stage);
     const large = path.join(f.stage, 'large.bin');
     writeFileSync(large, '');
     truncateSync(large, 128 * 1024 * 1024);
     await retireSemanticMutationStagingWorkspace(transaction, fence);
     expect(existsSync(f.stage)).toBe(false);
+    expect(readFileSync(path.join(f.transactionRoot, 'original.backup'), 'utf8')).toBe('retained backup');
+    expect(existsSync(path.join(f.transactionRoot, 'path-proof'))).toBe(true);
   } finally { cleanup(f); }
 });
 

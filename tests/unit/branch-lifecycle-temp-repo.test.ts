@@ -320,51 +320,6 @@ test('remote-absent preparation recovers the exact local branch without mutating
   }
 }, 180_000);
 
-test('recovery readback revalidates the exact expected head before a ref effect', () => {
-  const fixture = repositoryFixture();
-  const restorePath = installGitHubObservationShim(fixture);
-  try {
-    const prepared = prepareBranchCloseout({
-      repositoryRoot: fixture.repository,
-      repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main',
-      activeWorkPackageObservation: activeWorkObservation(fixture),
-      recoveryRoot: path.join(fixture.root, 'recovery')
-    }, {
-      branch: fixture.branch,
-      expectedHeadSha: fixture.headSha
-    });
-    expect(prepared.preparation.expectedHeadSha).toBe(fixture.headSha);
-    expect(existsSync(preparationFilePath(prepared.preparation))).toBe(true);
-    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
-      .toBe(fixture.headSha);
-    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
-      .toContain(fixture.headSha);
-    const recovery = prepared.preparation.recovery;
-    if (recovery === null) throw new Error('Expected exact recovery authority.');
-
-    expect(verifyRecoveryAuthorityHeadLive({
-      inventory: prepared.before,
-      recovery,
-      expectedHeadSha: fixture.headSha
-    })).toMatchObject({
-      operation: 'recovery-verify',
-      status: 'success'
-    });
-    expect(verifyRecoveryAuthorityHeadLive({
-      inventory: prepared.before,
-      recovery,
-      expectedHeadSha: fixture.mainSha
-    })).toMatchObject({
-      operation: 'recovery-verify',
-      status: 'failed'
-    });
-  } finally {
-    restorePath();
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-}, 180_000);
-
 test('canonical GitHub credential prefix masks checkout HTTP authorization before gh lookup', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-credential-'));
   try {
@@ -458,7 +413,7 @@ test('typed inventory boundary ignores ambient repository and index steering wit
   }
 });
 
-test('missing documentation-owner observation is typed unresolved and blocks before recovery effect', () => {
+test('closeout requires its documentation owner and revalidates the exact recovery head before effects', () => {
   const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   const recoveryRoot = path.join(fixture.root, 'recovery');
@@ -503,6 +458,32 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
     });
+    expect(authorized.preparation.expectedHeadSha).toBe(fixture.headSha);
+    expect(existsSync(preparationFilePath(authorized.preparation))).toBe(true);
+    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
+      .toBe(fixture.headSha);
+    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
+      .toContain(fixture.headSha);
+    const recovery = authorized.preparation.recovery;
+    if (recovery === null) throw new Error('Expected exact recovery authority.');
+
+    expect(verifyRecoveryAuthorityHeadLive({
+      inventory: authorized.before,
+      recovery,
+      expectedHeadSha: fixture.headSha
+    })).toMatchObject({
+      operation: 'recovery-verify',
+      status: 'success'
+    });
+    expect(verifyRecoveryAuthorityHeadLive({
+      inventory: authorized.before,
+      recovery,
+      expectedHeadSha: fixture.mainSha
+    })).toMatchObject({
+      operation: 'recovery-verify',
+      status: 'failed'
+    });
+
     const rehydrationRoot = path.join(fixture.root, 'blocked-rehydration');
     expect(() => rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: {

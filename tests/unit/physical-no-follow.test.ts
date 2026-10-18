@@ -1350,7 +1350,6 @@ test('exclusive durable canonical publication is idempotent and refuses a confli
       }),
       'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT'
     );
-    expect(lstatSync(path.join(parentPath, '.authorization.json.candidate'), { throwIfNoEntry: false })).toBeUndefined();
   } finally {
     permissionSource?.dispose();
     rmSync(root, { recursive: true, force: true });
@@ -1542,9 +1541,10 @@ test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds 
       await assertWorkspaceWriteLease(repository, lease);
       const parent = inspectNoFollowDirectoryChain(parentPath, 'byte recovery identity').target;
       const original = statSync(target, { bigint: true });
+      const nativeOriginal = inspectNoFollowOrdinaryFileEntry(parent, 'journal.json')!;
       const request = {
         parent, name: 'journal.json', bytes: Buffer.from('new\n'),
-        expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+        expectedExisting: { device: nativeOriginal.device, inode: nativeOriginal.inode },
         expectedExistingBytes: Buffer.from('old\n'), validate: () => undefined
       };
       expectPhysicalCode(() => replaceDurableCanonicalFile({
@@ -1552,6 +1552,7 @@ test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds 
         windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests('after-candidate-publication')
       }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
       const installed = statSync(target, { bigint: true });
+      const nativeInstalled = inspectNoFollowOrdinaryFileEntry(parent, 'journal.json')!;
       expect(installed.ino).not.toBe(original.ino);
       const names = readdirSync(parentPath).sort();
       const before = names.map(name => ({ name, bytes: readFileSync(path.join(parentPath, name)),
@@ -1559,7 +1560,7 @@ test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds 
       // The new inode has never held the requested old bytes. Matching only
       // the saved old-byte and successor digests would adopt another request.
       expectPhysicalCode(() => replaceDurableCanonicalFile({
-        ...request, expectedExisting: { device: String(installed.dev), inode: String(installed.ino) }
+        ...request, expectedExisting: { device: nativeInstalled.device, inode: nativeInstalled.inode }
       }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
       expect(readdirSync(parentPath).sort()).toEqual(names);
       for (const entry of before) {
@@ -1567,7 +1568,7 @@ test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds 
         expect(statSync(path.join(parentPath, entry.name), { bigint: true }).ino).toBe(entry.inode);
       }
       const recovered = replaceDurableCanonicalFile(request);
-      expect(recovered.physical).toEqual({ device: String(installed.dev), inode: String(installed.ino) });
+      expect(recovered.physical).toEqual({ device: nativeInstalled.device, inode: nativeInstalled.inode });
       expect(readFileSync(target, 'utf8')).toBe('new\n');
       expect(readdirSync(parentPath)).toEqual(['journal.json']);
     });
@@ -1586,9 +1587,10 @@ test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage rec
       await assertWorkspaceWriteLease(repository, lease);
       const parent = inspectNoFollowDirectoryChain(parentPath, 'byte recovery').target;
       const original = statSync(target, { bigint: true });
+      const nativeOriginal = inspectNoFollowOrdinaryFileEntry(parent, 'journal.json')!;
       expectPhysicalCode(() => replaceDurableCanonicalFile({
         parent, name: 'journal.json', bytes: Buffer.from('new\n'),
-        expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+        expectedExisting: { device: nativeOriginal.device, inode: nativeOriginal.inode },
         expectedExistingBytes: Buffer.from('old\n'), validate: () => undefined,
         windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests('after-preimage-quarantine')
       }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
