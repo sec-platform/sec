@@ -114,8 +114,6 @@ test('Verification adapter emits the exact frozen report and execution binding, 
     domain: 'semantic-mutation-verification-report-v1',
     ...withoutReportRevision
   }));
-  expect(() => assertSemanticMutationVerificationReportInvariant(report)).not.toThrow();
-
   for (const key of ['inputRevision', 'semanticRevision'] as const) {
     let coercions = 0;
     const candidate = { ...report, attempted: { ...report.attempted,

@@ -248,7 +248,7 @@ async function rawV2Fixture(kind: 'current' | 'one-hop' | 'disposed' | 'gap' | '
   return { ...fixture, source, sourceNames, sourceBytes, retired };
 }
 
-for (const kind of ['current', 'one-hop', 'disposed'] as const) {
+for (const kind of ['current', 'disposed'] as const) {
   test(`raw unguarded v2 ${kind} migrates without rewriting its source`, async () => {
     const fixture = await rawV2Fixture(kind);
     await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
@@ -326,6 +326,18 @@ test('a first producer observation reads legal old retirement without publishing
   }
   await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   expect((await hooks.observeRetirement(relativePath)).registrationDigest).toBe(observation.registrationDigest);
+  const backend = createGeneratedStateRegistrationMutationBackend();
+  await withMigratedGeneratedStateMutation({ workspaceRoot: fixture.repositoryRoot, environment: fixture.environment, backend, use: async (_, resource) => {
+    const migrated = backend.readRegistrationCensus(resource).observations.get(relativePath)!;
+    expect(migrated.registration?.registrationDigest).toBe(fixture.retired.registrationDigest);
+    expect(migrated.previousRegistration?.registrationDigest).toBe(fixture.current.registrationDigest);
+  } });
+  expect((await readdir(fixture.source)).sort()).toEqual(fixture.sourceNames);
+  for (let index = 0; index < fixture.sourceNames.length; index += 1) {
+    expect(await readFile(path.join(fixture.source, fixture.sourceNames[index]!))).toEqual(fixture.sourceBytes[index]);
+  }
+  const names = await readdir(fixture.registrationsV2Root);
+  expect(names.some(name => /^[0-9a-f]{64}\.json$/u.test(name) || /^registration-[0-9a-f]{64}\.json$/u.test(name))).toBe(false);
 });
 
 test('an invalid existing v3 namespace never falls back to a valid old source', async () => {
