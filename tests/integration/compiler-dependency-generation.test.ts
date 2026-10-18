@@ -1,3 +1,4 @@
+import { compilerDependencyStoragePaths } from '../../src/adapters/toolchain/dependencies/runtime/dependency-storage-layout.ts';
 import {
   EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS,
   EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
@@ -16,8 +17,10 @@ import {
   installCompilerDependencyFixture,
   migrateDependencyTransitionJournal,
   observeCompilerDependencyExecutionGenerationAuthority,
+  observeDependencyTransitionSlot,
   path,
   readJson,
+  readDependencyTransition,
   readRuntimeDependencyOperationTelemetry,
   removeSettledGeneratedStateFixtureRoot,
   runFixtureGit,
@@ -127,8 +130,7 @@ describe('compiler dependency installation', () => {
         expect(options.cwd).not.toBe(tempRoot);
         const stagingName = path.basename(options.cwd);
         expect(stagingName.startsWith('c.staging-')).toBe(true);
-        expect(stagingName.length).toBe('c.staging-'.length + 6);
-        expect(path.dirname(options.cwd)).toBe(path.join(tempRoot, '.tmp', 'dependency-installs'));
+        expect(path.dirname(options.cwd)).toBe(compilerDependencyStoragePaths(tempRoot).stageParent);
         stagingRoots.add(options.cwd);
         await installCompilerDependencyFixture(options.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
@@ -206,7 +208,7 @@ describe('compiler dependency installation', () => {
   });
 
   effectfulTest(test,
-    'recovers an installed staging generation only from its durable intent and lifecycle registration',
+    'recovers an installed staging generation from durable intent and preserves foreign descendants',
     {
       operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
       cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
@@ -217,30 +219,34 @@ describe('compiler dependency installation', () => {
       lifecycleOwner
     ) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lifecycleOutcomes: string[] = [];
       let installCalls = 0;
-      let rejectFirstDisposal = true;
-      const lifecycle = {
-        born: lifecycleOwner.born,
-        inspect: lifecycleOwner.inspect,
-        bind: lifecycleOwner.bind,
-        restore: lifecycleOwner.restore,
-        retired: lifecycleOwner.retired,
-        observeRetirement: lifecycleOwner.observeRetirement,
-        disposed: async (
-          relativePath: string,
-          request: Parameters<typeof lifecycleOwner.disposed>[1]
-        ) => {
-          lifecycleOutcomes.push(request.outcome);
-          if (rejectFirstDisposal) {
-            rejectFirstDisposal = false;
-            throw new Error('fixture disposal interruption');
-          }
-          return lifecycleOwner.disposed(relativePath, request);
+      let installedStageRoot: string | null = null;
+      let disposalInterrupted = false;
+      let failedOperationKey: string | null = null;
+      const beforeCommit = async () => {
+        if (installedStageRoot === null || failedOperationKey === null || disposalInterrupted) return;
+        const intentRoot = compilerDependencyStoragePaths(tempRoot).stageIntentRoot;
+        for (const name of await fs.readdir(intentRoot)) {
+          const intent = await readJson<{ phase: string; stageRootPath: string; operationKey: string }>(path.join(intentRoot, name));
+          if (intent.phase !== 'disposing' || intent.stageRootPath !== installedStageRoot ||
+              intent.operationKey !== failedOperationKey) continue;
+          disposalInterrupted = true;
+          throw new Error('fixture disposal interruption after exact durable intent');
         }
       };
       const materialize = async (_args: string[], options: { cwd: string }) => {
         installCalls += 1;
+        installedStageRoot = options.cwd;
+        if (installCalls === 1) {
+          const intentRoot = compilerDependencyStoragePaths(tempRoot).stageIntentRoot;
+          for (const name of await fs.readdir(intentRoot)) {
+            const intent = await readJson<{ phase: string; stageRootPath: string; operationKey: string }>(path.join(intentRoot, name));
+            if (intent.phase === 'prepared' && intent.stageRootPath === options.cwd) {
+              failedOperationKey = intent.operationKey;
+            }
+          }
+          expect(failedOperationKey).not.toBeNull();
+        }
         await installCompilerDependencyFixture(options.cwd, `intent-generation-${installCalls}`);
         return installCalls === 1
           ? { code: 1, stdout: '', stderr: 'fixture install failure' }
@@ -249,31 +255,32 @@ describe('compiler dependency installation', () => {
 
       const operation = {
         deadlineAtUnixMs: effectful.operationDeadlineAtUnixMs,
-        signal: effectful.operationSignal
+        signal: effectful.operationSignal,
+        beforeCommit,
+        generatedStateLifecycle: lifecycleOwner
       };
-      await expect(ensureCompilerDepsReady({ ...operation, materialize, generatedStateLifecycle: lifecycle }, tempRoot))
+      await expect(ensureCompilerDepsReady({ ...operation, materialize }, tempRoot))
         .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
-      const stagedAfterFailure = (await fs.readdir(path.join(tempRoot, '.tmp', 'dependency-installs')))
-        .filter((name) => name.startsWith('c.staging-'));
-      expect(stagedAfterFailure).toHaveLength(1);
-      const foreignResidue = path.join(
-        tempRoot,
-        '.tmp',
-        'dependency-installs',
-        stagedAfterFailure[0]!,
-        'foreign-residue'
-      );
+      expect(disposalInterrupted).toBe(true);
+      expect(installedStageRoot).not.toBeNull();
+      const failedStageRoot = installedStageRoot!;
+      expect((await fs.lstat(failedStageRoot)).isDirectory()).toBe(true);
+      const foreignResidue = path.join(failedStageRoot, 'foreign-residue');
       await fs.writeFile(foreignResidue, 'foreign\n');
-      await expect(ensureCompilerDepsReady({ ...operation, materialize, generatedStateLifecycle: lifecycle }, tempRoot))
-        .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
-      expect(installCalls).toBe(1);
-      await fs.rm(foreignResidue);
+      try {
+        await expect(ensureCompilerDepsReady({ ...operation, materialize }, tempRoot))
+          .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
+        expect(installCalls).toBe(1);
+        expect(await fs.readFile(foreignResidue, 'utf8')).toBe('foreign\n');
+      } finally {
+        await fs.rm(foreignResidue, { force: true });
+      }
 
-      const ready = await ensureCompilerDepsReady({ ...operation, materialize, generatedStateLifecycle: lifecycle }, tempRoot);
+      const ready = await ensureCompilerDepsReady({ ...operation, materialize }, tempRoot);
       expect(ready.source).toBe('installed');
       expect(installCalls).toBe(2);
-      expect(lifecycleOutcomes).toContain('generation-staging-recovered');
-      expect((await fs.readdir(path.join(tempRoot, '.tmp', 'dependency-installs')))
+      await expect(fs.lstat(failedStageRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await fs.readdir(compilerDependencyStoragePaths(tempRoot).stageParent))
         .filter((name) => name.startsWith('c.staging-'))).toHaveLength(0);
     });
   });
@@ -293,8 +300,7 @@ describe('compiler dependency installation', () => {
       let installCalls = 0;
       let nodeModulesBirthAttempts = 0;
       let rejectFirstNodeModulesBirth = true;
-      let rejectStageProvenanceBinding = false;
-      let stageRelativePath: string | null = null;
+      let installedStageRoot: string | null = null;
       const lifecycle = Object.freeze({
         ...lifecycleOwner,
         born: async (relativePath: string, operationId: string): Promise<void> => {
@@ -304,21 +310,8 @@ describe('compiler dependency installation', () => {
               rejectFirstNodeModulesBirth = false;
               throw new Error('fixture process loss before active generation provenance birth');
             }
-          } else if (stageRelativePath === null) {
-            stageRelativePath = relativePath;
           }
           await lifecycleOwner.born(relativePath, operationId);
-        },
-        bind: async (
-          relativePath: string,
-          expected?: Parameters<typeof lifecycleOwner.bind>[1]
-        ) => {
-          if (rejectStageProvenanceBinding && relativePath === stageRelativePath) {
-            throw Object.assign(new Error('fixture stage provenance binding is unavailable'), {
-              code: 'GENERATED_STATE_PROVENANCE_BLOCKED'
-            });
-          }
-          return lifecycleOwner.bind(relativePath, expected);
         }
       });
       const operation = Object.freeze({
@@ -331,6 +324,7 @@ describe('compiler dependency installation', () => {
         if (installCalls !== 1) {
           throw new Error('Published-generation recovery must not install a replacement generation.');
         }
+        installedStageRoot = command.cwd;
         await installCompilerDependencyFixture(command.cwd, 'published-provenance');
         return { code: 0, stdout: 'ok', stderr: '' };
       };
@@ -339,11 +333,23 @@ describe('compiler dependency installation', () => {
         .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
       expect(installCalls).toBe(1);
       expect(nodeModulesBirthAttempts).toBe(1);
-      expect(stageRelativePath).not.toBeNull();
+      const controls = runtimeDependencyOperationOptions(operation);
+      const interrupted = await readDependencyTransition(tempRoot, controls);
+      if (interrupted === null || interrupted.stageRoot === null) {
+        throw new Error('Interrupted publication has no durable stage root');
+      }
+      expect(interrupted.kind).toBe('compiler-local-locator');
+      expect(interrupted.stageRoot.path).toBe(installedStageRoot);
+      const originalLocator = await observeDependencyTransitionSlot(path.join(tempRoot, 'node_modules'));
+      expect(interrupted.destination.kind).toBe('link');
+      expect(interrupted.destination.physical).toEqual(originalLocator.physical);
+      const sourceBytes = await fs.readFile(path.join(
+        interrupted.sourceGeneration.sourcePath, 'typescript', 'lib', 'typescript.js'
+      ), 'utf8');
       await expect(observeCompilerDependencyExecutionGenerationAuthority(operation, tempRoot))
         .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
 
-      const stageRootPath = path.join(tempRoot, ...stageRelativePath!.split('/'));
+      const stageRootPath = interrupted.stageRoot.path;
       const parkedStageRootPath = `${stageRootPath}.fixture-parked`;
       await fs.rename(stageRootPath, parkedStageRootPath);
       await fs.mkdir(stageRootPath);
@@ -358,12 +364,14 @@ describe('compiler dependency installation', () => {
       await expect(observeCompilerDependencyExecutionGenerationAuthority(operation, tempRoot))
         .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
 
-      rejectStageProvenanceBinding = true;
+      const stageIntentsPath = compilerDependencyStoragePaths(tempRoot).stageIntentRoot;
+      const parkedStageIntentsPath = `${stageIntentsPath}.fixture-parked`;
+      await fs.rename(stageIntentsPath, parkedStageIntentsPath);
       try {
         await expect(ensureCompilerDepsReady({ ...operation, materialize }, tempRoot))
           .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
       } finally {
-        rejectStageProvenanceBinding = false;
+        await fs.rename(parkedStageIntentsPath, stageIntentsPath);
       }
       expect(installCalls).toBe(1);
       await expect(observeCompilerDependencyExecutionGenerationAuthority(operation, tempRoot))
@@ -371,6 +379,12 @@ describe('compiler dependency installation', () => {
 
       const recovered = await ensureCompilerDepsReady({ ...operation, materialize }, tempRoot);
       expect(recovered.source).toBe('existing');
+      expect((await observeDependencyTransitionSlot(path.join(tempRoot, 'node_modules'))).physical)
+        .toEqual(originalLocator.physical);
+      expect(await fs.readFile(path.join(
+        interrupted.sourceGeneration.sourcePath, 'typescript', 'lib', 'typescript.js'
+      ), 'utf8')).toBe(sourceBytes);
+      expect((await readDependencyTransition(tempRoot, controls))?.phase).toBe('complete');
       expect(installCalls).toBe(1);
       const executionAuthority = await observeCompilerDependencyExecutionGenerationAuthority(operation, tempRoot);
       expect(executionAuthority).not.toBeNull();

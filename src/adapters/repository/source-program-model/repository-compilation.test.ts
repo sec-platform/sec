@@ -162,19 +162,6 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
   }, rightContext)).toThrow('cannot mix test facts');
 });
 
-test('workspace source snapshot origin cannot be forged by structural copying', () => {
-  const input = fixture(1);
-  const issued = compileVirtualWorkspaceSourceSnapshot({
-    ...input,
-    subject: virtualSnapshotSubject('issued-context') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
-  });
-  expect(() => assertWorkspaceSourceSnapshot(issued)).not.toThrow();
-
-  const forged = Object.freeze({ ...issued }) as WorkspaceSourceSnapshot;
-  expect(() => assertWorkspaceSourceSnapshot(forged))
-    .toThrow('was not issued by the Source Program owner');
-});
-
 test('workspace source snapshot owns immutable repository-relative source bytes', () => {
   const input = fixture(1);
   const mutableFile = {
@@ -185,6 +172,12 @@ test('workspace source snapshot owns immutable repository-relative source bytes'
     files: [mutableFile, ...input.files.slice(1)],
     subject: virtualSnapshotSubject('immutable-snapshot') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
+  expect(() => assertWorkspaceSourceSnapshot(issued)).not.toThrow();
+
+  const forged = Object.freeze({ ...issued }) as WorkspaceSourceSnapshot;
+  expect(() => assertWorkspaceSourceSnapshot(forged))
+    .toThrow('was not issued by the Source Program owner');
+
   const admitted = issued.file(mutableFile.path);
   expect(admitted).not.toBeNull();
   expect(admitted?.source).toBe(mutableFile.source);

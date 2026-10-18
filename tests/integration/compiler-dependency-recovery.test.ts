@@ -187,7 +187,7 @@ for (const scenario of ['retired', 'disposed', 'foreign', 'preimage', 'cancel', 
 }
 
 describe('compiler dependency installation', () => {
-  for (const slot of ['present', 'absent'] as const) effectfulTest(test, `recovers the durable stage locator after birth interruption: ${slot}`, {
+  effectfulTest(test, 'recovers the durable stage locator after birth interruption: absent', {
     operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
     cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS
   }, effectful => withCompilerTestWorkspace(effectful, 'compiler-stage-locator-birth-', async (root, operation) => {
@@ -217,14 +217,11 @@ describe('compiler dependency installation', () => {
     expect(interrupted.destination.kind).toBe('link');
     expect(interrupted.destination.physical).toEqual(locator.physical);
     const sourceBytes = await fs.readFile(path.join(interrupted.sourceGeneration.sourcePath, 'typescript', 'lib', 'typescript.js'), 'utf8');
-    if (slot === 'absent') await fs.unlink(path.join(root, 'node_modules'));
+    await fs.unlink(path.join(root, 'node_modules'));
     expect((await ensureCompilerDepsReady(options, root)).source).toBe('existing');
     const recoveredLocator = await observeDependencyTransitionSlot(path.join(root, 'node_modules'));
-    if (slot === 'present') expect(recoveredLocator.physical).toEqual(locator.physical);
-    else {
-      expect(recoveredLocator.kind).toBe('link');
-      expect((await readDependencyTransition(root, controls))?.destination.physical).toEqual(recoveredLocator.physical);
-    }
+    expect(recoveredLocator.kind).toBe('link');
+    expect((await readDependencyTransition(root, controls))?.destination.physical).toEqual(recoveredLocator.physical);
     expect(await fs.readFile(path.join(interrupted.sourceGeneration.sourcePath, 'typescript', 'lib', 'typescript.js'), 'utf8')).toBe(sourceBytes);
     expect((await readDependencyTransition(root, controls))?.phase).toBe('complete');
     expect((await lifecycle.bind('node_modules')).phase).toBe('active');

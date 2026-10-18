@@ -75,13 +75,10 @@ function providerCapability(effectKinds: readonly OperationEffectKind[]) {
   }
 }
 
-test('Windows observed Job rejects an unowned descendant disposition', () => {
+test('ordinary process callers cannot structurally select provider breakaway', () => {
   expect(() => compileWindowsObservedJobLimitFlags(
     'unowned' as 'contained'
   )).toThrow('descendant disposition is invalid');
-});
-
-test('ordinary process callers cannot structurally select provider breakaway', () => {
   expect(windowsObservedJobDescendantDisposition()).toBe('contained');
   expect(compileWindowsObservedJobLimitFlags(
     windowsObservedJobDescendantDisposition()
