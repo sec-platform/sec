@@ -26,11 +26,11 @@ test('policy merge rejects differing values across every source scope and input 
   const original: PolicyRule = { ...row(), severity: 'blocker' };
   for (const changed of [{ ...original, severity: 'info' as const }, { ...original, appliesTo: ['block/b'] }]) {
     for (const scopes of [['official', 'official'], ['project', 'project'], ['official', 'project']] as const) {
-      const sources = scopes.map((scope, index) => ({ scope,
-        sourcePath: `${scope === 'official' ? 'catalog/policies/official' : 'model/policies'}/${index}.yaml`,
-        spec: { policies: [index === 0 ? original : changed] } }));
-      for (const ordered of [sources, [...sources].reverse()]) {
-        const scope = (name: PolicySourceScope) => buildLoadedPolicyScope(name, ordered.filter(source => source.scope === name));
+      for (const [first, second] of [[original, changed], [changed, original]]) {
+        const sources = scopes.map((scope, index) => ({ scope,
+          sourcePath: `${scope === 'official' ? 'catalog/policies/official' : 'model/policies'}/${index}.yaml`,
+          spec: { policies: [index === 0 ? first! : second!] } }));
+        const scope = (name: PolicySourceScope) => buildLoadedPolicyScope(name, sources.filter(source => source.scope === name));
         assert.throws(() => mergeLoadedPolicyDeclarations(scope('official'), scope('project')), /Conflicting policy declarations/);
       }
     }

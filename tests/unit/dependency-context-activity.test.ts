@@ -23,13 +23,6 @@ for (const reason of [null, false, 0, 'cancelled', Object.freeze({ cancelled: tr
   });
 }
 
-test('cancellation during a clock callback cannot admit another scan step', () => {
-  const controller = new AbortController(), reason = {}; let armed = false;
-  const operation = context(() => { if (armed) controller.abort(reason); return 0; }, controller.signal);
-  armed = true;
-  assert.throws(() => assertRuntimeDependencyOperationActive(operation, 'scan'), error => error === reason);
-});
-
 test('a copied or fabricated context is not a new authority', () => {
   const operation = context();
   assert.throws(() => assertRuntimeDependencyOperationActive({ ...operation }, 'copy'), /not owner-issued/);

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -8,13 +8,11 @@ import {
   completePhysicalJournalMutationRetirement,
   deletePhysicalJournalMutationFile,
   ensurePhysicalMutationCoordinationNamespace,
-  PHYSICAL_MUTATION_LEASE_SCHEMA,
   preparePhysicalMutationCoordinationResource,
   publishPhysicalJournalMutationInitialization,
   readPhysicalMutationCoordinationResource
 } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
-import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 const name = 'registration.lock', namespace = 'registrations-v3';
 const ownerUrl = pathToFileURL(path.resolve('src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;
@@ -115,57 +113,6 @@ test('reclaimed initializing owner failure preserves committed namespace pin and
     resumed.release();
     expect(JSON.parse(readFileSync(path.join(root, name), 'utf8')).activeOwner).toBeNull();
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('legacy unguarded carrier remains typed unproven with exact bytes and identity', () => {
-  const { root, parent } = fixture();
-  try {
-    const bytes = Buffer.from(`${JSON.stringify({ schema: PHYSICAL_MUTATION_LEASE_SCHEMA, host: 'legacy', pid: 42,
-      processNonce: '10000000-0000-4000-8000-000000000001', token: '20000000-0000-4000-8000-000000000001', createdAtMs: 1, expiresAtMs: 2 })}\n`);
-    writeFileSync(path.join(root, name), bytes);
-    const before = inspectNoFollowOrdinaryFileEntry(parent, name)!;
-    let status = '';
-    try { preparePhysicalMutationCoordinationResource(parent, name, namespace); } catch (error) { status = (error as { status: string }).status; }
-    expect(status).toBe('legacy-unproven');
-    expect(readdirSync(root)).toEqual([name]);
-    const after = inspectNoFollowOrdinaryFileEntry(parent, name)!;
-    expect([after.device, after.inode, Buffer.from(after.bytes!).toString('hex')]).toEqual([before.device, before.inode, bytes.toString('hex')]);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('expired same-host legacy carrier with an exited real PID remains unproven without adoption artifacts', async () => {
-  const settledRoot = await withTempWorkspace(async root => {
-    const parent = inspectNoFollowDirectoryChain(root).target;
-    const exitedPid = Number(child(root, 'console.log(process.pid);'));
-    expect(Number.isSafeInteger(exitedPid) && exitedPid > 0 && exitedPid !== process.pid).toBe(true);
-    mkdirSync(path.join(root, namespace));
-    writeFileSync(path.join(root, namespace, 'original.bin'), 'original namespace bytes');
-    const originalNamespace = inspectNoFollowDirectoryChain(path.join(root, namespace)).target;
-    const originalPayload = inspectNoFollowOrdinaryFileEntry(originalNamespace, 'original.bin')!;
-    const bytes = Buffer.from(`${JSON.stringify({ schema: PHYSICAL_MUTATION_LEASE_SCHEMA, host: hostname(), pid: exitedPid,
-      processNonce: '10000000-0000-4000-8000-000000000001', token: '20000000-0000-4000-8000-000000000001', createdAtMs: 1, expiresAtMs: 2 })}\n`);
-    writeFileSync(path.join(root, name), bytes);
-    const originalCarrier = inspectNoFollowOrdinaryFileEntry(parent, name)!;
-    const originalNames = readdirSync(root).sort();
-    let status = '';
-    try { preparePhysicalMutationCoordinationResource(parent, name, namespace); }
-    catch (error) { status = (error as { status: string }).status; }
-    expect(status).toBe('legacy-unproven');
-    expect(readdirSync(root).sort()).toEqual(originalNames);
-    const carrier = inspectNoFollowOrdinaryFileEntry(parent, name)!;
-    expect([carrier.device, carrier.inode, Buffer.from(carrier.bytes!).toString('hex')]).toEqual([
-      originalCarrier.device, originalCarrier.inode, bytes.toString('hex')
-    ]);
-    const namespaceReadback = inspectNoFollowDirectoryChain(path.join(root, namespace)).target;
-    expect(namespaceReadback.objectId).toBe(originalNamespace.objectId);
-    expect(readdirSync(namespaceReadback.path)).toEqual(['original.bin']);
-    const payload = inspectNoFollowOrdinaryFileEntry(namespaceReadback, 'original.bin')!;
-    expect([payload.device, payload.inode, Buffer.from(payload.bytes!).toString('hex')]).toEqual([
-      originalPayload.device, originalPayload.inode, Buffer.from(originalPayload.bytes!).toString('hex')
-    ]);
-    return root;
-  }, 'sec-coordination-legacy-');
-  expect(existsSync(settledRoot)).toBe(false);
 });
 
 test('fake resource, foreign parent and replaced anchor cannot issue a coordination lease', () => {

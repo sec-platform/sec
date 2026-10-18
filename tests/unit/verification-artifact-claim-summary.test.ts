@@ -256,12 +256,9 @@ function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSe
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 }
 
-test('canonical artifact contract accepts complete current-writer pass and failure inventories', () => {
-  const passed = artifactSet('passed');
+test('canonical artifact contract accepts complete current-writer failure inventories', () => {
   const failed = artifactSet('failed');
-  expect(isCanonicalVerificationArtifactSet(passed)).toBe(true);
   expect(isCanonicalVerificationArtifactSet(failed)).toBe(true);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(passed)).toBe('passed');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
 });
 

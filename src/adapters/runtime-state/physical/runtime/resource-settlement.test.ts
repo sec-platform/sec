@@ -49,17 +49,3 @@ test('async physical settlement preserves primary and every cleanup residue', as
   ]);
   expect(settlementError.errors).toEqual([primary, firstResidue, thirdResidue]);
 });
-
-test('async physical settlement rethrows an unaccompanied primary unchanged', async () => {
-  const primary = new Error('operation failed');
-  let settlementError: unknown;
-  try {
-    await settlePhysicalResourcesAsync({
-      primary: { label: 'operation', error: primary },
-      cleanup: []
-    });
-  } catch (error) {
-    settlementError = error;
-  }
-  expect(settlementError).toBe(primary);
-});

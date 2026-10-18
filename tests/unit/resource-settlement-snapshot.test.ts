@@ -19,6 +19,9 @@ for (const asynchronous of [false, true]) {
   });
 
   test(`${asynchronous ? 'async' : 'sync'} primary error is captured even when its source is later mutated`, async () => {
+    const unaccompanied = new Error('operation failed');
+    await assert.rejects(async () => execute({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
+      error => error === unaccompanied);
     const primary = { label: 'run', error: null as unknown };
     await assert.rejects(async () => execute({ primary, cleanup: [{ label: 'cleanup', settle() {
       primary.label = 'other'; primary.error = new Error('replacement');

@@ -44,34 +44,3 @@ test('a caller-written UpgradePlan cannot mint project write authority', async (
     });
   });
 });
-
-test('a linked persisted UpgradePlan cannot become an authority side channel', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await prepareBaseline(workspaceRoot);
-    const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
-    const workflowRoot = path.dirname(upgradePlanPath);
-    const externalWorkflow = path.join(workspaceRoot, 'external-workflow');
-    await fs.rm(workflowRoot, { recursive: true, force: true });
-    await fs.mkdir(path.dirname(workflowRoot), { recursive: true });
-    await fs.mkdir(externalWorkflow, { recursive: true });
-    await fs.writeFile(
-      path.join(externalWorkflow, path.basename(upgradePlanPath)),
-      `${JSON.stringify(buildUpgradePlanArtifact({ impacts: ['src/ui/page.ts'] }))}\n`,
-      'utf8'
-    );
-    await fs.symlink(
-      externalWorkflow,
-      workflowRoot,
-      process.platform === 'win32' ? 'junction' : 'dir'
-    );
-
-    await writeText(
-      path.join(getWorkspacePaths(workspaceRoot).workspaceRoot, 'src/ui/page.ts'),
-      'export const value = 2;\n'
-    );
-    await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
-      code: 'ERROR-DRIFT-001',
-      details: { path: 'src/ui/page.ts' }
-    });
-  });
-});

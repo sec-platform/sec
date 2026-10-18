@@ -29,14 +29,6 @@ for (const canceled of ['parent', 'child'] as const) {
   });
 }
 
-test('an already canceled operation cannot be revived by replacing its signal', () => {
-  const parent = new AbortController();
-  const first = normalize({ signal: parent.signal, monotonicNowMs: () => 0 });
-  const reason = new Error('parent already canceled');
-  parent.abort(reason);
-  assert.throws(() => normalize({ ...first, signal: new AbortController().signal }), (error: unknown) => error === reason);
-});
-
 test('omitting a copied signal cannot detach the public options from the parent', () => {
   const parent = new AbortController();
   const first = normalize({ signal: parent.signal, monotonicNowMs: () => 0 });

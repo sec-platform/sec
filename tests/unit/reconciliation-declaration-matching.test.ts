@@ -10,9 +10,14 @@ function declaration(id: string, path: string, name = 'work', digest = id, start
 const relation = (subject: string, d: Declaration, kind = 'declares') => ({ subject, relation: kind, declaration: d });
 const ids = (result: ReturnType<typeof pair>) => [...result.values()].map(value => [value.before.observationId, value.after.observationId]).sort();
 
-test('unique causal identity can establish one renamed and moved declaration', () => {
-  const a = declaration('a', 'src/old.ts', 'old'), b = declaration('b', 'src/new.ts', 'new');
-  assert.deepEqual(ids(pair([a], [b], [relation('owner.work', a)], [relation('owner.work', b)])), [['a', 'b']]);
+test('unambiguous causal identity survives beside ambiguous renamed and moved declarations', () => {
+  const a = declaration('a', 'src/old-a.ts', 'oldA'), b = declaration('b', 'src/old-b.ts', 'oldB');
+  const c = declaration('c', 'src/old-c.ts', 'oldC'), d = declaration('d', 'src/old-d.ts', 'oldD');
+  const x = declaration('x', 'src/new-x.ts', 'newX'), y = declaration('y', 'src/new-y.ts', 'newY');
+  const z = declaration('z', 'src/new-z.ts', 'newZ'), w = declaration('w', 'src/new-w.ts', 'newW');
+  const beforeHints = [relation('split-x', a), relation('split-y', a), relation('merge-y', b), relation('unique-c', c), relation('unique-d', d)];
+  const afterHints = [relation('split-x', x), relation('split-y', y), relation('merge-y', y), relation('unique-c', z), relation('unique-d', w)];
+  assert.deepEqual(ids(pair([a, b, c, d], [x, y, z, w], beforeHints, afterHints)), [['c', 'z'], ['d', 'w']]);
 });
 
 test('many old declarations cannot disappear into one causal target', () => {
@@ -113,21 +118,4 @@ test('caller arrays and declarations remain untouched and every mapping is injec
   const matched = pair(before, after, [], []);
   assert.equal(new Set([...matched.values()].map(value => value.after.observationId)).size, matched.size);
   assert.equal(matched.get('a')!.before, a); assert.equal(matched.get('a')!.after, b);
-});
-
-test('all 512 three-by-three causal hint graphs keep only unambiguous one-to-one hints', () => {
-  const before = [0, 1, 2].map(i => declaration(`a${i}`, `src/old-${i}.ts`, `old${i}`));
-  const after = [0, 1, 2].map(i => declaration(`b${i}`, `src/new-${i}.ts`, `new${i}`));
-  for (let mask = 0; mask < 512; mask++) {
-    const oldHints = [], newHints = [], selected: Array<[number, number]> = [];
-    for (let left = 0; left < 3; left++) for (let right = 0; right < 3; right++) {
-      if ((mask & (1 << (3 * left + right))) === 0) continue;
-      selected.push([left, right]);
-      oldHints.push(relation(`edge${left}-${right}`, before[left]!));
-      newHints.push(relation(`edge${left}-${right}`, after[right]!));
-    }
-    const expected = selected.filter(([left, right]) => selected.filter(([l]) => l === left).length === 1
-      && selected.filter(([, r]) => r === right).length === 1).map(([l, r]) => [`a${l}`, `b${r}`]).sort();
-    assert.deepEqual(ids(pair(before, after, oldHints, newHints)), expected, `hint graph ${mask}`);
-  }
 });

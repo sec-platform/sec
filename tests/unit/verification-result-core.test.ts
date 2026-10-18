@@ -507,16 +507,6 @@ test('aggregate: missing required gate → claim not-run', () => {
   expect(result.claimResults[0]!.reasonCode).toBe('not-dispatched');
 });
 
-test('aggregate: all claims passed → overall passed', () => {
-  const gate1 = passedGate('gate-1', ['claim-1']);
-  const gate2 = passedGate('gate-2', ['claim-2']);
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('claim-1', ['gate-1']), claim('claim-2', ['gate-2'])],
-    gateResults: [gate1, gate2]
-  });
-  expect(result.overallStatus).toBe('passed');
-});
-
 test('aggregate: custom coverage check returning false → invalidated', () => {
   const gate = passedGate('gate-1', ['claim-1']);
   const result = CodexDevelopmentAggregateVerificationClaims({
@@ -566,6 +556,9 @@ test('aggregate assertion accepts the current writer projection across the statu
         gateResults: gates
       };
       const result = CodexDevelopmentAggregateVerificationClaims(input);
+      if (firstStatus === 'passed' && secondStatus === 'passed') {
+        expect(result.overallStatus).toBe('passed');
+      }
       expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).not.toThrow();
     }
   }

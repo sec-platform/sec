@@ -1,6 +1,5 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { buildLoadedPolicyScope, mergeLoadedPolicyDeclarations } from '../../src/semantics/policies/declarations.ts';
 import { POLICY_RULE_IDS } from '../../src/semantics/policies/rules.ts';
 import { PolicyRuleSchema, PolicySpecSchema } from '../../src/semantics/policies/source-schema.ts';
 import type { PolicyRule, PolicySeverity, PolicySpec } from '../../src/semantics/policies/types.ts';
@@ -60,14 +59,3 @@ test('empty declared policy set stays legal but omitted or null containers are n
     assert.equal(PolicySpecSchema.safeParse(input).success, false);
   }
 });
-
-for (const change of [{ severity: 'info' as const }, { appliesTo: ['block/a'] }]) {
-  test(`source precedence cannot weaken the same policy: ${JSON.stringify(change)}`, () => {
-    const original = policy(), changed = { ...policy(), ...change };
-    for (const [first, second] of [[original, changed], [changed, original]]) {
-      const official = buildLoadedPolicyScope('official', [{ sourcePath: 'official.yaml', spec: { policies: [first!] } }]);
-      const project = buildLoadedPolicyScope('project', [{ sourcePath: 'project.yaml', spec: { policies: [second!] } }]);
-      assert.throws(() => mergeLoadedPolicyDeclarations(official, project), /Conflicting policy declarations/);
-    }
-  });
-}

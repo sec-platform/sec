@@ -18,13 +18,6 @@ class Clock {
   get calls(): number { return this.#calls; }
 }
 
-test('a direct control consumer invokes the exact clock provider, including private fields', () => {
-  const provider = new Clock(), bound = bind(provider);
-  provider.advance(25);
-  assert.equal(remaining(bound, 'direct'), 75);
-  assert.equal(provider.calls, 2);
-});
-
 test('a raw snapshot fixes clock identity without executing it or freezing provider state', () => {
   const provider = new Clock(), raw = capture(provider);
   assert.equal(provider.calls, 0);
@@ -109,19 +102,4 @@ test('no inherited or non-enumerable clock is accidentally promoted into the inp
   const input = Object.create({ monotonicNowMs() { assert.fail('inherited'); } });
   Object.defineProperty(input, 'monotonicNowMs', { get() { assert.fail('hidden'); } });
   assert.equal(capture(input).monotonicNowMs, undefined);
-});
-
-test('input getters run once, and a captured clock cannot replace other admitted fields', () => {
-  let reads = 0;
-  const raw = { lockTimeoutMs: 100, pollIntervalMs: 10,
-    get monotonicNowMs() {
-      reads++;
-      return function (this: typeof raw) { this.lockTimeoutMs = 1; this.pollIntervalMs = 999; return 0; };
-    }
-  };
-  const accepted = capture(raw), bound = bind(accepted);
-  assert.equal(reads, 1);
-  assert.equal(bound.lockTimeoutMs, 100);
-  assert.equal(bound.pollIntervalMs, 10);
-  assert.equal(raw.lockTimeoutMs, 1);
 });

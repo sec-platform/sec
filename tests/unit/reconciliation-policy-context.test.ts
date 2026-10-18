@@ -116,4 +116,3 @@ test('source changes do not invalidate unchanged analysis policy or the comparis
     model: { ...after.model, files: after.model.files.map(f => ({ ...f, contentDigest: digest('new bytes') })) } } as Snapshot;
   assert.equal(compare(snapshot(true, [reviewed]), changed).entries[0]!.status, 'absent');
 });
-

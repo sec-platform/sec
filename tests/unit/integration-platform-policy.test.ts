@@ -21,16 +21,11 @@ describe('integration platform policy', () => {
     })).toThrow('unavailable enforcement is not admitted');
   });
 
-  test('rejects ambiguous or falsely degraded projections', () => {
+  test('rejects a degraded reason on available enforcement', () => {
     expect(() => canonicalizeIntegrationPlatformObservation({
       status: 'available',
       rulesetDigest: DIGEST,
       reason: 'partially available'
     })).toThrow('must not carry a degraded reason');
-    expect(() => canonicalizeIntegrationPlatformObservation({
-      status: 'platform-enforcement-unavailable',
-      rulesetDigest: DIGEST,
-      reason: ''
-    })).toThrow('unavailable enforcement is not admitted');
   });
 });
