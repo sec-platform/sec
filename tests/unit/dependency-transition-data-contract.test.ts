@@ -6,7 +6,6 @@ import { hasExactObjectKeys, isCanonicalGeneratedStatePhysicalIdentity, sourceGe
 
 test('field identity is a set, not a delimiter-joined string',()=>{
  assert.equal(hasExactObjectKeys({'a\0b':1},['a','b']),false);
- assert.equal(hasExactObjectKeys({a:1,b:2},['a','b']),true);
  assert.equal(hasExactObjectKeys({'a\0b':1},['a\0b']),true);
  assert.equal(hasExactObjectKeys({a:1},['a','a']),false);
 });

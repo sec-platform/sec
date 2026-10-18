@@ -18,6 +18,7 @@ test('normal capacity rollover enters the common recovery path and publishes exa
   const f = createRolloverFixture(DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER);
   try {
     fs.unlinkSync(f.receiptPath('prepared'));
+    fs.mkdirSync(f.paths.backupRoot, { recursive: true });
     const namespace = inspectDependencyTransitionNamespace(f.root)!;
     const ledger = Object.freeze({ namespace, records: f.records,
       ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal });
@@ -37,6 +38,7 @@ test('a ledger below the canonical rollover threshold performs no namespace or p
   const f = createRolloverFixture();
   try {
     fs.unlinkSync(f.receiptPath('prepared'));
+    fs.mkdirSync(f.paths.backupRoot, { recursive: true });
     const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
       ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
     await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,

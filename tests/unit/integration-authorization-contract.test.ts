@@ -88,7 +88,7 @@ function live(current = authorization()): IntegrationAuthorizationLiveState {
   };
 }
 
-test('IntegrationAuthorization round-trips and exact expiry boundary is usable once', () => {
+test('IntegrationAuthorization round-trips, accepts the exact expiry boundary, and rejects later use', () => {
   const current = authorization();
   expect(parseIntegrationAuthorization(JSON.stringify(current))).toEqual(current);
   expect(() => assertIntegrationAuthorizationUsable(current, live(current))).not.toThrow();

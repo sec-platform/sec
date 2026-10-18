@@ -108,13 +108,17 @@ for (const [key, value] of [['sequence', 3], ['attemptNonce', 'replaced'], ['ope
   }));
 }
 
-test('update accessors, hidden fields and symbols are refused before evaluating their values', async () => using(async f => {
+test('invalid update descriptors and schema values are refused before namespace effects', async () => using(async f => {
   const first = await beginDependencyTransition(request(f));
   const accessor = Object.defineProperty({}, 'phase', { enumerable: true, get() { assert.fail('getter invoked'); } });
   const hidden = Object.defineProperty({}, 'phase', { value: 'complete', enumerable: false });
   for (const patch of [accessor, hidden, { phase: 'complete', [Symbol('extra')]: true }, null, []]) {
     await assert.rejects(advanceDependencyTransition(first, patch as never, f.options));
   }
+  let effects = 0;
+  await assert.rejects(advanceDependencyTransition(first, { phase: 'not-a-phase' as never },
+    { ...f.options, async beforeCommit() { effects++; } }));
+  assert.equal(effects, 0);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
 }));
 
@@ -126,14 +130,6 @@ test('nested successor data cannot drift during namespace admission or publicati
   assert.deepEqual(next.failure, { code: 'ORIGINAL', message: 'original failure' });
   assertDeepFrozen(next);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), next);
-}));
-
-test('the existing record schema refuses malformed updates before any namespace effect', async () => using(async f => {
-  const first = await beginDependencyTransition(request(f)); let effects = 0;
-  await assert.rejects(advanceDependencyTransition(first, { phase: 'not-a-phase' as never },
-    { ...f.options, async beforeCommit() { effects++; } }));
-  assert.equal(effects, 0);
-  assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
 }));
 
 test('invalid begin record shape is rejected before creating a ledger namespace', async () => using(async f => {

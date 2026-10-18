@@ -351,7 +351,7 @@ test('internal Action proposal plan and provider envelope form a one-way, exact 
     sessionRequest,
     proposedActionKey: entry.action.actionKey
   })).reverse();
-  const parentPlan = createCiVerificationActionParentDispatchPlan({
+  const parentPlanInput = {
     repositoryId: '311',
     repository: 'owner/repo',
     parentRunId: '9001',
@@ -363,13 +363,28 @@ test('internal Action proposal plan and provider envelope form a one-way, exact 
       login: 'maintainer', id: 42, nodeId: 'MDQ6VXNlcjQy', type: 'User', permission: 'maintain'
     },
     proposals
-  });
-  expect(parentPlan.proposals.map((entry) => entry.proposedActionKey)).toEqual(
-    parentPlan.proposals.map((entry) => entry.proposedActionKey).sort()
-  );
+  } as const;
+  const parentPlan = createCiVerificationActionParentDispatchPlan(parentPlanInput);
+  const expectedProposals = [...proposals].sort((left, right) =>
+    left.proposedActionKey.localeCompare(right.proposedActionKey));
+  const expectedParentPlan = {
+    ...parentPlanInput,
+    schema: 'sec-verification-action-parent-dispatch-plan-v2',
+    parentJobName: 'coordinate-verification-session',
+    parentPlanStepName: 'Prepare canonical parent Action dispatch plan',
+    parentWorkflowPath: '.github/workflows/compiler-pr-validation.yml',
+    proposals: expectedProposals,
+    parentDispatchPlanDigest: `sha256:${createHash('sha256').update(encodeVerificationActionData({
+      schema: 'sec-verification-action-parent-dispatch-proposal-set-v2',
+      proposals: expectedProposals
+    })).digest('hex')}`
+  };
+  expect(parentPlan).toEqual(expectedParentPlan);
   expect(ciVerificationActionParentDispatchPlanArtifactName('9001', 2))
     .toBe('sec-verification-action-parent-dispatch-plan-v2-run-9001-attempt-2');
-  expect(ciVerificationActionParentDispatchPlanPayloadDigest(parentPlan)).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(ciVerificationActionParentDispatchPlanPayloadDigest(parentPlan)).toBe(
+    `sha256:${createHash('sha256').update(`${encodeVerificationActionData(expectedParentPlan)}\n`, 'utf8').digest('hex')}`
+  );
   const envelope = createCiVerificationActionProviderEnvelope({
     proposal: parentPlan.proposals[0]!,
     parentPlan,

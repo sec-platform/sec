@@ -67,7 +67,9 @@ test('name enumeration notices parent cancellation and preserves the exact reaso
 
 test('missing namespace and damaged present namespace are different states', async () => fixture(async root => {
   assert.equal(inspectDependencyTransitionNamespace(root), null);
-  const paths = dependencyTransitionNamespacePaths(root); mkdirSync(paths.journalRoot, { recursive: true });
+  const paths = dependencyTransitionNamespacePaths(root);
+  mkdirSync(paths.backupRoot, { recursive: true });
+  mkdirSync(paths.journalRoot, { recursive: true });
   assert.throws(() => inspectDependencyTransitionNamespace(root), /without its records root/);
   mkdirSync(paths.recordsRoot);
   const existing = inspectDependencyTransitionNamespace(root)!;

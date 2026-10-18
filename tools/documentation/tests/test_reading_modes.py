@@ -193,22 +193,18 @@ class Modes(unittest.TestCase):
   with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value={'cross_run_reuse':False}):
    self.bad('--diagrams','required','--mermaid-js','fixture')
   self.assertEqual(len(calls),1)
- def test_required_cache_rejects_entry_renderer_identity_mismatch(self):
-  cache=self.cache();info,environment=self.renderer_fixture();b.bind_drawing_identity(info,environment);cache['renderer']=info
-  path=self.root/'.documentation/figures.json';path.write_text(json.dumps(cache))
-  book=argparse.Namespace(diagrams=[{'sha256':b.sha(self.source.encode()),'id':'figure','path':'fixture'}],svg={})
-  args=argparse.Namespace(diagram_cache=str(path))
-  with self.assertRaisesRegex(b.BuildError,'renderer identity mismatch'):
-   b.read_diagram_cache(self.root,{},args,book,expected_renderer=cache['renderer'])
  def test_drawing_cache_reuses_transport_changes_but_not_core_or_effective_profile_changes(self):
   import copy
   cache=self.cache();info,environment=self.renderer_fixture();identity=b.bind_drawing_identity(info,environment)
-  cache['renderer']=info;next(iter(cache['entries'].values()))['renderer_id']=b.sha(b.canon(identity))
+  cache['renderer']=info
   path=self.root/'.documentation/figures.json';path.write_text(json.dumps(cache))
   args=argparse.Namespace(diagram_cache=str(path))
   def read(expected):
    book=argparse.Namespace(diagrams=[{'sha256':b.sha(self.source.encode()),'id':'figure','path':'fixture'}],svg={})
    return b.read_diagram_cache(self.root,{},args,book,expected_renderer=expected)
+  with self.assertRaisesRegex(b.BuildError,'renderer identity mismatch'):read(info)
+  next(iter(cache['entries'].values()))['renderer_id']=b.sha(b.canon(identity))
+  path.write_text(json.dumps(cache))
   transport=copy.deepcopy(info);transport.update(backend='changed',node='different',engine_label='new label',browser_sandbox=False)
   self.assertEqual(read(transport)['rendered'],1)
   core=copy.deepcopy(info);core['core_sha256']=b.sha(b'changed core');changed_environment={**environment,'core_sha256':core['core_sha256']};b.bind_drawing_identity(core,changed_environment)

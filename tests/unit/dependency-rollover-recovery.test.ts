@@ -29,7 +29,10 @@ async function stopAtRetirement(f: Fixture) {
 
 // All production source is used in native execution. The accompanying local
 // replay explicitly substitutes physical/store providers, not parser or phases.
-test('prepared recovery performs one complete rollover and is idempotent', async () => using(async f => {
+test('prepared recovery accepts its created next directory and is idempotent after completion', async () => using(async f => {
+  fs.mkdirSync(f.prepared.nextRecordsPath);
+  const observed = await inspectActiveDependencyTransitionRollover(f.root, f.options);
+  assert.equal(observed?.active?.phase, 'prepared');
   await recoverDependencyTransitionRollover(f.root, f.options);
   const before = await assertComplete(f);
   await recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() { assert.fail('already completed effect'); } });
@@ -42,23 +45,14 @@ for (let boundary = 1; boundary <= 16; boundary++) {
     await assert.rejects(recoverDependencyTransitionRollover(f.root, { ...f.options, async beforeCommit() {
       if (++effects === boundary) throw stop;
     } }), e => e === stop);
+    if (boundary === 14) {
+      assert.equal(fs.existsSync(f.receiptPath('retiring')), true);
+      assert.deepEqual(fs.readdirSync(f.prepared.retiredRecordsPath), []);
+    }
     await recoverDependencyTransitionRollover(f.root, f.options);
     await assertComplete(f);
   }), 60_000);
 }
-
-test('a created next directory with only prepared receipt is recoverable, not foreign residue', async () => using(async f => {
-  fs.mkdirSync(f.prepared.nextRecordsPath);
-  const observed = await inspectActiveDependencyTransitionRollover(f.root, f.options);
-  assert.equal(observed?.active?.phase, 'prepared');
-  await recoverDependencyTransitionRollover(f.root, f.options); await assertComplete(f);
-}));
-
-test('retiring recovery may finish its exact empty root after inventory deletion', async () => using(async f => {
-  await stopAtRetirement(f);
-  for (const name of fs.readdirSync(f.prepared.retiredRecordsPath)) fs.unlinkSync(path.join(f.prepared.retiredRecordsPath, name));
-  await recoverDependencyTransitionRollover(f.root, f.options); await assertComplete(f);
-}));
 
 test('missing inventory with a surviving record never authorizes deleting that record', async () => using(async f => {
   await stopAtRetirement(f);
@@ -77,7 +71,7 @@ test('unknown late-sorting residue vetoes all archive deletions before effects',
   assert.equal(effects, 0); assert.deepEqual(fs.readdirSync(f.prepared.retiredRecordsPath), before);
 }));
 
-test('missing or corrupted replacement checkpoint preserves the old archive', async () => using(async f => {
+test('a missing replacement checkpoint preserves the old archive', async () => using(async f => {
   await stopAtRetirement(f);
   const before = fs.readdirSync(f.prepared.retiredRecordsPath);
   fs.unlinkSync(path.join(f.paths.recordsRoot, transitionRecordName(f.checkpoint.recordDigest)));

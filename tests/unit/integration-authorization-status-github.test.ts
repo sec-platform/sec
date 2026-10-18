@@ -8,7 +8,6 @@ import {
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import { createIntegrationAuthorization } from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 import {
-  createIntegrationAuthorizationStatusDescription,
   createIntegrationAuthorizationStatusPublication,
   parseIntegrationAuthorizationGateResult,
   parseIntegrationAuthorizationStatusPublication,
@@ -71,11 +70,6 @@ function result(): IntegrationAuthorizationGateResult {
   };
 }
 
-test('terminal status description binds gate and ruleset digests without Actions run identity', () => {
-  expect(createIntegrationAuthorizationStatusDescription(result()))
-    .toBe(`gate ${'a'.repeat(12)} rules ${'8'.repeat(12)}`);
-});
-
 test('terminal status publication receipt is content-addressed and round-trips', () => {
   const publication = createIntegrationAuthorizationStatusPublication({
     result: result(),
@@ -89,6 +83,7 @@ test('terminal status publication receipt is content-addressed and round-trips',
     baseSha: BASE,
     headSha: HEAD,
     context: 'sec/integration-authorization',
+    description: `gate ${'a'.repeat(12)} rules ${'8'.repeat(12)}`,
     state: 'success',
     statusId: 123,
     creatorLogin: 'sec-integrator[bot]',
