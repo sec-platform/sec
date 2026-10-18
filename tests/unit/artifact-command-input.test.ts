@@ -10,7 +10,8 @@ const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAG
 
 // Independent public filter vocabulary: deleting a production kind must not
 // silently delete its admission case too.
-for (const filter of [undefined, 'governance', 'test', 'contract'] as const) {
+// The fixed 'test' filter is admitted by the capture-once case below.
+for (const filter of [undefined, 'governance', 'contract'] as const) {
   test(`path selection binds canonical filter ${filter} and output without a write request`, () => {
     const input = parseArtifactCommandInput(undefined, { paths: true, kind: filter, json: true, compact: true });
     assert.deepEqual(input, { kind: 'paths', filter, output: { json: true, compact: true } });
@@ -65,6 +66,8 @@ test('path and filter getters are captured once; later changes cannot alter the 
   raw.paths = false; raw.kind = 'contract'; raw.json = false;
   assert.deepEqual(reads, { json: 1, compact: 1, paths: 1, kind: 1 });
   assert.deepEqual(captured, { kind: 'paths', filter: 'test', output: { json: true, compact: false } });
+  assert.ok(Object.isFrozen(captured)); assert.ok(Object.isFrozen(captured.output));
+  assert.equal('request' in captured, false);
 });
 
 test('inherited selection flags retain the old own-enumerable input boundary', () => {

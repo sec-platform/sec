@@ -62,7 +62,7 @@ const cyclicSources = Object.freeze({
   ].join('\n')
 });
 
-test('compiler-issued declaration attribution produces one exact cross-file topology', () => {
+test('compiler-issued cross-file topology remains exact under reordering and rejects copied receipts', () => {
   const compilation = compileFixture(cyclicSources);
   const topology = compileSourceProgramDeclarationTopology(compilation);
   const cycle = topology.strongComponents.find(({ paths }) => (
@@ -79,17 +79,14 @@ test('compiler-issued declaration attribution produces one exact cross-file topo
   ))).toBeTrue();
   expect(topology.unknowns.some(({ code }) => code === 'module-initialization-relation')).toBeTrue();
   expect(topology.topologyDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
 
-test('topology rejects structural receipt copies and remains deterministic across input order', () => {
-  const first = compileFixture(cyclicSources);
   const reversed = compileFixture(Object.freeze({
     'src/example/b.ts': cyclicSources['src/example/b.ts'],
     'src/example/a.ts': cyclicSources['src/example/a.ts']
   }));
 
-  expect(compileSourceProgramDeclarationTopology(first).topologyDigest)
+  expect(topology.topologyDigest)
     .toBe(compileSourceProgramDeclarationTopology(reversed).topologyDigest);
-  expect(() => compileSourceProgramDeclarationTopology(Object.freeze({ ...first })))
+  expect(() => compileSourceProgramDeclarationTopology(Object.freeze({ ...compilation })))
     .toThrow('requires one compiler-issued compilation receipt');
 });

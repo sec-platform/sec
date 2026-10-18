@@ -22,17 +22,13 @@ test('selected capture does not enumerate or inspect unrelated fields, while pre
   assert.equal(reads, 1);
 });
 
-test('selected accessors retain the original receiver and are read once', () => {
+test('selected accessors retain their receiver and become immutable captured data', () => {
   let reads = 0;
   const input = { actual: 7, get value() { reads++; assert.equal(this, input); return this.actual; } };
-  assert.equal(captureCliOptions(input, [{ name: 'value', scope: 'property' }]).value, 7);
-  assert.equal(reads, 1);
-});
-
-test('captured data is immutable and detached from later raw property replacement', () => {
-  const input = { value: 7 };
   const captured = captureCliOptions(input, [{ name: 'value', scope: 'property' }]);
-  input.value = 99;
+  assert.equal(captured.value, 7);
+  assert.equal(reads, 1);
+  Object.defineProperty(input, 'value', { value: 99 });
   assert.equal(captured.value, 7); assert.ok(Object.isFrozen(captured));
   assert.equal(Reflect.set(captured, 'value', 8), false);
 });
