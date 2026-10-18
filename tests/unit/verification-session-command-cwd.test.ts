@@ -161,9 +161,11 @@ for (const fault of ['none', 'spawn', 'undefined-spawn', 'readback', 'dispose', 
       assert.equal(caught, fault !== 'none');
       assert.equal(events.filter(event => event === 'dispose').length, 1);
       assert.equal(events.at(-1), 'dispose');
-      events.length = 0;
-      assert.throws(() => runVerificationSessionCommand({ repositoryRoot: root }, 'git', ['bad\\0argument']), /NUL/);
-      assert.deepEqual(events, []);
+      if (fault === 'none') {
+        events.length = 0;
+        assert.throws(() => runVerificationSessionCommand({ repositoryRoot: root }, 'git', ['bad\\0argument']), /NUL/);
+        assert.deepEqual(events, []);
+      }
     `);
   });
 }

@@ -39,7 +39,7 @@ test('VerificationSession artifact consumer preserves exact pretty and canonical
   expect(readSessionArtifactText(target)).toBe('{"a":2,"z":"雪😀e\u0301\uFFFD"}\n');
 });
 
-test('VerificationSession artifact JSON consumers reject malformed UTF-8 before parsing', async () => {
+test('VerificationSession artifact consumers reject malformed UTF-8 and preserve BOM for JSON rejection', async () => {
   const { target } = fixture();
   const bytes = Buffer.concat([Buffer.from('{"value":"'), Buffer.from([0xc3, 0x28]), Buffer.from('"}\n')]);
   writeFileSync(target, bytes);
@@ -49,10 +49,7 @@ test('VerificationSession artifact JSON consumers reject malformed UTF-8 before 
   expect(() => readSessionArtifactText(target)).toThrow(TypeError);
   expect(() => readJson(target)).toThrow(TypeError);
   await expect(verificationSessionCli(['artifact-status', '--artifact', target], worktreePhysicalCloseoutOperations)).rejects.toBeInstanceOf(TypeError);
-});
 
-test('VerificationSession artifact text preserves a BOM and JSON still rejects it', () => {
-  const { target } = fixture();
   const source = '\uFEFF{"value":"雪"}\n';
   writeFileSync(target, source, 'utf8');
   expect(readSessionArtifactText(target)).toBe(source);

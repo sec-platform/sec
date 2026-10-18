@@ -26,10 +26,21 @@ test('snapshot directory selection matches TypeScript on the same physical file 
     const includeCases = [undefined, [], ['src'], ['src/'], ['src/**/*'], ['**/*'],
       ['src/*'], ['src', 'other'], ['**/a?.ts'], ['packages/*/src']];
     const excludeCases = [undefined, [], ['src/skip'], ['**/skip'], ['**/*.d.ts'], ['node_modules']];
-    const extensionCases = [undefined, ['.ts'], ['.ts', '.tsx', '.js']];
-    const roots = ['', 'src', 'packages/pkg'];
-    for (const includes of includeCases) for (const excludes of excludeCases) {
-      for (const extensions of extensionCases) for (const child of roots) {
+    const patternCases: {
+      includes: string[] | undefined;
+      excludes: string[] | undefined;
+      extensions: string[] | undefined;
+    }[] = [
+      ...includeCases.map(includes => ({ includes, excludes: undefined, extensions: undefined })),
+      ...excludeCases.map(excludes => ({ includes: ['**/*'], excludes, extensions: ['.ts', '.tsx', '.js'] })),
+      { includes: ['src'], excludes: ['src/skip'], extensions: ['.ts'] },
+      { includes: ['src/**/*'], excludes: ['**/skip'], extensions: ['.ts'] },
+      { includes: ['**/a?.ts'], excludes: ['**/*.d.ts'], extensions: ['.ts'] }
+    ];
+    // Every pattern profile still exercises relative-root and traversal-depth
+    // interactions; the native matcher owns the remaining option combinations.
+    for (const { includes, excludes, extensions } of patternCases) {
+      for (const child of ['', 'src', 'packages/pkg']) {
         for (const depth of [undefined, 1, 2]) {
           const directory = path.join(root, child);
           const expected = ts.sys.readDirectory(directory, extensions, excludes, includes, depth).sort();

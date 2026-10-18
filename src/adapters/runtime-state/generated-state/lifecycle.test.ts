@@ -666,6 +666,12 @@ test('profile-bound disposal recovers its exact durable intent and issues one te
   });
   await owner.born(LIFECYCLE_FIXTURE_PATH, 'profile-bound-disposal-interruption');
   await expect(owner.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-mismatch-preserved',
+    profile: 'all-rebuildable'
+  })).rejects.toThrow('disposal profile is not owned');
+  expect(await absent(fixtureRoot(repositoryRoot))).toBe(false);
+  expect((await owner.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
+  await expect(owner.disposed(LIFECYCLE_FIXTURE_PATH, {
     outcome: 'profile-bound-disposal',
     profile: 'automatic'
   })).rejects.toThrow('did not reach one terminal physical absence');
@@ -694,19 +700,6 @@ test('profile-bound disposal recovers its exact durable intent and issues one te
   expect(await absent(fixtureRoot(repositoryRoot))).toBe(true);
   expect((await resumed.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status)
     .toBe('retired-domain-settled');
-});
-
-test('a cleanup profile outside the registry leaves the active generation unchanged', async () => {
-  const { options, repositoryRoot } = await fixture();
-  await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
-  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
-  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'profile-mismatch-preserved');
-  await expect(lifecycle.disposed(LIFECYCLE_FIXTURE_PATH, {
-    outcome: 'profile-mismatch-preserved',
-    profile: 'all-rebuildable'
-  })).rejects.toThrow('disposal profile is not owned');
-  expect(await absent(fixtureRoot(repositoryRoot))).toBe(false);
-  expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
 });
 
 test('a fresh producer terminalizes only an exact active registration whose physical root is absent', async () => {
@@ -1070,7 +1063,7 @@ test('an interrupted quarantine resumes from durable intent without rediscoverin
   expect((await records()).sort((left, right) => left.sequence - right.sequence).at(-1)?.event).toBe('disposed');
 });
 
-test('bounded quarantine returns one resumable receipt across capacity, abort, deadline, and zero-repeat', async () => {
+test('bounded quarantine returns one resumable receipt across capacity and zero-repeat', async () => {
   const { options, repositoryRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
@@ -1093,28 +1086,6 @@ test('bounded quarantine returns one resumable receipt across capacity, abort, d
   await assertGeneratedStateCleanupContinuationReceipt(partial, { workspaceRoot: repositoryRoot });
   expect(partial).toMatchObject({ terminal: 'continuation-required', blockers: [] });
   expect(await absent(generatedRoot)).toBe(true);
-
-  const aborted = new AbortController();
-  aborted.abort();
-  for (const operation of [
-    createGeneratedStateCleanupOperationSession({
-      deadlineAtMonotonicMs: performance.now() + 30_000,
-      signal: aborted.signal
-    }),
-    createGeneratedStateCleanupOperationSession({
-      deadlineAtMonotonicMs: 1,
-      monotonicNowMs: () => 2
-    })
-  ]) {
-    const receipt = await continueGeneratedStateCleanup({
-      lifecycleOptions: options,
-      repositoryRoot,
-      profile: 'automatic',
-      relativePaths: [LIFECYCLE_FIXTURE_PATH],
-      operation
-    });
-    expect(receipt.terminal).toBe('continuation-required');
-  }
 
   const completed = await continueGeneratedStateCleanup({
     lifecycleOptions: options,
@@ -1366,7 +1337,7 @@ for (const blockedBy of ['cancelled', 'expired'] as const) {
       : { deadlineAtMonotonicMs: performance.now() + 30_000, signal: controller.signal });
     const receipt = await continueGeneratedStateCleanup({ lifecycleOptions: value.options,
       repositoryRoot: value.repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH], profile: 'automatic', operation });
-    expect(receipt.terminal).not.toBe('completed');
+    expect(receipt.terminal).toBe('continuation-required');
     expect(value.store.fs.readText(value.intentPath)).toBe(originalIntent);
     expect(await readFile(path.join(value.tombstone, 'cache.bin'), 'utf8')).toBe('original owned bytes');
     const recovered = await continueGeneratedStateCleanup({ lifecycleOptions: value.options,

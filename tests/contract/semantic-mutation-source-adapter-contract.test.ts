@@ -85,15 +85,9 @@ function vectors(): {
   return { manifest, plan };
 }
 
-test('SM-2 edit-plan and rollback vectors satisfy the exact validators', () => {
+test('exact paired artifacts pass while unknown fields, stale revisions, digest forgery, and non-canonical operation order fail closed', () => {
   const { manifest, plan } = vectors();
-  expect(() => assertSemanticMutationRollbackManifestInvariant(manifest)).not.toThrow();
-  expect(() => assertSemanticMutationSourceEditPlanInvariant(plan)).not.toThrow();
   expect(() => assertSemanticMutationSourceEditArtifactsInvariant(plan, manifest)).not.toThrow();
-});
-
-test('unknown fields, stale revisions, digest forgery, and non-canonical operation order fail closed', () => {
-  const { manifest, plan } = vectors();
   const rebindPlanDigest = (candidate: SemanticMutationSourceEditPlan) => {
     const { editPlanRevision: _old, ...content } = candidate;
     return { ...content, editPlanRevision: sha256({ domain: 'semantic-mutation-source-edit-plan-v1', ...content }) };
