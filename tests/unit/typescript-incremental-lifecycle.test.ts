@@ -62,13 +62,6 @@ test('replacement of the signal field does not detach an attempt from its origin
   const closing=session.dispose();
   await assert.rejects(closing);assert.equal(session.dispose(),closing);
   assert.throws(()=>session.auxiliaryDirectory.assertCurrent());
-}));
-
-test('cancelled cleanup closes the owned directory handle but does not invent retirement authority',()=>fixture(async input=>{
-  const controller=new AbortController();input.signal=controller.signal;
-  const session=await prepareTypeScriptIncrementalState(input);controller.abort();
-  await assert.rejects(session.dispose());
-  assert.throws(()=>session.auxiliaryDirectory.assertCurrent());
   assert.equal((await fs.stat(path.dirname(session.executionBuildInfoFile))).isDirectory(),true);
   assert.deepEqual(await session.publish(),{status:'cache-unavailable'});
 }));
