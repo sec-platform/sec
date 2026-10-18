@@ -89,7 +89,8 @@ describe('text byte census presentation boundary', () => {
     expect(text).toMatch(/\banomalies[\s:]+\(none\)/u);
     expect(text).toMatch(/\bflagged[\s:]+21\s+file/u);
     expect(text).toMatch(/(?:^|\s)1\s+more(?=$|[\s;,])/u);
-    expect(text).not.toContain('src/20.ts');
+    expect(Array.from(text.matchAll(/(?:^|\s)(src\/\d+\.ts)(?=$|\s|\[)/gu), ([, file]) => file))
+      .toEqual(Array.from({ length: 20 }, (_, index) => `src/${index}.ts`));
   });
 
   test('application admits finite fail-on thresholds and evaluates them without CLI casts', () => {
