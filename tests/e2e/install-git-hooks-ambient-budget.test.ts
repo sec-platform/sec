@@ -12,16 +12,20 @@ test('Git invocation process and output budgets stop before any config effect', 
       repoRoot,
       lifecycle: true,
       gitBudget: { maxProcesses: 1 }
-    })).toMatchObject({ status: 'conflict' });
+    })).toMatchObject({
+      status: 'conflict',
+      message: expect.stringContaining('(process count)')
+    });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
-  });
 
-  await withRepository(async (repoRoot) => {
     expect(await installGitHooks({
       repoRoot,
       lifecycle: true,
       gitBudget: { maxCommandStdoutBytes: 1 }
-    })).toMatchObject({ status: 'conflict' });
+    })).toMatchObject({
+      status: 'conflict',
+      message: expect.stringContaining('command output budget exhausted at Git read (stdout)')
+    });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
 
