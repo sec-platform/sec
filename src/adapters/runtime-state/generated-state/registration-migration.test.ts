@@ -115,6 +115,11 @@ test('legacy registrations migrate once without inventing a historical ledger ch
     { repositoryRoot: fixture.repositoryRoot },
     { environment: fixture.environment }
   );
+  expect(await hooks.observeRetirement(relativePath)).toMatchObject({
+    status: 'active', registrationDigest: fixture.current.registrationDigest
+  });
+  expect((await hooks.inspect([relativePath])).entries[0]?.registrationState).toBe('active');
+  await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
   await hooks.bind(relativePath);
 
   const afterNames = await readdir(fixture.registrationsRoot);
@@ -321,16 +326,6 @@ test('a first producer observation reads legal old retirement without publishing
   }
   await ensureGeneratedStateRegistrationLedger({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
   expect((await hooks.observeRetirement(relativePath)).registrationDigest).toBe(observation.registrationDigest);
-});
-
-test('a first v1 producer observation remains read-only and retains the exact source registration', async () => {
-  const fixture = await legacyFixture();
-  const hooks = generatedStateProducerHooks({ repositoryRoot: fixture.repositoryRoot }, { environment: fixture.environment });
-  expect(await hooks.observeRetirement(relativePath)).toMatchObject({
-    status: 'active', registrationDigest: fixture.current.registrationDigest
-  });
-  expect((await hooks.inspect([relativePath])).entries[0]?.registrationState).toBe('active');
-  await expect(readdir(fixture.registrationsV2Root)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test('an invalid existing v3 namespace never falls back to a valid old source', async () => {

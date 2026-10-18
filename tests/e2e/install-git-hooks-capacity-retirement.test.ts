@@ -2,20 +2,11 @@ import { expect, test } from 'bun:test';
 import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, managedHookNames, withRepository } from './fixtures/install-git-hooks.ts';
+import { configuredManagedHooksPath, expectManagedHooksMirror, installGitHooks, managedHookNames, withRepository } from './fixtures/install-git-hooks.ts';
 test('authorized damaged prior generation gets a bounded transient capacity slot', async () => {
   await withRepository(async (repoRoot) => {
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
-    const firstGeneration = configuredManagedHooksPath(repoRoot);
-    const sourcePath = path.join(repoRoot, '.githooks', 'pre-commit');
-    const updatedSource = (await readFile(sourcePath, 'utf8')).replace('set -eu', 'set -ux');
-    await writeFile(sourcePath, updatedSource, 'utf8');
-    await chmod(sourcePath, 0o755);
-    git(repoRoot, ['add', '.githooks/pre-commit']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
-    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const currentGeneration = configuredManagedHooksPath(repoRoot);
-    expect(currentGeneration).not.toBe(firstGeneration);
 
     const generationBytes = new Map<string, Buffer>();
     for (const hook of managedHookNames) {

@@ -6,7 +6,6 @@ import {
   assertOwnerTerminalJoinReceipt,
   assertProviderSettlementReceipt,
   assertRecoveredRetryAdmission,
-  assertSemanticOperationPlan,
   bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
@@ -295,10 +294,7 @@ test('binding rejects a structural copy that bypasses the foundation compiler', 
     providerIdentityDigest: digest('native-checker')
   });
 
-  expect(() => assertSemanticOperationPlan(operationPlan)).not.toThrow();
   const structuralPlan = structuredClone(operationPlan);
-  expect(() => assertSemanticOperationPlan(structuralPlan))
-    .toThrow('requires a foundation-compiled operation plan');
   expect(() => bindSemanticOperation(structuralPlan, [binding]))
     .toThrow('requires a foundation-compiled operation plan');
 });

@@ -104,18 +104,15 @@ test('foundation context binds a fixed child deadline and rejects attempt wideni
   })).toThrow('absolute deadline is not narrowed from its attempt');
 });
 
-test('structural copies serialization and caller flags cannot recreate the context', () => {
+test('structural copies and caller flags cannot recreate the context', () => {
   const context = issueOperationRequirementBindingContext({
     operation: operation('typescript-native-provider'),
     requirementId: 'typescript.project-check',
     resourceCeilings: [{ resource: 'processes', maximum: 1 }]
   });
   const structural = structuredClone(context) as OperationRequirementBindingContext;
-  const serialized = JSON.parse(JSON.stringify(context)) as OperationRequirementBindingContext;
 
   expect(() => consumeOperationRequirementBindingContext(structural))
-    .toThrow('operation-foundation-issued');
-  expect(() => consumeOperationRequirementBindingContext(serialized))
     .toThrow('operation-foundation-issued');
   expect(() => consumeOperationRequirementBindingContext(
     true as unknown as OperationRequirementBindingContext

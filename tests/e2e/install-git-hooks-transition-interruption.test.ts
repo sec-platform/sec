@@ -28,9 +28,17 @@ test('config transition resumes after every effect-before-receipt interruption',
         crashAfterConfigStep: step
       })).toMatchObject({ status: 'conflict' });
       expect(await configTransitionNames(repoRoot)).toHaveLength(1);
-      expect(['installed', 'managed']).toContain((await installGitHooks({ repoRoot })).status);
+      const recovered = await installGitHooks({ repoRoot });
+      if (step === 1) expect(recovered).toMatchObject({ status: 'installed' });
+      else expect(['installed', 'managed']).toContain(recovered.status);
       expect(await configTransitionNames(repoRoot)).toHaveLength(0);
-      await expectManagedHooksMirror(repoRoot, configuredManagedHooksPath(repoRoot));
+      const configured = configuredManagedHooksPath(repoRoot);
+      await expectManagedHooksMirror(repoRoot, configured);
+      if (step === 1) {
+        expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
+        expect(configuredManagedHooksPath(repoRoot)).toBe(configured);
+        expect(await configTransitionNames(repoRoot)).toHaveLength(0);
+      }
     });
   }
 }, { timeout: 60000 });

@@ -918,15 +918,11 @@ test('bootstrap settlement propagates a captured before callback failure without
   expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
 });
 
-test('producer hooks omit quarantine without an owner-issued cleanup operation', async () => {
-  const { options, repositoryRoot } = await fixture();
-  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
-  expect(Reflect.has(lifecycle, 'quarantine')).toBe(false);
-  expect(Reflect.get(lifecycle, 'quarantine')).toBeUndefined();
-});
-
 test('producer hooks expose quarantine only for the exact live cleanup operation', async () => {
   const { options, repositoryRoot } = await fixture();
+  const unscoped = generatedStateProducerHooks({ repositoryRoot }, options);
+  expect(Reflect.has(unscoped, 'quarantine')).toBe(false);
+  expect(Reflect.get(unscoped, 'quarantine')).toBeUndefined();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
   await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');

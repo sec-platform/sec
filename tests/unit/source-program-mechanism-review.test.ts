@@ -63,15 +63,6 @@ test('module-initialization effects retain exact locations without claiming a de
   assert.equal(result.findings[0]!.disposition, 'review-required');
 });
 
-test('the same direct operation in separate declared modules is a review lead', () => {
-  const result = review({ ...model(), capabilities: [capability(), capability({
-    observationId: 'call-b', path: 'src/b.ts', moduleId: 'b-module', owningDeclarationObservationId: 'b'
-  })] });
-  const finding = result.findings.find((item) => item.code === 'distributed-direct-transport')!;
-  assert.deepEqual(finding.related, ['a-module', 'b-module']);
-  assert.equal(finding.sites.length, 2);
-});
-
 test('multiple calls within one module are not distributed owners', () => {
   const result = review({ ...model(), capabilities: [capability(), capability({ observationId: 'other-call' })] });
   assert.equal(result.counts['distributed-direct-transport'], 0);
@@ -182,11 +173,15 @@ test('file bytes, model identity and source revision bind the diagnostic digest'
   assert.notEqual(review(withCall).reviewDigest, review(changed).reviewDigest);
 });
 
-test('input order does not change the derived mechanism report', () => {
+test('distributed transport retains both module sites independently of input order', () => {
   const input = { ...model(), capabilities: [capability(), capability({
     path: 'src/b.ts', moduleId: 'b-module', owningDeclarationObservationId: 'b', observationId: 'b-call'
   })], references: [reference(), reference({ path: 'src/b.ts', sourceObservationId: 'b', targetObservationId: 'b' })] };
-  assert.deepEqual(review(input), review({ ...input, files: [...input.files].reverse(), declarations: [...input.declarations].reverse(), references: [...input.references].reverse(), capabilities: [...input.capabilities].reverse() }));
+  const result = review(input);
+  const finding = result.findings.find((item) => item.code === 'distributed-direct-transport')!;
+  assert.deepEqual(finding.related, ['a-module', 'b-module']);
+  assert.equal(finding.sites.length, 2);
+  assert.deepEqual(result, review({ ...input, files: [...input.files].reverse(), declarations: [...input.declarations].reverse(), references: [...input.references].reverse(), capabilities: [...input.capabilities].reverse() }));
 });
 
 test('duplicate source or declaration identities are rejected instead of overwritten', () => {

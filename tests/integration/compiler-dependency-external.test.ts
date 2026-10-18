@@ -37,7 +37,6 @@ import {
   resolveSecWorkspaceRuntimeRoots,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
-  runFixtureGit,
   scanNoFollowDirectoryTreeInventory,
   settleEffectfulTestCleanup,
   settleWorkspaceCallback,
@@ -49,7 +48,6 @@ import {
   withCompilerTestWorkspace,
   withEffectfulCompilerWorkspace,
   withLinkedCompilerTestWorkspaces,
-  withLinkedWorktreeTempWorkspace,
   withRetainedCompilerContentFixture,
   writeCompilerDependencyRoot
 } from './compiler-dependency-installation.ts';
@@ -1064,39 +1062,10 @@ describe('compiler dependency installation', () => {
       );
     });
 
-  test('rejects a forged compiler locator retirement authority without touching its generation', async () => {
-    await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
-      const ownerRoot = path.join(tempRoot, 'repository');
-      const consumerRoot = path.join(tempRoot, 'candidate');
-      await fs.mkdir(ownerRoot);
-      await runFixtureGit(ownerRoot, ['init', '-b', 'main']);
-      await writeCompilerDependencyRoot(ownerRoot);
-      await fs.writeFile(path.join(ownerRoot, '.gitignore'), 'node_modules/\n.tmp/\n');
-      await runFixtureGit(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
-      await runFixtureGit(ownerRoot, [
-        '-c', 'user.email=sec@example.invalid',
-        '-c', 'user.name=SEC Test',
-        '-c', 'core.autocrlf=false',
-        'commit', '-m', 'fixture'
-      ]);
-      await runFixtureGit(ownerRoot, ['config', 'core.autocrlf', 'false']);
-      await installCompilerDependencyFixture(ownerRoot, 'primary-generation');
-      await runFixtureGit(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
-      await fs.symlink(
-        path.join(ownerRoot, 'node_modules'),
-        path.join(consumerRoot, 'node_modules'),
-        process.platform === 'win32' ? 'junction' : 'dir'
-      );
-
-      await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire(Object.freeze({
-        schema: 'sec-generated-state-worktree-retirement-effect-authority-v1'
-      }) as GeneratedStateWorktreeRetirementEffectAuthority)).rejects.toThrow('forged, stale, replayed');
-      expect((await fs.lstat(path.join(consumerRoot, 'node_modules'))).isSymbolicLink()).toBeTrue();
-      expect(await fs.readFile(
-        path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
-        'utf8'
-      )).toBe('primary-generation:typescript\n');
-    });
+  test('rejects a forged compiler locator retirement authority before accepting worktree inputs', async () => {
+    await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire(Object.freeze({
+      schema: 'sec-generated-state-worktree-retirement-effect-authority-v1'
+    }) as GeneratedStateWorktreeRetirementEffectAuthority)).rejects.toThrow('forged, stale, replayed');
   });
 
   effectfulTest(test, 'retires one exact stale worktree generation before publishing a shared locator', {

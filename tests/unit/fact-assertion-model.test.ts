@@ -92,26 +92,6 @@ test('same triple and normalized assertion identity dedupe idempotently', () => 
   expect(facts.get(firstId)?.assertions).toHaveLength(1);
 });
 
-test('same triple with distinct provenance retains one Fact and two Assertions', () => {
-  const facts = new Map<string, SemanticFact>();
-  const contractFactId = addFact(facts, factInput());
-  const aiFactId = addFact(facts, factInput({
-    authority: 'inferred',
-    confidence: 0.72,
-    provenance: [{ kind: 'ai', sourceId: 'semantic-cluster-v1' }]
-  }));
-
-  const fact = facts.get(contractFactId)!;
-  expect(aiFactId).toBe(contractFactId);
-  expect(facts.size).toBe(1);
-  expect(fact.assertions).toHaveLength(2);
-  expect(new Set(fact.assertions.map((assertion) => assertion.id)).size).toBe(2);
-  expect(fact.assertions.map((assertion) => assertion.authority)).toEqual(expect.arrayContaining([
-    'authoritative',
-    'inferred'
-  ]));
-});
-
 test('same assertion identity rejects conflicting confidence instead of strongest-wins merge', () => {
   const facts = new Map<string, SemanticFact>();
   addFact(facts, factInput({ confidence: 0.4 }));
@@ -125,13 +105,16 @@ test('same assertion identity rejects conflicting confidence instead of stronges
 test('inferred confidence 1 does not overwrite an authoritative assertion', () => {
   const facts = new Map<string, SemanticFact>();
   const factId = addFact(facts, factInput({ confidence: 0.4 }));
-  addFact(facts, factInput({
+  const inferredFactId = addFact(facts, factInput({
     authority: 'inferred',
     confidence: 1,
     provenance: [{ kind: 'ai', sourceId: 'semantic-cluster-v1' }]
   }));
 
   const fact = facts.get(factId)!;
+  expect(inferredFactId).toBe(factId);
+  expect(facts.size).toBe(1);
+  expect(new Set(fact.assertions.map((assertion) => assertion.id)).size).toBe(2);
   expect(summarizeFactAssertions(fact)).toEqual({
     status: 'mixed',
     authorities: ['authoritative', 'inferred'],

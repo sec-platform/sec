@@ -1,18 +1,11 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import type { PlanFile } from '../../src/compiler/contract.ts';
-import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
-import { CodedFailure } from '../../src/contracts/failure.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/semantics/policies/rules.ts';
-const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
-  officialPath: 'catalog/registry/official',
-  privatePath: 'model/blocks/private'
-});
 
 function semanticContract(): LoadedSemanticContract {
   return {
@@ -140,17 +133,6 @@ function fixture(): BuildEngineeringIRInput {
     ],
     semanticContracts: [semanticContract()]
   };
-}
-
-function expectCodedFailure(run: () => unknown, code: string): void {
-  try {
-    run();
-  } catch (error) {
-    expect(error).toBeInstanceOf(CodedFailure);
-    expect((error as CodedFailure).code).toBe(code);
-    return;
-  }
-  throw new Error(`Expected CodedFailure ${code}`);
 }
 
 test('canonical primitive known-answer vectors remain byte-identical', () => {
@@ -341,23 +323,6 @@ test('policy declaration content changes input revision without changing semanti
     before.entities.filter((entity) => entity.kind === 'policy')
   );
 });
-
-test('plan validation hard fails when app.id is absent', () => {
-  const normalized = normalizePlan({
-    app: {
-      name: 'legacy-name-only',
-      stack: 'typescript-library',
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
-    registry: { sources: [] },
-    blocks: [],
-    acceptance: []
-  } as unknown as PlanFile, PLAN_NORMALIZATION_DEFAULTS);
-
-  expectCodedFailure(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
-});
-
 
 test('distinct transition tuples remain separate facts in either source order', () => {
   const input = fixture();

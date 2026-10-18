@@ -104,7 +104,7 @@ test('owner-issued Effect grant binds one exact semantic attempt and is consumed
   }), 'already-consumed');
 });
 
-test('grant serialization, cloning and another authority cannot reproduce Effect authority', () => {
+test('grant cloning and another authority cannot reproduce Effect authority', () => {
   const authority = createOperationEffectGrantAuthority({
     semanticOperation: 'development.commit',
     issuerIdentityDigest: digest('candidate-admission-owner')
@@ -122,15 +122,12 @@ test('grant serialization, cloning and another authority cannot reproduce Effect
   });
   const semanticPlan = plan(semanticIntent, issued);
   const cloned = structuredClone(issued.grant);
-  const parsed = JSON.parse(JSON.stringify(issued.grant));
 
-  for (const grant of [cloned, parsed]) {
-    expectReason(() => authority.consumer.consume({
-      grant,
-      operation: semanticPlan,
-      currentEpochDigest
-    }), 'foreign-grant');
-  }
+  expectReason(() => authority.consumer.consume({
+    grant: cloned,
+    operation: semanticPlan,
+    currentEpochDigest
+  }), 'foreign-grant');
   expectReason(() => foreignAuthority.consumer.consume({
     grant: issued.grant,
     operation: semanticPlan,

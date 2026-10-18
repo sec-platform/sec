@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-validation.ts';
 const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
@@ -11,7 +12,7 @@ const input = () => ({ app: { id: 'app', name: 'Application', stack: SUPPORTED_S
 const normalize = (value: unknown) => normalizePlan(value, PLAN_NORMALIZATION_DEFAULTS);
 const code = (expected: string) => (error: unknown) => (error as { code?: string }).code === expected;
 
-test('normalization keeps default location/package/mode decisions and independent output', () => {
+test('normalization keeps defaults and independent output without inventing a missing app identity', () => {
   const source = input(), value = normalize(source);
   validatePlan(value);
   assert.deepEqual(value.app, { ...source.app, packageManager: 'pnpm', mode: 'single-tenant' });
@@ -21,6 +22,13 @@ test('normalization keeps default location/package/mode decisions and independen
     { id: 'private', kind: 'private', location: 'workspace', path: PLAN_NORMALIZATION_DEFAULTS.privatePath }
   ]);
   value.app.name = 'Changed'; assert.equal(source.app.name, 'Application');
+
+  const missingIdentity = normalize({
+    app: { name: 'legacy-name-only', stack: 'typescript-library', packageManager: 'pnpm', mode: 'single-tenant' },
+    registry: { sources: [] }, blocks: [], acceptance: []
+  });
+  assert.throws(() => validatePlan(missingIdentity), error =>
+    error instanceof CodedFailure && error.code === 'PLAN-VALIDATION-014');
 });
 
 test('explicit empty registries stay empty rather than acquiring default providers', () => {
