@@ -57,9 +57,11 @@ test('builder preserves comment/import/declaration order and deduplicates named 
   assert.equal(declaration.importClause?.isTypeOnly, true);
 });
 
-test('builder emits optional parameters, access modifiers, interfaces and export assignments', () => {
+test('builder emits typed contracts, optional parameters and access modifiers without resolving user imports', () => {
   const source = new CodeBuilder('generated/contract.ts')
-    .addInterface('Options', [{ name: 'label', type: 'string', isReadonly: true, isOptional: true }], true)
+    .addImport({ moduleSpecifier: './not-installed-user-contract', namedImports: ['Foreign'], isTypeOnly: true })
+    .addTypeAlias('Result', 'ReadonlyArray<Foreign | null>', true)
+    .addInterface('Options', [{ name: 'label', type: 'Foreign', isReadonly: true, isOptional: true }], true)
     .addClass({
       name: 'Service',
       isExported: true,
@@ -76,7 +78,8 @@ test('builder emits optional parameters, access modifiers, interfaces and export
     .getText();
   const sourceFile = parsed(source);
 
-  assert.equal(sourceFile.statements.some(ts.isInterfaceDeclaration), true);
+  assert.equal(sourceFile.statements.filter(ts.isTypeAliasDeclaration).length, 1);
+  assert.equal(sourceFile.statements.filter(ts.isInterfaceDeclaration).length, 1);
   assert.equal(sourceFile.statements.some(ts.isClassDeclaration), true);
   assert.equal(sourceFile.statements.some(ts.isExportAssignment), true);
   const classDeclaration = sourceFile.statements.find(ts.isClassDeclaration)!;

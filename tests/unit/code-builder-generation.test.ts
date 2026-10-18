@@ -149,15 +149,6 @@ test('invalid raw statements and member names leave previously generated source 
   }
 });
 
-test('fragment type parsing and exported declaration structure remain available without resolving user imports', () => {
-  const text = new CodeBuilder().addImport({ moduleSpecifier: './not-installed-user-contract', namedImports: ['Foreign'], isTypeOnly: true })
-    .addTypeAlias('Result', 'ReadonlyArray<Foreign | null>', true)
-    .addInterface('Shape', [{ name: 'item', type: 'Foreign', isOptional: true, isReadonly: true }], true).getText();
-  const parsed = sourceFile(text);
-  assert.equal(parsed.statements.filter(ts.isTypeAliasDeclaration).length, 1);
-  assert.equal(parsed.statements.filter(ts.isInterfaceDeclaration).length, 1);
-});
-
 test('adding declarations preserves initial code, hoisted imports and caller-requested statement order', async () => {
   const builder = new CodeBuilder('pipeline.ts', 'export const start = 2;');
   for (let i = 0; i < 150; i++) builder.addVariable({ name: `v${i}`, initializer: i === 0 ? 'start + 1' : `v${i - 1} + 1`, isExported: true });
