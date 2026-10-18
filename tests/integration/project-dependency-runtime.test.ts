@@ -90,21 +90,6 @@ describe('project and compiler runtime manifests', () => {
 });
 
 describe('dependency bridge', () => {
-  test('provides a temporary dependency link when the project has no node_modules', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const bridgePath = path.join(workspaceRoot, 'node_modules');
-
-      await ensureProjectBase(workspaceRoot);
-      await withProjectDependencyBridge(workspaceRoot, async () => {
-        const bridgeStats = await fs.lstat(bridgePath);
-        expect(bridgeStats.isSymbolicLink()).toBe(true);
-        await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
-      });
-
-      await expect(fs.lstat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
-    }, 'engineering-compiler-runtime-bridge-');
-  });
-
   test('settles a failed consumer before a later consumer reuses the bridge', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const bridgePath = path.join(workspaceRoot, 'node_modules');
@@ -124,7 +109,7 @@ describe('dependency bridge', () => {
     }, 'engineering-compiler-runtime-bridge-failure-');
   });
 
-  test('serializes consumers of the same project locator', async () => {
+  test('provides and retires a temporary dependency link while serializing project consumers', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
       let releaseFirst!: () => void;
@@ -143,6 +128,9 @@ describe('dependency bridge', () => {
         maximumActiveConsumers = Math.max(maximumActiveConsumers, activeConsumers);
         firstEntered();
         await firstMayFinish;
+        const bridgePath = path.join(workspaceRoot, 'node_modules');
+        expect((await fs.lstat(bridgePath)).isSymbolicLink()).toBe(true);
+        await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
         activeConsumers -= 1;
       });
       await firstDidEnter;
@@ -156,7 +144,7 @@ describe('dependency bridge', () => {
         expect(maximumActiveConsumers).toBe(1);
       } finally {
         releaseFirst();
-        await Promise.all([first, second]);
+        await Promise.all([first, second]).finally(() => Promise.allSettled([first, second]));
       }
       expect(maximumActiveConsumers).toBe(1);
       await expect(fs.lstat(path.join(workspaceRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });

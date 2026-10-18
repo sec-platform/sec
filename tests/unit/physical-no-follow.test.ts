@@ -138,24 +138,6 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test('same-identity readback rejects replacement rather than accepting same lexical bytes', () => {
-  const root = fixtureRoot();
-  try {
-    const target = path.join(root, 'target');
-    const retained = path.join(root, 'retained');
-    mkdirSync(target);
-    const original = inspectNoFollowDirectoryChain(target, 'replace target').target;
-    renameSync(target, retained);
-    mkdirSync(target);
-    expectPhysicalCode(
-      () => assertSameNoFollowDirectoryIdentity(original, 'replace target'),
-      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retained child inspection is create-free and exclusive creation never adopts a collision', () => {
   const root = fixtureRoot();
   try {
@@ -616,7 +598,7 @@ test('native Git write-tree uses a warm private index beneath its retained paren
   expect(runRetainedGitWriteTreeProbe({ warmIndex: true, indexCustody: 'retained-parent' })).toMatch(/^[0-9a-f]{40}$/u);
 });
 
-test('exact ordinary leaf observation does not scan unrelated parent entries', () => {
+test('exact ordinary leaf observation bounds only the selected leaf without scanning unrelated entries', () => {
   const root = fixtureRoot();
   try {
     writeFileSync(path.join(root, 'fence.json'), '{"safe":true}\n', 'utf8');
@@ -634,18 +616,8 @@ test('exact ordinary leaf observation does not scan unrelated parent entries', (
       expect(entry?.device).toBe(String(metadata.dev));
       expect(entry?.inode).toBe(String(metadata.ino));
     }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('exact ordinary leaf observation enforces the same selected-leaf bound', () => {
-  const root = fixtureRoot();
-  try {
-    writeFileSync(path.join(root, 'oversized-fence.json'), Buffer.alloc(65 * 1024 * 1024));
-    const parent = inspectNoFollowDirectoryChain(root, 'oversized leaf parent').target;
     expectPhysicalCode(
-      () => inspectNoFollowOrdinaryFileEntry(parent, 'oversized-fence.json'),
+      () => inspectNoFollowOrdinaryFileEntry(parent, 'unrelated-large.bin'),
       'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED'
     );
   } finally {

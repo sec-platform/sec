@@ -171,11 +171,10 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
 });
 
 test('compile CLI rejects caller-provided Capsule authority before live observation', async () => {
-  const supplied = input();
   const result = await run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
-    JSON.stringify({ ...supplied, schema: OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
+    JSON.stringify({ schema: OPERATION_READ_CLOSURE_REQUEST_SCHEMA, taskCapsule: {} }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
@@ -215,9 +214,8 @@ test('schema-only Read Plan production compile fails closed without a trusted is
 });
 
 test('Skill CLI requires an explicit candidate root before live authority observation', async () => {
-  const plan = compileOperationReadPlan(input());
   const selected = await run('src/adapters/self-hosting/control/agent/skill-applicability.ts', [
-    '--read-plan', JSON.stringify(plan)
+    '--read-plan', '{}'
   ]);
   expect(selected.status).toBe(2);
   expect(selected.stderr).toContain('--candidate-root <path> is required');

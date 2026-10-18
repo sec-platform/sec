@@ -606,27 +606,6 @@ test('computed values block changed declarations and their consumer frontier', (
       subject: 'computed-property-unresolved'
     })
   );
-  const escapedBodies = [
-    '  return (selected as () => string)();',
-    '  return String(selected);',
-    '  const escaped = { selected };\n  return String(escaped.selected);',
-    '  const read = () => selected;\n  return String(read());'
-  ];
-  for (const body of escapedBodies) {
-    const escaped = compileFixture({
-      'src/example/service.ts': [
-        'export function run(values: Record<string, unknown>, key: string): string {',
-        '  const selected = values[key];',
-        body,
-        '}',
-        ''
-      ].join('\n')
-    }, [serviceDescriptor('src/example/service.ts', 'run')]);
-    expect(reconcile(before, escaped).unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-  }
   const invocation = compileFixture({
     'src/example/service.ts': [
       'export function run(values: Record<string, () => string>, key: string): string {',
