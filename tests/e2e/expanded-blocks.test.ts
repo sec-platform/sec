@@ -27,7 +27,22 @@ test('expanded official block set composes and verifies as one project', async (
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const postgresContractPath = path.join(workspaceRoot, 'generated', 'postgres-contract.json');
   const resolvedLock = await readJson<LockFile>(lockPath);
-  expect(resolvedLock.resolvedBlocks.length).toBe(13);
+  const expectedBlockIds = [
+    'audit/basic',
+    'auth/basic-session',
+    'entity/customer-basic',
+    'export/csv-basic',
+    'file/upload',
+    'infra/postgres',
+    'notify/email-basic',
+    'rbac/basic',
+    'reporting/ticket-summary',
+    'table/filter-search',
+    'tenant/basic-workspace',
+    'ticket/basic',
+    'worklog/basic'
+  ];
+  expect(resolvedLock.resolvedBlocks.map((block) => block.id).sort()).toEqual(expectedBlockIds);
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
@@ -62,16 +77,7 @@ test('expanded official block set composes and verifies as one project', async (
 
   const lock = await readJson<LockFile>(lockPath);
   expect(lock.passStatus.verify).toBe('pending');
-  expect(lock.resolvedBlocks.some((block) => block.id === 'rbac/basic')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'audit/basic')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'export/csv-basic')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'file/upload')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'notify/email-basic')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'table/filter-search')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'infra/postgres')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'ticket/basic')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'reporting/ticket-summary')).toBe(true);
-  expect(lock.resolvedBlocks.some((block) => block.id === 'worklog/basic')).toBe(true);
+  expect(lock.resolvedBlocks.map((block) => block.id).sort()).toEqual(expectedBlockIds);
   expect(lock.installPlan.some((step) => step.to === 'generated/postgres-contract.json')).toBe(true);
   expect(lock.installPlan.some((step) => step.to === 'src/installed/reporting/ticket-summary.ts')).toBe(true);
   expect(lock.installPlan.some((step) => step.to === 'src/installed/worklog/worklog-service.ts')).toBe(true);

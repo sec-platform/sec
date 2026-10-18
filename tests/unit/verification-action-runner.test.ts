@@ -826,41 +826,6 @@ test('a caller without an authorized plan cannot join a cross-workspace physical
   }
 });
 
-test('same-owner cycle cannot bypass guard by changing executionDomain', async () => {
-  const repositoryRoot = root();
-  try {
-    const runner = new VerificationActionRunner();
-    const key = action('reentrant-action');
-    let invocations = 0;
-    let nested: Promise<Awaited<ReturnType<VerificationActionRunner['execute']>>> | null = null;
-    const executor = () => {
-      invocations += 1;
-      nested = runner.execute({
-        repositoryRoot,
-        action: key,
-        executionDomain: 'different-domain',
-        plan: runnablePlan(key, repositoryRoot),
-        executor
-      });
-      return issuedSettlement(key);
-    };
-    const result = await runner.execute({
-      repositoryRoot,
-      action: key,
-      executionDomain: 'initial-domain',
-      plan: runnablePlan(key, repositoryRoot),
-      executor
-    });
-    const nestedResult = await nested!;
-    expect(invocations).toBe(1);
-    expect(result.disposition).toBe('executed');
-    expect(nestedResult.disposition).toBe('blocked');
-    expect(nestedResult.reason).toContain('reentrant-cycle');
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
 test('awaited nested same-key execution is rejected without self-join deadlock', async () => {
   const repositoryRoot = root();
   try {

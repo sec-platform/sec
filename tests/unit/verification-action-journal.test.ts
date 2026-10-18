@@ -745,7 +745,7 @@ test('machine cutover consolidates identical workspace Action chains before glob
   }
 });
 
-test('machine cutover blocks active claims and corrupt workspace chains before journal publication', () => {
+test('machine cutover blocks journal-less claims and corrupt workspace chains before journal publication', () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-machine-cutover-blocked-'));
   try {
     const activeKey = action('machine-cutover-active');

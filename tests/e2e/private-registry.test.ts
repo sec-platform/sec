@@ -23,7 +23,6 @@ test('workspace private registry blocks resolve, compose, and verify through an 
   await addBlock(workspaceRoot, 'private/banner-basic');
 
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
-  expect(resolvedLock.resolvedBlocks.some((block) => block.id === 'private/banner-basic')).toBe(true);
   expect(
     resolvedLock.resolvedBlocks.find((block) => block.id === 'private/banner-basic')?.registryKind
   ).toBe('private');

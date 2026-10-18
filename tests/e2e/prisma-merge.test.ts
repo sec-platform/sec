@@ -11,8 +11,8 @@ test('Compose materializes Prisma schema without applying it to a database', asy
     const initRes = await runCliInProcess(workspaceRoot, ['init']);
     expect(initRes.code).toBe(0);
 
-    const { prismaRoot } = getWorkspacePaths(workspaceRoot);
-    const schemaDir = prismaRoot;
+    const { modelRoot, prismaRoot } = getWorkspacePaths(workspaceRoot);
+    const schemaDir = path.join(modelRoot, 'schema');
     await fs.mkdir(schemaDir, { recursive: true });
     await fs.writeFile(path.join(schemaDir, 'db.prisma.template'), `
 model CustomExtension {
