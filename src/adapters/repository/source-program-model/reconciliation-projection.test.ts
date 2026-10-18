@@ -1044,7 +1044,7 @@ test('test finding debt survives unrelated inventory additions but not relevant 
   expect(sourceProgramTestFindingDeltaHasRegression(ownerDelta, changedOwner.tests.findings)).toBe(true);
 });
 
-test('new local unknown input cannot hide behind inherited shared uncertainty', () => {
+test('local unknown additions and changed excluded shared inputs remain unresolved against inherited uncertainty', () => {
   const sources = { 'src/example/operation.ts': findingProduction,
     [findingTestPath]: findingTestHeader + findingBehaviorCase };
   const before = compileTestFindingFixture(sources);
@@ -1063,17 +1063,12 @@ test('new local unknown input cannot hide behind inherited shared uncertainty', 
   expect(before.tests.records).toHaveLength(1);
   expect(after.tests.records).toHaveLength(2);
   expect(after.tests.records[0]!.testId).toBe(before.tests.records[0]!.testId);
-});
-
-test('excluded shared input changes invalidate null-digest debt without reading values', () => {
-  const snapshot = compileTestFindingFixture({ 'src/example/operation.ts': findingProduction,
-    [findingTestPath]: findingTestHeader + findingBehaviorCase });
-  expect(snapshot.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
-  const unrelated = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['unrelated/resource.txt']);
+  expect(before.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
+  const unrelated = compileSourceProgramTestFindingDelta(before, before, ['unrelated/resource.txt']);
   expect(unrelated.changedSharedInputPaths).toEqual([]);
   expect(sourceProgramTestFindingDeltaIsUnresolved(unrelated)).toBe(false);
-  const changed = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['.env']);
-  assertSourceProgramTestFindingDelta(changed, snapshot.tests.findings);
+  const changed = compileSourceProgramTestFindingDelta(before, before, ['.env']);
+  assertSourceProgramTestFindingDelta(changed, before.tests.findings);
   expect(changed.changedSharedInputPaths).toEqual(['.env']);
   expect(changed.contextComparable).toBe(false);
   expect(changed.scope.regressedPaths).toEqual([findingTestPath]);

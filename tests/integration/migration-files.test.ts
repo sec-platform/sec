@@ -413,7 +413,7 @@ test('rename-directory migration rejects occupied targets', async () => {
   });
 });
 
-test('text-append migration appends content to existing text files', async () => {
+test('text-append migration preserves existing content and creates missing parent targets', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = tempRoot;
     const manifestRoot = path.join(tempRoot, 'manifest');
@@ -431,24 +431,15 @@ test('text-append migration appends content to existing text files', async () =>
     await expect(fs.readFile(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe(
       '- existing note\n- appended note\n'
     );
-  });
-});
-
-test('text-append migration creates missing text targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
 
     await applyMigrationEntries(
       workspaceRoot,
       manifestRoot,
-      ['docs/upgrade-notes.md'],
-      [textAppend('docs/upgrade-notes.md', '- first note\n')]
+      ['new-docs/upgrade-notes.md'],
+      [textAppend('new-docs/upgrade-notes.md', '- first note\n')]
     );
 
-    await expect(fs.readFile(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe('- first note\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'new-docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe('- first note\n');
   });
 });
 

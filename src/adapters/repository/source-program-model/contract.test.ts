@@ -1976,21 +1976,7 @@ function compileSupersessionSnapshot(
   return compileSupersessionFixture(sources, declareIntent, declareObligation).evidence;
 }
 
-test('test-surface command observations do not become product duplicate-command candidates', () => {
-  const testOnly = compileSupersessionFixture({
-    'tests/example-command.test.ts': [
-      "import { Command } from 'commander';",
-      'const root = new Command();',
-      "root.command('sample');",
-      "root.command('sample');",
-      ''
-    ].join('\n')
-  }).full.model;
-  expect(testOnly.entrypoints.filter(({ kind }) => kind === 'cli-command')).toHaveLength(2);
-  expect(testOnly.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'duplicate-entrypoint-command'
-  }));
-
+test('production command observations retain duplicate-command candidates', () => {
   const productDuplicate = compileSupersessionFixture({
     'src/example/cli.ts': [
       "import { Command } from 'commander';",
@@ -2237,27 +2223,8 @@ test('introduce judgment joins only genuine new occurrences and cannot clear an 
   expect(incomplete.findings).toContainEqual(expect.objectContaining({ code: 'required-test-boundary-missing', baselineId: old.tests[0]!.testId }));
 });
 
-test('supersession receipt rejects cancellation through the issued compilation operation', () => {
-  const evidence = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
-    'tests/example.test.ts': "import { test } from 'bun:test';\ntest('executes', () => {});\n"
-  });
-  const controller = new AbortController();
-  const operation = createSourceProgramCompilationOperation({
-    deadlineAtUnixMs: Date.now() + 30_000,
-    signal: controller.signal
-  });
-  controller.abort();
-
-  expect(() => compileSourceProgramSupersessionReceipt({
-    baseline: evidence,
-    current: evidence,
-    operation
-  })).toThrow('source-program-compilation-cancelled:supersession-receipt');
-});
-
 test('supersession separates semantic signatures from source occurrence identity', () => {
-  const repeatedCommand = compileSupersessionSnapshot({
+  const repeatedFixture = compileSupersessionFixture({
     'tests/example-command.test.ts': [
       "import { Command } from 'commander';",
       'const root = new Command();',
@@ -2266,6 +2233,11 @@ test('supersession separates semantic signatures from source occurrence identity
       ''
     ].join('\n')
   });
+  const repeatedCommand = repeatedFixture.evidence;
+  expect(repeatedFixture.full.model.entrypoints.filter(({ kind }) => kind === 'cli-command')).toHaveLength(2);
+  expect(repeatedFixture.full.model.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'duplicate-entrypoint-command'
+  }));
   const repeatedUnits = repeatedCommand.entrypointUnits.filter((unit) => (
     unit.path === 'tests/example-command.test.ts'
   ));
@@ -2930,6 +2902,18 @@ test('supersession retains unchanged unresolved evidence across identical and di
   expect(receipt.status).toBe('equivalent');
   expect(receipt.findings).toEqual([]);
   expect(receipt.lifecycleCost.current).toEqual(receipt.lifecycleCost.baseline);
+  const controller = new AbortController();
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000,
+    signal: controller.signal
+  });
+  controller.abort();
+
+  expect(() => compileSourceProgramSupersessionReceipt({
+    baseline: fixture.evidence,
+    current: fixture.evidence,
+    operation
+  })).toThrow('source-program-compilation-cancelled:supersession-receipt');
 });
 
 test('supersession blocks changed dynamic or external observations instead of inventing intent', () => {
@@ -3610,7 +3594,7 @@ function lateTransitionAuthorFixture() {
   return { assessment, payload, decision };
 }
 
-test('late transition author input reuses immutable source facts without issuing adoption authority', async () => {
+test('late conditional author input preserves immutable facts, exact history and drift rejection without adoption authority', async () => {
   const { assessment, payload, decision } = lateTransitionAuthorFixture();
   const original = JSON.stringify(assessment);
   const proposed = assessSourceProgramTransitionAuthorInput({ assessment, payload });
@@ -3623,15 +3607,10 @@ test('late transition author input reuses immutable source facts without issuing
   expect(qualifySourceProgramTestAuthorAssessment({ approval, assessment: proposed })).toBe('test-only-simulation');
   expect(() => qualifySourceProgramTestAuthorAssessment({ approval, assessment: { ...proposed } }))
     .toThrow('exact compiler assessment required');
-});
-
-test('late transition author input rejects source drift and preserves historical conditional interpretation', () => {
-  const { assessment, payload, decision } = lateTransitionAuthorFixture();
-  const prior = assessSourceProgramTransitionAuthorInput({ assessment, payload });
-  const historical = { ...assessment, authorAssessment: prior };
+  const historical = { ...assessment, authorAssessment: proposed };
   const renewed = assessSourceProgramTransitionAuthorInput({ assessment: historical, payload });
-  expect(renewed).toEqual(prior);
-  expect(renewed).not.toBe(prior);
+  expect(renewed).toEqual(proposed);
+  expect(renewed).not.toBe(proposed);
   expect(() => assessSourceProgramTransitionAuthorInput({
     assessment: { ...assessment, headSha: 'e'.repeat(40) }, payload
   })).toThrow('revisions');

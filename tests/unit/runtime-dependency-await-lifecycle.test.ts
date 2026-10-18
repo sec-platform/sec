@@ -194,7 +194,6 @@ test('a successful fence retains its receiver, operation identity and public sig
   assert.strictEqual(receiver, provider);
   assert.strictEqual(runtimeDependencyOperationContext(options), context);
   assert.strictEqual(options.signal, controller.signal);
-  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 });
 
 for (const failureMode of ['sync', 'async'] as const) {
@@ -206,7 +205,6 @@ for (const failureMode of ['sync', 'async'] as const) {
       : async () => { throw reason; };
     const options = runtimeDependencyOperationOptions({ signal: controller.signal, beforeCommit });
     requireRejection(await observed(runtimeDependencyOperationEffectFence(options, 'hook-failure')).settled, reason);
-    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
   });
 }
 

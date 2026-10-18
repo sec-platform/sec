@@ -8,6 +8,16 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 test('public error codes retain their independent recovery contract', () => {
   const cases = [
     {
+      code: 'UPGRADE-NOOP-001',
+      expected: { suggestedActions: ['choose-different-upgrade-target'] }
+    },
+    {
+      code: 'REPAIR-BLOCKED-002',
+      expected: { suggestedActions: ['run-platform-verify', 'retry-platform-repair-dry-run'] }
+    },
+    { code: 'PIPELINE-USAGE-001', expected: { issueType: 'usage' } },
+    { code: 'PIPELINE-INTERNAL-001', expected: { issueType: 'kernel' } },
+    {
       code: 'CLI-USAGE-001',
       expected: {
         issueType: 'usage',
@@ -62,7 +72,11 @@ test('public error codes retain their independent recovery contract', () => {
   ] as const;
 
   for (const { code, expected } of cases) {
-    expect(buildErrorProtocol({ code, message: 'fixture' }), code).toMatchObject(expected);
+    const result = buildErrorProtocol({ code, message: 'fixture' });
+    expect(result, code).toMatchObject(expected);
+    if ('suggestedActions' in expected) {
+      expect(result.suggestedActions, code).toEqual(expected.suggestedActions);
+    }
   }
 });
 

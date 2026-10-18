@@ -62,10 +62,3 @@ test('unsupported detail representations are preserved for the presentation boun
     assert.equal(result.details, details);
   }
 });
-
-test('existing specific-prefix priority remains distinct from broad fallback rules', () => {
-  assert.deepEqual(buildErrorProtocol({ code: 'UPGRADE-NOOP-001' }).suggestedActions, ['choose-different-upgrade-target']);
-  assert.deepEqual(buildErrorProtocol({ code: 'REPAIR-BLOCKED-002' }).suggestedActions, ['run-platform-verify', 'retry-platform-repair-dry-run']);
-  assert.equal(buildErrorProtocol({ code: 'PIPELINE-USAGE-001' }).issueType, 'usage');
-  assert.equal(buildErrorProtocol({ code: 'PIPELINE-INTERNAL-001' }).issueType, 'kernel');
-});
