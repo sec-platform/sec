@@ -68,11 +68,13 @@ test('runtime materialization scheduler starts exactly eight canonical items at 
   expect(maxInFlight).toBe(8);
 });
 
-test('runtime materialization scheduler reports the lowest canonical rejection after the batch settles', async () => {
+test('runtime materialization scheduler reports the lowest canonical rejection after settlement without starting a later batch', async () => {
   const releaseLowerFailure = deferred();
+  const started: number[] = [];
   const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 8 }, (_, index) => index),
+    Array.from({ length: 16 }, (_, index) => index),
     async (_item, canonicalIndex) => {
+      started.push(canonicalIndex);
       if (canonicalIndex === 2) {
         await releaseLowerFailure.promise;
         throw new Error('canonical failure 2');
@@ -84,6 +86,7 @@ test('runtime materialization scheduler reports the lowest canonical rejection a
 
   releaseLowerFailure.resolve();
   await expect(execution).rejects.toThrow('canonical failure 2');
+  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
 });
 
 test('runtime materialization scheduler absorbs synchronous throw and settles every started batch item', async () => {
@@ -104,25 +107,6 @@ test('runtime materialization scheduler absorbs synchronous throw and settles ev
   await expect(execution).rejects.toThrow('synchronous canonical failure 2');
   expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   expect(settled).toEqual([0, 1, 3, 4, 5, 6, 7]);
-});
-
-test('runtime materialization scheduler does not schedule a later batch after failure or lease loss', async () => {
-  const started: number[] = [];
-  let supervisorStarted = false;
-  const executeThenSupervise = async (): Promise<void> => {
-    await runSemanticMutationRuntimeCanonicalBatchesForTests(
-      Array.from({ length: 16 }, (_, index) => index),
-      async (_item, canonicalIndex) => {
-        started.push(canonicalIndex);
-        if (canonicalIndex === 3) throw new Error('injected workspace lease loss');
-      }
-    );
-    supervisorStarted = true;
-  };
-
-  await expect(executeThenSupervise()).rejects.toThrow('injected workspace lease loss');
-  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-  expect(supervisorStarted).toBe(false);
 });
 
 test('runtime materialization scheduler stops before the next batch when its boundary fence is lost', async () => {

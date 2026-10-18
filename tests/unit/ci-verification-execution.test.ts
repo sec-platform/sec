@@ -2162,33 +2162,9 @@ test('hosted composition rejects an authenticated dependent PASS when its prereq
   })).toThrow('does not resolve to exactly one Action member');
 });
 
-test('one immutable Action terminal is reusable across different Session closures without plan-digest authority', () => {
-  const gates = hostedGates();
-  expect(gates.length).toBeGreaterThanOrEqual(3);
-  const left = hostedResolution([gates[0]!, gates[1]!]);
-  const right = hostedResolution([gates[0]!, gates[2]!]);
-  expect(left.actionPlanClosure.actionPlanDigest).not.toBe(right.actionPlanClosure.actionPlanDigest);
-  expect(left.actionPlan.action.actionKey).toBe(right.actionPlan.action.actionKey);
-
-  const rawResult = hostedRawResult(left, 'passed');
-  const artifact = CodexDevelopmentAssembleHostedActionTerminal({
-    resolution: left,
-    ticket: hostedTicket(left),
-    rawResult,
-    expectedRawResultDigest: rawResult.rawResultDigest,
-    producer: hostedProducer
-  });
-  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(artifact, {
-    actionPlan: right.actionPlan,
-    executionEnvironmentRevision:
-      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
-  })).not.toThrow();
-  expect(encodeVerificationActionData(artifact)).not.toContain(left.actionPlanClosure.actionPlanDigest);
-  expect(encodeVerificationActionData(artifact)).not.toContain(right.actionPlanClosure.actionPlanDigest);
-});
-
 test('different Session closures reuse one provider terminal and dispatch only their missing members', () => {
   const gates = hostedGates();
+  expect(gates.length).toBeGreaterThanOrEqual(3);
   const left = hostedResolution([gates[0]!, gates[1]!]);
   const right = hostedResolution([gates[0]!, gates[2]!]);
   const uniqueLeft = left.actionPlanClosure.actions[1]!.action.actionKey;
@@ -2201,6 +2177,14 @@ test('different Session closures reuse one provider terminal and dispatch only t
   const leftEnvelope = hostedEnvelopeFixture(left.actionPlanClosure);
   const rightEnvelope = hostedEnvelopeFixture(right.actionPlanClosure);
   const leftProvider = hostedProviderInputs(leftEnvelope, new Map([[0, { status: 'passed' }]]));
+  const artifact = leftProvider.observations[0]!.artifact!;
+  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(artifact, {
+    actionPlan: right.actionPlan,
+    executionEnvironmentRevision:
+      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+  })).not.toThrow();
+  expect(encodeVerificationActionData(artifact)).not.toContain(left.actionPlanClosure.actionPlanDigest);
+  expect(encodeVerificationActionData(artifact)).not.toContain(right.actionPlanClosure.actionPlanDigest);
   const rightMissing = hostedProviderInputs(rightEnvelope, new Map());
   const rightProvider = {
     ...leftProvider,

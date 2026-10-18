@@ -14,7 +14,10 @@ test('primary bootstrap rejects staged managed-hook bytes that are not the remot
     await chmod(path.join(repoRoot, '.githooks', 'pre-commit'), 0o755);
     git(repoRoot, ['add', '.githooks/pre-commit']);
     expect(await installGitHooksProduction({ repoRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
+      .toMatchObject({
+        status: 'conflict',
+        message: 'Tracked, executable, index-identical managed hooks are unavailable in the current or primary-bootstrap worktree; Git hook authority was not changed.'
+      });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
 });
