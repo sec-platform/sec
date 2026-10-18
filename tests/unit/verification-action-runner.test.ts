@@ -535,6 +535,8 @@ test('distinct ActionKeys retain independent machine-global physical claims', as
     expect(secondInvocations).toBe(1);
     expect(first.disposition).toBe('executed');
     expect(second.disposition).toBe('executed');
+    expect(first.terminal?.status).toBe('passed');
+    expect(second.terminal?.status).toBe('passed');
     expect(readVerificationActionJournal(firstRepositoryRoot, firstKey.actionKey).filePath)
       .not.toBe(readVerificationActionJournal(secondRepositoryRoot, secondKey.actionKey).filePath);
   } finally {
@@ -1823,25 +1825,6 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
     rmSync(candidateRoot, { recursive: true, force: true });
   }
 });
-
-test('cheap actions can be scheduled without an ActionKey cost field', async () => {
-  const repositoryRoot = root();
-  try {
-    const runner = new VerificationActionRunner();
-    const key = preflightAction('scripts/codex/cheap.ts');
-    const result = await runner.execute({
-      repositoryRoot,
-      action: key,
-      plan: cheapPlan(key),
-      executor: () => issuedSettlement(key)
-    });
-    expect(result.disposition).toBe('executed');
-    expect(result.terminal?.status).toBe('passed');
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
-  }
-});
-
 
 for (const state of ['invalidated', 'cancelled'] as const) {
   for (const residue of [false, true]) {

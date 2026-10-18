@@ -1,4 +1,4 @@
-import { link, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -430,16 +430,6 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
         diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' }
       });
     }
-
-    await link(
-      path.join(root, 'source', 'model', 'Item.yaml'),
-      path.join(root, 'source', 'model', 'hardlink.yaml')
-    );
-    await expect(readSemanticMutationSource(
-      root,
-      transaction,
-      'source/model/hardlink.yaml'
-    )).rejects.toMatchObject({ diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' } });
 
     const realDirectory = path.join(root, 'real-model');
     await mkdir(realDirectory, { recursive: true });

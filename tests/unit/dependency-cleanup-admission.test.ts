@@ -25,17 +25,15 @@ async function fixture(run:(root:string,shared:string,operation:DependencyEnviro
  }
  finally{await fs.rm(root,{recursive:true,force:true});}
 }
-test('reject a foreign shared-root plan before removing earlier project targets',async()=>fixture(async(root,shared,operation)=>{
- await assert.rejects(cleanDependencyEnvironment(root,{project:true,shared:true},operation,shared),/Custom shared/);
- assert.equal(await fs.readFile(path.join(root,'node_modules/keep'),'utf8'),'keep');
- assert.equal(await fs.readFile(path.join(root,'.runtime-deps.stamp.json'),'utf8'),'keep');
+test('foreign shared-root plans are refused before project deletion with or without force',async()=>fixture(async(root,shared,operation)=>{
+ for (const selection of [{project:true,shared:true}, {project:true,shared:true,force:true}]) {
+  await assert.rejects(cleanDependencyEnvironment(root,selection,operation,shared),/Custom shared/);
+  assert.equal(await fs.readFile(path.join(root,'node_modules/keep'),'utf8'),'keep');
+  assert.equal(await fs.readFile(path.join(root,'.runtime-deps.stamp.json'),'utf8'),'keep');
+ }
 }));
 test('a string false cannot select project deletion',async()=>fixture(async(root,shared,operation)=>{
  await assert.rejects(cleanDependencyEnvironment(root,{project:'false' as never},operation,shared),/boolean/);
- assert.equal(await fs.readFile(path.join(root,'node_modules/keep'),'utf8'),'keep');
-}));
-test('force does not authorize foreign shared-root retirement',async()=>fixture(async(root,shared,operation)=>{
- await assert.rejects(cleanDependencyEnvironment(root,{project:true,shared:true,force:true},operation,shared),/Custom shared/);
  assert.equal(await fs.readFile(path.join(root,'node_modules/keep'),'utf8'),'keep');
 }));
 for (const selection of [{ bunCache: true }, { all: true }] as const) {

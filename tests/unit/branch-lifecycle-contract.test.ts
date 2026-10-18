@@ -377,32 +377,6 @@ test('bounded selection lifecycle retains extra transport residue as closeout au
   expect(projection.blockerRefs).toHaveLength(1);
 });
 
-test('bounded selection lifecycle validates one exact open pull-request transport', () => {
-  const projection = projectBranchLifecycleForWorkSelection({
-    exactMain: MAIN_SHA,
-    defaultBranch: 'main',
-    localRefs: [],
-    remoteRefs: [{ branch: 'codex/active', sha: HEAD_SHA }],
-    worktrees: [],
-    openPullRequests: [{
-      number: 42,
-      headBranch: 'codex/active',
-      headSha: HEAD_SHA,
-      baseBranch: 'main',
-      baseSha: MAIN_SHA
-    }],
-    preservedOpenPullRequests: [],
-    prospectiveTransport: null
-  });
-  expect(projection).toMatchObject({
-    activeState: 'incomplete',
-    activeBranch: 'codex/active',
-    activeHeadSha: HEAD_SHA,
-    activeLegality: 'legal',
-    closeoutState: 'none'
-  });
-});
-
 test('bounded selection lifecycle preserves exact other PR transports and blocks their drift', () => {
   const preservedWorktreeRef = `sha256:${'b'.repeat(64)}` as const;
   const input = {

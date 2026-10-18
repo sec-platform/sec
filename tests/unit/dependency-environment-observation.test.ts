@@ -13,10 +13,13 @@ const stamps = { manifestHash: 'current', compilerReady: true, projectStampHash:
 
 // Actual ordinary filesystem observations; no retained-IO, content validation or
 // installation authorization is inferred from a healthy diagnostic.
-test('absent entries retain the public missing shape and no directory identity', async () => fixture(async root => {
+test('absent entries retain their missing shape and classify compiler and project absence independently', async () => fixture(async root => {
   const result = await observeDependencyEntry(path.join(root, 'missing'));
   assert.deepEqual(result.entry, { path: path.join(root, 'missing'), exists: false, kind: 'missing', sizeBytes: 0 });
   assert.equal(result.directory, null);
+  const present = await observeDependencyEntry(root);
+  assert.equal(classifyDependencyEnvironment(stamps, result, present), 'cold');
+  assert.equal(classifyDependencyEnvironment(stamps, present, result), 'warm-compiler');
 }));
 
 test('regular files are present but never qualify as dependency directories', async () => fixture(async root => {
@@ -74,15 +77,6 @@ test('ordinary project directories remain dirty even when stamps match', async (
   const shared = path.join(root, 'shared'), project = path.join(root, 'project');
   await fs.mkdir(shared); await fs.mkdir(project);
   assert.equal(classifyDependencyEnvironment(stamps, await observeDependencyEntry(shared), await observeDependencyEntry(project)), 'dirty');
-}));
-
-test('a missing project projection remains warm-compiler when its generation is available', async () => fixture(async root => {
-  assert.equal(classifyDependencyEnvironment(stamps, await observeDependencyEntry(root), await observeDependencyEntry(path.join(root, 'missing'))), 'warm-compiler');
-}));
-
-test('a missing compiler generation remains cold despite stamps', async () => fixture(async root => {
-  const missing = await observeDependencyEntry(path.join(root, 'missing'));
-  assert.equal(classifyDependencyEnvironment(stamps, missing, await observeDependencyEntry(root)), 'cold');
 }));
 
 test('stale stamp decisions and absent project stamps retain existing precedence', async () => fixture(async root => {

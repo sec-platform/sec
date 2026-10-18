@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { renameSync, symlinkSync, writeFileSync } from 'node:fs';
-import { chmod, lstat, mkdir, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { configTransitionNames, configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, managedHookNames, withRepository } from './fixtures/install-git-hooks.ts';
@@ -40,21 +40,12 @@ test('hook installer never treats same-size same-mtime source mutation as curren
 
 test('generation publication stops on common namespace replacement and preserves the replacement', async () => {
   await withRepository(async (repoRoot) => {
-    const sourcePath = path.join(repoRoot, '.githooks', 'pre-commit');
-    const updatedSource = (await readFile(sourcePath, 'utf8')).replace('set -eu', 'set -ux');
-    await writeFile(sourcePath, updatedSource, 'utf8');
-    await chmod(sourcePath, 0o755);
-    git(repoRoot, ['add', '.githooks/pre-commit']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
     const commonGitDir = path.resolve(git(repoRoot, [
       'rev-parse', '--path-format=absolute', '--git-common-dir'
     ]));
     const commonRoot = path.join(commonGitDir, 'sec-managed-hooks-v3');
     const retainedRoot = path.join(commonGitDir, 'sec-managed-hooks-v3-publication-retained');
     const linkType = process.platform === 'win32' ? 'junction' : 'dir';
-    const probe = path.join(commonGitDir, 'sec-hooks-link-probe');
-    await symlink(commonRoot, probe, linkType);
-    await rm(probe, { recursive: true, force: true });
     let replaced = false;
     expect(await installGitHooks({
       repoRoot,

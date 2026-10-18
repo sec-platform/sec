@@ -67,7 +67,10 @@ function terminalForAttempt(
   return createVerificationActionTerminal({ ...unsigned, resultDigest: digest(unsigned) });
 }
 
-function terminalWithDiagnosticSubject(subjectDigest: `sha256:${string}`): VerificationActionTerminal {
+function terminalWithDiagnosticSubject(
+  subjectDigest: `sha256:${string}`,
+  actionKey = subjectDigest
+): VerificationActionTerminal {
   const receipt = createBoundedProcessDiagnosticObjectReceipt({
     operationIdentityDigest: DIGEST_A,
     executionPlanDigest: DIGEST_A,
@@ -93,7 +96,7 @@ function terminalWithDiagnosticSubject(subjectDigest: `sha256:${string}`): Verif
     }
   }];
   const unsigned = {
-    actionKey: subjectDigest,
+    actionKey,
     executionKind: 'process' as const,
     status: 'failed' as const,
     reasonCode: 'executed-failure' as const,
@@ -1591,6 +1594,13 @@ test('journal admission rejects a terminal carrying another Action diagnostic su
       recordedAt: at(3),
       terminal: terminalWithDiagnosticSubject(DIGEST_A)
     })).toThrow('does not bind its ActionKey');
+    expect(() => appendVerificationActionJournalEvent({
+      fs: journalFs(root),
+      action: key,
+      state: 'terminal',
+      recordedAt: at(3),
+      terminal: terminalWithDiagnosticSubject(DIGEST_A, key.actionKey)
+    })).toThrow('terminal diagnostics do not bind its ActionKey and attempt');
     expect(readVerificationActionJournal(journalFs(root), key.actionKey).latestState)
       .toBe('running');
   } finally {

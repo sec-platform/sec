@@ -25,7 +25,7 @@ function fixture() {
 const read = (f: ReturnType<typeof fixture>) => readSemanticMutationSource(f.root, f.transaction, f.relativePath);
 const cleanup = (f: ReturnType<typeof fixture>) => rmSync(f.root, { recursive: true, force: true });
 
-test('retained source reads preserve exact bytes, readonly modes and evidence encoding', async () => {
+test('retained source reads preserve readonly and empty bytes, evidence encoding, and release writer exclusion', async () => {
   const f = fixture();
   try {
     const bytes = Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from('item: before\r\n', 'utf8')]);
@@ -42,12 +42,6 @@ test('retained source reads preserve exact bytes, readonly modes and evidence en
     chmodSync(f.target, 0o600);
     writeFileSync(f.target, 'item: after\n');
     expect(Buffer.from((await read(f)).bytes).toString('utf8')).toBe('item: after\n');
-  } finally { cleanup(f); }
-});
-
-test('retained source reads support empty ordinary files without inventing bytes', async () => {
-  const f = fixture();
-  try {
     writeFileSync(f.target, '');
     expect((await read(f)).bytes.byteLength).toBe(0);
   } finally { cleanup(f); }
@@ -66,7 +60,10 @@ test('retained source reads reject hard-link aliases', async () => {
   try {
     const alias = path.join(f.root, 'alias');
     linkSync(f.target, alias);
-    await expect(read(f)).rejects.toThrow('hard-link');
+    await expect(read(f)).rejects.toMatchObject({
+      message: expect.stringContaining('hard-link'),
+      diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' }
+    });
     expect(readFileSync(alias, 'utf8')).toBe('item: before\n');
   } finally { cleanup(f); }
 });
