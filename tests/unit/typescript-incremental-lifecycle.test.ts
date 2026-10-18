@@ -60,7 +60,7 @@ test('replacement of the signal field does not detach an attempt from its origin
   await fs.writeFile(session.executionBuildInfoFile,'output');
   assert.deepEqual(await session.publish(),{status:'cache-unavailable'});
   const closing=session.dispose();
-  await assert.rejects(closing);assert.equal(session.dispose(),closing);
+  await assert.rejects(closing);await assert.rejects(session.dispose());
   assert.throws(()=>session.auxiliaryDirectory.assertCurrent());
   assert.equal((await fs.stat(path.dirname(session.executionBuildInfoFile))).isDirectory(),true);
   assert.deepEqual(await session.publish(),{status:'cache-unavailable'});
@@ -106,8 +106,10 @@ test('declared input fields are read once, unrelated getters are not traversed',
 
 test('healthy cleanup is shared and publish cannot start after cleanup is selected',()=>fixture(async input=>{
   const session=await prepareTypeScriptIncrementalState(input);
-  const first=session.dispose(),second=session.dispose();assert.equal(first,second);
+  const first=session.dispose(),second=session.dispose();
   assert.deepEqual(await session.publish(),{status:'cache-unavailable'});
-  assert.equal((await first).tree.status,'physically-absent');
-  assert.equal(await session.dispose(),await first);
+  const [firstReceipt,secondReceipt]=await Promise.all([first,second]);
+  assert.equal(firstReceipt.tree.status,'physically-absent');
+  assert.deepEqual(secondReceipt,firstReceipt);
+  assert.deepEqual(await session.dispose(),firstReceipt);
 }));
