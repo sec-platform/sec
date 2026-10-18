@@ -123,12 +123,18 @@ test('successful durations accumulate without mutating previously published snap
   assert.ok(Object.isFrozen(second.phases[0])); assert.ok(Object.isFrozen(second.phases[0]!.outcomes));
 });
 
-test('each attempt resolves its operation context once', () => {
+test('terminal recording retains the captured context after caller options are revoked', () => {
   const state = clock();
-  let lookups = 0;
-  const options = new Proxy(state.options, { get(target, key, receiver) { if (typeof key === 'symbol') lookups += 1; return Reflect.get(target, key, receiver); } });
-  measureRuntimeDependencyOperationPhase(options, 'install', () => {});
-  assert.equal(lookups, 1);
+  const { proxy: options, revoke } = Proxy.revocable(state.options, {});
+  const result = measureRuntimeDependencyOperationPhase(options, 'install', () => {
+    state.time(4);
+    revoke();
+    return 'installed';
+  });
+  assert.equal(result, 'installed');
+  const phase = readRuntimeDependencyOperationTelemetry(state.options).phases[0]!;
+  assert.equal(phase.durationMs, 4);
+  assert.equal(phase.outcomes.completed, 1);
 });
 
 test('parent and narrowed child share telemetry while unrelated operations remain separate', () => {
