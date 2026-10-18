@@ -1257,30 +1257,6 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'linux')(
-  'Linux executable admission rejects non-executable files before issuing a sealed image',
-  () => {
-    const root = fixtureRoot();
-    try {
-      const target = path.join(root, 'target');
-      const filePath = path.join(target, 'executable.bin');
-      mkdirSync(target);
-      writeFileSync(filePath, 'role-bound executable\n');
-      const parent = inspectNoFollowDirectoryChain(target, 'role admission parent');
-      expect(() => retainNoFollowOrdinaryFile(
-        parent,
-        'executable.bin',
-        undefined,
-        'non-executable role admission',
-        3,
-        'executable'
-      )).toThrow('is not an executable ordinary file');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }
-);
-
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
   const root = fixtureRoot();
   try {

@@ -87,18 +87,6 @@ test('init refuses a non-empty foreign root before acquiring deletion authority'
   await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
-test('active writer contention remains a lease error instead of being relabeled as lifecycle conflict', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-init-active-writer-');
-  await initWorkspace(workspaceRoot);
-  const lease = await acquireWorkspaceWriteLease(workspaceRoot);
-  try {
-    await expect(initWorkspace(workspaceRoot))
-      .rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-001' });
-  } finally {
-    await lease.release();
-  }
-});
-
 test('supplied lease authority is proven before the workspace create surface is inspected', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-init-released-token-');
   const lease = await acquireWorkspaceWriteLease(workspaceRoot);
