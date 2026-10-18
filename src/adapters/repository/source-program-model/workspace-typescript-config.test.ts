@@ -34,12 +34,6 @@ function parse(
   return { root, result, files: result.fileNames.map(file => path.relative(root, file).split(path.sep).join('/')) };
 }
 
-test('nested JSONC include and directory exclude resolve from the config directory, not the repository root', () => {
-  const actual = parse(`{ // JSONC is intentional\n"compilerOptions": {"strict": true,}, "include": ["src"], "exclude": ["src/excluded"],}`);
-  assert.equal(actual.result.errors.length, 0);
-  assert.deepEqual(actual.files, ['packages/a/src/a.ts']);
-});
-
 test('explicit files and relative compiler options retain their config-local interpretation', () => {
   const actual = parse(JSON.stringify({
     compilerOptions: { baseUrl: '.', rootDir: 'src', outDir: 'dist' },

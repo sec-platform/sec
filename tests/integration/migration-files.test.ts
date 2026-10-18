@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
@@ -116,47 +115,6 @@ test('copy-directory migration rejects file targets before copying', async () =>
       code: 'UPGRADE-MIGRATION-027'
     });
     await expect(fs.readFile(path.join(workspaceRoot, 'modules', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
-  });
-});
-
-test('config-rewrite migration deletes nested JSON configuration keys', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-    await writeJson(path.join(workspaceRoot, 'app.config.json'), {
-      feature: { enabled: true, deprecated: true },
-      staleRoot: 'remove',
-      keep: true
-    });
-
-    await applyMigrationEntries(
-      workspaceRoot,
-      manifestRoot,
-      ['app.config.json'],
-      [
-        configRewrite('app.config.json', [
-          { path: ['feature', 'deprecated'], operation: 'delete' },
-          { path: ['feature', 'mode'], value: 'strict' },
-          { path: ['staleRoot'], operation: 'delete' }
-        ])
-      ]
-    );
-
-    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
-      `${JSON.stringify(
-        {
-          feature: {
-            enabled: true,
-            mode: 'strict'
-          },
-          keep: true
-        },
-        null,
-        2
-      )}\n`
-    );
   });
 });
 

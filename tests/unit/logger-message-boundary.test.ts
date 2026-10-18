@@ -17,20 +17,6 @@ test('all non-string message classes reject without replacing the canonical msg 
   }
 });
 
-test('invalid messages are rejected without coercion, serialization, or metadata access', () => {
-  let hooks = 0;
-  let metadataReads = 0;
-  const message = {
-    toJSON() { hooks += 1; return 'forged'; },
-    toString() { hooks += 1; return 'forged'; },
-    [Symbol.toPrimitive]() { hooks += 1; return 'forged'; }
-  };
-  const data = { get value() { metadataReads += 1; return 'metadata'; } };
-  assert.throws(() => buildJsonLogRecord('info', message as never, data, 0));
-  assert.equal(hooks, 0);
-  assert.equal(metadataReads, 0);
-});
-
 test('a revoked proxy message is rejected without reading proxy properties', () => {
   const { proxy, revoke } = Proxy.revocable({}, {});
   revoke();
@@ -55,10 +41,18 @@ test('a filtered-out message is still lazy and does not read its metadata', () =
   assert.equal(reads, 0);
 });
 
-test('the actual emitted logger path validates a message before JSON serialization', () => {
+test('the actual emitted logger path rejects invalid messages before hooks or metadata access', () => {
   let hooks = 0;
+  let metadataReads = 0;
+  const message = {
+    toJSON() { hooks += 1; return 'forged'; },
+    toString() { hooks += 1; return 'forged'; },
+    [Symbol.toPrimitive]() { hooks += 1; return 'forged'; }
+  };
+  const data = { get value() { metadataReads += 1; return 'metadata'; } };
   const logger = createLogger({ level: 'debug' });
-  assert.throws(() => logger.error({ toJSON() { hooks += 1; throw new Error('wrong error'); } } as never),
+  assert.throws(() => logger.error(message as never, data),
     (error: unknown) => (error as { code: string }).code === 'LOGGING-RECORD-001');
   assert.equal(hooks, 0);
+  assert.equal(metadataReads, 0);
 });

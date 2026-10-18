@@ -27,8 +27,10 @@ class DecisionVisibility(unittest.TestCase):
  def test_visible_duplicates_and_dangling_navigation_still_reject(self):
   with self.assertRaisesRegex(d.DesignError,'Duplicate independent U identity'):
    self.decisions(self.owner()+self.owner())
-  with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner'):
-   self.decisions(self.owner()+'[dangling](missing.md#u999)\n')
+  for text,missing in ((self.owner()+'[dangling](missing.md#u999)\n','U999'),
+                       (decision_owner('U002',joined=True)+'[missing](owner.md#u001)\n','U001')):
+   with self.subTest(missing=missing),self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: '+missing):
+    self.decisions(text)
  def test_hidden_fields_cannot_satisfy_visible_owner(self):
   text='### U001｜Fixture\n```md\n'+self.owner().split('\n',1)[1]+'```\n'
   with self.assertRaisesRegex(d.DesignError,'missing substantive field'):
@@ -89,12 +91,6 @@ class Architecture(unittest.TestCase):
    r,p=self.status_fixture(temp,joined=True)
    p.write_text(p.read_text(encoding='utf-8').replace('**采用与责任位置：** body','**采用与责任位置：**\n'),encoding='utf-8')
    with self.assertRaisesRegex(d.DesignError,'U001 missing substantive field 采用决定'):d.decision_model(r)
- def test_owner_join_does_not_allow_losing_an_independent_u(self):
-  with tempfile.TemporaryDirectory()as temp:
-   r,p=self.status_fixture(temp,joined=True)
-   p.write_text(decision_owner('U002',joined=True)+'[missing](owner.md#u001)\n',encoding='utf-8')
-   with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: U001'):d.decision_model(r)
-
  def test_new_u_needs_no_numeric_inventory_but_identity_remains_unique(self):
   with tempfile.TemporaryDirectory()as temp:
    r,p=self.status_fixture(temp,joined=True);text=p.read_text(encoding='utf-8')

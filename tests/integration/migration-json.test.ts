@@ -11,10 +11,11 @@ import {
   withMigrationWorkspace
 } from './migration-fixtures.ts';
 
-test('config-rewrite migration updates nested JSON configuration', async () => {
+test('config-rewrite migration updates and deletes nested and root JSON configuration', async () => {
   await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
     await writeJson(path.join(workspaceRoot, 'app.config.json'), {
-      feature: { enabled: false },
+      feature: { enabled: false, deprecated: true },
+      staleRoot: 'remove',
       untouched: true
     });
 
@@ -22,7 +23,9 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
       configRewrite('app.config.json', [
         { path: ['feature', 'enabled'], value: true },
         { path: ['feature', 'mode'], value: 'strict' },
-        { path: ['compiler', 'upgrade'], value: '0.2' }
+        { path: ['compiler', 'upgrade'], value: '0.2' },
+        { path: ['feature', 'deprecated'], operation: 'delete' },
+        { path: ['staleRoot'], operation: 'delete' }
       ])
     ]);
 

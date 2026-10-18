@@ -6,16 +6,16 @@ import { compileVirtualSnapshot } from './workspace-source-authority.ts';
 import { compileTypeScriptProjectFactIdentity, compileTypeScriptProjectInput, projectTypeScriptProjectFactIdentity } from './workspace-typescript-project.ts';
 
 /** 同一公开配置必须使 admission 与真实 Program 取得相同的仓库源闭包。 */
-test('nested project admission and Program agree on directory roots and transitive excluded imports', () => {
+test('nested JSONC project admission and Program agree on directory roots and transitive excluded imports', () => {
   const sources = {
     'src/wrong-root.ts': 'export const wrongRoot = true;',
     'packages/a/src/a.ts': 'import { value } from "./excluded/dependency"; export { value };',
     'packages/a/src/excluded/dependency.ts': 'export const value = 1;',
     'packages/a/src/excluded/not-imported.ts': 'export const unused = true;',
-    'packages/a/tsconfig.json': JSON.stringify({
-      compilerOptions: { noLib: true, types: [], strict: true },
-      include: ['src'], exclude: ['src/excluded']
-    })
+    'packages/a/tsconfig.json': `{ // JSONC comments and trailing commas are valid project input.
+      "compilerOptions": { "noLib": true, "types": [], "strict": true, },
+      "include": ["src"], "exclude": ["src/excluded"],
+    }`
   };
   const snapshot = compileVirtualSnapshot({
     subject: { kind: 'virtual-mutation', provenance: {

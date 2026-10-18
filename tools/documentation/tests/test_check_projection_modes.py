@@ -39,13 +39,6 @@ class ProjectionModes(TestCase):
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
-    def test_verification_captures_once_and_reobserves_once(self):
-        native=s.read_ordinary;reads=[]
-        def read(root,name):reads.append(name);return native(root,name)
-        with patch.object(s,'read_ordinary',side_effect=read):
-            check_docs.verify(self.root)
-        self.assertEqual(reads.count('docs/产品/产品要求与工作约束.md'),2)
-
     def test_semantic_consumers_share_original_bytes_and_final_drift_is_rejected(self):
         original=self.authority.read_bytes()
         def changed(root,*,captured):
@@ -57,7 +50,11 @@ class ProjectionModes(TestCase):
             with self.assertRaisesRegex(ValueError,'source changed during capture'):check_docs.verify(self.root)
 
     def test_source_check_ignores_broken_local_projections_and_preserves_their_bytes(self):
-        before = check_docs.verify(self.root)['source_set_sha256']
+        native=s.read_ordinary;reads=[]
+        def read(root,name):reads.append(name);return native(root,name)
+        with patch.object(s,'read_ordinary',side_effect=read):
+            before = check_docs.verify(self.root)['source_set_sha256']
+        self.assertEqual(reads.count('docs/产品/产品要求与工作约束.md'),2)
         for name in s.PROJECTION_PATHS:
             (self.root / name).write_bytes(b'\xffbroken derived bytes')
         self.assertEqual(check_docs.verify(self.root)['source_set_sha256'], before)

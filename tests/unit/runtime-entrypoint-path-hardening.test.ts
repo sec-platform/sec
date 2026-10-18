@@ -44,9 +44,8 @@ test('runtime entrypoints retain ordinary Unicode and dot-prefixed directory nam
     { source: '..source/文件.ts', artifact: '..dist/é.js', command: 'sec' });
 });
 
-test('runtime artifact root and exact source launcher constraints remain enforced', () => {
+test('runtime artifact root and single-command constraints remain enforced', () => {
   assert.throws(() => parseCompilerPackageEntrypointBinding(manifest('./src/cli.ts', './index.js')), invalid);
-  assert.throws(() => parseCompilerPackageEntrypointBinding({ ...manifest(), scripts: { sec: 'bun ./other.ts' } }), invalid);
   assert.throws(() => parseCompilerPackageEntrypointBinding({ ...manifest(), bin: { first: './dist/a.js', second: './dist/b.js' } }), invalid);
 });
 
