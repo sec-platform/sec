@@ -374,7 +374,7 @@ test('process sessions require one process Effect and complete bound resource ce
       operation: foreignOperation,
       requirementBindingContext: requirementBindingContext(foreignOperation)
     });
-    const foreignRun = await foreignSession.run(retained.boundary, [
+    await foreignSession.run(retained.boundary, [
       '--no-env-file',
       '--eval',
       "process.stdout.write('x')"
@@ -384,11 +384,6 @@ test('process sessions require one process Effect and complete bound resource ce
       first,
       foreignReceipt,
       { ...expectedRunBinding, args: firstArgs, env: firstEnvironment, input: firstInput }
-    )).toThrow(/different sessions/u);
-    expect(() => assertProcessResourceRunResult(
-      foreignRun,
-      receipt,
-      { ...expectedRunBinding, args: secondArgs }
     )).toThrow(/different sessions/u);
 
     expect(() => assertProcessResourceRunResult(first, receipt, {

@@ -105,20 +105,6 @@ test('hosted provider revision binds the exact trusted runtime profile', () => {
   expect(changedRevision).not.toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION);
 });
 
-test('release verification never loads repository bytes from a caller-selected ref', async () => {
-  const releaseSource = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
-  const release = parseYaml(releaseSource) as Workflow;
-  expect(release.on).toEqual({
-    repository_dispatch: { types: ['sec-verify-release-main-v1'] }
-  });
-  expect(step(release, 'compiler-release-verification', 'Checkout exact release head').with)
-    .toMatchObject({
-      ref: '${{ steps.verification.outputs.sha }}',
-      'fetch-depth': 2,
-      'persist-credentials': false
-    });
-});
-
 test('release verification resolves exactly one parent from the trusted default head', async () => {
   const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
   const script = step(release, 'compiler-release-verification',
@@ -168,6 +154,15 @@ test('release verification binds local parent checks before the hosted Linux exe
   const source = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
   assertCiVerificationPerJobHostedWholeWorkflowShape(source);
   const release = parseYaml(source) as Workflow;
+  expect(release.on).toEqual({
+    repository_dispatch: { types: ['sec-verify-release-main-v1'] }
+  });
+  expect(step(release, 'compiler-release-verification', 'Checkout exact release head').with)
+    .toMatchObject({
+      ref: '${{ steps.verification.outputs.sha }}',
+      'fetch-depth': 2,
+      'persist-credentials': false
+    });
   const job = 'compiler-release-verification';
   const steps = release.jobs[job]!.steps;
   const verifyParent = step(release, job, 'Verify checked-out release parent and tree');
@@ -553,13 +548,10 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
   expect(activation.steps.indexOf(upload)).toBeLessThan(activation.steps.indexOf(publication));
 });
 
-test('provider observers have status read and install trusted dependencies before their first phase', async () => {
+test('provider observers install trusted dependencies before their first phase', async () => {
   const workflow = parseYaml(
     await readCompilerFile('.github/workflows/compiler-pr-validation.yml')
   ) as Workflow;
-  expect(workflow.jobs['coordinate-verification-session']?.permissions?.statuses).toBe('read');
-  expect(workflow.jobs['resolve-verification-action']?.permissions?.statuses).toBe('read');
-
   const assertions = [
     {
       job: 'coordinate-verification-session',

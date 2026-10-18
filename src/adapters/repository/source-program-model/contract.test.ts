@@ -2807,12 +2807,39 @@ test('supersession evidence is compact, deterministic, and reusable by exact Act
   }));
 });
 
-test('supersession evidence rejects a caller-forged observation that expands owner intent', () => {
-  const evidence = compileSupersessionSnapshot({
+test('source observations can invalidate but never expand an owner operation envelope', () => {
+  const fixture = compileSupersessionFixture({
+    'src/example/operation.ts': "export function execute(): void { Bun.spawn(['tool']); }\n",
+    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => execute());\n"
+  });
+  const evidence = fixture.full.intentEvidence[0]!.operationObligations[0]!;
+
+  expect(evidence.obligation.effect.kinds).toEqual([]);
+  expect(evidence.observation).toEqual(expect.objectContaining({
+    status: 'unknown',
+    reason: 'effect-closure-unresolved',
+    effectKinds: ['process']
+  }));
+});
+
+test('supersession rejects forged intent expansion and additional effect or failure categories as obligation proof', () => {
+  const baseline = compileSupersessionSnapshot({
     'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
     'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
   });
-  const owner = evidence.intentEvidence[0]!;
+  const current = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid state', async () => { expect(execute()).toBe('ok'); await readFile('observation'); expect(() => { throw new Error('invalid'); }).toThrow(); });\n"
+  });
+
+  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
+  expect(receipt.status).toBe('owner-decision-required');
+  expect(receipt.findings).toEqual([expect.objectContaining({
+    code: 'required-test-boundary-missing',
+    currentCandidateIds: [current.tests[0]!.testId]
+  })]);
+  expect(receipt.replacements.filter(({ kind }) => kind === 'test')).toEqual([]);
+  const owner = baseline.intentEvidence[0]!;
   const original = owner.operationObligations[0]!;
   const observation = Object.freeze({
     ...original.observation,
@@ -2838,13 +2865,13 @@ test('supersession evidence rejects a caller-forged observation that expands own
   });
   const intentEvidence = Object.freeze([forgedOwner]);
   const source = Object.freeze({
-    ...evidence.source,
+    ...baseline.source,
     intentEvidenceDigest: sha256(intentEvidence)
   });
-  const { evidenceDigest: _digest, ...withoutDigest } = evidence;
+  const { evidenceDigest: _digest, ...withoutDigest } = baseline;
   const forgedCanonical = Object.freeze({
     ...withoutDigest,
-    actionKey: sha256({ identity: evidence.identity, source }),
+    actionKey: sha256({ identity: baseline.identity, source }),
     source,
     intentEvidence
   });
@@ -2855,40 +2882,6 @@ test('supersession evidence rejects a caller-forged observation that expands own
 
   expect(() => parseSourceProgramSupersessionEvidence(forged))
     .toThrow('not canonical or action-bound');
-});
-
-test('source observations can invalidate but never expand an owner operation envelope', () => {
-  const fixture = compileSupersessionFixture({
-    'src/example/operation.ts': "export function execute(): void { Bun.spawn(['tool']); }\n",
-    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => execute());\n"
-  });
-  const evidence = fixture.full.intentEvidence[0]!.operationObligations[0]!;
-
-  expect(evidence.obligation.effect.kinds).toEqual([]);
-  expect(evidence.observation).toEqual(expect.objectContaining({
-    status: 'unknown',
-    reason: 'effect-closure-unresolved',
-    effectKinds: ['process']
-  }));
-});
-
-test('supersession does not promote additional effect and failure categories into obligation proof', () => {
-  const baseline = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
-    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
-  });
-  const current = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
-    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid state', async () => { expect(execute()).toBe('ok'); await readFile('observation'); expect(() => { throw new Error('invalid'); }).toThrow(); });\n"
-  });
-
-  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
-  expect(receipt.status).toBe('owner-decision-required');
-  expect(receipt.findings).toEqual([expect.objectContaining({
-    code: 'required-test-boundary-missing',
-    currentCandidateIds: [current.tests[0]!.testId]
-  })]);
-  expect(receipt.replacements.filter(({ kind }) => kind === 'test')).toEqual([]);
 });
 
 test('supersession blocks a missing required production behavior', () => {
@@ -2909,23 +2902,17 @@ test('supersession blocks a missing required production behavior', () => {
   }));
 });
 
-test('supersession treats unchanged unresolved evidence as equivalent instead of inventing a change', () => {
-  const baseline = compileSupersessionSnapshot({
-    'src/example/operation.ts': "export async function execute(specifier: string) { return import(specifier); }\n",
-    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"
-  });
-
-  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current: baseline });
-  expect(receipt.status).toBe('equivalent');
-  expect(receipt.findings).toEqual([]);
-  expect(receipt.lifecycleCost.current).toEqual(receipt.lifecycleCost.baseline);
-});
-
-test('supersession ignores revision locator identity when the consumed semantic evidence is exact', () => {
+test('supersession retains unchanged unresolved evidence across identical and different revision locators', () => {
   const fixture = compileSupersessionFixture({
     'src/example/operation.ts': "export async function execute(specifier: string) { return import(specifier); }\n",
     'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"
   });
+  const unchanged = compileSourceProgramSupersessionReceipt({
+    baseline: fixture.evidence, current: fixture.evidence
+  });
+  expect(unchanged.status).toBe('equivalent');
+  expect(unchanged.findings).toEqual([]);
+  expect(unchanged.lifecycleCost.current).toEqual(unchanged.lifecycleCost.baseline);
   const currentIdentity = compileSourceProgramSupersessionEvidenceIdentity({
     ...fixture.identityInput,
     revisionDigest: sha256({ revision: 'same-tree-current-commit' })

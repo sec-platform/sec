@@ -87,29 +87,6 @@ test('init refuses a non-empty foreign root before acquiring deletion authority'
   await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
-test('same-intent repeated init completes without overwriting the existing workspace', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-init-repeat-');
-  await initWorkspace(workspaceRoot);
-  const paths = getWorkspacePaths(workspaceRoot);
-  const planPath = paths.workspaceConfigPath;
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
-  const before = await Promise.all([
-    fs.readFile(planPath),
-    fs.readFile(lockPath),
-    fs.readFile(verificationReportPath)
-  ]);
-
-  await expect(initWorkspace(workspaceRoot)).resolves.toEqual({ planPath, lockPath });
-
-  const after = await Promise.all([
-    fs.readFile(planPath),
-    fs.readFile(lockPath),
-    fs.readFile(verificationReportPath)
-  ]);
-  expect(after).toEqual(before);
-});
-
 test('active writer contention remains a lease error instead of being relabeled as lifecycle conflict', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-init-active-writer-');
   await initWorkspace(workspaceRoot);
@@ -290,9 +267,27 @@ test('same-byte foreign file replacement cannot be adopted by recovery', async (
   expect(await fs.readFile(target)).toEqual(bytes);
 });
 
-test('completed retry preserves later author edits and new files; different intent conflicts', async () => {
+test('completed retries preserve initial controls and later author work; different intent conflicts', async () => {
   const root = await createWorkspace('workspace-create-author-retention-');
   await initWorkspace(root);
+  const paths = getWorkspacePaths(root);
+  const planPath = paths.workspaceConfigPath;
+  const lockPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.graphLock);
+  const verificationReportPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport);
+  const initialBytes = await Promise.all([
+    fs.readFile(planPath),
+    fs.readFile(lockPath),
+    fs.readFile(verificationReportPath)
+  ]);
+
+  await expect(initWorkspace(root)).resolves.toEqual({ planPath, lockPath });
+
+  const after = await Promise.all([
+    fs.readFile(planPath),
+    fs.readFile(lockPath),
+    fs.readFile(verificationReportPath)
+  ]);
+  expect(after).toEqual(initialBytes);
   const plan = path.join(root, 'sec.yaml'), extra = path.join(root, 'author-owned.txt');
   await fs.writeFile(plan, 'later author plan\n'); await fs.writeFile(extra, 'later author file\n');
   const before = await fs.stat(plan);
