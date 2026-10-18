@@ -133,7 +133,11 @@ class DocumentationIdentity(TestCase):
     def test_new_authoritative_file_is_detected_not_silently_ignored(self):
         before = self.capture()
         self.write('docs/node_modules/source.txt', 'not a registered cache')
-        self.assertNotEqual(self.capture(), before)
+        after = self.capture()
+        self.assertNotEqual(after['source_set_sha256'], before['source_set_sha256'])
+        self.assertIn({'path': 'docs/node_modules/source.txt',
+                       'bytes': len(b'not a registered cache'),
+                       'sha256': hashlib.sha256(b'not a registered cache').hexdigest()}, after['members'])
 
     def test_missing_source_or_audited_namespace_is_not_an_empty_domain(self):
         value = s.load(self.root / s.BASELINE_PATH)
@@ -161,7 +165,7 @@ class DocumentationIdentity(TestCase):
         with self.assertRaisesRegex(ValueError, 'Unicode|collision'): self.capture()
 
     def test_unsafe_paths_and_nonfinite_json_rejected(self):
-        for name in ('../x', '/x', 'x//y', 'C:/x', 'x\\y', 'x\0y', 'x/..', 'x.'):
+        for name in ('', '../x', '/x', 'x//y', 'C:/x', 'x\\y', 'x\0y', 'x/..', 'x.'):
             with self.subTest(name=name), self.assertRaises(ValueError): s.local_path(self.root, name)
         for data in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":Infinity}'):
             with self.subTest(data=data), self.assertRaises(ValueError): s.decode(data, 'fixture')

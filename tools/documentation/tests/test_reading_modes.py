@@ -127,9 +127,6 @@ class Modes(unittest.TestCase):
    self.assertNotIn('implementation_sha256',first)
    second=b.renderer_environment(args)
   self.assertNotEqual(first['core_sha256'],second['core_sha256'])
- def test_source_mode_does_not_read_broken_cache(self):
-  (self.root/'.documentation/figures.json').write_bytes(b'\xffinvalid cache')
-  self.assertEqual(self.run_('--diagrams','source')['rendered'],0)
  def test_cache_mode_reproducible(self):self.cache();self.run_();x=self.out.read_bytes();self.run_('--replace');self.assertEqual(x,self.out.read_bytes())
  def test_diagram_callback_rejected_before_cache(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n click A callback\n```\n');self.bad('--diagrams','browser')

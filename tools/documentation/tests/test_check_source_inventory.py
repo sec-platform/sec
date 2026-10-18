@@ -7,7 +7,6 @@ import unittest
 from .test_check_documentation_identity import declaration
 from source_inventory import (
     load,
-    local_path,
     refresh_source_manifest,
     source_files,
 )
@@ -40,22 +39,12 @@ class SourceBoundary(unittest.TestCase):
         self.assertEqual(self.names() - before, {'docs/new.md'})
         self.assertNotIn('src/product.ts', self.names())
 
-    def test_no_silent_cache_directory_omission_inside_declared_source(self):
-        (self.root / 'docs/node_modules').mkdir()
-        (self.root / 'docs/node_modules/unexpected.txt').write_text('unexpected')
-        self.assertIn('docs/node_modules/unexpected.txt', self.names())
-
     def test_missing_and_overlapping_roots_reject(self):
         for roots in (['absent'], ['docs', 'docs/规则.md'], ['docs', 'docs'], [{}], []):
             with self.subTest(roots=roots):
                 self.declare(roots)
                 with self.assertRaises(ValueError):
                     source_files(self.root)
-
-    def test_unsafe_root_and_member_names_reject(self):
-        for name in ('../outside', '/absolute', 'docs//bad', 'C:/outside', 'docs\\bad', ''):
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                local_path(self.root, name)
 
     def test_entry_requires_an_actual_source_member(self):
         metadata=self.root/'.documentation/baseline.json'

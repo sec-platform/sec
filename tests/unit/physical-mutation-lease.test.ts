@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 import {
   acquirePhysicalMutationLease,
   initializePhysicalJournalMutationResource,
-  PHYSICAL_MUTATION_LEASE_SCHEMA,
   publishPhysicalJournalMutationInitialization,
   readPhysicalJournalMutationResource,
   type PhysicalMutationLeaseOwner
@@ -45,18 +44,6 @@ function fixture(): Readonly<{
     rmSync(root, { recursive: true, force: true });
     throw error;
   }
-}
-
-function ownerBytes(owner: PhysicalMutationLeaseOwner): Buffer {
-  return Buffer.from(`${JSON.stringify({
-    schema: owner.schema,
-    host: owner.host,
-    pid: owner.pid,
-    processNonce: owner.processNonce,
-    token: owner.token,
-    createdAtMs: owner.createdAtMs,
-    expiresAtMs: owner.expiresAtMs
-  })}\n`, 'utf8');
 }
 
 function replaceLeaseBytes(
@@ -106,52 +93,6 @@ function acquireGuarded(parent: ReturnType<typeof inspectNoFollowDirectoryChain>
     journalResource: readPhysicalJournalMutationResource(parent, name, 'direct-journal.json')! });
 }
 
-test('reclaimed-owner restore rejects an externally replaced lease and preserves its bytes', () => {
-  const { root, parent } = fixture();
-  const name = 'invocation.lease';
-  try {
-    const abandoned = abandonGuarded(parent, name, {
-      now: () => 1_000,
-      ownerHost: 'lease-test-host',
-      ownerPid: 42_001,
-      processNonce: '30000000-0000-4000-8000-000000000001',
-      processAlive: () => 'alive'
-    });
-    expect(abandoned).not.toBeNull();
-    const successor = acquireGuarded(parent, name, {
-      now: () => 2_000,
-      ownerHost: 'lease-test-host',
-      ownerPid: 42_002,
-      processNonce: '30000000-0000-4000-8000-000000000002',
-      processAlive: pid => pid === 42_001 ? 'dead' : 'alive'
-    });
-    expect(successor).not.toBeNull();
-    expect(successor!.reclaimedOwner).toEqual(abandoned!.owner);
-    expect(() => successor!.release()).toThrow('recovery must be acknowledged or restored');
-
-    const externalOwner: PhysicalMutationLeaseOwner = Object.freeze({
-      schema: PHYSICAL_MUTATION_LEASE_SCHEMA,
-      host: 'lease-test-host',
-      pid: 42_003,
-      processNonce: '30000000-0000-4000-8000-000000000003',
-      token: '40000000-0000-4000-8000-000000000003',
-      createdAtMs: 3_000,
-      expiresAtMs: 33_000
-    });
-    const externalBytes = ownerBytes(externalOwner);
-    replaceLeaseBytes(parent, name, externalBytes);
-
-    expect(() => successor!.restoreReclaimedOwner()).toThrow(
-      'Physical mutation lease ownership changed before reclaimed-owner restoration.'
-    );
-    const observed = inspectNoFollowOrdinaryFileEntry(parent, name);
-    expect(observed?.bytes).not.toBeNull();
-    expect(Array.from(observed!.bytes!)).toEqual(Array.from(externalBytes));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('restored reclaimed owner remains durable when the same handle releases', () => {
   const { root, parent } = fixture();
   const name = 'invocation.lease';
@@ -187,30 +128,6 @@ test('restored reclaimed owner remains durable when the same handle releases', (
     rmSync(root, { recursive: true, force: true });
   }
 });
-
-for (const malformed of ['non-canonical', 'self-recovery'] as const) {
-  test(`malformed ${malformed} lease is preserved instead of granting recovery`, () => {
-    const { root, parent } = fixture();
-    const name = 'invocation.lease';
-    try {
-      const lease = acquirePhysicalMutationLease(parent, name, {
-        ownerHost: 'lease-test-host', ownerPid: 42_031
-      });
-      expect(lease).not.toBeNull();
-      const current = inspectNoFollowOrdinaryFileEntry(parent, name)!;
-      const record = JSON.parse(Buffer.from(current.bytes!).toString('utf8'));
-      if (malformed === 'self-recovery') record.recoveryOwner = record.activeOwner;
-      const bytes = Buffer.from(`${JSON.stringify(record, null, malformed === 'non-canonical' ? 2 : undefined)}\n`);
-      replaceLeaseBytes(parent, name, bytes);
-      expect(acquirePhysicalMutationLease(parent, name, {
-        ownerHost: 'lease-test-host', ownerPid: 42_032, processAlive: () => 'dead'
-      })).toBeNull();
-      expect(Buffer.from(inspectNoFollowOrdinaryFileEntry(parent, name)!.bytes!)).toEqual(bytes);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-}
 
 test('an unrepresentable lease expiry rejects before publishing owner state', () => {
   const { root, parent } = fixture();

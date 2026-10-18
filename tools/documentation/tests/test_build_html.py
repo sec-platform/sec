@@ -148,9 +148,10 @@ class ReadingTests(unittest.TestCase):
     def test_original_bytes_all_members(self):
         self.write('examples/value.json','{ "名字": "😀", "n": "9007199254740993" }\n')
         self.write('examples/value.gift','export fn identity(x: Int) = x;\n')
+        before={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
         self.run_build();p=Originals();p.feed(self.out.read_text())
-        actual={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
-        self.assertEqual(p.files,actual)
+        self.assertEqual(before,{q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()})
+        self.assertEqual(p.files,before)
     def reference_book(self,sealed=False,**budgets):
         args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=sealed,
             max_file_bytes=budgets.get('max_file_bytes',16_000_000),max_total_bytes=budgets.get('max_total_bytes',80_000_000))
@@ -237,10 +238,6 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(originals.files['docs/design/control.sql'],(self.root/'docs/design/control.sql').read_bytes())
         self.assertIn('CREATE TABLE operation(id TEXT PRIMARY KEY);',text)
         self.assertNotIn('<script>unsafe()</script>',text)
-    def test_no_source_writes(self):
-        before={str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()}
-        self.run_build()
-        self.assertEqual(before,{str(q):q.read_bytes()for q in self.root.rglob('*')if q.is_file()})
     def test_ordinary_reading_does_not_open_or_embed_local_projections(self):
         first=self.run_build()
         for name in ('.documentation/source-manifest.json','.documentation/requirements.json'):
@@ -268,6 +265,7 @@ class ReadingTests(unittest.TestCase):
             b.main(['--root',str(self.root),'--diagrams','source'])
         self.assertIn('<title>Gift 工程设计</title>',(self.home/'Gift.html').read_text())
     def test_source_mode_explicitly_unrendered(self):
+        (self.root/'.documentation/figures.json').write_bytes(b'\xffinvalid cache')
         self.write('docs/graph.md','# Graph\n\n```mermaid\nflowchart LR\n A-->B\n```\n')
         data=self.run_build();self.assertEqual(data['diagrams'],1);self.assertEqual(data['rendered'],0)
         self.assertIn('未渲染',self.out.read_text())
