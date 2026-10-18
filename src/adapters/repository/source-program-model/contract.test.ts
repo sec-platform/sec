@@ -1639,10 +1639,44 @@ function compileGraphCutProviderReceipt(
   });
 }
 
-test('unused-symbol provider evidence requires a sealed exact provider receipt', () => {
+test('graph cut admits exact provider receipts and requests syntax only for their candidates', () => {
   const fixture = compileGraphCutFixture({
-    'src/example/contract.ts': 'export const UNUSED = 1;\n'
+    'tsconfig.json': `${JSON.stringify({ include: ['src/**/*.ts'] })}\n`,
+    'src/example/contract.ts': 'export const UNUSED = 1;\n',
+    'tests/fixtures/outside-program.ts': 'export const FIXTURE_ONLY = 1;\n'
   });
+  expect(fixture.typeScriptModel.files.map(({ path }) => path)).not.toContain(
+    'tests/fixtures/outside-program.ts'
+  );
+  const unrelatedOutsideProgram = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'src/example/contract.ts',
+      name: 'UNUSED'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(unrelatedOutsideProgram.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/contract.ts',
+    name: 'UNUSED'
+  }));
+
+  const outsideCandidate = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'tests/fixtures/outside-program.ts',
+      name: 'FIXTURE_ONLY'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(outsideCandidate.reductions).toEqual([expect.objectContaining({
+    path: 'tests/fixtures/outside-program.ts',
+    name: 'FIXTURE_ONLY',
+    status: 'blocked',
+    reason: 'declaration source snapshot is unresolved'
+  })]);
   const candidates = Object.freeze([Object.freeze({
     path: 'src/example/contract.ts',
     name: 'UNUSED'
@@ -1681,46 +1715,6 @@ test('unused-symbol provider evidence requires a sealed exact provider receipt',
     receipt,
     { ...graphCutContext(fixture), operation }
   )).toThrow('source-program-compilation-cancelled:reduction-plan');
-});
-
-test('graph cut requests compiler syntax only for provider candidates', () => {
-  const fixture = compileGraphCutFixture({
-    'tsconfig.json': `${JSON.stringify({ include: ['src/**/*.ts'] })}\n`,
-    'src/example/contract.ts': 'export const UNUSED = 1;\n',
-    'tests/fixtures/outside-program.ts': 'export const FIXTURE_ONLY = 1;\n'
-  });
-  expect(fixture.typeScriptModel.files.map(({ path }) => path)).not.toContain(
-    'tests/fixtures/outside-program.ts'
-  );
-  const unrelatedOutsideProgram = compileSourceProgramGraphCutReductionPlan(
-    fixture.model,
-    fixture.files,
-    compileGraphCutProviderReceipt(fixture, [{
-      path: 'src/example/contract.ts',
-      name: 'UNUSED'
-    }]),
-    graphCutContext(fixture)
-  );
-  expect(unrelatedOutsideProgram.reductions).toContainEqual(expect.objectContaining({
-    path: 'src/example/contract.ts',
-    name: 'UNUSED'
-  }));
-
-  const outsideCandidate = compileSourceProgramGraphCutReductionPlan(
-    fixture.model,
-    fixture.files,
-    compileGraphCutProviderReceipt(fixture, [{
-      path: 'tests/fixtures/outside-program.ts',
-      name: 'FIXTURE_ONLY'
-    }]),
-    graphCutContext(fixture)
-  );
-  expect(outsideCandidate.reductions).toEqual([expect.objectContaining({
-    path: 'tests/fixtures/outside-program.ts',
-    name: 'FIXTURE_ONLY',
-    status: 'blocked',
-    reason: 'declaration source snapshot is unresolved'
-  })]);
 });
 
 test('graph cut blocks a declaration with same-file type consumers from the canonical Program', () => {

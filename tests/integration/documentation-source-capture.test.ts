@@ -45,14 +45,6 @@ async function withSource(action: (root: string, sourceDigest: string) => Promis
   }
 }
 
-test.serial('ordinary documentation capture keeps the declared byte identity', async () => {
-  await withSource(async (root, sourceDigest) => {
-    const result = await readDocumentationSource(root);
-    expect(result.sourceSetSha256).toBe(sourceDigest);
-    expect(result.members.map(member => member.path)).toEqual([DOCUMENTATION_BASELINE, 'docs/main.md']);
-  });
-});
-
 test.serial('capture rejects undeclared namespace members without changing the declared boundary', async () => {
   await withSource(async root => {
     await fs.writeFile(path.join(root, 'docs/undeclared.md'), '# Undeclared source\n');
@@ -113,13 +105,15 @@ test.serial('a same-byte replacement handle is not the checked pathname object',
   });
 });
 
-test.serial('capture streams source and audit directories without whole-directory arrays', async () => {
+test.serial('capture preserves declared byte identity while streaming source and audit directories', async () => {
   await withSource(async (root, sourceDigest) => {
     const readdir = spyOn(fs, 'readdir').mockImplementation(async () => {
       throw new Error('Whole-directory materialization is not admitted');
     });
     try {
-      expect((await readDocumentationSource(root)).sourceSetSha256).toBe(sourceDigest);
+      const result = await readDocumentationSource(root);
+      expect(result.sourceSetSha256).toBe(sourceDigest);
+      expect(result.members.map(member => member.path)).toEqual([DOCUMENTATION_BASELINE, 'docs/main.md']);
     } finally {
       readdir.mockRestore();
     }

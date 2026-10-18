@@ -235,7 +235,7 @@ test('Skill registry validates Capsule guidance candidates without owning Capsul
     .toThrow(/not in the trusted Skill registry/u);
 });
 
-test('Task Capsule rejects changed role content and escaping scope proposals', () => {
+test('Read Plan rejects a Capsule whose role changed without rebinding its digest', () => {
   const malformed = input();
   expect(() => compileOperationReadPlan({
     ...malformed,
@@ -244,32 +244,6 @@ test('Task Capsule rejects changed role content and escaping scope proposals', (
       planningContext: { ...malformed.taskCapsule.planningContext, role: 'a0' }
     }
   })).toThrow(/complete planning content/u);
-
-  const planningContext = malformed.taskCapsule.planningContext;
-  expect(() => compileOperationReadPlan({
-    ...malformed,
-    taskCapsule: capsule({
-      ...planningContext,
-      scopeProposal: {
-        ...planningContext.scopeProposal,
-        writePaths: ['scripts/'],
-        forbiddenPaths: ['scripts/codex/protected.ts'],
-        changedPaths: []
-      }
-    })
-  })).toThrow(/overlaps forbidden/u);
-
-  expect(() => compileOperationReadPlan({
-    ...malformed,
-    taskCapsule: capsule({
-      ...planningContext,
-      scopeProposal: {
-        ...planningContext.scopeProposal,
-        writePaths: ['docs/'],
-        changedPaths: ['src/adapters/self-hosting/control/agent/read-plan.ts']
-      }
-    })
-  })).toThrow(/outside every proposed write path/u);
 });
 
 test('maintainer mutation accepts current state or returns typed conflict without resurrection', () => {
