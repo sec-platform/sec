@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import {
   isVerificationLane,
   shouldExecuteRuntimeVerification,
@@ -57,10 +58,13 @@ test('unknown, prototype and non-string lanes never become an execution recipe',
 });
 
 test('selection rejects without invoking coercion or conversion callbacks', () => {
-  const value = { toString() { assert.fail('toString'); }, valueOf() { assert.fail('valueOf'); },
-    [Symbol.toPrimitive]() { assert.fail('conversion'); } };
+  let conversions = 0;
+  const value = { toString() { conversions++; return 'all'; }, valueOf() { conversions++; return 'all'; },
+    [Symbol.toPrimitive]() { conversions++; return 'all'; } };
   assert.throws(() => verificationLaneProfile(value), RangeError);
-  assert.throws(() => parseVerifyCommandInput({ lane: value }));
+  assert.throws(() => parseVerifyCommandInput({ lane: value }),
+    (error: unknown) => error instanceof CodedFailure && error.code === 'CLI-USAGE-001');
+  assert.equal(conversions, 0);
 });
 
 test('standalone and pipeline defaults remain independently registered', () => {
@@ -85,7 +89,8 @@ test('verify captures only owned fields once and fixes execution and output valu
 });
 
 test('inherited lane cannot silently enter the standalone own-input boundary', () => {
-  assert.throws(() => parseVerifyCommandInput(Object.create({ lane: 'all' })));
+  assert.throws(() => parseVerifyCommandInput(Object.create({ lane: 'all' })),
+    (error: unknown) => error instanceof CodedFailure && error.code === 'CLI-USAGE-001');
 });
 
 test('real verify and compile actions reject lanes before loading their execution domain', async () => {

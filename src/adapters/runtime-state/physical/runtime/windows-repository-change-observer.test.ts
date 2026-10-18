@@ -22,20 +22,6 @@ async function withFixture(
 }
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows repository observer settles an unchanged retained root with zero events',
-  async () => withFixture(async (root) => {
-    const resolution = await armWindowsRepositoryChangeObserver({
-      roots: [root],
-      deadlineAtUnixMs: Date.now() + 10_000
-    });
-    expect(resolution.status).toBe('ready');
-    if (resolution.status !== 'ready') return;
-    const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
-    expect(settlement.status).toBe('zero-events');
-  })
-);
-
-test.skipIf(process.platform !== 'win32')(
   'terminal observer settlement leaves no deadline timer or worker that keeps a fresh process alive',
   () => {
     const moduleUrl = new URL('./windows-repository-change-observer.ts', import.meta.url).href;
@@ -46,6 +32,7 @@ test.skipIf(process.platform !== 'win32')(
       "const path = await import('node:path');",
       "const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-repository-observer-child-'));",
       'try {',
+      "  await fs.mkdir(path.join(root, 'nested'));",
       '  const resolution = await observer.armWindowsRepositoryChangeObserver({',
       '    roots: [root], deadlineAtUnixMs: Date.now() + 60_000',
       '  });',

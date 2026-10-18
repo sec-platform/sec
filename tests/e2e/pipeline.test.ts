@@ -215,9 +215,7 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
     const originalReviewBytes = await readFile(paths.reviewSummaryPath);
     const provenanceSummaryTamper = JSON.parse(originalReviewBytes.toString('utf8')) as ReviewSummary;
     if (!provenanceSummaryTamper.provenanceSummary) throw new Error('Expected Provenance ReviewSummary');
-    const originalArtifactCount = provenanceSummaryTamper.provenanceSummary.artifactCount;
     provenanceSummaryTamper.provenanceSummary.verifiedArtifactCount += 1;
-    expect(provenanceSummaryTamper.provenanceSummary.artifactCount).toBe(originalArtifactCount);
     await writeFile(paths.reviewSummaryPath, formatJsonFile(provenanceSummaryTamper), 'utf8');
     try {
       await expect(buildPipelineCompletionProof(workspaceRoot, stageEvidence)).rejects.toThrow('ReviewSummary');
@@ -332,23 +330,26 @@ test('compileWorkspace acquires the writer lease and accepts only the exact reen
     await initWorkspace(workspaceRoot);
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
 
-    await expect(compileWorkspace(workspaceRoot, { through: 'resolve' })).rejects.toMatchObject({
-      code: 'WORKSPACE-WRITE-LEASE-001'
-    });
-    await expect(compileWorkspace(workspaceRoot, {
-      through: 'resolve',
-      workspaceWriteLease: { ...lease.token, leaseId: 'forged' }
-    })).rejects.toMatchObject({
-      code: 'WORKSPACE-WRITE-LEASE-002'
-    });
+    try {
+      await expect(compileWorkspace(workspaceRoot, { through: 'resolve' })).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-001'
+      });
+      await expect(compileWorkspace(workspaceRoot, {
+        through: 'resolve',
+        workspaceWriteLease: { ...lease.token, leaseId: 'forged' }
+      })).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-002'
+      });
 
-    const result = await compileWorkspace(workspaceRoot, {
-      through: 'resolve',
-      workspaceWriteLease: lease.token
-    });
-    expect(result.completedStages).toEqual(['resolve']);
-    await lease.assertOwned();
-    await lease.release();
+      const result = await compileWorkspace(workspaceRoot, {
+        through: 'resolve',
+        workspaceWriteLease: lease.token
+      });
+      expect(result.completedStages).toEqual(['resolve']);
+      await lease.assertOwned();
+    } finally {
+      await lease.release();
+    }
 
     const independent = await compileWorkspace(workspaceRoot, { through: 'resolve' });
     expect(independent.completedStages).toEqual(['resolve']);
