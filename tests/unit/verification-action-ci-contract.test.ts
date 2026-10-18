@@ -38,22 +38,6 @@ function rehashActionClosure(value: Record<string, unknown>): Record<string, unk
   };
 }
 
-test('normal CLI, dev-runner, and workflow projections share one byte-identical Action closure', () => {
-  const gates = buildCiQuickGatePlan({
-    includeImports: true,
-    includeDocs: true,
-    selectedSlowSuites: ['e2e-artifacts']
-  })
-    .map(ciVerificationGateStep);
-  const cli = buildCiVerificationActionPlanClosure({ candidate, gates });
-  const devRunner = buildCiVerificationActionPlanClosure({ candidate: { ...candidate }, gates: gates.map((gate) => ({ ...gate })) });
-  const workflow = parseCiVerificationActionPlanClosure(encodeVerificationActionData(cli));
-  expect(devRunner.actionPlanDigest).toBe(cli.actionPlanDigest);
-  expect(workflow.actionPlanDigest).toBe(cli.actionPlanDigest);
-  expect(encodeVerificationActionData(workflow.actions)).toBe(encodeVerificationActionData(cli.actions));
-  expect(() => assertCiVerificationActionPlanClosureEqual(workflow, cli)).not.toThrow();
-});
-
 test('direct Bun tests have one bounded normalized target and reject generic subcommands', () => {
   const argv = [
     'bun',
@@ -215,10 +199,18 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
     .not.toBe(session.sessionRevision);
 });
 
-test('semantic input, environment, argv, topology, and plan forgery drift the Action closure', () => {
-  const gates = buildCiQuickGatePlan({ includeImports: true, includeDocs: true })
+test('Action closure preserves copied input and wire bytes while rejecting semantic drift and forgery', () => {
+  const gates = buildCiQuickGatePlan({
+    includeImports: true, includeDocs: true, selectedSlowSuites: ['e2e-artifacts']
+  })
     .map(ciVerificationGateStep);
   const baseline = buildCiVerificationActionPlanClosure({ candidate, gates });
+  const copied = buildCiVerificationActionPlanClosure({ candidate: { ...candidate }, gates: gates.map((gate) => ({ ...gate })) });
+  const parsed = parseCiVerificationActionPlanClosure(encodeVerificationActionData(baseline));
+  expect(copied.actionPlanDigest).toBe(baseline.actionPlanDigest);
+  expect(parsed.actionPlanDigest).toBe(baseline.actionPlanDigest);
+  expect(encodeVerificationActionData(parsed.actions)).toBe(encodeVerificationActionData(baseline.actions));
+  expect(() => assertCiVerificationActionPlanClosureEqual(parsed, baseline)).not.toThrow();
   for (const changed of [
     { ...candidate, headTreeSha: '5'.repeat(40) },
     { ...candidate, manifestDigest: digest('d') },
@@ -462,8 +454,9 @@ test('source analysis action identity excludes later author input but preserves 
     const gate = sourceProgramTransitionGate(binding);
     expect(gate.args).not.toContain('--test-author-input');
     expect(gate.inputs).toEqual([]);
-    expect(compile(binding).actionPlanDigest).toBe(initial.actionPlanDigest);
-    expect(compile(binding).actions.map(({ action }) => action.actionKey))
+    const withAuthor = compile(binding);
+    expect(withAuthor.actionPlanDigest).toBe(initial.actionPlanDigest);
+    expect(withAuthor.actions.map(({ action }) => action.actionKey))
       .toEqual(initial.actions.map(({ action }) => action.actionKey));
   }
   for (const subject of [

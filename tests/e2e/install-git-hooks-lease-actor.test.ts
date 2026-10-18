@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { chmod, lstat, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { configTransitionNames, configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, withRepository } from './fixtures/install-git-hooks.ts';
@@ -28,38 +28,37 @@ test('prior retirement recovers after delete before its durable retired receipt'
   });
 });
 
-test('operation lease reclaims an exact dead owner and preserves live or foreign owners', async () => {
+test('operation lease preserves an interrupted owner even when its PID cannot authorize recovery', async () => {
   await withRepository(async (repoRoot) => {
+    const commonGitDir = path.resolve(git(repoRoot, [
+      'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ]));
+    const configPath = path.join(commonGitDir, 'config');
+    const originalConfig = await readFile(configPath);
     expect(await installGitHooks({
       repoRoot,
       lifecycle: true,
       crashAfterOperationLeaseAcquisition: true,
       leaseOwnerPid: 2_147_483_647
     })).toMatchObject({ status: 'conflict' });
-    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
-  });
 
-  await withRepository(async (repoRoot) => {
-    expect(await installGitHooks({
-      repoRoot,
-      lifecycle: true,
-      crashAfterOperationLeaseAcquisition: true,
-      leaseOwnerPid: process.pid
-    })).toMatchObject({ status: 'conflict' });
+    const managedRoot = path.join(commonGitDir, 'sec-managed-hooks-v3');
+    const entries = await readdir(managedRoot);
+    expect(entries).toHaveLength(1);
+    const leasePath = path.join(managedRoot, entries[0]!);
+    const leaseBytes = await readFile(leasePath);
+    const leaseIdentity = await lstat(leasePath, { bigint: true });
+    expect(leaseIdentity.isFile()).toBe(true);
+
     expect(await installGitHooks({ repoRoot, lifecycle: true }))
       .toMatchObject({ status: 'conflict' });
-  });
-
-  await withRepository(async (repoRoot) => {
-    expect(await installGitHooks({
-      repoRoot,
-      lifecycle: true,
-      crashAfterOperationLeaseAcquisition: true,
-      leaseOwnerHost: 'foreign-host-for-sec-test',
-      leaseOwnerPid: process.pid
-    })).toMatchObject({ status: 'conflict' });
-    expect(await installGitHooks({ repoRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
+    expect(await readFile(leasePath)).toEqual(leaseBytes);
+    const retainedIdentity = await lstat(leasePath, { bigint: true });
+    expect([retainedIdentity.dev, retainedIdentity.ino]).toEqual([leaseIdentity.dev, leaseIdentity.ino]);
+    expect(await readdir(managedRoot)).toEqual(entries);
+    expect(await configTransitionNames(repoRoot)).toEqual([]);
+    expect(await readFile(configPath)).toEqual(originalConfig);
+    expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
 });
 

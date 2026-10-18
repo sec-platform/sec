@@ -278,11 +278,10 @@ class ReadingTests(unittest.TestCase):
         self.write('docs/主题.md','# 主题\n## 字段\n<a id="same"></a>\n<a id="same"></a>\n');self.assert_publication_preserves_previous()
     def test_explicit_heading_collision(self):
         self.write('docs/主题.md','# 主题\n## 字段\n<a id="字段"></a>\n');self.assert_publication_preserves_previous()
-    def test_duplicate_headings_have_unique_ids(self):
-        self.write('docs/主题.md','# 主题\n## 字段\n## 字段\n[第二](#字段-1)\n');self.run_build()
-        self.assertIn(b.fragment_id('docs/主题.md','字段-1'),self.out.read_text())
-    def test_duplicate_headings_across_docs_are_scoped(self):
+    def test_duplicate_headings_have_unique_ids_within_and_across_docs(self):
+        self.write('docs/主题.md','# 主题\n## 字段\n## 字段\n[第二](#字段-1)\n')
         self.write('docs/other.md','# 主题\n## 字段\n');self.run_build()
+        self.assertIn(b.fragment_id('docs/主题.md','字段-1'),self.out.read_text())
         audit=b.AuditHTML();audit.feed(self.out.read_text());self.assertEqual(len(audit.ids),len(set(audit.ids)))
     def test_outline_uses_real_commonmark_headings_and_scoped_targets(self):
         self.write('README.md','# Fixture\n')

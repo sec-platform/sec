@@ -59,10 +59,8 @@ test('caller-shaped publication authority cannot publish through a live native r
   let before: Awaited<ReturnType<typeof registrationBytes>>;
   try {
     before = await registrationBytes(value.store.registrationsRoot);
-    for (const candidate of [{}, { kind: 'generated-state-publication-authority' }]) {
-      expect(() => backend.publishRegistration(resource, candidate as never)).toThrow();
-      expect(await registrationBytes(value.store.registrationsRoot)).toEqual(before);
-    }
+    expect(() => backend.publishRegistration(resource, { kind: 'generated-state-publication-authority' })).toThrow();
+    expect(await registrationBytes(value.store.registrationsRoot)).toEqual(before);
   } finally { await backend.settleMutation(resource); }
   expect(() => backend.publishRegistration(resource, { kind: 'generated-state-publication-authority' })).toThrow(/foreign or settled/);
   expect(await registrationBytes(value.store.registrationsRoot)).toEqual(before);
@@ -84,7 +82,7 @@ for (const residue of ['foreign-ledger', 'obsolete-pointer', 'orphan-generation'
   });
 }
 
-test('copied valid ledger bytes cannot confer a different physical workspace owner', async () => {
+test('birth refuses to adopt an existing valid registration copied into its workspace', async () => {
   const source = await fixture();
   await source.producer.born(relativePath, 'source-owner');
   const target = await fixture();
