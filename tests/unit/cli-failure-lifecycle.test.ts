@@ -48,22 +48,19 @@ test('circular and bigint details cannot replace primary diagnostics with a JSON
   }
 });
 
-test('failing serialization and inspection hooks never escape failure reporting', () => {
+test('failing detail hooks retain one capture and never escape failure reporting', () => {
   let hooks = 0;
+  let reads = 0;
   const details = { toJSON() { throw new Error('JSON failed'); },
     [Symbol.for('nodejs.util.inspect.custom')]() { hooks++; throw new Error('inspect failed'); } };
-  assert.match(render(protocol(details))[2]!, /Details could not be rendered as JSON/);
+  const value = Object.defineProperty(protocol(), 'details', { get() {
+    reads++; if (reads > 1) throw new Error('read twice'); return details;
+  } });
+  assert.match(render(value)[2]!, /Details could not be rendered as JSON/);
+  assert.equal(reads, 1);
   assert.equal(hooks, 0);
   const revoked = Proxy.revocable({}, {}); revoked.revoke();
   assert.doesNotThrow(() => render(protocol(revoked.proxy)));
-});
-
-test('details are captured once even when their first serialization fails', () => {
-  let reads = 0;
-  const value = Object.defineProperty(protocol(), 'details', { get() {
-    reads++; if (reads > 1) throw new Error('read twice'); return { toJSON() { throw new Error('cannot serialize'); } };
-  } });
-  render(value); assert.equal(reads, 1);
 });
 
 test('a broken decoration function falls back to plain diagnostic text', () => {

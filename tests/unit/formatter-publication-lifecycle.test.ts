@@ -66,20 +66,23 @@ test('duplicate paths format once and unchanged text never asks for a write gran
   });
 });
 
-test('config loading cannot replace the selected formatter implementation', async () => {
-  await fixture(async () => 'selected', async root => {
-    writeFileSync(path.join(root, 'src/a.ts'), 'original'); await formatOutputFiles(root, ['src/a.ts']);
-    assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'selected');
-  }, async () => { formatter.format = async () => assert.fail('replacement formatter'); return {}; });
-});
-
-test('relative workspace remains fixed across asynchronous config lookup', async () => {
+test('relative workspace and selected formatter remain fixed across asynchronous config lookup', async () => {
   const cwd = process.cwd();
-  await fixture(async () => 'formatted', async root => {
+  let calls = 0;
+  await fixture(async () => { calls++; return 'selected'; }, async root => {
     writeFileSync(path.join(root, 'src/a.ts'), 'original');
-    try { process.chdir(root); await formatOutputFiles('.', ['src/a.ts']); assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'formatted'); }
+    try {
+      process.chdir(root);
+      await formatOutputFiles('.', ['src/a.ts']);
+      assert.equal(calls, 1);
+      assert.equal(readFileSync(path.join(root, 'src/a.ts'), 'utf8'), 'selected');
+    }
     finally { process.chdir(cwd); }
-  }, async () => { process.chdir(tmpdir()); return {}; });
+  }, async () => {
+    formatter.format = async () => assert.fail('replacement formatter');
+    process.chdir(tmpdir());
+    return {};
+  });
 });
 
 test('invalid formatter output fails before requesting a publication grant', async () => {

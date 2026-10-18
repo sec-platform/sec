@@ -46,6 +46,12 @@ test('runtime-state directory is created beneath and retained from its owner-iss
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
   try {
     const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
+    expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
+      childDescriptor: 63,
+      mode: 'create-or-open',
+      root,
+      segments: ['..']
+    })).toThrow('segment is invalid');
     const retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 63,
       mode: 'create-or-open',
@@ -80,21 +86,6 @@ test.skipIf(process.platform !== 'win32')('runtime-state host requirement is ret
     expect(retainedRuntimeStateDirectoryRequiresHostNamespace(retained)).toBe(true);
     retained.assertCurrent();
     expect(retained.close().state).toBe('closed');
-  } finally {
-    await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test('runtime-state directory rejects path escape before any create effect', async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'sec-runtime-state-root-'));
-  try {
-    const root = inspectNoFollowDirectoryChain(rootPath, 'test runtime-state root');
-    expect(() => openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-      childDescriptor: 63,
-      mode: 'create-or-open',
-      root,
-      segments: ['..']
-    })).toThrow('segment is invalid');
   } finally {
     await rm(rootPath, { recursive: true, force: true });
   }

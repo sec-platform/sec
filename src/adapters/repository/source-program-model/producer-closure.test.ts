@@ -60,10 +60,12 @@ function fixture(
 }
 
 test('operation producer closure is the one descriptor-owned operation entrypoint and reachable graph', () => {
-  const closure = compileSourceProgramOperationProducerClosure(
-    fixture('export function normalize(): void {}\n'),
+  const compilation = fixture('export function normalize(): void {}\n');
+  const closure = compileSourceProgramOperationProducerClosure(compilation, OPERATION);
+  expect(() => compileSourceProgramOperationProducerClosure(
+    { ...compilation },
     OPERATION
-  );
+  )).toThrow('compiler-issued compilation receipt');
   expect(closure.authority).toBe('source-evidence-only');
   expect(closure.entrypoint.address).toBe(
     'module-entrypoint:src/normalize/module.json#normalize:src/normalize/runtime.ts'
@@ -188,14 +190,6 @@ test('operation producer rejects unresolved dynamic and runtime loader resources
   expect(() => compileSourceProgramOperationProducerClosure(opaqueRuntime, OPERATION)).toThrow(
     expect.objectContaining({ code: 'reachable-loader-resource-unresolved' })
   );
-});
-
-test('operation producer rejects caller-cloned compilation receipts', () => {
-  const compilation = fixture('export function normalize(): void {}\n');
-  expect(() => compileSourceProgramOperationProducerClosure(
-    { ...compilation },
-    OPERATION
-  )).toThrow('compiler-issued compilation receipt');
 });
 
 for (const [name, kernel, runtime] of [
