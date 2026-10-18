@@ -84,6 +84,12 @@ for (const mode of ['issued', 'foreign', 'shallow-frozen'] as const) {
     const mutableProvider = { ...provider };
     const model = assembleTypeScriptSourceProgramModel({ sourceRevision: 'snapshot', compilerRevision: digest,
       provider: mutableProvider, shards: [shard] });
+    if (mode === 'issued') {
+      // Captured from the actual prior production implementation at tree
+      // d167cbd5973c69ff57d10cfa4e10b47bde4c12ec, not recomputed by the SUT oracle.
+      assert.equal(shard.shardDigest, 'sha256:343091b3e98e4d1a5986ce608ed6e33a2648a08ddb26f0d12ea246208a2711e6');
+      assert.equal(model.modelDigest, 'sha256:fa3125014898671b230b6cd928cff32ae800c7c9e0dc284c42ae07f20e66c16c');
+    }
     const before = canonicalBytes(model);
     assertDeeplyFrozen(model);
     mutableProvider.id = 'foreign-identity';
@@ -131,13 +137,4 @@ test('producer validates and hashes the same captured facts instead of rereading
   assert.equal(reads, 1);
   assert.equal(shard.file.path, shard.path);
   assert.deepEqual(parseTypeScriptSourceProgramFactShard(encodeTypeScriptSourceProgramFactShard(shard)), shard);
-});
-
-test('immutable ownership preserves the previously issued canonical wire digests', () => {
-  // Captured from the actual prior production implementation at tree
-  // d167cbd5973c69ff57d10cfa4e10b47bde4c12ec, not recomputed by the SUT oracle.
-  const shard = compileTypeScriptSourceProgramFactShard(fixture());
-  assert.equal(shard.shardDigest, 'sha256:343091b3e98e4d1a5986ce608ed6e33a2648a08ddb26f0d12ea246208a2711e6');
-  const model = assembleTypeScriptSourceProgramModel({ sourceRevision: 'snapshot', compilerRevision: digest, provider, shards: [shard] });
-  assert.equal(model.modelDigest, 'sha256:fa3125014898671b230b6cd928cff32ae800c7c9e0dc284c42ae07f20e66c16c');
 });

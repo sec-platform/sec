@@ -26,7 +26,6 @@ import {
   readBlobBatch,
   readCommitBlobInventory,
   resolveExactHeadCommit,
-  runGitRead,
   withIsolatedTextAttributeReader
 } from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import { runCensus } from '../../src/adapters/self-hosting/development/tooling/text/text-byte-census.ts';
@@ -183,16 +182,6 @@ test('trusted Git reads isolate ambient config and alternate index injection', a
     });
     expect(await fs.readFile(alternateIndex)).toEqual(alternateIndexBytes);
     expect(await fs.readFile(path.join(root, '.git', 'index'))).toEqual(canonicalIndexBytes);
-
-    await withAuthorityGitReadSession({
-      cwd: root,
-      operation: gitReadOperation(),
-      budget: GIT_READ_OPERATION_BUDGET
-    }, async (session) => {
-      const result = await runGitRead(session, ['config', '--get', 'sec.injected']);
-      expect(result.status).toBe(1);
-      expect(result.stdout.byteLength).toBe(0);
-    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

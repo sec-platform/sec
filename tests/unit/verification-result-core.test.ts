@@ -438,15 +438,12 @@ test('validator rejects unresolved applicability with non-invalidated status', (
   }).toThrow(/unresolved applicability requires invalidated status/);
 });
 
-test('reused passed gate without environment identity fails closed', () => {
-  expect(() => CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('reuse-claim', ['reused-gate'])],
-    gateResults: [reusedPassedGate(
-      'reused-gate',
-      ['reuse-claim'],
-      ['evidence-1', 'evidence-2']
-    )]
-  })).toThrow(/reused disposition requires a non-null environment identity/);
+test('gate builder rejects reused passed evidence without environment identity', () => {
+  expect(() => reusedPassedGate(
+    'reused-gate',
+    ['reuse-claim'],
+    ['evidence-1', 'evidence-2']
+  )).toThrow(/reused disposition requires a non-null environment identity/);
 });
 
 // ---------------------------------------------------------------------------
@@ -507,18 +504,6 @@ test('aggregate: missing required gate → claim not-run', () => {
   expect(result.claimResults[0]!.reasonCode).toBe('not-dispatched');
 });
 
-test('aggregate: custom coverage check returning false → invalidated', () => {
-  const gate = passedGate('gate-1', ['claim-1']);
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [claim('claim-1', ['gate-1'])],
-    gateResults: [gate],
-    isCoverageComplete: () => false
-  });
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-  expect(result.claimResults[0]!.reasonCode).toBe('selection-unresolved');
-});
-
 function gateForStatus(
   status: VerificationResultStatus,
   gateId: string,
@@ -568,6 +553,9 @@ test('aggregate assertion accepts the current writer projection across the statu
     gateResults: []
   };
   const emptyResult = CodexDevelopmentAggregateVerificationClaims(emptyInput);
+  expect(emptyResult.overallStatus).toBe('invalidated');
+  expect(emptyResult.overallReasonCode).toBe('selection-unresolved');
+  expect(emptyResult.claimResults).toEqual([]);
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     emptyResult,
     emptyInput
@@ -592,6 +580,9 @@ test('aggregate assertion accepts the current writer projection across the statu
   const incompleteCoverageResult = CodexDevelopmentAggregateVerificationClaims(
     incompleteCoverageInput
   );
+  expect(incompleteCoverageResult.overallStatus).toBe('invalidated');
+  expect(incompleteCoverageResult.claimResults[0]!.status).toBe('invalidated');
+  expect(incompleteCoverageResult.claimResults[0]!.reasonCode).toBe('selection-unresolved');
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     incompleteCoverageResult,
     incompleteCoverageInput

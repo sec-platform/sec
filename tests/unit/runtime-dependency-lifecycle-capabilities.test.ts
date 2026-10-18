@@ -35,7 +35,7 @@ for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingLegac
   });
 }
 
-test('capability capture never enumerates its provider or unrelated installation fields', () => {
+test('capability capture snapshots selected methods without enumerating its provider or unrelated fields', async () => {
   let reads = 0;
   const provider = new Proxy({ get bind() { reads++; return async () => registration; },
     get disposed() { assert.fail('unused capability read'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('provider enumerated'); } });
@@ -43,14 +43,8 @@ test('capability capture never enumerates its provider or unrelated installation
   const view = capture(input, ['bind', 'bind']);
   assert.equal(reads, 1); assert.deepEqual(Object.keys(view!), ['bind']); assert.ok(Object.isFrozen(view));
   assert.equal('disposed' in view!, false);
-});
-
-test('a captured method has no dependency on its mutable public bind property', async () => {
-  class Provider { #value = registration; async bind() { return this.#value; } }
-  const provider = new Provider();
-  const view = capture({ generatedStateLifecycle: provider }, ['bind'])!;
-  provider.bind = async () => assert.fail('replacement method used');
-  assert.equal(await view.bind!('node_modules'), registration);
+  Object.defineProperty(provider, 'bind', { value: async () => assert.fail('replacement method used') });
+  assert.equal(await view!.bind!('node_modules'), registration);
 });
 
 test('birth preflights the complete selected capability pair before any fence or birth', async () => {

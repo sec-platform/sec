@@ -194,16 +194,6 @@ test('builder rejects invalid input', () => {
 // Aggregate contract
 // ---------------------------------------------------------------------------
 
-test('aggregate fails closed for empty claims instead of manufacturing passed', () => {
-  const result = CodexDevelopmentAggregateVerificationClaims({
-    claims: [],
-    gateResults: []
-  });
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.overallReasonCode).toBe('selection-unresolved');
-  expect(result.claimResults).toEqual([]);
-});
-
 function canonicalAggregateFixture() {
   const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
   const claims = [{
