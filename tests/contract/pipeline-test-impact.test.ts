@@ -10,7 +10,7 @@ import { issueTestImpactProjection } from '../../src/adapters/repository/source-
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
-import { createRepositoryTestImpactSourceProvider, resolveTestOwnership, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { createRepositoryTestImpactSourceProvider, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: canonicalGitChildEnvironment() });
@@ -52,27 +52,6 @@ function pipelineProvider(sources: Readonly<Record<string, string>>) {
     rmSync(root, { recursive: true, force: true });
   }
 }
-
-test('pipeline lifecycle binding changes select their real transitive consumers', () => {
-  const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
-  const consumer = 'tests/integration/pipeline-workspace-write-lease.test.ts';
-  const provider = pipelineProvider({
-    'src/bootstrap/engineering/module.json':
-      '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
-    'src/bootstrap/engineering/cli.ts': "import { kernel } from './pipeline-kernel.ts'; void kernel;",
-    [source]: 'export const kernel = true;',
-    [consumer]: "import { kernel } from '../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;"
-  });
-  const selection = selectTestsForSources([source], provider);
-
-  expect(selection.owners).toEqual(['bootstrap.engineering']);
-  expect(selection.fast).toEqual([consumer]);
-  expect(resolveTestOwnership([source], provider)).toEqual([{
-    source,
-    owner: 'bootstrap.engineering',
-    identity: { kind: 'module', id: 'bootstrap.engineering' }
-  }]);
-});
 
 test('upgrade changes select upgrade behavior without a central path table', () => {
   const source = 'src/bootstrap/upgrade/upgrade-workspace.ts';

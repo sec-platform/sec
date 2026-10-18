@@ -160,23 +160,33 @@ test('repository module graph is the single resolved dependency observation', ()
 });
 
 test('impact follows executable imports instead of import-like text', () => {
-  const source = 'src/compiler/virtual-source.ts';
-  const facade = 'src/compiler/virtual-entrypoint.ts';
-  const helper = 'src/compiler/virtual-test-helper.ts';
+  const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
+  const facade = 'src/bootstrap/engineering/virtual-entrypoint.ts';
+  const helper = 'src/bootstrap/engineering/virtual-test-helper.ts';
+  const direct = 'tests/integration/pipeline-workspace-write-lease.test.ts';
   const selected = 'tests/unit/virtual-facade.test.ts';
   const ignored = 'tests/unit/virtual-import-text.test.ts';
   const provider = sourceProvider({
-      [source]: 'export const value = 1;',
-      [facade]: "export { value } from './virtual-source.ts';",
-      [helper]: "export { value } from './virtual-entrypoint.ts';",
-      [selected]: "import { value } from '../../src/compiler/virtual-test-helper.ts'; void value;",
-      [ignored]: "const text = \"import '../../src/compiler/virtual-source.ts'\"; void text;"
+      'src/bootstrap/engineering/module.json':
+        '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
+      'src/bootstrap/engineering/cli.ts': "import { kernel } from './pipeline-kernel.ts'; void kernel;",
+      [source]: 'export const kernel = true;',
+      [facade]: "export { kernel } from './pipeline-kernel.ts';",
+      [helper]: "export { kernel } from './virtual-entrypoint.ts';",
+      [direct]: "import { kernel } from '../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
+      [selected]: "import { kernel } from '../../src/bootstrap/engineering/virtual-test-helper.ts'; void kernel;",
+      [ignored]: "const text = \"import '../../src/bootstrap/engineering/pipeline-kernel.ts'\"; void text;"
   });
 
   const selection = selectTestsForSources([source], provider);
-  expect(selection.fast).toEqual([selected]);
+  expect(selection.fast).toEqual([direct, selected]);
   expect(selection.slow).toEqual([]);
-  expect(selection.owners).toEqual(['compiler']);
+  expect(selection.owners).toEqual(['bootstrap.engineering']);
+  expect(resolveTestOwnership([source], provider)).toEqual([{
+    source,
+    owner: 'bootstrap.engineering',
+    identity: { kind: 'module', id: 'bootstrap.engineering' }
+  }]);
 });
 
 test('colocated source tests use the canonical repository test-module identity', () => {

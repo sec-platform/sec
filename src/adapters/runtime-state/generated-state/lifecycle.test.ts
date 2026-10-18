@@ -569,6 +569,12 @@ test('a fresh producer process can bind an active registration and restore only 
   }
 
   const resumed = generatedStateProducerHooks({ repositoryRoot }, options);
+  await expect(resumed.retired(LIFECYCLE_FIXTURE_PATH, 'caller-invented-retirement'))
+    .rejects.toThrow(/same producer session/u);
+  expect((await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]).toMatchObject({ registrationState: 'active', settlement: 'protected' });
   const bound = await resumed.bind(LIFECYCLE_FIXTURE_PATH, {
     owner: 'compiler-dependency-runtime',
     producer: 'stage-compiler-dependency-generation',
@@ -701,22 +707,6 @@ test('a cleanup profile outside the registry leaves the active generation unchan
   })).rejects.toThrow('disposal profile is not owned');
   expect(await absent(fixtureRoot(repositoryRoot))).toBe(false);
   expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
-});
-
-test('a new caller cannot retire a registration it did not birth or adopt in its producer session', async () => {
-  const { options, repositoryRoot } = await fixture();
-  await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
-  const ownerSession = generatedStateProducerHooks({ repositoryRoot }, options);
-  const foreignSession = generatedStateProducerHooks({ repositoryRoot }, options);
-
-  await ownerSession.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-session');
-  await expect(foreignSession.retired(LIFECYCLE_FIXTURE_PATH, 'caller-invented-retirement'))
-    .rejects.toThrow(/same producer session/u);
-
-  expect((await inspectGeneratedState({
-    repositoryRoot,
-    relativePaths: [LIFECYCLE_FIXTURE_PATH]
-  }, options)).entries[0]).toMatchObject({ registrationState: 'active', settlement: 'protected' });
 });
 
 test('a fresh producer terminalizes only an exact active registration whose physical root is absent', async () => {

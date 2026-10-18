@@ -167,6 +167,14 @@ test('working tree and exact Git tree issue one transport-neutral source generat
   expect(working.subjectDigest).not.toBe(exact.subjectDigest);
   expect(working.physicalObservationReceipt?.kind).toBe('working-tree-observation');
   expect(exact.physicalObservationReceipt).toMatchObject({ kind: 'git-tree', commitSha });
+
+  const nextWorking = await workingSnapshot(repositoryRoot);
+  const generationDigest = `sha256:${'a'.repeat(64)}` as const;
+  expect(compileWorkspaceTypeScriptProjectFactIdentity(working, 'tsconfig.json', {
+    dependencyGenerationDigest: generationDigest
+  })).toEqual(compileWorkspaceTypeScriptProjectFactIdentity(nextWorking, 'tsconfig.json', {
+    dependencyGenerationDigest: generationDigest
+  }));
 });
 
 test('staged index snapshot binds exact index bytes and blocks later index drift', async () => {
@@ -192,18 +200,6 @@ test('staged index snapshot binds exact index bytes and blocks later index drift
     await expect(readBackStagedWorkspaceSourceSelection(selection, session))
       .rejects.toThrow('index changed before readback');
   });
-});
-
-test('Project fact identity is stable across observation sessions and consumes opaque generation identity', async () => {
-  const { repositoryRoot } = await createRepository();
-  const first = await workingSnapshot(repositoryRoot);
-  const second = await workingSnapshot(repositoryRoot);
-  const generationDigest = `sha256:${'a'.repeat(64)}` as const;
-  expect(compileWorkspaceTypeScriptProjectFactIdentity(first, 'tsconfig.json', {
-    dependencyGenerationDigest: generationDigest
-  })).toEqual(compileWorkspaceTypeScriptProjectFactIdentity(second, 'tsconfig.json', {
-    dependencyGenerationDigest: generationDigest
-  }));
 });
 
 test('Project fact identity resolves repository imports with the canonical TypeScript resolver', () => {

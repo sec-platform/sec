@@ -208,36 +208,21 @@ test('json-object-merge migration rejects directory targets', async () => {
   });
 });
 
-test('create-directory migration creates nested target directories', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(workspaceRoot, { recursive: true });
+test('create-directory migration creates nested targets and preserves existing directories', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(manifestRoot, { recursive: true });
-
-    const target = 'generated/reports/snapshots';
-    await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)]);
-
-    const snapshotsDir = path.join(workspaceRoot, 'generated', 'reports', 'snapshots');
-    const stats = await fs.stat(snapshotsDir);
-    expect(stats.isDirectory()).toBe(true);
-  });
-});
-
-test('create-directory migration keeps existing directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    const target = 'generated/reports/snapshots';
-    await fs.mkdir(path.join(workspaceRoot, target), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-    const retainedFile = path.join(workspaceRoot, target, 'retained.txt');
+    const existingTarget = 'generated/reports/existing';
+    await fs.mkdir(path.join(workspaceRoot, existingTarget), { recursive: true });
+    const retainedFile = path.join(workspaceRoot, existingTarget, 'retained.txt');
     await fs.writeFile(retainedFile, 'existing content\n', 'utf8');
 
-    await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)]);
+    const nestedTarget = 'new-generated/reports/snapshots';
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [nestedTarget], [createDirectory(nestedTarget)]);
+    expect((await fs.stat(path.join(workspaceRoot, nestedTarget))).isDirectory()).toBe(true);
 
-    const stats = await fs.stat(path.join(workspaceRoot, target));
-    expect(stats.isDirectory()).toBe(true);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [existingTarget], [createDirectory(existingTarget)]);
+    expect((await fs.stat(path.join(workspaceRoot, existingTarget))).isDirectory()).toBe(true);
     await expect(fs.readFile(retainedFile, 'utf8')).resolves.toBe('existing content\n');
   });
 });
