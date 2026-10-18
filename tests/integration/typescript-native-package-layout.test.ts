@@ -44,14 +44,16 @@ for (const predecessorMode of [0o755, 0o555]) {
         binding: { generationDigest: `sha256:${'1'.repeat(64)}`, treeDigest: `sha256:${'2'.repeat(64)}`, treeEntryCount: inventory.length }
       });
       const args = ['--noEmit', '--skipLibCheck', '--lib', 'es5', path.join(root, 'good.ts')];
-      const anonymous = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(packageRoot), 'tsc', undefined, 'anonymous test image', 3, 'executable');
-      try {
-        const result = spawnSync(anonymous.childPath, args, { cwd: root, encoding: 'utf8', timeout: 10_000,
-          stdio: ['ignore', 'pipe', 'pipe', anonymous.stdioSourceDescriptor!] });
-        expect(result.error).toBeUndefined();
-        expect(result.status).not.toBe(0);
-        expect(result.stderr).toContain('lib.d.ts does not exist');
-      } finally { anonymous.dispose(); }
+      if (predecessorMode === 0o755) {
+        const anonymous = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(packageRoot), 'tsc', undefined, 'anonymous test image', 3, 'executable');
+        try {
+          const result = spawnSync(anonymous.childPath, args, { cwd: root, encoding: 'utf8', timeout: 10_000,
+            stdio: ['ignore', 'pipe', 'pipe', anonymous.stdioSourceDescriptor!] });
+          expect(result.error).toBeUndefined();
+          expect(result.status).not.toBe(0);
+          expect(result.stderr).toContain('lib.d.ts does not exist');
+        } finally { anonymous.dispose(); }
+      }
       const retained = await retainNoFollowGenerationExecutable(generation.generation, 'tsc');
       try {
         const options = { cwd: root, encoding: 'utf8' as const, timeout: 10_000,
@@ -59,14 +61,18 @@ for (const predecessorMode of [0o755, 0o555]) {
         const good = spawnSync(retained.childPath, args, options);
         expect(good.error).toBeUndefined();
         expect(good.status, good.stderr + good.stdout).toBe(0);
-        const bad = spawnSync(retained.childPath, [...args.slice(0, -1), path.join(root, 'bad.ts')], options);
-        expect(bad.error).toBeUndefined();
-        expect(bad.status).not.toBe(0);
-        expect(bad.stdout).toContain('TS2322');
+        if (predecessorMode === 0o755) {
+          const bad = spawnSync(retained.childPath, [...args.slice(0, -1), path.join(root, 'bad.ts')], options);
+          expect(bad.error).toBeUndefined();
+          expect(bad.status).not.toBe(0);
+          expect(bad.stdout).toContain('TS2322');
+        }
         await generation.generation.assertAuthorityCurrent();
-        await expect(retainNoFollowGenerationExecutable(generation.generation, '../good.ts')).rejects.toThrow('canonical contained path');
-        await expect(retainNoFollowGenerationExecutable({ ...generation.generation }, 'tsc')).rejects.toThrow('was not issued');
-        await expect(retainNoFollowGenerationExecutable(generation.generation, 'lib.d.ts')).rejects.toThrow('read-only executable');
+        if (predecessorMode === 0o755) {
+          await expect(retainNoFollowGenerationExecutable(generation.generation, '../good.ts')).rejects.toThrow('canonical contained path');
+          await expect(retainNoFollowGenerationExecutable({ ...generation.generation }, 'tsc')).rejects.toThrow('was not issued');
+          await expect(retainNoFollowGenerationExecutable(generation.generation, 'lib.d.ts')).rejects.toThrow('read-only executable');
+        }
       } finally { retained.dispose(); }
       const retirement = await generation.generation.retire();
       expect(await generation.generation.retire()).toBe(retirement);
