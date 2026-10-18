@@ -55,7 +55,7 @@ async function fixture(root: string) {
     acceptanceCoverage: coverage, policy, reviewSummary: review, artifactManifest: null };
 }
 
-test('overview reads the complete canonical set and the live CLI keeps failed verification visible', async () => {
+test('overview reads the complete canonical set and the workspace overview keeps failed verification visible', async () => {
   await withTempWorkspace(async root => {
     const expected = await fixture(root);
     expect(readProjectOverviewArtifacts(root, 'custom explain')).toEqual(expected);
@@ -67,9 +67,13 @@ test('overview reads the complete canonical set and the live CLI keeps failed ve
 
 test('absent artifacts retain the error code and caller-supplied recovery command', async () => {
   await withTempWorkspace(async root => {
-    expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow('Lock file is missing; run the refresh chain, then custom explain');
+    let failure: unknown;
     try { readProjectOverviewArtifacts(root, 'custom explain'); }
-    catch (error) { expect(error).toMatchObject({ code: 'EXPLAIN-BLOCKED-004' }); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({
+      code: 'EXPLAIN-BLOCKED-004',
+      message: 'Lock file is missing; run the refresh chain, then custom explain'
+    });
   });
 });
 
@@ -81,7 +85,7 @@ test('partial verification publication remains malformed, never absence or an em
   });
 });
 
-test('canonical provenance, exact UTF-8 review, and optional manifest validation remain active', async () => {
+test('overview preserves canonical provenance, exact UTF-8, manifest and malformed lock diagnostics', async () => {
   await withTempWorkspace(async root => {
     const original = await fixture(root);
     await put(root, files.provenance, {});
@@ -92,12 +96,6 @@ test('canonical provenance, exact UTF-8 review, and optional manifest validation
     await put(root, files.reviewSummary, original.reviewSummary);
     await put(root, files.artifactManifest, {});
     expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow();
-  });
-});
-
-test('malformed lock JSON preserves the retained-reader diagnostic without reclassifying it as absence', async () => {
-  await withTempWorkspace(async root => {
-    await fixture(root);
     await fs.writeFile(resolveWorkspaceArtifactPath(root, files.graphLock), '{');
     expect(() => readProjectOverviewArtifacts(root, 'custom explain')).toThrow('Lock file is not valid JSON');
   });
