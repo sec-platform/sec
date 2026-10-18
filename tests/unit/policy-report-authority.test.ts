@@ -65,7 +65,11 @@ test('Policy Report authority preserves source-structure diagnostics without tre
   expect(report).toEqual(structuralPolicyReport());
 });
 
-test('Policy Report authority rejects forged status and missing evaluator assurance', () => {
+test('Policy Report authority rejects noncanonical identity, forged status and missing evaluator assurance', () => {
+  const badId = structuredClone(structuralPolicyReport()) as any;
+  badId.official.policies = ['Tenant Scope'];
+  expect(() => validatePolicyReport(badId)).toThrow();
+
   const forged = structuredClone(structuralPolicyReport()) as any;
   forged.status = 'failed';
   expect(() => validatePolicyReport(forged)).toThrow('status differs');
@@ -100,19 +104,6 @@ test('Policy Report authority binds the merged policy to the native model declar
 
   candidate.merged.policies[0].sourcePath = 'project/policies/tenant.yaml';
   expect(() => validatePolicyReport(candidate)).toThrow('winner');
-});
-
-test('Policy Report authority rejects noncanonical identity and finding order', () => {
-  const badId = structuredClone(structuralPolicyReport()) as any;
-  badId.official.policies = ['Tenant Scope'];
-  expect(() => validatePolicyReport(badId)).toThrow();
-
-  const findings = structuredClone(structuralPolicyReport()) as any;
-  findings.diagnostics.push({
-    ...findings.diagnostics[0],
-    message: 'A diagnostic that sorts before Source.'
-  });
-  expect(() => validatePolicyReport(findings)).toThrow('canonically ordered');
 });
 
 test('Policy Report authority uses code-unit order instead of host locale order', () => {

@@ -543,17 +543,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
   }
 });
 
-test('Windows AppContainer native-helper capability is immutable, unforgeable, and source-epoch bound', async () => {
-  const capability = await acquireWindowsAppContainerNativeHelperCapability();
-  const firstRead = readWindowsAppContainerNativeHelperCapability(capability);
-  const firstByte = firstRead[0];
-  firstRead[0] = firstByte === 0 ? 1 : 0;
-  expect(readWindowsAppContainerNativeHelperCapability(capability)[0]).toBe(firstByte);
-  expect(() => readWindowsAppContainerNativeHelperCapability({
-    byteLength: capability.byteLength,
-    contentDigest: capability.contentDigest
-  })).toThrow(WindowsAppContainerNativeHelperMaterializationError);
-
+test('Windows AppContainer native-helper build rejects a changed source epoch', async () => {
   const entryPath = path.resolve('native-helper-entry.ts');
   let metadataReads = 0;
   const drifted = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
@@ -588,12 +578,21 @@ test('Windows AppContainer native-helper capability is immutable, unforgeable, a
     .toBe('native-helper-entry');
 });
 
-test('Windows AppContainer exact native-helper bundle self-boots its finite Worker role', async () => {
+test('Windows AppContainer immutable, unforgeable native-helper capability self-boots its finite Worker role', async () => {
   const root = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-helper-worker-'));
   let worker: Worker | undefined;
   try {
     const helperPath = path.join(root, 'native-helper.mjs');
-    const bundle = await buildWindowsAppContainerNativeHelperBundleSourceForTests();
+    const capability = await acquireWindowsAppContainerNativeHelperCapability();
+    const firstRead = readWindowsAppContainerNativeHelperCapability(capability);
+    const firstByte = firstRead[0];
+    firstRead[0] = firstByte === 0 ? 1 : 0;
+    expect(readWindowsAppContainerNativeHelperCapability(capability)[0]).toBe(firstByte);
+    expect(() => readWindowsAppContainerNativeHelperCapability({
+      byteLength: capability.byteLength,
+      contentDigest: capability.contentDigest
+    })).toThrow(WindowsAppContainerNativeHelperMaterializationError);
+    const bundle = readWindowsAppContainerNativeHelperCapability(capability);
     expect(bundle.byteLength).toBeGreaterThan(0);
     expect(new TextDecoder().decode(bundle)).not.toMatch(
       /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u

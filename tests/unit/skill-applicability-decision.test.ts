@@ -78,15 +78,6 @@ test('multiple surviving candidates without unique operation evidence resolve am
   expect(decision.reasonCodes).toContain('ambiguous-multiple-candidates');
 });
 
-test('Skill selection carries no resource, Gate, write-scope or replacement authority', () => {
-  const decision = evaluateSkillApplicability(envelope({
-    candidates: ['worker-development']
-  }));
-  expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('worker-development');
-  expect('scopeConflicts' in decision).toBeFalse();
-});
-
 test('goal, role, operation and capsule binding changes invalidate the prior decision as stale', () => {
   const prior = evaluateSkillApplicability(envelope({
     candidates: ['worker-development'],
@@ -197,6 +188,9 @@ test('decision binds the operation and trusted guidance identity', () => {
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
     taskCapsuleRevision: TASK_CAPSULE_REVISION
   }));
+  expect(decision.status).toBe('applicable');
+  expect(decision.selectedSkillId).toBe('worker-development');
+  expect('scopeConflicts' in decision).toBeFalse();
   expect(decision.goalDigest).toBe('test-goal');
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
   expect(decision.targetCandidate).toBe('feat/skill-applicability-gate-v1');

@@ -72,10 +72,16 @@ test('policy inspection routes retained report through application summary proje
     await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
     const projected = projectPolicyReportInspection(report);
+    const expectedText = [
+      'Policy report skipped; official=0; project=0; merged=0; violations=0',
+      'Sources: 0',
+      'Severity: none'
+    ].join('\n');
+    expect(formatPolicyReport(projected)).toBe(expectedText);
     await expectCliSuccess(
       workspaceRoot,
       ['policy'],
-      `${formatPolicyReport(projected)}\n`
+      `${expectedText}\n`
     );
 
     const json = await expectCliJson(workspaceRoot, ['policy', '--json']);

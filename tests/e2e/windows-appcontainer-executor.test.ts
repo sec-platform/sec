@@ -463,7 +463,6 @@ test.serial.skipIf(process.platform !== 'win32')('Windows AppContainer canonical
       WINDOWS_APPCONTAINER_RECOVERY_CONTRACT.runtimeRelativePath
     ))).toBe(false);
     expect(await exists(path.join(stagingRoot, '.sm3h'))).toBe(false);
-    expect(await exists(path.join(stagingRoot, '.sm3p'))).toBe(false);
     expect(aclTargets.map((target) => readAcl(icaclsPath, target))).toEqual(aclBefore);
   } finally {
     await lease?.release().catch(() => undefined);

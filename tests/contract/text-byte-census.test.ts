@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { UTF8_BOM, classifyBlobBytes } from '../../src/adapters/runtime-state/text-byte-census.ts';
+import { classifyBlobBytes } from '../../src/adapters/runtime-state/text-byte-census.ts';
 
 function toBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -30,16 +30,20 @@ test('classifyBlobBytes classifies explicit-crlf blob with text eol=crlf', () =>
   expect(result.anomalies).toEqual([]);
 });
 
-test('classifyBlobBytes classifies binary blob with -text attribute', () => {
-  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const result = classifyBlobBytes({
-    path: 'image.png',
-    bytes,
-    textAttr: 'unset',
-    eolAttr: 'unspecified'
-  });
-  expect(result.classification).toBe('binary');
-  expect(result.anomalies).toEqual([]);
+test('declared binary blobs suppress text anomalies and retain their NUL finding without becoming unknown', () => {
+  for (const [bytes, anomalies] of [
+    [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), []],
+    [new Uint8Array([0x80, 0x81, 0x00, 0x0a]), ['nul-byte']]
+  ] as const) {
+    const result = classifyBlobBytes({
+      path: 'image.png',
+      bytes,
+      textAttr: 'unset',
+      eolAttr: 'unspecified'
+    });
+    expect(result.classification).toBe('binary');
+    expect(result.anomalies).toEqual([...anomalies]);
+  }
 });
 
 test('classifyBlobBytes classifies preserve-external for ungoverned extension', () => {
@@ -89,7 +93,7 @@ test('classifyBlobBytes detects crlf-in-canonical-lf-blob anomaly', () => {
 });
 
 test('classifyBlobBytes detects utf8-bom anomaly', () => {
-  const bomBytes = new Uint8Array([...UTF8_BOM, ...toBytes('content\n')]);
+  const bomBytes = new Uint8Array([0xEF, 0xBB, 0xBF, ...toBytes('content\n')]);
   const result = classifyBlobBytes({
     path: 'src/file.ts',
     bytes: bomBytes,
@@ -144,18 +148,6 @@ test('classifyBlobBytes detects unknown-encoding anomaly and classifies unknown'
   });
   expect(result.classification).toBe('unknown');
   expect(result.anomalies).toContain('unknown-encoding');
-});
-
-test('classifyBlobBytes does not report unknown-encoding for binary blobs', () => {
-  const bytes = new Uint8Array([0x80, 0x81, 0x00, 0x0a]);
-  const result = classifyBlobBytes({
-    path: 'image.png',
-    bytes,
-    textAttr: 'unset',
-    eolAttr: 'unspecified'
-  });
-  expect(result.classification).toBe('binary');
-  expect(result.anomalies).not.toContain('unknown-encoding');
 });
 
 test('classifyBlobBytes treats text without explicit eol as canonical-lf', () => {
