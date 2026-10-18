@@ -137,7 +137,7 @@ export namespace WindowStream {
   interface Subscription extends Closeable {
     request(count: Int): void;
     acknowledge(outputId: Ref, receipt: Ref): Promise<Result<void, Fault>>;
-    checkpoint(store: Checkpoints): Promise<Checkpoint>;
+    checkpoint(store: Checkpoints): Promise<Result<Checkpoint, Fault>>;
     cancel(): void;
   }
   interface Observer { next(output: Output): void; error(fault: Fault): void; complete(): void; }
