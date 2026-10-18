@@ -133,7 +133,7 @@ export namespace WindowStream {
   type Message = { readonly kind: 'data'; readonly partition: Ref; readonly epoch: Int; readonly seq: Int; readonly sample: Sample } | { readonly kind: 'frontier'; readonly partition: Ref; readonly epoch: Int; readonly throughSeq: Int; readonly lowerBound: Int } | { readonly kind: 'end'; readonly partition: Ref; readonly epoch: Int; readonly throughSeq: Int } | { readonly kind: 'members'; readonly previousEpoch: Int; readonly epoch: Int; readonly members: readonly { readonly partition: Ref; readonly nextSeq: Int; readonly lowerBound: Int }[]; readonly barrier: Ref };
   type Output = { readonly kind: 'final'; readonly start: Int; readonly end: Int; readonly count: Int; readonly sumMilliVolt: Int; readonly outputId: Ref } | { readonly kind: 'rejected'; readonly code: 'LateRejected' | 'ProtocolConflict'; readonly partition: Ref; readonly seq: Int };
   interface Checkpoint { readonly ref: Ref; readonly source: Ref; readonly memberEpoch: Int; readonly windowMs: Int; readonly acknowledgedThrough: Ref | null; }
-  interface Checkpoints { write(bytes: Bytes): Promise<Ref>; read(ref: Ref): Promise<Bytes>; }
+  interface Checkpoints { write(bytes: Bytes): Promise<Ref>; read(ref: Ref): Promise<Bytes>; query?(operation: Ref): Promise<Result<OperationState, Fault>>; }
   interface Subscription extends Closeable {
     request(count: Int): void;
     acknowledge(outputId: Ref, receipt: Ref): Promise<Result<void, Fault>>;
