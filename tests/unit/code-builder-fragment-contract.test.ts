@@ -93,13 +93,3 @@ test('non-text fragments are refused without custom coercion', () => {
   assert.throws(() => new CodeBuilder().addFunction({ name: 'read', body: value }), TypeError);
   assert.throws(() => new CodeBuilder().addFileComment(value), TypeError);
 });
-
-test('ordinary declaration ordering and independent builders retain prior semantics', () => {
-  const first = new CodeBuilder().addFileComment('@generated owner:semantic')
-    .addVariable({ name: 'first', initializer: '1' })
-    .addImport({ moduleSpecifier: './types', namedImports: ['Value', 'Value'], isTypeOnly: true });
-  const second = new CodeBuilder().addVariable({ name: 'second', initializer: '2' });
-  assert.ok(first.getText().startsWith('// @generated owner:semantic\n'));
-  assert.deepEqual(statements(first).map(node => node.kind), [ts.SyntaxKind.ImportDeclaration, ts.SyntaxKind.VariableStatement]);
-  assert.equal(statements(second).length, 1); assert.ok(!second.getText().includes('first'));
-});

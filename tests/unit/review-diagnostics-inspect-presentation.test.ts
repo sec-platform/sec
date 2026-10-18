@@ -14,7 +14,9 @@ describe('review diagnostics presentation boundary', () => {
       regressionRisks: [
         { kind: 'coverage', message: 'risk one', blockId: 'block-z' },
         { kind: 'coverage', message: 'risk two', blockId: 'block-a' },
-        { kind: 'coverage', message: 'unbound' }
+        { kind: 'coverage', message: 'unbound' },
+        { kind: 'coverage', message: 'empty', blockId: '' },
+        { kind: 'coverage', message: 'duplicate', blockId: 'block-a' }
       ],
       conflictHints: [
         { kind: 'overlap', message: 'conflict', relatedId: 'change:1' }
@@ -24,22 +26,25 @@ describe('review diagnostics presentation boundary', () => {
     const view = projectReviewDiagnostics(source);
 
     expect(view.status).toBe('attention');
-    expect(view.diagnosticCount).toBe(6);
+    expect(view.diagnosticCount).toBe(8);
     expect(view.failureCount).toBe(2);
-    expect(view.regressionRiskCount).toBe(3);
+    expect(view.regressionRiskCount).toBe(5);
     expect(view.conflictHintCount).toBe(1);
     expect(view.artifactPaths).toEqual(['a/report.json', 'z/report.json']);
     expect(view.blocks).toEqual(['block-a', 'block-z']);
+    expect(view.blockCount).toBe(2);
     expect(view.diagnostics.map((entry) => entry.id)).toEqual([
       'failure:0',
       'failure:1',
       'regression-risk:0',
       'regression-risk:1',
       'regression-risk:2',
+      'regression-risk:3',
+      'regression-risk:4',
       'conflict:0'
     ]);
     expect(formatReviewDiagnostics(view)).toBe([
-      'Review diagnostics attention; diagnostics=6; failures=2; risks=3; conflicts=1',
+      'Review diagnostics attention; diagnostics=8; failures=2; risks=5; conflicts=1',
       'Artifacts: a/report.json, z/report.json',
       'Blocks: block-a, block-z',
       'Diagnostic failure:0; kind=contract; lane=fast; artifact=z/report.json; failed contract',
@@ -47,6 +52,8 @@ describe('review diagnostics presentation boundary', () => {
       'Diagnostic regression-risk:0; kind=coverage; block=block-z; risk one',
       'Diagnostic regression-risk:1; kind=coverage; block=block-a; risk two',
       'Diagnostic regression-risk:2; kind=coverage; block=none; unbound',
+      'Diagnostic regression-risk:3; kind=coverage; block=none; empty',
+      'Diagnostic regression-risk:4; kind=coverage; block=block-a; duplicate',
       'Diagnostic conflict:0; kind=overlap; related=change:1; conflict'
     ].join('\n'));
     const noDiagnostics = projectReviewDiagnostics({

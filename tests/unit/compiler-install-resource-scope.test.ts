@@ -92,19 +92,14 @@ test('successful execution with failed settlement is not returned as success', a
   });
 });
 
-test('successful cleanup preserves the exact result and releases the executable once', async () => {
-  const result = { value: 7 }; let calls = 0;
-  assert.equal(await withCompilerInstallResources(async resources => {
-    resources.executable(executable(() => { calls++; })); return result;
-  }), result); assert.equal(calls, 1);
-});
-
-test('synchronous physical releases do not yield between the directory and executable', async () => {
+test('successful cleanup preserves its result and releases directory then executable without yielding', async () => {
   const order: string[] = [];
-  await withCompilerInstallResources(async resources => {
+  const result = { value: 7 };
+  assert.equal(await withCompilerInstallResources(async resources => {
     resources.executable(executable(() => { order.push('exe'); }));
     resources.workingDirectory(directory(() => { order.push('cwd'); queueMicrotask(() => order.push('later')); }));
-  });
+    return result;
+  }), result);
   assert.deepEqual(order, ['cwd', 'exe', 'later']);
 });
 

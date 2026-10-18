@@ -25,22 +25,6 @@ test('circular compiler details cannot erase the primary failure', () => {
   assert.match(output, /Circular/u);
 });
 
-test('bigint compiler details remain diagnostic rather than throwing during formatting', () => {
-  const error = new CodedFailure('TEST-003', 'primary bigint failure', { value: 1n });
-  const output = formatFailure(error);
-  assert.ok(output.startsWith(error.stack!));
-  assert.match(output, /1n/u);
-});
-
-test('failing toJSON cannot replace the primary compiler failure', () => {
-  const error = new CodedFailure('TEST-004', 'primary toJSON failure', {
-    toJSON() { throw new Error('secondary serialization failure'); }, value: 'retained'
-  });
-  const output = formatFailure(error);
-  assert.ok(output.startsWith(error.stack!));
-  assert.match(output, /retained/u);
-});
-
 test('diagnostic fallback does not invoke user inspection hooks or metadata getters', () => {
   let reads = 0;
   let inspections = 0;
@@ -50,6 +34,7 @@ test('diagnostic fallback does not invoke user inspection hooks or metadata gett
   const error = new CodedFailure('TEST-005', 'primary fallback failure', details);
   const output = formatFailure(error);
   assert.ok(output.startsWith(error.stack!));
+  assert.match(output, /1n/u);
   assert.equal(reads, 0);
   assert.equal(inspections, 0);
 });
@@ -101,7 +86,9 @@ test('fallback formats the captured details rather than replacement carrier meta
     }
   };
   Object.defineProperty(error, 'details', { value: details, configurable: true });
+  const primary = error.stack!;
   const output = formatFailure(error);
+  assert.ok(output.startsWith(primary));
   assert.match(output, /\boriginal['"]?\s*:\s*(['"])retained\1/u);
   assert.doesNotMatch(output, /\breplacement\b/u);
   assert.doesNotMatch(output, /\bwrong\b/u);

@@ -13,16 +13,22 @@ function passStatus(): PassStatus {
   };
 }
 
-test('compilation display preserves transaction identity, stage order and pass states', () => {
-  const value = { transactionId: 'tx-123', completedStages: ['compose', 'verify'] as ['compose', 'verify'], lock: { passStatus: passStatus() } };
+test('compilation display preserves transaction identity, stage order and pass states from immutable minimal input', () => {
+  const states: PassStatus = { ...passStatus(), 'build-ir': 'blocked' };
+  const value = Object.freeze({
+    transactionId: 'tx-123',
+    completedStages: Object.freeze(['compose', 'verify'] as const),
+    lock: Object.freeze({ passStatus: Object.freeze(states) })
+  });
   const text = formatPipelineCompilation(projectPipelineCompilation(value));
   assert.match(text, /Compilation transaction\s+tx-123\s+succeeded(?=$|[\s;,])/u);
   assert.match(text, /Stages\W+compose(?=$|[\s;,])[^\n]*verify(?=$|[\s;,])/u);
   for (const field of ['parse=succeeded', 'align=succeeded', 'resolve=succeeded', 'compose=succeeded',
-    'verify=succeeded', 'repair=skipped', 'lock=succeeded', 'emit=succeeded']) {
+    'verify=succeeded', 'repair=skipped', 'lock=succeeded', 'emit=succeeded', 'build-ir=blocked']) {
     assert.match(text, new RegExp(`Lock[^\\n]*\\b${field}(?=$|[\\s;,])`, 'u'));
   }
   assert.deepEqual(value.completedStages, ['compose', 'verify']);
+  assert.equal(value.lock.passStatus.verify, 'succeeded');
 });
 
 test('empty journal preserves absent transaction markers', () => {
@@ -64,25 +70,6 @@ test('empty pass records use the existing none marker, not a success inference',
   assert.match(text, /Latest\W+pending\s+running(?=$|[\s;,])/u);
   assert.match(text, /Latest[^\n]*source=repair(?=$|[\s;,])/u);
   assert.match(text, /Passes\W+none(?=$|[\s;,])/u);
-});
-
-test('presentation accepts an immutable minimal result without compiler-internal fields', () => {
-  const value = Object.freeze({
-    transactionId: 'minimal',
-    completedStages: Object.freeze(['verify'] as const),
-    lock: Object.freeze({ passStatus: Object.freeze(passStatus()) })
-  });
-  const text = formatPipelineCompilation(projectPipelineCompilation(value));
-  assert.match(text, /Compilation transaction\s+minimal\s+succeeded(?=$|[\s;,])/u);
-  assert.match(text, /Stages\W+verify(?=$|[\s;,])/u);
-  assert.match(text, /Lock[^\n]*verify=succeeded(?=$|[\s;,])/u);
-  assert.equal(value.lock.passStatus.verify, 'succeeded');
-});
-
-test('optional build-ir pass state is displayed rather than silently dropped', () => {
-  const states: PassStatus = { ...passStatus(), 'build-ir': 'blocked' };
-  const rendered = formatPipelineCompilation(projectPipelineCompilation({ transactionId: 'partial', completedStages: [], lock: { passStatus: states } }));
-  assert.match(rendered, /Lock[^\n]*build-ir=blocked(?=$|[\s;,])/u);
 });
 
 test('journal rendering preserves present empty identities rather than treating them as absent', () => {

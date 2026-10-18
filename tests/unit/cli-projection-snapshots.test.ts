@@ -73,16 +73,6 @@ test('runtime getters are read once for each count/list pair', () => {
   assert.equal(projected.failedCount, 1);
 });
 
-test('missing block identities do not manufacture an empty block', () => {
-  const source = { ciSummary: { status: 'passed' }, failurePoints: [], conflictHints: [], regressionRisks: [
-    { kind: 'fixture', message: 'unbound' }, { kind: 'fixture', message: 'empty', blockId: '' },
-    { kind: 'fixture', message: 'bound', blockId: 'valid' }, { kind: 'fixture', message: 'duplicate', blockId: 'valid' }
-  ] };
-  const projected = projectReviewDiagnostics(source as unknown as ReviewInput);
-  assert.deepEqual(projected.blocks, ['valid']); assert.equal(projected.blockCount, 1);
-  assert.equal(projected.diagnosticCount, 4); // No diagnostic is removed with its absent identity.
-});
-
 test('block index derives from the emitted diagnostic rather than re-reading raw risks', () => {
   const risk = { kind: 'fixture', message: 'bound', get blockId() { return ++reads === 1 ? 'initial' : reads === 2 ? 'emitted' : 'different'; } };
   let reads = 0;

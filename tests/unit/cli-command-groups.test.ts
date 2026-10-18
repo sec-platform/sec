@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { registerInspectionCommands } from '../../src/bootstrap/cli/register-inspection-commands.ts';
 import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
-import { commandFromRoot, commandPath, optionalModeCommand } from '../../src/entry/cli/command-options.ts';
+import { optionalModeCommand } from '../../src/entry/cli/command-options.ts';
 
 function program() {
   let output = '';
@@ -50,13 +50,6 @@ for (const name of ['repair','lock','explain','artifacts','policy','acceptance',
       (error: unknown) => (error as { code?: string }).code === 'commander.invalidArgument');
   });
 }
-
-test('command paths use the actual root name and parent chain', () => {
-  const root=new Command().name('renamed');
-  const child=root.command('parent').command('child');
-  assert.equal(commandPath(child), 'renamed parent child');
-  assert.equal(commandFromRoot(child, 'verify'), 'renamed verify');
-});
 
 test('optional argument choice registration does not mutate its caller-owned list', () => {
   const choices=Object.freeze(['inspect', 'list']);

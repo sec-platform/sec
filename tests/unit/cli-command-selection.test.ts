@@ -14,17 +14,6 @@ for (const args of [['upgrade'], ['upgrade', 'a-block']]) {
   });
 }
 
-test('JSON progress executes once and preserves the actual result without a spinner', async () => {
-  const expected = Object.freeze({ result: 'completed' });
-  let calls = 0;
-  const actual = await runWithOptionalSpinner('unused text', { json: true, compact: false }, async () => {
-    calls += 1;
-    return expected;
-  });
-  assert.equal(actual, expected);
-  assert.equal(calls, 1);
-});
-
 for (const kind of ['synchronous', 'asynchronous'] as const) {
   test(`JSON progress preserves the exact ${kind} rejection`, async () => {
     const reason = Object.freeze({ kind });
@@ -38,16 +27,17 @@ for (const kind of ['synchronous', 'asynchronous'] as const) {
 
 test('changing output options after selection does not start another progress path', async () => {
   const output = { json: true, compact: false };
+  const expected = Object.freeze({ result: 'completed' });
   let finish!: () => void;
   let calls = 0;
   const held = new Promise<void>((resolve) => { finish = resolve; });
   const work = runWithOptionalSpinner('unused text', output, async () => {
     calls += 1;
     await held;
-    return 'result';
+    return expected;
   });
   output.json = false;
   finish();
-  assert.equal(await work, 'result');
+  assert.equal(await work, expected);
   assert.equal(calls, 1);
 });

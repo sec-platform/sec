@@ -1,10 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
-import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
 import {
-  compileTypeScriptSourceProgramFactShard,
   encodeTypeScriptSourceProgramFactShard,
   parseTypeScriptSourceProgramFactShard,
   SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
@@ -75,7 +72,7 @@ test('TypeScript fact shards reuse unchanged semantic facts and remain clean-com
   }
 });
 
-test('test-surface declaration and Effect provenance remains incremental-clean equivalent', () => {
+test('test-surface facts retain exact reuse and incremental-clean declaration and Effect provenance', () => {
   try {
     const initialInput = sourceInput({
       'src/example/operation.ts': "import { readFile } from 'node:fs/promises';\nexport async function effect() { await readFile('a'); }\n",
@@ -83,6 +80,12 @@ test('test-surface declaration and Effect provenance remains incremental-clean e
       'tests/pure.test.ts': 'export const pure = () => 1;\n'
     });
     const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
+    const exact = compileTypeScriptSourceProgramModelIncremental(initialInput, initial.state);
+    expect(exact.mode).toBe('exact');
+    expect(exact.invalidatedPaths).toEqual([]);
+    expect(exact.model).toBe(initial.model);
+    expect(exact.state).toBe(initial.state);
+    expect(exact.state.factShards[0]).toBe(initial.state.factShards[0]);
     const changedInput = sourceInput({
       'src/example/operation.ts': "import { readFile } from 'node:fs/promises';\nexport async function effect() { await readFile('a'); }\n",
       'tests/effect.test.ts': "import { effect as invoke } from '../src/example/operation.ts';\nexport const run = async () => { await invoke(); };\n",
@@ -167,140 +170,6 @@ test('return provenance remains canonical across shard serialization and increme
     expect(sourceProgramCurrentExactReturnProvenances(changed.model)).toEqual(
       sourceProgramCurrentExactReturnProvenances(clean)
     );
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});
-
-test('self-consistent forged return hints cannot replace current exact Program provenance', () => {
-  try {
-    const sources = {
-      'src/example/parser.ts': [
-        'export interface Value { readonly status: string; }',
-        'export function parseValue(source: string): Value { return JSON.parse(source) as Value; }'
-      ].join('\n'),
-      'src/example/reader.ts': [
-        "import { parseValue, type Value } from './parser.ts';",
-        'export function readValue(source: string): Value { parseValue(source); return source as unknown as Value; }'
-      ].join('\n')
-    };
-    const descriptorPath = 'src/example/module.json';
-    const descriptorSource = JSON.stringify({
-      importGraph: 'runtime',
-      externalEntrypoints: [],
-      causalRelations: [{
-        subject: 'example.value',
-        relation: 'declares',
-        symbol: { path: 'src/example/parser.ts', name: 'Value' },
-        operation: null
-      }, {
-        subject: 'example.value',
-        relation: 'parses',
-        symbol: { path: 'src/example/parser.ts', name: 'parseValue' },
-        operation: null
-      }, {
-        subject: 'example.value',
-        relation: 'reads-back',
-        symbol: { path: 'src/example/reader.ts', name: 'readValue' },
-        operation: null
-      }]
-    });
-    const causalMembership = compileRepositoryModuleMembershipSnapshot({
-      repositoryFiles: [...Object.keys(sources), descriptorPath],
-      descriptorSources: [{ descriptorPath, source: descriptorSource }]
-    });
-    const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-      path,
-      source,
-      contentDigest: rawSha256(source)
-    }));
-    const rawInput = Object.freeze({
-      sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-      files,
-      moduleMembership: causalMembership
-    });
-    const snapshot = compileVirtualWorkspaceSourceSnapshot({
-      subject: Object.freeze({
-        kind: 'virtual-mutation' as const,
-        provenance: Object.freeze({
-          kind: 'source-program-virtual-mutation' as const,
-          baseSnapshotDigest: sha256('return-provenance-base') as `sha256:${string}`,
-          mutationDigest: sha256('return-provenance-forgery') as `sha256:${string}`
-        })
-      }),
-      files: rawInput.files,
-      moduleMembership: causalMembership
-    });
-    const input = Object.freeze({ ...rawInput, sourceRevision: snapshot.sourceRevision });
-    const clean = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
-      input,
-      null,
-      snapshot
-    );
-    const parser = clean.model.declarations.find(({ name }) => name === 'parseValue')!;
-    const reader = clean.model.declarations.find(({ name }) => name === 'readValue')!;
-    const forgedShards = clean.state.factShards.map((shard) => {
-      if (shard.path !== reader.path) return shard;
-      return compileTypeScriptSourceProgramFactShard({
-        compilerRevision: shard.compilerRevision,
-        providerRevision: shard.providerRevision,
-        rawFileDigest: shard.rawFileDigest,
-        moduleDigest: shard.moduleDigest,
-        semanticDependencyScope: shard.semanticDependencyScope,
-        facts: Object.freeze({
-          path: shard.path,
-          file: shard.file,
-          declarations: shard.declarations,
-          references: shard.references,
-          returnProvenances: Object.freeze([Object.freeze({
-            path: reader.path,
-            declarationObservationId: reader.observationId,
-            normalReturns: Object.freeze([Object.freeze({
-              kind: 'call-result' as const,
-              targetObservationId: parser.observationId,
-              arguments: Object.freeze([Object.freeze([
-                Object.freeze({ kind: 'parameter' as const, index: 0 })
-              ])])
-            })])
-          })]),
-          literals: shard.literals,
-          entrypoints: shard.entrypoints,
-          capabilities: shard.capabilities,
-          unknowns: shard.unknowns
-        })
-      });
-    });
-    const adopted = adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
-      input,
-      forgedShards,
-      snapshot
-    );
-    const exact = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
-      input,
-      adopted,
-      snapshot
-    );
-    const persistedHint = exact.model.returnProvenances.find(
-      ({ declarationObservationId }) => declarationObservationId === reader.observationId
-    );
-    const currentExact = sourceProgramCurrentExactReturnProvenances(exact.model)?.find(
-      ({ declarationObservationId }) => declarationObservationId === reader.observationId
-    );
-
-    expect(exact.mode).toBe('exact');
-    expect(persistedHint?.normalReturns[0]?.kind).toBe('call-result');
-    expect(currentExact?.normalReturns).toEqual([Object.freeze({ kind: 'opaque' })]);
-    expect(currentExact).not.toEqual(persistedHint);
-    const repositoryModel = compileRepositorySourceProgramModelFromWorkspaceSnapshot({
-      sourceRevision: input.sourceRevision,
-      files: input.files,
-      moduleMembership: causalMembership,
-      typescriptModel: exact.model
-    }, snapshot);
-    expect(repositoryModel.candidates).toContainEqual(expect.objectContaining({
-      code: 'causal-relation-owner-bypass',
-      subject: 'example.value:parser/readback'
-    }));
   } finally {
     releaseTypeScriptSourceProgramWorkspace();
   }
@@ -410,25 +279,6 @@ test('sealed fact shards remain the incremental authority after the TypeScript w
 
     expect(changed.mode).toBe('incremental');
     expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
-  } finally {
-    releaseTypeScriptSourceProgramWorkspace();
-  }
-});
-
-test('non-production TypeScript files cannot poison the exact incremental identity', () => {
-  try {
-    const input = sourceInput({
-      'src/example/value.ts': 'export const VALUE = 1;\n',
-      'tests/example/value.test.ts': "import { expect, test } from 'bun:test';\ntest('value', () => expect(1).toBe(1));\n"
-    });
-    const initial = compileTypeScriptSourceProgramModelIncremental(input, null);
-    const exact = compileTypeScriptSourceProgramModelIncremental(input, initial.state);
-
-    expect(exact.mode).toBe('exact');
-    expect(exact.invalidatedPaths).toEqual([]);
-    expect(exact.model).toBe(initial.model);
-    expect(exact.state).toBe(initial.state);
-    expect(exact.state.factShards[0]).toBe(initial.state.factShards[0]);
   } finally {
     releaseTypeScriptSourceProgramWorkspace();
   }

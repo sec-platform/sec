@@ -35,12 +35,6 @@ test('canonical JSON rejects an object self-cycle as a contract error', () => {
   rejectsCycle(value);
 });
 
-test('canonical JSON rejects an array self-cycle as a contract error', () => {
-  const value: unknown[] = [];
-  value.push(value);
-  rejectsCycle(value);
-});
-
 test('canonical JSON rejects a mixed object/array cycle', () => {
   const array: unknown[] = [];
   const value = { array };
@@ -140,50 +134,27 @@ test('deepFreeze preserves primitive identity and the existing function boundary
   assert.equal(Object.isFrozen(fn), false);
 });
 
-test('deepFreeze freezes a self-cycle without recursive stack growth', () => {
-  const value: Record<string, unknown> = {};
-  value.self = value;
-  assert.strictEqual(deepFreeze(value), value);
-  assert.equal(Object.isFrozen(value), true);
-  assert.strictEqual(value.self, value);
-});
-
 test('deepFreeze freezes mixed cyclic and shared graphs', () => {
   const first: Record<string, unknown> = {};
   const second: unknown[] = [first];
   const shared = { leaf: {} };
+  first.self = first;
   first.second = second;
   first.shared = shared;
   second.push(shared);
-  deepFreeze(first);
+  assert.strictEqual(deepFreeze(first), first);
+  assert.strictEqual(first.self, first);
   for (const value of [first, second, shared, shared.leaf]) assert.equal(Object.isFrozen(value), true);
 });
 
-test('deepFreeze traverses descendants of a shallow-frozen root', () => {
-  const leaf = {};
-  const child = { leaf };
-  const root = Object.freeze({ child });
-  deepFreeze(root);
-  assert.equal(Object.isFrozen(child), true);
-  assert.equal(Object.isFrozen(leaf), true);
-});
-
-test('deepFreeze traverses a shallow-frozen intermediate node', () => {
-  const leaf = {};
-  const intermediate = Object.freeze({ leaf });
-  const root = { intermediate };
-  deepFreeze(root);
-  assert.equal(Object.isFrozen(root), true);
-  assert.equal(Object.isFrozen(leaf), true);
-});
-
-test('deepFreeze handles already shallow-frozen cycles', () => {
+test('deepFreeze handles shallow-frozen roots and intermediates in a cycle', () => {
   const root: Record<string, unknown> = {};
-  const child = { root };
+  const leaf = {};
+  const child = Object.freeze({ root, leaf });
   root.child = child;
   Object.freeze(root);
   deepFreeze(root);
-  assert.equal(Object.isFrozen(child), true);
+  assert.equal(Object.isFrozen(leaf), true);
 });
 
 test('deepFreeze follows symbol and non-enumerable data properties', () => {

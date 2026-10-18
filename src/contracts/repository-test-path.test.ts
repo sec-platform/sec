@@ -8,7 +8,9 @@ test('repository test identity preserves dotted suffixes and portable path spell
     'tests/integration/example.spec.mts',
     'src/example/example.test.tsx',
     'src/example/example.spec.cjs',
-    '.\\src\\example\\windows.test.ts'
+    '.\\src\\example\\windows.test.ts',
+    './tests/unit/example_test.ts',
+    '.\\src\\nested\\example_spec.tsx'
   ]) {
     assert.equal(isSecRepositoryTestModulePath(file), true, file);
   }
@@ -23,11 +25,6 @@ test('underscore test and spec files use the same executable-test identity acros
       }
     }
   }
-});
-
-test('underscore identities retain the existing leading-dot and separator projection', () => {
-  assert.equal(isSecRepositoryTestModulePath('./tests/unit/example_test.ts'), true);
-  assert.equal(isSecRepositoryTestModulePath('.\\src\\nested\\example_spec.tsx'), true);
 });
 
 test('support modules and unsupported extensions are not promoted into executable tests', () => {

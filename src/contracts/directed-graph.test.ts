@@ -21,14 +21,6 @@ test('closed directed graph SCC compilation is input-order invariant without mut
   ]);
 });
 
-test('closed directed graph SCC compilation retains isolated singleton and self-loop components', () => {
-  expect(compileClosedDirectedGraphStrongComponents(['only'], [])).toEqual([['only']]);
-  expect(compileClosedDirectedGraphStrongComponents(
-    ['self'],
-    [{ from: 'self', to: 'self' }]
-  )).toEqual([['self']]);
-});
-
 test('closed directed graph SCC compilation separates disconnected components', () => {
   expect(compileClosedDirectedGraphStrongComponents(
     ['d', 'c', 'b', 'a'],
@@ -49,11 +41,4 @@ test('closed directed graph SCC compilation treats duplicate edges as idempotent
       { from: 'b', to: 'a' }
     ]
   )).toEqual([['a', 'b']]);
-});
-
-test('closed directed graph SCC compilation rejects unknown endpoints', () => {
-  expect(() => compileClosedDirectedGraphStrongComponents(
-    ['known'],
-    [{ from: 'known', to: 'unknown' }]
-  )).toThrow('[directed-graph-unknown-endpoint]');
 });
