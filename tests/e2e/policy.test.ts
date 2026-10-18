@@ -23,7 +23,7 @@ function customerServicePath(workspaceRoot: string): string {
   );
 }
 
-test('validated Engineering IR facts prove the tenant flow policy', async () => {
+test('tenant flow is proven from validated IR and fails closed after source mutation', async () => {
   const workspaceRoot = await prepareComposedWorkspace({
     prefix: 'engineering-compiler-policy-assurance-pass-'
   });
@@ -37,12 +37,6 @@ test('validated Engineering IR facts prove the tenant flow policy', async () => 
     requiredSemanticPredicates: [TENANT_FLOW_PREDICATE],
     unsupportedSemanticPredicates: []
   });
-}, 180000);
-
-test('unproven tenant flow fails closed instead of becoming an advisory', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({
-    prefix: 'engineering-compiler-policy-assurance-diagnostic-'
-  });
   const targetPath = customerServicePath(workspaceRoot);
   const source = await fs.readFile(targetPath, 'utf8');
   await fs.writeFile(
@@ -51,13 +45,13 @@ test('unproven tenant flow fails closed instead of becoming an advisory', async 
     'utf8'
   );
 
-  const report = await runPolicyGate(workspaceRoot);
-  expect(report.status).toBe('failed');
-  expect(report.violations).toHaveLength(1);
-  expect(report.official.violations).toHaveLength(1);
-  expect(report.project.violations).toEqual([]);
-  expect(report.diagnostics).toHaveLength(1);
-  expect(report.diagnostics?.[0]).toMatchObject({
+  const unprovenReport = await runPolicyGate(workspaceRoot);
+  expect(unprovenReport.status).toBe('failed');
+  expect(unprovenReport.violations).toHaveLength(1);
+  expect(unprovenReport.official.violations).toHaveLength(1);
+  expect(unprovenReport.project.violations).toEqual([]);
+  expect(unprovenReport.diagnostics).toHaveLength(1);
+  expect(unprovenReport.diagnostics?.[0]).toMatchObject({
     id: 'tenant-scope-required',
     evidenceClass: 'source-structure',
     files: ['src/installed/entity/customer-service.ts']

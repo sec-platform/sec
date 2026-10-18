@@ -11,7 +11,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 // These cases cannot be certified by replacing the Git/session/receipt owner.
 // The callback-only cases need no Git child command or repository mutation:
 // the lifecycle itself must close correctly around a supplied caller operation.
-test('native Git session closure preserves every actual caller rejection value', () => withTempWorkspace(async root => {
+test('native Git session closure preserves rejection values and distinct successful results', () => withTempWorkspace(async root => {
   for (const reason of [undefined, null, false, 0, NaN, new Error('caller')]) {
     let entered = false, failed = false;
     try {
@@ -23,13 +23,10 @@ test('native Git session closure preserves every actual caller rejection value',
     }
     assert.equal(failed, true);
   }
-}, 'sec-git-caller-rejection-'), DEFAULT_TEST_TIMEOUT_MS);
-
-test('native Git session closure keeps successful undefined distinct from rejected undefined', () => withTempWorkspace(async root => {
   assert.equal(await withAuthorityGitReadSession({ cwd: root, budget: {} }, async () => undefined), undefined);
   const value = { result: 'preserved' };
   assert.equal(await withAuthorityGitReadSession({ cwd: root, budget: {} }, async () => value), value);
-}, 'sec-git-caller-result-'), DEFAULT_TEST_TIMEOUT_MS);
+}, 'sec-git-caller-rejection-'), DEFAULT_TEST_TIMEOUT_MS);
 
 test('native multi-phase scope cannot erase its outer null or undefined failure', () => withTempWorkspace(async root => {
   for (const reason of [undefined, null]) {

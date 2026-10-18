@@ -170,6 +170,10 @@ const beforePrepared = ['recover', 'read', 'derive', 'verify', 'identity', 'arti
 
 test('apply owns exact prepared and committed drafts before the physical journal appends them', async () => {
   await withJournal(async ({ operations, events, drafts, records }) => {
+    operations.publishSource = async () => {
+      events.push('publish');
+      operations.appendDraft = async () => assert.fail('Replacement journal writer was invoked');
+    };
     const result = await executePreparedSemanticMutationApply(prepared, operations);
     assert.equal(result.status, 'terminal');
     assert.deepEqual(events, [...beforePrepared, 'append:prepared', 'publish', 'append:authoring-committed', 'complete', 'prune']);
@@ -235,15 +239,5 @@ test('commit journal failure after publication preserves the prepared record for
     await assert.rejects(executePreparedSemanticMutationApply(prepared, operations), error => error === recovery);
     assert.deepEqual(events, [...beforePrepared, 'append:prepared', 'publish', 'append:authoring-committed', 'recovery']);
     assert.deepEqual((await records()).map(record => record.state), ['prepared']);
-  });
-});
-
-test('the selected journal writer remains fixed through publication and keeps its provider receiver', async () => {
-  await withJournal(async ({ operations, drafts }) => {
-    operations.publishSource = async () => {
-      operations.appendDraft = async () => assert.fail('Replacement journal writer was invoked');
-    };
-    await executePreparedSemanticMutationApply(prepared, operations);
-    assert.deepEqual(drafts.map(draft => draft.state), ['prepared', 'authoring-committed']);
   });
 });

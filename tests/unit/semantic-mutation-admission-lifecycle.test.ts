@@ -35,15 +35,19 @@ function deferred() {
   return { promise, resolve };
 }
 
-test('invalid requests never acquire a writer or execute effects', async () => {
+test('invalid requests never read authorization or base, acquire a writer, or execute effects', async () => {
+  let reads = 0;
   const result = await executeSemanticMutationApplyAdmission({
-    ...input, request: { ...input.request, requestId: '' }
+    ...input, request: { ...input.request, requestId: '' },
+    get authorization(): never { reads++; throw new Error('not an admitted request'); },
+    get base(): never { reads++; throw new Error('not an admitted request'); }
   }, {
     acquire: async () => assert.fail('writer must not be acquired'),
     isWriterAdmissionFailure: () => assert.fail('classification must not run'),
     execute: async () => assert.fail('effects must not execute')
   });
   assert.equal(result.status, 'request-rejected');
+  assert.equal(reads, 0);
 });
 
 test('physical writer refusals retain the application diagnostic without executing effects', async () => {
@@ -252,19 +256,4 @@ test('optional port access is observed once and invocation ignores Function.call
   });
   await rejectsWith(executePreparedSemanticMutationApply(preparation.prepared, operations), marker);
   assert.equal(reads, 1);
-});
-
-test('invalid requests do not evaluate authorization or base getters', async () => {
-  let reads = 0;
-  await executeSemanticMutationApplyAdmission({
-    ...input,
-    request: { ...input.request, requestId: '' },
-    get authorization(): never { reads++; throw new Error('not an admitted request'); },
-    get base(): never { reads++; throw new Error('not an admitted request'); }
-  }, {
-    acquire: async () => assert.fail('invalid request cannot acquire'),
-    isWriterAdmissionFailure: () => false,
-    execute: async () => assert.fail('invalid request cannot execute')
-  });
-  assert.equal(reads, 0);
 });
