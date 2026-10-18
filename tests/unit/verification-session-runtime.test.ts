@@ -2554,9 +2554,6 @@ describe('qualified exact-repository Session consumers', () => {
 
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
-  const github = fakeGitHubClient(transport, async (input) => (await observePrivateClearReviewBarrier(
-    input.observedAt ?? VERIFIED_AT
-  )));
   const candidate = Object.freeze({
     ...transport.candidate(),
     baseSha,
@@ -2564,13 +2561,7 @@ describe('qualified exact-repository Session consumers', () => {
     headSha,
     headTreeSha: 'd'.repeat(40)
   });
-  const barrier = (await github.observeReviewBarrier({
-    repository: candidate.repository,
-    prNumber: candidate.number,
-    headSha,
-    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
-    observedAt: VERIFIED_AT
-  }));
+  const barrier = await observe(transport);
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const mainHealthChecks = [mainHealthCheck({
     headSha: baseSha,

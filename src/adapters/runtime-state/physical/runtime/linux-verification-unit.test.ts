@@ -38,7 +38,7 @@ test('native failure diagnostics retain complete binary stderr and reject altere
   expect(() => parseLinuxVerificationUnitFailureDiagnostic(Buffer.from(JSON.stringify(failure)), stderr.length - 1)).toThrow();
 });
 
-test.skipIf(process.platform !== 'linux')('native runtime permissions survive caller umasks and execution phases', () => {
+test.skipIf(process.platform !== 'linux')('native helper checks filesystem contracts and conditionally exercises systemd recovery', () => {
   const result = spawnSync('/usr/bin/python3.12', ['-B', '-I', '-S', fileURLToPath(new URL('./linux-verification-unit-helper.test.py', import.meta.url))], {
     encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024
   });

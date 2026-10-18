@@ -1957,7 +1957,7 @@ test('trusted bootstrap dependency materialization retries only one exact Bun ex
   expect(repeatedExtractionAttempts).toBe(2);
 });
 
-test('canonical terminal artifact derives four physical Result states while raw not-run is impossible', () => {
+test('canonical terminal artifact derives four physical Result states and rejects contradictory execution proof', () => {
   const resolution = hostedResolution();
   const ticket = hostedTicket(resolution);
   let passedArtifact: ReturnType<typeof CodexDevelopmentAssembleHostedActionTerminal> | null = null;
