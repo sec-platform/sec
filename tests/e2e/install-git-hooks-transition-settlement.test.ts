@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { readdirSync } from 'node:fs';
 import { chmod, lstat, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { acquirePhysicalMutationLease } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
@@ -46,57 +47,72 @@ test('managed fast path settles a completed transition after marker publication 
   });
 });
 
-test('managed fast-path recovery acknowledges a dead operation owner only after transition settlement', async () => {
+test('managed fast-path settlement preserves an unresolved lease and foreign transition members', async () => {
   await withRepository(async (repoRoot) => {
-    const deadPid = 2_147_483_647;
-    expect(await installGitHooks({
-      repoRoot,
-      lifecycle: true,
-      crashAfterOperationLeaseAcquisition: true,
-      leaseOwnerPid: deadPid
-    })).toMatchObject({ status: 'conflict' });
-
     const commonGitDir = path.resolve(git(repoRoot, [
       'rev-parse', '--path-format=absolute', '--git-common-dir'
     ]));
     const managedRoot = path.join(commonGitDir, 'sec-managed-hooks-v3');
+    let leaseName: string | undefined;
+    expect(await installGitHooks({
+      repoRoot,
+      lifecycle: true,
+      crashAfterMarkerPublication: true,
+      configActorAfterStep: (stepIndex) => {
+        if (stepIndex !== 0) return;
+        const leases = readdirSync(managedRoot).filter((name) => name.startsWith('lease-'));
+        expect(leases).toHaveLength(1);
+        leaseName = leases[0];
+      }
+    })).toMatchObject({ status: 'conflict' });
+    expect(leaseName).toBeDefined();
+    const leasePath = path.join(managedRoot, leaseName!);
+    const transitionNames = await configTransitionNames(repoRoot);
+    expect(transitionNames).toHaveLength(1);
+    await expect(lstat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    const configPath = path.join(commonGitDir, 'config');
+    const configBytes = await readFile(configPath);
+    const worktreeConfigPath = path.resolve(git(repoRoot, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'config.worktree'
+    ]));
+    const worktreeConfigBytes = await readFile(worktreeConfigPath);
     const managedRootIdentity = inspectNoFollowDirectoryChain(
       managedRoot,
       'Managed hook fast-path recovery fixture'
     ).target;
-    const issuedLeaseEntries = (await readdir(managedRoot, { withFileTypes: true }))
-      .filter((entry) => entry.isFile());
-    expect(issuedLeaseEntries).toHaveLength(1);
-    const leaseName = issuedLeaseEntries[0]!.name;
-    const leasePath = path.join(managedRoot, leaseName);
-
-    expect(await installGitHooks({
-      repoRoot,
-      lifecycle: true,
-      crashAfterMarkerPublication: true
-    })).toMatchObject({ status: 'conflict' });
-    const transitionNames = await configTransitionNames(repoRoot);
-    expect(transitionNames).toHaveLength(1);
-    await expect(lstat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' });
-
-    const abandoned = acquirePhysicalMutationLease(managedRootIdentity, leaseName, {
-      ownerPid: deadPid
+    const unresolved = acquirePhysicalMutationLease(managedRootIdentity, leaseName!, {
+      ownerPid: 2_147_483_647
     });
-    expect(abandoned).not.toBeNull();
-    const abandonedBytes = await readFile(leasePath);
+    expect(unresolved).not.toBeNull();
+    try {
+      const unresolvedBytes = await readFile(leasePath);
+      const unresolvedIdentity = await lstat(leasePath, { bigint: true });
+      expect(await installGitHooks({ repoRoot, lifecycle: true }))
+        .toMatchObject({ status: 'conflict' });
+      expect(await readFile(leasePath)).toEqual(unresolvedBytes);
+      const retainedIdentity = await lstat(leasePath, { bigint: true });
+      expect([retainedIdentity.dev, retainedIdentity.ino])
+        .toEqual([unresolvedIdentity.dev, unresolvedIdentity.ino]);
+      expect(await configTransitionNames(repoRoot)).toEqual(transitionNames);
+      expect(await readFile(configPath)).toEqual(configBytes);
+      expect(await readFile(worktreeConfigPath)).toEqual(worktreeConfigBytes);
+    } finally {
+      unresolved?.release();
+    }
+
     const unexpectedTransitionFile = path.join(
-      managedRoot,
-      transitionNames[0]!,
-      'unexpected-recovery-fixture'
+      managedRoot, transitionNames[0]!, 'unexpected-recovery-fixture'
     );
-    await writeFile(unexpectedTransitionFile, 'preserve predecessor lease\n', 'utf8');
-
-    expect(await installGitHooks({ repoRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
-    expect(await readFile(leasePath)).toEqual(abandonedBytes);
-    expect(await configTransitionNames(repoRoot)).toEqual(transitionNames);
-
-    await rm(unexpectedTransitionFile);
+    const foreignBytes = 'preserve foreign transition member\n';
+    await writeFile(unexpectedTransitionFile, foreignBytes, 'utf8');
+    try {
+      expect(await installGitHooks({ repoRoot, lifecycle: true }))
+        .toMatchObject({ status: 'conflict' });
+      expect(await readFile(unexpectedTransitionFile, 'utf8')).toBe(foreignBytes);
+      expect(await configTransitionNames(repoRoot)).toEqual(transitionNames);
+    } finally {
+      await rm(unexpectedTransitionFile);
+    }
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);
     await expect(lstat(leasePath)).rejects.toMatchObject({ code: 'ENOENT' });
