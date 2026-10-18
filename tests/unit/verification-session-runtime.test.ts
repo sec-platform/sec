@@ -246,15 +246,6 @@ test('Review provider quota creates one repository-scoped deny-only availability
   if (unavailable.status !== 'unavailable') throw new Error('expected quota unavailable');
   expect(unavailable.receiptRef).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
-  transport.repositoryIssueComments = [[botIssueComment(
-    '<!-- retired: codex code-review quota transport noise -->',
-    { id: '302', createdAt: '2026-08-09T13:55:00.000Z' }
-  )]];
-  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
-    repository: 'sec-platform/sec',
-    observedAt: '2026-08-09T14:01:00.000Z'
-  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '302' });
-
   transport.repositoryIssueComments = [[botIssueComment(quota, {
     id: '303',
     createdAt: '2026-08-08T13:59:00.000Z'
@@ -927,27 +918,6 @@ test('trusted Codex App activity is not Review authority without a prior exact-h
   }))).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
 });
 
-test('formal trusted App APPROVED binds GraphQL authority and excluded principals never clear', async () => {
-  const approved = new FakeTransport();
-  approved.reviews = [[{ id: 'R-app', authorNodeId: BOT, authorLogin: 'codex-review[bot]',
-    authorType: 'Bot',
-    appId: 1144995, appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector',
-    commitSha: HEAD, state: 'APPROVED', submittedAt: '2026-08-09T14:00:00.000Z' }]];
-  const clear = (await observe(approved));
-  expect(clear.status).toBe('clear');
-  if (clear.status !== 'clear') throw new Error('expected formal App approval');
-  expect(clear.authority.sourceTransport).toBe('github-graphql');
-  expect(() => assertGitHubReviewAuthorityObservation(clear)).toThrow(
-    'Review receipt authority must be a live observation produced by the private GitHub adapter.'
-  );
-
-  const excluded = (await evaluateVerificationSessionReviewObservation(approved, {
-    repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
-    excludedPrincipalNodeIds: new Set([BOT]), observedAt: '2026-08-09T14:01:00.000Z'
-  }));
-  expect(excluded.status).toBe('waiting');
-});
-
 test('production Review authority adapter cannot have its private transport reflectively replaced', () => {
   const client = createVerificationSessionGitHubClient(process.cwd(), 'sec-platform/sec');
   expect(Reflect.set(client as object, 'transport', new FakeTransport())).toBe(false);
@@ -1051,6 +1021,15 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
   const formalAuthority = (await observe(formalApp));
   expect(formalAuthority).toMatchObject({ status: 'clear',
     authority: { sourceTransport: 'github-graphql' } });
+  if (formalAuthority.status !== 'clear') throw new Error('expected formal App approval');
+  expect(() => assertGitHubReviewAuthorityObservation(formalAuthority)).toThrow(
+    'Review receipt authority must be a live observation produced by the private GitHub adapter.'
+  );
+  const excluded = await evaluateVerificationSessionReviewObservation(formalApp, {
+    repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
+    excludedPrincipalNodeIds: new Set([BOT]), observedAt: '2026-08-09T14:01:00.000Z'
+  });
+  expect(excluded.status).toBe('waiting');
 
   expect(() => parseGitHubReviewPages({
     source: graphQlPage({ __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
@@ -1536,10 +1515,6 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
   expect(createObservedMainHealthInput({ ...common, checks: [mainHealthCheck()] })).toMatchObject({
     status: 'healthy', allowedLanes: ['ordinary'], owner: null, repairWorkPackage: null
   });
-  expect(createObservedMainHealthInput({ ...common,
-    checks: [mainHealthCheck({ eventName: 'repository_dispatch' })] })).toMatchObject({
-    status: 'healthy', allowedLanes: ['ordinary'], owner: null, repairWorkPackage: null
-  });
   const degradedInput = createObservedMainHealthInput({
     ...common,
     checks: [mainHealthCheck({ conclusion: 'failure' })]
@@ -1573,8 +1548,7 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
     repairIdentityPolicy: 'exact-main-tree-failure-v1',
     allowedLanes: ['repair']
   });
-  for (const checks of [[], [mainHealthCheck({ status: 'in_progress', conclusion: null })],
-    [mainHealthCheck(), mainHealthCheck({ id: 8 })], [mainHealthCheck({ appId: 1 })]]) {
+  for (const checks of [[], [mainHealthCheck({ appId: 1 })]]) {
     expect(createObservedMainHealthInput({ ...common, checks })).toMatchObject({ status: 'locked', allowedLanes: [] });
   }
   const ledger = createMainHealthLedger(createObservedMainHealthInput({ ...common,

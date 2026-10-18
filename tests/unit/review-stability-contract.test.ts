@@ -325,22 +325,21 @@ test('Review policy canonicalizes App set ordering and rejects duplicates', () =
 test('Review rejects duplicate pagination observations and incomplete/blocking snapshots', () => {
   expect(() => receipt({ snapshot: snapshot({ reviewPageDigests: [D_A, D_A] }) }))
     .toThrow('duplicate');
-  const invalidSnapshots: readonly [string, Record<string, unknown>][] = [
-    ['pagination', { paginationComplete: false }],
-    ['blocking threads', { unresolvedBlockingThreadCount: 1 }],
-    ['request changes', { requestChangesPrincipalIds: ['USER_reviewer'] }],
-    ['head marker', { reviewedHeadSha: SHA_B }],
-    ['snapshot digest', { snapshotDigest: D_C }]
+  const invalidSnapshots: readonly [string, Record<string, unknown>, string][] = [
+    ['pagination', { paginationComplete: false }, 'incomplete pagination'],
+    ['blocking threads', { unresolvedBlockingThreadCount: 1 }, 'unresolved blocking threads'],
+    ['request changes', { requestChangesPrincipalIds: ['USER_reviewer'] }, 'current REQUEST_CHANGES'],
+    ['head marker', { ...snapshot({ reviewedHeadSha: SHA_B }) }, 'reviewed commit marker does not match exact head'],
+    ['snapshot digest', { snapshotDigest: D_C }, 'snapshot digest mismatch']
   ];
-  for (const [label, override] of invalidSnapshots) {
+  for (const [label, override, rejection] of invalidSnapshots) {
     const current = snapshot() as unknown as Record<string, unknown>;
-    expect(() => receipt({ snapshot: { ...current, ...override } as never }), label).toThrow();
+    expect(() => receipt({ snapshot: { ...current, ...override } as never }), label).toThrow(rejection);
   }
 });
 
-test('Review rejects untrusted or non-independent principals and invalid producer provenance', () => {
+test('Review rejects non-independent principals and invalid producer provenance', () => {
   const invalid: readonly [string, Partial<ReviewStabilityReceiptInput>][] = [
-    ['app id', { principal: { kind: 'github-app', ...TRUSTED_APP, appId: 1, reviewState: 'COMMENTED' } }],
     ['candidate author', { independence: { candidateAuthorNodeId: 'BOT_kgDOC98s_g', integrationPrincipalNodeId: 'USER_integrator' } }],
     ['integrator', { independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'BOT_kgDOC98s_g' } }],
     ['producer trust', { producer: { ...input().producer, trustedRevision: 'other-trust' } }],

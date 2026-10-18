@@ -702,8 +702,14 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
   try {
     let evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     const calls: string[] = [];
+    const refs: string[] = [];
     const code = await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
+      gitRevision: (ref) => {
+        refs.push(ref);
+        if (ref === 'HEAD^1') throw new Error('single-parent assumption is retired');
+        return revisions(ref);
+      },
       runGate: async (gate, execution) => {
         calls.push(gate.id);
         return executeSentinelGate(root, 0)(gate, execution);
@@ -711,6 +717,8 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
       writeEvidence: (_file, value) => { evidence = value; }
     });
     expect(code).toBe(0);
+    expect(refs).not.toContain('HEAD^1');
+    expect(refs).toContain(`${BASE}^{tree}`);
     expect(calls.length).toBeGreaterThan(0);
     const captured = evidence as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null;
     expect(captured?.gates.every((gate) => gate.action.actionKey === gate.result.inputDigest)).toBe(true);
@@ -744,27 +752,6 @@ test('CI runner accepts transition injection only with matching exact changed re
       transitionObservation: transition,
       writeEvidence: () => undefined
     })).toBe(1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('candidate revision selection uses exact current base and never requires HEAD^1', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-multicommit-'));
-  try {
-    const refs: string[] = [];
-    const code = await CodexDevelopmentCiVerificationMainForTests({
-      ...baseOptions(root),
-      gitRevision: (ref) => {
-        refs.push(ref);
-        if (ref === 'HEAD^1') throw new Error('single-parent assumption is retired');
-        return revisions(ref);
-      },
-      writeEvidence: () => undefined
-    });
-    expect(code).toBe(0);
-    expect(refs).not.toContain('HEAD^1');
-    expect(refs).toContain(`${BASE}^{tree}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

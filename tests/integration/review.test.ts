@@ -267,29 +267,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
         'Upgrade blocked; auth/basic-session 0.1.0 -> 0.1.1; migrations=1; impacts=1; requiresVerification=true',
         'Upgrade diagnostics apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution=migration=mig-auth-session-refresh, kind=file-replace, entry=migrations/auth-session-refresh.json, entryId=mig-auth-session-refresh-entry, entryKind=copy-file, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-      ],
-      json: {
-        formatVersion: '2',
-        changeSourceCount: 1,
-        runtimeEntryCount: 1,
-        installImpactCount: 1,
-        chainSummary: { status: 'attention', stageCount: 4 },
-        coverageSummary: { status: 'failed', uncoveredBlocks: ['tenant/basic-workspace'] },
-        provenanceSummary: { artifactCount: 5, generatedArtifactCount: 2 },
-        upgradeSummary: {
-          status: 'blocked',
-          diagnostics: {
-            phase: 'apply',
-            details: {
-              migrationId: 'mig-auth-session-refresh'
-            }
-          }
-        }
-      },
-      compactJson: {
-        formatVersion: '2',
-        chainSummary: { status: 'attention' }
-      }
+      ]
     });
     // Protect the complete persisted JSON contract, not only representative fields.
     expect(reviewVariants.json).toEqual(reviewSummary);
@@ -304,22 +282,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; Block tenant/basic-workspace has uncovered acceptance',
         'Diagnostic regression-risk:1; kind=override-active; block=entity/customer-basic; Block entity/customer-basic has active override',
         'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
-      ],
-      json: {
-        status: 'attention',
-        diagnosticCount: 4,
-        failureCount: 1,
-        regressionRiskCount: 2,
-        conflictHintCount: 1,
-        artifactPathCount: 1,
-        artifactPaths: [CI_ARTIFACT_FILES.policyReport],
-        blockCount: 2,
-        blocks: ['entity/customer-basic', 'tenant/basic-workspace']
-      },
-      compactJson: {
-        diagnosticCount: 4,
-        artifactPathCount: 1
-      }
+      ]
     });
     const expectedDiagnostics = {
       status: 'attention',

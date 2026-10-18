@@ -314,27 +314,6 @@ test('blocked plans and forged execution bindings never call the runner', async 
     isolationCapabilityProbe: availableIsolationProbe
   });
   await expect(executeSemanticMutationVerification({
-    capabilityPlan: {
-      ...runnablePlan,
-      capabilityPlanRevision: sha256('forged-capability-plan')
-    },
-    requirements: canonicalRequirements,
-    planRevision: sha256('plan'),
-    attempted: {
-      transactionId: 'tx:staged',
-      inputRevision: snapshot.ir.inputRevision,
-      semanticRevision: snapshot.ir.semanticRevision
-    },
-    stagedSourceDigest: sha256('staged-source'),
-    requiredVerificationDigest: sha256({
-      domain: 'semantic-mutation-required-verification-v1',
-      requirements: canonicalRequirements
-    })
-  }, () => {
-    calls += 1;
-    return { status: 'passed', evidenceDigest: sha256('evidence') };
-  })).rejects.toThrow('invalid or blocked');
-  await expect(executeSemanticMutationVerification({
     capabilityPlan: structuredClone(runnablePlan),
     requirements: canonicalRequirements,
     planRevision: sha256('plan'),

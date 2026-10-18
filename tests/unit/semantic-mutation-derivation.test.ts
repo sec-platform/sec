@@ -112,20 +112,7 @@ function setup() {
 const successOrder = ['read-current', 'prepare-scope', 'source-plan', 'fence', 'read-source',
   'render', 'fence', 'prepare-workspace', 'fence', 'read-staged', 'fence', 'capabilities'];
 
-test('staged derivation keeps the exact source/CAS/fence/rebuild/capability order and retained artifacts', async () => {
-  const run = setup();
-  const result = await deriveSemanticMutation(input, run.adapter, run.operations);
-  expect(result.plan.status).toBe('ready');
-  expect(run.events).toEqual(successOrder);
-  expect(result.staged).toBe(run.endpoint());
-  expect(result.editPlan).toBe(editPlan); expect(result.rollbackManifest).toBe(rollbackManifest);
-  expect(result.originalBytes).toEqual(originalBytes); expect(result.stagedBytes).toBe(stagedBytes);
-  expect(result.transactionRoot).toBe(scope.transactionRoot);
-  expect(result.stagingWorkspaceRoot).toBe(scope.stagingWorkspaceRoot);
-  expect(result.verificationCapabilityPlan?.status).toBe('runnable');
-});
-
-test('selected operations and capability method keep their identity and receiver across suspension', async () => {
+test('staged derivation preserves order and artifacts with captured operations and receivers across suspension', async () => {
   const run = setup();
   const readCurrentBundle = run.operations.readCurrentBundle;
   let resume!: () => void;
@@ -145,6 +132,11 @@ test('selected operations and capability method keep their identity and receiver
   expect(result.plan.status).toBe('ready');
   expect(run.events).toEqual(successOrder);
   expect(result.staged).toBe(run.endpoint());
+  expect(result.editPlan).toBe(editPlan); expect(result.rollbackManifest).toBe(rollbackManifest);
+  expect(result.originalBytes).toEqual(originalBytes); expect(result.stagedBytes).toBe(stagedBytes);
+  expect(result.transactionRoot).toBe(scope.transactionRoot);
+  expect(result.stagingWorkspaceRoot).toBe(scope.stagingWorkspaceRoot);
+  expect(result.verificationCapabilityPlan?.status).toBe('runnable');
 });
 
 test('request or live-base rejection cannot allocate a staging scope', async () => {
