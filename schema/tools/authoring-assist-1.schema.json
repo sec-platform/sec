@@ -1,0 +1,1053 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:authoring-assist-1",
+  "title": "Negotiated Gift authoring assistance request/profile (design only)",
+  "description": "The original query/propose are extended only on an exactly negotiated capability; no new public tools, write authorities or implicit editor commands.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AssistQuery"
+    },
+    {
+      "$ref": "#/$defs/AuthorEdit"
+    }
+  ],
+  "$defs": {
+    "Position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "line",
+        "character"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "character": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "Range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/Position"
+        },
+        "end": {
+          "$ref": "#/$defs/Position"
+        }
+      }
+    },
+    "Action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "newName"
+          ],
+          "properties": {
+            "kind": {
+              "const": "rename"
+            },
+            "newName": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "newName"
+          ],
+          "properties": {
+            "kind": {
+              "const": "extract-function"
+            },
+            "newName": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "inline"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "organize-imports"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "format"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "to"
+          ],
+          "properties": {
+            "kind": {
+              "const": "move-file"
+            },
+            "to": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "Assist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "positionEncoding"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "describe",
+            "complete",
+            "signature",
+            "definition",
+            "references",
+            "implementations",
+            "actions"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "positionEncoding": {
+          "enum": [
+            "utf-8",
+            "utf-16",
+            "utf-32"
+          ]
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "position"
+          ],
+          "not": {
+            "required": [
+              "range"
+            ]
+          }
+        },
+        {
+          "required": [
+            "range"
+          ],
+          "not": {
+            "required": [
+              "position"
+            ]
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "complete",
+                  "signature",
+                  "definition",
+                  "references",
+                  "implementations"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "position"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "range"
+                  ]
+                },
+                {
+                  "required": [
+                    "action"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "actions"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "action"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "AssistQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateRef",
+        "assist"
+      ],
+      "properties": {
+        "candidateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "assist": {
+          "$ref": "#/$defs/Assist"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "AuthorEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "base",
+            "planRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "author-edit"
+            },
+            "base": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "planRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "source",
+            "diff"
+          ]
+        }
+      }
+    },
+    "Location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRef",
+        "path",
+        "positionEncoding",
+        "range"
+      ],
+      "properties": {
+        "sourceRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "positionEncoding": {
+          "enum": [
+            "utf-8",
+            "utf-16",
+            "utf-32"
+          ]
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        }
+      }
+    },
+    "AssistProjection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "describe"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_describe"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "complete"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_complete"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "signature"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_signature"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "definition"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_definition"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "references"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_references"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "implementations"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_implementations"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateRef",
+            "kind",
+            "items",
+            "coverage",
+            "diagnostics"
+          ],
+          "properties": {
+            "candidateRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "kind": {
+              "const": "actions"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Item_actions"
+              }
+            },
+            "coverage": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+            },
+            "diagnostics": {
+              "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "Item_describe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "subjectRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "typeText": {
+          "type": "string"
+        },
+        "effectText": {
+          "type": "string"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Item_complete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "planRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Item_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "activeParameter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "returnText": {
+          "type": "string"
+        },
+        "effectText": {
+          "type": "string"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Item_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          },
+          "minItems": 1
+        },
+        "relation": {
+          "const": "declaration"
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Item_references": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          }
+        },
+        "relation": {
+          "enum": [
+            "declaration",
+            "use",
+            "implementation"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Item_implementations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    },
+    "Item_actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unavailable"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "detailRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "actionKind": {
+          "enum": [
+            "rename",
+            "extract-function",
+            "inline",
+            "organize-imports",
+            "format",
+            "move-file"
+          ]
+        },
+        "planRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Location"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "detail",
+              "detailRef"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

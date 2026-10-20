@@ -4,6 +4,7 @@
 
 | 结构 | 原责任及消费范围 | Schema 外仍须验证 |
 |---|---|---|
+| authoring-assist-1 | 可协商 query(candidateRef,assist) 七类位置请求和 propose.draft(author-edit)；逐kind条目与源坐标的封闭机器联合 | 真实版本/编码/权限、Language/Native Provider、EditPlan全体修改与已接受写者同义；旧端严格拒绝 | 
 | intent-authoring-1 | 可协商的 query intentCatalog/intentOccurrence 与 propose.draft(intent-action) 精确输入；Catalog/Occurrence 投影的封闭条目 | 描述符、源身份、角色/值 codec、默认、权限/披露、负依赖、操作实际写入资格；结构成立不产生Method或Effect | 
 | query-2 | 基础 at/find/view/limit/cursor | find 的对象领域、引用/范围、当前披露、真实分页覆盖；Json 只证明载体形状 |
 | propose-2 | 六个互斥候选输入槽；无原作者前像的 source / files(new) 禁止 `return=diff`；files 保留现行 context | 源/路径角色、base 与前像、edits 唯一匹配、return=diff 的源基础、区域权限、形成候选的语义 |
