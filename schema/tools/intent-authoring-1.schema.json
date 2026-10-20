@@ -405,6 +405,202 @@
           "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
         }
       }
+    },
+    "FacetDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "facetRef",
+        "publisherModuleUseRef",
+        "revision",
+        "subjectRoles",
+        "parameters",
+        "actions"
+      ],
+      "properties": {
+        "facetRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "publisherModuleUseRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Ref"
+        },
+        "subjectRoles": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/FormalRole"
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/FacetParameter"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/FacetAction"
+          }
+        },
+        "meaningRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true
+        },
+        "readProjectionRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "compatibilityRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "Qualified module contribution only: all value/codecs/defaults/effect/claim/expansion/migration are resolved by exact source ModuleUse and locked profile. No current Grants, secrets, health, selected Binding or observed operational result is persisted inside this descriptor."
+    },
+    "FormalRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typeRef",
+        "cardinality"
+      ],
+      "properties": {
+        "typeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        },
+        "scopeRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "FacetParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typeRef",
+        "codecRef",
+        "cardinality"
+      ],
+      "properties": {
+        "typeRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "codecRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "optional",
+            "set",
+            "bag",
+            "sequence"
+          ]
+        },
+        "defaultRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "unitRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "phase": {
+          "enum": [
+            "author",
+            "build",
+            "run"
+          ]
+        }
+      },
+      "description": "A default is a fixed pure and qualified source, never a live environment value or authority."
+    },
+    "FacetAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "expansionMethodRef",
+        "writerRoles",
+        "allowedScopes"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "expansionMethodRef": {
+          "$ref": "#/$defs/Ref"
+        },
+        "writerRoles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "allowedScopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "requirementRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true
+        },
+        "capabilityRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true
+        },
+        "claimTemplateRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true
+        },
+        "resultRoleRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true
+        },
+        "migrationRef": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "description": "A method reference is a bound description, not an executable method name or effect permission; consumer verifies subject, scopes, read/write closure and current qualified capability."
     }
   }
 }
