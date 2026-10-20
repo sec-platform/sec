@@ -95,13 +95,14 @@
     },
     "definitions": {
       "type": "object",
-      "minProperties": 1,
+      "minProperties": 0,
       "propertyNames": {
         "$ref": "#/$defs/Identifier"
       },
       "additionalProperties": {
         "$ref": "#/$defs/Definition"
-      }
+      },
+      "description": "Local definitions may be empty only for an export-only facade. Semantic linking verifies that each export resolves to an exact, public imported symbol; source modules do not gain new identities or authorities."
     },
     "exports": {
       "type": "object",
@@ -110,16 +111,15 @@
         "$ref": "#/$defs/Identifier"
       },
       "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "definitionId"
-        ],
-        "properties": {
-          "definitionId": {
-            "$ref": "#/$defs/Identifier"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/LocalExport"
+          },
+          {
+            "$ref": "#/$defs/ImportedExport"
           }
-        }
+        ],
+        "description": "A stable public name routes either to a local Definition or to a public symbol of an explicit import; no implicit wrapper function or extra authority."
       }
     },
     "annotations": {
@@ -5297,9 +5297,77 @@
         }
       ],
       "description": "A structured state graph in the existing state:machine Body, not another StateDefinition kind. String shorthand is an atomic state. All nodes share one local identity namespace; kind controls legal parent/initial/region/fallback/entry/exit use. Valid configuration, transitions, event generation, restoration and external effects are owned by the state/runtime contracts. Compound/region require initial direct child; parallel has region children rather than a single initial. Atomic/final and history pseudo states cannot carry initial; only history carries fallback. Parent ancestry, parallel region uniqueness and transition choice require semantic resolution of the complete chart."
+    },
+    "LocalExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definitionId"
+      ],
+      "properties": {
+        "definitionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ImportedExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import",
+        "export"
+      ],
+      "properties": {
+        "import": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "not": {
+                "enum": [
+                  "local",
+                  "std"
+                ]
+              }
+            }
+          ]
+        },
+        "export": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "description": "Alias of an explicitly imported public export. Binding and visibility must be checked against the exact imported ModuleUse and lock; no wildcard exports."
     }
   },
   "x-gift-current-source-writer": true,
   "x-gift-author-qualification": "All declared Kind shapes are in the single proposed author design; meaning/compute/method/target qualifications are independent and not assumed from schema recognition.",
-  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied."
+  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "definitions": {
+            "maxProperties": 0
+          }
+        },
+        "required": [
+          "definitions"
+        ]
+      },
+      "then": {
+        "required": [
+          "exports"
+        ],
+        "properties": {
+          "exports": {
+            "minProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/ImportedExport"
+            }
+          }
+        }
+      }
+    }
+  ]
 }
