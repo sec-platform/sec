@@ -1,0 +1,687 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:debug-session-1",
+  "title": "Negotiated Gift debug launch/attach/control and discover (design only)",
+  "description": "Finite control only. It is not arbitrary debugger evaluate, memory mutation, hot patch, unbounded DAP proxy or a new operation writer.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DebugLaunch"
+    },
+    {
+      "$ref": "#/$defs/DebugAttach"
+    },
+    {
+      "$ref": "#/$defs/DebugTargets"
+    },
+    {
+      "$ref": "#/$defs/C0"
+    },
+    {
+      "$ref": "#/$defs/C1"
+    },
+    {
+      "$ref": "#/$defs/C2"
+    },
+    {
+      "$ref": "#/$defs/C3"
+    },
+    {
+      "$ref": "#/$defs/C4"
+    },
+    {
+      "$ref": "#/$defs/C5"
+    },
+    {
+      "$ref": "#/$defs/C6"
+    },
+    {
+      "$ref": "#/$defs/C7"
+    }
+  ],
+  "$defs": {
+    "Breakpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRef",
+        "byteOffset"
+      ],
+      "properties": {
+        "sourceRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "byteOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DebugLaunch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "kind",
+        "requestId",
+        "artifactRef",
+        "entryRef",
+        "argumentsRef"
+      ],
+      "properties": {
+        "action": {
+          "const": "start"
+        },
+        "kind": {
+          "const": "debug-launch"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "artifactRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "entryRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "argumentsRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "debugProfileRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "breakpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Breakpoint"
+          }
+        }
+      }
+    },
+    "DebugAttach": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "kind",
+        "requestId",
+        "runtimeTargetRef"
+      ],
+      "properties": {
+        "action": {
+          "const": "start"
+        },
+        "kind": {
+          "const": "debug-attach"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "runtimeTargetRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "debugProfileRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "breakpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Breakpoint"
+          }
+        }
+      }
+    },
+    "DebugTargets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view",
+        "find"
+      ],
+      "properties": {
+        "view": {
+          "const": "state"
+        },
+        "find": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "scopeRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "debug-targets"
+            },
+            "scopeRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "DebugStateProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "sessionRef",
+        "stateRef",
+        "phase"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "sessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "stateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "phase": {
+          "enum": [
+            "preparing",
+            "configuring",
+            "running",
+            "paused",
+            "ending",
+            "ended",
+            "unsettled"
+          ]
+        },
+        "configurationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "pauseRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "lastTrustedStateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "stopScope": {
+          "enum": [
+            "all-threads",
+            "thread",
+            "unknown"
+          ]
+        },
+        "pendingControlRequestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        }
+      },
+      "description": "A session state projection not a target execution terminal. PauseRef and thread/stack/value data require actual safe driver observations and accurate incarnation checks."
+    },
+    "C0": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedStateRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "pause"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedStateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "C1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedPauseRef",
+        "threadRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "continue"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedPauseRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "threadRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "runScope": {
+          "enum": [
+            "target",
+            "thread"
+          ]
+        }
+      }
+    },
+    "C2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedPauseRef",
+        "threadRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "next"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedPauseRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "threadRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "runScope": {
+          "enum": [
+            "target",
+            "thread"
+          ]
+        }
+      }
+    },
+    "C3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedPauseRef",
+        "threadRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "step-in"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedPauseRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "threadRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "runScope": {
+          "enum": [
+            "target",
+            "thread"
+          ]
+        }
+      }
+    },
+    "C4": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedPauseRef",
+        "threadRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "step-out"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedPauseRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "threadRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "runScope": {
+          "enum": [
+            "target",
+            "thread"
+          ]
+        }
+      }
+    },
+    "C5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedConfigurationRef",
+        "breakpoints"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "set-breakpoints"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedConfigurationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "expectedPauseRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "breakpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Breakpoint"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "breakpoints": {
+                "contains": {
+                  "properties": {
+                    "required": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "required"
+                  ]
+                },
+                "minContains": 1
+              }
+            },
+            "required": [
+              "breakpoints"
+            ]
+          },
+          "then": {
+            "required": [
+              "expectedPauseRef"
+            ]
+          }
+        }
+      ]
+    },
+    "C6": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedStateRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "detach"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedStateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "C7": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationRef",
+        "action",
+        "command",
+        "requestId",
+        "expectedStateRef"
+      ],
+      "properties": {
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "const": "debug"
+        },
+        "command": {
+          "const": "terminate"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "state"
+          ]
+        },
+        "expectedStateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    }
+  }
+}
