@@ -5,7 +5,7 @@
 | 结构 | 原责任及消费范围 | Schema 外仍须验证 |
 |---|---|---|
 | query-2 | 基础 at/find/view/limit/cursor | find 的对象领域、引用/范围、当前披露、真实分页覆盖；Json 只证明载体形状 |
-| propose-2 | 六个互斥候选输入槽；files 保留现行 context | 源/路径角色、base 与前像、edits 唯一匹配、return=diff 的源基础、区域权限、形成候选的语义 |
+| propose-2 | 六个互斥候选输入槽；无原作者前像的 source / files(new) 禁止 `return=diff`；files 保留现行 context | 源/路径角色、base 与前像、edits 唯一匹配、return=diff 的源基础、区域权限、形成候选的语义 |
 | preview-2 | source/candidate/context+entry/draft 四个槽及 compareTo 条件 | 固定解释、Target、Artifact 关联、真实 lowering 与范围 |
 | check-2 | types/cases 方法选择，cases 要求 artifactRef/casesRef | 真实方法执行、被测主体、独立期望、Evidence 资格与复用 |
 | apply-2 | save-source/write-output；后者必需 artifactRef | 当前授权、准确前像、作用身份/去重、真实输出与持久 readback |
