@@ -1046,7 +1046,7 @@
               "minItems": 0
             },
             "body": {
-              "$ref": "#/$defs/Expr"
+              "$ref": "#/$defs/ExecBody"
             },
             "effects": {
               "type": "array",
@@ -2623,7 +2623,7 @@
                   "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
                 },
                 "body": {
-                  "$ref": "#/$defs/Expr"
+                  "$ref": "#/$defs/ExecBody"
                 },
                 "contract": {
                   "$ref": "#/$defs/Contract"
@@ -5614,6 +5614,236 @@
         }
       },
       "description": "Alias of an explicitly imported public export. Binding and visibility must be checked against the exact imported ModuleUse and lock; no wildcard exports."
+    },
+    "ExecBody": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Expr"
+        },
+        {
+          "$ref": "#/$defs/ExecBlock"
+        }
+      ],
+      "description": "An expression body or a lexically scoped finite structured control block, sharing the selected Gift calculation semantics. The block is a different tagged branch, not a duplicate Author Writer or unrestricted host code."
+    },
+    "ExecBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "statements"
+      ],
+      "properties": {
+        "op": {
+          "const": "exec:block"
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExecStatement"
+          },
+          "minItems": 0
+        },
+        "result": {
+          "$ref": "#/$defs/Expr"
+        }
+      },
+      "description": "A lexical block. Statements evaluate in order; result is evaluated iff ordinary completion reaches it. No result means Unit. Return/Break/Continue/Fault/Cancel are distinct exits, never data Result.Err. Local var positions are new per block activation and while iteration."
+    },
+    "ExecStatement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "let"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Lexical immutable binding; evaluate initializer once, then bind after success."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "var"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Lexical mutable location, distinct from Expr.var which only reads a bound name."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "set"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Evaluate RHS before writing the nearest valid mutable location. Reject immutable, unbound, inaccessible or moved targets."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "then"
+          ],
+          "properties": {
+            "op": {
+              "const": "if"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "then": {
+              "$ref": "#/$defs/ExecBlock"
+            },
+            "else": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Only one branch runs after exactly one Bool condition evaluation; absent else is Unit."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "while"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "body": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Evaluate Bool condition before every iteration; enter fresh lexical body scope on each true iteration. No arbitrary compile-time iteration bound."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "break"
+            }
+          },
+          "description": "Exit the nearest lexically enclosing while in the current function or lambda. A structural checker must reject outside one."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "continue"
+            }
+          },
+          "description": "Continue nearest lexically enclosing while, re-evaluating the condition. Cannot cross a lambda/function boundary."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "return"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Exit current function or lambda, not caller; omitted value means Unit. Check return type and cleanup."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "eval"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Evaluate an expression in sequence and discard an ordinary value; must diagnose unconsumed Result per actual language contract."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "scope"
+            },
+            "body": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Execute a nested lexical block; nested result is discarded as a statement, but effects and abnormal exits propagate."
+        }
+      ],
+      "description": "Tagged finite statement union for mutable local and structured control. No label/goto/yield/nonlocal return. No new external Effect authority."
     }
   },
   "x-gift-current-source-writer": true,
