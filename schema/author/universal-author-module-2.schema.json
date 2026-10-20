@@ -3095,8 +3095,7 @@
               "additionalProperties": false,
               "required": [
                 "unitRef",
-                "allocation",
-                "capacityLiteral"
+                "allocation"
               ],
               "properties": {
                 "unitRef": {
@@ -3136,8 +3135,25 @@
                     "$ref": "#/$defs/ContextRole"
                   },
                   "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                },
+                "capacityMeaningRef": {
+                  "$ref": "#/$defs/Ref",
+                  "description": "Optional capacity source: an exactly bound domain:meaning(category=measurement) with a qualified nonnegative quantity result in the resource's unit/scope. Runtime dynamic capacity is observed under its actual evidence, freshness and authority; neither a schema-valid ref nor a past observation grants physical capacity."
                 }
-              }
+              },
+              "anyOf": [
+                {
+                  "required": [
+                    "capacityLiteral"
+                  ]
+                },
+                {
+                  "required": [
+                    "capacityMeaningRef"
+                  ]
+                }
+              ],
+              "description": "At least one capacity basis is required: a static author limit, a qualified capacity measurement, or both. If both, they independently constrain admission over the same resource identity/scope/unit; unavailable observation cannot be replaced by zero, infinity or a fabricated static literal. Allocation still needs current physical admission and reserve/lease settlement."
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"
@@ -4022,7 +4038,7 @@
           "minLength": 1
         }
       },
-      "description": "Static nonnegative capacity magnitude; actual capacity and admission require a qualified resource meaning."
+      "description": "Design-shape static nonnegative resource limit with exact decimal magnitude/unit. It is not a physical free-capacity observation, reservation or HostGrant."
     },
     "ComponentParameter": {
       "type": "object",
