@@ -5,6 +5,7 @@
 | 结构 | 原责任及消费范围 | Schema 外仍须验证 |
 |---|---|---|
 | blueprint-read-1 | 协商后 query(view=blueprint) 的严格 Target root/section 读取及只读 TargetProjectPlanProjection | Plan producer、当前根和权限、分页覆盖、投影代、新鲜度、非公开位置；不拥有第二份计划源码 | 
+| compute-run-1 | 协商后的 operation start 三分支：完整制品构建、制品运行、候选入口即时编译运行；不同入口/参数互斥 | 当前Artifact/Candidate、Runner/Target/Grant、环境、启动/完成/取消/重试与RunRecord真实读回 | 
 | input-preparation-1 | 协商后 propose.draft(prepare-input) 的 arguments/cases/observation 互斥主体、被动值语法及 prepared/needs-input 结果 | 真实类型、当前值绑定、准备方法、寿命/权限；不能执行表达式、自动发现测试或签运行结果 | 
 | semantic-change-1 | 单一作者候选变化：set-input/replace-expression/rename 和受限定扩展、局部标签、前提与真实联合组 | 原SourceOwner句柄/类型/效果、真实前像、组依赖、Method登记与权限；不是另一种直接写盘协议 | 
 | authoring-assist-1 | 可协商 query(candidateRef,assist) 七类位置请求和 propose.draft(author-edit)；逐kind条目与源坐标的封闭机器联合 | 真实版本/编码/权限、Language/Native Provider、EditPlan全体修改与已接受写者同义；旧端严格拒绝 | 
