@@ -1,0 +1,410 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:intent-authoring-1",
+  "title": "Negotiated Gift intent-authoring query/propose request union (design only)",
+  "description": "Only after capability negotiation; these are additions to the existing query and propose, not a new top-level tool, a second author source or an executable action channel.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CatalogQuery"
+    },
+    {
+      "$ref": "#/$defs/OccurrenceQuery"
+    },
+    {
+      "$ref": "#/$defs/ProposeIntent"
+    }
+  ],
+  "$defs": {
+    "Ref": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "CatalogQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view",
+        "find"
+      ],
+      "properties": {
+        "at": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "view": {
+          "const": "intentCatalog"
+        },
+        "find": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "intent-catalog"
+            },
+            "scopeRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "term": {
+              "type": "string",
+              "minLength": 1
+            },
+            "domainRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      }
+    },
+    "OccurrenceQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view",
+        "find"
+      ],
+      "properties": {
+        "at": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "view": {
+          "const": "intentOccurrence"
+        },
+        "find": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "subjectRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "intent-occurrence"
+            },
+            "subjectRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "scopeRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "roleRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      }
+    },
+    "IntentAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "base",
+        "facetRef",
+        "action",
+        "subjectBindings",
+        "values"
+      ],
+      "properties": {
+        "kind": {
+          "const": "intent-action"
+        },
+        "base": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "facetRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "action": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+        },
+        "subjectBindings": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        "values": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      },
+      "description": "Values and role-actuals must be checked against the exact fixed descriptor/codec; arbitrary JSON cannot grant effect, authority, type or implementation."
+    },
+    "ProposeIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "$ref": "#/$defs/IntentAction"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "source",
+            "diff"
+          ]
+        }
+      },
+      "description": "Consumed only as negotiated propose draft. The base is the exact accepted author snapshot, never an implicit latest; diff is computed against that base."
+    },
+    "CatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "facetRef",
+        "label",
+        "role",
+        "basis",
+        "availability"
+      ],
+      "properties": {
+        "facetRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "subjectRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "descriptorRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "availability": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unsupported",
+            "forbidden",
+            "unknown"
+          ]
+        },
+        "explanationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "OccurrenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "occurrenceRef",
+        "subjectRef",
+        "facetRef",
+        "basis",
+        "availability"
+      ],
+      "properties": {
+        "occurrenceRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "subjectRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "facetRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "authorRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "availability": {
+          "enum": [
+            "ready",
+            "needs-input",
+            "unsupported",
+            "forbidden",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "CatalogProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view",
+        "basis",
+        "items",
+        "coverage",
+        "diagnostics"
+      ],
+      "properties": {
+        "view": {
+          "const": "intentCatalog"
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogItem"
+          }
+        },
+        "coverage": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "OccurrenceProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view",
+        "basis",
+        "items",
+        "coverage",
+        "diagnostics"
+      ],
+      "properties": {
+        "view": {
+          "const": "intentOccurrence"
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OccurrenceItem"
+          }
+        },
+        "coverage": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    }
+  }
+}
