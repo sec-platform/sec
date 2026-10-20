@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:blueprint-read-1",
+  "title": "Negotiated read-only target blueprint query (design only)",
+  "description": "Loaded only for a session with the precise blueprint-read capability. There is no new writable blueprint document, query authority or public seventh tool.",
+  "$ref": "#/$defs/BlueprintQuery",
+  "$defs": {
+    "BlueprintQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view",
+        "find"
+      ],
+      "properties": {
+        "view": {
+          "const": "blueprint"
+        },
+        "at": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "find": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "targetRootRef",
+            "section"
+          ],
+          "properties": {
+            "kind": {
+              "const": "target-project-plan"
+            },
+            "targetRootRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "section": {
+              "enum": [
+                "overview",
+                "components",
+                "contracts",
+                "state",
+                "planned-members",
+                "runtime",
+                "build-and-dependencies",
+                "security-and-resources",
+                "evolution-and-assurance"
+              ]
+            },
+            "subjectRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "Item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "role",
+        "state"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "state": {
+          "enum": [
+            "planned",
+            "needs-input",
+            "unsupported",
+            "conflict",
+            "unknown"
+          ]
+        },
+        "contractRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "authorOwnerRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "plannedLocationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "topologyRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "dependencyRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "originRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          }
+        }
+      }
+    },
+    "Need": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subjectRef",
+        "reason",
+        "blocksRequestedDesign"
+      ],
+      "properties": {
+        "subjectRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "reason": {
+          "enum": [
+            "missing-meaning",
+            "missing-input",
+            "missing-supply",
+            "target-unsupported",
+            "conflict",
+            "stale",
+            "forbidden",
+            "budget",
+            "unknown"
+          ]
+        },
+        "blocksRequestedDesign": {
+          "type": "boolean"
+        },
+        "diagnosticRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "nextActionRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "TargetProjectPlanProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "targetRootRef",
+        "section",
+        "basis",
+        "projectionRevision",
+        "viewState",
+        "items",
+        "needs",
+        "coverage",
+        "diagnostics"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gift.target-project-plan-projection/1"
+        },
+        "targetRootRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "section": {
+          "enum": [
+            "overview",
+            "components",
+            "contracts",
+            "state",
+            "planned-members",
+            "runtime",
+            "build-and-dependencies",
+            "security-and-resources",
+            "evolution-and-assurance"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "projectionRevision": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "viewState": {
+          "enum": [
+            "current",
+            "stale",
+            "partial",
+            "unsupported"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Item"
+          }
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Need"
+          }
+        },
+        "coverage": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/coverage"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      },
+      "description": "Read-only projection over existing TargetProjectPlan and original authors. Planned members and locations never assert physical files, codegen success or acceptance."
+    }
+  }
+}
