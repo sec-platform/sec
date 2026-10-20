@@ -5,6 +5,7 @@
 | 结构 | 原责任及消费范围 | Schema 外仍须验证 |
 |---|---|---|
 | blueprint-read-1 | 协商后 query(view=blueprint) 的严格 Target root/section 读取及只读 TargetProjectPlanProjection | Plan producer、当前根和权限、分页覆盖、投影代、新鲜度、非公开位置；不拥有第二份计划源码 | 
+| cli-session-1 | strict JSONL 会话帧：ready/call/result/call-error/protocol-error/cancel-call/cancel-result/close/session-ended | 不可信帧拒绝、六工具独立解码、callId重放与真实requestId查回、受限输出、保留与关闭责任 | 
 | debug-session-1 | 协商后的 launch/attach、query(debug-targets) 及 pause/continue/step/breakpoints/detach/terminate 精确互斥字段 | 暂停和配置代、Host/Driver真实停止与披露、效果权、未决命令、源映射和读取不执行目标代码 | 
 | compute-run-1 | 协商后的 operation start 三分支：完整制品构建、制品运行、候选入口即时编译运行；不同入口/参数互斥 | 当前Artifact/Candidate、Runner/Target/Grant、环境、启动/完成/取消/重试与RunRecord真实读回 | 
 | input-preparation-1 | 协商后 propose.draft(prepare-input) 的 arguments/cases/observation 互斥主体、被动值语法及 prepared/needs-input 结果 | 真实类型、当前值绑定、准备方法、寿命/权限；不能执行表达式、自动发现测试或签运行结果 | 

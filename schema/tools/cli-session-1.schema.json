@@ -1,0 +1,627 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:cli-session-1",
+  "title": "Gift bounded stdio JSONL session frames (design only)",
+  "description": "One UTF-8 LF-delimited exact frame at a time. This protocol is a transport for the existing six tools; its callId does not replace operation requestId, effect admission, content lease or domain result.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Ready"
+    },
+    {
+      "$ref": "#/$defs/Call"
+    },
+    {
+      "$ref": "#/$defs/Result"
+    },
+    {
+      "$ref": "#/$defs/CallError"
+    },
+    {
+      "$ref": "#/$defs/ProtocolError"
+    },
+    {
+      "$ref": "#/$defs/CancelCall"
+    },
+    {
+      "$ref": "#/$defs/CancelResult"
+    },
+    {
+      "$ref": "#/$defs/Close"
+    },
+    {
+      "$ref": "#/$defs/SessionEnded"
+    }
+  ],
+  "$defs": {
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "Budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpuMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "memoryBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "toolCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "wallMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "Limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frameBytes",
+        "sessionInputBytes",
+        "sessionOutputBytes",
+        "maxCalls",
+        "maxActiveCalls",
+        "wallTimeMs",
+        "referenceBytes",
+        "closeDeadlineMs"
+      ],
+      "properties": {
+        "frameBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sessionInputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sessionOutputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxActiveCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "wallTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "referenceBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "closeDeadlineMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "defaultCallBudget": {
+          "$ref": "#/$defs/Budget"
+        }
+      }
+    },
+    "Subject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetRef"
+          ],
+          "properties": {
+            "targetRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contextRef"
+          ],
+          "properties": {
+            "contextRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "RequestScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeRef",
+        "subjectRefs",
+        "retention",
+        "continuation"
+      ],
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "subjectRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Subject"
+          }
+        },
+        "retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "untilUnixMs"
+          ],
+          "properties": {
+            "untilUnixMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "continuation": {
+          "enum": [
+            "session",
+            "reconnect"
+          ]
+        }
+      }
+    },
+    "Continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeRef",
+        "requestId"
+      ],
+      "properties": {
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "retentionUntilUnixMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "Ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "protocol",
+        "capabilities",
+        "initialContexts",
+        "limits",
+        "referenceLifetime",
+        "closePolicy"
+      ],
+      "properties": {
+        "kind": {
+          "const": "ready"
+        },
+        "protocol": {
+          "const": "gift.cli-session/1"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "revision"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              }
+            }
+          }
+        },
+        "initialContexts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "contextRef"
+            ],
+            "properties": {
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "contextRef": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              }
+            }
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "referenceLifetime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "session",
+                "bounded-lease"
+              ]
+            },
+            "expiresUnixMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "closePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "drain",
+                "cooperative-cancel",
+                "handoff"
+              ]
+            }
+          }
+        },
+        "requestScopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequestScope"
+          }
+        }
+      }
+    },
+    "Call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "callId",
+        "tool",
+        "request"
+      ],
+      "properties": {
+        "kind": {
+          "const": "call"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        },
+        "tool": {
+          "enum": [
+            "query",
+            "propose",
+            "preview",
+            "check",
+            "apply",
+            "operation"
+          ]
+        },
+        "request": {
+          "$ref": "#/$defs/Json"
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        }
+      }
+    },
+    "Result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "callId",
+        "result"
+      ],
+      "properties": {
+        "kind": {
+          "const": "result"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        },
+        "result": {
+          "$ref": "#/$defs/Json"
+        }
+      }
+    },
+    "CallError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "callId",
+        "reason",
+        "diagnostics"
+      ],
+      "properties": {
+        "kind": {
+          "const": "call-error"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "operationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "scopeRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "ProtocolError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "reason",
+        "diagnostics"
+      ],
+      "properties": {
+        "kind": {
+          "const": "protocol-error"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        },
+        "relatedCallId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        }
+      }
+    },
+    "CancelCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "callId",
+        "targetCallId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cancel-call"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        },
+        "targetCallId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        }
+      }
+    },
+    "CancelResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "callId",
+        "targetCallId",
+        "state"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cancel-result"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        },
+        "targetCallId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "wait-closed",
+            "already-complete",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "Close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "callId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "close"
+        },
+        "callId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "maxLength": 128
+        }
+      }
+    },
+    "SessionEnded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "state",
+        "incompleteCallIds",
+        "operationContinuations",
+        "diagnostics"
+      ],
+      "properties": {
+        "kind": {
+          "const": "session-ended"
+        },
+        "state": {
+          "enum": [
+            "closed",
+            "unsettled"
+          ]
+        },
+        "incompleteCallIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+            "maxLength": 128
+          },
+          "uniqueItems": true
+        },
+        "operationContinuations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Continuation"
+          }
+        },
+        "diagnostics": {
+          "$ref": "urn:gift:design-schema:tool-result-view-2#/properties/diagnostics"
+        }
+      }
+    }
+  }
+}
