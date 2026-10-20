@@ -2197,9 +2197,7 @@
       "additionalProperties": false,
       "required": [
         "metricRef",
-        "relation",
-        "strength",
-        "thresholdLiteral"
+        "strength"
       ],
       "properties": {
         "metricRef": {
@@ -2228,8 +2226,112 @@
         },
         "thresholdLiteral": {
           "$ref": "#/$defs/BusinessQuantity"
+        },
+        "termId": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Stable term identity within one quality contract for explicitly ranked/weighted comparisons; not a global metric or real-world measurement ID."
+        },
+        "objective": {
+          "enum": [
+            "minimize",
+            "maximize"
+          ],
+          "description": "Unbounded soft objective in this metric; does not require a fabricated threshold."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Explicit lexicographic priority of a soft term; smaller number first. Semantic linker rejects duplicate priorities and does not infer them from array position."
+        },
+        "weightDecimal": {
+          "type": "string",
+          "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)$",
+          "description": "Positive finite exact decimal weight for an explicit normalized soft cost; never a weight for hard feasibility or a proxy for another stakeholder's authority."
+        },
+        "scoreRef": {
+          "$ref": "#/$defs/Ref",
+          "description": "Qualified pure/domain Method or Meaning mapping this term's metric, scope, horizon and threshold/objective to a comparable finite dimensionless loss (lower is better); a reference alone does not certify scale, monotonicity, uncertainty or target."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "strength": {
+                "const": "hard"
+              }
+            },
+            "required": [
+              "strength"
+            ]
+          },
+          "then": {
+            "required": [
+              "relation",
+              "thresholdLiteral"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "objective"
+                  ]
+                },
+                {
+                  "required": [
+                    "priority"
+                  ]
+                },
+                {
+                  "required": [
+                    "weightDecimal"
+                  ]
+                },
+                {
+                  "required": [
+                    "scoreRef"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "oneOf": [
+              {
+                "required": [
+                  "relation",
+                  "thresholdLiteral"
+                ],
+                "not": {
+                  "required": [
+                    "objective"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "objective"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "relation"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "thresholdLiteral"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "description": "Hard quality clauses require an exact threshold and relation. Soft clauses are either a threshold preference with relation or a directional objective with no invented threshold. Score/priority/weight are qualified under the enclosing comparisonPolicy; syntax never certifies measurement quality."
     },
     "PolicyRule": {
       "type": "object",
@@ -3490,7 +3592,152 @@
                   },
                   "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "const": "weighted-explicit"
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "contains": {
+                          "properties": {
+                            "strength": {
+                              "const": "soft"
+                            }
+                          },
+                          "required": [
+                            "strength"
+                          ]
+                        },
+                        "minContains": 1,
+                        "items": {
+                          "if": {
+                            "properties": {
+                              "strength": {
+                                "const": "soft"
+                              }
+                            },
+                            "required": [
+                              "strength"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "termId",
+                              "weightDecimal",
+                              "scoreRef"
+                            ],
+                            "not": {
+                              "required": [
+                                "priority"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "const": "lexicographic"
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "contains": {
+                          "properties": {
+                            "strength": {
+                              "const": "soft"
+                            }
+                          },
+                          "required": [
+                            "strength"
+                          ]
+                        },
+                        "minContains": 1,
+                        "items": {
+                          "if": {
+                            "properties": {
+                              "strength": {
+                                "const": "soft"
+                              }
+                            },
+                            "required": [
+                              "strength"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "termId",
+                              "priority"
+                            ],
+                            "not": {
+                              "required": [
+                                "weightDecimal"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "enum": [
+                          "pareto",
+                          "feasibility-only"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "items": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "weightDecimal"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "priority"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "description": "Hard threshold clauses are conjunctive feasibility gates for every policy. Weighted-explicit requires exact positive weights and qualified per-term dimensionless loss; lexicographic requires explicit stable priorities. Pareto uses qualified per-metric directions/relations, and feasibility-only issues no soft ordering claim. Missing score, ordering or coverage never becomes an implicit weight or success."
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"
