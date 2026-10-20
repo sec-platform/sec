@@ -2172,7 +2172,6 @@
       "required": [
         "name",
         "typeRef",
-        "keyFields",
         "constraints"
       ],
       "properties": {
@@ -2195,8 +2194,52 @@
             "$ref": "#/$defs/Ref"
           },
           "minItems": 0
+        },
+        "rowIdentity": {
+          "const": "keyless",
+          "description": "Explicit relation with no stable per-row key. Physical row location, value hash, and position do not create durable identity."
+        },
+        "rowMultiplicity": {
+          "enum": [
+            "set",
+            "bag"
+          ],
+          "description": "Keyless set deduplicates under qualified value equality; bag preserves repeated row occurrences. Neither permits implicit writes or order."
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "keyFields"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "rowIdentity"
+                ]
+              },
+              {
+                "required": [
+                  "rowMultiplicity"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "rowIdentity",
+            "rowMultiplicity"
+          ],
+          "not": {
+            "required": [
+              "keyFields"
+            ]
+          }
+        }
+      ],
+      "description": "Stable keyed entity and explicitly keyless set/bag relation are distinct author meanings. A keyless row cannot be individually edited without independent stable locator, qualified preimage, transaction and authority."
     },
     "QualityTerm": {
       "type": "object",
