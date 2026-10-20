@@ -1,0 +1,392 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:semantic-change-1",
+  "title": "Gift exact candidate semantic-change/1 (design only)",
+  "description": "The canonical exchange payload is this semantic-change; when supplied via propose.draft use $defs/ProposeDraft after exact capability negotiation. No new operation writer, tool or author source.",
+  "$ref": "#/$defs/SemanticChange",
+  "$defs": {
+    "Ref": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "Ident": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "Json": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      ]
+    },
+    "EditValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tree"
+          ],
+          "properties": {
+            "tree": {
+              "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ExecBody"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "from"
+          ],
+          "properties": {
+            "from": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "Operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "node",
+            "input",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "set-input"
+            },
+            "opId": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "node": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "input": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "value": {
+              "$ref": "#/$defs/EditValue"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "at",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "replace-expression"
+            },
+            "opId": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "at": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "value": {
+              "$ref": "#/$defs/EditValue"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "subject",
+            "name"
+          ],
+          "properties": {
+            "op": {
+              "const": "rename"
+            },
+            "opId": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "subject": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "dialectRef",
+            "bodySchemaRef",
+            "bindingRef",
+            "payload"
+          ],
+          "properties": {
+            "op": {
+              "const": "extension"
+            },
+            "opId": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "dialectRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "bodySchemaRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "bindingRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "payload": {
+              "$ref": "#/$defs/Json"
+            }
+          }
+        }
+      ],
+      "description": "Three closed structural edits plus a typed, fixed-revision extension dispatch. Unknown op is always rejected; arbitrary payload is only data and requires a separately loaded schema/consumer."
+    },
+    "Precondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "subjectRef",
+            "revisionRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "expects-revision"
+            },
+            "subjectRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "revisionRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "subjectRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "expects-absence"
+            },
+            "subjectRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "subjectRef",
+            "bindingRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "requires-binding"
+            },
+            "subjectRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "bindingRef": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "Group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "groupId",
+        "opIds",
+        "relationship"
+      ],
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "opIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        },
+        "relationship": {
+          "enum": [
+            "atomic",
+            "independent"
+          ]
+        }
+      }
+    },
+    "SemanticChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "base",
+        "operations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "gift.semantic-change/1"
+        },
+        "base": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "changeId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "minItems": 0
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Precondition"
+          },
+          "minItems": 0
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Group"
+          },
+          "minItems": 0
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Json"
+          }
+        }
+      },
+      "description": "One candidate semantic change, not an effect authorizer. Programmatically derived read and absence dependencies must be added by the owner even when caller omits preconditions. Groups reference explicit opIds and cannot imply independence without shared constraints checked."
+    },
+    "ProposeDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draft"
+      ],
+      "properties": {
+        "draft": {
+          "$ref": "#/$defs/SemanticChange"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "diff",
+            "source"
+          ]
+        }
+      }
+    }
+  }
+}
