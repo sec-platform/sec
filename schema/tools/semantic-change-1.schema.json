@@ -64,7 +64,15 @@
           ],
           "properties": {
             "tree": {
-              "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ExecBody"
+              "oneOf": [
+                {
+                  "$ref": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/Expr"
+                },
+                {
+                  "$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/ExecBody"
+                }
+              ],
+              "description": "Legacy shared Expr and successor /2 ExecBody have different tags and owners. The target source profile and base revision select exactly one valid interpretation; cross-profile values must undergo explicit proven migration."
             }
           }
         },
