@@ -274,11 +274,15 @@
                 },
                 "startByte": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Exact bounded byte offset in the declared source content revision, not a grapheme/UTF-16 position. Decode before floating rounding; consumer checks start<=end, actual content length, version and relevant encoding."
                 },
                 "endByte": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Exact bounded byte offset in the declared source content revision, not a grapheme/UTF-16 position. Decode before floating rounding; consumer checks start<=end, actual content length, version and relevant encoding."
                 }
               }
             },

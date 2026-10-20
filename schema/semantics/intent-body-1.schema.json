@@ -432,7 +432,8 @@
         },
         "count": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Exact nonnegative mathematical count k, not an array index. Decode and validate raw JSON numeric decimal lexeme before IEEE754 conversion; retain unbounded value via exact integer type. Finite observation/domain bounds and computation budget restrict evidence, not what author can express."
         },
         "scopeRef": {
           "type": "string",

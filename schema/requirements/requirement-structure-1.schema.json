@@ -331,7 +331,8 @@
                   "type": "string"
                 },
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "description": "Arbitrary-precision mathematical integer lexeme. The strict JSON SourceReader must validate the raw decimal numeric token and preserve all digits before any host floating conversion. A normal host JSON.parse result may already be rounded; never use it as exact source evidence. Existing type/codec semantics govern bounds and target mapping."
                 }
               ]
             }
@@ -433,7 +434,8 @@
                   "type": "string"
                 },
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "description": "Arbitrary-precision mathematical integer lexeme. The strict JSON SourceReader must validate the raw decimal numeric token and preserve all digits before any host floating conversion. A normal host JSON.parse result may already be rounded; never use it as exact source evidence. Existing type/codec semantics govern bounds and target mapping."
                 }
               ]
             }
