@@ -334,24 +334,39 @@
           "$ref": "#/$defs/Limits"
         },
         "referenceLifetime": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind"
-          ],
-          "properties": {
-            "kind": {
-              "enum": [
-                "session",
-                "bounded-lease"
-              ]
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "session"
+                }
+              }
             },
-            "expiresUnixMs": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "expiresUnixMs"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "bounded-lease"
+                },
+                "expiresUnixMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
             }
-          }
+          ],
+          "description": "Exactly one short-reference retention mode. session ends at current runtime/session closure; bounded-lease must carry an absolute UTC-millisecond expiry, which can never extend a short handle past its actual owner/Runtime shutdown. Both are subordinate to referenceBytes, revocation, source revision and actual resource retention. Cross-session operation lookup uses separately authorized requestScopes, not this lifetime."
         },
         "closePolicy": {
           "type": "object",
