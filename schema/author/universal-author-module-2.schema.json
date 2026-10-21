@@ -2186,7 +2186,9 @@
           "items": {
             "$ref": "#/$defs/Identifier"
           },
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Ordered composite key columns, each declared exactly once. Semantic consumer verifies column existence, compatible non-null/equality constraints, source uniqueness, target index/order and migration; Schema cannot certify the actual key constraint."
         },
         "constraints": {
           "type": "array",
