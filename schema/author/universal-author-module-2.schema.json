@@ -1256,7 +1256,8 @@
               "minItems": 0
             },
             "body": {
-              "$ref": "#/$defs/ExecBody"
+              "$ref": "#/$defs/ExecBody",
+              "description": "In the selected common text profile, pure expression lambdas keep '(args) => Expr'. A structured lexical ExecBlock body has the distinct, unambiguous source form '(args) => scope { statements [result] }'. 'scope' is contextual; it does not make a new global keyword or rewrite legacy lambdas. Body return/break/capture/effect is checked using the same lexical function boundary."
             },
             "effects": {
               "type": "array",
