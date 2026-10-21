@@ -5669,7 +5669,7 @@
           "$ref": "#/$defs/ExecBlock"
         }
       ],
-      "description": "An expression body or a lexically scoped finite structured control block, sharing the selected Gift calculation semantics. The block is a different tagged branch, not a duplicate Author Writer or unrestricted host code."
+      "description": "An expression or finite common lexical control block. Object-specific field writes, parent initialization, object construction/read/dispatch and class declarations are NOT implied by this plain branch; they use an exactly bound object dialect body/consumer, with explicit qualified conversion for the shared subset. Do not reinterpret Expr.field as a mutable object member or Expr.var as privileged this/super."
     },
     "ExecBlock": {
       "type": "object",
@@ -5888,7 +5888,7 @@
           "description": "Execute a nested lexical block; nested result is discarded as a statement, but effects and abnormal exits propagate."
         }
       ],
-      "description": "Tagged finite statement union for mutable local and structured control. No label/goto/yield/nonlocal return. No new external Effect authority."
+      "description": "Exactly the ten common lexical statement shapes, not a complete object-method body. FieldWrite and SuperInit from the object language require its distinct qualified dialect/body codec; unknown object nodes are preserved in their original source rather than converted to generic set/perform."
     }
   },
   "x-gift-current-source-writer": true,
