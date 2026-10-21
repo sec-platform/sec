@@ -20,7 +20,7 @@
 | apply-2 | save-source/write-output；后者必需 artifactRef | 当前授权、准确前像、作用身份/去重、真实输出与持久 readback |
 | operation-2 | 原操作状态；带 controlRef 的控制；scopeRef+requestId 事前查回 | controlRef 的真实当前代/关联、查回先于新作用、原 Operation/Attempt 的未决和结算 |
 | generated-edit-1 | 仅在准确协商时接入显式 draft | Artifact/SourceMap、occurrence/definition 范围、保持与回源写权 |
-| structured-files-1 | 可选 fileProfiles 扩展，不撤销旧 files/context | 映射只覆盖本批实际新角色、删除无 profile、已有角色不得借此迁移、引用可解析与路径安全 |
+| structured-files-1 | 可选 fileProfiles 扩展，不撤销旧 files/context；无作者base不得请求 diff | 映射只覆盖本批实际新角色、删除无 profile、已有角色不得借此迁移、引用可解析与路径安全 |
 | result-view-2 | 独立协商的紧凑结果投影 | requested/complete/incomplete 集合关系、真实 basis/引用/字节定位、Claim/Evidence、效果存在性与披露 |
 
 propose/preview 基础结构中 `draft:false` 是尚未装入任何已协商扩展时的拒绝槽。实际消费者从准确已锁定扩展注册表编译选择相应联合；不能以 false 声称所有 draft 已支持，也不能改成任意 JSON 放弃验证。intent-action、input-preparation、author-edit、compute-run、debug/process 等扩展仍由现行对应规范定义，未选择的能力明确拒绝。query 的新 view 同理不能直接混进基础枚举。
