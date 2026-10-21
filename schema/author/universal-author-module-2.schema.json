@@ -1065,9 +1065,72 @@
                 ]
               },
               "then": false
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "bytes"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "type": {
+                    "required": [
+                      "encoding"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "properties": {
+                            "encoding": {
+                              "const": "hex"
+                            }
+                          },
+                          "required": [
+                            "encoding"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "value": {
+                          "pattern": "^(?:[0-9a-f]{2})*$"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
             }
           ],
-          "description": "Int/UInt literals use canonical exact decimal strings. Decimal uses exact signed integer coefficient and bounded nonnegative base-10 scale. Bool/Text/Unit use their matching JSON boolean/string/null representations. Never has no inhabitant and cannot be a literal; this selected profile does not offer an implicit Float JSON-number literal—use the bound F64Bits/decodeF64 or a qualified numeric constructor. Other nominal/specialized values still require their actual Type/Value codec; mere JSON shape is not semantic qualification."
+          "description": "Int/UInt literals use canonical exact decimal strings. Decimal uses exact signed integer coefficient and bounded nonnegative base-10 scale. Bool/Text/Unit use their matching JSON boolean/string/null representations. Never has no inhabitant and cannot be a literal; this selected profile does not offer an implicit Float JSON-number literal—use the bound F64Bits/decodeF64 or a qualified numeric constructor. Other nominal/specialized values still require their actual Type/Value codec; mere JSON shape is not semantic qualification. Bytes literals additionally require an explicit codec in scalar Type.encoding (hex/base64/utf8) and a string representation. Canonical lowercase even-length hex is checked by schema; base64 canonicality and UTF-8 scalar decoding are checked by the qualified codec. No silent implicit encoding, locale normalization or JSON numeric array conversion."
         },
         {
           "type": "object",
