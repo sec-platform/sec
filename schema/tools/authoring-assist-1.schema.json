@@ -260,6 +260,40 @@
               ]
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "kind",
+              "action"
+            ],
+            "properties": {
+              "kind": {
+                "const": "actions"
+              },
+              "action": {
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "extract-function"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "range"
+            ],
+            "not": {
+              "required": [
+                "position"
+              ]
+            }
+          },
+          "description": "Extract-function needs the exact selected range, not a guessed function inferred from a single cursor."
         }
       ]
     },
@@ -824,6 +858,19 @@
               "detailRef"
             ]
           }
+        },
+        {
+          "if": {
+            "required": [
+              "activeParameter"
+            ]
+          },
+          "then": {
+            "required": [
+              "parameters"
+            ]
+          },
+          "description": "The active parameter requires a parameter list; index-in-range is checked against the real selected overload by the semantic consumer."
         }
       ]
     },
@@ -1113,7 +1160,8 @@
       "additionalProperties": false,
       "required": [
         "label",
-        "state"
+        "state",
+        "actionKind"
       ],
       "properties": {
         "label": {
@@ -1169,6 +1217,31 @@
               "detailRef"
             ]
           }
+        },
+        {
+          "if": {
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "planRef"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "planRef"
+              ]
+            }
+          },
+          "description": "Only a complete fixed edit plan is ready to accept; suggestions lacking its full reader/write-set stay needs-input or unavailable."
         }
       ]
     }
