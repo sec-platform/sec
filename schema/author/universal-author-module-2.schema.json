@@ -918,9 +918,156 @@
                   }
                 }
               }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "decimal"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/DecimalLiteral"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "bool"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "text"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "unit"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "enum": [
+                          "never",
+                          "float"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": false
             }
           ],
-          "description": "Integer literals use canonical decimal strings even within the host safe-integer range. The Type/Value owner separately checks bit-width, bounds and qualified codecs; JSON numbers are not a second integer Writer."
+          "description": "Int/UInt literals use canonical exact decimal strings. Decimal uses exact signed integer coefficient and bounded nonnegative base-10 scale. Bool/Text/Unit use their matching JSON boolean/string/null representations. Never has no inhabitant and cannot be a literal; this selected profile does not offer an implicit Float JSON-number literal—use the bound F64Bits/decodeF64 or a qualified numeric constructor. Other nominal/specialized values still require their actual Type/Value codec; mere JSON shape is not semantic qualification."
         },
         {
           "type": "object",
@@ -5889,6 +6036,28 @@
         }
       ],
       "description": "Exactly the ten common lexical statement shapes, not a complete object-method body. FieldWrite and SuperInit from the object language require its distinct qualified dialect/body codec; unknown object nodes are preserved in their original source rather than converted to generic set/perform."
+    },
+    "DecimalLiteral": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coefficient",
+        "scale"
+      ],
+      "properties": {
+        "coefficient": {
+          "type": "string",
+          "pattern": "^(0|-?[1-9][0-9]*)$",
+          "description": "Canonical exact integral coefficient, not a host floating JSON number. Zero has coefficient '0', preserving chosen scale separately."
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Exact base-10 fractional scale. Actual Type.scale compatibility, target precision/rounding and resource budget are checked by the qualified decimal consumer."
+        }
+      },
+      "description": "The exact decimal value coefficient * 10^(-scale), with scale explicitly preserved. No guessed rounding, no JSON float coercion and no implicit physical representation."
     }
   },
   "x-gift-current-source-writer": true,
