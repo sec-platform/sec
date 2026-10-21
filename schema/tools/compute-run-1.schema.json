@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:compute-run-1",
+  "title": "Negotiated build/run/eval operation start requests (design only)",
+  "description": "These are negotiated gift.operation(action:start) branches; normal operation status/cancel/control stays in existing ai-tools/2. Requests authorize no effects without current host grant and exact retained input binding.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ComputeBuild"
+    },
+    {
+      "$ref": "#/$defs/ComputeRun"
+    },
+    {
+      "$ref": "#/$defs/ComputeEval"
+    }
+  ],
+  "$defs": {
+    "ComputeBuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "kind",
+        "requestId",
+        "artifactRef"
+      ],
+      "properties": {
+        "action": {
+          "const": "start"
+        },
+        "kind": {
+          "const": "compute-build"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "outputs"
+          ]
+        },
+        "artifactRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "ComputeRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "kind",
+        "requestId",
+        "artifactRef",
+        "entryRef",
+        "argumentsRef"
+      ],
+      "properties": {
+        "action": {
+          "const": "start"
+        },
+        "kind": {
+          "const": "compute-run"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "outputs"
+          ]
+        },
+        "artifactRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "entryRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "argumentsRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "observationRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "ComputeEval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "kind",
+        "requestId",
+        "candidateRef",
+        "entryRef",
+        "argumentsRef"
+      ],
+      "properties": {
+        "action": {
+          "const": "start"
+        },
+        "kind": {
+          "const": "compute-eval"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "return": {
+          "enum": [
+            "summary",
+            "outputs"
+          ]
+        },
+        "candidateRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "entryRef": {
+          "$ref": "#/$defs/SourceEntryRef"
+        },
+        "argumentsRef": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "SourceEntryRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "export"
+      ],
+      "properties": {
+        "moduleId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "export": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    }
+  }
+}

@@ -95,13 +95,14 @@
     },
     "definitions": {
       "type": "object",
-      "minProperties": 1,
+      "minProperties": 0,
       "propertyNames": {
         "$ref": "#/$defs/Identifier"
       },
       "additionalProperties": {
         "$ref": "#/$defs/Definition"
-      }
+      },
+      "description": "Local definitions may be empty only for an export-only facade. Semantic linking verifies that each export resolves to an exact, public imported symbol; source modules do not gain new identities or authorities."
     },
     "exports": {
       "type": "object",
@@ -110,16 +111,15 @@
         "$ref": "#/$defs/Identifier"
       },
       "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "definitionId"
-        ],
-        "properties": {
-          "definitionId": {
-            "$ref": "#/$defs/Identifier"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/LocalExport"
+          },
+          {
+            "$ref": "#/$defs/ImportedExport"
           }
-        }
+        ],
+        "description": "A stable public name routes either to a local Definition or to a public symbol of an explicit import; no implicit wrapper function or extra authority."
       }
     },
     "annotations": {
@@ -382,11 +382,15 @@
             },
             "bits": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
             },
             "scale": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
             },
             "overflow": {
               "enum": [
@@ -914,9 +918,219 @@
                   }
                 }
               }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "decimal"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/DecimalLiteral"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "bool"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "text"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "unit"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "enum": [
+                          "never",
+                          "float"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": false
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "properties": {
+                      "tag": {
+                        "const": "scalar"
+                      },
+                      "name": {
+                        "const": "bytes"
+                      }
+                    },
+                    "required": [
+                      "tag",
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "type": {
+                    "required": [
+                      "encoding"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "properties": {
+                            "encoding": {
+                              "const": "hex"
+                            }
+                          },
+                          "required": [
+                            "encoding"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "value": {
+                          "pattern": "^(?:[0-9a-f]{2})*$"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
             }
           ],
-          "description": "Integer literals use canonical decimal strings even within the host safe-integer range. The Type/Value owner separately checks bit-width, bounds and qualified codecs; JSON numbers are not a second integer Writer."
+          "description": "Int/UInt literals use canonical exact decimal strings. Decimal uses exact signed integer coefficient and bounded nonnegative base-10 scale. Bool/Text/Unit use their matching JSON boolean/string/null representations. Never has no inhabitant and cannot be a literal; this selected profile does not offer an implicit Float JSON-number literal—use the bound F64Bits/decodeF64 or a qualified numeric constructor. Other nominal/specialized values still require their actual Type/Value codec; mere JSON shape is not semantic qualification. Bytes literals additionally require an explicit codec in scalar Type.encoding (hex/base64/utf8) and a string representation. Canonical lowercase even-length hex is checked by schema; base64 canonicality and UTF-8 scalar decoding are checked by the qualified codec. No silent implicit encoding, locale normalization or JSON numeric array conversion."
         },
         {
           "type": "object",
@@ -1042,7 +1256,8 @@
               "minItems": 0
             },
             "body": {
-              "$ref": "#/$defs/Expr"
+              "$ref": "#/$defs/ExecBody",
+              "description": "In the selected common text profile, pure expression lambdas keep '(args) => Expr'. A structured lexical ExecBlock body has the distinct, unambiguous source form '(args) => scope { statements [result] }'. 'scope' is contextual; it does not make a new global keyword or rewrite legacy lambdas. Body return/break/capture/effect is checked using the same lexical function boundary."
             },
             "effects": {
               "type": "array",
@@ -2108,7 +2323,9 @@
             },
             "count": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
             },
             "orderingRef": {
               "$ref": "#/$defs/Ref"
@@ -2166,7 +2383,6 @@
       "required": [
         "name",
         "typeRef",
-        "keyFields",
         "constraints"
       ],
       "properties": {
@@ -2181,7 +2397,9 @@
           "items": {
             "$ref": "#/$defs/Identifier"
           },
-          "minItems": 1
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Ordered composite key columns, each declared exactly once. Semantic consumer verifies column existence, compatible non-null/equality constraints, source uniqueness, target index/order and migration; Schema cannot certify the actual key constraint."
         },
         "constraints": {
           "type": "array",
@@ -2189,17 +2407,59 @@
             "$ref": "#/$defs/Ref"
           },
           "minItems": 0
+        },
+        "rowIdentity": {
+          "const": "keyless",
+          "description": "Explicit relation with no stable per-row key. Physical row location, value hash, and position do not create durable identity."
+        },
+        "rowMultiplicity": {
+          "enum": [
+            "set",
+            "bag"
+          ],
+          "description": "Keyless set deduplicates under qualified value equality; bag preserves repeated row occurrences. Neither permits implicit writes or order."
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "keyFields"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "rowIdentity"
+                ]
+              },
+              {
+                "required": [
+                  "rowMultiplicity"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "rowIdentity",
+            "rowMultiplicity"
+          ],
+          "not": {
+            "required": [
+              "keyFields"
+            ]
+          }
+        }
+      ],
+      "description": "Stable keyed entity and explicitly keyless set/bag relation are distinct author meanings. A keyless row cannot be individually edited without independent stable locator, qualified preimage, transaction and authority."
     },
     "QualityTerm": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "metricRef",
-        "relation",
-        "strength",
-        "thresholdLiteral"
+        "strength"
       ],
       "properties": {
         "metricRef": {
@@ -2228,8 +2488,113 @@
         },
         "thresholdLiteral": {
           "$ref": "#/$defs/BusinessQuantity"
+        },
+        "termId": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Stable term identity within one quality contract for explicitly ranked/weighted comparisons; not a global metric or real-world measurement ID."
+        },
+        "objective": {
+          "enum": [
+            "minimize",
+            "maximize"
+          ],
+          "description": "Unbounded soft objective in this metric; does not require a fabricated threshold."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Explicit lexicographic priority of a soft term; smaller number first. Semantic linker rejects duplicate priorities and does not infer them from array position. Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number.",
+          "maximum": 9007199254740991
+        },
+        "weightDecimal": {
+          "type": "string",
+          "pattern": "^(?:0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\\.[0-9]+)?)$",
+          "description": "Positive finite exact decimal weight for an explicit normalized soft cost; never a weight for hard feasibility or a proxy for another stakeholder's authority."
+        },
+        "scoreRef": {
+          "$ref": "#/$defs/Ref",
+          "description": "Qualified pure/domain Method or Meaning mapping this term's metric, scope, horizon and threshold/objective to a comparable finite dimensionless loss (lower is better); a reference alone does not certify scale, monotonicity, uncertainty or target."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "strength": {
+                "const": "hard"
+              }
+            },
+            "required": [
+              "strength"
+            ]
+          },
+          "then": {
+            "required": [
+              "relation",
+              "thresholdLiteral"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "objective"
+                  ]
+                },
+                {
+                  "required": [
+                    "priority"
+                  ]
+                },
+                {
+                  "required": [
+                    "weightDecimal"
+                  ]
+                },
+                {
+                  "required": [
+                    "scoreRef"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "oneOf": [
+              {
+                "required": [
+                  "relation",
+                  "thresholdLiteral"
+                ],
+                "not": {
+                  "required": [
+                    "objective"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "objective"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "relation"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "thresholdLiteral"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "description": "Hard quality clauses require an exact threshold and relation. Soft clauses are either a threshold preference with relation or a directional objective with no invented threshold. Score/priority/weight are qualified under the enclosing comparisonPolicy; syntax never certifies measurement quality."
     },
     "PolicyRule": {
       "type": "object",
@@ -2278,7 +2643,9 @@
         },
         "priority": {
           "type": "integer",
-          "description": "Valid only with explicit-priority combining and qualified rule-overlap interpretation."
+          "description": "Valid only with explicit-priority combining and qualified rule-overlap interpretation. Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number.",
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991
         },
         "conditionUse": {
           "$ref": "#/$defs/BusinessPredicateUse"
@@ -2384,7 +2751,9 @@
         },
         "replicas": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number."
         },
         "instance": {
           "$ref": "#/$defs/Identifier"
@@ -2510,7 +2879,7 @@
                   "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
                 },
                 "body": {
-                  "$ref": "#/$defs/Expr"
+                  "$ref": "#/$defs/ExecBody"
                 },
                 "contract": {
                   "$ref": "#/$defs/Contract"
@@ -3095,8 +3464,7 @@
               "additionalProperties": false,
               "required": [
                 "unitRef",
-                "allocation",
-                "capacityLiteral"
+                "allocation"
               ],
               "properties": {
                 "unitRef": {
@@ -3136,8 +3504,25 @@
                     "$ref": "#/$defs/ContextRole"
                   },
                   "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                },
+                "capacityMeaningRef": {
+                  "$ref": "#/$defs/Ref",
+                  "description": "Optional capacity source: an exactly bound domain:meaning(category=measurement) with a qualified nonnegative quantity result in the resource's unit/scope. Runtime dynamic capacity is observed under its actual evidence, freshness and authority; neither a schema-valid ref nor a past observation grants physical capacity."
                 }
-              }
+              },
+              "anyOf": [
+                {
+                  "required": [
+                    "capacityLiteral"
+                  ]
+                },
+                {
+                  "required": [
+                    "capacityMeaningRef"
+                  ]
+                }
+              ],
+              "description": "At least one capacity basis is required: a static author limit, a qualified capacity measurement, or both. If both, they independently constrain admission over the same resource identity/scope/unit; unavailable observation cannot be replaced by zero, infinity or a fabricated static literal. Allocation still needs current physical admission and reserve/lease settlement."
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"
@@ -3474,7 +3859,152 @@
                   },
                   "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "const": "weighted-explicit"
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "contains": {
+                          "properties": {
+                            "strength": {
+                              "const": "soft"
+                            }
+                          },
+                          "required": [
+                            "strength"
+                          ]
+                        },
+                        "minContains": 1,
+                        "items": {
+                          "if": {
+                            "properties": {
+                              "strength": {
+                                "const": "soft"
+                              }
+                            },
+                            "required": [
+                              "strength"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "termId",
+                              "weightDecimal",
+                              "scoreRef"
+                            ],
+                            "not": {
+                              "required": [
+                                "priority"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "const": "lexicographic"
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "contains": {
+                          "properties": {
+                            "strength": {
+                              "const": "soft"
+                            }
+                          },
+                          "required": [
+                            "strength"
+                          ]
+                        },
+                        "minContains": 1,
+                        "items": {
+                          "if": {
+                            "properties": {
+                              "strength": {
+                                "const": "soft"
+                              }
+                            },
+                            "required": [
+                              "strength"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "termId",
+                              "priority"
+                            ],
+                            "not": {
+                              "required": [
+                                "weightDecimal"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "comparisonPolicy": {
+                        "enum": [
+                          "pareto",
+                          "feasibility-only"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "comparisonPolicy"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "terms": {
+                        "items": {
+                          "not": {
+                            "anyOf": [
+                              {
+                                "required": [
+                                  "weightDecimal"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "priority"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "description": "Hard threshold clauses are conjunctive feasibility gates for every policy. Weighted-explicit requires exact positive weights and qualified per-term dimensionless loss; lexicographic requires explicit stable priorities. Pareto uses qualified per-metric directions/relations, and feasibility-only issues no soft ordering claim. Missing score, ordering or coverage never becomes an implicit weight or success."
             },
             "qualifiers": {
               "$ref": "#/$defs/AuthorQualifiers"
@@ -4022,7 +4552,7 @@
           "minLength": 1
         }
       },
-      "description": "Static nonnegative capacity magnitude; actual capacity and admission require a qualified resource meaning."
+      "description": "Design-shape static nonnegative resource limit with exact decimal magnitude/unit. It is not a physical free-capacity observation, reservation or HostGrant."
     },
     "ComponentParameter": {
       "type": "object",
@@ -4081,7 +4611,9 @@
         },
         "priority": {
           "type": "integer",
-          "description": "Unique per decision if and only if explicit-priority selection is used. Larger integer wins among qualified true branches. Does not replace condition evidence."
+          "description": "Unique per decision if and only if explicit-priority selection is used. Larger integer wins among qualified true branches. Does not replace condition evidence. Author JSON numeric control field is bounded to interoperable safe integer precision; larger exact quantities require an explicitly different lossless type/profile, never a rounded JSON number.",
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991
         }
       },
       "description": "A qualified business predicate and destination step; no expression and no implicit first-match semantics."
@@ -5297,9 +5829,329 @@
         }
       ],
       "description": "A structured state graph in the existing state:machine Body, not another StateDefinition kind. String shorthand is an atomic state. All nodes share one local identity namespace; kind controls legal parent/initial/region/fallback/entry/exit use. Valid configuration, transitions, event generation, restoration and external effects are owned by the state/runtime contracts. Compound/region require initial direct child; parallel has region children rather than a single initial. Atomic/final and history pseudo states cannot carry initial; only history carries fallback. Parent ancestry, parallel region uniqueness and transition choice require semantic resolution of the complete chart."
+    },
+    "LocalExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definitionId"
+      ],
+      "properties": {
+        "definitionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ImportedExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import",
+        "export"
+      ],
+      "properties": {
+        "import": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "not": {
+                "enum": [
+                  "local",
+                  "std"
+                ]
+              }
+            }
+          ]
+        },
+        "export": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "description": "Alias of an explicitly imported public export. Binding and visibility must be checked against the exact imported ModuleUse and lock; no wildcard exports."
+    },
+    "ExecBody": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Expr"
+        },
+        {
+          "$ref": "#/$defs/ExecBlock"
+        }
+      ],
+      "description": "An expression or finite common lexical control block. Object-specific field writes, parent initialization, object construction/read/dispatch and class declarations are NOT implied by this plain branch; they use an exactly bound object dialect body/consumer, with explicit qualified conversion for the shared subset. Do not reinterpret Expr.field as a mutable object member or Expr.var as privileged this/super."
+    },
+    "ExecBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op",
+        "statements"
+      ],
+      "properties": {
+        "op": {
+          "const": "exec:block"
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExecStatement"
+          },
+          "minItems": 0
+        },
+        "result": {
+          "$ref": "#/$defs/Expr"
+        }
+      },
+      "description": "A lexical block. Statements evaluate in order; result is evaluated iff ordinary completion reaches it. No result means Unit. Return/Break/Continue/Fault/Cancel are distinct exits, never data Result.Err. Local var positions are new per block activation and while iteration."
+    },
+    "ExecStatement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "let"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Lexical immutable binding; evaluate initializer once, then bind after success."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "var"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "type": {
+              "$ref": "#/$defs/Type"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Lexical mutable location, distinct from Expr.var which only reads a bound name."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "name",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "set"
+            },
+            "name": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Evaluate RHS before writing the nearest valid mutable location. Reject immutable, unbound, inaccessible or moved targets."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "then"
+          ],
+          "properties": {
+            "op": {
+              "const": "if"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "then": {
+              "$ref": "#/$defs/ExecBlock"
+            },
+            "else": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Only one branch runs after exactly one Bool condition evaluation; absent else is Unit."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "condition",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "while"
+            },
+            "condition": {
+              "$ref": "#/$defs/Expr"
+            },
+            "body": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Evaluate Bool condition before every iteration; enter fresh lexical body scope on each true iteration. No arbitrary compile-time iteration bound."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "break"
+            }
+          },
+          "description": "Exit the nearest lexically enclosing while in the current function or lambda. A structural checker must reject outside one."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "continue"
+            }
+          },
+          "description": "Continue nearest lexically enclosing while, re-evaluating the condition. Cannot cross a lambda/function boundary."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "return"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Exit current function or lambda, not caller; omitted value means Unit. Check return type and cleanup."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "value"
+          ],
+          "properties": {
+            "op": {
+              "const": "eval"
+            },
+            "value": {
+              "$ref": "#/$defs/Expr"
+            }
+          },
+          "description": "Evaluate an expression in sequence and discard an ordinary value; must diagnose unconsumed Result per actual language contract."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "body"
+          ],
+          "properties": {
+            "op": {
+              "const": "scope"
+            },
+            "body": {
+              "$ref": "#/$defs/ExecBlock"
+            }
+          },
+          "description": "Execute a nested lexical block; nested result is discarded as a statement, but effects and abnormal exits propagate."
+        }
+      ],
+      "description": "Exactly the ten common lexical statement shapes, not a complete object-method body. FieldWrite and SuperInit from the object language require its distinct qualified dialect/body codec; unknown object nodes are preserved in their original source rather than converted to generic set/perform."
+    },
+    "DecimalLiteral": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coefficient",
+        "scale"
+      ],
+      "properties": {
+        "coefficient": {
+          "type": "string",
+          "pattern": "^(0|-?[1-9][0-9]*)$",
+          "description": "Canonical exact integral coefficient, not a host floating JSON number. Zero has coefficient '0', preserving chosen scale separately."
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Exact base-10 fractional scale. Actual Type.scale compatibility, target precision/rounding and resource budget are checked by the qualified decimal consumer."
+        }
+      },
+      "description": "The exact decimal value coefficient * 10^(-scale), with scale explicitly preserved. No guessed rounding, no JSON float coercion and no implicit physical representation."
     }
   },
   "x-gift-current-source-writer": true,
   "x-gift-author-qualification": "All declared Kind shapes are in the single proposed author design; meaning/compute/method/target qualifications are independent and not assumed from schema recognition.",
-  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied."
+  "$comment": "Design contract; Schema establishes only serialized syntax. Domain types, scopes, names, totality, environment, grants, semantic effect inference, branch reachability and Target qualifications remain professional owner rules. No implemented compiler or checker is implied.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "definitions": {
+            "maxProperties": 0
+          }
+        },
+        "required": [
+          "definitions"
+        ]
+      },
+      "then": {
+        "required": [
+          "exports"
+        ],
+        "properties": {
+          "exports": {
+            "minProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/ImportedExport"
+            }
+          }
+        }
+      }
+    }
+  ]
 }
