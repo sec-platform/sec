@@ -185,7 +185,8 @@
         },
         "action": {
           "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Stable declared action identifier from the exact resolved FacetDescriptor for this base/revision; spelling must match FacetAction.name. There is no dynamic method lookup by human display label."
         },
         "subjectBindings": {
           "type": "object",
@@ -449,7 +450,7 @@
         },
         "actions": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "items": {
             "$ref": "#/$defs/FacetAction"
           }
@@ -468,7 +469,27 @@
           "$ref": "#/$defs/Ref"
         }
       },
-      "description": "Qualified module contribution only: all value/codecs/defaults/effect/claim/expansion/migration are resolved by exact source ModuleUse and locked profile. No current Grants, secrets, health, selected Binding or observed operational result is persisted inside this descriptor."
+      "description": "Qualified module contribution only: all value/codecs/defaults/effect/claim/expansion/migration are resolved by exact source ModuleUse and locked profile. No current Grants, secrets, health, selected Binding or observed operational result is persisted inside this descriptor. A query-only facet may have an empty actions list only with a qualified readProjectionRef; disclosure of a facet cannot authorize intent-action. Action IDs must be unique within a given exact facet revision, verified by descriptor linker, not by array order or full-object uniqueItems.",
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "actions"
+            ],
+            "properties": {
+              "actions": {
+                "maxItems": 0
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "readProjectionRef"
+            ]
+          },
+          "description": "A facet with no write actions must have an actual read projection method to justify its discoverability; never infer an edit action from its label."
+        }
+      ]
     },
     "FormalRole": {
       "type": "object",
