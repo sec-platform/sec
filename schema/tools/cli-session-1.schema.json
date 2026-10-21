@@ -108,33 +108,39 @@
       "properties": {
         "frameBytes": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Positive advertised session admission/transmission capacity. The encoded ready and mandatory final protocol frames must fit actual frame/session budgets; this number alone is not a complete readiness proof."
         },
         "sessionInputBytes": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Positive advertised session admission/transmission capacity. The encoded ready and mandatory final protocol frames must fit actual frame/session budgets; this number alone is not a complete readiness proof."
         },
         "sessionOutputBytes": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Positive advertised session admission/transmission capacity. The encoded ready and mandatory final protocol frames must fit actual frame/session budgets; this number alone is not a complete readiness proof."
         },
         "maxCalls": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Positive advertised session admission/transmission capacity. The encoded ready and mandatory final protocol frames must fit actual frame/session budgets; this number alone is not a complete readiness proof."
         },
         "maxActiveCalls": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Positive advertised session admission/transmission capacity. The encoded ready and mandatory final protocol frames must fit actual frame/session budgets; this number alone is not a complete readiness proof."
         },
         "wallTimeMs": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Positive advertised session admission/transmission capacity. The encoded ready and mandatory final protocol frames must fit actual frame/session budgets; this number alone is not a complete readiness proof."
         },
         "referenceBytes": {
           "type": "integer",
@@ -149,7 +155,8 @@
         "defaultCallBudget": {
           "$ref": "#/$defs/Budget"
         }
-      }
+      },
+      "description": "A ready session must have positive frame/input/output/call/concurrency/lifetime capacity and enough budget to send its own ready and required final frames. maxActiveCalls <= maxCalls and each actual serialized frame and result must satisfy all applicable limits, checked by the live protocol owner. referenceBytes and closeDeadlineMs may be zero when no reference retention or graceful wait is promised."
     },
     "Subject": {
       "oneOf": [
