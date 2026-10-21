@@ -778,6 +778,31 @@
               "detailRef"
             ]
           }
+        },
+        {
+          "if": {
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "planRef"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "planRef"
+              ]
+            }
+          },
+          "description": "A ready completion has a complete versioned EditPlan including required imports and other edits. A mere text suggestion without one must be needs-input/unavailable and cannot be auto-accepted."
         }
       ]
     },
