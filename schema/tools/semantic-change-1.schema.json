@@ -218,7 +218,7 @@
           }
         }
       ],
-      "description": "Three closed structural edits plus a typed, fixed-revision extension dispatch. Unknown op is always rejected; arbitrary payload is only data and requires a separately loaded schema/consumer."
+      "description": "Three existing-target structural edits plus a fixed-revision typed extension. The core union does not create/remove Definition, Module or file. Creation/deletion is encoded by existing propose(source/files) or by a separately qualified extension payload with its own object declarations and local-label rules; opId names an edit, not a created object. Unknown op remains rejected."
     },
     "Precondition": {
       "oneOf": [
@@ -352,7 +352,8 @@
           "items": {
             "$ref": "#/$defs/Operation"
           },
-          "minItems": 0
+          "minItems": 0,
+          "description": "Core operations target existing handles. Batch-local created objects and forward references are valid only if a qualified extension actually declares them; source/files authoring uses existing project/module/definition identities instead. Groups and opIds alone cannot create identities or bypass linked read/absence dependencies."
         },
         "preconditions": {
           "type": "array",

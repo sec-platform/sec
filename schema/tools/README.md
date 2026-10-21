@@ -10,7 +10,7 @@
 | debug-session-1 | 协商后的 launch/attach、query(debug-targets) 及 pause/continue/step/breakpoints/detach/terminate 精确互斥字段 | 暂停和配置代、Host/Driver真实停止与披露、效果权、未决命令、源映射和读取不执行目标代码 | 
 | compute-run-1 | 协商后的 operation start 三分支：完整制品构建、制品运行、候选入口即时编译运行；不同入口/参数互斥 | 当前Artifact/Candidate、Runner/Target/Grant、环境、启动/完成/取消/重试与RunRecord真实读回 | 
 | input-preparation-1 | 协商后 propose.draft(prepare-input) 的 arguments/cases/observation 互斥主体、被动值语法及 prepared/needs-input 结果 | 真实类型、当前值绑定、准备方法、寿命/权限；不能执行表达式、自动发现测试或签运行结果 | 
-| semantic-change-1 | 单一作者候选变化：set-input/replace-expression/rename 和受限定扩展、局部标签、前提与真实联合组 | 原SourceOwner句柄/类型/效果、真实前像、组依赖、Method登记与权限；不是另一种直接写盘协议 | 
+| semantic-change-1 | 单一作者候选变化：set-input/replace-expression/rename 和受限定扩展、仅在合格创建声明内使用的局部标签、前提与真实联合组 | 原SourceOwner句柄/类型/效果、真实前像、组依赖、Method登记与权限；不是另一种直接写盘协议 | 
 | authoring-assist-1 | 可协商 query(candidateRef,assist) 七类位置请求和 propose.draft(author-edit)；逐kind条目与源坐标的封闭机器联合 | 真实版本/编码/权限、Language/Native Provider、EditPlan全体修改与已接受写者同义；旧端严格拒绝 | 
 | intent-authoring-1 | 可协商的 query intentCatalog/intentOccurrence 与 propose.draft(intent-action) 精确输入；Catalog/Occurrence 投影的封闭条目 | 描述符、源身份、角色/值 codec、默认、权限/披露、负依赖、操作实际写入资格；结构成立不产生Method或Effect | 
 | query-2 | 基础 at/find/view/limit/cursor | find 的对象领域、引用/范围、当前披露、真实分页覆盖；Json 只证明载体形状 |
