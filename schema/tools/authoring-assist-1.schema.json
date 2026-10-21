@@ -896,6 +896,24 @@
             ]
           },
           "description": "The active parameter requires a parameter list; index-in-range is checked against the real selected overload by the semantic consumer."
+        },
+        {
+          "if": {
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "parameters"
+            ]
+          },
+          "description": "A ready signature has an actual ordered parameter list, including [] for a zero-parameter callable. Missing/undetermined params cannot be disguised as a complete overload. activeParameter must further point to a real index under the actual overload."
         }
       ]
     },
