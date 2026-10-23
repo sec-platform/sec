@@ -35,6 +35,8 @@
 
 - [src](../src/) 中共置的测试：跟随被测模块，适合局部合同与内部机制。
 - [catalog](../catalog/registry/official/) 中的测试：属于安装到目标工程的 Block 内容，位置由各清单消费，不是本仓库测试的重复副本。
+- [组合器运行时测试模板](../src/adapters/compilation/compose/templates/tests/runtime/unit/)：按已启用的 Block 物化到目标工程的 `tests/runtime/unit`，验证生成的数据库接线与能力组合；模板本身不是本仓直接执行的测试。
+- [升级工作区测试 fixture](fixtures/block-upgrade-workspace/tests/)：准备升级工作区时去掉 `.fixture` 后缀，分别进入目标工程的 acceptance 与 runtime 测试入口。
 - [文档工具测试](../tools/documentation/tests/)：跟随 Python 工具及其发现规则。
 
 ## 支持代码与执行资格

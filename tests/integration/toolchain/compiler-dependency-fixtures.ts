@@ -289,7 +289,8 @@ async function withCompilerTestWorkspace(
 async function withCompilerTestConsumer(
   context: EffectfulTestContext,
   prefix: string,
-  run: Parameters<typeof withCompilerTestWorkspace>[2]
+  run: Parameters<typeof withCompilerTestWorkspace>[2],
+  fixtureRestorationComplete: () => boolean = () => true
 ): Promise<void> {
   const root = await fs.mkdtemp(path.join(tmpdir(), prefix));
   let lifecycle: IsolatedGeneratedStateLifecycle;
@@ -311,6 +312,12 @@ async function withCompilerTestConsumer(
       signal: context.cleanupSignal
     }, 'compiler-test-consumer-settled');
     assertCompilerDependencyEnvironmentRetirementReceipt(receipt, root);
+    // A namespace receipt does not settle caller-owned parked roots or unknown
+    // replacement inputs. Preserve both fixture and lifecycle evidence until
+    // their local restoration has also completed.
+    if (fixtureRestorationComplete() !== true) {
+      throw new Error('Compiler consumer fixture restoration is unresolved; retaining its roots.');
+    }
     await settleWorkspaceCleanups([
       () => fs.rm(root, { recursive: true, force: true }),
       () => removeSettledGeneratedStateFixtureRoot(lifecycle)
@@ -358,14 +365,14 @@ async function writeCompilerDependencyRoot(
   lockfile = 'lock-v1\n',
   bunVersion = process.versions.bun!
 ): Promise<void> {
-  await Promise.all([
-    fs.writeFile(path.join(root, 'package.json'), `${JSON.stringify({
+  await settleWorkspaceCleanups([
+    () => fs.writeFile(path.join(root, 'package.json'), `${JSON.stringify({
       packageManager: `bun@${bunVersion}`,
       dependencies: { commander: '1.0.0' },
       devDependencies: { typescript: '1.0.0' }
     })}\n`, 'utf8'),
-    fs.writeFile(path.join(root, 'bun.lock'), lockfile, 'utf8'),
-    fs.writeFile(path.join(root, '.bun-version'), `${bunVersion}\n`, 'utf8')
+    () => fs.writeFile(path.join(root, 'bun.lock'), lockfile, 'utf8'),
+    () => fs.writeFile(path.join(root, '.bun-version'), `${bunVersion}\n`, 'utf8')
   ]);
 }
 

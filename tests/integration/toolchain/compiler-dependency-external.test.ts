@@ -52,6 +52,32 @@ import {
   writeCompilerDependencyRoot
 } from './compiler-dependency-fixtures.ts';
 
+// These replacement roots belong only to this fixture. Never recursively
+// remove a regressed publication or recovery journal under their current path.
+function retireUnpublishedFixtureInputs(
+  root: ReturnType<typeof inspectNoFollowDirectoryChain>['target'],
+  parent: ReturnType<typeof inspectNoFollowDirectoryChain>['target'],
+  inputNames: readonly string[],
+  inputs: readonly Uint8Array[],
+  cleanupDeadlineAtUnixMs: number
+): void {
+  const deadlineAtMs = performance.now() + cleanupDeadlineAtUnixMs - Date.now();
+  const inventory = scanNoFollowDirectoryTreeInventory(root, {
+    deadlineAtMs, maximumBytes: inputs.reduce((sum, bytes) => sum + bytes.byteLength, 0),
+    maximumEntries: inputNames.length
+  });
+  const expectedFileBytes = new Map<string, Uint8Array>();
+  for (const entry of inventory) {
+    const index = inputNames.indexOf(entry.relativePath);
+    if (entry.kind !== 'file' || index < 0) {
+      throw new Error('Fixture replacement contains unretired publication or unknown entries.');
+    }
+    expectedFileBytes.set(entry.relativePath, inputs[index]!);
+  }
+  physicalNoFollow.retireNoFollowDirectoryTree({ root, parent, inventory, expectedFileBytes,
+    deadlineAtMonotonicMs: deadlineAtMs });
+}
+
 describe('compiler dependency installation', () => {
   effectfulTest(test.serial,
     'cache cutover preserves a borrowed predecessor until the consumer explicitly switches',
@@ -83,14 +109,14 @@ describe('compiler dependency installation', () => {
           operation, consumerRoot);
         const original = await retainCompilerDependencyReadGeneration(consumer.executionGenerationAuthority,
           { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal });
-        let replacement;
-        try {
+        await settleWorkspaceCallback(async () => {
           const publisher = await retainCompilerDependencyReadGeneration(source.executionGenerationAuthority,
             { deadlineAtUnixMs: ownerOperation.deadlineAtUnixMs, signal: ownerOperation.signal });
-          try {
-            replacement = await publishCompilerDependencyCacheCopy(source.executionGenerationAuthority,
-              publisher, { ...ownerOperation, installMode: 'offline-copy-only' }, ownerRoot);
-          } finally { await publisher.retire(); }
+          const replacement = await settleWorkspaceCallback(
+            () => publishCompilerDependencyCacheCopy(source.executionGenerationAuthority,
+              publisher, { ...ownerOperation, installMode: 'offline-copy-only' }, ownerRoot),
+            async () => { await publisher.retire(); }
+          );
           await collectCompilerDependencyCacheGarbage(ownerRoot, maintenance);
           expect((await fs.lstat(oldPath)).isDirectory()).toBeTrue();
           await original.assertAuthorityCurrent();
@@ -108,11 +134,11 @@ describe('compiler dependency installation', () => {
           const originalCache = process.env.SEC_CACHE_HOME;
           const originalStorage = compilerDependencyStoragePaths(ownerRoot);
           const unpublishedRoot = path.join(ownerRoot, 'unpublished-consumer');
-          await fs.mkdir(unpublishedRoot);
-          await writeCompilerDependencyRoot(unpublishedRoot);
-          await fs.symlink(await fs.realpath(replacement.nodeModulesPath), path.join(unpublishedRoot, 'node_modules'),
-            process.platform === 'win32' ? 'junction' : 'dir');
-          try {
+          await settleWorkspaceCallback(async () => {
+            await fs.mkdir(unpublishedRoot);
+            await writeCompilerDependencyRoot(unpublishedRoot);
+            await fs.symlink(await fs.realpath(replacement.nodeModulesPath), path.join(unpublishedRoot, 'node_modules'),
+              process.platform === 'win32' ? 'junction' : 'dir');
             process.env.SEC_STATE_HOME = path.join(path.dirname(ownerRoot), `${path.basename(ownerRoot)}-uncreated-private-state`);
             process.env.SEC_CACHE_HOME = path.join(path.dirname(ownerRoot), `${path.basename(ownerRoot)}-uncreated-private-cache`);
             const redirected = compilerDependencyStoragePaths(ownerRoot);
@@ -129,14 +155,18 @@ describe('compiler dependency installation', () => {
               { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }, unpublishedRoot))
               .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
             expect((await fs.lstat(await fs.realpath(replacement.nodeModulesPath))).isDirectory()).toBeTrue();
-          } finally {
-            if (originalState === undefined) delete process.env.SEC_STATE_HOME;
-            else process.env.SEC_STATE_HOME = originalState;
-            if (originalCache === undefined) delete process.env.SEC_CACHE_HOME;
-            else process.env.SEC_CACHE_HOME = originalCache;
-            await fs.rm(unpublishedRoot, { recursive: true, force: true });
-          }
-        } finally { await original.retire(); }
+          }, () => settleWorkspaceCleanups([
+            async () => {
+              if (originalState === undefined) delete process.env.SEC_STATE_HOME;
+              else process.env.SEC_STATE_HOME = originalState;
+            },
+            async () => {
+              if (originalCache === undefined) delete process.env.SEC_CACHE_HOME;
+              else process.env.SEC_CACHE_HOME = originalCache;
+            },
+            () => fs.rm(unpublishedRoot, { recursive: true, force: true })
+          ]));
+        }, async () => { await original.retire(); });
         await collectCompilerDependencyCacheGarbage(ownerRoot, maintenance);
         await expect(fs.lstat(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
       });
@@ -281,16 +311,24 @@ describe('compiler dependency installation', () => {
           await installCompilerDependencyFixture(command.cwd, 'pinned-source');
           return { code: 0, stdout: 'ok', stderr: '' };
         } }, ownerRoot);
+        let targetRestored = true;
         await withCompilerTestConsumer(effectful, 'sec-cdep-pin-target-', async (consumerRoot, operation) => {
           await writeCompilerDependencyRoot(consumerRoot);
           const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
           const inputNames = ['package.json', 'bun.lock', '.bun-version'] as const;
-          const inputs = await Promise.all(inputNames.map(name => fs.readFile(path.join(consumerRoot, name))));
+          const inputs: Buffer[] = [];
+          for (const name of inputNames) inputs.push(await fs.readFile(path.join(consumerRoot, name)));
+          const originalDirectory = inspectNoFollowDirectoryChain(consumerRoot).target;
+          const fixtureParent = inspectNoFollowDirectoryChain(path.dirname(consumerRoot)).target;
           const originalIdentity = await fs.lstat(consumerRoot, { bigint: true });
           const parkedRoot = `${consumerRoot}.admitted`;
           const replacementRoot = interference === 'directory-alias' ? `${consumerRoot}.replacement` : consumerRoot;
           let parked = false;
+          let replacementCreated = false;
           let replacementReady = false;
+          let replacementDirectory: typeof originalDirectory | undefined;
+          let aliasCreated = false;
+          let replacementAlias: ReturnType<typeof physicalNoFollow.inspectNoFollowLinkEntry> = null;
           await settleWorkspaceCallback(async () => {
             await expect(target.ensureCompilerDepsReadyFromGeneration(source.executionGenerationAuthority, {
               deadlineAtUnixMs: operation.deadlineAtUnixMs,
@@ -299,13 +337,19 @@ describe('compiler dependency installation', () => {
               // after target input bytes have been admitted, before publication.
               beforeCommit: async () => {
                 if (parked) return;
+                targetRestored = false;
+                physicalNoFollow.assertSameNoFollowDirectoryIdentity(originalDirectory);
                 await fs.rename(consumerRoot, parkedRoot);
                 parked = true;
                 await fs.mkdir(replacementRoot);
-                await Promise.all(inputNames.map((name, index) =>
+                replacementCreated = true;
+                replacementDirectory = inspectNoFollowDirectoryChain(replacementRoot).target;
+                await settleWorkspaceCleanups(inputNames.map((name, index) => () =>
                   fs.writeFile(path.join(replacementRoot, name), inputs[index]!)));
                 if (interference === 'directory-alias') {
                   await fs.symlink(replacementRoot, consumerRoot, process.platform === 'win32' ? 'junction' : 'dir');
+                  aliasCreated = true;
+                  replacementAlias = physicalNoFollow.inspectNoFollowLinkEntry(fixtureParent, path.basename(consumerRoot));
                 }
                 replacementReady = true;
               }
@@ -322,16 +366,16 @@ describe('compiler dependency installation', () => {
             await expect(fs.lstat(path.join(replacementRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
           }, async () => {
             if (!parked) return;
-            if (interference === 'directory-alias') {
-              const link = await fs.lstat(consumerRoot).catch(error => {
-                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-                throw error;
-              });
-              if (link !== null) {
-                expect(link.isSymbolicLink()).toBeTrue();
-                await fs.unlink(consumerRoot);
-              }
-            } else if (replacementReady) {
+            physicalNoFollow.assertSameNoFollowDirectoryIdentity(fixtureParent);
+            const parkedDirectory = inspectNoFollowDirectoryChain(parkedRoot).target;
+            expect(parkedDirectory).toMatchObject({ device: originalDirectory.device,
+              inode: originalDirectory.inode, objectId: originalDirectory.objectId });
+            if (aliasCreated) {
+              if (replacementAlias == null) throw new Error('Replacement alias identity was not captured.');
+              physicalNoFollow.deleteRetainedNoFollowEntry({ root: fixtureParent,
+                relativePath: path.basename(consumerRoot), kind: 'link', device: replacementAlias.device,
+                inode: replacementAlias.inode, expectedLinkTarget: replacementAlias.linkTarget!, ancestorDirectories: [] });
+            } else if (interference === 'same-byte-directory' && replacementReady) {
               // Even a regressed implementation's published locator must go
               // through its original owner before the fixture root is restored.
               const receipt = await target.disposeCompilerDependencyEnvironment(consumerRoot, {
@@ -339,10 +383,16 @@ describe('compiler dependency installation', () => {
               });
               assertCompilerDependencyEnvironmentRetirementReceipt(receipt, consumerRoot);
             }
-            await fs.rm(replacementRoot, { recursive: true, force: true });
-            await fs.rename(parkedRoot, consumerRoot);
+            if (replacementCreated) {
+              if (replacementDirectory === undefined) throw new Error('Replacement root identity was not captured.');
+              retireUnpublishedFixtureInputs(replacementDirectory, fixtureParent, inputNames, inputs,
+                effectful.cleanupDeadlineAtUnixMs);
+            }
+            physicalNoFollow.relocateRetainedNoFollowDirectory({ directory: parkedDirectory,
+              tombstoneName: path.basename(consumerRoot) });
+            targetRestored = true;
           });
-        });
+        }, () => targetRestored);
         // The original outer fixture must acquire its retirement receipt. A
         // leaked generation borrow would prevent that terminal cleanup.
       }));
@@ -370,13 +420,17 @@ describe('compiler dependency installation', () => {
         type ConsumerRecord = { leaseId: string; recordDigest: string; generationDigest: string; phase: string };
         type ConsumerZeroReceipt = { terminal: string; purpose: string; generationDigest: string;
           terminalRecords: { acquired: ConsumerRecord; released: ConsumerRecord & { previousRecordDigest: string } }[] };
+        let targetRestored = true;
         await withCompilerTestConsumer(effectful, 'sec-cdep-late-target-', async (consumerRoot, operation) => {
           await writeCompilerDependencyRoot(consumerRoot);
           const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
           const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
             installMode: 'prebound-only' as const, signal: operation.signal };
           const inputNames = ['package.json', 'bun.lock', '.bun-version'] as const;
-          const inputs = await Promise.all(inputNames.map(name => fs.readFile(path.join(consumerRoot, name))));
+          const inputs: Buffer[] = [];
+          for (const name of inputNames) inputs.push(await fs.readFile(path.join(consumerRoot, name)));
+          const originalDirectory = inspectNoFollowDirectoryChain(consumerRoot).target;
+          const fixtureParent = inspectNoFollowDirectoryChain(path.dirname(consumerRoot)).target;
           const originalIdentity = await fs.lstat(consumerRoot, { bigint: true });
           const parkedRoot = `${consumerRoot}.published`;
           const readLedger = dependencyTransitions.readDependencyTransitionLedger;
@@ -386,7 +440,8 @@ describe('compiler dependency installation', () => {
           let retirementObserver: ReturnType<typeof spyOn> | undefined;
           let settlementObserver: ReturnType<typeof spyOn> | undefined;
           let parked = false;
-          let replacementIdentity: { dev: bigint; ino: bigint } | undefined;
+          let replacementCreated = false;
+          let replacementDirectory: typeof originalDirectory | undefined;
           let publication: { recordDigest: `sha256:${string}`; registrationDigest: `sha256:${string}`; locatorInode: bigint;
             acquired: ConsumerRecord } | undefined;
           let physicalRetirementObserved = false;
@@ -394,11 +449,13 @@ describe('compiler dependency installation', () => {
           // Synchronous substitution is needed inside the real synchronous
           // receipt validator; it cannot return an unawaited mutation promise.
           const replaceTarget = () => {
+            targetRestored = false;
             expect(fsSync.lstatSync(consumerRoot, { bigint: true }).ino).toBe(originalIdentity.ino);
             fsSync.renameSync(consumerRoot, parkedRoot);
             parked = true;
             fsSync.mkdirSync(consumerRoot);
-            replacementIdentity = fsSync.lstatSync(consumerRoot, { bigint: true });
+            replacementCreated = true;
+            replacementDirectory = inspectNoFollowDirectoryChain(consumerRoot).target;
             inputNames.forEach((name, index) => fsSync.writeFileSync(path.join(consumerRoot, name), inputs[index]!));
             const replacement = fsSync.lstatSync(consumerRoot, { bigint: true });
             expect(replacement.dev).toBe(originalIdentity.dev);
@@ -408,20 +465,24 @@ describe('compiler dependency installation', () => {
             if (!parked) return;
             // Only the new, fixture-owned empty target may be removed. Preserve
             // the parked locator and registration until their original owner runs.
-            expect(await fs.lstat(parkedRoot, { bigint: true })).toMatchObject({
-              dev: originalIdentity.dev, ino: originalIdentity.ino });
-            if (replacementIdentity !== undefined) {
-              expect(await fs.lstat(consumerRoot, { bigint: true })).toMatchObject({
-                dev: replacementIdentity.dev, ino: replacementIdentity.ino });
+            physicalNoFollow.assertSameNoFollowDirectoryIdentity(fixtureParent);
+            const parkedDirectory = inspectNoFollowDirectoryChain(parkedRoot).target;
+            expect(parkedDirectory).toMatchObject({ device: originalDirectory.device,
+              inode: originalDirectory.inode, objectId: originalDirectory.objectId });
+            if (replacementCreated) {
+              if (replacementDirectory === undefined) throw new Error('Replacement root identity was not captured.');
+              await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+              await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+              retireUnpublishedFixtureInputs(replacementDirectory, fixtureParent, inputNames, inputs,
+                effectful.cleanupDeadlineAtUnixMs);
             }
-            await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
-            await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
-            await fs.rm(consumerRoot, { recursive: true, force: true });
-            await fs.rename(parkedRoot, consumerRoot);
+            physicalNoFollow.relocateRetainedNoFollowDirectory({ directory: parkedDirectory,
+              tombstoneName: path.basename(consumerRoot) });
             parked = false;
+            targetRestored = true;
           };
           await settleWorkspaceCallback(async () => {
-            try {
+            await settleWorkspaceCallback(async () => {
               ledgerObserver = spyOn(dependencyTransitions, 'readDependencyTransitionLedger')
                 .mockImplementation(async (...args) => {
                   const result = await Reflect.apply(readLedger, dependencyTransitions, args);
@@ -481,11 +542,11 @@ describe('compiler dependency installation', () => {
                 .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
                   message: expect.stringContaining(cut === 'after-publication'
                     ? 'generation consumer after publication' : 'generation consumer after source settlement') });
-            } finally {
-              settlementObserver?.mockRestore();
-              retirementObserver?.mockRestore();
-              ledgerObserver?.mockRestore();
-            }
+            }, () => settleWorkspaceCleanups([
+              async () => { settlementObserver?.mockRestore(); },
+              async () => { retirementObserver?.mockRestore(); },
+              async () => { ledgerObserver?.mockRestore(); }
+            ]));
             expect(publication).toBeDefined();
             expect(parked).toBeTrue();
             expect(physicalRetirementObserved).toBeTrue();
@@ -517,7 +578,7 @@ describe('compiler dependency installation', () => {
             expect(await fs.readFile(path.join(sourcePath, 'typescript', 'lib', 'typescript.js'), 'utf8'))
               .toBe('late-cut-source:typescript\n');
           }, restoreTarget);
-        });
+        }, () => targetRestored);
         // Original outer cleanup also requires its genuine environment receipt;
         // any leaked source borrow prevents source generation collection.
       }));
@@ -540,11 +601,11 @@ describe('compiler dependency installation', () => {
       let noConfigOwnerLifecycle: IsolatedGeneratedStateLifecycle;
       let testOnlyConsumerLifecycle: IsolatedGeneratedStateLifecycle;
       try {
-        await Promise.all([
-          fs.mkdir(ownerRoot),
-          fs.mkdir(consumerRoot),
-          fs.mkdir(noConfigOwnerRoot),
-          fs.mkdir(testOnlyConsumerRoot)
+        await settleWorkspaceCleanups([
+          () => fs.mkdir(ownerRoot),
+          () => fs.mkdir(consumerRoot),
+          () => fs.mkdir(noConfigOwnerRoot),
+          () => fs.mkdir(testOnlyConsumerRoot)
         ]);
         const lifecycles = await createIsolatedGeneratedStateLifecycles([
           ownerRoot,
@@ -576,17 +637,22 @@ describe('compiler dependency installation', () => {
       const startedRoots: Array<readonly [string, typeof ownerLifecycle]> = [];
       const cleanupFailures: unknown[] = [];
       let primaryFailure: { error: unknown } | undefined;
+      let fixtureRestorationFailed = false;
+      const restoreFixture = async (restore: () => Promise<void>): Promise<void> => {
+        try { await restore(); }
+        catch (error) { fixtureRestorationFailed = true; throw error; }
+      };
       try {
-        await Promise.all([
-          writeCompilerDependencyRoot(ownerRoot),
-          writeCompilerDependencyRoot(consumerRoot)
+        await settleWorkspaceCleanups([
+          () => writeCompilerDependencyRoot(ownerRoot),
+          () => writeCompilerDependencyRoot(consumerRoot)
         ]);
-        await Promise.all([
-        fs.writeFile(
+        await settleWorkspaceCleanups([
+        () => fs.writeFile(
           path.join(ownerRoot, 'bunfig.toml'),
           '[install]\r\nauto = "disable"\r\n\r\n[test]\r\npreload = ["owner.ts"]\r\n'
         ),
-        fs.writeFile(
+        () => fs.writeFile(
           path.join(consumerRoot, 'bunfig.toml'),
           '[install]\nauto = "disable"\n\n[test]\npreload = ["consumer.ts"]\n'
         )
@@ -650,11 +716,10 @@ describe('compiler dependency installation', () => {
           ownerReady.executionGenerationAuthority,
           { deadlineAtUnixMs: Date.now() + 30_000 }
         );
-        try {
-          await recovered.physicalGeneration.assertAuthorityCurrent();
-        } finally {
-          await recovered.retire();
-        }
+        await settleWorkspaceCallback(
+          () => recovered.physicalGeneration.assertAuthorityCurrent(),
+          async () => { await recovered.retire(); }
+        );
       }
       const ownerProofBefore = await fs.readFile(ownerProofPath);
       const generationBefore = await fs.lstat(generationPhysicalPath, { bigint: true });
@@ -666,8 +731,13 @@ describe('compiler dependency installation', () => {
       );
 
       const parkedOwnerProofPath = `${ownerProofPath}.missing`;
-      await fs.rename(ownerProofPath, parkedOwnerProofPath);
-      try {
+      const proofParent = inspectNoFollowDirectoryChain(ownerProofRoot).target;
+      const proofPreimage = physicalNoFollow.inspectNoFollowOrdinaryFileEntry(proofParent, path.basename(ownerProofPath));
+      if (proofPreimage === null) throw new Error('Owner proof preimage is absent.');
+      let proofParked = false;
+      await settleWorkspaceCallback(async () => {
+        await fs.rename(ownerProofPath, parkedOwnerProofPath);
+        proofParked = true;
         expect(await observeCompilerDependencyExecutionGenerationAuthority(
           ownerOperation,
           ownerRoot
@@ -685,9 +755,21 @@ describe('compiler dependency installation', () => {
         expect((await fs.lstat(generationPhysicalPath, { bigint: true })).ctimeNs)
           .toBe(generationBefore.ctimeNs);
         await expect(fs.readdir(compilerDependencyStoragePaths(consumerRoot).proofRoot)).resolves.toEqual([]);
-      } finally {
-        await fs.rename(parkedOwnerProofPath, ownerProofPath);
-      }
+      }, () => restoreFixture(async () => {
+        if (!proofParked) return;
+        physicalNoFollow.assertSameNoFollowDirectoryIdentity(proofParent);
+        const transaction = physicalNoFollow.retainNoFollowFileTransaction(ownerProofRoot, 'Owner proof fixture restoration');
+        await settleWorkspaceCallback(async () => {
+          expect(transaction.rootIdentity).toMatchObject({ path: proofParent.path,
+            device: proofParent.device, inode: proofParent.inode, objectId: proofParent.objectId });
+          const parked = transaction.observe(path.basename(parkedOwnerProofPath), 'Parked owner proof');
+          if (parked === null) throw new Error('Parked owner proof is absent.');
+          expect(parked.identity).toEqual({ device: proofPreimage.device, inode: proofPreimage.inode });
+          expect(Buffer.from(parked.bytes)).toEqual(Buffer.from(proofPreimage.bytes!));
+          await transaction.renameNoReplace(path.basename(parkedOwnerProofPath), path.basename(ownerProofPath),
+            parked, 'Restore original owner proof');
+        }, async () => { transaction.dispose(); });
+      }));
 
       const reused = await ensureCompilerDepsReady({
         ...consumerOperation,
@@ -714,11 +796,10 @@ describe('compiler dependency installation', () => {
         consumerAuthority!,
         { deadlineAtUnixMs: Date.now() + 30_000 }
       );
-      try {
-        await consumerGeneration.assertAuthorityCurrent();
-      } finally {
-        await consumerGeneration.retire();
-      }
+      await settleWorkspaceCallback(
+        () => consumerGeneration.assertAuthorityCurrent(),
+        async () => { await consumerGeneration.retire(); }
+      );
       if (process.platform === 'win32') {
         const sourceGeneration = ownerReady.sourceGeneration!;
         const physicalRoot = inspectNoFollowDirectoryChain(
@@ -767,56 +848,102 @@ describe('compiler dependency installation', () => {
       const parkedBridgePath = path.join(consumerRoot, 'node_modules.validated');
       const replacementGenerationPath = path.join(tempRoot, 'replacement', 'node_modules');
       await fs.mkdir(replacementGenerationPath, { recursive: true });
-      await expect(ensureCompilerDepsReady({
-        ...consumerOperation,
-        testCompilerBridgeValidationHook: async (stage) => {
-          if (stage !== 'binding-observed') return;
-          await fs.rename(bridgePath, parkedBridgePath);
-          await fs.symlink(
-            replacementGenerationPath,
-            bridgePath,
-            process.platform === 'win32' ? 'junction' : 'dir'
-          );
+      const consumerParent = inspectNoFollowDirectoryChain(consumerRoot).target;
+      const originalBridge = physicalNoFollow.inspectNoFollowLinkEntry(consumerParent, 'node_modules');
+      if (originalBridge === null) throw new Error('Original compiler bridge is absent.');
+      const originalBridgeTarget = inspectNoFollowDirectoryChain(generationPhysicalPath).target;
+      let bridgeParked = false;
+      let replacementCreated = false;
+      let replacementBridge: ReturnType<typeof physicalNoFollow.inspectNoFollowLinkEntry> = null;
+      await settleWorkspaceCallback(async () => {
+        await expect(ensureCompilerDepsReady({
+          ...consumerOperation,
+          testCompilerBridgeValidationHook: async (stage) => {
+            if (stage !== 'binding-observed') return;
+            await fs.rename(bridgePath, parkedBridgePath);
+            bridgeParked = true;
+            await fs.symlink(
+              replacementGenerationPath,
+              bridgePath,
+              process.platform === 'win32' ? 'junction' : 'dir'
+            );
+            replacementCreated = true;
+            replacementBridge = physicalNoFollow.inspectNoFollowLinkEntry(consumerParent, 'node_modules');
+          }
+        }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+        expect(await fs.realpath(parkedBridgePath)).toBe(await fs.realpath(generationPath));
+        expect(await fs.realpath(bridgePath)).toBe(await fs.realpath(replacementGenerationPath));
+      }, () => restoreFixture(async () => {
+        if (!bridgeParked) return;
+        physicalNoFollow.assertSameNoFollowDirectoryIdentity(consumerParent);
+        if (replacementCreated) {
+          if (replacementBridge == null) throw new Error('Replacement bridge identity was not captured.');
+          physicalNoFollow.deleteRetainedNoFollowEntry({ root: consumerParent, relativePath: 'node_modules',
+            kind: 'link', device: replacementBridge.device, inode: replacementBridge.inode,
+            expectedLinkTarget: replacementBridge.linkTarget!, ancestorDirectories: [] });
         }
-      }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
-      expect(await fs.realpath(parkedBridgePath)).toBe(await fs.realpath(generationPath));
-      expect(await fs.realpath(bridgePath)).toBe(await fs.realpath(replacementGenerationPath));
-      await fs.unlink(bridgePath);
-      await fs.rename(parkedBridgePath, bridgePath);
+        const parked = physicalNoFollow.inspectNoFollowLinkEntry(consumerParent, 'node_modules.validated');
+        expect(parked).toMatchObject({ device: originalBridge.device, inode: originalBridge.inode,
+          linkTarget: originalBridge.linkTarget });
+        physicalNoFollow.relocateRetainedNoFollowLinkAcrossParents({ sourceParent: consumerParent,
+          destinationParent: consumerParent, sourceName: 'node_modules.validated', destinationName: 'node_modules',
+          expectedSource: originalBridgeTarget, expectedTargetPath: originalBridge.linkTarget! });
+      }));
 
-      const originalConsumerLock = await fs.readFile(path.join(consumerRoot, 'bun.lock'));
-      await expect(ensureCompilerDepsReady({
-        ...consumerOperation,
-        testCompilerBridgeValidationHook: async (stage) => {
-          if (stage !== 'final-binding-observed') return;
-          await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'consumer-drift-during-admission\n');
-        }
-      }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
-      await fs.writeFile(path.join(consumerRoot, 'bun.lock'), originalConsumerLock);
+      const consumerLockPath = path.join(consumerRoot, 'bun.lock');
+      const withConsumerLockRestored = async (injectedBytes: string, run: () => Promise<void>): Promise<void> => {
+        const original = physicalNoFollow.inspectNoFollowOrdinaryFileEntry(consumerParent, 'bun.lock');
+        if (original === null) throw new Error('Consumer lock preimage is absent.');
+        await settleWorkspaceCallback(run, () => restoreFixture(async () => {
+          physicalNoFollow.assertSameNoFollowDirectoryIdentity(consumerParent);
+          const transaction = physicalNoFollow.retainNoFollowFileTransaction(consumerRoot, 'Consumer lock fixture restoration');
+          await settleWorkspaceCallback(async () => {
+            expect(transaction.rootIdentity).toMatchObject({ path: consumerParent.path,
+              device: consumerParent.device, inode: consumerParent.inode, objectId: consumerParent.objectId });
+            const current = transaction.observe('bun.lock', 'Injected consumer lock');
+            if (current === null) throw new Error('Injected consumer lock is absent.');
+            expect(current.identity).toEqual({ device: original.device, inode: original.inode });
+            if (!Buffer.from(current.bytes).equals(Buffer.from(original.bytes!))) {
+              expect(Buffer.from(current.bytes)).toEqual(Buffer.from(injectedBytes));
+              await transaction.rewriteExact('bun.lock', current, original.bytes!, 'Restore original consumer lock');
+            }
+          }, async () => { transaction.dispose(); });
+        }));
+      };
+      await withConsumerLockRestored('consumer-drift-during-admission\n', async () => {
+        await expect(ensureCompilerDepsReady({
+          ...consumerOperation,
+          testCompilerBridgeValidationHook: async (stage) => {
+            if (stage !== 'final-binding-observed') return;
+            await fs.writeFile(consumerLockPath, 'consumer-drift-during-admission\n');
+          }
+        }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      });
 
-      await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'incompatible-lock\n');
-      let incompatibleConsumerInstalls = 0;
-      const incompatibleReady = await ensureCompilerDepsReady({
-        ...consumerOperation,
-        materialize: async (_args, command) => {
-          incompatibleConsumerInstalls += 1;
-          await installCompilerDependencyFixture(command.cwd, 'incompatible-consumer');
-          return { code: 0, stdout: 'ok', stderr: '' };
-        }
-      }, consumerRoot);
-      expect(incompatibleReady.source).toBe('installed');
-      expect(incompatibleConsumerInstalls).toBe(1);
-      expect(await fs.realpath(bridgePath)).not.toBe(await fs.realpath(generationPath));
-      expect(await fs.readFile(
-        path.join(generationPath, 'typescript', 'lib', 'typescript.js'),
-        'utf8'
-      )).toBe('shared-owner:typescript\n');
-      await fs.writeFile(path.join(consumerRoot, 'bun.lock'), originalConsumerLock);
+      await withConsumerLockRestored('incompatible-lock\n', async () => {
+        await fs.writeFile(consumerLockPath, 'incompatible-lock\n');
+        let incompatibleConsumerInstalls = 0;
+        const incompatibleReady = await ensureCompilerDepsReady({
+          ...consumerOperation,
+          materialize: async (_args, command) => {
+            incompatibleConsumerInstalls += 1;
+            await installCompilerDependencyFixture(command.cwd, 'incompatible-consumer');
+            return { code: 0, stdout: 'ok', stderr: '' };
+          }
+        }, consumerRoot);
+        expect(incompatibleReady.source).toBe('installed');
+        expect(incompatibleConsumerInstalls).toBe(1);
+        expect(await fs.realpath(bridgePath)).not.toBe(await fs.realpath(generationPath));
+        expect(await fs.readFile(
+          path.join(generationPath, 'typescript', 'lib', 'typescript.js'),
+          'utf8'
+        )).toBe('shared-owner:typescript\n');
+      });
 
-      await Promise.all([
-        writeCompilerDependencyRoot(noConfigOwnerRoot),
-        writeCompilerDependencyRoot(testOnlyConsumerRoot),
-        fs.writeFile(
+      await settleWorkspaceCleanups([
+        () => writeCompilerDependencyRoot(noConfigOwnerRoot),
+        () => writeCompilerDependencyRoot(testOnlyConsumerRoot),
+        () => fs.writeFile(
           path.join(testOnlyConsumerRoot, 'bunfig.toml'),
           '[test]\npreload = ["consumer.ts"]\n'
         )
@@ -894,6 +1021,9 @@ describe('compiler dependency installation', () => {
             'Compiler dependency fixture secondary retirement failed'
           );
         }
+        if (fixtureRestorationFailed) {
+          throw new Error('External fixture restoration is unresolved; retaining its roots and recovery evidence.');
+        }
         await settleWorkspaceCleanups([
           () => fs.rm(tempRoot, { recursive: true, force: true }),
           ...[
@@ -954,21 +1084,26 @@ describe('compiler dependency installation', () => {
             'lib',
             'typescript.js'
           );
-          let metadata: Awaited<ReturnType<typeof fs.lstat>>;
+          let metadata: { mode: bigint; dev: bigint; ino: bigint; isFile(): boolean };
           try {
-            metadata = await fs.lstat(target);
+            metadata = await fs.lstat(target, { bigint: true });
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
             throw error;
           }
-          const sealedMode = metadata.mode & 0o777;
+          const sealedMode = Number(metadata.mode & 0o777n);
           if ((sealedMode & 0o222) !== 0) return;
-          await fs.chmod(target, 0o600);
-          try {
-            await fs.writeFile(target, 'mutated-after-seal\n');
-          } finally {
-            await fs.chmod(target, sealedMode);
-          }
+          if (!metadata.isFile()) throw new Error('Sealed mutation fixture is not an ordinary file.');
+          const retained = await fs.open(target, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
+          await settleWorkspaceCallback(async () => {
+            const identity = await retained.stat({ bigint: true });
+            expect(identity.dev).toBe(metadata.dev);
+            expect(identity.ino).toBe(metadata.ino);
+            await settleWorkspaceCallback(async () => {
+              await retained.chmod(0o600);
+              await fs.writeFile(target, 'mutated-after-seal\n');
+            }, () => retained.chmod(sealedMode));
+          }, () => retained.close());
           mutated = true;
           mutatedPath = target;
         },
@@ -999,65 +1134,74 @@ describe('compiler dependency installation', () => {
           const proofRoot = compilerDependencyStoragePaths(tempRoot).proofRoot;
           let denied = false;
           let proofRootMode: number | undefined;
+          let proofRootHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
           let sealedPayloadPath: string | undefined;
-          const failure = await ensureCompilerDepsReady({
-            deadlineAtUnixMs: effectful.operationDeadlineAtUnixMs,
-            generatedStateLifecycle: lifecycle,
-            signal: effectful.operationSignal,
-            beforeCommit: async () => {
-              if (denied) return;
-              let proofEntries: string[];
-              let generationEntries: string[];
-              try {
-                [proofEntries, generationEntries] = await Promise.all([
-                  fs.readdir(proofRoot),
-                  fs.readdir(compilerDependencyStoragePaths(tempRoot).generationRoot)
-                ]);
-              } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-                throw error;
+          await settleWorkspaceCallback(async () => {
+            const failure = await ensureCompilerDepsReady({
+              deadlineAtUnixMs: effectful.operationDeadlineAtUnixMs,
+              generatedStateLifecycle: lifecycle,
+              signal: effectful.operationSignal,
+              beforeCommit: async () => {
+                if (denied) return;
+                let proofEntries: string[];
+                let generationEntries: string[];
+                try {
+                  proofEntries = await fs.readdir(proofRoot);
+                  generationEntries = await fs.readdir(compilerDependencyStoragePaths(tempRoot).generationRoot);
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+                  throw error;
+                }
+                if (proofEntries.length !== 0) return;
+                const generationName = generationEntries.find(name => name.startsWith('generation-'));
+                if (generationName === undefined) return;
+                const payloadPath = path.join(
+                  compilerDependencyStoragePaths(tempRoot).generationRoot,
+                  generationName,
+                  'node_modules',
+                  'typescript',
+                  'lib',
+                  'typescript.js'
+                );
+                let payload: Awaited<ReturnType<typeof fs.lstat>>;
+                try {
+                  payload = await fs.lstat(payloadPath);
+                } catch (error) {
+                  if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+                  throw error;
+                }
+                if ((payload.mode & 0o222) !== 0) return;
+                const proofIdentity = await fs.lstat(proofRoot, { bigint: true });
+                if (!proofIdentity.isDirectory()) throw new Error('Proof fixture root is not an ordinary directory.');
+                proofRootHandle = await fs.open(proofRoot, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
+                const retainedIdentity = await proofRootHandle.stat({ bigint: true });
+                expect(retainedIdentity.dev).toBe(proofIdentity.dev);
+                expect(retainedIdentity.ino).toBe(proofIdentity.ino);
+                proofRootMode = Number(retainedIdentity.mode & 0o777n);
+                await proofRootHandle.chmod(proofRootMode & ~0o222);
+                sealedPayloadPath = payloadPath;
+                denied = true;
+              },
+              materialize: async (_args, command) => {
+                await installCompilerDependencyFixture(command.cwd, 'proof-publication-denied');
+                return { code: 0, stdout: 'ok', stderr: '' };
               }
-              if (proofEntries.length !== 0) return;
-              const generationName = generationEntries.find(name => name.startsWith('generation-'));
-              if (generationName === undefined) return;
-              const payloadPath = path.join(
-                compilerDependencyStoragePaths(tempRoot).generationRoot,
-                generationName,
-                'node_modules',
-                'typescript',
-                'lib',
-                'typescript.js'
-              );
-              let payload: Awaited<ReturnType<typeof fs.lstat>>;
-              try {
-                payload = await fs.lstat(payloadPath);
-              } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-                throw error;
-              }
-              if ((payload.mode & 0o222) !== 0) return;
-              proofRootMode = (await fs.lstat(proofRoot)).mode & 0o777;
-              await fs.chmod(proofRoot, proofRootMode & ~0o222);
-              sealedPayloadPath = payloadPath;
-              denied = true;
-            },
-            materialize: async (_args, command) => {
-              await installCompilerDependencyFixture(command.cwd, 'proof-publication-denied');
-              return { code: 0, stdout: 'ok', stderr: '' };
-            }
-          }, tempRoot).then(
-            () => null,
-            (error: unknown) => error
-          );
-          try {
+            }, tempRoot).then(
+              () => null,
+              (error: unknown) => error
+            );
             expect(failure).not.toBeNull();
             expect(denied).toBeTrue();
             expect(sealedPayloadPath).toBeDefined();
             expect((await fs.lstat(sealedPayloadPath!)).mode & 0o200).not.toBe(0);
             await expect(fs.readdir(proofRoot)).resolves.toEqual([]);
-          } finally {
-            if (proofRootMode !== undefined) await fs.chmod(proofRoot, proofRootMode);
-          }
+          }, async () => {
+            if (proofRootHandle === undefined) return;
+            const retained = proofRootHandle;
+            await settleWorkspaceCallback(async () => {
+              if (proofRootMode !== undefined) await retained.chmod(proofRootMode);
+            }, () => retained.close());
+          });
         }
       );
     });
