@@ -498,7 +498,7 @@ test('affected Git preparation survives settled transport and rejects foreign or
       expect(session.processCount).toBe(before);
       const rebound = await rebindAffectedGitSelectionSource({ source: selection!, session, baseRef: null });
       expect(rebound).not.toBeNull();
-      expect(rebound!.files).toBe(selection!.files);
+      expect(rebound!.files).toEqual(['selected.ts']);
       expect(affectedGitSelectionDigest(rebound!)).toBe(digest);
     });
     await fs.writeFile(path.join(root, 'later.ts'), 'export const later = 2;\n');

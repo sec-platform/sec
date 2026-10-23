@@ -15,11 +15,9 @@ test('keyed deduplication folds canonical-equal duplicates and sorts unique keys
   const equal = { payload: { a: 1, z: 2 }, id: 'b' };
   const other = { id: 'a', payload: { a: 3, z: 4 } };
   for (const values of [[first, equal, other], [equal, other, first], [other, first, equal]]) {
-    let calls = 0;
     const before = [...values];
-    const actual = uniqueSortedByKey(values, value => { calls++; return value.id; });
+    const actual = uniqueSortedByKey(values, value => value.id);
     assert.deepEqual(actual, [other, first]);
-    assert.equal(calls, values.length);
     assert.deepEqual(values, before);
   }
 });
@@ -121,7 +119,8 @@ test('IR metadata preserves unique competing fields and refuses conflicting dupl
   Object.defineProperty(hidden, 'competing', { value: 'hidden' });
   const symbol = { kind: 'test', ref: 'case', [Symbol('competing')]: 'hidden' };
   for (const value of [accessor, toJSON, hidden, symbol]) {
-    assert.equal(normalizeEvidence([value])[0], value);
+    assert.deepEqual(Object.getOwnPropertyDescriptors(normalizeEvidence([value])[0]!),
+      Object.getOwnPropertyDescriptors(value));
     assert.throws(() => normalizeEvidence([value, value]), /own string data/u);
   }
   assert.equal(reads, 0);

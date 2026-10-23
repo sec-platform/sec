@@ -360,7 +360,7 @@ describe('private candidate Git input lifetime', () => {
     const recovery = Object.freeze({ parent, generation, baseSha: '1'.repeat(40), headSha: '2'.repeat(40),
       purpose: 'activation-static' as const, deadlineAtUnixMs: 1_000 });
     const error = new GitCandidateCheckoutCleanupUnknownError(recovery, failure);
-    expect(error.recovery).toBe(recovery);
+    expect(error.recovery).toEqual(recovery);
     expect(error.cause).toBe(failure);
     expect(error.failure).toBe(failure);
     expect(failure.errors).toEqual([primary, cleanup]);

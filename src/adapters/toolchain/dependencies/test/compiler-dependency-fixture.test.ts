@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -6,7 +5,8 @@ import path from 'node:path';
 import { expect, spyOn, test } from 'bun:test';
 
 import { digest } from '../../../../contracts/canonical.ts';
-import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { getErrorCode } from '../../../../contracts/failure-inspection.ts';
+import { settleResourcesAsync as settlePhysicalResourcesAsync, withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import * as physical from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import * as bootBoundary from '../../../runtime-state/physical/runtime/windows-kernel-boot.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -24,14 +24,16 @@ import {
   projectCompilerDepsReadyState,
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
-  type RetainedCompilerDependencyExecutionGeneration
+  type RetainedCompilerDependencyExecutionGeneration,
+  type RetainedCompilerDependencyReadGeneration
 } from '../runtime/project-runtime.ts';
 import {
   issueCompilerDependencyFixtureOperation,
   rematerializeCompilerDependencyFixtureOperation,
   retireCompilerDependencyFixtureOperation,
   settleCompilerDependencyFixtureOperation,
-  withCompilerDependencyFixtureOperation
+  withCompilerDependencyFixtureOperation,
+  type CompilerDependencyFixtureOperation
 } from './compiler-dependency-fixture.ts';
 
 function fixtureDescriptor(dependencyRootPath: string) {
@@ -73,11 +75,16 @@ function fixtureDescriptor(dependencyRootPath: string) {
 test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')('obsolete consumer recovery requires a later full boot and resumes interrupted retirement', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-consumer-recovery-'));
   const dependencyRoot = path.join(ownerRoot, 'dependencies');
-  const operation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(dependencyRoot));
-  const currentBoot = bootBoundary.observeWindowsKernelBootBoundary();
+  let operation: CompilerDependencyFixtureOperation | undefined;
+  let operationRetired = false;
   let retained: RetainedCompilerDependencyExecutionGeneration | undefined;
   let physicallyRetired = false;
+  let restoreBoot: (() => void) | undefined;
+  let restoreRetirement: (() => void) | undefined;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
+    operation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(dependencyRoot));
+    const currentBoot = bootBoundary.observeWindowsKernelBootBoundary();
     const first = await settleCompilerDependencyFixtureOperation(operation);
     retained = await retainCompilerDependencyExecutionGeneration(first.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
     const oldPath = retained.physicalGeneration.root.path;
@@ -92,13 +99,17 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')('obsolete co
     // input. This test does not prove that a real host restart occurred.
     await retained.physicalGeneration.retire();
     physicallyRetired = true;
-    const bootSpy = spyOn(bootBoundary, 'observeWindowsKernelBootBoundary').mockReturnValue({
+    const bootSpy = spyOn(bootBoundary, 'observeWindowsKernelBootBoundary');
+    restoreBoot = () => { bootSpy.mockRestore(); };
+    bootSpy.mockReturnValue({
       sequence: currentBoot.sequence + 1,
       fullBootEventRecordId: (BigInt(currentBoot.fullBootEventRecordId) + 1n).toString()
     });
     const retireTree = physical.retireNoFollowDirectoryTree;
     let injected = false;
-    const retireSpy = spyOn(physical, 'retireNoFollowDirectoryTree').mockImplementation(input => {
+    const retireSpy = spyOn(physical, 'retireNoFollowDirectoryTree');
+    restoreRetirement = () => { retireSpy.mockRestore(); };
+    retireSpy.mockImplementation(input => {
       if (!injected && input.root.path === oldPath) {
         injected = true;
         const entry = input.inventory.find(candidate => candidate.relativePath === COMPILER_DEPS_BINDING_FILE);
@@ -108,36 +119,54 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')('obsolete co
       }
       return retireTree(input);
     });
-    try {
-      await expect(recoverObsoleteCompilerDependencyConsumers(dependencyRoot)).rejects.toThrow('interrupted');
-      expect(injected).toBe(true);
-      expect(await lstat(prepared.recoveryPath!).then(() => true, () => false)).toBe(true);
-      retireSpy.mockRestore();
-      const completed = await recoverObsoleteCompilerDependencyConsumers(dependencyRoot);
-      expect(completed.state).toBe('completed');
-      expect(await lstat(oldPath).then(() => true, () => false)).toBe(false);
-      expect(await lstat(prepared.recoveryPath!).then(() => true, () => false)).toBe(false);
-    } finally {
-      retireSpy.mockRestore();
-      bootSpy.mockRestore();
-    }
+    await expect(recoverObsoleteCompilerDependencyConsumers(dependencyRoot)).rejects.toThrow('interrupted');
+    expect(injected).toBe(true);
+    expect((await lstat(prepared.recoveryPath!)).isFile()).toBe(true);
+    restoreRetirement();
+    restoreRetirement = undefined;
+    const completed = await recoverObsoleteCompilerDependencyConsumers(dependencyRoot);
+    expect(completed.state).toBe('completed');
+    await expect(lstat(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(prepared.recoveryPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+  } catch (error) {
+    primary = { label: 'obsolete-consumer-recovery', error };
   } finally {
-    if (retained !== undefined && !physicallyRetired) await retained.retire();
-    await retireCompilerDependencyFixtureOperation(operation);
-    await removeFixtureRuntimeState(dependencyRoot);
-    await rm(ownerRoot, { recursive: true, force: true });
+    await settlePhysicalResourcesAsync({ primary, cleanup: [
+      { label: 'retirement-spy', settle: () => { restoreRetirement?.(); } },
+      { label: 'boot-spy', settle: () => { restoreBoot?.(); } },
+      { label: 'retained-generation', settle: async () => {
+        if (retained !== undefined && !physicallyRetired) await retained.retire();
+      } },
+      { label: 'fixture-operation', settle: async () => {
+        if (operation !== undefined) await retireCompilerDependencyFixtureOperation(operation);
+        operationRetired = true;
+      } },
+      { label: 'fixture-runtime-state', settle: async () => {
+        if (operationRetired) await removeFixtureRuntimeState(dependencyRoot);
+      } },
+      { label: 'fixture-root', settle: async () => {
+        if (operationRetired) await rm(ownerRoot, { recursive: true, force: true });
+      } }
+    ] });
   }
 }, 90_000);
 
 test('failed consumer publication or readback releases the original admitted generation', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-consumer-admission-failure-'));
   const dependencyRoot = path.join(ownerRoot, 'dependencies');
-  const operation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(dependencyRoot));
+  let operation: CompilerDependencyFixtureOperation | undefined;
+  let operationRetired = false;
+  const retained = new Set<{ retire(): Promise<unknown> }>();
+  let restoreSpy: (() => void) | undefined;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
+    operation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(dependencyRoot));
     const ready = await settleCompilerDependencyFixtureOperation(operation);
     // Publish the immutable proof once before exercising read-only admission.
     const initial = await retainCompilerDependencyExecutionGeneration(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
+    retained.add(initial);
     await initial.retire();
+    retained.delete(initial);
     for (const retain of [retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration]) {
       for (const boundary of ['publication', 'readback'] as const) {
         const failure = new Error(`original-consumer-${boundary}-failure`);
@@ -146,8 +175,10 @@ test('failed consumer publication or readback releases the original admitted gen
         let injected = false;
         const publish = physical.publishExclusiveDurableCanonicalFile;
         const inspect = physical.inspectNoFollowOrdinaryFileEntry;
-        const spy = boundary === 'publication'
-          ? spyOn(physical, 'publishExclusiveDurableCanonicalFile').mockImplementation(input => {
+        if (boundary === 'publication') {
+          const spy = spyOn(physical, 'publishExclusiveDurableCanonicalFile');
+          restoreSpy = () => { spy.mockRestore(); };
+          spy.mockImplementation(input => {
             const result = publish(input);
             if (!injected && input.name.endsWith('-acquired.json')) {
               injected = true;
@@ -156,8 +187,11 @@ test('failed consumer publication or readback releases the original admitted gen
               throw failure; // The actual publication survived the lost response.
             }
             return result;
-          })
-          : spyOn(physical, 'inspectNoFollowOrdinaryFileEntry').mockImplementation((parent, name, ...rest) => {
+          });
+        } else {
+          const spy = spyOn(physical, 'inspectNoFollowOrdinaryFileEntry');
+          restoreSpy = () => { spy.mockRestore(); };
+          spy.mockImplementation((parent, name, ...rest) => {
             const result = inspect(parent, name, ...rest);
             if (!injected && name.endsWith('-acquired.json')) {
               injected = true;
@@ -167,25 +201,50 @@ test('failed consumer publication or readback releases the original admitted gen
             }
             return result;
           });
-        try {
-          await expect(retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 })).rejects.toBe(failure);
-        } finally { spy.mockRestore(); }
+        }
+        await expect(retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 })
+          .then(generation => { retained.add(generation); return generation; })).rejects.toBe(failure);
+        restoreSpy();
+        restoreSpy = undefined;
         expect(injected).toBe(true);
         expect(observedRoot).toBeDefined();
         expect((await readdir(observedRoot!)).includes(observedName!)).toBe(false);
         const next = await retain(ready.executionGenerationAuthority, { deadlineAtUnixMs: Date.now() + 30_000 });
+        retained.add(next);
         await next.retire();
+        retained.delete(next);
       }
     }
+  } catch (error) {
+    primary = { label: 'consumer-admission-failure', error };
   } finally {
-    await retireCompilerDependencyFixtureOperation(operation);
-    await removeFixtureRuntimeState(dependencyRoot);
-    await rm(ownerRoot, { recursive: true, force: true });
+    await settlePhysicalResourcesAsync({ primary, cleanup: [
+      { label: 'consumer-admission-spy', settle: () => { restoreSpy?.(); } },
+      ...[...retained].map(generation => ({ label: 'retained-generation', settle: async () => { await generation.retire(); } })),
+      { label: 'fixture-operation', settle: async () => {
+        if (operation !== undefined) await retireCompilerDependencyFixtureOperation(operation);
+        operationRetired = true;
+      } },
+      { label: 'fixture-runtime-state', settle: async () => {
+        if (operationRetired) await removeFixtureRuntimeState(dependencyRoot);
+      } },
+      { label: 'fixture-root', settle: async () => {
+        if (operationRetired) await rm(ownerRoot, { recursive: true, force: true });
+      } }
+    ] });
   }
 }, 90_000);
 
 async function removeFixtureRuntimeState(dependencyRoot: string): Promise<void> {
-  if (!existsSync(dependencyRoot)) return;
+  try {
+    const root = await lstat(dependencyRoot);
+    if (!root.isDirectory() || root.isSymbolicLink()) {
+      throw new Error('Compiler dependency fixture root is not an ordinary directory');
+    }
+  } catch (error) {
+    if (getErrorCode(error) === 'ENOENT') return;
+    throw error;
+  }
   const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
   await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
 }
@@ -194,6 +253,7 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-owner-'));
   const dependencyRoot = path.join(ownerRoot, 'dependencies');
   let retainedGeneration: RetainedCompilerDependencyExecutionGeneration | null = null;
+  let retainedReadGeneration: RetainedCompilerDependencyReadGeneration | null = null;
   let operation: Awaited<ReturnType<typeof issueCompilerDependencyFixtureOperation>> | null = null;
   let operationRetirementAttempted = false;
   let operationRetired = false;
@@ -212,12 +272,16 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
     await expect(lstat(path.join(dependencyRoot, '.tmp')))
       .rejects.toMatchObject({ code: 'ENOENT' });
     const foreignNodeModules = path.join(dependencyRoot, 'node_modules');
-    await mkdir(foreignNodeModules);
-    await expect(observeCompilerDependencyExecutionGenerationAuthority(
-      { deadlineAtUnixMs: Date.now() + 30_000 },
-      dependencyRoot
-    )).rejects.toThrow('present without an exact owner binding');
-    await rm(foreignNodeModules, { recursive: true });
+    await withAcquiredResource({
+      operationLabel: 'foreign-node-modules-admission', resourceLabel: 'foreign-node-modules-fixture',
+      acquire: async () => { await mkdir(foreignNodeModules); return foreignNodeModules; },
+      use: async () => {
+        await expect(observeCompilerDependencyExecutionGenerationAuthority(
+          { deadlineAtUnixMs: Date.now() + 30_000 }, dependencyRoot
+        )).rejects.toThrow('present without an exact owner binding');
+      },
+      release: directory => rm(directory, { recursive: true })
+    });
 
     const first = await settleCompilerDependencyFixtureOperation(operation);
     const observationOptions = runtimeDependencyOperationOptions({
@@ -239,6 +303,7 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
       observedAuthority!,
       { deadlineAtUnixMs: Date.now() + 30_000 }
     );
+    retainedReadGeneration = readGeneration;
     expect(readGeneration.generationDigest).toBe(observedAuthority!.generationDigest);
     expect(() => assertRetainedCompilerDependencyReadGeneration(readGeneration)).not.toThrow();
     expect(() => assertRetainedCompilerDependencyReadGeneration({ ...readGeneration }))
@@ -323,6 +388,11 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
     await settlePhysicalResourcesAsync({
       ...(primary === undefined ? {} : { primary }),
       cleanup: [{
+        label: 'compiler-dependency-fixture-retained-read-generation',
+        settle: async () => {
+          if (retainedReadGeneration !== null) await retainedReadGeneration.retire();
+        }
+      }, {
         label: 'compiler-dependency-fixture-retained-generation',
         settle: async () => {
           if (retainedGeneration !== null) await retainedGeneration.retire();
@@ -355,35 +425,71 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
 test('dependency fixture finally retires generated state without replacing its primary failure', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-primary-'));
   const dependencyRoot = path.join(ownerRoot, 'dependencies');
-  const primary = new Error('fixture primary failure');
+  const failure = new Error('fixture primary failure');
+  let operation: CompilerDependencyFixtureOperation | undefined;
+  let operationRetired = false;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   let observed: unknown;
   try {
-    await withCompilerDependencyFixtureOperation(
-      fixtureDescriptor(dependencyRoot),
-      async (operation) => {
-        await settleCompilerDependencyFixtureOperation(operation);
-        throw primary;
-      }
-    );
+    try {
+      await withCompilerDependencyFixtureOperation(
+        fixtureDescriptor(dependencyRoot),
+        async (issued) => {
+          operation = issued;
+          await settleCompilerDependencyFixtureOperation(issued);
+          throw failure;
+        }
+      );
+    } catch (error) {
+      observed = error;
+    }
+    expect(observed).toBe(failure);
+    await expect(lstat(path.join(dependencyRoot, 'node_modules')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   } catch (error) {
-    observed = error;
+    primary = { label: 'fixture-primary-failure-test', error };
+  } finally {
+    await settlePhysicalResourcesAsync({ primary, cleanup: [
+      { label: 'fixture-operation', settle: async () => {
+        if (operation !== undefined) await retireCompilerDependencyFixtureOperation(operation);
+        operationRetired = true;
+      } },
+      { label: 'fixture-runtime-state', settle: async () => {
+        if (operationRetired) await removeFixtureRuntimeState(dependencyRoot);
+      } },
+      { label: 'fixture-root', settle: async () => {
+        if (operationRetired) await rm(ownerRoot, { recursive: true, force: true });
+      } }
+    ] });
   }
-  expect(observed).toBe(primary);
-  await expect(lstat(path.join(dependencyRoot, 'node_modules')))
-    .rejects.toMatchObject({ code: 'ENOENT' });
-  await removeFixtureRuntimeState(dependencyRoot);
-  await rm(ownerRoot, { recursive: true, force: true });
 }, 90_000);
 
 test('dependency fixture rejects noncanonical package materialization before publication', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-dependency-fixture-invalid-'));
+  const dependencyRoot = path.join(ownerRoot, 'dependencies');
+  let operation: CompilerDependencyFixtureOperation | undefined;
+  let operationRetired = false;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
     await expect(issueCompilerDependencyFixtureOperation({
-      ...fixtureDescriptor(path.join(ownerRoot, 'dependencies')),
+      ...fixtureDescriptor(dependencyRoot),
       packages: [{ name: '../foreign', version: '1.0.0' }]
-    })).rejects.toThrow('package name is noncanonical');
+    }).then(issued => { operation = issued; return issued; })).rejects.toThrow('package name is noncanonical');
+  } catch (error) {
+    primary = { label: 'noncanonical-fixture-rejection', error };
   } finally {
-    await rm(ownerRoot, { recursive: true, force: true });
+    await settlePhysicalResourcesAsync({ primary, cleanup: [
+      { label: 'fixture-operation', settle: async () => {
+        if (operation !== undefined) await retireCompilerDependencyFixtureOperation(operation);
+        operationRetired = true;
+      } },
+      { label: 'fixture-runtime-state', settle: async () => {
+        if (operationRetired) await removeFixtureRuntimeState(dependencyRoot);
+      } },
+      { label: 'fixture-root', settle: async () => {
+        if (operationRetired) await rm(ownerRoot, { recursive: true, force: true });
+      } }
+    ] });
   }
 });
 
@@ -391,11 +497,23 @@ test('dependency fixture rejects noncanonical package materialization before pub
 test('explicit same-input generations serve two compiler consumers without materialization and retain the source owner lifetime', async () => {
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-explicit-compiler-generation-'));
   const roots = ['source', 'reader', 'executor'].map((name) => path.join(ownerRoot, name));
-  const operations = await Promise.all(roots.map((root) => issueCompilerDependencyFixtureOperation(fixtureDescriptor(root))));
+  const fixtureEntries: Array<readonly [string, CompilerDependencyFixtureOperation]> = [];
   const retained: Array<{ retire: () => Promise<unknown> }> = [];
-  const retiredOperations = new Set<typeof operations[number]>();
+  const retiredOperations = new Set<CompilerDependencyFixtureOperation>();
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
+    // Join every acquisition before cleanup can remove a partially issued root.
+    const acquisitions = await Promise.allSettled(roots.map((root) => issueCompilerDependencyFixtureOperation(fixtureDescriptor(root))));
+    const failures: Array<Readonly<{ label: string; error: unknown }>> = [];
+    for (const [index, acquisition] of acquisitions.entries()) {
+      if (acquisition.status === 'fulfilled') fixtureEntries.push([roots[index]!, acquisition.value]);
+      else failures.push({ label: `fixture-acquisition:${roots[index]!}`, error: acquisition.reason });
+    }
+    await settlePhysicalResourcesAsync({
+      primary: failures[0],
+      cleanup: failures.slice(1).map(({ label, error }) => ({ label, settle: () => { throw error; } }))
+    });
+    const operations = fixtureEntries.map(([, operation]) => operation);
     const source = await settleCompilerDependencyFixtureOperation(operations[0]!);
     const generationPath = await realpath(source.nodeModulesPath);
     const before = await lstat(generationPath, { bigint: true });
@@ -439,17 +557,15 @@ test('explicit same-input generations serve two compiler consumers without mater
       ...(primary === undefined ? {} : { primary }),
       cleanup: [
         ...retained.map((generation) => ({ label: 'retained-consumer', settle: async () => { await generation.retire(); } })),
-        ...[...operations].reverse().map((operation) => ({ label: 'fixture-operation', settle: async () => {
+        ...[...fixtureEntries].reverse().map(([, operation]) => ({ label: 'fixture-operation', settle: async () => {
           await retireCompilerDependencyFixtureOperation(operation);
           retiredOperations.add(operation);
         } })),
-        { label: 'fixture-runtime-state', settle: async () => {
-          for (const [index, root] of roots.entries()) {
-            if (retiredOperations.has(operations[index]!)) await removeFixtureRuntimeState(root);
-          }
-        } },
+        ...fixtureEntries.map(([root, operation]) => ({ label: 'fixture-runtime-state', settle: async () => {
+          if (retiredOperations.has(operation)) await removeFixtureRuntimeState(root);
+        } })),
         { label: 'fixture-root', settle: async () => {
-          if (retiredOperations.size === operations.length) await rm(ownerRoot, { recursive: true, force: true });
+          if (retiredOperations.size === fixtureEntries.length) await rm(ownerRoot, { recursive: true, force: true });
         } }
       ]
     });
@@ -457,32 +573,42 @@ test('explicit same-input generations serve two compiler consumers without mater
 }, 90_000);
 
 test('explicit compiler generation reuse rejects forged, incompatible, stale and nonterminal source authority', async () => {
+  const options = runtimeDependencyOperationOptions({});
   const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-explicit-compiler-rejection-'));
   const sourceRoot = path.join(ownerRoot, 'source');
   const borrowerRoot = path.join(ownerRoot, 'borrower');
   const descendantRoot = path.join(ownerRoot, 'descendant');
-  const sourceOperation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(sourceRoot));
-  const borrowerOperation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(borrowerRoot));
-  const descendantOperation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(descendantRoot));
-  const fixtureEntries = [[descendantRoot, descendantOperation], [borrowerRoot, borrowerOperation],
-    [sourceRoot, sourceOperation]] as const;
-  const retiredOperations = new Set<typeof sourceOperation>();
+  const fixtureEntries: Array<readonly [string, CompilerDependencyFixtureOperation]> = [];
+  const retiredOperations = new Set<CompilerDependencyFixtureOperation>();
+  const changedLockfiles = new Set<string>();
+  const retained: Array<{ retire(): Promise<unknown> }> = [];
   let pending: Awaited<ReturnType<typeof beginDependencyTransition>> | undefined;
-  const options = runtimeDependencyOperationOptions({});
   let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
+    const sourceOperation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(sourceRoot));
+    fixtureEntries.push([sourceRoot, sourceOperation]);
+    const borrowerOperation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(borrowerRoot));
+    fixtureEntries.push([borrowerRoot, borrowerOperation]);
+    const descendantOperation = await issueCompilerDependencyFixtureOperation(fixtureDescriptor(descendantRoot));
+    fixtureEntries.push([descendantRoot, descendantOperation]);
     const ready = await settleCompilerDependencyFixtureOperation(sourceOperation);
     const authority = ready.executionGenerationAuthority;
     await expect(settleCompilerDependencyFixtureOperation(borrowerOperation, { ...authority }))
       .rejects.toThrow('was not issued by its owner');
-    await writeFile(path.join(borrowerRoot, 'bun.lock'), 'incompatible-lock\n');
+    const borrowerLockfile = path.join(borrowerRoot, 'bun.lock');
+    changedLockfiles.add(borrowerLockfile);
+    await writeFile(borrowerLockfile, 'incompatible-lock\n');
     await expect(settleCompilerDependencyFixtureOperation(borrowerOperation, authority))
       .rejects.toThrow('incompatible canonical inputs');
-    await writeFile(path.join(borrowerRoot, 'bun.lock'), 'fixture-lock-v1\n');
-    await writeFile(path.join(sourceRoot, 'bun.lock'), 'stale-source-lock\n');
+    await writeFile(borrowerLockfile, 'fixture-lock-v1\n');
+    changedLockfiles.delete(borrowerLockfile);
+    const sourceLockfile = path.join(sourceRoot, 'bun.lock');
+    changedLockfiles.add(sourceLockfile);
+    await writeFile(sourceLockfile, 'stale-source-lock\n');
     await expect(settleCompilerDependencyFixtureOperation(borrowerOperation, authority))
       .rejects.toThrow('no longer current');
-    await writeFile(path.join(sourceRoot, 'bun.lock'), 'fixture-lock-v1\n');
+    await writeFile(sourceLockfile, 'fixture-lock-v1\n');
+    changedLockfiles.delete(sourceLockfile);
     const borrower = await settleCompilerDependencyFixtureOperation(borrowerOperation, authority);
     const current = await observeCompilerDependencyExecutionGenerationAuthority({}, sourceRoot);
     const generation = projectCompilerDepsReadyState(current!).sourceGeneration!;
@@ -502,16 +628,16 @@ test('explicit compiler generation reuse rejects forged, incompatible, stale and
     // the unlocked observation from before this journal cannot skip recovery.
     await expect(retainCompilerDependencyReadGeneration(authority, {
       deadlineAtUnixMs: Date.now() + 30_000
-    })).rejects.toThrow('blocked by nonterminal recovery state');
+    }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');
     await expect(retainCompilerDependencyExecutionGeneration(authority, {
       deadlineAtUnixMs: Date.now() + 30_000
-    })).rejects.toThrow('blocked by nonterminal recovery state');
+    }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');
     await expect(retainCompilerDependencyReadGeneration(borrower.executionGenerationAuthority, {
       deadlineAtUnixMs: Date.now() + 30_000
-    })).rejects.toThrow('blocked by nonterminal recovery state');
+    }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');
     await expect(retainCompilerDependencyExecutionGeneration(borrower.executionGenerationAuthority, {
       deadlineAtUnixMs: Date.now() + 30_000
-    })).rejects.toThrow('blocked by nonterminal recovery state');
+    }).then(generation => { retained.push(generation); return generation; })).rejects.toThrow('blocked by nonterminal recovery state');
     await expect(lstat(path.join(descendantRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
     await advanceDependencyTransition(pending, { phase: 'rolled-back' }, options);
     pending = undefined;
@@ -522,16 +648,18 @@ test('explicit compiler generation reuse rejects forged, incompatible, stale and
     await settlePhysicalResourcesAsync({
       ...(primary === undefined ? {} : { primary }),
       cleanup: [
+        ...[...changedLockfiles].map(lockfile => ({ label: 'fixture-lockfile', settle: async () => {
+          await writeFile(lockfile, 'fixture-lock-v1\n');
+        } })),
         { label: 'pending-transition', settle: async () => { if (pending !== undefined) await advanceDependencyTransition(pending, { phase: 'rolled-back' }, options); } },
-        ...fixtureEntries.map(([, operation]) => ({ label: 'fixture-operation', settle: async () => {
+        ...retained.map(generation => ({ label: 'retained-consumer', settle: async () => { await generation.retire(); } })),
+        ...[...fixtureEntries].reverse().map(([, operation]) => ({ label: 'fixture-operation', settle: async () => {
           await retireCompilerDependencyFixtureOperation(operation);
           retiredOperations.add(operation);
         } })),
-        { label: 'fixture-runtime-state', settle: async () => {
-          for (const [root, operation] of fixtureEntries) {
-            if (retiredOperations.has(operation)) await removeFixtureRuntimeState(root);
-          }
-        } },
+        ...fixtureEntries.map(([root, operation]) => ({ label: 'fixture-runtime-state', settle: async () => {
+          if (retiredOperations.has(operation)) await removeFixtureRuntimeState(root);
+        } })),
         { label: 'fixture-root', settle: async () => {
           if (retiredOperations.size === fixtureEntries.length) await rm(ownerRoot, { recursive: true, force: true });
         } }

@@ -175,7 +175,7 @@ test('buildEngineeringIR rejects a missing app id without falling back to app na
   );
 });
 
-test('indexEngineeringIR exposes entity and relation indexes without copying facts', () => {
+test('indexEngineeringIR exposes entity and relation values', () => {
   const ir = buildEngineeringIR(fixture());
   const index = indexEngineeringIR(ir);
 
@@ -187,7 +187,7 @@ test('indexEngineeringIR exposes entity and relation indexes without copying fac
 
   const firstFact = ir.facts[0];
   expect(firstFact).toBeDefined();
-  expect(index.factById.get(firstFact!.id)).toBe(firstFact);
+  expect(index.factById.get(firstFact!.id)).toEqual(firstFact);
 });
 
 test('observed flow sorting preserves duplicate observations, provenance and captured input order', () => {

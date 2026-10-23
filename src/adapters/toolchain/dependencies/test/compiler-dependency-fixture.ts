@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createGeneratedStateCleanupOperationSession } from '../../../../execution/generated-state/cleanup-budget.ts';
 
 import { generatedStateProducerHooks } from '../../../../../tests/helpers/generated-state-fixture.ts';
-import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { settleResourcesAsync as settlePhysicalResourcesAsync, withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../../self-hosting/development/dependencies/locator-retirement.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import {
@@ -150,7 +150,7 @@ async function writeFixtureInputs(
   lockfileBytes: string
 ): Promise<void> {
   await mkdir(descriptor.dependencyRootPath, { recursive: true });
-  await Promise.all([
+  const writes = await Promise.allSettled([
     writeFile(path.join(descriptor.dependencyRootPath, 'package.json'), `${JSON.stringify({
       packageManager: `bun@${process.versions.bun}`,
       dependencies: descriptor.dependencies,
@@ -159,6 +159,13 @@ async function writeFixtureInputs(
     writeFile(path.join(descriptor.dependencyRootPath, 'bun.lock'), lockfileBytes),
     writeFile(path.join(descriptor.dependencyRootPath, '.bun-version'), `${process.versions.bun}\n`)
   ]);
+  const failures = writes.flatMap((write, index) => write.status === 'rejected'
+    ? [{ label: `compiler-dependency-fixture-input:${index}`, error: write.reason }]
+    : []);
+  await settlePhysicalResourcesAsync({
+    primary: failures[0],
+    cleanup: failures.slice(1).map(({ label, error }) => ({ label, settle: () => { throw error; } }))
+  });
 }
 
 async function materializePackages(
@@ -246,14 +253,14 @@ async function rematerializeFixture(
 }
 
 async function removeFixtureRuntimeRoot(
-  state: IssuedCompilerDependencyFixtureOperation
+  runtimeRoot: IssuedCompilerDependencyFixtureOperation['runtimeRoot']
 ): Promise<void> {
-  const runtimeRootNow = await lstat(state.runtimeRoot.path, { bigint: true });
+  const runtimeRootNow = await lstat(runtimeRoot.path, { bigint: true });
   if (!runtimeRootNow.isDirectory() || runtimeRootNow.isSymbolicLink() ||
-      runtimeRootNow.dev !== state.runtimeRoot.dev || runtimeRootNow.ino !== state.runtimeRoot.ino) {
+      runtimeRootNow.dev !== runtimeRoot.dev || runtimeRootNow.ino !== runtimeRoot.ino) {
     throw new Error('Compiler dependency fixture runtime root physical identity changed; residue is preserved.');
   }
-  await rm(state.runtimeRoot.path, { recursive: true });
+  await rm(runtimeRoot.path, { recursive: true });
 }
 
 async function retireFixtureState(
@@ -280,7 +287,7 @@ async function retireFixtureState(
       label: 'compiler-dependency-fixture-runtime-root-retirement',
       settle: async () => {
         if (!environmentRetired) return;
-        await removeFixtureRuntimeRoot(state);
+        await removeFixtureRuntimeRoot(state.runtimeRoot);
       }
     }]
   });
@@ -291,32 +298,49 @@ export async function issueCompilerDependencyFixtureOperation(
 ): Promise<CompilerDependencyFixtureOperation> {
   const descriptor = normalizeDescriptor(input);
   await writeFixtureInputs(descriptor, descriptor.lockfileBytes);
-  const runtimeRootPath = await mkdtemp(path.join(tmpdir(), 'sec-compiler-dependency-fixture-runtime-'));
-  const runtimeRootStat = await lstat(runtimeRootPath, { bigint: true });
-  if (!runtimeRootStat.isDirectory() || runtimeRootStat.isSymbolicLink()) {
-    throw new Error('Compiler dependency fixture runtime root is not an ordinary directory.');
-  }
-  const operation = Object.freeze({
-    kind: 'compiler-dependency-fixture-operation' as const
+  let runtimeRoot: IssuedCompilerDependencyFixtureOperation['runtimeRoot'] | undefined;
+  let transferred = false;
+  return withAcquiredResource({
+    operationLabel: 'compiler-dependency-fixture-issue',
+    resourceLabel: 'compiler-dependency-fixture-untransferred-runtime-root',
+    acquire: () => mkdtemp(path.join(tmpdir(), 'sec-compiler-dependency-fixture-runtime-')),
+    use: async (runtimeRootPath) => {
+      const runtimeRootStat = await lstat(runtimeRootPath, { bigint: true });
+      if (!runtimeRootStat.isDirectory() || runtimeRootStat.isSymbolicLink()) {
+        throw new Error('Compiler dependency fixture runtime root is not an ordinary directory.');
+      }
+      runtimeRoot = Object.freeze({
+        dev: runtimeRootStat.dev,
+        ino: runtimeRootStat.ino,
+        path: runtimeRootPath
+      });
+      const operation = Object.freeze({
+        kind: 'compiler-dependency-fixture-operation' as const
+      });
+      issuedCompilerDependencyFixtureOperations.set(operation, {
+        descriptor,
+        lifecycleEnvironment: Object.freeze({
+          ...process.env,
+          SEC_CACHE_HOME: path.join(runtimeRootPath, 'cache'),
+          SEC_STATE_HOME: path.join(runtimeRootPath, 'state')
+        }),
+        lockRevision: 0,
+        ready: null,
+        retirement: null,
+        runtimeRoot,
+        retired: false
+      });
+      transferred = true;
+      return operation;
+    },
+    release: async (runtimeRootPath) => {
+      if (transferred) return;
+      if (runtimeRoot === undefined) {
+        throw new Error(`Compiler dependency fixture runtime root identity was not admitted; residue is preserved: ${runtimeRootPath}`);
+      }
+      await removeFixtureRuntimeRoot(runtimeRoot);
+    }
   });
-  issuedCompilerDependencyFixtureOperations.set(operation, {
-    descriptor,
-    lifecycleEnvironment: Object.freeze({
-      ...process.env,
-      SEC_CACHE_HOME: path.join(runtimeRootPath, 'cache'),
-      SEC_STATE_HOME: path.join(runtimeRootPath, 'state')
-    }),
-    lockRevision: 0,
-    ready: null,
-    retirement: null,
-    runtimeRoot: Object.freeze({
-      dev: runtimeRootStat.dev,
-      ino: runtimeRootStat.ino,
-      path: runtimeRootPath
-    }),
-    retired: false
-  });
-  return operation;
 }
 
 export async function settleCompilerDependencyFixtureOperation(

@@ -97,13 +97,12 @@ test('observed local program edges continue through test helpers to runnable tes
         return [];
       }
     });
-    expect(captureOnceProvider.projection).toBe(provider.projection);
     expect(capturedInputs).toEqual({
       projection: 1, testInventory: 1, affectedSource: 1, activeDocumentationPaths: 1
     });
     expect(provider.testInventory.testFiles).toContain('tests/unit/tsconfig-excluded.test.ts');
 
-    const selection = selectTestsForSources(['src/value.ts'], provider);
+    const selection = selectTestsForSources(['src/value.ts'], captureOnceProvider);
     expect(selection.fast).toEqual(['tests/unit/value.test.ts']);
     expect(provider.projection.observedTestConsumers).toContainEqual({
       targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts'

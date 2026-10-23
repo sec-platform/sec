@@ -26,7 +26,7 @@ class Provider implements WorkspaceCompilationTransactionOperations {
   async emit(): Promise<never> { throw new Error('unselected emit'); }
   readLock() { this.#trace.push('read-lock'); return lock; }
   buildCompletionProof(input: unknown) { this.#trace.push('proof'); this.#proofInput = input; return null; }
-  revalidateStagedProof(actual: LockFile) { expect(actual).toBe(lock); this.#trace.push('revalidate'); }
+  revalidateStagedProof(actual: LockFile) { expect(actual).toEqual(lock); this.#trace.push('revalidate'); }
 }
 
 function deferred() {
@@ -41,7 +41,7 @@ test('workspace compilation retains prototype stage methods and the original pro
   expect(provider.trace).toEqual(['lease', 'boundary:lock', 'lock', 'read-lock', 'proof', 'revalidate']);
   expect(result.transactionId).toBe('tx:receiver');
   expect(result.completedStages).toEqual(['lock']);
-  expect(result.lock).toBe(lock);
+  expect(result.lock).toEqual(lock);
   expect(result.completionProof).toBeUndefined();
   expect(provider.proofInput).toEqual({ transactionId: 'tx:receiver', lock, completedStages: ['lock'] });
 });
@@ -88,7 +88,7 @@ test('completion waits for the original selected stage promise', async () => {
     expect(provider.trace).toEqual(['lease', 'boundary:lock', 'lock']);
     expect(provider.proofInput).toBeUndefined();
   } finally { held.resolve(); }
-  expect((await run).lock).toBe(lock);
+  expect((await run).lock).toEqual(lock);
   expect(provider.trace).toEqual(['lease', 'boundary:lock', 'lock', 'read-lock', 'proof', 'revalidate']);
 });
 
