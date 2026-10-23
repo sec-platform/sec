@@ -140,6 +140,8 @@ for (const scenario of ['retired', 'disposed', 'foreign', 'preimage', 'cancel', 
         expect((await bind.call(lifecycle, 'node_modules')).phase).toBe('active');
       } else {
         await expect(run()).rejects.toBeDefined();
+        if (scenario === 'cancel') expect(controller.signal.aborted).toBe(true);
+        if (scenario === 'preimage') expect(transition.phase).toBe('binding-validated');
         if (scenario === 'settled-republish-fence') {
           expect(predecessorSettled).toBe(true);
           expect(rejectAtFence).toBe(true);
@@ -151,7 +153,6 @@ for (const scenario of ['retired', 'disposed', 'foreign', 'preimage', 'cancel', 
           expect(disposed.registrationDigest).toBe(retiredDigest);
           const failed = await readDependencyTransition(consumerRoot, options);
           expect(failed?.phase).toBe('recovery-required');
-          expect(failed?.phase).not.toBe('rolled-back');
         } else if (scenario !== 'unknown-lease') expect((await observeDependencyTransitionSlot(activePath)).physical).toEqual(beforeRecovery.physical);
         else {
           expect(held).toBeDefined();
@@ -569,12 +570,12 @@ describe('compiler dependency installation', () => {
         }
       }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-002' });
       expect(failedInstallRoot).not.toBeNull();
-      await expect(fs.stat(failedInstallRoot!)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(failedInstallRoot!)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(fs.lstat(path.join(tempRoot, 'node_modules')))
         .rejects.toMatchObject({ code: 'ENOENT' });
 
       expect((await ensureCompilerDepsReady(baseOptions, tempRoot)).source).toBe('installed');
-      await expect(fs.stat(stagingRoots.at(-1)!)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(stagingRoots.at(-1)!)).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-2:typescript\n');
     }));
 

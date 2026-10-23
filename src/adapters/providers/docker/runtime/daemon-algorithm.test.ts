@@ -108,6 +108,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     let launcherDeadlineAtUnixMs = 0;
     let observations = 0;
     let lockEntries = 0;
+    let residueObservations = 0;
     const commandDeadlineAtUnixMs = Date.now() + 9_000;
     const result = await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
@@ -115,12 +116,23 @@ describe('Docker daemon lifecycle algorithm', () => {
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,
       endpointHost,
+      observeRuntimeEndpointResidue: () => {
+        residueObservations += 1;
+        return null;
+      },
       platform: 'win32',
       launch: async ({ args, deadlineAtUnixMs }) => {
         launches += 1;
         launcherArguments = args;
         launcherDeadlineAtUnixMs = deadlineAtUnixMs;
-        return { ...available, physicalDisposition: 'settled' };
+        return {
+          ...available,
+          stderr: [
+            'Error: acquiring launcher lock: open : The system cannot find the file specified.',
+            'arbitrary.endpoint Win32 1920; restart Windows is required'
+          ].join('\n'),
+          physicalDisposition: 'settled'
+        };
       },
       withLauncherLock: async (operation) => {
         lockEntries += 1;
@@ -138,6 +150,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     });
     expect(result).toBe(available);
     expect(lockEntries).toBe(1);
+    expect(residueObservations).toBe(0);
     expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
     expect(launches).toBe(1);
     expect(launcherArguments.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
@@ -303,33 +316,6 @@ describe('Docker daemon lifecycle algorithm', () => {
       expectReason(error, 'desktop-environment-unavailable');
     }
     expect(launches).toBe(0);
-  });
-
-  test('direct launcher output is presentation-only and final daemon readback is authoritative', async () => {
-    const lifecycles: string[] = [];
-    let observations = 0;
-    const result = await ensureDockerDaemonStartedWithCommand({
-      ...ensureStartedAuthority,
-      commandDeadlineAtUnixMs,
-      cwd: process.cwd(),
-      deadlineAtUnixMs: Date.now() + 10_000,
-      endpointHost,
-      platform: 'win32',
-      launch: async () => ({
-        code: 0,
-        stdout: '',
-        stderr: 'Error: acquiring launcher lock: open : The system cannot find the file specified.',
-        physicalDisposition: 'settled'
-      }),
-      withLauncherLock: async (operation) => await operation(),
-      run: async ({ lifecycle }) => {
-        lifecycles.push(lifecycle);
-        observations += 1;
-        return observations < 3 ? unavailable : available;
-      }
-    });
-    expect(result).toBe(available);
-    expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
   });
 
   test('lost launcher handle is typed only after one handle-independent final readback', async () => {
@@ -565,36 +551,6 @@ describe('Docker daemon lifecycle algorithm', () => {
         expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
       }
     });
-  });
-
-  test('reboot and Win32 presentation without physical receipt is non-authoritative', async () => {
-    let observations = 0;
-    let residueObservations = 0;
-    const result = await ensureDockerDaemonStartedWithCommand({
-      ...ensureStartedAuthority,
-      commandDeadlineAtUnixMs,
-      cwd: process.cwd(),
-      deadlineAtUnixMs: Date.now() + 10_000,
-      endpointHost,
-      observeRuntimeEndpointResidue: () => {
-        residueObservations += 1;
-        return null;
-      },
-      platform: 'win32',
-      launch: async () => ({
-        code: 0,
-        stdout: '',
-        stderr: 'arbitrary.endpoint Win32 1920; restart Windows is required',
-        physicalDisposition: 'settled'
-      }),
-      withLauncherLock: async (operation) => await operation(),
-      run: async () => {
-        observations += 1;
-        return observations < 3 ? unavailable : available;
-      }
-    });
-    expect(result).toBe(available);
-    expect(residueObservations).toBe(0);
   });
 
   test('classifies retained child settlement failure separately from endpoint state', async () => {
