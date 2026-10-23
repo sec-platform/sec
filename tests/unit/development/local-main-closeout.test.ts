@@ -7,6 +7,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 
 import { withWorkspaceWriteLease } from '../../../src/adapters/filesystem/write-lease.ts';
+import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import {
   createLocalMainCloseoutBinding,
   executeLocalMainCloseout,
@@ -135,73 +137,91 @@ test.serial('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and n
   const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();
   const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
   const dirtyPath = path.join(protectedRoot!, 'main.txt');
-  writeFileSync(dirtyPath, 'dirty user work\n');
+  await settleWorkspaceCallback(async () => {
+    writeFileSync(dirtyPath, 'dirty user work\n');
 
-  const status = await execute(binding(beforeHead));
-  expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
-  if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('dirty');
-  expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(beforeHead);
-  expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
-  expect(readFileSync(dirtyPath, 'utf8')).toBe('dirty user work\n');
-  git(protectedRoot!, ['checkout', '--', 'main.txt']);
+    const status = await execute(binding(beforeHead));
+    expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
+    if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('dirty');
+    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(beforeHead);
+    expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
+    expect(readFileSync(dirtyPath, 'utf8')).toBe('dirty user work\n');
+  }, async () => { git(protectedRoot!, ['checkout', '--', 'main.txt']); });
   expect(git(protectedRoot!, ['status', '--porcelain=v1']).trim()).toBe('');
 });
 
 test.serial('local-only commits return LOCAL_MAIN_SYNC_BLOCKED(local-only-commits) without mutation', async () => {
   const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();
-  writeFileSync(path.join(protectedRoot!, 'local.txt'), 'local\n');
-  git(protectedRoot!, ['add', 'local.txt']);
-  git(protectedRoot!, ['commit', '--quiet', '--no-verify', '-m', 'local-only']);
-  const localHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  const localPath = path.join(protectedRoot!, 'local.txt');
+  await settleWorkspaceCallback(async () => {
+    writeFileSync(localPath, 'local\n');
+    git(protectedRoot!, ['add', 'local.txt']);
+    git(protectedRoot!, ['commit', '--quiet', '--no-verify', '-m', 'local-only']);
+    const localHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
 
-  const status = await execute(binding(localHead));
-  expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
-  if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('local-only-commits');
-  expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
-  expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
+    const status = await execute(binding(localHead));
+    expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
+    if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('local-only-commits');
+    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
+    expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
 
-  git(protectedRoot!, ['reset', '--hard', 'origin/main']);
+  }, () => settleResourcesAsync({ cleanup: [
+    { label: 'local-fixture-commit', settle: () => { git(protectedRoot!, ['reset', '--hard', beforeHead]); } },
+    { label: 'local-fixture-file', settle: () => rm(localPath, { force: true }) }
+  ] }).then(() => undefined));
 });
 
 test.serial('a diverged protected main preserves local commits while refreshing remote tracking', async () => {
   developerPush('v3\n');
   const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
-  writeFileSync(path.join(protectedRoot!, 'diverged.txt'), 'diverged\n');
-  git(protectedRoot!, ['add', 'diverged.txt']);
-  git(protectedRoot!, ['commit', '--quiet', '--no-verify', '-m', 'diverged local work']);
-  const localHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  const localPath = path.join(protectedRoot!, 'diverged.txt');
+  await settleWorkspaceCallback(async () => {
+    writeFileSync(localPath, 'diverged\n');
+    git(protectedRoot!, ['add', 'diverged.txt']);
+    git(protectedRoot!, ['commit', '--quiet', '--no-verify', '-m', 'diverged local work']);
+    const localHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
 
-  const status = await execute(binding(localHead));
-  expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
-  if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') {
-    expect(['local-only-commits', 'not-fast-forwardable']).toContain(status.reason);
-  }
-  expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
-  expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
+    const status = await execute(binding(localHead));
+    expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
+    if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') {
+      expect(['local-only-commits', 'not-fast-forwardable']).toContain(status.reason);
+    }
+    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(localHead);
+    expect(git(protectedRoot!, ['rev-parse', 'origin/main']).trim()).toBe(remoteSha);
 
-  git(protectedRoot!, ['reset', '--hard', 'origin/main']);
+  }, () => settleResourcesAsync({ cleanup: [
+    { label: 'diverged-fixture-commit', settle: () => { git(protectedRoot!, ['reset', '--hard', beforeHead]); } },
+    { label: 'diverged-fixture-file', settle: () => rm(localPath, { force: true }) }
+  ] }).then(() => undefined));
 });
 
 test.serial('an ignored local path colliding with the incoming tracked write set blocks ff-only publication', async () => {
   const localPath = path.join(protectedRoot!, 'generated.ts');
   const excludePath = path.join(protectedRoot!, '.git', 'info', 'exclude');
-  writeFileSync(excludePath, 'generated.ts\n');
-  writeFileSync(localPath, 'developer-owned ignored bytes\n');
-  writeFileSync(path.join(developerRoot!, 'generated.ts'), 'incoming tracked bytes\n');
-  git(developerRoot!, ['add', 'generated.ts']);
-  git(developerRoot!, ['commit', '--quiet', '--no-verify', '-m', 'remote generated path']);
-  git(developerRoot!, ['push', '--quiet', 'origin', 'main']);
-  const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  const originalExclude = readFileSync(excludePath);
+  const initialHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  await settleWorkspaceCallback(async () => {
+    writeFileSync(excludePath, 'generated.ts\n');
+    writeFileSync(localPath, 'developer-owned ignored bytes\n');
+    writeFileSync(path.join(developerRoot!, 'generated.ts'), 'incoming tracked bytes\n');
+    git(developerRoot!, ['add', 'generated.ts']);
+    git(developerRoot!, ['commit', '--quiet', '--no-verify', '-m', 'remote generated path']);
+    git(developerRoot!, ['push', '--quiet', 'origin', 'main']);
+    const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
 
-  const status = await execute(binding(beforeHead));
-  expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
-  if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('dirty');
-  expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(beforeHead);
-  expect(readFileSync(localPath, 'utf8')).toBe('developer-owned ignored bytes\n');
+    const status = await execute(binding(beforeHead));
+    expect(status.status).toBe('LOCAL_MAIN_SYNC_BLOCKED');
+    if (status.status === 'LOCAL_MAIN_SYNC_BLOCKED') expect(status.reason).toBe('dirty');
+    expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(beforeHead);
+    expect(readFileSync(localPath, 'utf8')).toBe('developer-owned ignored bytes\n');
 
-  await rm(localPath, { force: true });
-  writeFileSync(excludePath, '');
-  git(protectedRoot!, ['reset', '--hard', 'origin/main']);
+  }, () => settleResourcesAsync({ cleanup: [
+    { label: 'ignored-fixture-file', settle: () => rm(localPath, { force: true }) },
+    { label: 'fixture-excludes', settle: () => { writeFileSync(excludePath, originalExclude); } },
+    { label: 'protected-fixture-head', settle: () => { git(protectedRoot!, ['reset', '--hard', initialHead]); } }
+  ] }).then(() => undefined));
 });
 
 function developerPush(content: string): void {

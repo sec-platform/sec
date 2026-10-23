@@ -22,6 +22,7 @@ import {
   runGitRead
 } from '../../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import { issueOperationRequirementBindingContext } from '../../../src/execution/operation/requirement-binding-context.ts';
+import { settleResourcesAsync, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import {
   bindSemanticOperation,
   compileCapabilityBinding,
@@ -33,6 +34,28 @@ import {
 
 const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as OperationDigest;
 const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as OperationDigest;
+
+async function withHostGitSession<T>(
+  input: Parameters<typeof createHostGitReadSessionForTests>[0],
+  run: (session: ReturnType<typeof createHostGitReadSessionForTests>) => Promise<T>
+): Promise<T> {
+  return withAcquiredResource({
+    operationLabel: 'git-host-session-fixture', resourceLabel: 'git-host-session',
+    acquire: () => createHostGitReadSessionForTests(input), use: run,
+    release: async session => { await session.close?.(); }
+  });
+}
+
+async function withGitResolution<T>(
+  input: Parameters<typeof createAuthorityGitReadSession>[0],
+  run: (resolution: ReturnType<typeof createAuthorityGitReadSession>) => Promise<T>
+): Promise<T> {
+  return withAcquiredResource({
+    operationLabel: 'git-authority-session-fixture', resourceLabel: 'git-authority-session',
+    acquire: () => createAuthorityGitReadSession(input), use: run,
+    release: async resolution => { if (resolution.status === 'ready') await resolution.session.close?.(); }
+  });
+}
 
 function issueTestGitReadOperation(input: Readonly<{
   deadlineAtUnixMs?: number;
@@ -203,19 +226,20 @@ test('Git read isolation removes case-variant mandatory overrides before child e
 });
 
 test('the explicit host test route rejects aggregate argument overflow before starting Git', async () => {
-  const session = createHostGitReadSessionForTests({
+  await withHostGitSession({
     cwd: process.cwd(),
     budget: {
       maxProcesses: 1,
       maxTotalArgumentBytes: 1
     }
+  }, async session => {
+    const result = await session.run(['status']);
+    expect(result).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'argument-budget-exhausted'
+    });
+    expect(session.processCount).toBe(0);
   });
-  const result = await session.run(['status']);
-  expect(result).toMatchObject({
-    kind: 'unresolved-git-read-session',
-    reason: 'argument-budget-exhausted'
-  });
-  expect(session.processCount).toBe(0);
 });
 
 test('Git read grammar admits exact observations and terminally rejects mutation or helper execution', async () => {
@@ -238,8 +262,7 @@ test('Git read grammar admits exact observations and terminally rejects mutation
     { args: ['show', '--format=%(trailers:only,unfold,key=SEC,separator=%x00)', 'HEAD'], permitted: false }
   ] as const;
   for (const testCase of cases) {
-    const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
-    try {
+    await withHostGitSession({ cwd: process.cwd() }, async session => {
       const result = await session.run(testCase.args);
       if (testCase.permitted) {
         expect(result.kind).toBe('completed');
@@ -253,132 +276,128 @@ test('Git read grammar admits exact observations and terminally rejects mutation
         expect(session.processCount).toBe(0);
         expect(session.failure).toBe(result);
       }
-    } finally {
-      await session.close?.();
-    }
+    });
   }
 });
 
 test('a terminal host-session failure cannot be consumed as additional records', async () => {
-  const session = createHostGitReadSessionForTests({
+  await withHostGitSession({
     cwd: process.cwd(),
     budget: { maxTotalArgumentBytes: 1 }
+  }, async session => {
+    const commandFailure = await session.run(['status']);
+    const recordsBefore = session.recordCount;
+    const recordFailure = session.consumeRecords(1);
+    expect(commandFailure.kind).toBe('unresolved-git-read-session');
+    expect(recordFailure).toBe(session.failure);
+    expect(session.recordCount).toBe(recordsBefore);
   });
-  const commandFailure = await session.run(['status']);
-  const recordsBefore = session.recordCount;
-  const recordFailure = session.consumeRecords(1);
-  expect(commandFailure.kind).toBe('unresolved-git-read-session');
-  expect(recordFailure).toBe(session.failure);
-  expect(session.recordCount).toBe(recordsBefore);
 });
 
 test('test sessions cannot cross the production GitRead issuer boundary', async () => {
-  const testSession = createHostGitReadSessionForTests({ cwd: process.cwd() });
-  expect(isTestGitReadSession(testSession)).toBe(true);
-  expect(isProductionGitReadSession(testSession)).toBe(false);
-  expect(() => assertProductionGitReadSession(testSession)).toThrow(/production issuer/u);
-  const structuralClone = { ...testSession };
-  expect(isProductionGitReadSession(structuralClone)).toBe(false);
-  expect(() => assertProductionGitReadSession(structuralClone)).toThrow(/production issuer/u);
-  await testSession.close?.();
+  await withHostGitSession({ cwd: process.cwd() }, async testSession => {
+    expect(isTestGitReadSession(testSession)).toBe(true);
+    expect(isProductionGitReadSession(testSession)).toBe(false);
+    expect(() => assertProductionGitReadSession(testSession)).toThrow(/production issuer/u);
+    const structuralClone = { ...testSession };
+    expect(isProductionGitReadSession(structuralClone)).toBe(false);
+    expect(() => assertProductionGitReadSession(structuralClone)).toThrow(/production issuer/u);
+  });
 
-  const resolution = createAuthorityGitReadSession({
+  await withGitResolution({
     cwd: process.cwd(),
     operation: issueTestGitReadOperation(),
     budget: GIT_READ_OPERATION_BUDGET
+  }, async resolution => {
+    expect(resolution.status).toBe('ready');
+    if (resolution.status === 'ready') {
+      expect(isProductionGitReadSession(resolution.session)).toBe(true);
+      expect(isTestGitReadSession(resolution.session)).toBe(false);
+      expect(() => assertProductionGitReadSession(resolution.session)).not.toThrow();
+      const version = await resolution.session.run(['--version']);
+      expect(version.kind).toBe('completed');
+      expect(resolution.session.processCount).toBe(1);
+    }
   });
-  expect(resolution.status).toBe('ready');
-  if (resolution.status === 'ready') {
-    expect(isProductionGitReadSession(resolution.session)).toBe(true);
-    expect(isTestGitReadSession(resolution.session)).toBe(false);
-    expect(() => assertProductionGitReadSession(resolution.session)).not.toThrow();
-    const version = await resolution.session.run(['--version']);
-    expect(version.kind).toBe('completed');
-    expect(resolution.session.processCount).toBe(1);
-    await resolution.session.close?.();
-  }
 });
 
 test('semantic projection origin cannot replace the production Git provider capability', async () => {
   const operation = issueTestGitReadOperation();
-  const resolution = createAuthorityGitReadSession({
+  await withGitResolution({
     cwd: process.cwd(),
     // A shallow projection copy is only correlation and budget input. The
     // Git owner must still retain the executable/cwd and privately issue the
     // production session below.
     operation: { ...operation },
     budget: GIT_READ_OPERATION_BUDGET
-  });
-  expect(resolution.status).toBe('ready');
-  if (resolution.status !== 'ready') return;
-  try {
+  }, async resolution => {
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') return;
     expect(isProductionGitReadSession(resolution.session)).toBe(true);
     expect(isProductionGitReadSession({ ...resolution.session })).toBe(false);
     expect(isProductionGitReadSession({ ...operation } as unknown as typeof resolution.session))
       .toBe(false);
-  } finally {
-    await resolution.session.close?.();
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')(
   'production GitRead shares one AbortSignal with operation admission and child execution',
   async () => {
     const controller = new AbortController();
-    const resolution = createAuthorityGitReadSession({
+    await withGitResolution({
       cwd: process.cwd(),
       operation: issueTestGitReadOperation(),
       budget: GIT_READ_OPERATION_BUDGET,
       signal: controller.signal
+    }, async resolution => {
+      expect(resolution.status).toBe('ready');
+      if (resolution.status !== 'ready') return;
+      controller.abort();
+      const result = await resolution.session.run(['--version']);
+      expect(result).toMatchObject({
+        kind: 'unresolved-git-read-session',
+        reason: 'cancelled'
+      });
+      if (result.kind !== 'unresolved-git-read-session') {
+        throw new Error('GitRead cancellation did not produce a typed session failure.');
+      }
+      expect(resolution.session.processCount).toBe(0);
+      expect(resolution.session.consumeRecords(1)).toBe(result);
     });
-    expect(resolution.status).toBe('ready');
-    if (resolution.status !== 'ready') return;
-    controller.abort();
-    const result = await resolution.session.run(['--version']);
-    expect(result).toMatchObject({
-      kind: 'unresolved-git-read-session',
-      reason: 'cancelled'
-    });
-    if (result.kind !== 'unresolved-git-read-session') {
-      throw new Error('GitRead cancellation did not produce a typed session failure.');
-    }
-    expect(resolution.session.processCount).toBe(0);
-    expect(resolution.session.consumeRecords(1)).toBe(result);
-    await resolution.session.close?.();
   }
 );
 
 test.skipIf(process.platform !== 'win32')(
   'production GitRead consumes aggregate process and output budgets from one bound operation',
   async () => {
-    const processResolution = createAuthorityGitReadSession({
+    await withGitResolution({
       cwd: process.cwd(),
       operation: issueTestGitReadOperation({ maxProcesses: 1 }),
       budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 2 }
+    }, async processResolution => {
+      expect(processResolution.status).toBe('ready');
+      if (processResolution.status !== 'ready') return;
+      expect((await processResolution.session.run(['--version'])).kind).toBe('completed');
+      expect(await processResolution.session.run(['--version'])).toMatchObject({
+        kind: 'unresolved-git-read-session',
+        reason: 'process-budget-exhausted'
+      });
+      expect(processResolution.session.processCount).toBe(1);
     });
-    expect(processResolution.status).toBe('ready');
-    if (processResolution.status !== 'ready') return;
-    expect((await processResolution.session.run(['--version'])).kind).toBe('completed');
-    expect(await processResolution.session.run(['--version'])).toMatchObject({
-      kind: 'unresolved-git-read-session',
-      reason: 'process-budget-exhausted'
-    });
-    expect(processResolution.session.processCount).toBe(1);
-    await processResolution.session.close?.();
 
-    const outputResolution = createAuthorityGitReadSession({
+    await withGitResolution({
       cwd: process.cwd(),
       operation: issueTestGitReadOperation({ maxOutputBytes: 1 }),
       budget: GIT_READ_OPERATION_BUDGET
+    }, async outputResolution => {
+      expect(outputResolution.status).toBe('ready');
+      if (outputResolution.status !== 'ready') return;
+      expect(await outputResolution.session.run(['--version'])).toMatchObject({
+        kind: 'unresolved-git-read-session',
+        reason: 'stdout-budget-exhausted'
+      });
+      expect(outputResolution.session.processCount).toBe(1);
     });
-    expect(outputResolution.status).toBe('ready');
-    if (outputResolution.status !== 'ready') return;
-    expect(await outputResolution.session.run(['--version'])).toMatchObject({
-      kind: 'unresolved-git-read-session',
-      reason: 'stdout-budget-exhausted'
-    });
-    expect(outputResolution.session.processCount).toBe(1);
-    await outputResolution.session.close?.();
   }
 );
 
@@ -386,70 +405,78 @@ test.skipIf(process.platform !== 'win32')(
   'borrowed parent process history does not consume the Git-local process delta budget',
   async () => {
     const operation = issueTestGitReadOperation({ maxProcesses: 3 });
-    const processSession = openProcessResourceSession({
-      operation,
-      requirementBindingContext: issueOperationRequirementBindingContext({
+    await withAcquiredResource({
+      operationLabel: 'borrowed-git-sessions', resourceLabel: 'parent-process-session',
+      acquire: () => openProcessResourceSession({
         operation,
-        requirementId: 'git-read.host-process',
-        resourceCeilings: operation.plan.execution.aggregateBudgets
-      })
-    });
-    const first = createAuthorityGitReadSession({
-      cwd: process.cwd(),
-      operation,
-      processSession,
-      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
-    });
-    expect(first.status).toBe('ready');
-    if (first.status !== 'ready') throw new Error('First borrowed GitRead session is unavailable.');
-    expect((await first.session.run(['--version'])).kind).toBe('completed');
-    const firstReceipt = await first.session.close?.();
-    if (firstReceipt === undefined) throw new Error('First borrowed GitRead receipt is unavailable.');
-    assertGitReadSessionReceipt(firstReceipt, {
-      operationIdentityDigest: operation.plan.identity.identityDigest,
-      boundAttemptDigest: operation.boundAttemptDigest,
-      requirementId: 'git-read.host-process'
-    });
-    expect(firstReceipt.processSessionOwnership).toBe('borrowed');
-    expect(firstReceipt.processCount).toBe(1);
-    expect(processSession.processCount).toBe(1);
+        requirementBindingContext: issueOperationRequirementBindingContext({
+          operation,
+          requirementId: 'git-read.host-process',
+          resourceCeilings: operation.plan.execution.aggregateBudgets
+        })
+      }),
+      use: async processSession => {
+        await withGitResolution({
+          cwd: process.cwd(),
+          operation,
+          processSession,
+          budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+        }, async first => {
+          expect(first.status).toBe('ready');
+          if (first.status !== 'ready') throw new Error('First borrowed GitRead session is unavailable.');
+          expect((await first.session.run(['--version'])).kind).toBe('completed');
+          const firstReceipt = await first.session.close?.();
+          if (firstReceipt === undefined) throw new Error('First borrowed GitRead receipt is unavailable.');
+          assertGitReadSessionReceipt(firstReceipt, {
+            operationIdentityDigest: operation.plan.identity.identityDigest,
+            boundAttemptDigest: operation.boundAttemptDigest,
+            requirementId: 'git-read.host-process'
+          });
+          expect(firstReceipt.processSessionOwnership).toBe('borrowed');
+          expect(firstReceipt.processCount).toBe(1);
+          expect(processSession.processCount).toBe(1);
+        });
 
-    const second = createAuthorityGitReadSession({
-      cwd: process.cwd(),
-      operation,
-      processSession,
-      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
-    });
-    expect(second.status).toBe('ready');
-    if (second.status !== 'ready') throw new Error('Second borrowed GitRead session is unavailable.');
-    expect(second.session.processCount).toBe(0);
-    expect((await second.session.run(['--version'])).kind).toBe('completed');
-    expect(second.session.processCount).toBe(1);
-    expect(await second.session.run(['--version'])).toMatchObject({
-      kind: 'unresolved-git-read-session',
-      reason: 'process-budget-exhausted'
-    });
-    const secondReceipt = await second.session.close?.();
-    if (secondReceipt === undefined) throw new Error('Second borrowed GitRead receipt is unavailable.');
-    expect(secondReceipt.processSessionOwnership).toBe('borrowed');
-    expect(secondReceipt.processCount).toBe(1);
-    expect(processSession.processCount).toBe(2);
-    expect(() => processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
+        await withGitResolution({
+          cwd: process.cwd(),
+          operation,
+          processSession,
+          budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+        }, async second => {
+          expect(second.status).toBe('ready');
+          if (second.status !== 'ready') throw new Error('Second borrowed GitRead session is unavailable.');
+          expect(second.session.processCount).toBe(0);
+          expect((await second.session.run(['--version'])).kind).toBe('completed');
+          expect(second.session.processCount).toBe(1);
+          expect(await second.session.run(['--version'])).toMatchObject({
+            kind: 'unresolved-git-read-session',
+            reason: 'process-budget-exhausted'
+          });
+          const secondReceipt = await second.session.close?.();
+          if (secondReceipt === undefined) throw new Error('Second borrowed GitRead receipt is unavailable.');
+          expect(secondReceipt.processSessionOwnership).toBe('borrowed');
+          expect(secondReceipt.processCount).toBe(1);
+          expect(processSession.processCount).toBe(2);
+          expect(() => processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
+        });
 
-    const transplantedOperation = issueTestGitReadOperation({ maxProcesses: 1 });
-    const rejected = createAuthorityGitReadSession({
-      cwd: process.cwd(),
-      operation: transplantedOperation,
-      processSession,
-      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+        const transplantedOperation = issueTestGitReadOperation({ maxProcesses: 1 });
+        await withGitResolution({
+          cwd: process.cwd(),
+          operation: transplantedOperation,
+          processSession,
+          budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+        }, async rejected => {
+          expect(rejected).toMatchObject({
+            kind: 'unresolved-git-read-provider',
+            status: 'unavailable',
+            reason: 'git-operation-admission-unavailable'
+          });
+          expect(processSession.processCount).toBe(2);
+        });
+      },
+      release: processSession => { processSession.close(); }
     });
-    expect(rejected).toMatchObject({
-      kind: 'unresolved-git-read-provider',
-      status: 'unavailable',
-      reason: 'git-operation-admission-unavailable'
-    });
-    expect(processSession.processCount).toBe(2);
-    processSession.close();
   }
 );
 
@@ -458,6 +485,10 @@ test.skipIf(process.platform !== 'win32')(
   async () => {
     const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-repository-'));
     let scratchRoot: string | undefined;
+    let resolution: ReturnType<typeof createAuthorityGitReadSession> | undefined;
+    let gitSettled = true;
+    let scratchSettled = true;
+    let primary: { label: string; error: unknown } | undefined;
     try {
       scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
       const runFixtureGit = (args: readonly string[]): void => {
@@ -472,15 +503,18 @@ test.skipIf(process.platform !== 'win32')(
       runFixtureGit(['init', '--quiet']);
       writeFileSync(path.join(repositoryRoot, 'package.json'), '{"name":"scratch-fixture"}\n');
       runFixtureGit(['add', '--', 'package.json']);
-      const resolution = createAuthorityGitReadSession({
+      gitSettled = false;
+      resolution = createAuthorityGitReadSession({
         cwd: repositoryRoot,
         operation: issueTestGitReadOperation(),
         budget: { maxProcesses: 32 }
       });
+      if (resolution.status !== 'ready') gitSettled = true;
       expect(resolution.status).toBe('ready');
       if (resolution.status !== 'ready') return;
-      try {
-        const indexObservation = await resolution.session.run([
+      {
+        const gitSession = resolution.session;
+        const indexObservation = await gitSession.run([
           'rev-parse', '--path-format=absolute', '--git-path', 'index'
         ]);
         if (indexObservation.kind !== 'completed' || indexObservation.result.code !== 0) {
@@ -494,202 +528,227 @@ test.skipIf(process.platform !== 'win32')(
         copyFileSync(indexPath, path.join(scratchRoot, 'index'));
         mkdirSync(path.join(scratchRoot, 'objects'));
 
-        const scratchResolution = await createAuthorityGitScratchIndexTreeSession({
-          gitReadSession: resolution.session,
-          scratchRoot
-        });
-        expect(scratchResolution.status).toBe('ready');
-        if (scratchResolution.status !== 'ready') return;
-        let scratchPrimaryFailure: unknown;
-        try {
-          const tree = await scratchResolution.session.writeTree();
-          expect(tree).toMatchObject({ status: 'ready' });
-          if (tree.status !== 'ready') return;
-          const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
-          expect(blob.status).toBe('ready');
-          if (blob.status === 'ready') {
-            expect(Buffer.compare(
-              Buffer.from(blob.value.stdout),
-              Buffer.from(expectedIndexBlob.result.stdout)
-            )).toBe(0);
-          }
-          const deltaPath = 'sec-git-scratch-delta.txt';
-          const added = await scratchResolution.session.applyIndexDelta({
-            additions: [{ path: deltaPath, bytes: Buffer.from('scratch delta\n', 'utf8') }],
-            removals: []
-          });
-          expect(added).toMatchObject({ status: 'ready' });
-          if (added.status !== 'ready') return;
-          const addedBlob = await scratchResolution.session.observe(['show', `${added.value}:${deltaPath}`]);
-          expect(addedBlob.status).toBe('ready');
-          if (addedBlob.status === 'ready') {
-            expect(Buffer.from(addedBlob.value.stdout).toString('utf8')).toBe('scratch delta\n');
-          }
-          const restored = await scratchResolution.session.applyIndexDelta({
-            additions: [],
-            removals: [deltaPath]
-          });
-          expect(restored).toMatchObject({ status: 'ready' });
-          if (restored.status === 'ready') expect(restored.value).toBe(tree.value);
-          const materialized = await scratchResolution.session.materializeIndexDelta({
-            additions: [{
-              path: 'package.json',
-              bytes: Buffer.from(expectedIndexBlob.result.stdout)
-            }],
-            removals: []
-          });
-          expect(materialized).toMatchObject({ status: 'ready' });
-          if (materialized.status === 'ready') {
-            expect(materialized.value).toBe(tree.value);
-            const materializedBlob = await resolution.session.run([
-              'show', `${materialized.value}:package.json`
-            ]);
-            expect(materializedBlob).toMatchObject({ kind: 'completed' });
-            if (materializedBlob.kind === 'completed') {
+        scratchSettled = false;
+        await withAcquiredResource({
+          operationLabel: 'git-scratch-fixture', resourceLabel: 'git-scratch-session',
+          acquire: () => createAuthorityGitScratchIndexTreeSession({
+            gitReadSession: gitSession, scratchRoot: scratchRoot!
+          }),
+          use: async scratchResolution => {
+            expect(scratchResolution.status).toBe('ready');
+            if (scratchResolution.status !== 'ready') return;
+            const tree = await scratchResolution.session.writeTree();
+            expect(tree).toMatchObject({ status: 'ready' });
+            if (tree.status !== 'ready') return;
+            const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
+            expect(blob.status).toBe('ready');
+            if (blob.status === 'ready') {
               expect(Buffer.compare(
-                Buffer.from(materializedBlob.result.stdout),
+                Buffer.from(blob.value.stdout),
                 Buffer.from(expectedIndexBlob.result.stdout)
               )).toBe(0);
             }
+            const deltaPath = 'sec-git-scratch-delta.txt';
+            const added = await scratchResolution.session.applyIndexDelta({
+              additions: [{ path: deltaPath, bytes: Buffer.from('scratch delta\n', 'utf8') }],
+              removals: []
+            });
+            expect(added).toMatchObject({ status: 'ready' });
+            if (added.status !== 'ready') return;
+            const addedBlob = await scratchResolution.session.observe(['show', `${added.value}:${deltaPath}`]);
+            expect(addedBlob.status).toBe('ready');
+            if (addedBlob.status === 'ready') {
+              expect(Buffer.from(addedBlob.value.stdout).toString('utf8')).toBe('scratch delta\n');
+            }
+            const restored = await scratchResolution.session.applyIndexDelta({
+              additions: [],
+              removals: [deltaPath]
+            });
+            expect(restored).toMatchObject({ status: 'ready' });
+            if (restored.status === 'ready') expect(restored.value).toBe(tree.value);
+            const materialized = await scratchResolution.session.materializeIndexDelta({
+              additions: [{
+                path: 'package.json',
+                bytes: Buffer.from(expectedIndexBlob.result.stdout)
+              }],
+              removals: []
+            });
+            expect(materialized).toMatchObject({ status: 'ready' });
+            if (materialized.status === 'ready') {
+              expect(materialized.value).toBe(tree.value);
+              const materializedBlob = await gitSession.run([
+                'show', `${materialized.value}:package.json`
+              ]);
+              expect(materializedBlob).toMatchObject({ kind: 'completed' });
+              if (materializedBlob.kind === 'completed') {
+                expect(Buffer.compare(
+                  Buffer.from(materializedBlob.result.stdout),
+                  Buffer.from(expectedIndexBlob.result.stdout)
+                )).toBe(0);
+              }
+            }
+          },
+          release: async scratchResolution => {
+            const closeFailure = scratchResolution.status === 'ready'
+              ? await scratchResolution.session.close() : null;
+            // A fulfilled close has released the native capabilities, even if
+            // it reports a semantic fence failure. A rejection remains unknown.
+            scratchSettled = true;
+            expect(closeFailure).toBeNull();
           }
-        } catch (error) {
-          scratchPrimaryFailure = error;
-          throw error;
-        } finally {
-          const closeFailure = await scratchResolution.session.close();
-          if (scratchPrimaryFailure === undefined) expect(closeFailure).toBeNull();
-        }
+        });
 
         const directMutation = await resolution.session.run(['write-tree']);
         expect(directMutation).toMatchObject({
           kind: 'unresolved-git-read-session',
           reason: 'operation-not-permitted'
         });
-      } finally {
-        await resolution.session.close?.();
       }
+    } catch (error) {
+      primary = { label: 'git-scratch-fixture', error };
     } finally {
-      if (scratchRoot !== undefined) rmSync(scratchRoot, { recursive: true, force: true });
-      rmSync(repositoryRoot, { recursive: true, force: true });
+      await settleResourcesAsync({ primary, cleanup: [
+        { label: 'git-read-session', settle: async () => {
+          if (resolution?.status === 'ready') {
+            await resolution.session.close?.();
+            gitSettled = true;
+          }
+        } },
+        { label: 'scratch-root', settle: () => {
+          if (gitSettled && scratchSettled && scratchRoot !== undefined) {
+            rmSync(scratchRoot, { recursive: true, force: true });
+          }
+        } },
+        { label: 'repository-root', settle: () => {
+          if (gitSettled && scratchSettled) rmSync(repositoryRoot, { recursive: true, force: true });
+        } }
+      ] });
     }
   }, { timeout: 15_000 }
 );
 
 test('test or structural GitRead sessions cannot issue scratch effect authority', async () => {
-  const testSession = createHostGitReadSessionForTests({ cwd: process.cwd() });
-  const scratchRoot = path.resolve(mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-forged-')));
-  try {
-    const testResolution = await createAuthorityGitScratchIndexTreeSession({
-      gitReadSession: testSession,
-      scratchRoot
+  await withHostGitSession({ cwd: process.cwd() }, async testSession => {
+    let scratchSettled = true;
+    await withAcquiredResource({
+      operationLabel: 'forged-git-scratch-fixture', resourceLabel: 'scratch-root',
+      acquire: () => path.resolve(mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-forged-'))),
+      use: async scratchRoot => {
+        for (const gitReadSession of [testSession, { ...testSession }]) {
+          scratchSettled = false;
+          await withAcquiredResource({
+            operationLabel: 'forged-git-scratch-admission', resourceLabel: 'git-scratch-session',
+            acquire: () => createAuthorityGitScratchIndexTreeSession({ gitReadSession, scratchRoot }),
+            use: async resolution => {
+              expect(resolution).toMatchObject({
+                status: 'unavailable', reason: 'production-session-required'
+              });
+              expect(testSession.processCount).toBe(0);
+            },
+            release: async resolution => {
+              const closeFailure = resolution.status === 'ready' ? await resolution.session.close() : null;
+              scratchSettled = true;
+              expect(closeFailure).toBeNull();
+            }
+          });
+        }
+      },
+      release: scratchRoot => {
+        if (scratchSettled) rmSync(scratchRoot, { recursive: true, force: true });
+      }
     });
-    expect(testResolution).toMatchObject({
-      status: 'unavailable',
-      reason: 'production-session-required'
-    });
-    expect(testSession.processCount).toBe(0);
-
-    const forged = { ...testSession };
-    const forgedResolution = await createAuthorityGitScratchIndexTreeSession({
-      gitReadSession: forged,
-      scratchRoot
-    });
-    expect(forgedResolution).toMatchObject({
-      status: 'unavailable',
-      reason: 'production-session-required'
-    });
-    expect(testSession.processCount).toBe(0);
-  } finally {
-    await testSession.close?.();
-    rmSync(scratchRoot, { recursive: true, force: true });
-  }
+  });
 });
 
 test('semantic GitRead helpers reject a test transport before any child starts', async () => {
-  const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
-  try {
+  await withHostGitSession({ cwd: process.cwd() }, async session => {
     const result = await runGitRead(session, ['--version']);
     expect(result.status).toBeNull();
     expect(result.error?.message).toMatch(/production-issued/u);
     expect(session.processCount).toBe(0);
-  } finally {
-    await session.close?.();
-  }
+  });
 });
 
-test('provider admission preserves an expired parent deadline as a typed reason', () => {
-  const resolution = createAuthorityGitReadSession({
+test('provider admission preserves an expired parent deadline as a typed reason', async () => {
+  await withGitResolution({
     cwd: process.cwd(),
     operation: issueTestGitReadOperation(),
     budget: GIT_READ_OPERATION_BUDGET,
     deadlineAtUnixMs: Date.now() - 1
-  });
-  expect(resolution).toMatchObject({
-    kind: 'unresolved-git-read-provider',
-    status: 'unavailable',
-    reason: 'git-session-deadline-exhausted'
+  }, async resolution => {
+    expect(resolution).toMatchObject({
+      kind: 'unresolved-git-read-provider',
+      status: 'unavailable',
+      reason: 'git-session-deadline-exhausted'
+    });
   });
 });
 
 test('close waits for an admitted child before disposing the GitRead session', async () => {
-  const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
-  const command = session.run([
-    '--no-pager',
-    '-c', 'core.quotepath=false',
-    '-c', 'core.fsmonitor=false',
-    '-c', 'core.untrackedCache=false',
-    'status', '--porcelain=v1', '-z', '--untracked-files=no'
-  ]);
-  const close = session.close?.();
-  expect(close).toBeInstanceOf(Promise);
-  await close;
-  const result = await command;
-  expect(result.kind).toBe('completed');
-  expect(session.failure).toBeNull();
+  await withHostGitSession({ cwd: process.cwd() }, async session => {
+    const command = session.run([
+      '--no-pager',
+      '-c', 'core.quotepath=false',
+      '-c', 'core.fsmonitor=false',
+      '-c', 'core.untrackedCache=false',
+      'status', '--porcelain=v1', '-z', '--untracked-files=no'
+    ]);
+    const close = session.close?.();
+    expect(close).toBeInstanceOf(Promise);
+    await close;
+    const result = await command;
+    expect(result.kind).toBe('completed');
+    expect(session.failure).toBeNull();
 
-  const afterClose = await session.run(['--version']);
-  expect(afterClose).toMatchObject({
-    kind: 'unresolved-git-read-session',
-    reason: 'command-error'
+    const afterClose = await session.run(['--version']);
+    expect(afterClose).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'command-error'
+    });
   });
 });
 
 test('the host provider resolves Git from its canonical child PATH', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-empty-path-'));
-  const session = createHostGitReadSessionForTests({
-    cwd: root,
-    source: { PATH: '' }
+  let sessionSettled = true;
+  await withAcquiredResource({
+    operationLabel: 'empty-path-git-fixture', resourceLabel: 'fixture-root',
+    acquire: () => mkdtempSync(path.join(tmpdir(), 'sec-git-read-empty-path-')),
+    use: async root => {
+      sessionSettled = false;
+      await withAcquiredResource({
+        operationLabel: 'empty-path-git-session', resourceLabel: 'git-host-session',
+        acquire: () => createHostGitReadSessionForTests({ cwd: root, source: { PATH: '' } }),
+        use: async session => {
+          expect(session.gitExecutable).toBe('');
+          expect(session.failure).toMatchObject({
+            kind: 'unresolved-git-read-session', reason: 'command-error'
+          });
+        },
+        release: async session => { await session.close?.(); sessionSettled = true; }
+      });
+    },
+    release: root => { if (sessionSettled) rmSync(root, { recursive: true, force: true }); }
   });
-  try {
-    expect(session.gitExecutable).toBe('');
-    expect(session.failure).toMatchObject({
-      kind: 'unresolved-git-read-session',
-      reason: 'command-error'
-    });
-  } finally {
-    await session.close?.();
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
-test('the host provider accounts for its physical root observation budget', () => {
-  const session = createHostGitReadSessionForTests({
+test('the host provider accounts for its physical root observation budget', async () => {
+  await withHostGitSession({
     cwd: process.cwd(),
     budget: { maxRootObservedBytes: 1 }
-  });
-  expect(session.rootObservedBytes).toBeGreaterThan(1);
-  expect(session.failure).toMatchObject({
-    kind: 'unresolved-git-read-session',
-    reason: 'root-observation-budget-exhausted'
+  }, async session => {
+    expect(session.rootObservedBytes).toBeGreaterThan(1);
+    expect(session.failure).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'root-observation-budget-exhausted'
+    });
   });
 });
 
-test('the host transport fences the retained executable and cwd before and after a child', async () => {
-  const session = createHostGitReadSessionForTests({
+test('the retained host transport completes two admitted observations', async () => {
+  await withHostGitSession({
     cwd: process.cwd(),
     budget: { maxProcesses: 2 }
-  });
-  try {
+  }, async session => {
     expect(session.failure).toBeNull();
     const result = await session.run(['--version']);
     expect(result.kind).toBe('completed');
@@ -703,15 +762,15 @@ test('the host transport fences the retained executable and cwd before and after
     expect(status.kind).toBe('completed');
     expect(session.processCount).toBe(2);
     expect(session.failure).toBeNull();
-  } finally {
-    await session.close?.();
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('the retained cwd prevents replacement while the Git session is live', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-cwd-'));
   const moved = `${root}-moved`;
   let session: ReturnType<typeof createHostGitReadSessionForTests> | undefined;
+  let sessionSettled = false;
+  let primary: { label: string; error: unknown } | undefined;
   try {
     session = createHostGitReadSessionForTests({ cwd: root });
     expect(session.failure).toBeNull();
@@ -719,24 +778,38 @@ test.skipIf(process.platform !== 'win32')('the retained cwd prevents replacement
     const result = await session.run(['--version']);
     expect(result.kind).toBe('completed');
     expect(session.processCount).toBe(1);
+  } catch (error) {
+    primary = { label: 'retained-git-cwd-fixture', error };
   } finally {
-    await session?.close?.();
-    rmSync(root, { recursive: true, force: true });
-    rmSync(moved, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'git-host-session', settle: async () => {
+        if (session !== undefined) {
+          await session.close?.();
+          sessionSettled = true;
+        }
+      } },
+      { label: 'fixture-root', settle: () => {
+        if (sessionSettled) rmSync(root, { recursive: true, force: true });
+      } },
+      { label: 'moved-fixture-root', settle: () => {
+        if (sessionSettled) rmSync(moved, { recursive: true, force: true });
+      } }
+    ] });
   }
 });
 
 test('a caller parent deadline cannot be extended by a host test session', async () => {
-  const session = createHostGitReadSessionForTests({
+  await withHostGitSession({
     cwd: process.cwd(),
     deadlineAtUnixMs: Date.now() - 1
+  }, async session => {
+    const result = await session.run(['status']);
+    expect(result).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'deadline-exhausted'
+    });
+    expect(session.processCount).toBe(0);
   });
-  const result = await session.run(['status']);
-  expect(result).toMatchObject({
-    kind: 'unresolved-git-read-session',
-    reason: 'deadline-exhausted'
-  });
-  expect(session.processCount).toBe(0);
 });
 
 test('budget fields above the canonical envelope are rejected before transport', () => {

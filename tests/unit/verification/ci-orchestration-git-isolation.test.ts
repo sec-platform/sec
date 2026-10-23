@@ -25,7 +25,8 @@ import {
 } from '../../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { selectSlowTestRiskClosure } from '../../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
-import { ResourceCompositeSettlementError } from '../../../src/execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError, settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -38,9 +39,10 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-test('CI orchestration Git observations ignore ambient repository redirection', async () => {
+test.serial('CI orchestration Git observations ignore ambient repository redirection', async () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-isolation-'));
   const previousGitDir = process.env.GIT_DIR;
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
@@ -72,15 +74,22 @@ test('CI orchestration Git observations ignore ambient repository redirection', 
       })]);
       expect(session.executableBytes).toBe(admittedExecutableBytes);
     });
+  } catch (error) {
+    primary = { label: 'ci-git-isolation', error };
   } finally {
-    if (previousGitDir === undefined) delete process.env.GIT_DIR;
-    else process.env.GIT_DIR = previousGitDir;
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'ambient-git-dir', settle: () => {
+        if (previousGitDir === undefined) delete process.env.GIT_DIR;
+        else process.env.GIT_DIR = previousGitDir;
+      } },
+      { label: 'fixture-root', settle: () => { rmSync(repositoryRoot, { recursive: true, force: true }); } }
+    ] });
   }
 });
 
 test('GitRead phases share aggregate process budget and parent deadline', async () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-git-operation-'));
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
@@ -195,9 +204,10 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
       () => { detachedOperationSettled = true; },
       () => { detachedOperationSettled = true; }
     );
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    expect(detachedOperationSettled).toBe(false);
-    await detachedOperation;
+    await settleWorkspaceCallback(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      expect(detachedOperationSettled).toBe(false);
+    }, async () => { await detachedOperation; });
     expect(detachedPhaseCompleted).toBe(true);
 
     const outerFailure = new Error('outer operation failed');
@@ -235,13 +245,18 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
     expect(phaseSettlement.failures[1]?.error).toBeInstanceOf(Error);
     expect((phaseSettlement.failures[1]?.error as Error).message)
       .toBe('Git read operation phase requires one live non-reentrant owner-issued scope.');
+  } catch (error) {
+    primary = { label: 'ci-git-operation', error };
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'fixture-root', settle: () => { rmSync(repositoryRoot, { recursive: true, force: true }); } }
+    ] });
   }
 });
 
 test('trusted-base TestImpact reads a new candidate module graph from exact Git objects', async () => {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-candidate-impact-'));
+  let primary: Readonly<{ label: string; error: unknown }> | undefined;
   try {
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
@@ -353,7 +368,11 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       owners: ['candidate']
     });
     expect(selectSlowTestRiskClosure(['docs/candidate.md'], warmProvider).resolved).toBe(true);
+  } catch (error) {
+    primary = { label: 'ci-candidate-impact', error };
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    await settleResourcesAsync({ primary, cleanup: [
+      { label: 'fixture-root', settle: () => { rmSync(repositoryRoot, { recursive: true, force: true }); } }
+    ] });
   }
 });
