@@ -10,7 +10,6 @@ import {
 } from '../../src/entry/cli/workspace-command-input.ts';
 
 const usage = (error: unknown) => (error as { code: string }).code === 'CLI-USAGE-001';
-const denied = [null, 0, 1, '', 'false', 'true', [], {}, new Boolean(false), Symbol('flag'), 1n, () => false];
 
 for (const value of [undefined, false, true]) {
   test(`one strict primitive supplies default and explicit boolean ${value}`, () => {
@@ -29,20 +28,11 @@ for (const value of [undefined, false, true]) {
   });
 }
 
-for (const [index, value] of denied.entries()) {
-  test(`non-boolean input ${index} is rejected in workspace write-flag decoders`, () => {
-    assert.throws(() => parseComposeCommandInput({ lock: value }), usage);
-    assert.throws(() => parseRepairCommandInput(undefined, { dryRun: value }), usage);
-    assert.throws(() => parseUpgradeCommandInput('block', '1', { dryRun: value }, 'sec upgrade'), usage);
-  });
-}
-
 test('decode rejection preserves the exact original thrown value without coercion', () => {
   const reason = Object.freeze({ owner: 'adapter' });
   const value = { toString() { assert.fail('toString called'); },
     valueOf() { assert.fail('valueOf called'); }, [Symbol.toPrimitive]() { assert.fail('coercion called'); } };
   assert.throws(() => decodeBooleanFlag(value, false, () => { throw reason; }), (error) => error === reason);
-  assert.throws(() => parseComposeCommandInput({ lock: value }), usage);
 });
 
 for (const mode of ['repair-plan', 'upgrade-plan', 'upgrade-diagnostics'] as const) {

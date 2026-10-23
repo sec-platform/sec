@@ -76,6 +76,8 @@ test('ProjectInput rejects every configuration escape before execution materiali
       include: Object.freeze(['src/**/*.ts'])
     }),
     Object.freeze({ include: Object.freeze(['../foreign/**/*.ts']) }),
+    Object.freeze({ files: Object.freeze(['/absolute.ts']) }),
+    Object.freeze({ exclude: Object.freeze(['bad\u0000path']) }),
     Object.freeze({
       compilerOptions: Object.freeze({ rootDirs: Object.freeze(['src', '../foreign']) }),
       include: Object.freeze(['src/**/*.ts'])

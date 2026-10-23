@@ -84,15 +84,6 @@ test('empty nested projects retain config-local compiler paths after no-input va
   }
 });
 
-test('configuration containment still rejects external lookup and plugin execution before parsing', () => {
-  for (const config of [
-    {extends:'./other.json'}, {references:[]}, {compilerOptions:{plugins:[]}},
-    {include:['../foreign']}, {files:['/absolute.ts']}, {exclude:['bad\u0000path']},
-    {compilerOptions:{rootDirs:['src','../foreign']}},
-    {compilerOptions:{paths:{alias:['../foreign']}}}
-  ]) assert.throws(() => parse(JSON.stringify(config)), /TypeScript ProjectInput/);
-});
-
 test('empty-project validation never mutates the captured configuration or its nested options', () => {
   const root = path.resolve('snapshot-config-fixture');
   const source = '{"compilerOptions":{"strict":true},"include":["missing"]}';
