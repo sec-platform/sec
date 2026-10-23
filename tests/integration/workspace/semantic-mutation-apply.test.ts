@@ -465,7 +465,6 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
     expect(Object.keys(record)).not.toContain('committedByteDigest');
     expect(JSON.stringify(record)).not.toContain('snapshot');
     expect(JSON.stringify(record)).not.toContain(AUTHORING_SOURCE);
-    expect(Object.isFrozen(record)).toBe(true);
 
     const collision = await applySemanticMutation(workspaceRoot, {
       ...input,

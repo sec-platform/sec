@@ -73,15 +73,22 @@ test('Acceptance Coverage authority rejects duplicate or noncanonical Acceptance
 
 test('Acceptance Coverage authority rejects noncanonical block ordering', () => {
   const blockOrder = structuredClone(canonicalCoverage()) as any;
-  blockOrder.blocks = [
-    {
-      id: 'billing/basic-plan',
-      declaredAcceptance: ['acceptance_login'],
-      coveredBy: ['acceptance_login'],
-      uncovered: false
-    },
-    ...blockOrder.blocks
-  ];
+  blockOrder.source.resolvedBlockIds.push('billing/basic-plan');
+  blockOrder.source.acceptancePlan.unshift('acceptance_billing');
+  blockOrder.source.declarations.push({
+    declaringBlockId: 'billing/basic-plan',
+    acceptance: { id: 'acceptance_billing', source: { tests: ['tests/acceptance/billing.test.ts'] } }
+  });
+  blockOrder.source.tests.push({ testPath: 'tests/acceptance/billing.test.ts', blockId: 'billing/basic-plan' });
+  blockOrder.acceptancePassed.unshift('acceptance_billing');
+  blockOrder.blocks.push({
+    id: 'billing/basic-plan',
+    declaredAcceptance: ['acceptance_billing'],
+    coveredBy: ['acceptance_billing'],
+    uncovered: false
+  });
+  expect(() => validateAcceptanceCoverageReport(blockOrder)).not.toThrow();
+  blockOrder.blocks.reverse();
   expect(() => validateAcceptanceCoverageReport(blockOrder))
     .toThrow('blocks must be canonically ordered');
 });

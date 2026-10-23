@@ -11,9 +11,9 @@ function operations(trace: string[], failAt?: PipelineStageId): PipelineUseCaseO
   };
   return {
     beforeStage: async (stage) => { trace.push(`before:${stage}`); },
-    resolve: run('resolve', { plan: { schemaVersion: '1', app: { id: 'x', name: 'x' }, blocks: [], targets: [], acceptance: [] } as never }),
+    resolve: run('resolve', { plan: { schemaVersion: '1', app: { id: 'x', name: 'resolved' }, blocks: [], targets: [], acceptance: [] } as never }),
     semantic: run('semantic', { inputRevision: 'sha256:a', semanticRevision: 'sha256:b' } as never),
-    compose: run('compose', { plan: { schemaVersion: '1', app: { id: 'x', name: 'x' }, blocks: [], targets: [], acceptance: [] } as never }),
+    compose: run('compose', { plan: { schemaVersion: '1', app: { id: 'x', name: 'composed' }, blocks: [], targets: [], acceptance: [] } as never }),
     verify: run('verify', { report: { schemaVersion: '1' } as never }),
     lock: run('lock', undefined),
     emit: run('emit', { lock: {} as never, provenance: {} as never, graph: {} as never, reviewSummary: {} as never })
@@ -31,8 +31,8 @@ describe('application pipeline coordination', () => {
     ]);
     expect(result.completedStages).toEqual(['resolve', 'semantic', 'compose']);
     expect(Object.isFrozen(result.completedStages)).toBe(true);
-    expect(result.semanticContext).toBeDefined();
-    expect(result.plan).toBeDefined();
+    expect(result.semanticContext).toEqual({ inputRevision: 'sha256:a', semanticRevision: 'sha256:b' });
+    expect(result.plan).toEqual({ schemaVersion: '1', app: { id: 'x', name: 'composed' }, blocks: [], targets: [], acceptance: [] });
   });
 
   test('fails immediately and does not execute a later stage after an operation failure', async () => {

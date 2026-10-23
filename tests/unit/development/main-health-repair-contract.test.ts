@@ -128,6 +128,6 @@ test('repair routing distinguishes ineligible, expired, drifted, malformed, and 
     .toMatchObject({ status: 'blocked', reasonCode: 'repair-ledger-identity-drift' });
   expect(decide({ malformed: true }))
     .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-invalid' });
-  expect(decide({ ...ledger(), repairWorkPackage: 'not/a/manifest' }))
-    .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-ledger-invalid' });
+  expect(() => ledger({ repairWorkPackage: 'not/a/manifest' }))
+    .toThrow('repair Work Package identity is not canonical');
 });

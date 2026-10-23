@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+
 import type { GitHubApiPrincipal } from '../../../src/adapters/providers/github-api/operation-session.ts';
 import {
   issueGitHubApiTestCapability,
@@ -117,16 +119,14 @@ test('exact PR observation rejects a response bound to another repository', asyn
   } });
 });
 
-test('production completed lookup ignores foreign malformed markers but blocks principal malformed or duplicate markers', async () => {
+test.serial('production completed lookup ignores foreign malformed markers but blocks principal malformed or duplicate markers', async () => {
   const repositoryRoot = mkdtempSync(path.join(os.tmpdir(), 'sec-closed-production-'));
-  const initialized = spawnSync('git', ['init', '--quiet'], { cwd: repositoryRoot, windowsHide: true });
-  expect(initialized.status).toBe(0);
   const originalFetch = globalThis.fetch;
   let commentAuthorNodeId = 'FOREIGN_NODE';
   let commentBodies = ['<!-- sec-closed-unmerged-terminal -->\n{not-json'];
   let observedHeadRef = 'refs/heads/topic';
   let observedHeadObjectType = 'commit';
-  globalThis.fetch = (async (target) => {
+  const mockedFetch = (async (target) => {
     const url = new URL(String(target));
     if (url.pathname === '/user') return Response.json({ login: PRINCIPAL.login, node_id: PRINCIPAL.nodeId, id: PRINCIPAL.userId });
     if (url.pathname.endsWith(`/collaborators/${PRINCIPAL.login}/permission`)) return Response.json({ permission: 'maintain' });
@@ -153,7 +153,11 @@ test('production completed lookup ignores foreign malformed markers but blocks p
       const value = await context.observeCompletedPreparation(593, `sha256:${'3'.repeat(64)}`);
       throw new Error(value === null ? 'foreign-malformed-ignored' : 'unexpected-completed-preparation');
     } });
-  try {
+  // This fixture mutates process-global fetch; setup failure also owns the root.
+  await settleWorkspaceCallback(async () => {
+    const initialized = spawnSync('git', ['init', '--quiet'], { cwd: repositoryRoot, windowsHide: true });
+    expect(initialized.status).toBe(0);
+    globalThis.fetch = mockedFetch;
     await expect(runLookup()).rejects.toThrow('foreign-malformed-ignored');
     commentAuthorNodeId = PRINCIPAL.nodeId;
     await expect(runLookup()).rejects.toThrow('terminal marker has invalid JSON');
@@ -171,8 +175,8 @@ test('production completed lookup ignores foreign malformed markers but blocks p
     observedHeadRef = 'refs/heads/topic';
     observedHeadObjectType = 'tag';
     await expect(runLookup()).rejects.toThrow('exact head ref response is invalid');
-  } finally {
+  }, async () => {
     globalThis.fetch = originalFetch;
     rmSync(repositoryRoot, { recursive: true, force: true });
-  }
+  });
 }, 20_000);

@@ -89,12 +89,13 @@ test('all request decisions and method identities are captured before the clock 
   await fence(bound,'capture'); assert.deepEqual(events,['original']);
 });
 
-test('unchanged issued invocations reuse object and callback identity while still checking cancellation', () => {
+test('rebinding issued invocations preserves the parent operation and still checks cancellation', () => {
   const controller=new AbortController();let clocks=0;
   const first=bind({lockTimeoutMs:1000,signal:controller.signal,monotonicNowMs:()=>{clocks++;return 0;},async beforeCommit(){}});
-  const before=clocks; assert.equal(bind(first),first); assert.ok(clocks>before);
+  const before=clocks; const rebound=bind(first); assert.ok(clocks>before);
+  assert.equal(context(rebound).operationId,context(first).operationId);
   const reason=Object.freeze({stop:true});controller.abort(reason);
-  assert.throws(()=>bind(first),e=>e===reason);
+  assert.throws(()=>bind(rebound),e=>e===reason);
 });
 
 test('child rebinding does not grow provider wrapper chains or renew the parent budget', async () => {
@@ -111,7 +112,7 @@ test('narrow child constraints remain independent of the reusable parent', () =>
   let now=0;const parent=bind({lockTimeoutMs:100,monotonicNowMs:()=>now});now=20;
   const child=bind({...parent,lockTimeoutMs:10});
   assert.equal(remaining(parent,'parent'),80);assert.equal(remaining(child,'child'),10);
-  assert.equal(bind(child),child);now=31;assert.throws(()=>remaining(child,'expired'),/deadline/);
+  now=25;const rebound=bind(child);now=31;assert.throws(()=>remaining(rebound,'expired'),/deadline/);
 });
 
 test('known inherited and nonenumerable internal values stay outside the existing input boundary', () => {
@@ -147,9 +148,10 @@ test('public request validation and internal coordinator accept the same three m
 });
 
 
-test('owner-issued control views reuse allocation without skipping clock or cancellation checks', () => {
+test('rebinding owner-issued controls preserves the operation without skipping clock or cancellation checks', () => {
   const controller=new AbortController();let calls=0;
   const initial=runtimeDependencyOperationControls({lockTimeoutMs:100,signal:controller.signal,monotonicNowMs:()=>{calls++;return 0;}});
-  const before=calls;assert.equal(runtimeDependencyOperationControls(initial),initial);assert.ok(calls>before);
-  controller.abort('stop');assert.throws(()=>runtimeDependencyOperationControls(initial),e=>e==='stop');
+  const before=calls;const rebound=runtimeDependencyOperationControls(initial);assert.ok(calls>before);
+  assert.equal(context(rebound).operationId,context(initial).operationId);
+  controller.abort('stop');assert.throws(()=>runtimeDependencyOperationControls(rebound),e=>e==='stop');
 });

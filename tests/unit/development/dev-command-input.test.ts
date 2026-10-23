@@ -36,10 +36,18 @@ test.serial('an earlier parent deadline narrows the command without a fresh dura
 });
 
 test('explicit invalid mode, timing, path or signal values cannot select defaults', () => {
-  for (const options of [null, [], false, { observe: 'true' }, { observe: null }, { timeoutMs: null },
-    { timeoutMs: 1 }, { timeoutMs: DEV_COMMAND_MAX_DURATION_MS + 1 }, { deadlineAtUnixMs: null },
-    { workingDirectory: false }, { workingDirectory: 'a\0b' }, { signal: null }, { signal: {} }]) {
-    assert.throws(() => capture(options as never));
+  const invalid: ReadonlyArray<readonly [unknown, RegExp | typeof TypeError]> = [
+    [null, /options must be an object/], [[], /options must be an object/], [false, /options must be an object/],
+    [{ observe: 'true' }, /observation mode must be boolean/], [{ observe: null }, /observation mode must be boolean/],
+    [{ timeoutMs: null }, /timeout must be a safe integer/], [{ timeoutMs: 1 }, /timeout must be a safe integer/],
+    [{ timeoutMs: DEV_COMMAND_MAX_DURATION_MS + 1 }, /timeout must be a safe integer/],
+    [{ deadlineAtUnixMs: null }, /parent deadline must be a safe integer/],
+    [{ workingDirectory: false }, /working directory must be a path string/],
+    [{ workingDirectory: 'a\0b' }, /working directory must be a path string/],
+    [{ signal: null }, TypeError], [{ signal: {} }, TypeError]
+  ];
+  for (const [options, expected] of invalid) {
+    assert.throws(() => capture(options as never), expected);
   }
 });
 

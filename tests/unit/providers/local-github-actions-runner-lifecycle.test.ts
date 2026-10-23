@@ -218,6 +218,7 @@ const { startLocalGitHubActionsProvider, recoverLocalGitHubActionsProvider, stop
   await import('../../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts');
 const start = () => startLocalGitHubActionsProvider({ cwd: root, repository: 'sec-platform/sec', name: 'fixture', cpus: 3, memory: '768m' });
 const recover = () => recoverLocalGitHubActionsProvider({ cwd: root, repository: 'sec-platform/sec', name: 'fixture' });
+// beforeEach and the module mocks share one fixture; --concurrent must not overlap it.
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'sec-provider-routing-'));
   mkdirSync(path.join(root, '.git'));
@@ -289,14 +290,14 @@ function seedRetainedGeneration(lifecycle: 'provisioning' | 'routing' | 'active'
   writeFileSync(statePath(), JSON.stringify(state, null, 2) + '\n');
 }
 
-test('retired provisioning rejects before Git, credential, Docker or durable-state effects', async () => {
+test.serial('retired provisioning rejects before Git, credential, Docker or durable-state effects', async () => {
   await expect(start()).rejects.toMatchObject({ name: 'LocalRunnerTopologyRetiredError', code: 'runner-topology-retired' });
   expect(boundaryEntries).toEqual([]);
   expect(events).toEqual([]); expect(runners).toEqual([]); expect(containers).toEqual([]);
   expect(existsSync(statePath())).toBe(false);
 });
 
-test('retired start leaves an interrupted legacy generation for its recovery owner', async () => {
+test.serial('retired start leaves an interrupted legacy generation for its recovery owner', async () => {
   seedRetainedGeneration('active'); interruptReplacement('quarantined');
   await expect(start()).rejects.toMatchObject({ code: 'runner-topology-retired' });
   expect(boundaryEntries).toEqual([]);
@@ -304,7 +305,7 @@ test('retired start leaves an interrupted legacy generation for its recovery own
   expect(existsSync(pendingPath())).toBe(true); expect(runners).toHaveLength(3); expect(containers).toHaveLength(3);
 });
 
-test('committed legacy routing resumes exact IDs without provisioning and can be stopped', async () => {
+test.serial('committed legacy routing resumes exact IDs without provisioning and can be stopped', async () => {
   seedRetainedGeneration();
   await recover();
   expect(events).toEqual([
@@ -320,7 +321,7 @@ test('committed legacy routing resumes exact IDs without provisioning and can be
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
 });
 
-test('unknown partial publication resumes from readback without registration or destructive rollback', async () => {
+test.serial('unknown partial publication resumes from readback without registration or destructive rollback', async () => {
   seedRetainedGeneration(); loseLabelResponse = 'trusted';
   await expect(recover()).rejects.toThrow('label publication response lost');
   expect(durableState().lifecycle).toBe('routing');
@@ -331,21 +332,21 @@ test('unknown partial publication resumes from readback without registration or 
   expect(runners.map(({ id }) => id)).toEqual(ids); expect(durableState().lifecycle).toBe('active');
 });
 
-test('legacy pre-commit partial registration is settled without releasing or creating runners', async () => {
+test.serial('legacy pre-commit partial registration is settled without releasing or creating runners', async () => {
   seedRetainedGeneration('provisioning', 2);
   await recover();
   expect(events.some(event => event.startsWith('listener:') || event.startsWith('publish:'))).toBe(false);
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
 });
 
-test('recovery preserves foreign labels and never publishes over drift', async () => {
+test.serial('recovery preserves foreign labels and never publishes over drift', async () => {
   seedRetainedGeneration(); runners[0]!.labels.push({ name: 'external-maintainer-label' });
   await expect(recover()).rejects.toThrow('complete effective labels changed');
   expect(events.some(event => event.startsWith('publish:') || event.startsWith('delete-'))).toBe(false);
   expect(runners[0]!.labels.some(({ name }) => name === 'external-maintainer-label')).toBe(true);
 });
 
-test('marker release failure keeps committed routing intent and resumes without replacement', async () => {
+test.serial('marker release failure keeps committed routing intent and resumes without replacement', async () => {
   seedRetainedGeneration(); failRelease = 'trusted';
   await expect(recover()).rejects.toThrow('listener release response unavailable');
   expect(durableState().lifecycle).toBe('routing');
@@ -357,13 +358,13 @@ test('marker release failure keeps committed routing intent and resumes without 
   expect(runners.map(({ id }) => id)).toEqual([21, 22, 23]); expect(durableState().lifecycle).toBe('active');
 });
 
-test('replacement of a retained runner ID blocks recovery before label or delete effects', async () => {
+test.serial('replacement of a retained runner ID blocks recovery before label or delete effects', async () => {
   seedRetainedGeneration(); runners[0]!.id = 901;
   await expect(recover()).rejects.toThrow('uncommitted or replaced identity');
   expect(events.some(event => event.startsWith('publish:') || event.startsWith('delete-'))).toBe(false);
 });
 
-test('explicit stop can settle a retained v4 generation without inventing resource intent', async () => {
+test.serial('explicit stop can settle a retained v4 generation without inventing resource intent', async () => {
   seedRetainedGeneration('active');
   const current = JSON.parse(readFileSync(statePath(), 'utf8')) as Record<string, unknown>;
   Reflect.deleteProperty(current, 'resources'); Reflect.deleteProperty(current, 'stateDigest');
@@ -374,7 +375,7 @@ test('explicit stop can settle a retained v4 generation without inventing resour
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
 });
 
-test('marker release acknowledgement loss retains already-running busy capacity', async () => {
+test.serial('marker release acknowledgement loss retains already-running busy capacity', async () => {
   seedRetainedGeneration(); loseReleaseResponse = 'control';
   await expect(recover()).rejects.toThrow('listener release acknowledgement lost after effect');
   expect(durableState().lifecycle).toBe('routing');
@@ -388,7 +389,7 @@ test('marker release acknowledgement loss retains already-running busy capacity'
 });
 
 for (const command of ['recover', 'stop'] as const) {
-  test(`pending durable replacement is settled under lease before ${command} interprets absence`, async () => {
+  test.serial(`pending durable replacement is settled under lease before ${command} interprets absence`, async () => {
     seedRetainedGeneration('active'); interruptReplacement('quarantined');
     if (command === 'recover') await recover();
     else await stopLocalGitHubActionsProvider({ cwd: root });
@@ -402,7 +403,7 @@ for (const command of ['recover', 'stop'] as const) {
 }
 
 for (const phase of ['quarantined', 'installed'] as const) {
-  test(`read-only status reports ${phase} durable artifacts without recovery or absence claims`, async () => {
+  test.serial(`read-only status reports ${phase} durable artifacts without recovery or absence claims`, async () => {
     seedRetainedGeneration('active'); interruptReplacement(phase);
     const observed = await observeLocalGitHubActionsProvider({ cwd: root });
     expect(observed).toMatchObject({ status: 'residue', reason: 'lifecycle-state-recovery-required' });
@@ -411,7 +412,7 @@ for (const phase of ['quarantined', 'installed'] as const) {
   });
 }
 
-test('installed teardown replacement is settled before recovery chooses its lifecycle', async () => {
+test.serial('installed teardown replacement is settled before recovery chooses its lifecycle', async () => {
   seedRetainedGeneration('active'); interruptReplacement('installed');
   await recover();
   expect(pendingState).toBeNull(); expect(existsSync(pendingPath())).toBe(false);
