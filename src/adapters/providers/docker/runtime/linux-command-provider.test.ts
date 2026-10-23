@@ -163,6 +163,7 @@ linuxTest('a Linux session rejects a different expected endpoint before any comm
         osType: 'linux', architecture: 'x86_64'
       })
     })).rejects.toThrow('differs from the installed provider endpoint');
+    await expect(lstat(fixture.marker)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await rm(fixture.root, { recursive: true, force: true });

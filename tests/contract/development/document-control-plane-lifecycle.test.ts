@@ -457,7 +457,7 @@ test('freeze child failure envelope is bounded canonical and redacts unknown err
 });
 
 bunTest.skipIf(process.platform !== 'win32')(
-  'Windows direct status acquires bounded GitRead and remains read-only',
+  'Windows direct status preserves index bytes and creates no freeze transaction',
   async () => {
     const fixture = await createFreezeFixture();
     try {
@@ -2455,7 +2455,7 @@ test('recovery entry identity is operation plus closed logical target and contai
 });
 
 
-bunTest.skipIf(process.platform !== 'linux')('production recovery refuses changed source without effects then resumes its exact journal operation', async () => {
+bunTest.skipIf(process.platform !== 'linux')('production recovery preserves observed source and freeze state on refusal then resumes its exact journal operation', async () => {
   const { fixture, proposalPath, proposalFile, proposalJournalPath } = await createProposalFreezeFixture();
   try {
     await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
@@ -2484,17 +2484,14 @@ bunTest.skipIf(process.platform !== 'linux')('production recovery refuses change
   } finally { await fixture.dispose(); }
 }, 90_000);
 
-bunTest('production first and revised proposals settle terminal retirement after their writer sessions', async () => {
+bunTest('production first and revised proposals publish exact state and retire their terminal transactions', async () => {
   const { fixture, proposalPath, proposalFile } = await createProposalFreezeFixture();
   try {
     const first = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
       reviewedOn: '2026-08-09',
-      proposalOnly: true,
-      beforeTerminalRetirement: async receipt => {
-        console.log(JSON.stringify({ observation: 'ordinary-freeze-writer', ...receipt }));
-      }
+      proposalOnly: true
     });
     expect(first.status).toBe('PROPOSED');
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(first.candidateTreeSha);
@@ -2508,10 +2505,7 @@ bunTest('production first and revised proposals settle terminal retirement after
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
       reviewedOn: '2026-08-09',
-      proposalOnly: true,
-      beforeTerminalRetirement: async receipt => {
-        console.log(JSON.stringify({ observation: 'ordinary-freeze-writer', ...receipt }));
-      }
+      proposalOnly: true
     });
     expect(revised.status).toBe('PROPOSED');
     expect(revised.operationId).not.toBe(first.operationId);

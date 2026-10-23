@@ -6,15 +6,13 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { settleResourcesAsync, withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import {
   WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
   getWindowsControlCliExecutableBinding,
   parseWindowsControlCliEnvironmentAuthority
 } from '../../../src/adapters/providers/windows-control-cli/contract/environment.ts';
-import {
-  WindowsControlCliInstalledAdoptionError,
-  adoptInstalledWindowsControlCli
-} from '../../../src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts';
+import { adoptInstalledWindowsControlCli } from '../../../src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts';
 
 function installedRoot(command: 'git' | 'gh'): string {
   const locator = Bun.which(command);
@@ -78,36 +76,43 @@ installedProfileTest.serial('installed adopter authenticates exact bytes and pin
   const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-control-cli-'));
   const gitRoot = path.win32.join(root, 'Git');
   const ghRoot = path.win32.join(root, 'GitHub CLI');
-  await copyBinding('git', gitRoot);
-  await copyBinding('gh', ghRoot);
   const deadline = {
     remainingMs: () => 30_000,
     assertLive() {}
   };
+  let primaryFailure: { label: string; error: unknown } | undefined;
   try {
+    await copyBinding('git', gitRoot);
+    await copyBinding('gh', ghRoot);
     const environment = {
       PATH: `${path.win32.join(gitRoot, 'bin')};${ghRoot}`,
       PROGRAMFILES: path.win32.join(root, 'program-files-none'),
       PROGRAMW6432: path.win32.join(root, 'program-files-none'),
       LOCALAPPDATA: path.win32.join(root, 'local-app-data-none')
     };
-    const adoption = adoptInstalledWindowsControlCli({
-      spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
-      workingDirectory: root,
-      deadline,
-      budget: {
-        maxRootObservedBytes: 128 * 1024 * 1024,
-        maxExecutableObservedBytes: 128 * 1024 * 1024,
-        maxRecords: 64
-      },
-      environment
-    });
-    expect(adoption.providerRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(Object.hasOwn(adoption, 'commands')).toBe(false);
     const gh = path.win32.join(ghRoot, 'gh.exe');
-    await expect(rename(gh, path.win32.join(ghRoot, 'gh.displaced.exe'))).rejects.toThrow();
-    adoption.assertCurrent();
-    adoption.dispose();
+    await withAcquiredResource({
+      operationLabel: 'installed adopter byte and pin assertions',
+      resourceLabel: 'installed adopter disposal',
+      acquire: () => adoptInstalledWindowsControlCli({
+        spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+        workingDirectory: root,
+        deadline,
+        budget: {
+          maxRootObservedBytes: 128 * 1024 * 1024,
+          maxExecutableObservedBytes: 128 * 1024 * 1024,
+          maxRecords: 64
+        },
+        environment
+      }),
+      use: async (adoption) => {
+        expect(adoption.providerRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
+        expect(Object.hasOwn(adoption, 'commands')).toBe(false);
+        await expect(rename(gh, path.win32.join(ghRoot, 'gh.displaced.exe'))).rejects.toThrow();
+        adoption.assertCurrent();
+      },
+      release: (adoption) => adoption.dispose()
+    });
 
     const bytes = await readFile(gh);
     bytes[0] = bytes[0]! ^ 0xff;
@@ -122,9 +127,17 @@ installedProfileTest.serial('installed adopter authenticates exact bytes and pin
         maxRecords: 64
       },
       environment
-    })).toThrow(WindowsControlCliInstalledAdoptionError);
+    })).toThrow(expect.objectContaining({
+      name: 'WindowsControlCliInstalledAdoptionError',
+      reason: 'installed-executable-manifest-mismatch'
+    }));
+  } catch (error) {
+    primaryFailure = { label: 'installed adopter byte and pin test', error };
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await settleResourcesAsync({
+      ...(primaryFailure === undefined ? {} : { primary: primaryFailure }),
+      cleanup: [{ label: 'installed adopter fixture root', settle: () => rm(root, { recursive: true, force: true }) }]
+    });
   }
 });
 
