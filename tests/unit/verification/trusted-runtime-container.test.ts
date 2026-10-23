@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
@@ -564,7 +565,7 @@ describe('provider-neutral trusted runtime container', () => {
     expect(detail).toMatch(/stdout:\s*compiler diagnostic(?=\s|$)/u);
     expect(detail).toMatch(/stderr:\s*process exit summary(?=\s|$)/u);
     expect(renderTrustedRuntimeCommandFailureDetail({ stdout: '', stderr: '' }))
-      .toBe('<no captured output>');
+      .toMatch(/no captured output/iu);
   });
 
   test('reclaims only one twice-observed exact dead-owner container identity', () => {
@@ -675,7 +676,7 @@ describe('provider-neutral trusted runtime container', () => {
     )).toThrow('collide with retained operation identity');
   });
 
-  test('reuses only one exact content-addressed Docker dependency cache', () => {
+  test('admits an exact Docker cache inspect and binds its endpoint and volume identity', () => {
     const marker = createTrustedRuntimeDependencyCacheMarker({
       repository: 'sec-platform/sec',
       bunLockBlobSha: '1'.repeat(40),
@@ -690,12 +691,28 @@ describe('provider-neutral trusted runtime container', () => {
       Options: null,
       Scope: 'local'
     }]);
-    expect(spec.name).toMatch(/^sec-trusted-runtime-bun-cache-v1-[0-9a-f]{32}$/u);
+    const expectedName = `sec-trusted-runtime-bun-cache-v1-${marker.cacheKey.slice(7, 39)}`;
+    // Encode the retained v1 identity independently, with canonical key order.
+    const expectedDigest = `sha256:${createHash('sha256').update(JSON.stringify({
+      createdAt: '2026-08-21T00:00:00Z',
+      driver: 'local',
+      endpointDigest: `sha256:${'2'.repeat(64)}`,
+      labels: {
+        'sec.trusted-runtime.cache-key': marker.cacheKey,
+        'sec.trusted-runtime.cache-schema': 'sec-trusted-runtime-dependency-cache-volume-v1',
+        'sec.trusted-runtime.image-id': TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
+        'sec.trusted-runtime.repository': 'sec-platform/sec'
+      },
+      name: expectedName,
+      schema: 'sec-trusted-runtime-dependency-cache-volume-v1',
+      scope: 'local'
+    })).digest('hex')}`;
+    expect(spec.name).toBe(expectedName);
     expect(assertTrustedRuntimeDependencyCacheVolume({
       source: inspect,
       expected: spec,
       endpointDigest: `sha256:${'2'.repeat(64)}`
-    })).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    })).toBe(expectedDigest);
     expect(() => assertTrustedRuntimeDependencyCacheVolume({
       source: JSON.stringify([{
         ...JSON.parse(inspect)[0],

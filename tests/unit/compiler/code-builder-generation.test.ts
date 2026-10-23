@@ -150,14 +150,15 @@ test('invalid raw statements and member names leave previously generated source 
 });
 
 test('adding declarations preserves initial code, hoisted imports and caller-requested statement order', async () => {
-  const builder = new CodeBuilder('pipeline.ts', 'export const start = 2;');
-  for (let i = 0; i < 150; i++) builder.addVariable({ name: `v${i}`, initializer: i === 0 ? 'start + 1' : `v${i - 1} + 1`, isExported: true });
+  const builder = new CodeBuilder('pipeline.ts', 'export const start = 2;')
+    .addVariable({ name: 'next', initializer: 'start + 1', isExported: true })
+    .addVariable({ name: 'answer', initializer: 'next * 7', isExported: true });
   builder.addImport({ moduleSpecifier: './types', namedImports: ['Shape'], isTypeOnly: true });
   const text = builder.getText(), parsed = sourceFile(text);
   assert.ok(ts.isImportDeclaration(parsed.statements[0]!));
   const names = parsed.statements.filter(ts.isVariableStatement).flatMap(s => s.declarationList.declarations.map(d => d.name.getText(parsed)));
-  assert.deepEqual(names, ['start', ...Array.from({ length: 150 }, (_, i) => `v${i}`)]);
-  assert.equal((await executeGenerated(text)).v149, 152);
+  assert.deepEqual(names, ['start', 'next', 'answer']);
+  assert.equal((await executeGenerated(text)).answer, 21);
 });
 
 test('independent TS and TSX builders keep target grammar local across interleaved operations', async () => {

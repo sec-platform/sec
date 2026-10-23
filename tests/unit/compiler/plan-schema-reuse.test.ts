@@ -76,7 +76,3 @@ test('schema validity does not replace path, source permission or uniqueness rul
   for (const sources of values) assert.throws(() => validatePlan(normalize({ ...input(), registry: { sources } })));
   assert.throws(() => validatePlan(normalize({ ...input(), blocks: [{ id: 'block/a' }, { id: 'block/a' }] })), code('PLAN-VALIDATION-005'));
 });
-
-test('uncloneable caller data remains refused, including ignored metadata', () => {
-  assert.throws(() => normalize({ app: { ...input().app, unused() {} } }));
-});

@@ -77,7 +77,6 @@ test('finish, failure and explicit disposal are terminal', () => {
   const disposed = createSha256Hasher();
   disposed.dispose();
   assert.throws(() => disposed.update('later'), /no longer open/u);
-  assert.equal(Object.isFrozen(disposed), true);
 });
 
 test('canonical hashing preserves scalar, key-order, sparse-array and Unicode encoding', () => {

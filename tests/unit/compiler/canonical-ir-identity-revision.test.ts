@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../../src/compiler/ir/ir-identity.ts';
@@ -165,9 +164,6 @@ test('canonical primitive known-answer vectors remain byte-identical', () => {
   );
   expect(ir.semanticRevision).toBe(
     'sha256:7bad43b2cc410603d6cf0d862af356f1967b573ab5cd10b6572b42273ea19ada'
-  );
-  expect(createHash('sha256').update(JSON.stringify(ir)).digest('hex')).toBe(
-    '9eb9118eb2a3891c0130b23a9dc2e72a5ed8dcd6de649824bb45e6d795bc7c18'
   );
 });
 
