@@ -24,7 +24,10 @@ test('canonical JSON retains nested ordering, primitive values, and negative-zer
 test('canonical JSON accepts shared acyclic objects without preserving mutable aliases', () => {
   const shared = { z: [1, 2], a: 'shared' };
   const actual = canonicalJson({ right: shared, left: shared }) as { left: object; right: object };
-  assert.deepEqual(actual.left, actual.right);
+  assert.deepEqual(actual, {
+    left: { a: 'shared', z: [1, 2] },
+    right: { a: 'shared', z: [1, 2] }
+  });
   assert.notStrictEqual(actual.left, actual.right);
   assert.notStrictEqual(actual.left, shared);
 });

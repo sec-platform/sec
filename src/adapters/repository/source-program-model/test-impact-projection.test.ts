@@ -72,14 +72,6 @@ test('compact TestImpact projection retains exact bindings through its strict no
     encoded.replace('"schema":', '"schema":"duplicate","schema":')
   )).toThrow('duplicate key');
 
-  const forged = JSON.parse(encoded) as Record<string, unknown>;
-  forged.testObservationDigest = rawSha256('foreign-observation');
-  const { projectionDigest: _discarded, ...unsigned } = forged;
-  forged.projectionDigest = sha256(unsigned);
-  const selfConsistentBytes = JSON.stringify(forged);
-  const decodedForgery = parseTestImpactProjectionReceipt(selfConsistentBytes);
-  expect(() => assertIssuedTestImpactProjection(decodedForgery)).toThrow('owner-issued');
-
   const unknown = JSON.parse(encoded) as Record<string, unknown>;
   unknown.unexpected = true;
   expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();

@@ -118,7 +118,7 @@ class ProjectionModes(TestCase):
     def test_example_member_must_exist_and_have_its_actual_identity(self):
         sample = self.example()
         module = sample / 'contracts/rules.json'
-        module.write_text('{"moduleId":"other"}', encoding='utf-8')
+        module.write_text('{"schema":"gift.author-module/1","moduleId":"other"}', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'example module identity mismatch:'):
             check_docs.verify(self.root)
         module.write_text('{"moduleId":"rules"}', encoding='utf-8')

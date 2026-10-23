@@ -4,11 +4,14 @@ import {
   canonicalEquals, canonicalJson, sha256
 } from '../../src/contracts/canonical.ts';
 
-test('canonical array traversal never dispatches an own map method', () => {
+test('canonical array hooks cannot choose normalized data, hashes or equality', () => {
   const input = [1, { z: 2, a: 3 }];
   let calls = 0;
   Object.defineProperty(input, 'map', { value: () => { calls++; return ['forged']; } });
   assert.deepEqual(canonicalJson(input), [1, { a: 3, z: 2 }]);
+  assert.equal(sha256(input), sha256([1, { a: 3, z: 2 }]));
+  assert.equal(canonicalEquals(input, [1, { a: 3, z: 2 }]), true);
+  assert.equal(canonicalEquals(input, ['forged']), false);
   assert.equal(calls, 0);
 });
 
@@ -42,14 +45,6 @@ test('canonical array subclasses produce ordinary arrays without invoking specie
   assert.deepEqual(actual, [1, 2]);
   assert.equal(calls, 0);
   assert.strictEqual(Object.getPrototypeOf(actual), Array.prototype);
-});
-
-test('canonical array hooks cannot select the digest or equality result', () => {
-  const input = [1];
-  Object.defineProperty(input, 'map', { value: () => [2] });
-  assert.equal(sha256(input), sha256([1]));
-  assert.equal(canonicalEquals(input, [1]), true);
-  assert.equal(canonicalEquals(input, [2]), false);
 });
 
 test('canonical arrays reject own index getters without invoking them', () => {

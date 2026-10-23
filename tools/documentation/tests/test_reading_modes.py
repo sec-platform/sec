@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Small documentation-tool tests. No browser installation or product execution."""
 from __future__ import annotations
-import argparse,base64,contextlib,hashlib,io,json,sys,tempfile,unittest,zlib
+import argparse,base64,contextlib,io,json,sys,tempfile,unittest,zlib
 from pathlib import Path
 from unittest.mock import patch
 sys.dont_write_bytecode=True
@@ -29,37 +29,39 @@ class Modes(unittest.TestCase):
  def run_(self,*args):
   with contextlib.redirect_stdout(io.StringIO())as o,contextlib.redirect_stderr(io.StringIO()):b.main(['--root',str(self.root),'--output',str(self.out),*args])
   return json.loads(o.getvalue())
- def bad(self,*args):
+ def bad(self,message,*args):
   self.out.write_bytes(b'old')
-  with self.assertRaises((ValueError,b.BuildError,OSError,KeyError)):self.run_('--replace',*args)
+  with self.assertRaisesRegex(b.BuildError,message):self.run_('--replace',*args)
   self.assertEqual(self.out.read_bytes(),b'old')
  def test_default_cache_without_browser(self):
-  self.cache()
-  with patch.object(b,'IsolatedRenderer',side_effect=AssertionError('No headless renderer on default path')):r=self.run_()
-  self.assertEqual((r['rendered'],r['pending']),(1,0))
- def test_plain_base64_cache(self):self.cache(encoding='base64');self.assertEqual(self.run_()['rendered'],1)
- def test_missing_cache_rejects(self):self.bad()
- def test_stale_graph_rejects(self):self.cache();(self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n A-->C\n```\n');self.bad()
+  for encoding in ('zlib+base64','base64'):
+   with self.subTest(encoding=encoding):
+    self.cache(encoding=encoding)
+    with patch.object(b,'IsolatedRenderer',side_effect=AssertionError('No headless renderer on default path')):r=self.run_('--replace')
+    self.assertEqual((r['rendered'],r['pending']),(1,0))
+    self.assertIn('data:image/svg+xml;base64,'+base64.b64encode(self.svg).decode(),self.out.read_text())
+ def test_missing_cache_rejects(self):self.bad('Current diagram cache incomplete')
+ def test_stale_graph_rejects(self):self.cache();(self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n A-->C\n```\n');self.bad('Current diagram cache incomplete')
  def test_cache_hash_rejects(self):
-  c=self.cache();next(iter(c['entries'].values()))['svg_sha256']='0'*64;(self.root/'.documentation/figures.json').write_text(json.dumps(c));self.bad()
- def test_active_svg_even_with_valid_hash(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><script>bad()</script></svg>');self.bad()
- def test_external_svg(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://x.invalid";</style></svg>');self.bad()
+  c=self.cache();next(iter(c['entries'].values()))['svg_sha256']='0'*64;(self.root/'.documentation/figures.json').write_text(json.dumps(c));self.bad('Cache SVG byte mismatch')
+ def test_active_svg_even_with_valid_hash(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><script>bad()</script></svg>');self.bad('Active SVG element: script')
+ def test_external_svg(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://x.invalid";</style></svg>');self.bad('External SVG stylesheet')
  def test_decompression_limit(self):
   self.cache(b'x'*10_000_001);self.out.write_bytes(b'old')
   with self.assertRaisesRegex(b.BuildError,'Compressed cache exceeds limit'):self.run_('--replace')
   self.assertEqual(self.out.read_bytes(),b'old')
  def test_duplicate_keys(self):
   cache=self.cache()
-  (self.root/'.documentation/figures.json').write_text(json.dumps(cache).replace('{','{"schema":"invalid",',1));self.bad()
+  (self.root/'.documentation/figures.json').write_text(json.dumps(cache).replace('{','{"schema":"invalid",',1));self.bad('Duplicate cache key: schema')
  def test_cache_root_requires_object(self):
   for value in (None, [], 'cache', 7, False):
    with self.subTest(value=value):
-    (self.root/'.documentation/figures.json').write_text(json.dumps(value));self.bad()
+    (self.root/'.documentation/figures.json').write_text(json.dumps(value));self.bad('Unknown diagram cache contract')
  def test_cache_entry_requires_object(self):
   for value in ([], 'entry', 7, False):
    with self.subTest(value=value):
     cache=self.cache();cache['entries'][b.sha(self.source.encode())]=value
-    (self.root/'.documentation/figures.json').write_text(json.dumps(cache));self.bad()
+    (self.root/'.documentation/figures.json').write_text(json.dumps(cache));self.bad('Invalid diagram cache entry')
  def test_repeated_diagrams_keep_occurrence_identity_and_source(self):
   self.cache()
   (self.root/'docs/second.md').write_text('# Second\n\n## Repeated\n\n## Repeated\n\n'+('\x60\x60\x60mermaid\n'+self.source+'\x60\x60\x60\n')*3)
@@ -82,12 +84,12 @@ class Modes(unittest.TestCase):
  def test_no_diagrams_does_not_need_cache(self):
   (self.root/'docs/page.md').write_text('# Empty\n');r=self.run_();self.assertEqual(r['rendered'],0)
  def test_browser_page_without_engine(self):
-  r=self.run_('--diagrams','browser');self.assertEqual(r['pending'],1);s=self.out.read_text();self.assertIn('等待本地浏览器渲染',s);a=b.AuditHTML();a.feed(s);self.assertEqual(len(a.scripts),1);self.assertFalse(a.handlers or a.remote)
+  with (self.root/'docs/page.md').open('a') as page:page.write('<script>alert(1)</script>\n')
+  r=self.run_('--diagrams','browser','--mermaid-js','');self.assertEqual(r['pending'],1);s=self.out.read_text();self.assertIn('等待本地浏览器渲染',s);a=b.AuditHTML();a.feed(s);self.assertEqual(len(a.scripts),1);self.assertFalse(a.handlers or a.remote)
+  self.assertIn('&lt;script&gt;',s)
  def test_browser_embeds_only_selected_engine(self):
   f=self.home/'engine.js';f.write_text('/* fixture not a real renderer */');self.run_('--diagrams','browser','--mermaid-js',str(f));self.assertIn(base64.b64encode(f.read_bytes()).decode(),self.out.read_text())
- def test_browser_missing_selected_engine(self):self.bad('--diagrams','browser','--mermaid-js',str(self.home/'no.js'))
- def test_browser_no_source_script_execution(self):
-  (self.root/'docs/page.md').write_text('# Diagram\n<script>alert(1)</script>\n');self.run_('--diagrams','browser');s=self.out.read_text();self.assertIn('&lt;script&gt;',s)
+ def test_browser_missing_selected_engine(self):self.bad('Invalid local Mermaid standalone script','--diagrams','browser','--mermaid-js',str(self.home/'no.js'))
  def test_cache_change_changes_reading_input_not_source_identity(self):
   self.cache();first=self.run_()
   self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><text>A B changed presentation</text></svg>')
@@ -129,7 +131,7 @@ class Modes(unittest.TestCase):
   self.assertNotEqual(first['core_sha256'],second['core_sha256'])
  def test_cache_mode_reproducible(self):self.cache();self.run_();x=self.out.read_bytes();self.run_('--replace');self.assertEqual(x,self.out.read_bytes())
  def test_diagram_callback_rejected_before_cache(self):
-  (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n click A callback\n```\n');self.bad('--diagrams','browser')
+  (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n click A callback\n```\n');self.bad('Diagram-local configuration/callback','--diagrams','browser')
  def test_required_failure_preserves_successful_cache_and_resumes_only_missing_sources(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->C\n```\n')
   cache=self.home/'progress.json';engine_file=self.home/'engine.js';engine_file.write_text('fixture only')
@@ -146,7 +148,8 @@ class Modes(unittest.TestCase):
   self.out.write_bytes(b'old')
   environment=self.renderer_fixture()[1]
   with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value=environment):
-   with self.assertRaises(b.BuildError):self.run_('--replace',*args)
+   with self.assertRaisesRegex(b.BuildError,'Diagram rendering incomplete'):
+    self.run_('--replace',*args)
   self.assertEqual(self.out.read_bytes(),b'old');self.assertEqual(len(json.loads(cache.read_bytes())['entries']),1)
   calls.clear()
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n```mermaid\nflowchart LR\n B-->D\n```\n')
@@ -191,7 +194,7 @@ class Modes(unittest.TestCase):
    def __exit__(self,*args):pass
    def render(self,source,ident):calls.append(source);raise b.BuildError('timeout remains in flight')
   with patch.object(b,'IsolatedRenderer',Engine),patch.object(b,'renderer_environment',return_value={'cross_run_reuse':False}):
-   self.bad('--diagrams','required','--mermaid-js','fixture')
+   self.bad('fatal renderer failure: timeout remains in flight','--diagrams','required','--mermaid-js','fixture')
   self.assertEqual(len(calls),1)
  def test_drawing_cache_reuses_transport_changes_but_not_core_or_effective_profile_changes(self):
   import copy
@@ -206,6 +209,7 @@ class Modes(unittest.TestCase):
   next(iter(cache['entries'].values()))['renderer_id']=b.sha(b.canon(identity))
   path.write_text(json.dumps(cache))
   transport=copy.deepcopy(info);transport.update(backend='changed',node='different',engine_label='new label',browser_sandbox=False)
+  b.bind_drawing_identity(transport,environment)
   self.assertEqual(read(transport)['rendered'],1)
   core=copy.deepcopy(info);core['core_sha256']=b.sha(b'changed core');changed_environment={**environment,'core_sha256':core['core_sha256']};b.bind_drawing_identity(core,changed_environment)
   self.assertEqual(read(core)['rendered'],0)
@@ -214,10 +218,13 @@ class Modes(unittest.TestCase):
  def test_book_uses_captured_baseline_then_rejects_real_input_drift(self):
   args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=False,max_file_bytes=1_000_000,max_total_bytes=2_000_000)
   captured=b.capture(self.root,args)
-  (self.root/'.documentation/baseline.json').write_text('broken live baseline')
+  path=self.root/'.documentation/baseline.json';boundary=json.loads(path.read_text())
+  (self.root/'extra').mkdir();boundary['source_roots'].append('extra')
+  path.write_text(json.dumps(boundary))
   book=b.Book(self.root,captured,args)
   self.assertIn('docs',book.source_roots)
-  with self.assertRaises(ValueError):book.unchanged()
+  self.assertNotIn('extra',book.source_roots)
+  with self.assertRaisesRegex(b.BuildError,r'Input changed during build: \.documentation/baseline\.json$'):book.unchanged()
  def test_mixed_cache_retains_actual_producer_without_changing_drawing_identity(self):
   import copy
   cache=self.cache();original,environment=self.renderer_fixture();b.bind_drawing_identity(original,environment)

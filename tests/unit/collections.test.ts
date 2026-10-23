@@ -20,7 +20,6 @@ test('canonical sorting preserves empty strings as string identities', () => {
   const input = ['b', '', 'a', 'b'];
   const output = uniqueSorted(input);
   assert.deepEqual(output, ['', 'a', 'b']);
-  assert.deepEqual(new Set(output), new Set(input));
   assert.deepEqual(uniqueSorted([' ', '', ' ', '']), ['', ' ']);
   assert.deepEqual(input, ['b', '', 'a', 'b']);
 });

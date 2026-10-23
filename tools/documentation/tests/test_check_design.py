@@ -58,16 +58,27 @@ class Architecture(unittest.TestCase):
   return root,path
  def test_missing_module(self):
   s=self.source();s=b'\n'.join(l for l in s.splitlines()if not l.startswith(b'| contracts |'))
-  with self.assertRaises(d.DesignError):d.dependency_model(s)
+  with self.assertRaisesRegex(d.DesignError,'Missing module rows'):d.dependency_model(s)
  def test_invalid_reverse_dependency(self):
   s=self.source().replace(b'| semantics | contracts |',b'| semantics | contracts, compiler |')
-  with self.assertRaises(d.DesignError):d.dependency_model(s)
+  with self.assertRaisesRegex(d.DesignError,'Pure semantic/execution boundary dependency violated'):d.dependency_model(s)
  def test_static_cycle(self):
   s=self.source().replace(b'| workspace | contracts |',b'| workspace | contracts, bootstrap |')
-  with self.assertRaises(d.DesignError):d.dependency_model(s)
+  with self.assertRaisesRegex(d.DesignError,'Static dependency cycle'):d.dependency_model(s)
  def test_single_source_svg(self):
   from xml.etree import ElementTree as ET
-  m=d.dependency_model(self.source());svg=d.dependency_svg(m);r=ET.fromstring(svg);labels={n.text for n in r.iter()if n.tag.endswith('}text')};self.assertEqual(labels,d.MODULES);self.assertEqual(svg,d.dependency_svg(m))
+  m=d.dependency_model(self.source());svg=d.dependency_svg(m);r=ET.fromstring(svg)
+  labels={n.text for n in r.iter()if n.tag.endswith('}text')}
+  self.assertEqual(labels,{'contracts','workspace','semantics','compiler','assurance',
+                          'application','execution','adapters','entry','bootstrap'})
+  graphics={'circle','rect','path','ellipse','polygon','polyline','line','use'}
+  edges=[label.text for marker in r.iter()if marker.tag.rsplit('}',1)[-1] in graphics
+         for label in marker if label.tag.endswith('}title')]
+  self.assertCountEqual(edges,['workspace imports contracts','semantics imports contracts',
+      'compiler imports semantics','assurance imports compiler','application imports assurance',
+      'execution imports contracts','adapters imports application','entry imports workspace',
+      'bootstrap imports entry'])
+  self.assertEqual(svg,d.dependency_svg(m))
  def missing_field(self,field):
   with tempfile.TemporaryDirectory()as temp:
    r,p=self.status_fixture(temp)
@@ -168,14 +179,15 @@ class DeliverableRoots(unittest.TestCase):
   with tempfile.TemporaryDirectory()as temp:
    root=self.fixture(temp);sample=root/'examples/开发成品'
    project=self.load(sample/'gift.project.json')
-   for scope in ({'root':'.','include':['applications.json']},
-                 {'root':'model','include':['APPLICATIONS.json']},
-                 {'root':'model/../model'}, {'root':'model//'},
-                 {'root':'model','include':None}):
+   for scope,message in (({'root':'.','include':['applications.json']},'missing registered public author root'),
+                         ({'root':'model','include':['APPLICATIONS.json']},'missing registered public author root'),
+                         ({'root':'model/../model'},'Invalid source location'),
+                         ({'root':'model//'},'Invalid source location'),
+                         ({'root':'model','include':None},'Source scope patterns must be arrays')):
     with self.subTest(scope=scope):
      project['sourceScopes']=[dict(scope,kind='semantic',editSource={'mode':'file'})]
      self.save(sample/'gift.project.json',project)
-     with self.assertRaises(d.DesignError):d.deliverable_model(root)
+     with self.assertRaisesRegex(d.DesignError,message):d.deliverable_model(root)
 
  def test_ambiguous_public_root_cannot_choose_first_module(self):
   import copy
