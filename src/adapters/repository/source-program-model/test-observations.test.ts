@@ -297,8 +297,9 @@ test('conditional, table and fixture factories register only their returned case
 });
 
 test('local program observations reject shadowed, dynamic, external, and foreign executables', () => {
-  const projection = compileFixture({
-    'tests/local-program-negative.test.ts': [
+  const negativePath = 'tests/local-program-negative.test.ts';
+  const sources: Readonly<Record<string, string>> = {
+    [negativePath]: [
       "import { spawnSync as runChild } from 'node:child_process';",
       "import { exec as spawnSync } from 'node:child_process';",
       "import process from 'node:process';",
@@ -333,12 +334,21 @@ test('local program observations reject shadowed, dynamic, external, and foreign
       "spawnSync(process.execPath, ['src/example/operation.ts']);",
       "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
     ].join('\n')
-  });
+  };
+  const projection = compileFixture(sources);
 
   expect(projection.localProgramInvocations).toEqual([]);
   expect(projection.unknowns.filter(({ code }) => (
     code === 'test-local-program-invocation-unresolved'
-  ))).toHaveLength(4);
+  )).map(({ path, span }) => [
+    path,
+    span === null ? null : sources[path]?.slice(span.start, span.end)
+  ])).toEqual([
+    [negativePath, 'runChild(process.execPath, [dynamicProgram])'],
+    [negativePath, "runChild(process.execPath, ['../outside.ts'])"],
+    [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options })"],
+    [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] })"]
+  ]);
 });
 
 test('lightweight test observations bind reexports through the canonical module graph', () => {

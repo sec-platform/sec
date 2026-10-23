@@ -99,8 +99,8 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   });
 
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  const explainedLockState = await readJson<{ passStatus: { emit: string } }>(lockPath);
-  expect(explainedLockState.passStatus.emit).toBe('succeeded');
+  const explainedLock = await readJson<{ passStatus: { emit: string }; generatedPaths: string[] }>(lockPath);
+  expect(explainedLock.passStatus.emit).toBe('succeeded');
   expectGraphNode(graph, { id: 'port:entity/customer-basic:input:tenant_context', type: 'port' });
   expectGraphEdge(graph, {
     from: 'block:entity/customer-basic',
@@ -158,7 +158,6 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
     )
   ).toBe(true);
 
-  const explainedLock = await readJson<{ generatedPaths: string[] }>(lockPath);
   expect(explainedLock.generatedPaths).toEqual(
     expect.arrayContaining([
       CI_ARTIFACT_FILES.verificationReport,

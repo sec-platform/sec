@@ -36,7 +36,7 @@ test('early successful return waits for cancellation acknowledgement, then relea
   const stream = new ReadableStream<Uint8Array>({ cancel() { entered.resolve(); return gate.promise; } });
   const result = withOwnedByteStreamReader(stream, async () => 'partial').finally(() => { settled = true; });
   try { await entered.promise; expect(settled).toBe(false); expect(stream.locked).toBe(true); }
-  finally { gate.resolve(); }
+  finally { gate.resolve(); await result; }
   expect(await result).toBe('partial');
   expect(stream.locked).toBe(false);
 });
@@ -76,7 +76,7 @@ test('pending read and native abort join one cancellation before closeout return
     await tick(); expect(calls).toBe(0);
     controller.abort('cancelled');
     await tick(); expect(calls).toBe(1); expect(settled).toBe(false);
-  } finally { gate.resolve(); }
+  } finally { controller.abort('test cleanup'); gate.resolve(); await result; }
   expect(await result).toEqual({ status: 'failed', error: 'cancelled' });
   expect(stream.locked).toBe(false);
 });

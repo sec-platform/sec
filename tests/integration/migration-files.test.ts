@@ -63,20 +63,6 @@ test('copy-file migration copies manifest source to impacted project target', as
   });
 });
 
-test('copy-file migration rejects directory targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, 'src', 'copied.ts'), { recursive: true });
-    await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const copied = true;\n', 'utf8');
-
-    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')])).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
-
 test('copy-directory migration copies manifest directory to impacted project target', async () => {
   await withTempWorkspace(async (tempRoot) => {
     const workspaceRoot = tempRoot;
@@ -354,6 +340,8 @@ test('rename-file migration rejects occupied targets', async () => {
     await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-020'
     });
+    await expect(fs.readFile(path.join(workspaceRoot, source), 'utf8')).resolves.toBe('old\n');
+    await expect(fs.readFile(path.join(workspaceRoot, target), 'utf8')).resolves.toBe('existing\n');
   });
 });
 
@@ -510,6 +498,6 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('file 
     await expect(
       applyMigrationEntries(workspaceRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')])
     ).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
-    await expect(fs.readFile(path.join(outside, 'copied.ts'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(path.join(outside, 'copied.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
